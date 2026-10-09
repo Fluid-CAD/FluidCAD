@@ -7,6 +7,7 @@ import {
   writeDependency,
   type PackageDependencies,
 } from '../project-config.ts';
+import type { PackageProblem } from '../ws-protocol.ts';
 import { PackageRoots, type PackageTarget } from './package-roots.ts';
 
 export type PackagePinErrorCode = 'not-a-project' | 'unreadable-config' | 'broken-dependencies' | 'version-change' | 'integrity-mismatch';
@@ -114,5 +115,41 @@ export class PackagePins {
   /** The pins installed in neither root. */
   static missing(project: string): PinnedPackage[] {
     return PackagePins.availability(project).filter((pin) => pin.availability === 'missing');
+  }
+
+  /**
+   * The project's missing packages as structured project problems, each
+   * carrying `{ name, version }` for an Install action and the sentence a
+   * render of a model importing it reports. Empty for a project that pins
+   * nothing missing, and for no project or a broken pin map (which has its
+   * own warning, `describeProjectDependenciesProblem`).
+   */
+  static problems(project: string | null): PackageProblem[] {
+    if (!project || !PackagePins.isProject(project)) {
+      return [];
+    }
+    let missing: PinnedPackage[];
+    try {
+      missing = PackagePins.missing(project);
+    } catch {
+      return [];
+    }
+    return missing.map((pin) => ({
+      code: 'missing',
+      name: pin.name,
+      version: pin.version,
+      message: PackagePins.missingSentence(pin.name, pin.version),
+    }));
+  }
+
+  /** The startup warnings for {@link problems}: one line per missing package. */
+  static describeProblems(project: string | null): string[] {
+    return PackagePins.problems(project).map((problem) =>
+      `FluidCAD: ${problem.message} Install it with \`fluidcad install <file.fluidpkg>\`.`);
+  }
+
+  /** The sentence for a pin installed in neither root (research §3), shared with the engine's resolver. */
+  static missingSentence(name: string, version: string): string {
+    return `This project uses \`${name}\` ${version}, which isn't installed.`;
   }
 }

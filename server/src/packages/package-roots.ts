@@ -155,6 +155,29 @@ export class PackageRoots {
   }
 
   /**
+   * The installed package that owns `file`: the one guard every edit asks
+   * before it writes (K8). Installed packages are immutable, so an edit
+   * aimed at one of their files is refused with
+   * {@link PackageRoots.readOnlySentence}. Same answer as
+   * {@link containing}: location plus marker, so a fork elsewhere in the
+   * workspace is never claimed.
+   */
+  static owner(file: string, project?: string | null): PackageLocation | null {
+    return PackageRoots.containing(file, project);
+  }
+
+  /**
+   * The K8 refusal of an edit aimed at `file`, inside `location`:
+   * "`parts/spur.part.js` belongs to `@acme/gears` 1.2.0 and is read-only."
+   */
+  static readOnlySentence(location: PackageLocation, file: string): string {
+    const target = PackageRoots.canonical(file);
+    const inside = target.startsWith(`${location.directory}/`) ? target.slice(location.directory.length + 1) : null;
+    const what = inside ? `\`${inside}\`` : 'This file';
+    return `${what} belongs to \`${location.name}\` ${location.version} and is read-only.`;
+  }
+
+  /**
    * True for anything the installer owns inside a root: an installed
    * package's files, and the root's scratch (`<root>/.tmp`, where archives
    * are extracted and removed packages step aside). The workspace walks,
@@ -258,9 +281,18 @@ export class PackageRoots {
 
   /** Drop every cached verdict and the cached preference: a root, or the library setting, changed. */
   static forget(): void {
+    PackageRoots.forgetInstalled();
+    PackageRoots.libraryPreference = undefined;
+  }
+
+  /**
+   * Drop the cached verdicts only, keeping the library preference: what a
+   * render does before it resolves, so a package another process removed
+   * (`fluidcad remove` beside a running engine) reads as missing at once.
+   */
+  static forgetInstalled(): void {
     PackageRoots.verdicts.clear();
     PackageRoots.realPaths.clear();
-    PackageRoots.libraryPreference = undefined;
   }
 
   private static judge(target: string, project: string | null): boolean {

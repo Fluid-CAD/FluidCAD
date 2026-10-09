@@ -15,7 +15,8 @@ import {
 } from './engine-resolution.ts';
 import { EngineImportResolver } from './engine-import-resolver.ts';
 import { installSourceUrlEncoding } from './source-url-encoding.ts';
-import { PackageResolveError, PackageResolver } from '../packages/resolver.ts';
+import { PackageResolveError, PackageResolver, type ResolvedPackage } from '../packages/resolver.ts';
+import { PackageRoots } from '../packages/package-roots.ts';
 
 export class LocalSceneHost implements SceneHost {
   /**
@@ -37,8 +38,9 @@ export class LocalSceneHost implements SceneHost {
   private engineAnswersWorkspace = false;
 
   /**
-   * `packages` answers `import … from '@scope/name'` (Stage P1: an injected
-   * map). `linkEngine: false` leaves the workspace's `node_modules` alone:
+   * `packages` answers `import … from '@scope/name'` through the workspace's
+   * pins (it learns the workspace in {@link init}). `linkEngine: false`
+   * leaves the workspace's `node_modules` alone:
    * no courtesy link is planted (see {@link init}), for a one-shot host that
    * must not write to the workspace.
    */
@@ -49,6 +51,7 @@ export class LocalSceneHost implements SceneHost {
 
   async init(rootPath: string) {
     this.rootPath = normalizePath(rootPath);
+    this.packages.setProject(rootPath);
     const that = this;
     // A workspace with no engine install of its own gets a marked
     // `node_modules/fluidcad` link to this server's copy, for the tools that
@@ -77,8 +80,9 @@ export class LocalSceneHost implements SceneHost {
         watch: {
           ignoreInitial: true,
           // Vite watches every file it reads outside the root. Installed
-          // packages are immutable: nothing there is worth an event.
-          ignored: ['**/node_modules/**', (file: string) => that.packages.rootOf(file) !== null]
+          // packages are immutable, and the installer's scratch is its own:
+          // nothing there is worth an event.
+          ignored: ['**/node_modules/**', (file: string) => PackageRoots.isManaged(file, that.packages.getProject())]
         }
       },
       optimizeDeps: {
@@ -316,13 +320,25 @@ export class LocalSceneHost implements SceneHost {
     return Array.from(importers);
   }
 
+  /** The packages the current render loaded (see `PackageResolver.resolved`). */
+  resolvedPackages(): ResolvedPackage[] {
+    return this.packages.resolved();
+  }
+
+  /** The package imports the current render refused (see `PackageResolver.problems`). */
+  packageProblems(): PackageResolveError[] {
+    return this.packages.problems();
+  }
+
   /**
    * Mark every module of the model stale, so the next load evaluates it
    * again. Package modules included (K9): evaluated once per process, their
    * top-level `part()` tracking, `unit()` and `param()` would act on the
-   * first render only.
+   * first render only. The resolver starts over too: the next load reads
+   * the project's pins again.
    */
   invalidateModule() {
+    this.packages.refresh();
     for (const [id, mod] of this.server.moduleGraph.idToModuleMap) {
       if (this.isOwnModule(id)) {
         this.server.moduleGraph.invalidateModule(mod);

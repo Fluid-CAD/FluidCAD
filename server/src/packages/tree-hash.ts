@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { promises as fs } from 'fs';
+import fsSync, { promises as fs } from 'fs';
 import path from 'path';
 import { normalizePath } from '../normalize-path.ts';
 
@@ -65,6 +65,29 @@ export class TreeHash {
       }
     };
     await walk(dir);
+    return TreeHash.ofFiles(files);
+  }
+
+  /**
+   * {@link ofDirectory}, synchronously: for the engine's resolver, which
+   * answers Vite's module resolution and the catalogs' lookups inline.
+   */
+  static ofDirectorySync(dir: string): string {
+    const files: TreeFile[] = [];
+    const walk = (abs: string): void => {
+      for (const entry of fsSync.readdirSync(abs, { withFileTypes: true })) {
+        const child = path.join(abs, entry.name);
+        const rel = normalizePath(path.relative(dir, child));
+        if (entry.isDirectory()) {
+          walk(child);
+        } else if (entry.isFile()) {
+          files.push({ path: rel, bytes: fsSync.readFileSync(child) });
+        } else {
+          throw new Error(`TreeHash: ${rel} is not a regular file`);
+        }
+      }
+    };
+    walk(dir);
     return TreeHash.ofFiles(files);
   }
 

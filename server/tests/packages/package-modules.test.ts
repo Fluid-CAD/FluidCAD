@@ -1,20 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { FluidCadServer } from '../../src/fluidcad-server/index.ts';
 import { LocalSceneHost } from '../../src/host/local-scene-host.ts';
 import { ENGINE_PACKAGE_ROOT } from '../../src/host/engine-resolution.ts';
 import { PackageResolveError, PackageResolver } from '../../src/packages/resolver.ts';
 import type { SceneRenderedData } from '../../src/fluidcad-server/render-types.ts';
+import { PackageProject } from './package-project.ts';
 
 // A model imports `@acme/kit` from an installed package directory outside
 // the workspace — the user library — and renders it with this repo's
 // kernel, the way every editor host's engine does. The package loads inline
 // through Vite's module runner like a workspace file: one kernel, its engine
 // imports steered to the running engine, its files scanned for blocked
-// imports, and re-evaluated on every render. Stage P1 hands the resolver
-// the package's directory; pins come in P5.
+// imports, and re-evaluated on every render. The workspace pins the
+// package (Stage P5), installed in a temp library.
 
 const FIXTURES = path.resolve(__dirname, '../fixtures');
 const KIT_FIXTURE = path.join(FIXTURES, 'packages/@acme/kit/0.1.0');
@@ -81,7 +81,7 @@ const tube = (height: number) => Math.PI * (3 ** 2 - 1.5 ** 2) * height;
 /** The spacer: radius 0.25 in, 0.5 in long — in mm³. */
 const SPACER = Math.PI * 0.25 ** 2 * 0.5 * 25.4 ** 3;
 
-let scratch: string;
+let project: PackageProject;
 let root: string;
 let kit: string;
 let host: LocalSceneHost | null;
@@ -95,9 +95,16 @@ function write(file: string, content: string): void {
   fs.writeFileSync(file, content);
 }
 
-/** Boot a host whose resolver knows the scratch library's `@acme/kit`. */
-async function start(): Promise<void> {
-  host = new LocalSceneHost(new PackageResolver({ '@acme/kit': kit }));
+/** Install `@acme/kit` 0.1.0 into the temp library (after `edit`, if any) and pin it. */
+async function pinKit(edit?: (dir: string) => void): Promise<void> {
+  const { integrity } = await project.install('@acme/kit', '0.1.0', { edit });
+  project.config({ '@acme/kit': { version: '0.1.0', integrity } });
+}
+
+/** Pin the kit and boot a host over the workspace. */
+async function start(edit?: (dir: string) => void): Promise<void> {
+  await pinKit(edit);
+  host = new LocalSceneHost();
   server = new FluidCadServer(host);
   await server.init(root);
 }
@@ -146,12 +153,10 @@ async function quietly<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 beforeEach(() => {
-  scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'fluidcad-package-modules-'));
-  root = path.join(scratch, 'ws');
   // A user library of its own: tests never touch the real one.
-  kit = path.join(scratch, 'library/@acme/kit/0.1.0');
-  fs.cpSync(KIT_FIXTURE, kit, { recursive: true });
-  write(at('init.js'), `import { init } from 'fluidcad'\n\nexport default await init()\n`);
+  project = new PackageProject('fluidcad-package-modules-');
+  root = project.root;
+  kit = project.packageDir('@acme/kit', '0.1.0');
   write(at('probe.js'), `export { Feature } from 'fluidcad/sdk';\n`);
   write(at('plate.part.js'), PLATE_PART);
   write(at('model.assembly.js'), ASSEMBLY);
@@ -161,7 +166,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await host?.server.close();
-  fs.rmSync(scratch, { recursive: true, force: true });
+  project.dispose();
 });
 
 describe('the @acme/kit fixture', () => {
@@ -245,13 +250,12 @@ describe('a model importing an installed package', () => {
   });
 
   it('refuses a package file that imports a blocked Node module', async () => {
-    write(inKit('helpers/sizes.js'), [
+    await start(() => write(inKit('helpers/sizes.js'), [
       `import { readFileSync } from 'fs';`,
       `export const SPACER_RADIUS = 0.25;`,
       `export const SPACER_LENGTH = readFileSync.length;`,
       ``,
-    ].join('\n'));
-    await start();
+    ].join('\n')));
     await expect(quietly(() => render())).rejects.toThrow(/Module "fs" is not allowed in FluidCAD scripts/);
   });
 
@@ -279,41 +283,42 @@ describe('a model importing an installed package', () => {
 });
 
 describe('PackageResolver', () => {
-  it('resolves a known name to its entry, and leaves every other specifier alone', () => {
-    const resolver = new PackageResolver({ '@acme/kit': kit });
-    expect(resolver.resolve('@acme/kit', at('model.part.js'))).toEqual({
-      name: '@acme/kit', version: '0.1.0', directory: kit, entry: inKit('index.js'),
+  it('resolves a pinned name to its entry, refuses an unpinned one, and leaves every other specifier alone', async () => {
+    await pinKit();
+    const resolver = new PackageResolver({ project: root });
+    expect(resolver.resolve('@acme/kit', at('model.part.js'))).toMatchObject({
+      name: '@acme/kit', version: '0.1.0', directory: kit, entry: inKit('index.js'), target: 'library',
     });
-    for (const specifier of ['@acme/other', 'fluidcad/sdk', './kit.js', '/abs/kit.js', 'three', '@Acme/kit']) {
+    expect((resolver.resolve('@acme/other', at('model.part.js')) as PackageResolveError).code).toBe('not-pinned');
+    for (const specifier of ['fluidcad/sdk', './kit.js', '/abs/kit.js', 'three', '@Acme/kit']) {
       expect(resolver.resolve(specifier, at('model.part.js'))).toBeNull();
     }
   });
 
-  it('refuses a path into a package, which is imported by its name only', () => {
-    const resolved = new PackageResolver({ '@acme/kit': kit }).resolve('@acme/kit/parts/spacer.part.js', at('model.part.js'));
+  it('refuses a path into a package, which is imported by its name only', async () => {
+    await pinKit();
+    const resolved = new PackageResolver({ project: root }).resolve('@acme/kit/parts/spacer.part.js', at('model.part.js'));
     expect(resolved).toBeInstanceOf(PackageResolveError);
     expect((resolved as PackageResolveError).code).toBe('subpath');
   });
 
-  it('refuses a name a node_modules folder on the importer\'s way up also holds', () => {
+  it('refuses a name a node_modules folder on the importer\'s way up also holds', async () => {
+    await pinKit();
     fs.mkdirSync(at('node_modules/@acme/kit'), { recursive: true });
-    const resolver = new PackageResolver({ '@acme/kit': kit });
+    const resolver = new PackageResolver({ project: root });
     const resolved = resolver.resolve('@acme/kit', at('parts/deep/model.part.js'));
     expect(resolved).toBeInstanceOf(PackageResolveError);
     expect((resolved as PackageResolveError).code).toBe('node-modules-copy');
     // An importer elsewhere, with no such folder above it, still resolves.
-    expect(resolver.resolve('@acme/kit', path.join(scratch, 'elsewhere/model.part.js'))).toMatchObject({ entry: inKit('index.js') });
+    expect(resolver.resolve('@acme/kit', path.join(project.scratch, 'elsewhere/model.part.js'))).toMatchObject({ entry: inKit('index.js') });
   });
 
-  it('names the package that owns a file, by its directory', () => {
-    const resolver = new PackageResolver({ '@acme/kit': kit });
-    expect(resolver.rootOf(inKit('parts/spacer.part.js'))).toEqual({ name: '@acme/kit', version: '0.1.0', directory: kit });
-    expect(resolver.rootOf(kit)).toMatchObject({ name: '@acme/kit' });
+  it('names the package that owns a file, by its directory', async () => {
+    await pinKit();
+    const resolver = new PackageResolver({ project: root });
+    expect(resolver.rootOf(inKit('parts/spacer.part.js'))).toMatchObject({ name: '@acme/kit', version: '0.1.0', directory: kit });
+    expect(resolver.rootOf(inKit('index.js'))).toMatchObject({ name: '@acme/kit' });
     expect(resolver.rootOf(`${kit}-fork/index.js`)).toBeNull();
     expect(resolver.rootOf(at('model.part.js'))).toBeNull();
-  });
-
-  it('refuses a name that is not @scope/name', () => {
-    expect(() => new PackageResolver({ kit })).toThrow(/@scope\/name/);
   });
 });

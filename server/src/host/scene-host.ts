@@ -10,6 +10,8 @@
  *   - LocalSceneHost: Vite SSR over the workspace directory (desktop).
  *   - HubSceneHost (Phase 2): in-memory consumer of a packed model bundle.
  */
+import type { PackageResolveError, ResolvedPackage } from '../packages/resolver.ts';
+
 export interface SceneHost {
   init(workspacePath: string): Promise<void>;
   loadModule(filePath: string): Promise<Record<string, any>>;
@@ -42,6 +44,15 @@ export interface SceneHost {
    * the copy the server imports.
    */
   steeredEngineEntry?(): string | null;
+  /**
+   * The installed packages (`@scope/name` imports) the current render
+   * loaded, each with the pin it was checked against — what tells a
+   * session that a package changed under its cached scene. Optional: a
+   * host without packages has none.
+   */
+  resolvedPackages?(): ResolvedPackage[];
+  /** The package imports the current render refused, one per package name. */
+  packageProblems?(): PackageResolveError[];
 }
 
 /**

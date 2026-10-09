@@ -37,7 +37,7 @@ import { FeatureModules } from '../feature-catalog/walk.ts';
 import { FeatureRebuilds, type OwedRebuilds } from './feature-rebuilds.ts';
 import { collectRenderedPartProperties, collectSceneProperties, type RenderedPartProperties } from './properties.ts';
 import { MeasureEntityResolver, type MeasureEntity } from '../measure-entities.ts';
-import type { CompileError } from '../ws-protocol.ts';
+import type { CompileError, PackageProblem } from '../ws-protocol.ts';
 import { PROJECT_CONFIG_FILENAME, readProjectConfig, writeProjectMaterials, type LengthUnit, type ProjectMaterial, type ProjectMaterials } from '../project-config.ts';
 import { PartPropertiesAggregator, type PartProperties } from './part-properties.ts';
 import { RenderInputs, type RenderFingerprint } from '../render-inputs.ts';
@@ -69,6 +69,9 @@ import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneRendered
 import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import { TimelineHistory } from './timeline-history.ts';
+import { PackageRoots } from '../packages/package-roots.ts';
+import { PackageLayout } from '../packages/package-manifest.ts';
+import type { PackageResolveError, ResolvedPackage } from '../packages/resolver.ts';
 import type { SceneSummary, SceneSummaryObject, ShapeList, ShapeListEntry } from './scene-summary.ts';
 
 /** How many synthesis answers one rendered scene keeps (see `synthesizeApplyFeatureCached`). */
@@ -156,6 +159,19 @@ export class FluidCadServer {
   private ghostCodeStale = false;
   /** The custom features each session's cached scene was built with older code of. */
   private readonly featureRebuilds = new FeatureRebuilds();
+  /**
+   * The installed packages each session's cached scene was built with, by
+   * name: when a render resolves another version or tree of one (a pin
+   * switched), that package's features rebuild — their ids stay while
+   * their code moved, so the compare would otherwise keep the old geometry.
+   */
+  private readonly sessionPackages = new Map<string, Map<string, ResolvedPackage>>();
+  /** The package imports the last render refused (see {@link getPackageProblems}). */
+  private packageProblems: PackageResolveError[] = [];
+  /** Each installed package's feature ids, from its `manifest.json`, by directory (installed trees never change). */
+  private static readonly packageFeatureIdCache = new Map<string, string[]>();
+  /** Each installed package's own `materials` map (its reduced `fluidcad.json`), by directory. */
+  private readonly packageMaterialMaps = new Map<string, ProjectMaterials | null>();
 
   private currentFileName: string = '';
   private currentFilePath: string = '';
@@ -314,6 +330,7 @@ export class FluidCadServer {
     this.lastParamDefaults.delete(sessionId);
     this.sessionFiles.delete(sessionId);
     this.featureRebuilds.forget(sessionId);
+    this.sessionPackages.delete(sessionId);
   }
 
   /**
@@ -546,17 +563,23 @@ export class FluidCadServer {
         // re-declared, and the fingerprint must describe what is in effect.
         const fingerprint = this.captureFingerprint(sessionId, normalizedFileName);
         this.renderFingerprints.set(sessionId, fingerprint);
+        this.packageProblems = this.host.packageProblems?.() ?? [];
+        const packages = this.host.resolvedPackages?.() ?? [];
 
         if (this.previousScenes.has(sessionId)) {
           const previousScene = this.previousScenes.get(sessionId);
-          const rebuild = owed ? await this.featureIdsOwed(owed, fingerprint) : null;
-          scene = rebuild && rebuild.size > 0
+          const rebuild = owed ? await this.featureIdsOwed(owed, fingerprint) : new Set<string>();
+          for (const id of this.packageFeatureIdsChanged(sessionId, packages)) {
+            rebuild.add(id);
+          }
+          scene = rebuild.size > 0
             ? this.sceneManager.compare(previousScene, scene, changes, { rebuild })
             : this.sceneManager.compare(previousScene, scene, changes);
         }
         compared = true;
 
         this.previousScenes.set(sessionId, scene);
+        this.sessionPackages.set(sessionId, new Map(packages.map(pkg => [pkg.name, pkg])));
 
         this.sceneManager.renderScene(scene);
         const result = scene.getRenderedObjects();
@@ -567,6 +590,7 @@ export class FluidCadServer {
             obj.sourceLocation.filePath = obj.sourceLocation.filePath.replace('virtual:live-render:', '');
           }
         }
+        this.stampPackageRows(result);
 
         const assembly = this.sceneManager.getAssemblyData(scene);
         if (assembly) {
@@ -666,6 +690,8 @@ export class FluidCadServer {
         return renderChanges ? { ...data, changes: renderChanges } : data;
       }
       catch (error) {
+        // Read before the modules are invalidated: that starts the resolver over.
+        this.packageProblems = this.host.packageProblems?.() ?? [];
         if (owed && !compared) {
           // The cached scene is still the one built with the old code.
           this.featureRebuilds.restore(sessionId, owed);
@@ -675,6 +701,102 @@ export class FluidCadServer {
         throw error;
       }
     });
+  }
+
+  /**
+   * Mark every row a package file's statement made with that package's
+   * name and version (`row.package`): installed packages are read-only
+   * (K8), so the UI hides a row's edit affordances by it. A fork of a
+   * package elsewhere in the workspace is ordinary code and stays unmarked.
+   */
+  private stampPackageRows(rows: any[]): void {
+    const owners = new Map<string, { name: string; version: string } | null>();
+    for (const row of rows) {
+      const file = row?.sourceLocation?.filePath;
+      if (typeof file !== 'string') {
+        continue;
+      }
+      let owner = owners.get(file);
+      if (owner === undefined) {
+        const location = this.packageOwnerOf(file);
+        owner = location ? { name: location.name, version: location.version } : null;
+        owners.set(file, owner);
+      }
+      if (owner) {
+        row.package = owner;
+      } else if (row.package) {
+        delete row.package;
+      }
+    }
+  }
+
+  /** The installed package that owns `file` in this workspace (`PackageRoots.owner`), or null; always null without a workspace. */
+  packageOwnerOf(file: string) {
+    if (!this.workspacePath) {
+      return null;
+    }
+    return PackageRoots.owner(file, this.workspacePath);
+  }
+
+  /**
+   * The feature ids of every package whose resolution changed since the
+   * session's cached scene was built — another version, another tree, or
+   * added or dropped — read from the packages' manifests, old and new.
+   */
+  private packageFeatureIdsChanged(sessionId: string, packages: ResolvedPackage[]): Set<string> {
+    const ids = new Set<string>();
+    const before = this.sessionPackages.get(sessionId) ?? new Map<string, ResolvedPackage>();
+    const now = new Map(packages.map(pkg => [pkg.name, pkg]));
+    for (const name of new Set([...before.keys(), ...now.keys()])) {
+      const old = before.get(name);
+      const current = now.get(name);
+      if (old && current && old.directory === current.directory && old.integrity === current.integrity) {
+        continue;
+      }
+      for (const pkg of [old, current]) {
+        if (pkg) {
+          for (const id of FluidCadServer.packageFeatureIds(pkg.directory)) {
+            ids.add(id);
+          }
+        }
+      }
+    }
+    return ids;
+  }
+
+  /** A package's feature ids from its `manifest.json`, read once per directory; none when it can't be read. */
+  private static packageFeatureIds(directory: string): string[] {
+    const cached = FluidCadServer.packageFeatureIdCache.get(directory);
+    if (cached) {
+      return cached;
+    }
+    let ids: string[] = [];
+    try {
+      const manifest = JSON.parse(readFileSync(join(directory, PackageLayout.MANIFEST), 'utf8'));
+      ids = Array.isArray(manifest?.features)
+        ? manifest.features.map((feature: any) => feature?.id).filter((id: unknown): id is string => typeof id === 'string')
+        : [];
+    } catch {
+      // Gone or unreadable: nothing of it can be named.
+      return [];
+    }
+    FluidCadServer.packageFeatureIdCache.set(directory, ids);
+    return ids;
+  }
+
+  /**
+   * The package imports the last render refused — a package not pinned,
+   * not installed, changed, or too new for this engine — one per package,
+   * each with its sentence and, when it is about a pin, the pinned version.
+   * Empty after a render that loaded every package it imports.
+   */
+  getPackageProblems(): PackageProblem[] {
+    return this.packageProblems.map(problem => ({
+      code: problem.code,
+      name: problem.packageName,
+      version: problem.version,
+      message: problem.message,
+    }));
   }
 
   /**
@@ -1048,6 +1170,7 @@ export class FluidCadServer {
       ? rollbackResult as { stop: number; scopePartId: string | null }
       : { stop: index, scopePartId: null };
     const result = scene.getRenderedObjects();
+    this.stampPackageRows(result);
     const assembly = this.sceneManager.getAssemblyData(scene);
 
     this.lastRollbackStop = stop;
@@ -1116,12 +1239,30 @@ export class FluidCadServer {
       (shapeId) => manager.getShapeProperties(scene, shapeId),
       this.getProjectMaterials(),
       this.getSceneUnit(),
+      (file) => this.packageMaterialsFor(file),
     );
   }
 
   /** The render's non-fatal notices — see `PartPropertiesAggregator.collectWarnings`. */
   private collectObjectWarnings(result: any[]): ObjectBuildWarning[] {
-    return PartPropertiesAggregator.collectWarnings(result, this.getProjectMaterials());
+    return PartPropertiesAggregator.collectWarnings(result, this.getProjectMaterials(), (file) => this.packageMaterialsFor(file));
+  }
+
+  /**
+   * The materials a part defined in `file` resolves against when an
+   * installed package owns the file: that package's own `fluidcad.json`
+   * map (null when it has none — the built-ins alone), never the project's.
+   * Undefined for a file no package owns. Read once per package directory.
+   */
+  packageMaterialsFor(file: string): ProjectMaterials | null | undefined {
+    const owner = this.packageOwnerOf(file);
+    if (!owner) {
+      return undefined;
+    }
+    if (!this.packageMaterialMaps.has(owner.directory)) {
+      this.packageMaterialMaps.set(owner.directory, readProjectConfig(owner.directory).materials);
+    }
+    return this.packageMaterialMaps.get(owner.directory) ?? null;
   }
 
   getFaceProperties(shapeId: string, faceIndex: number): any {

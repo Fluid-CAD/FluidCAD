@@ -3,7 +3,7 @@ import { loadPreferences } from '../preferences.ts';
 import { PackageArchive, PackageArchiveError } from '../packages/package-archive.ts';
 import { PackageInstallError, PackageInstaller } from '../packages/package-installer.ts';
 import { PackageName } from '../packages/package-name.ts';
-import { PackagePinError } from '../packages/package-pins.ts';
+import { PackagePinError, PackagePins } from '../packages/package-pins.ts';
 import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
 import { ProjectPackages } from '../packages/project-packages.ts';
 import { Semver } from '../packages/semver.ts';
@@ -82,7 +82,13 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
 
   router.get('/packages', async (_req, res) => {
     try {
-      res.json({ ...ProjectPackages.overview(project), defaultTarget: await defaultTarget(undefined) });
+      // `problems`: the pins installed in neither root, structured for an
+      // Install action (empty without a project).
+      res.json({
+        ...ProjectPackages.overview(project),
+        problems: PackagePins.problems(project),
+        defaultTarget: await defaultTarget(undefined),
+      });
     } catch (err) {
       PackageRefusal.send(res, err);
     }

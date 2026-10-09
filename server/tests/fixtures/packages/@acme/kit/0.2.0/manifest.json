@@ -1,0 +1,56 @@
+{
+  "manifestVersion": 1,
+  "name": "@acme/kit",
+  "version": "0.2.0",
+  "description": "The 0.2.0 of the hand-written test package: its standoff stands 5 mm taller than asked",
+  "license": "MIT",
+  "author": "Acme Robotics",
+  "keywords": [
+    "test"
+  ],
+  "engine": "0.0.46",
+  "minEngine": "0.0.46",
+  "sdkVersion": 1,
+  "unit": "in",
+  "fileUnits": {},
+  "contents": [
+    "features",
+    "parts"
+  ],
+  "features": [
+    {
+      "id": "acme.standoff",
+      "exportName": "standoff",
+      "module": "standoff.feature.js",
+      "meta": {
+        "label": "Standoff",
+        "group": "create"
+      },
+      "usesOcct": false
+    }
+  ],
+  "parts": [
+    {
+      "exportName": "spacer",
+      "module": "parts/spacer.part.js",
+      "name": "Spacer",
+      "kind": "part",
+      "params": [
+        {
+          "name": "Length",
+          "type": "number",
+          "default": 0.5
+        }
+      ]
+    }
+  ],
+  "files": [
+    "fluidcad.json",
+    "index.js",
+    "standoff.feature.js",
+    "standoff.svg",
+    "parts/spacer.part.js",
+    "helpers/sizes.js"
+  ],
+  "createdAt": "2026-10-09T12:00:00Z"
+}

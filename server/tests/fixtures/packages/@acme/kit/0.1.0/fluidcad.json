@@ -1,3 +1,9 @@
 {
-  "unit": "in"
+  "unit": "in",
+  "materials": {
+    "acme-pom": {
+      "name": "Acme POM",
+      "density": 1.41
+    }
+  }
 }

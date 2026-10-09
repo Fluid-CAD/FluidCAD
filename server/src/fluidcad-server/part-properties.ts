@@ -1,7 +1,8 @@
 // Part-level mass properties and the unknown-material warning pass — the two
 // places the server resolves a part's `.material(id)` against the merged
-// materials table (built-ins + the project's `fluidcad.json` map). Lib keeps
-// the raw id; everything that needs a density lives here.
+// materials table (built-ins + the project's `fluidcad.json` map, or, for a
+// part an installed package defines, that package's own map). Lib keeps the
+// raw id; everything that needs a density lives here.
 
 import {
   materialDensityGcm3,
@@ -56,6 +57,16 @@ export type PartProperties = {
   warning?: string;
 };
 
+/**
+ * The materials map of the installed package whose file defines a part
+ * (`sourceLocation.filePath` of its `part()` row): that package's reduced
+ * `fluidcad.json` `materials`, or null when it has none. `undefined` when
+ * no package owns the file — the part is the project's own, and resolves
+ * against the project map. A package part never sees the project's map, so
+ * its mass is the same in every project (research S4).
+ */
+export type PackageMaterialLookup = (filePath: string) => ProjectMaterials | null | undefined;
+
 type RenderedRow = {
   id: string;
   name: string;
@@ -85,12 +96,16 @@ export class PartPropertiesAggregator {
    * unknown material never fails a build — the geometry is fine, only
    * the mass is unknown.
    */
-  static collectWarnings(rows: readonly unknown[], project: ProjectMaterials | null): ObjectBuildWarning[] {
+  static collectWarnings(
+    rows: readonly unknown[],
+    project: ProjectMaterials | null,
+    packages?: PackageMaterialLookup,
+  ): ObjectBuildWarning[] {
     const warnings: ObjectBuildWarning[] = [];
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index] as RenderedRow | null | undefined;
       const materialId = PartPropertiesAggregator.materialIdOf(row);
-      if (materialId === null || resolveMaterial(materialId, project) !== undefined) {
+      if (materialId === null || resolveMaterial(materialId, PartPropertiesAggregator.materialsFor(row!, project, packages)) !== undefined) {
         continue;
       }
       warnings.push({
@@ -117,6 +132,7 @@ export class PartPropertiesAggregator {
     shapeProperties: (shapeId: string) => ShapeProperties | null,
     project: ProjectMaterials | null,
     unit: LengthUnit,
+    packages?: PackageMaterialLookup,
   ): PartProperties | null {
     const typed = rows as readonly RenderedRow[];
     const byId = new Map<string, RenderedRow>();
@@ -172,7 +188,7 @@ export class PartPropertiesAggregator {
     if (materialId === null) {
       return result;
     }
-    const material = resolveMaterial(materialId, project);
+    const material = resolveMaterial(materialId, PartPropertiesAggregator.materialsFor(part, project, packages));
     if (!material) {
       result.material = { id: materialId };
       result.warning = PartPropertiesAggregator.unknownMaterialWarning(materialId);
@@ -195,6 +211,20 @@ export class PartPropertiesAggregator {
   static massG(volume: number, unit: LengthUnit, densityGcm3: number): number {
     const cmPerUnit = MM_PER_UNIT[unit] / 10;
     return volume * cmPerUnit * cmPerUnit * cmPerUnit * densityGcm3;
+  }
+
+  /** The map a part row's material id resolves against after the built-ins: its package's, else the project's. */
+  private static materialsFor(
+    row: RenderedRow,
+    project: ProjectMaterials | null,
+    packages: PackageMaterialLookup | undefined,
+  ): ProjectMaterials | null {
+    const file = row.sourceLocation?.filePath;
+    if (!packages || typeof file !== 'string') {
+      return project;
+    }
+    const own = packages(file);
+    return own === undefined ? project : own;
   }
 
   /** The raw `.material(id)` of a part row, null for any other row or no material. */

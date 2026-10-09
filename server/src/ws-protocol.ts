@@ -139,6 +139,25 @@ export type CompileError = {
   message: string;
   filePath?: string;
   sourceLocation?: { filePath: string; line: number; column: number };
+  /**
+   * The package imports the failed render refused (not pinned, not
+   * installed, changed, too new for this engine), one per package — what a
+   * missing package's Install action needs. Absent when none was refused.
+   */
+  packageProblems?: PackageProblem[];
+};
+
+/**
+ * A package a project can't load, as a structured project problem:
+ * `code` is the resolver's (`missing` for a pin installed in neither the
+ * project copy nor the library), `version` the pinned version when there
+ * is one, and `message` the sentence the render reports.
+ */
+export type PackageProblem = {
+  code: string;
+  name: string;
+  version: string | null;
+  message: string;
 };
 
 /**

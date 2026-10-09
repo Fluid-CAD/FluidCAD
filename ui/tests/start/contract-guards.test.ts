@@ -59,6 +59,15 @@ describe('contract guards', () => {
     expect(contractError(() => checkFeed({ tutorials: {}, notifications: [] })).where).toBe('feed().tutorials');
   });
 
+  it("carries a package workspace's identity, and lets a launcher that predates it leave it out", () => {
+    const pkg = { ...project, package: { name: '@acme/gears', version: '1.2.0' } };
+    expect(checkProjectList({ projects: [pkg] }).projects[0].package).toEqual({ name: '@acme/gears', version: '1.2.0' });
+    expect(checkProjectList({ projects: [{ ...project, package: null }] }).projects[0].package).toBeNull();
+    expect(checkProjectList({ projects: [project] }).projects[0].package).toBeUndefined();
+    expect(contractError(() => checkProjectList({ projects: [{ ...project, package: { name: '@acme/gears' } }] })).where)
+      .toBe('list().projects[0].package.version');
+  });
+
   it('checks enumerations', () => {
     const err = contractError(() => checkProjectList({ projects: [{ ...project, engineSource: 'npm' }] }));
     expect(err.where).toBe('list().projects[0].engineSource');

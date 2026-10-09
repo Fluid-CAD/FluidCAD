@@ -97,6 +97,11 @@ export type StartProject = {
   open: boolean;
   /** A `fluidcad-app://thumbnails/…` URL, or null before the first close with a solid up. */
   thumbnail: string | null;
+  /**
+   * A package workspace's identity — its `fluidcad.json` `package` block —
+   * for the card's "Package" badge. Absent from a launcher that predates it.
+   */
+  package?: { name: string; version: string } | null;
 };
 
 export type StartProjectList = { projects: StartProject[] };

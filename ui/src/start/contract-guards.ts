@@ -196,6 +196,7 @@ const startProject = object<StartProject>({
   lastOpenedAt: string,
   open: boolean,
   thumbnail: nullable(string),
+  package: optional(nullable(object<{ name: string; version: string }>({ name: string, version: string }))),
 });
 
 const projectList = object<StartProjectList>({ projects: arrayOf(startProject) });

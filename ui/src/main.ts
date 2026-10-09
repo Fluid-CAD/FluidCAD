@@ -75,7 +75,7 @@ import { TextEditService } from './interactive/create-feature/text-edit-service'
 import { FeatureDialogRegistry } from './interactive/feature-dialog-registry';
 import { PartFeatureDialogs } from './interactive/part-feature-dialogs';
 import type { SceneObjectRender } from './types';
-import { ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
+import { ICON_LIST_TREE, ICON_PACKAGE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
 import { applyEditorPreferences } from './editor/editor-prefs';
@@ -83,6 +83,11 @@ import { SettingsModal } from './ui/settings';
 import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
 import { applyEnginePreferences } from './ui/settings/engine-settings';
 import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials';
+import { applyPackagePreferences } from './ui/settings/package-settings';
+import { HttpPackagesClient, recompute } from './api';
+import { PackagesState } from './ui/packages/packages-state';
+import { PackageDropTarget, PackageInstallFlow } from './ui/packages/package-install-flow';
+import { ProjectPackagesDialog } from './ui/packages/project-packages-dialog';
 import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
@@ -239,6 +244,7 @@ function applyLoadedPreferences(prefs: UserPreferences): void {
   applyNewProjectPreferences(prefs);
   applyEnginePreferences(prefs);
   applyGlobalMaterialsPreferences(prefs);
+  applyPackagePreferences(prefs);
   pendingShowBuildTimings = !!prefs.showBuildTimings;
   if (currentRail?.kind === 'part') {
     currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
@@ -849,6 +855,33 @@ currentRail = initialRail;
 
 // Top application bar (logo, workspace, file tabs) and the secondary tool bar
 // below it (host for conditionally-visible tool groups).
+// Packages: one copy of what the library and the project hold, the install
+// flow every entry point shares (Install package…, the missing-package
+// banner, a .fluidpkg dropped on the window), and the project's Packages
+// dialog. Nothing broadcasts after an install, a copy or a removal, so each
+// one refetches here: the overview, the feature catalog (library entries
+// come and go, a copy moves a module) and the scene (a pin that now
+// resolves elsewhere, or at all).
+const packagesClient = new HttpPackagesClient();
+const packagesState = new PackagesState(packagesClient);
+function packagesChanged(): void {
+  void packagesState.refresh();
+  void featureCatalog.refresh();
+  recompute();
+}
+const packageInstallFlow = new PackageInstallFlow(container, {
+  client: packagesClient,
+  state: packagesState,
+  onInstalled: () => packagesChanged(),
+  notify: (message) => showToast(message),
+});
+new PackageDropTarget(container, packageInstallFlow);
+const projectPackagesDialog = new ProjectPackagesDialog(container, {
+  state: packagesState,
+  flow: packageInstallFlow,
+  onChanged: () => packagesChanged(),
+});
+
 // The global Settings dialog — part of the page in every host; only a
 // viewport-only host (`?editor=0`, an embed) leaves the gear off the bar.
 const settingsModal = new SettingsModal(container, {
@@ -856,6 +889,7 @@ const settingsModal = new SettingsModal(container, {
   resetPreferences,
   applyPreferences: applyLoadedPreferences,
   loadMaterials: () => engineClient.getMaterials(),
+  packages: { state: packagesState, flow: packageInstallFlow, onLibraryChanged: () => packagesChanged() },
 });
 
 const topBar = new TopBar(container, {
@@ -900,6 +934,26 @@ topBar.addAction({
   title: 'Share this model in the FluidCAD viewer',
   label: 'Share',
   onClick: () => shareDialog.show(currentSceneAbsPath),
+});
+
+// Packages: the project's pins and where each loads from. A project action
+// beside Share, in every host (Neovim and VS Code show the page without the
+// editor pane, and still need Install). A dot marks a pin installed nowhere.
+const packagesButton = topBar.addAction({
+  icon: ICON_PACKAGE,
+  title: 'Packages in this project',
+  label: 'Packages',
+  onClick: () => projectPackagesDialog.show(),
+});
+packagesButton.classList.add('relative');
+const packagesMissingDot = document.createElement('span');
+packagesMissingDot.className = 'absolute top-1 right-1 size-1.5 rounded-full bg-error hidden';
+packagesMissingDot.dataset.ref = 'packages-missing';
+packagesButton.appendChild(packagesMissingDot);
+packagesState.subscribe(() => {
+  const missing = packagesState.missing.length > 0;
+  packagesMissingDot.classList.toggle('hidden', !missing);
+  packagesButton.title = missing ? 'Packages in this project — one is not installed' : 'Packages in this project';
 });
 
 // The panel rail on the window's left edge: one latch button per surface it
@@ -1328,8 +1382,15 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   // sketch builds for itself opens that sketch, and sketch rows stay blocked
   // while another sketch is being edited. (A workspace kernel new enough to
   // flag its internal objects leaves that row out of the timeline entirely.)
+  // A row an installed package made is read-only (K8): its double-click
+  // says so instead of placing a breakpoint in the package's file.
+  panel.onReadOnlyRow = (obj) => {
+    const file = obj.sourceLocation?.filePath.split('/').pop() ?? 'This row';
+    showToast(`${file} belongs to ${obj.package!.name} ${obj.package!.version}, an installed package, so it is read-only: `
+      + "its rows can't be edited and its file isn't opened here.");
+  };
   panel.isFeatureEditable = (obj) =>
-    obj.type != null && isEditableRowType(obj.type) && obj.sourceLocation != null
+    obj.package == null && obj.type != null && isEditableRowType(obj.type) && obj.sourceLocation != null
     && !SceneIndex.isConnectorCopy(obj)
     && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects));
   // A 2D offset row's edit pauses the build BEFORE its statement (see
@@ -1411,6 +1472,10 @@ function sketchLocKey(loc: { filePath: string; line: number; column: number }): 
  * plain breakpoint behavior in place.
  */
 async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise<void> {
+  if (obj.package) {
+    // An installed package's statement: read-only, nothing to open.
+    return;
+  }
   if (obj.type === 'sketch' && obj.sourceLocation) {
     await enterSketchEdit(obj.sourceLocation, obj.closed === true);
     return;
@@ -2050,6 +2115,10 @@ sketchService.onDofPillVisibilityChange = (visible) => breakpointIndicator.setRa
 const errorBanner = new ErrorBanner(container, (loc) => {
   gotoSource(loc);
 });
+// The missing-package banner: a render that stopped because a pinned
+// package is installed nowhere offers Install from file…, checked against
+// the pin.
+errorBanner.setInstallMissingHandler((pkg) => packageInstallFlow.pick({ expect: pkg }));
 // The engine's kernel trapped: its memory may be damaged until it restarts.
 // The desktop shell restarts its own engine; elsewhere the engine ends
 // itself and its host starts a fresh one, or the banner says how.
@@ -2976,6 +3045,11 @@ function applySceneRendered(msg: any): void {
       (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? []);
     }
     errorBanner.update(msg.result, msg.compileError ?? null);
+    if (msg.compileError?.packageProblems?.length) {
+      // A package went missing under the project (removed elsewhere): the
+      // top bar's mark and the Packages dialog follow.
+      void packagesState.refresh();
+    }
     topBar.updateSolids(msg.result, renderedAssembly);
     const compileError = msg.compileError ?? null;
     activeCompileError = compileError !== null;
@@ -3044,13 +3118,17 @@ function connectWebSocket() {
           loadingOverlay.fail(`FluidCAD failed to start: ${msg.error ?? 'unknown error'}`);
         } else {
           loadingOverlay.hide();
-          // The engine is up: the workspace's custom features can be listed.
+          // The engine is up: the workspace's custom features can be listed,
+          // and the project's packages.
           void featureCatalog.refresh();
+          void packagesState.refresh();
         }
         break;
       case 'features-changed':
         // A feature module (or a file one imports) changed: its dialog follows.
+        // So does fluidcad.json — the pins — which the packages read too.
         void featureCatalog.refresh({ changed: true });
+        void packagesState.refresh();
         break;
       case 'engine-suspect':
         // The kernel trapped (raw OpenCascade, most likely): offer a restart.

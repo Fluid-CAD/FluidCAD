@@ -1,4 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { setupOC, render } from "../setup.js";
 import { getSceneManager } from "../../scene-manager.js";
 import * as core from "../../core/index.js";
@@ -34,6 +37,25 @@ function declareIn(sourceURL: string, name: string): PartDefinition {
   return runAs(sourceURL, `return part(${JSON.stringify(name)}, () => { cylinder(5, 10); });`) as PartDefinition;
 }
 
+const scratchDirs: string[] = [];
+
+/**
+ * A real workspace directory holding mount.part.js and bracket.part.js, and
+ * a symlink to it, both as forward-slash paths. The temp directory is left
+ * unresolved (macOS's /var), as a host may be handed it.
+ */
+function linkedWorkspace(): { real: string; link: string } {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "fluidcad-leftover-"));
+  scratchDirs.push(scratch);
+  const real = path.join(scratch, "real");
+  fs.mkdirSync(real);
+  fs.writeFileSync(path.join(real, "mount.part.js"), "");
+  fs.writeFileSync(path.join(real, "bracket.part.js"), "");
+  const link = path.join(scratch, "link");
+  fs.symlinkSync(real, link, "junction");
+  return { real: real.replace(/\\/g, "/"), link: link.replace(/\\/g, "/") };
+}
+
 /** A part scene rendered from `entry`. */
 function startPartScene(entry: string): Scene {
   const scene = getSceneManager().startScene();
@@ -57,6 +79,9 @@ describe("leftover part definitions", () => {
 
   afterEach(() => {
     getSceneManager().setCurrentFile("");
+    for (const dir of scratchDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("a part file declaring two parts renders both", () => {
@@ -106,18 +131,37 @@ describe("leftover part definitions", () => {
     expect(builtParts(scene)).toEqual(["Base"]);
   });
 
-  it("matches macOS's /private/var spelling against /var, either way round", () => {
-    const tmpEntry = "/var/folders/ab/T/ws/mount.part.js";
-    const scene = startPartScene(tmpEntry);
-    declareIn(`/private${tmpEntry}`, "Base");
-    declareIn("/private/var/folders/ab/T/ws/bracket.part.js", "Bracket");
+  it("matches a file reached through a symlinked directory against its real path, either way round", () => {
+    const { real, link } = linkedWorkspace();
+    const scene = startPartScene(`${link}/mount.part.js`);
+    declareIn(`${real}/mount.part.js`, "Base");
+    declareIn(`${real}/bracket.part.js`, "Bracket");
     render();
     expect(builtParts(scene)).toEqual(["Base"]);
 
-    const again = startPartScene(`/private${tmpEntry}`);
-    declareIn(tmpEntry, "Base");
+    const again = startPartScene(`${real}/mount.part.js`);
+    declareIn(`${link}/mount.part.js`, "Base");
+    declareIn(`${link}/bracket.part.js`, "Bracket");
     render();
     expect(builtParts(again)).toEqual(["Base"]);
+  });
+
+  it("matches macOS's /private/var spelling of the temp directory against /var", () => {
+    // os.tmpdir() is /var/folders/… on macOS; modules load as /private/var/….
+    const { real } = linkedWorkspace();
+    const resolved = fs.realpathSync(real).replace(/\\/g, "/");
+    const scene = startPartScene(`${real}/mount.part.js`);
+    declareIn(`${resolved}/mount.part.js`, "Base");
+    render();
+    expect(builtParts(scene)).toEqual(["Base"]);
+  });
+
+  it("keeps an unsaved file's spelling: a path that does not exist matches only itself", () => {
+    const scene = startPartScene("/nowhere/new.part.js");
+    declareIn("/nowhere/new.part.js", "Base");
+    declareIn("/nowhere/other.part.js", "Bracket");
+    render();
+    expect(builtParts(scene)).toEqual(["Base"]);
   });
 
   it("matches Windows separators and drive letters", () => {

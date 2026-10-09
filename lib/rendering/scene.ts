@@ -4,6 +4,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { Part } from "../features/part.js";
 import { getUnitRegistry } from "../units/registry.js";
+import { EntryFile } from "./entry-file.js";
 import type { LengthUnit } from "../units/units.js";
 
 export type SceneObjectMesh = {
@@ -236,47 +237,30 @@ export class Scene {
     // The entry document of this render: what the host passed to
     // setCurrentFile(), mirrored on the unit registry (scene.ts never
     // imports the scene manager).
-    const entryFile = getUnitRegistry().rootFile;
+    const rootFile = getUnitRegistry().rootFile;
+    const entry = rootFile ? new EntryFile(rootFile) : null;
     for (const { definition } of this.partDefinitions) {
-      if (!definition.hasVariantIn(this) && Scene.isDeclaredIn(definition, entryFile)) {
+      if (!definition.hasVariantIn(this) && Scene.isDeclaredIn(definition, entry)) {
         definition.materializeInto(this);
       }
     }
   }
 
   /**
-   * Whether `definition`'s `part()` call is written in `entryFile`. The call
-   * site is the first script frame of the capture, so a `part()` reached
-   * through a plain-module helper the entry file calls counts as the
-   * entry's. A definition with no location (the capture found no script
+   * Whether `definition`'s `part()` call is written in the entry file. The
+   * call site is the first script frame of the capture, so a `part()`
+   * reached through a plain-module helper the entry file calls counts as
+   * the entry's. A definition with no location (the capture found no script
    * frame — a bundled browser model, a test) and a scene with no entry file
    * (a bare scene nothing rendered from a file) keep the behaviour from
    * before the rule: the definition builds.
    */
-  private static isDeclaredIn(definition: TrackedPartDefinition, entryFile: string): boolean {
+  private static isDeclaredIn(definition: TrackedPartDefinition, entry: EntryFile | null): boolean {
     const location = definition.getSourceLocation();
-    if (!location || !entryFile) {
+    if (!location || !entry) {
       return true;
     }
-    return Scene.normalizeSourcePath(location.filePath) === Scene.normalizeSourcePath(entryFile);
-  }
-
-  /**
-   * One spelling per file for the comparison above: no `virtual:live-render:`
-   * prefix (a live editor buffer), forward slashes and an uppercase drive
-   * letter (Windows), and macOS's `/private/var` (`/tmp`, `/etc`) as the
-   * `/var` its symlink stands for — a module resolved through its real path
-   * names the same file as the entry path the host was handed.
-   */
-  private static normalizeSourcePath(path: string): string {
-    const virtualPrefix = 'virtual:live-render:';
-    const virtualIdx = path.lastIndexOf(virtualPrefix);
-    let normalized = virtualIdx === -1 ? path : path.slice(virtualIdx + virtualPrefix.length);
-    normalized = normalized.replace(/\\/g, '/');
-    if (/^[A-Za-z]:/.test(normalized)) {
-      normalized = normalized[0].toUpperCase() + normalized.slice(1);
-    }
-    return normalized.replace(/^\/private\/(var|tmp|etc)\//, '/$1/');
+    return entry.matches(location.filePath);
   }
 
   /**

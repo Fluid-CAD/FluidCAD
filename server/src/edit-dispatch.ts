@@ -2,6 +2,7 @@ import type { Response } from 'express';
 import type { FluidCadServer } from './fluidcad-server/index.ts';
 import { EditAckRegistry } from './edit-acks.ts';
 import { applyFeatureEdit, type ApplyFeatureEditSpec, type FeatureCalleeSource } from './apply-feature-edit/index.ts';
+import type { PackageEditGuard } from './packages/package-edit-guard.ts';
 
 export type EditDispatcherOptions = {
   /**
@@ -14,6 +15,11 @@ export type EditDispatcherOptions = {
   ackTimeoutMs?: number;
   /** The workspace's custom features, for the preflight's producer gates (the feature catalog). */
   callees?: FeatureCalleeSource;
+  /**
+   * Refuses an edit aimed at an installed package's file (K8) before
+   * anything is sent. Omitted (tests), nothing is refused.
+   */
+  packages?: PackageEditGuard;
 };
 
 /**
@@ -38,6 +44,7 @@ export class FeatureEditDispatcher {
   private readonly preflightEnabled: boolean;
   private readonly ackTimeoutMs: number;
   private readonly callees: FeatureCalleeSource | undefined;
+  private readonly packages: PackageEditGuard | undefined;
 
   constructor(
     private readonly fluidCadServer: FluidCadServer,
@@ -47,7 +54,17 @@ export class FeatureEditDispatcher {
     this.preflightEnabled = options.preflight !== false;
     this.ackTimeoutMs = options.ackTimeoutMs ?? 5000;
     this.callees = options.callees;
+    this.packages = options.packages;
     this.acks = new EditAckRegistry(this.ackTimeoutMs);
+  }
+
+  /**
+   * Answer 403 when one of `files` belongs to an installed package (K8),
+   * for a route that must refuse before its first side effect; true when
+   * it did. Every dispatch checks its own spec anyway.
+   */
+  refuseReadOnly(res: Response, ...files: (string | null | undefined)[]): boolean {
+    return this.packages?.refuse(res, ...files) ?? false;
   }
 
   async dispatch(
@@ -55,6 +72,9 @@ export class FeatureEditDispatcher {
     spec: ApplyFeatureEditSpec,
     successBody: Record<string, unknown>,
   ): Promise<void> {
+    if (this.refuseReadOnly(res, spec.filePath)) {
+      return;
+    }
     if (this.preflightEnabled && spec.filePath === this.fluidCadServer.getCurrentFileName()) {
       const code = this.fluidCadServer.getCurrentCode();
       if (code !== null) {
@@ -97,6 +117,10 @@ export class FeatureEditDispatcher {
    * response. A send with no host process keeps the legacy immediate success.
    */
   async send(spec: ApplyFeatureEditSpec): Promise<{ error?: string }> {
+    const readOnly = this.packages?.refusal(spec.filePath);
+    if (readOnly) {
+      return { error: readOnly.message };
+    }
     if (this.preflightEnabled && spec.filePath === this.fluidCadServer.getCurrentFileName()) {
       const code = this.fluidCadServer.getCurrentCode();
       if (code !== null) {
@@ -134,6 +158,9 @@ export class FeatureEditDispatcher {
     res: Response,
     buildMessage: (editId: string) => Record<string, unknown>,
   ): Promise<void> {
+    if (this.packages && this.refuseReadOnly(res, ...this.packages.targetsOf(buildMessage('')))) {
+      return;
+    }
     const { editId, result } = this.acks.register();
     const delivered = this.sendToExtension(buildMessage(editId)) === true;
     if (!delivered) {

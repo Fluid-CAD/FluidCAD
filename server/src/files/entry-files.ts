@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { join, relative } from 'path';
 import { normalizePath } from '../normalize-path.ts';
 import { PROJECT_CONFIG_FILENAME, readProjectConfig } from '../project-config.ts';
-import { ModuleClosure } from '../packages/module-closure.ts';
+import { ModuleClosure, ModuleClosurePackageError } from '../packages/module-closure.ts';
 
 /** The virtual entry that imports init.js and the model — never a shipped file. */
 const WRAPPER_NAME = '__share_entry__.js';
@@ -20,7 +20,9 @@ export type EntryFiles = Record<string, string>;
  * use: `fluidcad/*` stays external (the viewer links its own engine), Node
  * built-ins are refused, and anything resolved outside the workspace or
  * into `node_modules` is an error — a link cannot carry an npm dependency,
- * and the viewer would fail to link it anyway.
+ * and the viewer would fail to link it anyway. An import of a package the
+ * project pins (`@acme/gears`) is refused by name: its files live in an
+ * installed package directory, and links can't carry packages yet.
  *
  * When the project sets a document unit or its own materials
  * (`fluidcad.json`, or package.json's `fluidcad.unit` / `fluidcad.materials`),
@@ -39,7 +41,20 @@ export async function collectEntryFiles(entryAbs: string, workspaceAbs: string):
   if (existsSync(initAbs)) {
     imports.unshift('./init.js');
   }
-  const closure = await ModuleClosure.of(workspace, { entries: imports, wrapperName: WRAPPER_NAME });
+  const config = readProjectConfig(workspace);
+  let closure: ModuleClosure;
+  try {
+    closure = await ModuleClosure.of(workspace, {
+      entries: imports,
+      wrapperName: WRAPPER_NAME,
+      pinnedPackages: Object.keys(config.dependencies ?? {}),
+    });
+  } catch (err) {
+    if (err instanceof ModuleClosurePackageError) {
+      throw new Error(`Links can't carry packages yet (\`${err.packageName}\`).`);
+    }
+    throw err;
+  }
   const files: EntryFiles = {};
   for (const rel of closure.files) {
     if (ModuleClosure.isOutsideWorkspace(rel)) {
@@ -50,7 +65,7 @@ export async function collectEntryFiles(entryAbs: string, workspaceAbs: string):
     }
     files[rel] = await readFile(join(workspace, rel), 'utf8');
   }
-  const { unit, materials } = readProjectConfig(workspace);
+  const { unit, materials } = config;
   if (unit !== null || materials !== null) {
     files[PROJECT_CONFIG_FILENAME] = JSON.stringify({
       ...(unit !== null ? { unit } : {}),

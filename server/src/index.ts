@@ -29,6 +29,8 @@ import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
 import { createPackagesRouter } from './routes/packages.ts';
 import { PackageInstaller } from './packages/package-installer.ts';
+import { PackageEditGuard } from './packages/package-edit-guard.ts';
+import { PackagePins } from './packages/package-pins.ts';
 import { createShareRouter } from './routes/share.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
 import { createFeatureCatalogRouter } from './routes/feature-catalog.ts';
@@ -132,13 +134,18 @@ function sendToExtension(msg: any): boolean {
  * socket, and duplicating them would be a second render, not a second reader.
  */
 const hosts = new HostRegistry(sendToExtension);
-const sendToHost = (msg: any): boolean => hosts.send(msg);
 
 // ---------------------------------------------------------------------------
 // Express app
 // ---------------------------------------------------------------------------
 
 const fluidCadServer = new FluidCadServer();
+
+// Installed packages are read-only (K8): no host message edits one of their
+// files. A refused send throws, and the error handler below answers the
+// route's request with the sentence.
+const packageEdits = new PackageEditGuard(() => WORKSPACE_PATH || null, () => fluidCadServer.getCurrentFileName() || null);
+const sendToHost = packageEdits.guardSend((msg: any): boolean => hosts.send(msg));
 const dirtyBufferState = new DirtyBufferState();
 
 const app = express();
@@ -181,7 +188,7 @@ engineHealth.watch(KernelTraps);
 // Every router that writes source dispatches through this one instance: the
 // ack that settles a dispatch arrives at /code/apply-feature, so a router with
 // its own registry would never hear about its own edits.
-const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToHost, { callees: featureCatalog });
+const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToHost, { callees: featureCatalog, packages: packageEdits });
 
 app.use('/api', createHealthRouter({
   version: PACKAGE_VERSION,
@@ -245,6 +252,7 @@ app.use('/api', createSectionRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher, featureCatalog));
 app.use('/api', createAssemblyReplicateRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyConnectorRouter(fluidCadServer, editDispatcher));
+app.use('/api', PackageEditGuard.errorHandler());
 
 // Static files — serve UI build, with SPA fallback. index.html goes through
 // sendIndexHtml so the saved theme is on <html> before the first paint — the
@@ -363,10 +371,14 @@ function buildCompileError(filePath: string, err: any): CompileError {
       column: sourceLocation.column,
     };
   }
+  // A render that refused a package import says which, structured: the
+  // missing-package banner offers to install it by name and version.
+  const packageProblems = fluidCadServer.getPackageProblems();
   return {
     message,
     filePath: normalized,
     sourceLocation: sourceLocation ?? undefined,
+    ...(packageProblems.length > 0 ? { packageProblems } : {}),
   };
 }
 
@@ -729,6 +741,9 @@ httpServer.listen(PORT, HOST, () => {
   const dependenciesWarning = describeProjectDependenciesProblem(PROJECT_CONFIG);
   if (dependenciesWarning) {
     console.warn(dependenciesWarning);
+  }
+  for (const warning of PackagePins.describeProblems(WORKSPACE_PATH || null)) {
+    console.warn(warning);
   }
 
   // What an install killed mid-way left in the package roots' scratch

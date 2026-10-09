@@ -53,6 +53,11 @@ export async function handleExpose(ctx: ApplyFeatureRequestContext, req: Request
       });
       return;
     }
+    // The exposure lands in the picked part's file: a package's part is
+    // read-only (K8), so not even a preview is offered for it.
+    if (dispatcher.refuseReadOnly(res, synthesis.spec.filePath)) {
+      return;
+    }
     // Composed here rather than taken from `synthesis.preview` so the
     // previewed text is exactly what the transform writes.
     const statementPreview = `expose('${name}', ${synthesis.args})`;

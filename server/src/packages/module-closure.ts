@@ -1,6 +1,7 @@
 import { build, type Metafile, type Plugin } from 'esbuild';
 import { normalizePath } from '../normalize-path.ts';
 import { EsbuildPlugins } from './esbuild-plugins.ts';
+import { PackageResolver } from './resolver.ts';
 
 export type ModuleClosureOptions = {
   /** The modules to start from, as specifiers relative to the workspace root (`./model.part.js`). */
@@ -12,7 +13,22 @@ export type ModuleClosureOptions = {
   wrapperName?: string;
   /** Plugins that run before the refusal of blocked Node built-ins. */
   plugins?: Plugin[];
+  /**
+   * Package names the project pins (`fluidcad.json` `dependencies`): an
+   * import of one is refused with {@link ModuleClosurePackageError} before
+   * esbuild looks for it, since its files live in an installed package
+   * directory, not the workspace. Each caller words that refusal.
+   */
+  pinnedPackages?: Iterable<string>;
 };
+
+/** The closure reaches a package the project pins; `packageName` is the first one an import named. */
+export class ModuleClosurePackageError extends Error {
+  constructor(readonly packageName: string, readonly importer: string | null) {
+    super(`The closure imports the package \`${packageName}\`.`);
+    this.name = 'ModuleClosurePackageError';
+  }
+}
 
 /**
  * The modules a set of entries transitively imports, read off esbuild's
@@ -34,27 +50,57 @@ export class ModuleClosure {
     private readonly wrapperName: string,
   ) {}
 
-  /** Resolve `options.entries` from `workspaceAbs`; a resolution error rejects, as esbuild reports it. */
+  /**
+   * Resolve `options.entries` from `workspaceAbs`; a resolution error
+   * rejects, as esbuild reports it, and an import of a pinned package
+   * rejects with {@link ModuleClosurePackageError}.
+   */
   static async of(workspaceAbs: string, options: ModuleClosureOptions): Promise<ModuleClosure> {
     const workspace = normalizePath(workspaceAbs);
     const wrapperName = options.wrapperName ?? ModuleClosure.DEFAULT_WRAPPER;
-    const result = await build({
-      stdin: {
-        contents: options.entries.map((rel) => `import ${JSON.stringify(rel)};\n`).join(''),
-        resolveDir: workspace,
-        sourcefile: wrapperName,
-        loader: 'js',
+    const pinned = new Set(options.pinnedPackages ?? []);
+    let packageHit: ModuleClosurePackageError | null = null;
+    const packages: Plugin[] = pinned.size === 0 ? [] : [{
+      name: 'pinned-packages',
+      setup(b) {
+        b.onResolve({ filter: /^@/ }, (args) => {
+          const parsed = PackageResolver.parseSpecifier(args.path);
+          if (!parsed || !pinned.has(parsed.name)) {
+            return null;
+          }
+          packageHit ??= new ModuleClosurePackageError(parsed.name, args.importer ? normalizePath(args.importer) : null);
+          return { errors: [{ text: packageHit.message }] };
+        });
       },
-      absWorkingDir: workspace,
-      format: 'esm',
-      bundle: true,
-      write: false,
-      metafile: true,
-      platform: 'node',
-      external: ['fluidcad', 'fluidcad/*'],
-      plugins: [...(options.plugins ?? []), EsbuildPlugins.blockNodeBuiltins()],
-      logLevel: 'silent',
-    });
+    }];
+    let result;
+    try {
+      result = await build({
+        stdin: {
+          contents: options.entries.map((rel) => `import ${JSON.stringify(rel)};\n`).join(''),
+          resolveDir: workspace,
+          sourcefile: wrapperName,
+          loader: 'js',
+        },
+        absWorkingDir: workspace,
+        format: 'esm',
+        bundle: true,
+        write: false,
+        metafile: true,
+        platform: 'node',
+        external: ['fluidcad', 'fluidcad/*'],
+        plugins: [...packages, ...(options.plugins ?? []), EsbuildPlugins.blockNodeBuiltins()],
+        logLevel: 'silent',
+      });
+    } catch (err) {
+      if (packageHit) {
+        throw packageHit;
+      }
+      throw err;
+    }
+    if (packageHit) {
+      throw packageHit;
+    }
     if (result.errors.length) {
       throw new Error(result.errors.map((e) => e.text).join('\n'));
     }

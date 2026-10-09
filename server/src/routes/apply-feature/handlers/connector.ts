@@ -99,6 +99,11 @@ export async function handleConnector(ctx: ApplyFeatureRequestContext, req: Requ
       });
       return;
     }
+    // The connector lands in the picked part's file: a package's part is
+    // read-only (K8), so not even a preview is offered for it.
+    if (dispatcher.refuseReadOnly(res, synthesis.spec.filePath)) {
+      return;
+    }
     // Composed here rather than taken from `synthesis.preview` so the
     // previewed text is exactly what the transform writes (the args
     // already carry the anchor suffix; the chain matches the transform's).

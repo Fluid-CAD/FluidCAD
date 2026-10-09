@@ -261,6 +261,11 @@ export function createTimelineRouter(
       res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
       return;
     }
+    // A package's part is read-only (K8): refused before the material is
+    // copied into this project's fluidcad.json for nothing.
+    if (options.dispatcher.refuseReadOnly(res, sourceLocation.filePath)) {
+      return;
+    }
     // A global material is copied into fluidcad.json before the source
     // names it, so the render that follows the edit resolves the id (the
     // file is re-read per render) and the project carries what it uses.

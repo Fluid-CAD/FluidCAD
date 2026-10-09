@@ -950,6 +950,12 @@ const packagesMissingDot = document.createElement('span');
 packagesMissingDot.className = 'absolute top-1 right-1 size-1.5 rounded-full bg-error hidden';
 packagesMissingDot.dataset.ref = 'packages-missing';
 packagesButton.appendChild(packagesMissingDot);
+// Every overview refresh follows something that may have changed the pins
+// or where they load from (init-complete, features-changed — fluidcad.json —
+// and every package action), so the editor's package types follow it.
+packagesState.subscribe(() => {
+  void editorSurface?.refreshPackageTypes();
+});
 packagesState.subscribe(() => {
   const missing = packagesState.missing.length > 0;
   packagesMissingDot.classList.toggle('hidden', !missing);

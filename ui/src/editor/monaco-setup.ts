@@ -65,6 +65,10 @@ export function setupMonaco(): typeof monaco {
     // report every Node global as missing.
     allowSyntheticDefaultImports: true,
     strict: false,
+    // A pinned package's sources sit under `file:///node_modules/@scope/name`
+    // (package-types.ts): as deep as the jsconfig lets tsserver follow them
+    // (`ProjectJsconfig.MAX_NODE_MODULE_JS_DEPTH` on the server).
+    maxNodeModuleJsDepth: 8,
   });
 
   // `checkJs` is worth nothing if semantic diagnostics stay off — this is the

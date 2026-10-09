@@ -1,7 +1,7 @@
 import { setupMonaco, monaco } from './monaco-setup';
 import { EditorPane } from './editor-pane';
 import { WorkspaceModels, type ModelEntry } from './models';
-import { loadEngineTypes, loadOcctTypes } from './engine-types';
+import { loadEngineTypes, loadOcctTypes, packageTypes } from './engine-types';
 import { OcctTypes } from './occt-types';
 import { QuickOpen } from './quick-open';
 import type { FileTab, OtherTabs } from './tabs';
@@ -111,6 +111,8 @@ export class EditorSurface {
       deps.setWorkspaceName?.(root.split(/[\\/]/).pop() || root);
     }
     void loadEngineTypes();
+    // The pinned packages' sources; the page refreshes them when the pins change.
+    void surface.refreshPackageTypes();
     // Raw OpenCascade's declarations (~2 MB) only once a file reaches it.
     OcctTypes.watch(monaco.editor, loadOcctTypes);
     surface.installEditorCommands();
@@ -627,6 +629,16 @@ export class EditorSurface {
   onSceneRendered(objects: SceneObjectRender[], compileError: CompileError | null): void {
     this.diagnostics.update(objects, compileError);
     this.breakpoints.refreshAll();
+  }
+
+  /**
+   * The project's packages may have changed (a pin written or removed, a
+   * package installed, copied into the project or taken out): the language
+   * service follows. Called whenever the page refreshes its package
+   * overview; does nothing when the pins' sources are unchanged.
+   */
+  refreshPackageTypes(): Promise<void> {
+    return packageTypes.refresh();
   }
 
   /** The server process died — its verdicts are stale. */

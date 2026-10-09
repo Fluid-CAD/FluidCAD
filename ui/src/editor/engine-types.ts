@@ -1,6 +1,7 @@
 import { javascriptDefaults } from 'monaco-editor/languages/features/typescript/register.js';
-import { fetchEngineTypes, fetchOcctTypes } from './editor-api';
+import { fetchEngineTypes, fetchOcctTypes, fetchPackageTypes } from './editor-api';
 import { registerAutoImports } from './auto-imports';
+import { PackageTypes } from './package-types';
 
 /**
  * Feed the running engine's own declarations to Monaco's TypeScript service.
@@ -59,3 +60,15 @@ export async function loadOcctTypes(): Promise<void> {
     console.warn('FluidCAD: the OpenCascade binding\'s declarations are unavailable:', err);
   }
 }
+
+/**
+ * The pinned packages' sources (`@scope/name`), beside the engine's
+ * declarations: {@link PackageTypes} registers them and follows the pins.
+ */
+export const packageTypes = new PackageTypes(
+  (content, uri) => javascriptDefaults.addExtraLib(content, uri),
+  fetchPackageTypes,
+  // Setting the options, even to the same ones, restarts the TypeScript
+  // worker (Monaco's WorkerManager stops it on any defaults change).
+  () => javascriptDefaults.setCompilerOptions(javascriptDefaults.getCompilerOptions()),
+);

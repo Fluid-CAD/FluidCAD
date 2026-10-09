@@ -1,3 +1,4 @@
+import type { PackageRef } from '../../../api';
 import { ICON_CHEVRON_DOWN } from '../../../ui/icons';
 import { iconUrl } from '../../../ui/icon-url';
 import type { Navbar } from '../../../ui/navbar';
@@ -19,6 +20,12 @@ export type CustomFeatureCellSpec = {
   group: 'create' | 'modify';
   /** An entry the catalog can't offer: greyed, and its tooltip says why. */
   disabled?: boolean;
+  /**
+   * The installed package the feature comes from; absent for the
+   * workspace's own. The menu groups by it, and a library package's group
+   * says it isn't in this project yet.
+   */
+  package?: PackageRef;
 };
 
 // The dropdown hangs off the button like the sketch toolbar's option menus
@@ -29,6 +36,9 @@ const PANEL =
   + 'panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
 /** Three columns that narrow (labels truncating) only when the window can't fit them. */
 const GRID = 'grid grid-cols-[repeat(3,minmax(0,5.5rem))] gap-1';
+/** A group's heading, once a package's features share the menu with the workspace's. */
+const GROUP_HEADING = 'flex items-center gap-1.5 px-1 pt-1.5 pb-1 text-[11px] text-base-content/55 min-w-0 first:pt-0.5';
+const NOT_IN_PROJECT = 'badge badge-xs badge-soft badge-warning shrink-0 whitespace-nowrap';
 // The toolbar's own idle and armed looks, stretched to the cell.
 const CELL_SHAPE = 'btn btn-sm h-auto w-full min-w-0 flex-col gap-1 px-1 py-2';
 const CELL_BASE = `${CELL_SHAPE} btn-ghost text-base-content/70`;
@@ -59,11 +69,13 @@ export class CustomFeatureCell implements FeatureLauncher {
       press: (cell: CustomFeatureCell) => void;
       activeChange: () => void;
       remove: (cell: CustomFeatureCell) => void;
+      /** The cell's package changed (a library package got pinned): it may change group. */
+      regroup: () => void;
     },
   ) {
     this.el = document.createElement('div');
     this.el.className = 'relative min-w-0 flex';
-    this.el.title = spec.tip;
+    this.el.title = CustomFeatureCell.titleOf(spec);
     if (spec.id !== null) {
       this.el.dataset.tool = `feature:${spec.id}`;
     }
@@ -102,6 +114,32 @@ export class CustomFeatureCell implements FeatureLauncher {
     this.events.remove(this);
   }
 
+  /**
+   * The package the feature comes from changed while its dialog stayed (the
+   * project just pinned a library package by using it): the cell moves to
+   * that package's group and drops the "not in this project" mark.
+   */
+  setPackage(pkg: PackageRef | undefined): void {
+    const before = JSON.stringify(this.spec.package ?? null);
+    if (before === JSON.stringify(pkg ?? null)) {
+      return;
+    }
+    (this.spec as { package?: PackageRef }).package = pkg;
+    this.el.title = CustomFeatureCell.titleOf(this.spec);
+    this.events.regroup();
+  }
+
+  /** The tooltip: the feature's own, then where it comes from. */
+  private static titleOf(spec: CustomFeatureCellSpec): string {
+    if (!spec.package) {
+      return spec.tip;
+    }
+    const from = `From ${spec.package.name} ${spec.package.version}`;
+    return spec.package.availability === 'library'
+      ? `${spec.tip}\n${from}, in your library but not in this project yet: using it adds it.`
+      : `${spec.tip}\n${from}.`;
+  }
+
   private syncClass(): void {
     // A greyed cell lets the hover through to the cell, whose tooltip says why.
     this.button.className = `${this._active ? CELL_ACTIVE : CELL_BASE}${this.disabled ? ' pointer-events-none' : ''}`;
@@ -132,7 +170,6 @@ export class CustomFeaturesMenu implements SketchHideable {
   private readonly wrap: HTMLSpanElement;
   private readonly button: HTMLButtonElement;
   private readonly panel: HTMLDivElement;
-  private readonly grid: HTMLDivElement;
   private readonly cells: CustomFeatureCell[] = [];
   private sketchHidden = false;
   private opened = false;
@@ -165,9 +202,6 @@ export class CustomFeaturesMenu implements SketchHideable {
     this.panel.dataset.role = 'custom-features-menu';
     // A click on a cell must not pull focus off the editor or the viewport.
     this.panel.addEventListener('mousedown', (e) => e.preventDefault());
-    this.grid = document.createElement('div');
-    this.grid.className = GRID;
-    this.panel.appendChild(this.grid);
 
     viewportChrome.subscribeDialogs((openIds) => {
       if ([...openIds].some(id => !this.dialogsAtOpen.has(id))) {
@@ -185,6 +219,7 @@ export class CustomFeaturesMenu implements SketchHideable {
       },
       activeChange: () => this.syncActive(),
       remove: (removed) => this.drop(removed),
+      regroup: () => this.layout(),
     });
     this.cells.push(cell);
     this.layout();
@@ -268,15 +303,74 @@ export class CustomFeaturesMenu implements SketchHideable {
     this.layout();
   }
 
-  /** Order the grid, then bring the button and an open dropdown in line with it. */
+  /**
+   * Order the grid, then bring the button and an open dropdown in line with
+   * it. With a package's features in the menu, each source gets its own grid
+   * under a heading: the workspace's ("This project") first, then each
+   * package by name, a library one marked as not in this project yet.
+   */
   private layout(): void {
     this.cells.sort(CustomFeaturesMenu.compare);
-    this.grid.replaceChildren(...this.cells.map(cell => cell.el));
+    const groups = CustomFeaturesMenu.groupsOf(this.cells);
+    const headed = groups.some(group => group.pkg !== null);
+    const children: HTMLElement[] = [];
+    for (const group of groups) {
+      if (headed) {
+        children.push(CustomFeaturesMenu.heading(group.pkg));
+      }
+      const grid = document.createElement('div');
+      grid.className = GRID;
+      grid.dataset.group = group.pkg ? group.pkg.name : 'workspace';
+      grid.replaceChildren(...group.cells.map(cell => cell.el));
+      children.push(grid);
+    }
+    this.panel.replaceChildren(...children);
     this.syncActive();
     this.syncVisible();
     if (this.isOpen) {
       this.position();
     }
+  }
+
+  /** The cells by source, in menu order: the workspace's, then each package by name and version. */
+  private static groupsOf(cells: readonly CustomFeatureCell[]): { pkg: PackageRef | null; cells: CustomFeatureCell[] }[] {
+    const groups = new Map<string, { pkg: PackageRef | null; cells: CustomFeatureCell[] }>();
+    for (const cell of cells) {
+      const pkg = cell.spec.package ?? null;
+      const key = pkg ? `${pkg.name}@${pkg.version}` : '';
+      if (!groups.has(key)) {
+        groups.set(key, { pkg, cells: [] });
+      }
+      groups.get(key)!.cells.push(cell);
+    }
+    return [...groups.entries()]
+      .sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)))
+      .map(([, group]) => group);
+  }
+
+  private static heading(pkg: PackageRef | null): HTMLDivElement {
+    const heading = document.createElement('div');
+    heading.className = GROUP_HEADING;
+    heading.dataset.groupHeading = pkg ? pkg.name : 'workspace';
+    const name = document.createElement('span');
+    name.className = 'truncate font-medium text-base-content/70';
+    name.textContent = pkg ? pkg.name : 'This project';
+    heading.appendChild(name);
+    if (pkg) {
+      const version = document.createElement('span');
+      version.className = 'tabular-nums shrink-0';
+      version.textContent = pkg.version;
+      heading.appendChild(version);
+    }
+    if (pkg?.availability === 'library') {
+      const badge = document.createElement('span');
+      badge.className = NOT_IN_PROJECT;
+      badge.dataset.ref = 'not-in-project';
+      badge.textContent = 'not in this project';
+      badge.title = 'In your library, not used by this project yet: using one of its features adds it to the project.';
+      heading.appendChild(badge);
+    }
+    return heading;
   }
 
   /** Create-group features first, then modify, each by label. */

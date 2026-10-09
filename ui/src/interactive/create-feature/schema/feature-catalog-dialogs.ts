@@ -6,7 +6,7 @@ import { DEFAULT_ICON_SRC, ObjectIcons } from '../../../ui/object-icons';
 import type { Navbar } from '../../../ui/navbar';
 import type { FeatureDialogRegistry } from '../../feature-dialog-registry';
 import { FeatureButton, type FeatureLauncher } from '../feature-button';
-import { CustomFeaturesMenu } from './custom-features-menu';
+import { CustomFeaturesMenu, type CustomFeatureCell } from './custom-features-menu';
 import { FeatureSchema } from './feature-schema';
 import type { SchemaFeatureService } from './schema-feature-service';
 
@@ -53,6 +53,8 @@ export class FeatureCatalogDialogs {
     service: SchemaFeatureService; signature: string; builtIn: boolean;
     /** The icon file a workspace feature declares, as declared. */
     icon: string | null;
+    /** Its cell in the Custom dropdown; null for a built-in's own button. */
+    cell: CustomFeatureCell | null;
   }>();
   private readonly broken = new Map<string, { launcher: FeatureLauncher; error: string }>();
   /** Bumped on every module change, so an image shown after one — a rebuilt dialog's, a kept one's — is fetched fresh. */
@@ -150,6 +152,10 @@ export class FeatureCatalogDialogs {
       if (!entry || FeatureCatalogDialogs.signatureOf(entry) !== held.signature) {
         this.remove(id);
         changed = true;
+      } else {
+        // Same metadata, same dialog — but a library package the project
+        // just pinned by using it is now a dependency: its cell follows.
+        held.cell?.setPackage(entry.package);
       }
     }
     for (const [id, entry] of offered) {
@@ -161,11 +167,11 @@ export class FeatureCatalogDialogs {
       const schema = new FeatureSchema(entry.meta, {
         assetUrl: entry.builtIn ? undefined : path => featureAssetUrl(id, path, this.revision),
       });
-      const service = entry.builtIn
-        ? this.create(schema, icon)
-        : this.create(schema, icon, this.menu.add({
-          id, label: schema.label, iconSrc: icon, tip: schema.tip, group: FeatureCatalogDialogs.groupOf(entry.meta),
-        }));
+      const cell = entry.builtIn ? null : this.menu.add({
+        id, label: schema.label, iconSrc: icon, tip: schema.tip, group: FeatureCatalogDialogs.groupOf(entry.meta),
+        ...(entry.package ? { package: entry.package } : {}),
+      });
+      const service = cell ? this.create(schema, icon, cell) : this.create(schema, icon);
       this.registry.register(service);
       // A built-in's rows already read the product's own icon by their type.
       if (!entry.builtIn) {
@@ -174,6 +180,7 @@ export class FeatureCatalogDialogs {
       this.dialogs.set(id, {
         service, signature: FeatureCatalogDialogs.signatureOf(entry), builtIn: entry.builtIn,
         icon: entry.builtIn ? null : entry.meta.icon ?? null,
+        cell,
       });
       changed = true;
     }
@@ -241,6 +248,7 @@ export class FeatureCatalogDialogs {
     if (!entry.builtIn) {
       return this.menu.add({
         id: entry.id, label, iconSrc: DEFAULT_ICON_SRC, tip, group: FeatureCatalogDialogs.groupOf(entry.meta), disabled: true,
+        ...(entry.package ? { package: entry.package } : {}),
       });
     }
     const group = this.navbar.getGroup('create') ?? this.navbar.addGroup('create', { visible: false, immune: true });

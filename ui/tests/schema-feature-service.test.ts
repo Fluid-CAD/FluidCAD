@@ -1178,6 +1178,27 @@ describe('the feature catalog on the page', () => {
     expect(ObjectIcons.srcFor(undefined, 'extrude')).toBe('icons/extrude.png');
   });
 
+  it('groups a package\'s features under it in the dropdown, marks a library one, and keeps the dialog when the project pins it', () => {
+    const { dialogs, built, menuButton } = catalog();
+    const kit = { name: '@acme/kit', version: '0.1.0', availability: 'library' as const };
+    dialogs.apply([entry(BRACKET), entry(STANDOFF, { package: kit })]);
+    menuButton.click();
+    const panel = document.querySelector<HTMLElement>('[data-role="custom-features-menu"]')!;
+    const headings = [...panel.querySelectorAll<HTMLElement>('[data-group-heading]')];
+    expect(headings.map(h => h.dataset.groupHeading)).toEqual(['workspace', '@acme/kit']);
+    expect(headings[0].textContent).toBe('This project');
+    expect(headings[1].querySelector('[data-ref="not-in-project"]')!.textContent).toBe('not in this project');
+    const standoff = panel.querySelector<HTMLElement>('[data-tool="feature:acme.standoff"]')!;
+    expect(standoff.closest<HTMLElement>('[data-group]')!.dataset.group).toBe('@acme/kit');
+    expect(standoff.title).toContain('From @acme/kit 0.1.0, in your library but not in this project yet');
+
+    // Using it pinned it: same metadata, so the same dialog — its cell drops the mark.
+    dialogs.apply([entry(BRACKET), entry(STANDOFF, { package: { ...kit, availability: 'dependency' } })]);
+    expect(built).toHaveLength(2);
+    expect(panel.querySelector('[data-ref="not-in-project"]')).toBeNull();
+    expect(panel.querySelector<HTMLElement>('[data-tool="feature:acme.standoff"]')!.title).toBe('Standoff — A boss with a bore\nFrom @acme/kit 0.1.0.');
+  });
+
   it("offers a built-in that describes itself — Draft — as a regular button in its group, with the product's own icon", () => {
     const { registry, dialogs, built, container, navbar, menuGroup } = catalog();
     dialogs.apply([{ id: 'draft', exportName: 'draft', modulePath: 'fluidcad/core', builtIn: true, meta: DRAFT }]);

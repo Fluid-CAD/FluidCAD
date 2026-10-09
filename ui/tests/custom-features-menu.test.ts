@@ -311,3 +311,42 @@ describe('the Custom features button', () => {
     }
   });
 });
+
+describe('features from packages', () => {
+  it('lists the workspace first, then each package under its own heading, a library one marked', () => {
+    const h = mount();
+    h.menu.add(spec('acme.boss', 'Boss', { package: { name: '@acme/kit', version: '0.1.0', availability: 'dependency' } }));
+    h.menu.add(spec('ws.taper', 'Taper'));
+    h.menu.add(spec('beta.gear', 'Gear', { package: { name: '@beta/gears', version: '2.0.0', availability: 'library' } }));
+    h.menu.add(spec('ws.bracket', 'Bracket'));
+    h.button.click();
+    const panel = h.panel()!;
+    const groups = [...panel.querySelectorAll<HTMLElement>('[data-group]')];
+    expect(groups.map(g => g.dataset.group)).toEqual(['workspace', '@acme/kit', '@beta/gears']);
+    expect(groups.map(g => [...g.children].map(c => c.textContent))).toEqual([['Bracket', 'Taper'], ['Boss'], ['Gear']]);
+    expect(groups.every(g => g.className.includes('grid-cols-[repeat(3,'))).toBe(true);
+    const headings = [...panel.querySelectorAll<HTMLElement>('[data-group-heading]')];
+    expect(headings.map(x => x.textContent)).toEqual(['This project', '@acme/kit0.1.0', '@beta/gears2.0.0not in this project']);
+    expect(panel.querySelectorAll('[data-ref="not-in-project"]')).toHaveLength(1);
+  });
+
+  it('keeps the plain grid, with no headings, while no package is listed', () => {
+    const h = mount();
+    h.menu.add(spec('ws.taper', 'Taper'));
+    h.button.click();
+    expect(h.panel()!.querySelector('[data-group-heading]')).toBeNull();
+    expect(h.panel()!.firstElementChild!.className).toContain('grid-cols-[repeat(3,');
+  });
+
+  it('moves a cell to its package\'s group when its package changes under an open dropdown', () => {
+    const h = mount();
+    h.menu.add(spec('ws.taper', 'Taper'));
+    const boss = h.menu.add(spec('acme.boss', 'Boss', { package: { name: '@acme/kit', version: '0.1.0', availability: 'library' } }));
+    h.button.click();
+    expect(h.panel()!.querySelector('[data-ref="not-in-project"]')).not.toBeNull();
+    boss.setPackage({ name: '@acme/kit', version: '0.1.0', availability: 'dependency' });
+    expect(h.panel()!.querySelector('[data-ref="not-in-project"]')).toBeNull();
+    expect(boss.el.title).toBe('Boss\nFrom @acme/kit 0.1.0.');
+    expect(h.cellButton('acme.boss')).not.toBeNull();
+  });
+});

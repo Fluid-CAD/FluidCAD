@@ -23,7 +23,6 @@ type CustomGhostBody = {
   refs?: unknown;
   operation?: unknown;
   exclude?: { filePath?: unknown; line?: unknown } | null;
-  unbounded?: unknown;
   valueScope?: unknown;
 };
 
@@ -107,7 +106,6 @@ export class CustomGhostRoute {
       refs: shaped.refs,
       operation: shaped.operation,
       ...(shaped.exclude ? { exclude: shaped.exclude } : {}),
-      ...(shaped.unbounded ? { unbounded: true } : {}),
     };
     const result = await fluidCadServer.featureGhost(request);
     if (result.solids) {
@@ -115,7 +113,7 @@ export class CustomGhostRoute {
       return;
     }
     if (result.paused) {
-      // The build ran, slower than a live preview may: the dialog pauses.
+      // The build ran, slower than a preview may: the dialog's preview times out.
       res.json({ success: false, paused: true, reason: result.reason });
       return;
     }
@@ -147,7 +145,7 @@ export class CustomGhostRoute {
   /**
    * The body checked against the feature: typed-in values by kind (numbers
    * to resolve, literals as they are), picks by picker, the operation, the
-   * edited statement and the unbounded flag.
+   * and the edited statement.
    */
   private static shape(body: CustomGhostBody, meta: FeatureMetaSnapshot): {
     numbers: Record<string, ValueExpr>;
@@ -155,7 +153,6 @@ export class CustomGhostRoute {
     refs: Record<string, GhostCustomRef[]>;
     operation: CustomGhostRequest['operation'];
     exclude: { filePath: string; line: number } | null;
-    unbounded: boolean;
   } | { reason: string } {
     const rawValues = body.values ?? {};
     if (typeof rawValues !== 'object' || rawValues === null || Array.isArray(rawValues)) {
@@ -228,7 +225,6 @@ export class CustomGhostRoute {
       refs,
       operation: operation as CustomGhostRequest['operation'],
       exclude,
-      unbounded: body.unbounded === true,
     };
   }
 

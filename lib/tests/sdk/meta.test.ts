@@ -194,7 +194,7 @@ describe("feature metadata refusals", () => {
 
   it("refuse a field the picker kind doesn't have, and a list where one thing is picked", () => {
     refuses(withParam('face', { picker: 'edge', surface: 'planar' }),
-      "feature 'acme.boss': param 'face': unknown field 'surface' for an edge picker — its fields are label, description, group, tab, hint, visibleWhen, optional, multiple, max, ordered, curve, facesAsEdges");
+      "feature 'acme.boss': param 'face': unknown field 'surface' for an edge picker — its fields are label, description, group, tab, hint, aside, visibleWhen, optional, multiple, max, ordered, curve, facesAsEdges");
     refuses(withParam('face', { picker: 'axis', multiple: true }), "feature 'acme.boss': param 'face': an axis picker picks one axis, so it takes no 'multiple'");
     refuses(withParam('face', { picker: 'plane', ordered: true }), "feature 'acme.boss': param 'face': a plane picker picks one plane, so it takes no 'ordered'");
     refuses(withParam('face', { picker: 'face', default: 'top' }), /param 'face': a picker takes no default/);
@@ -236,7 +236,7 @@ describe("feature metadata refusals", () => {
     refuses(withParam('height', { type: 'select', options: [{ label: 'A', value: true }] }), /each option is \{ label, value \} with a string or number value/);
     refuses(withParam('height', { type: 'select', options: [{ label: 'A', value: 'a' }, { label: 'B', value: 'a' }] }), `feature 'acme.boss': param 'height': 'options' lists "a" twice`);
     refuses(withParam('height', { type: 'select', options: [{ label: 'A', value: 'a' }], default: 'b' }), `feature 'acme.boss': param 'height': the default "b" is not one of its options' values`);
-    refuses(withParam('height', { type: 'boolean', min: 0 }), /param 'height': unknown field 'min' for a boolean value — its fields are label, description, group, tab, hint, visibleWhen, optional, default/);
+    refuses(withParam('height', { type: 'boolean', min: 0 }), /param 'height': unknown field 'min' for a boolean value — its fields are label, description, group, tab, hint, aside, visibleWhen, optional, default/);
   });
 
   it("refuse a visibleWhen that names no typed-in value, or a value it can't take", () => {
@@ -672,7 +672,7 @@ describe("choice values: select and radio", () => {
       refuses({ type: 'select', options: AB, display: 'grid', columns }, `${at}: 'columns' must be a whole number from 2 to 6, got ${typeof columns === 'string' ? "'3'" : columns}`);
     }
     refuses({ type: 'select', options: AB, search: 'yes' }, `${at}: 'search' must be true or false, got 'yes'`);
-    refuses({ type: 'radio', options: AB, search: true }, `${at}: unknown field 'search' for a radio value — its fields are label, description, group, tab, hint, visibleWhen, optional, default, options, display, columns`);
+    refuses({ type: 'radio', options: AB, search: true }, `${at}: unknown field 'search' for a radio value — its fields are label, description, group, tab, hint, aside, visibleWhen, optional, default, options, display, columns`);
     refuses({ type: 'length', display: 'grid' }, `${at}: 'display' must be one of slider — leave it out for the plain input — got 'grid'`);
   });
 

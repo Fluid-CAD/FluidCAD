@@ -1607,7 +1607,7 @@ describe("a custom feature's ghost, from the dialog's body to the kernel", () =>
       getRenderedParts: () => [],
       featureGhost: async (request: any) => {
         expect(request).toMatchObject({ modulePath: MODULE, exportName: 'standoff' });
-        const { modulePath: _m, exportName: _e, unbounded: _u, ...rest } = request;
+        const { modulePath: _m, exportName: _e, ...rest } = request;
         const result = getSceneManager()!.buildFeatureGhost(scene, { ...rest, builder: standoff });
         return result.ok ? { status: 200, solids: result.solids } : { status: 422, reason: result.reason };
       },

@@ -101,6 +101,17 @@ describe('a stepper', () => {
     expect(changes()).toBe(7);
   });
 
+  it('keeps the number between its buttons whole: centred, its box as wide as the widest number of the range', () => {
+    const input = (spec: FeatureScalarParam) => field(spec).q('value-v') as HTMLInputElement;
+    const box = (spec: FeatureScalarParam) => input(spec).parentElement!;
+    expect(input(COUNT).className).toContain('text-center');
+    expect(box(COUNT).style.minWidth).toBe('calc(3ch + 0.875rem)');
+    expect(box({ type: 'integer', label: 'Teeth', default: 24, min: 4, max: 1000, display: 'stepper' }).style.minWidth).toBe('calc(4ch + 0.875rem)');
+    expect(box({ type: 'number', label: 'Gap', default: 2.125, step: 0.1, display: 'stepper' }).style.minWidth).toBe('calc(5ch + 0.875rem)');
+    // A plain input has no floor of its own.
+    expect(box({ type: 'integer', label: 'Plain', default: 24 }).style.minWidth).toBe('');
+  });
+
   it('steps by the declared step, starts an empty row at its default, and stands still over an expression', () => {
     const { row, q, type } = field({ type: 'number', label: 'Gap', default: 2, step: 0.1, display: 'stepper' });
     expect(row.read()).toEqual({ empty: true });

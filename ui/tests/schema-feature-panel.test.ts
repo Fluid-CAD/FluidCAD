@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FeatureMetaSnapshot } from '../src/api';
 import { DerivedLayout, type BareFeatureMeta } from './fixtures/derived-layout';
 import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
@@ -273,7 +273,12 @@ describe('the choice rows of a schema dialog', () => {
     const { root } = mount();
     const row = root.querySelector<HTMLElement>('[data-param="style"]')!;
     expect(row.className).toBe('flex flex-col gap-1.5');
-    expect([...row.children].map(c => c.tagName)).toEqual(['SPAN', 'SELECT']);
+    expect([...row.children].map(c => c.tagName)).toEqual(['SPAN', 'SELECT', 'DIV']);
+    // Unseen under the select, its longest option holds a row of cells open for it.
+    const sizer = row.querySelector<HTMLElement>('[data-role="select-sizer"]')!;
+    expect(sizer.textContent).toBe('Slots');
+    expect(sizer.getAttribute('aria-hidden')).toBe('true');
+    expect(sizer.className).toContain('invisible h-0');
     const select = row.querySelector('select')!;
     expect(select.dataset.role).toBe('value-style');
     expect(select.className).toBe('select select-sm select-bordered w-full text-xs');
@@ -722,17 +727,18 @@ describe("the layout tree of a schema dialog", () => {
     expect(root.innerHTML).toContain('sm:w-60');
   });
 
-  it('lays a row out as a grid of its widths, a note as a cell, and wears the declared width', () => {
+  it('lays a row out as wrapping cells sharing the line by their widths, a note as a cell, and wears the declared width', () => {
     const { root, body, sign, one } = open();
     expect([...body.children].map(sign)).toEqual(
       ['aside', 'face', 'layout-row', 'tabs', 'tab-Hole', 'tab-Finish', 'note', 'scope-slot', 'preview-row', 'ghost-paused']);
     const row = one('[data-role="layout-row"]');
-    expect(row.style.gridTemplateColumns).toBe('minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)');
-    expect(row.className).toBe('grid gap-2 items-start');
-    expect([...row.children].map(cell => cell.className)).toEqual(['min-w-0', 'min-w-0', 'min-w-0']);
+    expect(row.className).toBe('flex flex-wrap gap-x-2 gap-y-3.5 items-start');
+    // Each cell grows by its share from nothing, and is never narrower than its content can be.
+    expect([...row.children].map(cell => (cell as HTMLElement).style.flex)).toEqual(['2 1 0%', '1 1 0%', '1 1 0%']);
+    expect([...row.children].map(cell => cell.className)).toEqual(['max-w-full', 'max-w-full', 'max-w-full']);
     expect([...row.children].map(cell => sign(cell.firstElementChild!))).toEqual(['count', 'start', 'note']);
     expect(row.querySelector('[data-role="note"]')!.textContent).toBe('per turn');
-    expect(one('[data-role="tab-Finish"] [data-role="layout-row"]').style.gridTemplateColumns).toBe('minmax(0, 1fr) minmax(0, 1fr)');
+    expect([...one('[data-role="tab-Finish"] [data-role="layout-row"]').children].map(cell => (cell as HTMLElement).style.flex)).toEqual(['1 1 0%', '1 1 0%']);
     expect(root.innerHTML).toContain('sm:w-68');
     expect(root.innerHTML).not.toContain('sm:w-60');
   });
@@ -816,6 +822,24 @@ describe("the layout tree of a schema dialog", () => {
     expect(shown(one('[data-param="depth"]'))).toBe(true);
   });
 
+  it('takes a cell whose value hides out of its row, so the cells that show share the line', () => {
+    const { panel, all, set } = open({
+      ...PLATE,
+      params: {
+        by: { type: 'select', label: 'By', options: [{ label: 'Count', value: 'count' }, { label: 'Length', value: 'length' }], default: 'count' },
+        teeth: { type: 'integer', label: 'Teeth', default: 20, visibleWhen: { by: 'count' } },
+        length: { type: 'length', label: 'Length', default: 100, visibleWhen: { by: 'length' } },
+      },
+      aside: undefined,
+      layout: [{ row: ['by', 'teeth', 'length'] }],
+    });
+    const cells = () => all('[data-role="layout-cell"]').map(cell => cell.classList.contains('hidden'));
+    expect(cells()).toEqual([false, false, true]);
+    set('by', el => { el.selectedIndex = 1; });
+    expect(cells()).toEqual([false, true, false]);
+    expect(panel.fields.get('length')!.visible).toBe(true);
+  });
+
   it('arms no slot under a folded section, hands the armed state on when one folds, and arms one it uncovers', () => {
     const { panel, tab, toggle } = open();
     expect(panel.armedSlot).toBe('face');
@@ -874,7 +898,8 @@ describe("the layout tree of a schema dialog", () => {
     // The sheet is as wide as the window: a picture with no height of its own is held to a strip, not the sheet's whole body.
     expect(copy.className).toContain('[&_img]:max-h-40');
     expect(card.className).toContain('max-sm:hidden');
-    for (const host of [card, copy]) {
+    expect([...card.children].map(el => (el as HTMLElement).dataset.role)).toEqual(['aside-feature']);
+    for (const host of [one('[data-role="aside-feature"]'), copy]) {
       expect([...host.children].map(el => (el as HTMLElement).dataset.role)).toEqual(['image', 'divider', 'note']);
       expect(host.querySelector('img')!.getAttribute('src')).toBe('served:./plate/section.svg');
       expect(host.querySelector('img')!.alt).toBe('Section');
@@ -883,6 +908,75 @@ describe("the layout tree of a schema dialog", () => {
     set('through', el => { el.checked = false; });
     expect(all('[data-role="side-card"] [data-role="note"], [data-role="aside"] [data-role="note"]').map(el => el.classList.contains('hidden')))
       .toEqual([false, false]);
+  });
+
+  it("swaps the card to a value's own aside while its row has the focus or the pointer, and back", () => {
+    vi.useFakeTimers();
+    try {
+      const { panel, one, set } = open({
+        ...PLATE,
+        params: {
+          ...PLATE.params,
+          depth: { ...PLATE.params.depth, aside: [{ image: './plate/depth-aside.svg', alt: 'Depth' }, { note: 'From the face.' }] },
+          count: { ...PLATE.params.count, aside: [{ note: 'Holes per turn.', visibleWhen: { through: false } }] },
+        },
+      }, { assetUrl: path => `served:${path}` });
+      const card = one('[data-role="side-card"]');
+      const showing = () => card.dataset.showing;
+      const shown = (role: string) => !one(`[data-role="${role}"]`).classList.contains('hidden');
+      expect(showing()).toBe('');
+      expect(shown('aside-feature')).toBe(true);
+      expect(shown('aside-depth')).toBe(false);
+      // The body's sheet copy is the feature's aside alone.
+      expect(one('[data-role="aside"]').querySelector('[data-role="aside-depth"]')).toBeNull();
+
+      const depthRow = panel.fields.get('depth')!.row;
+      const input = depthRow.querySelector('input')!;
+      input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      expect(showing()).toBe('depth');
+      expect(shown('aside-depth')).toBe(true);
+      expect(shown('aside-feature')).toBe(false);
+      expect(one('[data-role="aside-depth"] img').getAttribute('src')).toBe('served:./plate/depth-aside.svg');
+      input.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+      expect(showing()).toBe('');
+
+      // A value whose aside shows nothing now (its one note hides while through) keeps the feature's.
+      const countRow = panel.fields.get('count')!.row;
+      countRow.dispatchEvent(new Event('pointerenter'));
+      vi.advanceTimersByTime(SchemaFeaturePanel.HOVER_MS);
+      expect(showing()).toBe('');
+      set('through', el => { el.checked = false; });
+      expect(showing()).toBe('count');
+      countRow.dispatchEvent(new Event('pointerleave'));
+      expect(showing()).toBe('');
+
+      // The pointer has to rest: one that passes over swaps nothing.
+      depthRow.dispatchEvent(new Event('pointerenter'));
+      depthRow.dispatchEvent(new Event('pointerleave'));
+      vi.advanceTimersByTime(SchemaFeaturePanel.HOVER_MS);
+      expect(showing()).toBe('');
+      // Focus on a row of its own aside, the pointer on another: the pointer wins while it rests.
+      input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      countRow.dispatchEvent(new Event('pointerenter'));
+      vi.advanceTimersByTime(SchemaFeaturePanel.HOVER_MS);
+      expect(showing()).toBe('count');
+      countRow.dispatchEvent(new Event('pointerleave'));
+      expect(showing()).toBe('depth');
+      // Focus moving to a row without an aside brings the feature's back.
+      const finish = panel.fields.get('finish')!.row.querySelector('select')!;
+      finish.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      expect(showing()).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens a card for values with an aside even when the feature declares none', () => {
+    const { one } = open({ ...PLATE, aside: undefined, params: { ...PLATE.params, depth: { ...PLATE.params.depth, aside: [{ note: 'From the face.' }] } } });
+    const card = one('[data-role="side-card"]');
+    expect(card.classList.contains('hidden')).toBe(true);
+    expect(one('[data-role="aside-depth"]').textContent).toBe('From the face.');
+    expect(document.querySelector('[data-role="aside"]')).toBeNull();
   });
 
   it('asks for the layout\'s and the aside\'s images again after a save', () => {

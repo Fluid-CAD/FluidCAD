@@ -189,6 +189,9 @@ class NumberField extends SchemaField {
     }
     line.append(box);
     if (display === 'stepper') {
+      // The number between the buttons stays whole: the box is as wide as the longest the range holds.
+      input.classList.add('px-1.5', 'text-center');
+      box.style.minWidth = `calc(${NumberField.digits(this.look)}ch + 0.875rem)`;
       this.steppers = [-1, 1].map(direction => {
         const button = document.createElement('button');
         button.type = 'button';
@@ -247,6 +250,13 @@ class NumberField extends SchemaField {
     const { min, max, step, default: fallback } = this.look;
     const next = (plain ?? fallback ?? min ?? 0) + direction * (step ?? 1);
     this.write(Math.min(max ?? Infinity, Math.max(min ?? -Infinity, next)));
+  }
+
+  /** The characters the widest number of the range takes — 3 at least, so a typed variable shows its start. */
+  private static digits(spec: FeatureNumberSpec): number {
+    const widths = [spec.min, spec.max, spec.default].filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+      .map(n => String(n).length);
+    return Math.min(8, Math.max(3, ...widths));
   }
 
   /** The track's step: the declared one, 1 for an integer, else a hundredth of the range to one figure. */
@@ -540,6 +550,8 @@ class SelectField extends ChoiceField {
   /** What each entry of the control stands for, by its index; the empty choice is undefined. */
   private values: (ChoiceValue | undefined)[] = [];
   private readonly select: HTMLSelectElement | null = null;
+  /** Under a native select: its longest option, unseen, holding the row open for it. */
+  private readonly sizer: HTMLElement | null = null;
   private readonly button: OptionButton<number> | null = null;
 
   constructor(name: string, spec: FeatureScalarParam, context: SchemaFieldContext) {
@@ -562,8 +574,14 @@ class SelectField extends ChoiceField {
     this.select = document.createElement('select');
     this.select.dataset.role = `value-${name}`;
     this.select.className = 'select select-sm select-bordered w-full text-xs';
+    // A native select is as narrow as its box lets it be: the longest option, laid out
+    // unseen under it, is what keeps a row from squeezing its text short.
+    this.sizer = document.createElement('div');
+    this.sizer.dataset.role = 'select-sizer';
+    this.sizer.setAttribute('aria-hidden', 'true');
+    this.sizer.className = 'invisible h-0 -mt-1.5 max-w-full overflow-hidden whitespace-nowrap text-xs pl-3 pr-9';
     this.relist();
-    this.row.append(this.select);
+    this.row.append(this.select, this.sizer);
     this.select.addEventListener('change', () => this.touch());
   }
 
@@ -582,12 +600,16 @@ class SelectField extends ChoiceField {
       this.button?.setItems(this.entries());
       return;
     }
-    this.select.replaceChildren(...this.values.map((value, index) => {
+    const labels = this.values.map((value, index) => value === undefined ? ChoiceField.NONE : this.offered[index - (this.unset ? 1 : 0)].label);
+    this.select.replaceChildren(...labels.map((label, index) => {
       const el = document.createElement('option');
       el.value = String(index);
-      el.textContent = value === undefined ? ChoiceField.NONE : this.offered[index - (this.unset ? 1 : 0)].label;
+      el.textContent = label;
       return el;
     }));
+    if (this.sizer) {
+      this.sizer.textContent = labels.reduce((longest, label) => label.length > longest.length ? label : longest, '');
+    }
   }
 
   protected get chosen(): ChoiceValue | undefined {

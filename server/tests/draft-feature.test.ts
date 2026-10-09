@@ -369,7 +369,7 @@ describe('a draft from its dialog, end to end', () => {
       featureGhost: async (request: any) => {
         asked.push(request);
         // The kernel these tests build with: its core's own builder.
-        const { modulePath: _m, exportName, unbounded: _u, ...rest } = request;
+        const { modulePath: _m, exportName, ...rest } = request;
         const result = getSceneManager()!.buildFeatureGhost(scene, { ...rest, builder: (core as Record<string, unknown>)[exportName] });
         return result.ok ? { status: 200, solids: result.solids } : { status: 422, reason: result.reason };
       },

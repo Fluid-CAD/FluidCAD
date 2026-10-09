@@ -323,7 +323,7 @@ describe("a custom feature's ghost", () => {
     const paused = ghost(scene, slow, { values: { wait: 40 }, budgetMs: 10 });
     expect(paused.ok).toBe(false);
     expect(paused).toMatchObject({ paused: true });
-    expect((paused as { reason: string }).reason).toMatch(/^Building it took \d+\.\d s — over the 0\.0 s a live preview may take\.$/);
+    expect((paused as { reason: string }).reason).toMatch(/^It took \d+\.\d s to build, over the 0\.0 s a preview may take\.$/);
     expect(paused).not.toHaveProperty('solids');
 
     expect(solidsOf(ghost(scene, slow, { values: { wait: 40 }, budgetMs: null }))).toHaveLength(1);

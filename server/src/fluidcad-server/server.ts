@@ -1313,9 +1313,8 @@ export class FluidCadServer {
   /**
    * A custom feature's ghost as the kernel takes it: its builder in place of
    * the module and export that name it — the module loaded through the
-   * workspace loader (see FeatureScanner.loadBuilder), once per render —
-   * and no time limit when the dialog asked for an unbounded one. Runs with
-   * the OCC mutex held.
+   * workspace loader (see FeatureScanner.loadBuilder), once per render.
+   * Runs with the OCC mutex held.
    */
   private async customGhostRequest(request: CustomGhostRequest): Promise<KernelCustomGhostRequest | { error: string }> {
     if (this.ghostCodeStale) {
@@ -1333,8 +1332,8 @@ export class FluidCadServer {
       builder = loaded;
       this.ghostBuilders.set(key, builder);
     }
-    const { modulePath: _modulePath, exportName: _exportName, unbounded, ...rest } = request;
-    return { ...rest, builder, ...(unbounded ? { budgetMs: null } : {}) };
+    const { modulePath: _modulePath, exportName: _exportName, ...rest } = request;
+    return { ...rest, builder };
   }
 
   /** Mark the workspace modules stale for the next load, and the builders loaded from them. */

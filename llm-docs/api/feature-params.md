@@ -16,7 +16,7 @@ one entry per value, in dialog order.
 type ParamSpec = ScalarParamSpec | PickerParamSpec;
 
 // Every value
-{ label?: string; description?: string; hint?: string; group?: string; tab?: string;
+{ label?: string; description?: string; hint?: string; aside?: FeatureStaticItem[]; group?: string; tab?: string;
   visibleWhen?: { [typedInValue: string]: scalar | scalar[] }; optional?: boolean }
 
 // Typed in — NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, TextParamSpec
@@ -148,6 +148,7 @@ create, and drops the value from the statement in an edit.
 | `maxLength` | `text` | The most characters, a whole number of 1 or more. |
 | `pattern` | `text` | A regular expression, as a string, that the whole value must match (`'[A-Za-z0-9-]*'`, no anchors needed). It must compile. |
 | `hint` | every value, pickers included | A line of small text under the row: a non-empty string. `description` stays the tooltip. |
+| `aside` | every value, pickers included | What the card beside the dialog shows while this value's row has the focus, or the pointer rests on it: a non-empty list of static items — `{ note }`, `{ image }`, `{ divider: true }` — checked like the dialog's own `aside` ([feature-layout](feature-layout.md#a-values-own-aside)). A diagram of what the value measures. |
 
 Leaving `display` out is the plain input (or the toggle): `'input'` and `'toggle'` are not values. A declared `default` must keep to `maxLength` and `pattern`, and so must a value a call passes: `fastener(): 'marking' must be at most 12 characters, got 14`.
 

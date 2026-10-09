@@ -147,9 +147,12 @@ export class FeatureLayouts {
     return FeatureLayouts.frozen(value) as FeatureLayout;
   }
 
-  /** The dialog's `aside`, checked and frozen: static items only. */
-  static checkAside(value: unknown, checks: FeatureLayoutChecks): readonly FeatureStaticItem[] {
-    new FeatureLayouts(checks).items(value, 'aside', "'aside'", 'aside: ');
+  /**
+   * An `aside` — the dialog's, or a value's (`subject` and `at` then name
+   * the value) — checked and frozen: static items only.
+   */
+  static checkAside(value: unknown, checks: FeatureLayoutChecks, subject = "'aside'", at = 'aside: '): readonly FeatureStaticItem[] {
+    new FeatureLayouts(checks).items(value, 'aside', subject, at);
     return FeatureLayouts.frozen(value) as readonly FeatureStaticItem[];
   }
 

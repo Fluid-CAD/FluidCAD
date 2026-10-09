@@ -505,8 +505,6 @@ export type CustomGhostRequest = {
   operation: 'add' | 'remove' | 'new' | null;
   /** Edit mode: the edited statement's call site — the kernel reads the scene as it stood before it. */
   exclude?: { filePath: string; line: number };
-  /** Build without a time limit: the dialog asked for this one preview after pausing. */
-  unbounded?: boolean;
 };
 
 /**
@@ -514,7 +512,7 @@ export type CustomGhostRequest = {
  * loaded from the module, and the time the build may take (null: no limit;
  * left out: the kernel's own budget).
  */
-export type KernelCustomGhostRequest = Omit<CustomGhostRequest, 'modulePath' | 'exportName' | 'unbounded'> & {
+export type KernelCustomGhostRequest = Omit<CustomGhostRequest, 'modulePath' | 'exportName'> & {
   builder: Function;
   budgetMs?: number | null;
 };

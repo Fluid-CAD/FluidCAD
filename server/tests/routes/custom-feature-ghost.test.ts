@@ -193,7 +193,6 @@ describe('feature-ghost route — custom features', () => {
         profile: [{ kind: 'statement', filePath: FILE, line: 2 }],
       },
       exclude: { filePath: FILE, line: 9 },
-      unbounded: true,
     });
 
     expect(received).toEqual({
@@ -208,16 +207,15 @@ describe('feature-ghost route — custom features', () => {
       },
       operation: null,
       exclude: { filePath: FILE, line: 9 },
-      unbounded: true,
     });
   });
 
   it('answers a pause as such, and passes refusals through quietly', async () => {
-    answer = { status: 200, reason: 'Building it took 2.3 s — over the 1.5 s a live preview may take.', paused: true };
+    answer = { status: 200, reason: 'It took 6.3 s to build, over the 5 s a preview may take.', paused: true };
     const paused = await post({ feature: 'custom', id: 'acme.standoff', refs: { face: [FACE] } });
     expect(paused).toEqual({
       status: 200,
-      body: { success: false, paused: true, reason: 'Building it took 2.3 s — over the 1.5 s a live preview may take.' },
+      body: { success: false, paused: true, reason: 'It took 6.3 s to build, over the 5 s a preview may take.' },
     });
 
     answer = { status: 422, reason: 'On face: that pick is not in the rendered scene.' };

@@ -205,8 +205,9 @@ shape: {
   one table of what an untouched row shows and what the builder gets.
 - **Where the rows sit** — rows side by side, sections that fold, tabs, notes,
   pictures, a wider dialog and a column beside the rows (`layout`, `width`,
-  `aside`): [[api/feature-layout]]. A value's own `group` and `tab` are the
-  short form for a simple dialog.
+  `aside`), and a value's own diagram that the column shows while the value
+  has the focus (a value's `aside`): [[api/feature-layout]]. A value's own
+  `group` and `tab` are the short form for a simple dialog.
 - **The call the dialog writes and reads back**: [[api/define-feature]].
 
 ## How the editor finds it

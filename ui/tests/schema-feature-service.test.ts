@@ -859,7 +859,7 @@ describe('editing a custom feature statement', () => {
 });
 
 describe("a custom feature's ghost", () => {
-  const PAUSED = 'Building it took 2.1 s — over the 1.5 s a live preview may take.';
+  const PAUSED = 'It took 6.1 s to build, over the 5 s a preview may take.';
 
   afterEach(() => {
     api.setActivePartProvider(() => null);
@@ -1051,7 +1051,7 @@ describe("a custom feature's ghost", () => {
     expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
   });
 
-  it('pauses a ghost too slow to follow the form, and builds it once on request', async () => {
+  it('times out a ghost too slow to follow the form, and asks again once the toggle is turned off and on', async () => {
     vi.mocked(api.fetchFeatureGhostResult).mockResolvedValueOnce({ solids: null, frames: [], notice: null, paused: PAUSED });
     const { service, panel, type, lastGhost, ghostBodies } = mount();
     service.enter();
@@ -1059,34 +1059,37 @@ describe("a custom feature's ghost", () => {
     await vi.advanceTimersByTimeAsync(300);
     const row = panel().querySelector<HTMLElement>('[data-role="ghost-paused"]')!;
     expect(row.classList.contains('hidden')).toBe(false);
-    expect(row.textContent).toContain(`Preview paused. ${PAUSED}`);
+    expect(row.textContent).toBe(`Preview timed out. ${PAUSED} Turn it off and on to try again.`);
+    // No button to build it anyway: the toggle is the one control.
+    expect(row.querySelector('button')).toBeNull();
     expect(ghostBodies()).toBe(0);
 
-    // While paused the form previews its statement, but asks for no ghost.
+    // Timed out, the form previews its statement but asks for no ghost.
     type('height', '12');
     await vi.advanceTimersByTimeAsync(300);
     expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(1);
 
-    row.querySelector<HTMLButtonElement>('[data-role="show-preview"]')!.click();
-    await vi.advanceTimersByTimeAsync(0);
+    flip(previewToggle(panel)!);
+    expect(row.classList.contains('hidden')).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(1);
+    flip(previewToggle(panel)!);
+    await vi.advanceTimersByTimeAsync(300);
     expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(2);
-    expect(lastGhost()![0]).toMatchObject({ values: { height: 12 }, unbounded: true });
+    expect(lastGhost()![0]).toMatchObject({ values: { height: 12 } });
     expect(ghostBodies()).toBe(1);
 
-    // The next change clears it; the dialog stays paused.
+    // A fresh dialog previews live again too.
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValueOnce({ solids: null, frames: [], notice: null, paused: PAUSED });
     type('height', '13');
     await vi.advanceTimersByTimeAsync(300);
-    expect(ghostBodies()).toBe(0);
-    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(2);
-
-    // A fresh dialog previews live again.
+    expect(row.classList.contains('hidden')).toBe(false);
     service.exit();
     service.enter();
     expect(row.classList.contains('hidden')).toBe(true);
     service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
     await vi.advanceTimersByTimeAsync(300);
-    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(3);
-    expect(lastGhost()![0]).not.toHaveProperty('unbounded');
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(4);
   });
 
   it('previews live again once its module is saved — what made it slow may be gone', async () => {
@@ -1102,7 +1105,6 @@ describe("a custom feature's ghost", () => {
     expect(row.classList.contains('hidden')).toBe(true);
     await vi.advanceTimersByTimeAsync(300);
     expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(2);
-    expect(lastGhost()![0]).not.toHaveProperty('unbounded');
     expect(ghostBodies()).toBe(1);
 
     // A closed dialog has nothing to ask.

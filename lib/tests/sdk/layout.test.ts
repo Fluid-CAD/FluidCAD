@@ -212,6 +212,22 @@ describe("a dialog's aside and width", () => {
     refusesAside([{ note: 'x', visibleWhen: { thru: true } }], "aside: note 'x': 'visibleWhen' names 'thru', which is not one of the feature's values");
   });
 
+  it("takes a value's own aside — static items only, its images checked — for the card while the value has the focus", () => {
+    const depthAside = [{ image: './depth.svg', alt: 'Depth from the face' }, { note: 'Blind only.', visibleWhen: { through: false } }];
+    const meta = resolved({}, values({ depth: { aside: depthAside } }));
+    expect(meta.params.depth.aside).toEqual(depthAside);
+    expect(Object.isFrozen(meta.params.depth.aside)).toBe(true);
+    expect(snapshotFeatureMeta(meta).params.depth.aside).toEqual(depthAside);
+    expect(resolved({}, values({ around: { aside: [{ note: 'The axis the holes circle.' }] } })).params.around.aside)
+      .toEqual([{ note: 'The axis the holes circle.' }]);
+    const refusesValueAside = (value: unknown, message: string) =>
+      expect(() => resolved({}, values({ depth: { aside: value } }))).toThrow(`feature 'acme.boltCircle': ${message}`);
+    refusesValueAside([], "param 'depth': 'aside' must be a non-empty list, got a list");
+    refusesValueAside(['count'], "param 'depth': aside: 'count' is a value's row — 'aside' holds notes, images and dividers");
+    refusesValueAside([{ image: '../out.svg' }], "param 'depth': aside: 'image' must be a relative path inside the module's directory");
+    refusesValueAside([{ note: 'x', visibleWhen: { thru: true } }], "param 'depth': aside: note 'x': 'visibleWhen' names 'thru', which is not one of the feature's values");
+  });
+
   it("takes 'wide' or 'wider' for the width", () => {
     expect(resolved({ width: 'wide' }).width).toBe('wide');
     expect(resolved({ width: 'wider' }).width).toBe('wider');
@@ -255,7 +271,7 @@ describe("the snapshot and the assets of a layout", () => {
     expect('width' in snapshot).toBe(false);
   });
 
-  it("lists the layout's images, then the aside's, after the icon and the options' — each once", () => {
+  it("lists the layout's images, then the aside's and the values' asides', after the icon and the options' — each once", () => {
     const layout = [
       ...rest('count', 'depth'),
       { row: ['count', { image: './row.svg' }] },
@@ -263,8 +279,9 @@ describe("the snapshot and the assets of a layout", () => {
       { image: './top.svg' },
     ];
     const aside = [{ image: './aside.svg' }, { image: './top.svg' }, { image: './icon.svg' }];
-    const meta = resolved({ icon: './icon.svg', layout, aside });
-    const assets = ['./icon.svg', './row.svg', './section.png', './top.svg', './aside.svg'];
+    const params = values({ start: { aside: [{ image: './start.svg' }, { image: './aside.svg' }] } });
+    const meta = resolved({ icon: './icon.svg', layout, aside }, params);
+    const assets = ['./icon.svg', './row.svg', './section.png', './top.svg', './aside.svg', './start.svg'];
     expect(listFeatureAssets(meta)).toEqual(assets);
     expect(listFeatureAssets(snapshotFeatureMeta(meta))).toEqual(assets);
     expect(FeatureLayouts.images(undefined)).toEqual([]);

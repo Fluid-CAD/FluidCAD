@@ -130,8 +130,8 @@ class GhostReference extends SceneObject {
  * never a shape the scene holds, which a feature may hand back as it is.
  */
 export class CustomFeatureGhost {
-  /** The default time a ghost may take before the dialog's preview pauses. */
-  static readonly BUDGET_MS = 1500;
+  /** The default time a ghost may take before the dialog's preview times out. */
+  static readonly BUDGET_MS = 5000;
 
   /** Wrappers made to reach the picks: the preview's to free. */
   private readonly scratch: Shape[] = [];
@@ -222,7 +222,7 @@ export class CustomFeatureGhost {
       return {
         ok: false,
         paused: true,
-        reason: `Building it took ${CustomFeatureGhost.seconds(elapsed)} — over the ${CustomFeatureGhost.seconds(budget)} a live preview may take.`,
+        reason: `It took ${CustomFeatureGhost.seconds(elapsed)} to build, over the ${CustomFeatureGhost.seconds(budget)} a preview may take.`,
       };
     }
     return { ok: true, solids };

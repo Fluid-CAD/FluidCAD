@@ -28,6 +28,8 @@ interface LayoutNode {
   item: FeatureLayoutItem;
   name?: string;
   el?: HTMLElement;
+  /** A row's cell holding this item: it leaves the row while the item hides. */
+  cell?: HTMLElement;
   children: LayoutNode[];
 }
 
@@ -58,8 +60,6 @@ export class SchemaFeaturePanel extends FeaturePanel {
   onOperationChange?: () => void;
   /** A scope chip's ✕. */
   onScopeRemove?: (index: number) => void;
-  /** The paused preview's "Show preview": build it once, however long it takes. */
-  onShowPreview?: () => void;
   /** The Preview toggle flipped. */
   onPreviewToggle?: (on: boolean) => void;
 
@@ -71,12 +71,22 @@ export class SchemaFeaturePanel extends FeaturePanel {
   private tabs: ChoiceTabs<string> | null = null;
   private readonly panes = new Map<string, HTMLElement>();
   private readonly nodes: LayoutNode[];
+  /** The aside at the top of the body, where the dialog is a sheet and the card has no room. */
   private readonly asides: { host: HTMLElement; nodes: LayoutNode[] }[] = [];
+  /**
+   * The card beside the dialog and what it can show, one at a time: the
+   * feature's aside (under null) and each value's own, by name.
+   */
+  private readonly card: HTMLElement | null = null;
+  private readonly cardGroups = new Map<string | null, { el: HTMLElement; nodes: LayoutNode[]; shows: boolean }>();
+  /** The value whose row holds the focus, and the one with an aside under the pointer. */
+  private focusedValue: string | null = null;
+  private hoveredValue: string | null = null;
+  private hoverTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly places = new Map<string, RowPlace>();
   private readonly folds: { fold: FoldingSection; collapsed: boolean }[] = [];
   private readonly images: { img: HTMLImageElement; path: string }[] = [];
   private readonly pausedRow: HTMLElement;
-  private readonly pausedText: HTMLElement;
   /** The Preview toggle; null for a feature whose metadata draws no preview (`ghost: false`). */
   private readonly previewToggle: HTMLInputElement | null = null;
   private armed: ArmedSlot = null;
@@ -91,11 +101,24 @@ export class SchemaFeaturePanel extends FeaturePanel {
     });
 
     const aside = schema.meta.aside;
-    if (aside && aside.length > 0) {
-      // The card hides where the dialog is a sheet: the body keeps its own copy for there.
-      const card = this.shell.addSideCard();
-      card.classList.add(...COLUMN_CLASS.split(' '));
-      for (const host of [card, this.append('aside', `sm:hidden [&_img]:max-h-40 ${COLUMN_CLASS}`)]) {
+    const valueAsides = Object.entries(schema.meta.params)
+      .filter(([, spec]) => spec.aside !== undefined && spec.aside.length > 0)
+      .map(([name, spec]) => [name, spec.aside!] as const);
+    if ((aside && aside.length > 0) || valueAsides.length > 0) {
+      // The card hides where the dialog is a sheet: the body keeps its own copy of the feature's aside for there.
+      const card = this.card = this.shell.addSideCard();
+      for (const [key, items] of [[null, aside ?? []] as const, ...valueAsides]) {
+        if (items.length === 0) {
+          continue;
+        }
+        const el = document.createElement('div');
+        el.dataset.role = key === null ? 'aside-feature' : `aside-${key}`;
+        el.className = COLUMN_CLASS;
+        card.appendChild(el);
+        this.cardGroups.set(key, { el, nodes: items.map(item => this.renderStatic(el, item)), shows: true });
+      }
+      if (aside && aside.length > 0) {
+        const host = this.append('aside', `sm:hidden [&_img]:max-h-40 ${COLUMN_CLASS}`);
         this.asides.push({ host, nodes: aside.map(item => this.renderStatic(host, item)) });
       }
     }
@@ -143,15 +166,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
       this.previewToggle = toggle;
     }
 
-    this.pausedRow = this.append('ghost-paused', 'hidden flex-col items-start gap-1.5 text-xs leading-snug text-base-content/70');
-    this.pausedText = document.createElement('span');
-    const showPreview = document.createElement('button');
-    showPreview.type = 'button';
-    showPreview.dataset.role = 'show-preview';
-    showPreview.className = 'btn btn-xs btn-outline';
-    showPreview.textContent = 'Show preview';
-    showPreview.addEventListener('click', () => this.onShowPreview?.());
-    this.pausedRow.append(this.pausedText, showPreview);
+    this.pausedRow = this.append('ghost-paused', 'hidden text-xs leading-snug text-base-content/70');
   }
 
   /** Whether the Preview toggle is on; false for a feature without one. */
@@ -167,14 +182,12 @@ export class SchemaFeaturePanel extends FeaturePanel {
   }
 
   /**
-   * The live preview paused — it took longer to build than a keystroke may
-   * wait — and why; null when it runs again. While paused the row offers
-   * to build the preview once.
+   * The preview timed out — it took longer to build than a preview may — and
+   * why; null when it runs again. Turning the toggle off and on asks again.
    */
   setPreviewPaused(reason: string | null): void {
-    this.pausedText.textContent = reason ? `Preview paused. ${reason}` : '';
+    this.pausedRow.textContent = reason ? `Preview timed out. ${reason} Turn it off and on to try again.` : '';
     this.pausedRow.classList.toggle('hidden', reason === null);
-    this.pausedRow.classList.toggle('flex', reason !== null);
   }
 
   /**
@@ -351,6 +364,10 @@ export class SchemaFeaturePanel extends FeaturePanel {
       const anyShown = this.syncNodes(nodes, scalars);
       host.classList.toggle('hidden', !anyShown);
     }
+    for (const group of this.cardGroups.values()) {
+      group.shows = this.syncNodes(group.nodes, scalars);
+    }
+    this.showCard();
     this.scopeSlot?.setVisible(this.operation !== 'new');
     const armedPicker = this.armedPicker;
     if ((armedPicker && !armedPicker.visible) || (this.armed === 'scope' && !this.scopeSlot?.visible)) {
@@ -406,8 +423,85 @@ export class SchemaFeaturePanel extends FeaturePanel {
     }
   }
 
+  /**
+   * The card shows the aside of the value under the pointer, else of the
+   * value whose row holds the focus, else the feature's own: a value with
+   * no aside of its own — or one whose items all hide — shows the
+   * feature's. The card hides when what it would show is nothing.
+   */
+  private showCard(): void {
+    if (!this.card) {
+      return;
+    }
+    const own = (name: string | null) => {
+      const group = name === null ? undefined : this.cardGroups.get(name);
+      const visible = name !== null && (this.fields.get(name)?.visible ?? this.pickers.get(name)?.visible) === true;
+      return group?.shows && visible ? name : undefined;
+    };
+    const key = own(this.hoveredValue) ?? own(this.focusedValue) ?? null;
+    const shown = this.cardGroups.get(key);
+    for (const [each, group] of this.cardGroups) {
+      group.el.classList.toggle('hidden', each !== key);
+    }
+    this.card.classList.toggle('hidden', !shown?.shows);
+    this.card.dataset.showing = key ?? '';
+  }
+
+  /**
+   * A value's row takes part in what the card shows: focus anywhere in it
+   * makes it the focused value (a row without an aside of its own so brings
+   * the feature's back); resting the pointer on a row with an aside shows
+   * that one while the pointer stays.
+   */
+  private watchRow(name: string, row: HTMLElement): void {
+    if (!this.card) {
+      return;
+    }
+    row.addEventListener('focusin', () => {
+      this.focusedValue = name;
+      this.showCard();
+    });
+    row.addEventListener('focusout', (e) => {
+      if (this.focusedValue === name && !row.contains(e.relatedTarget as Node | null)) {
+        this.focusedValue = null;
+        this.showCard();
+      }
+    });
+    if (!this.cardGroups.has(name)) {
+      return;
+    }
+    // A pointer crossing the dialog on its way somewhere swaps nothing: it has to rest first.
+    row.addEventListener('pointerenter', () => {
+      this.clearHoverTimer();
+      this.hoverTimer = setTimeout(() => {
+        this.hoverTimer = null;
+        this.hoveredValue = name;
+        this.showCard();
+      }, SchemaFeaturePanel.HOVER_MS);
+    });
+    row.addEventListener('pointerleave', () => {
+      this.clearHoverTimer();
+      if (this.hoveredValue === name) {
+        this.hoveredValue = null;
+        this.showCard();
+      }
+    });
+  }
+
+  private clearHoverTimer(): void {
+    if (this.hoverTimer !== null) {
+      clearTimeout(this.hoverTimer);
+      this.hoverTimer = null;
+    }
+  }
+
+  /** How long the pointer rests on a row before the card shows its aside. */
+  static readonly HOVER_MS = 150;
+
   /** A popover a row opened hangs off the page, not the dialog: it goes when the dialog does. */
   hide(): void {
+    this.clearHoverTimer();
+    this.focusedValue = this.hoveredValue = null;
     for (const field of this.fields.values()) {
       field.dismiss();
     }
@@ -415,6 +509,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
   }
 
   destroy(): void {
+    this.clearHoverTimer();
     for (const field of this.fields.values()) {
       field.destroy();
     }
@@ -474,6 +569,13 @@ export class SchemaFeaturePanel extends FeaturePanel {
   }
 
   private syncNode(node: LayoutNode, scalars: Scalars): boolean {
+    const shows = this.nodeShows(node, scalars);
+    // A cell whose item hides leaves the row: the cells still showing share its width.
+    node.cell?.classList.toggle('hidden', !shows);
+    return shows;
+  }
+
+  private nodeShows(node: LayoutNode, scalars: Scalars): boolean {
     const { item } = node;
     if (node.name !== undefined) {
       return (this.fields.get(node.name)?.visible ?? this.pickers.get(node.name)?.visible) === true;
@@ -528,22 +630,26 @@ export class SchemaFeaturePanel extends FeaturePanel {
   }
 
   /**
-   * A row's cells side by side: one grid track per cell, `widths` as their
-   * shares, level along the top — labels on one line and inputs on the next,
-   * a hint hanging under its own cell without lifting it.
+   * A row's cells side by side, `widths` as their shares of the line, level
+   * along the top — a hint hangs under its own cell without lifting it. A
+   * cell is never narrower than its content can be without cutting a label
+   * short (a choice's labels stay whole, a select is as wide as its longest
+   * option): one that doesn't fit beside the others wraps onto a line of its
+   * own, and a cell whose item hides leaves the row to the cells that show.
    */
   private renderCells(host: HTMLElement, item: FeatureLayoutRow, place: RowPlace): LayoutNode {
     const el = document.createElement('div');
     el.dataset.role = 'layout-row';
-    el.className = 'grid gap-2 items-start';
-    el.style.gridTemplateColumns = item.row.map((_, i) => `minmax(0, ${item.widths?.[i] ?? 1}fr)`).join(' ');
+    el.className = 'flex flex-wrap gap-x-2 gap-y-3.5 items-start';
     const inside = SchemaFeaturePanel.under(place, item.visibleWhen);
-    const children = item.row.map(cell => {
+    const children = item.row.map((cell, i) => {
       const slot = document.createElement('div');
       slot.dataset.role = 'layout-cell';
-      slot.className = 'min-w-0';
+      // Grows by its share from nothing; its content's narrowest is its floor, the row's width its ceiling.
+      slot.className = 'max-w-full';
+      slot.style.flex = `${item.widths?.[i] ?? 1} 1 0%`;
       el.appendChild(slot);
-      return this.renderItem(slot, cell, inside);
+      return { ...this.renderItem(slot, cell, inside), cell: slot };
     });
     host.appendChild(el);
     return { item, el, children };
@@ -645,6 +751,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
       picker.onArm = () => this.armSlot(name);
       picker.onChange = () => this.onChange?.();
       this.pickers.set(name, picker);
+      this.watchRow(name, picker.row);
       return picker.row;
     }
     const field = SchemaField.create(name, spec as FeatureScalarParam, { assetUrl: path => this.schema.assetUrl(path) });
@@ -654,6 +761,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
     };
     field.onSubmit = () => this.onApply?.();
     this.fields.set(name, field);
+    this.watchRow(name, field.row);
     return field.row;
   }
 }

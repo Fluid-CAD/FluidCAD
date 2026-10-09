@@ -240,9 +240,11 @@ change. The scene is never changed.
   solids, faces (drawn as patches) or edges.
 - The preview frees every shape `ghost()` returns once it is drawn, except
   one the scene itself holds — return shapes built here.
-- **Budget:** a preview that takes over 1.5 s to build and mesh is not drawn;
-  the dialog says "Preview paused. Building it took 2.0 s — over the 1.5 s a
-  live preview may take." and offers **Show preview**.
+- **Time-out:** a preview that takes over 5 s to build and mesh is not
+  drawn, and the dialog asks for no more: it says "Preview timed out. It
+  took 6.2 s to build, over the 5 s a preview may take. Turn it off and on
+  to try again." Turning the toggle off and on, saving the feature's module
+  or opening the dialog again asks again.
 - `ghost: false` in the metadata turns the preview off: the dialog shows no
   toggle.
 

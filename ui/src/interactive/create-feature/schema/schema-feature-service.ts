@@ -64,8 +64,9 @@ export type SchemaFeatureHooks = {
  * starts off (a preview runs the feature's code on every change) unless the
  * user turned it on for this feature before, and a feature whose metadata
  * draws no preview has none. Off, the engine is never asked for a ghost.
- * One that takes longer to build than a live preview may pauses: the
- * dialog says so and builds it again only when asked.
+ * One that takes longer to build than a preview may (5 s) times out: the
+ * dialog says so and asks again only when the toggle is turned off and on,
+ * or the feature's code is saved.
  */
 export class SchemaFeatureService implements FeatureDialogService {
   readonly id: string;
@@ -101,10 +102,8 @@ export class SchemaFeatureService implements FeatureDialogService {
   private readonly ghost: FeatureGhostOverlay | null;
   /** The Preview toggle is on: the ghost is asked for. */
   private previewOn = false;
-  /** Why the ghost paused (it built slower than a live preview may), or null while it runs. */
+  /** Why the ghost timed out (it built slower than a preview may), or null while it runs. */
   private ghostPaused: string | null = null;
-  /** The one unbounded ghost "Show preview" asked for, while it builds. */
-  private ghostOnce: AbortController | null = null;
   /** The anchor suggestions a hovered face or edge floats — for a feature with an anchor value. */
   private readonly suggestions: AnchorSuggestions | null;
   private readonly connectorGhost: ConnectorGhostOverlay | null;
@@ -183,7 +182,6 @@ export class SchemaFeatureService implements FeatureDialogService {
       this.refreshScope();
       this.runner.schedulePreview();
     };
-    this.panel.onShowPreview = () => void this.showGhostOnce();
     this.panel.onPreviewToggle = (on) => {
       this.previewOn = on;
       PreviewPreference.write(schema.id, on);
@@ -381,8 +379,8 @@ export class SchemaFeatureService implements FeatureDialogService {
   /**
    * The feature's module was saved with its metadata unchanged, so the
    * dialog stayed open — but what it previews was built with the old code.
-   * Ask again: the engine loads the saved code for the next ghost. A paused
-   * ghost resumes too, since what made it slow may be gone.
+   * Ask again: the engine loads the saved code for the next ghost. A ghost
+   * that timed out runs again too, since what made it slow may be gone.
    */
   codeChanged(): void {
     if (!this.armed) {
@@ -872,31 +870,19 @@ export class SchemaFeatureService implements FeatureDialogService {
 
   /**
    * The bodies the form would build, or null to clear. With the Preview
-   * toggle off, none, and the engine is never asked. While paused, none:
-   * a build that slow would lag every keystroke — "Show preview" asks for
-   * one. A ghost that comes back paused pauses the dialog.
+   * toggle off, none, and the engine is never asked. After a time-out, none:
+   * a build that slow would lag every change. A ghost that comes back timed
+   * out stops the dialog's preview.
    */
-  private async fetchGhost(signal: AbortSignal, unbounded = false): Promise<GhostSolid[] | null> {
-    if (!this.previewOn) {
-      return null;
-    }
-    if (!unbounded) {
-      // The form changed since "Show preview" asked: its answer is stale.
-      this.ghostOnce?.abort();
-      this.ghostOnce = null;
-    }
-    if (this.ghostPaused !== null && !unbounded) {
+  private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
+    if (!this.previewOn || this.ghostPaused !== null) {
       return null;
     }
     const request = this.ghostRequest();
     if (!request) {
       return null;
     }
-    const result = await fetchFeatureGhostResult(
-      unbounded ? { ...request, unbounded: true } : request,
-      featureGhostScope(this.editTarget),
-      signal,
-    );
+    const result = await fetchFeatureGhostResult(request, featureGhostScope(this.editTarget), signal);
     if (result.paused && !signal.aborted && this.armed) {
       this.ghostPaused = result.paused;
       this.panel.setPreviewPaused(result.paused);
@@ -916,27 +902,6 @@ export class SchemaFeatureService implements FeatureDialogService {
     }
   }
 
-  /** "Show preview" while paused: build the ghost of the form once, however long it takes. */
-  private async showGhostOnce(): Promise<void> {
-    if (!this.armed || !this.ghost) {
-      return;
-    }
-    this.ghostOnce?.abort();
-    const abort = new AbortController();
-    this.ghostOnce = abort;
-    let solids: GhostSolid[] | null;
-    try {
-      solids = await this.fetchGhost(abort.signal, true);
-    } catch {
-      return; // aborted
-    }
-    if (abort.signal.aborted || this.ghostOnce !== abort || !this.armed) {
-      return;
-    }
-    this.ghostOnce = null;
-    this.drawGhost(solids);
-  }
-
   /** The Preview toggle as the user left it for this feature: off unless they turned it on. */
   private restorePreview(): void {
     this.previewOn = this.ghost !== null && PreviewPreference.read(this.schema.id);
@@ -945,8 +910,6 @@ export class SchemaFeatureService implements FeatureDialogService {
 
   /** A fresh dialog (or none): no ghost drawn, previews running again. */
   private resumeGhost(): void {
-    this.ghostOnce?.abort();
-    this.ghostOnce = null;
     this.ghostPaused = null;
     this.panel.setPreviewPaused(null);
     this.ghost?.clear();

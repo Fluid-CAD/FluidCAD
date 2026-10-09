@@ -1,4 +1,5 @@
 import { ChoiceImage, type ChoiceItem } from './choice-item';
+import { WidthWatch } from './width-watch';
 
 export type RadioDisplay = 'list' | 'inline' | 'buttons' | 'cards';
 
@@ -29,17 +30,25 @@ const INLINE = 'flex flex-wrap gap-x-4 gap-y-1.5 w-full';
 const RADIO_ROW = 'flex items-center gap-2 min-w-0 cursor-pointer';
 const RADIO = 'radio radio-sm radio-primary shrink-0';
 const DESCRIPTION = 'block truncate text-[11px] text-base-content/50';
-// The operation tabs' look (ChoiceTabs in panel-controls.ts).
+// The operation tabs' look (ChoiceTabs in panel-controls.ts). A segment is
+// as wide as its label at least, so the row's narrowest is every label whole.
 const BUTTONS = 'join w-full';
-const BUTTON_BASE = 'btn btn-sm join-item flex-1 min-w-0 gap-1.5 text-xs px-2 font-normal';
-const BUTTON_ACTIVE = 'btn btn-sm join-item flex-1 min-w-0 gap-1.5 text-xs px-2 btn-soft btn-primary';
+const BUTTON = 'btn btn-sm join-item flex-1 gap-1.5 text-xs px-2';
+const BUTTON_BASE = `${BUTTON} font-normal`;
+const BUTTON_ACTIVE = `${BUTTON} btn-soft btn-primary`;
+const BUTTON_WHOLE = 'min-w-min';
+const BUTTON_LABEL = 'whitespace-nowrap';
+// Where even the full width is too narrow for the labels on one line, they wrap.
+const BUTTON_WRAPPED = 'min-w-0 h-auto min-h-8 py-1';
+const BUTTON_LABEL_WRAPPED = 'whitespace-normal break-words text-center leading-tight';
 const CARDS = 'grid gap-1.5 w-full';
 const CARD_SHAPE =
-  'flex flex-col items-center gap-1 min-w-0 p-1.5 rounded-md border cursor-pointer '
+  'flex flex-col items-center gap-1 min-w-12 p-1.5 rounded-md border cursor-pointer '
   + 'focus-visible:outline-none focus-visible:bg-base-content/[0.08] hover:bg-base-content/[0.06]';
 const CARD_BASE = `${CARD_SHAPE} border-base-content/15 text-base-content/70`;
 const CARD_ACTIVE = `${CARD_SHAPE} border-primary ring-1 ring-primary text-base-content`;
-const CARD_LABEL = 'block max-w-full truncate text-[11px] leading-tight';
+// Whole on one line: a column is never narrower than its label (the grid drops columns first).
+const CARD_LABEL = 'block max-w-full whitespace-nowrap overflow-hidden text-[11px] leading-tight';
 const CLEAR = 'btn btn-ghost btn-xs px-1 font-normal text-base-content/50';
 
 /**
@@ -57,6 +66,11 @@ export class RadioGroup<V> {
   private readonly clearButton: HTMLButtonElement | null = null;
   private readonly display: RadioDisplay;
   private readonly body: HTMLElement;
+  /** Cards: the columns asked for; fewer show while they don't fit. */
+  private readonly columns: number = 0;
+  /** Buttons: the labels wrap, the width being too narrow for them on one line. */
+  private wrapped = false;
+  private readonly watch: WidthWatch | null = null;
   private readonly name: string;
   private current: V | undefined;
 
@@ -84,11 +98,14 @@ export class RadioGroup<V> {
       body.className = BUTTONS;
     } else {
       body.className = CARDS;
-      const columns = Math.min(6, Math.max(2, Math.round(options.columns ?? 3)));
-      body.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
-      this.element.dataset.columns = String(columns);
+      this.columns = Math.min(6, Math.max(2, Math.round(options.columns ?? 3)));
+      this.setColumns(this.columns);
+      this.element.dataset.columns = String(this.columns);
     }
     this.fill(options.items);
+    if (this.display === 'buttons' || this.display === 'cards') {
+      this.watch = new WidthWatch(this.element, () => this.fit());
+    }
     if (options.allowClear) {
       this.clearButton = document.createElement('button');
       this.clearButton.type = 'button';
@@ -126,6 +143,7 @@ export class RadioGroup<V> {
       this.current = undefined;
     }
     this.sync();
+    this.watch?.refit();
     if (focused) {
       this.choices.find(choice => choice.control.tabIndex === 0)?.control.focus({ preventScroll: true });
     }
@@ -146,6 +164,7 @@ export class RadioGroup<V> {
   }
 
   destroy(): void {
+    this.watch?.disconnect();
     this.element.removeEventListener('keydown', this.onKeyDown);
     this.element.remove();
   }
@@ -191,7 +210,8 @@ export class RadioGroup<V> {
       button.appendChild(ChoiceImage.create(item.image, 'w-4 h-4'));
     }
     const label = document.createElement('span');
-    label.className = 'truncate';
+    label.dataset.role = 'choice-label';
+    label.className = this.wrapped ? BUTTON_LABEL_WRAPPED : BUTTON_LABEL;
     label.textContent = item.label;
     button.appendChild(label);
     host.appendChild(button);
@@ -199,19 +219,19 @@ export class RadioGroup<V> {
       item,
       control: button,
       mark: chosen => {
-        button.className = chosen ? BUTTON_ACTIVE : BUTTON_BASE;
+        button.className = `${chosen ? BUTTON_ACTIVE : BUTTON_BASE} ${this.wrapped ? BUTTON_WRAPPED : BUTTON_WHOLE}`;
         button.setAttribute('aria-checked', String(chosen));
       },
     });
   }
 
-  /** A tile: the image in a square over a truncated label, outlined when chosen. */
+  /** A tile: the image in a square over its label, outlined when chosen. */
   private addCard(host: HTMLElement, item: ChoiceItem<V>): void {
     const card = this.createRadioButton(item);
-    // A tile's label is cut to its width: the tooltip says it in full.
     card.title = item.description ? `${item.label} — ${item.description}` : item.label;
     card.appendChild(ChoiceImage.create(item.image, ChoiceImage.SQUARE));
     const label = document.createElement('span');
+    label.dataset.role = 'choice-label';
     label.className = CARD_LABEL;
     label.textContent = item.label;
     card.appendChild(label);
@@ -235,6 +255,48 @@ export class RadioGroup<V> {
     }
     button.addEventListener('click', () => this.choose(item.value));
     return button;
+  }
+
+  /**
+   * Lay the choices out so no label is cut, at the width the group has now:
+   * cards drop columns until they fit — down to one; buttons wrap their
+   * labels when even the whole width can't hold them on one line.
+   */
+  private fit(): void {
+    if (this.display === 'cards') {
+      let columns = this.columns;
+      this.setColumns(columns);
+      while (columns > 1 && RadioGroup.overflows(this.body)) {
+        this.setColumns(--columns);
+      }
+      return;
+    }
+    this.setWrapped(false);
+    if (RadioGroup.overflows(this.body)) {
+      this.setWrapped(true);
+    }
+  }
+
+  /** Tracks never narrower than their widest card, sharing what is left. */
+  private setColumns(columns: number): void {
+    this.body.style.gridTemplateColumns = `repeat(${columns}, minmax(min-content, 1fr))`;
+  }
+
+  private setWrapped(wrapped: boolean): void {
+    if (this.wrapped === wrapped) {
+      return;
+    }
+    this.wrapped = wrapped;
+    this.element.toggleAttribute('data-wrapped', wrapped);
+    for (const label of this.body.querySelectorAll<HTMLElement>('[data-role="choice-label"]')) {
+      label.className = wrapped ? BUTTON_LABEL_WRAPPED : BUTTON_LABEL;
+    }
+    this.sync();
+  }
+
+  /** Content wider than the box: a label would be cut, or stick out. */
+  private static overflows(el: HTMLElement): boolean {
+    return el.scrollWidth > el.clientWidth + 1;
   }
 
   /** A user's choice: shown, then announced — unless it is the one already chosen. */

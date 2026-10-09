@@ -45,6 +45,12 @@ type ParamCommon = Partial<Pick<ParamDefinition, 'label' | 'description' | 'grou
   tab?: string;
   /** A line of small text under the row's control; `description` stays the tooltip. */
   hint?: string;
+  /**
+   * Notes, images and dividers about this value: the card beside the dialog
+   * shows them in place of the feature's own `aside` while the value's row
+   * has the focus or the pointer — a diagram of what the value measures.
+   */
+  aside?: readonly FeatureStaticItem[];
   visibleWhen?: VisibleWhen;
   /**
    * The value may be left out; without a default it then reaches the feature
@@ -409,7 +415,7 @@ class FeatureMetaValidator {
 
   private static readonly NAME = /^[A-Za-z_$][\w$]*$/;
 
-  private static readonly COMMON_FIELDS = ['label', 'description', 'group', 'tab', 'hint', 'visibleWhen', 'optional'];
+  private static readonly COMMON_FIELDS = ['label', 'description', 'group', 'tab', 'hint', 'aside', 'visibleWhen', 'optional'];
 
   private static readonly NUMBER_FIELDS = ['default', 'min', 'max', 'step'];
 
@@ -533,6 +539,11 @@ class FeatureMetaValidator {
     const layout = meta.layout === undefined ? FeatureLayouts.derive(params) : FeatureLayouts.check(meta.layout, checks);
     const width = meta.width === undefined ? undefined : this.oneOf(meta.width, "'width'", FeatureLayouts.WIDTHS);
     const aside = meta.aside === undefined ? undefined : FeatureLayouts.checkAside(meta.aside, checks);
+    for (const [name, spec] of Object.entries(params)) {
+      if (spec.aside !== undefined) {
+        FeatureLayouts.checkAside(spec.aside, checks, `param '${name}': 'aside'`, `param '${name}': aside: `);
+      }
+    }
 
     const resolved: Record<string, unknown> = {
       id, class: featureClass, label, description, icon, group, kind, operations,
@@ -1469,8 +1480,8 @@ export class FeatureMetas {
 
   /**
    * Every file the metadata declares, each once, in order: the icon, the
-   * options' images in declaration order, then the images of the layout
-   * and of the aside. Reads the metadata or its
+   * options' images in declaration order, then the images of the layout,
+   * of the aside and of the values' asides. Reads the metadata or its
    * snapshot; it is the whole list of what may be served for the feature.
    */
   static assetsOf(meta: FeatureMeta | ResolvedFeatureMeta | FeatureMetaSnapshot): string[] {
@@ -1480,6 +1491,9 @@ export class FeatureMetas {
       paths.push(...options.map(option => option.image));
     }
     paths.push(...FeatureLayouts.images(meta.layout), ...FeatureLayouts.images(meta.aside));
+    for (const spec of Object.values(meta.params ?? {})) {
+      paths.push(...FeatureLayouts.images(spec.aside));
+    }
     return [...new Set(paths.filter((path): path is string => typeof path === 'string'))];
   }
 

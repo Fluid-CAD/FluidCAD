@@ -51,7 +51,7 @@ takes. `note`, `image` and `divider` are the static items: they show no value.
   a select with `multiple: true`. A value's own `visibleWhen` still hides its
   row wherever the layout puts it.
 - **`aside`** is a non-empty list of static items only, with or without a
-  `layout`.
+  `layout`. A value may declare an `aside` of its own (below).
 - **`width`** is `'wide'` or `'wider'`.
 - Under `defineFeature()` the names are typed from the class's values: a
   misspelled one is an error in the editor.
@@ -159,9 +159,54 @@ export const boltCircle = defineFeature(BoltCircle, {
 A dialog with every control, a row of two cells, a folded section and an
 aside is the [screw hole](feature-params.md#example-a-screw-hole-with-choices).
 
+## A value's own aside
+
+A value may declare `aside` beside its `label` and `hint`: the same list of
+static items, shown on the card beside the dialog **in place of** the
+feature's `aside` while that value's row holds the focus or the pointer
+rests on it (a pointer only passing over swaps nothing). Focus on a row
+without one brings the feature's back. Use it for a diagram of what the
+value measures, and a note on what the diagram labels:
+
+```js
+const sizeAside = [
+  { image: './img/aside-size.png', alt: 'The circular pitch p = π · m', height: 200 },
+  { note: 'Module m is p / π; diametral pitch P is 25.4 / m.' },
+];
+
+export class Gear extends Feature.with({
+  sizeBy: { type: 'select', default: 'module', options: [/* … */], aside: sizeAside },
+  module: { type: 'select', default: 2, options: [/* … */], aside: sizeAside, visibleWhen: { sizeBy: 'module' } },
+  // …
+}) { /* … */ }
+```
+
+- The items take `visibleWhen`; a value whose aside shows nothing at the
+  moment keeps the feature's on the card.
+- A value's aside needs no feature `aside`: the card appears when one shows.
+- The card is the wide-window one. Where the dialog is a sheet (a narrow
+  window) only the feature's `aside` shows, at the top of the body.
+- Its images are assets of the feature, served like the others.
+
+The card is 200 px wide inside: an image drawn square at 320 px and shown
+with `height: 200` fills it, and the card keeps its size as it swaps.
+
+## How a row of cells fits
+
+A row's cells share its width by their `widths`, and none is squeezed below
+what its content needs whole: a segmented choice's labels, a select's longest
+option, an image card's label, a stepper's number. A cell that doesn't fit
+beside the others moves onto a line of its own, full width; a cell whose
+value hides leaves the row to the cells that show. Inside the full width, a
+`buttons` choice wraps its labels and `cards` drop columns rather than cut a
+label short. So a row never truncates — but a cell that wraps reads as a
+row of its own: pair values whose controls are narrow (numbers, short
+selects), and give a long segmented choice a line to itself.
+
 ## The snapshot
 
 The metadata's snapshot — what the editor's catalog sends the dialog —
 always carries `layout`: the declared one as written, or the derived one.
-`width` and `aside` are there only when declared. Every `image` of the
-layout and of the aside is one of the feature's assets, served like its icon.
+`width` and `aside` are there only when declared, and a value's own `aside`
+sits on its spec. Every `image` of the layout, of the aside and of a value's
+aside is one of the feature's assets, served like its icon.

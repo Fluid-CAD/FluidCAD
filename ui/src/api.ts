@@ -1029,8 +1029,6 @@ export type CustomGhostRequest = {
   operation: FeatureOpKind | null;
   /** Edit mode: the edited statement's call site — the ghost reads the scene as it stood before it. */
   exclude?: { filePath: string; line: number };
-  /** Build without the live preview's time limit: the user asked for this one after a pause. */
-  unbounded?: boolean;
 };
 
 /**
@@ -6118,6 +6116,8 @@ type FeatureParamCommon = {
   tab?: string;
   /** A line of small text under the row's control; `description` stays the tooltip. */
   hint?: string;
+  /** What the card beside the dialog shows in place of the feature's aside while this value's row has the focus or the pointer. */
+  aside?: FeatureStaticItem[];
   visibleWhen?: FeatureVisibleWhen;
   /** The value may be left out. */
   optional?: boolean;

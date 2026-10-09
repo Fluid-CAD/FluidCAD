@@ -286,6 +286,35 @@ describe('PackageInstaller.copy, remove and list', () => {
     expect(() => PackageInstaller.remove('@acme/kit', null, 'library')).toThrow(/isn't in your library/);
   });
 
+  it('takes a removed project copy\'s empty folders with it, packages/ included', async () => {
+    await install({}, 'project');
+    const copy = path.join(project, 'packages');
+    PackageInstaller.remove('@acme/kit', '0.1.0', 'project', project);
+    expect(fs.existsSync(path.join(copy, '@acme', 'kit', '0.1.0'))).toBe(false);
+    expect(fs.existsSync(copy)).toBe(false);
+  });
+
+  it("keeps packages/ for the user's own file in it, and @scope/name for another version", async () => {
+    await install({ version: '0.1.0' }, 'project');
+    await install({ version: '0.2.0' }, 'project');
+    write(path.join(project, 'packages', 'models', 'bracket.part.js'), 'export {};\n');
+
+    PackageInstaller.remove('@acme/kit', '0.1.0', 'project', project);
+    expect(fs.readdirSync(path.join(project, 'packages', '@acme', 'kit'))).toEqual(['0.2.0']);
+
+    PackageInstaller.remove('@acme/kit', '0.2.0', 'project', project);
+    expect(fs.existsSync(path.join(project, 'packages', '@acme'))).toBe(false);
+    expect(fs.readdirSync(path.join(project, 'packages'))).toEqual(['models']);
+    expect(fs.readFileSync(path.join(project, 'packages', 'models', 'bracket.part.js'), 'utf8')).toBe('export {};\n');
+  });
+
+  it('keeps the library root when its last package goes', async () => {
+    await install();
+    PackageInstaller.remove('@acme/kit', '0.1.0', 'library', project);
+    expect(fs.existsSync(library)).toBe(true);
+    expect(fs.readdirSync(library)).toEqual([]);
+  });
+
   it('lists each package with its manifest and size', async () => {
     await install();
     const [entry] = PackageInstaller.list('library');

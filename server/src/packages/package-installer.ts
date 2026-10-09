@@ -181,7 +181,7 @@ export class PackageInstaller {
       scratch.dispose();
       PackageRoots.forget();
     }
-    PackageInstaller.pruneEmptyParents(location.directory, root);
+    PackageInstaller.pruneEmptyParents(location.directory, root, { root: target === 'project' });
     return location;
   }
 
@@ -331,8 +331,15 @@ export class PackageInstaller {
     }
   }
 
-  /** Remove the `@scope/name` and `@scope` folders a remove left empty, never the root itself. */
-  private static pruneEmptyParents(directory: string, root: string): void {
+  /**
+   * Remove the `@scope/name` and `@scope` folders a remove left empty,
+   * stopping at the first that still holds something (another version,
+   * another package of the scope). With `root`, the root goes too once it is
+   * empty: a project's `packages/` folder that held only this copy, so the
+   * project no longer looks like it carries packages (a user's own file in
+   * it keeps it). The library root always stays.
+   */
+  private static pruneEmptyParents(directory: string, root: string, options: { root?: boolean } = {}): void {
     let dir = path.dirname(directory);
     while (normalizePath(dir) !== root && normalizePath(dir).startsWith(`${root}/`)) {
       try {
@@ -341,6 +348,13 @@ export class PackageInstaller {
         return;
       }
       dir = path.dirname(dir);
+    }
+    if (options.root && normalizePath(dir) === root) {
+      try {
+        fs.rmdirSync(dir);
+      } catch {
+        // Not empty: the user's own files, or another package.
+      }
     }
   }
 

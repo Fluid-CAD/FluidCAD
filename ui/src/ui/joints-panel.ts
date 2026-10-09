@@ -337,7 +337,7 @@ export class JointsPanel {
   }
 
   /**
-   * A relation's row: the gear icon, `Gear × 2` / `Rack and pinion · 62.8
+   * A relation's row: the type's icon, `Gear × 2` / `Rack and pinion · 62.8
    * mm/rev` (+ `reverse`), the two coupled joints described under it, and a
    * dot that turns red when the last solve could not hold the coupling.
    * Inert (dimmed) while a dialog is picking joints.
@@ -364,7 +364,7 @@ export class JointsPanel {
         <div class="flex-1 min-w-0 flex flex-col leading-tight">
           <span class="flex items-center gap-2 text-sm">
             <span class="shrink-0 inline-block w-2 h-2 rounded-full ${dotColor}"></span>
-            <img src="${iconUrl('relation-gear')}" ${ICON_IMG_FALLBACK} class="shrink-0 w-5 h-5 object-contain" alt="" />
+            <img src="${iconUrl(relation.type === 'gear' ? 'relation-gear' : 'relation-rack-pinion')}" ${ICON_IMG_FALLBACK} class="shrink-0 w-5 h-5 object-contain" alt="" />
             ${escapeHtml(label)}
           </span>
           <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(describe(relation.mateA))}</span>

@@ -63,15 +63,14 @@ export class AssemblyToolbar {
     // this.addPlaceholder(mateGroup, { icon: 'joint-spherical', label: 'Spherical', tip: 'Spherical mate' });
 
     // Relations couple two mates' motions: a gear ties two rotations, a
-    // rack-and-pinion a rotation to a slide. One button per type, sharing
-    // the gear icon until the rack gets its own.
+    // rack-and-pinion a rotation to a slide. One button per type.
     const relationGroup = navbar.addGroup('assembly-relation', { mode: 'assembly' });
-    const relations: { type: AssemblyRelationType; label: string; tip: string }[] = [
-      { type: 'gear', label: 'Gear', tip: 'Gear relation — couple two rotating mates' },
-      { type: 'rack-and-pinion', label: 'Rack', tip: 'Rack and pinion relation — couple a rotating mate to a slider' },
+    const relations: { type: AssemblyRelationType; icon: string; label: string; tip: string }[] = [
+      { type: 'gear', icon: 'relation-gear', label: 'Gear', tip: 'Gear relation — couple two rotating mates' },
+      { type: 'rack-and-pinion', icon: 'relation-rack-pinion', label: 'Rack', tip: 'Rack and pinion relation — couple a rotating mate to a slider' },
     ];
-    for (const { type, label, tip } of relations) {
-      const opts = { icon: 'relation-gear', label, tip };
+    for (const { type, icon, label, tip } of relations) {
+      const opts = { icon, label, tip };
       if (handlers.onRelation) {
         this.addButton(relationGroup, opts, () => handlers.onRelation!(type));
       } else {

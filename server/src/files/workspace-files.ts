@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { join, relative } from 'path';
 import ignoreFactory, { type Ignore } from 'ignore';
 import { normalizePath } from '../normalize-path.ts';
+import { PackageRoots } from '../packages/package-roots.ts';
 
 // `ignore` ships a CJS `module.exports = factory`, but its bundled types use
 // `export default`, which loses the call signature under `module: nodenext`.
@@ -33,6 +34,11 @@ export class WorkspaceFiles {
    * gitignored. `node_modules` is pruned too; `ALWAYS_EXCLUDE` (prior `.fluidpkg`
    * outputs) is enforced on top of any `.gitignore`. We walk and filter per-file
    * rather than pruning ignored directories so negation rules (`!keep/this`) work.
+   *
+   * Installed package copies are pruned too (`PackageRoots.isManaged`: a
+   * `packages/@scope/name/<version>/` holding `manifest.json`, by location
+   * plus marker), so a copied `.feature.js` never shows up as one of the
+   * workspace's own modules. The rest of a `packages/` folder is walked.
    */
   static async collect(workspaceAbs: string): Promise<string[]> {
     const gitignorePath = join(workspaceAbs, '.gitignore');
@@ -62,6 +68,9 @@ export class WorkspaceFiles {
         const full = join(dir, name);
         const rel = normalizePath(relative(workspaceAbs, full));
         if (entry.isDirectory()) {
+          if (PackageRoots.isManaged(full, workspaceAbs)) {
+            continue;
+          }
           await walk(full);
         } else if (entry.isFile()) {
           if (ig.ignores(rel)) {

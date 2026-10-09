@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { defaultMaxWorkers, logicalCpuCount } from '../../lib/dist/oc/workers.js';
@@ -69,7 +70,19 @@ export interface Preferences {
    * project, so a model file never depends on this machine's list.
    */
   materials: ProjectMaterials;
+  /**
+   * Settings → Packages "Library folder": where installed packages live,
+   * an absolute path. Empty means the default (`$FLUIDCAD_HOME/packages`,
+   * else the home directory's `~/.fluidcad/packages`); `FLUIDCAD_PACKAGES`
+   * overrides it (`PackageRoots.libraryPath`).
+   */
+  packageLibraryPath: string;
+  /** Settings → Packages "New packages go to": the user library (default) or the open project's `packages/`. */
+  packageInstallTarget: PackageInstallTarget;
 }
+
+export const PACKAGE_INSTALL_TARGETS = ['library', 'project'] as const;
+export type PackageInstallTarget = (typeof PACKAGE_INSTALL_TARGETS)[number];
 
 export const TIMELINE_SKETCH_CHILDREN = ['all', 'editable'] as const;
 export type TimelineSketchChildren = (typeof TIMELINE_SKETCH_CHILDREN)[number];
@@ -99,6 +112,8 @@ const DEFAULTS: Preferences = {
   timelineShowRegions: false,
   maxWorkers: defaultMaxWorkers(),
   materials: {},
+  packageLibraryPath: '',
+  packageInstallTarget: 'library',
 };
 
 /** A fresh copy of the defaults — what "Reset all to defaults" writes. */
@@ -125,22 +140,38 @@ function getPreferencesPath(): string {
 
 export async function loadPreferences(): Promise<Preferences> {
   try {
-    const data = await fs.readFile(getPreferencesPath(), 'utf-8');
-    const parsed = JSON.parse(data);
-    // The spacing record is the one nested value: merge it per key so a
-    // file written before a unit existed still yields a pitch for it.
-    // A hand-edited map that fails the fluidcad.json rules is dropped whole,
-    // like a bad project map: nothing downstream re-validates entries.
-    const materials = parseProjectMaterials(parsed.materials);
-    return {
-      ...DEFAULTS,
-      ...parsed,
-      gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing, ...(parsed.gridFixedSpacing ?? {}) },
-      materials: 'materials' in materials ? materials.materials : {},
-    };
+    return parsePreferences(await fs.readFile(getPreferencesPath(), 'utf-8'));
   } catch {
     return defaultPreferences();
   }
+}
+
+/**
+ * {@link loadPreferences} for a synchronous caller: the package roots are
+ * asked from the workspace walks and the watcher's `ignored` test, which
+ * can't wait.
+ */
+export function loadPreferencesSync(): Preferences {
+  try {
+    return parsePreferences(readFileSync(getPreferencesPath(), 'utf-8'));
+  } catch {
+    return defaultPreferences();
+  }
+}
+
+function parsePreferences(data: string): Preferences {
+  const parsed = JSON.parse(data);
+  // The spacing record is the one nested value: merge it per key so a
+  // file written before a unit existed still yields a pitch for it.
+  // A hand-edited map that fails the fluidcad.json rules is dropped whole,
+  // like a bad project map: nothing downstream re-validates entries.
+  const materials = parseProjectMaterials(parsed.materials);
+  return {
+    ...DEFAULTS,
+    ...parsed,
+    gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing, ...(parsed.gridFixedSpacing ?? {}) },
+    materials: 'materials' in materials ? materials.materials : {},
+  };
 }
 
 export async function savePreferences(prefs: Preferences): Promise<void> {

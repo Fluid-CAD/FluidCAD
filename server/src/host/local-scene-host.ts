@@ -4,7 +4,7 @@ import { ENGINE_NAMESPACE_SPECIFIERS } from '../../../lib/dist/browser/linking.j
 import { normalizePath } from '../normalize-path.ts';
 import type { SceneHost } from './scene-host.ts';
 import { isAssemblyDefinition, isPartDefinition } from './scene-host.ts';
-import { getBlockedNodeModule } from './blocked-imports.ts';
+import { BlockedImports } from './blocked-imports.ts';
 import {
   ENGINE_PACKAGE_ROOT,
   NO_WORKSPACE_REASON,
@@ -16,21 +16,6 @@ import {
 import { EngineImportResolver } from './engine-import-resolver.ts';
 import { installSourceUrlEncoding } from './source-url-encoding.ts';
 import { PackageResolveError, PackageResolver } from '../packages/resolver.ts';
-
-const IMPORT_PATTERN = /\b(?:import|export)\s[\s\S]*?from\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
-
-function scanForBlockedImports(code: string): string | null {
-  let match;
-  IMPORT_PATTERN.lastIndex = 0;
-  while ((match = IMPORT_PATTERN.exec(code)) !== null) {
-    const specifier = match[1] || match[2];
-    const blocked = getBlockedNodeModule(specifier);
-    if (blocked) {
-      return specifier;
-    }
-  }
-  return null;
-}
 
 export class LocalSceneHost implements SceneHost {
   /**
@@ -140,13 +125,9 @@ export class LocalSceneHost implements SceneHost {
           transform(code, id) {
             // Package files are scanned like the workspace's own (research M5).
             if (that.isOwnModule(id)) {
-              const blocked = scanForBlockedImports(code);
+              const blocked = BlockedImports.firstIn(code);
               if (blocked) {
-                const moduleName = getBlockedNodeModule(blocked)!;
-                throw new Error(
-                  `Module "${blocked}" is not allowed in FluidCAD scripts. ` +
-                  `Access to Node.js "${moduleName}" module is restricted for security.`
-                );
+                throw new Error(BlockedImports.refusal(blocked));
               }
             }
           },

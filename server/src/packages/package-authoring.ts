@@ -132,24 +132,14 @@ export class PackageAuthoring {
   }
 
   /**
-   * Every `*.feature.js` in the workspace, workspace-relative, except those
-   * inside an installed project copy of another package
-   * (`packages/@scope/name/<version>/` holding `manifest.json`): those are
-   * that package's modules, not this one's.
+   * Every `*.feature.js` in the workspace, workspace-relative. The walk
+   * already leaves out an installed project copy of another package
+   * (`PackageRoots.isPackageRoot`): those are that package's modules, not
+   * this one's.
    */
   private static async featureExports(workspacePath: string): Promise<string[]> {
     const root = normalizePath(workspacePath);
     const modules = await FeatureModules.list(workspacePath);
-    return modules
-      .map((abs) => normalizePath(path.relative(root, abs)))
-      .filter((rel) => !PackageAuthoring.isInsideInstalledCopy(workspacePath, rel));
-  }
-
-  private static isInsideInstalledCopy(workspacePath: string, rel: string): boolean {
-    const match = /^packages\/(@[^/]+\/[^/]+\/[^/]+)\//.exec(rel);
-    if (!match) {
-      return false;
-    }
-    return fs.existsSync(path.join(workspacePath, 'packages', match[1], 'manifest.json'));
+    return modules.map((abs) => normalizePath(path.relative(root, abs)));
   }
 }

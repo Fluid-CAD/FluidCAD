@@ -79,4 +79,30 @@ describe('workspace watcher', () => {
     expect(events.map((e) => e.path)).not.toContain('node_modules/dep.js');
     expect(events.map((e) => e.path)).not.toContain('ignored/out.js');
   });
+
+  it('stays quiet for an installed project copy, by its marker, and reports the rest of packages/', async () => {
+    const savedPackages = process.env.FLUIDCAD_PACKAGES;
+    process.env.FLUIDCAD_PACKAGES = path.join(workspace, '..', `${path.basename(workspace)}-library`);
+    try {
+      // An install renames a whole tree into place, manifest.json included.
+      const staged = path.join(workspace, 'packages', '.tmp', `${process.pid}-x`, 'tree');
+      fs.mkdirSync(path.join(staged, 'parts'), { recursive: true });
+      fs.writeFileSync(path.join(staged, 'manifest.json'), '{}');
+      fs.writeFileSync(path.join(staged, 'parts', 'spacer.part.js'), '');
+      fs.mkdirSync(path.join(workspace, 'packages', '@acme', 'kit'), { recursive: true });
+      fs.renameSync(staged, path.join(workspace, 'packages', '@acme', 'kit', '0.1.0'));
+      fs.mkdirSync(path.join(workspace, 'packages', 'models'), { recursive: true });
+      fs.writeFileSync(path.join(workspace, 'packages', 'models', 'bracket.part.js'), '');
+
+      await untilEvent((e) => e.path === 'packages/models/bracket.part.js');
+      const paths = events.map((e) => e.path);
+      expect(paths.filter((p) => p.startsWith('packages/@acme') || p.startsWith('packages/.tmp'))).toEqual([]);
+    } finally {
+      if (savedPackages === undefined) {
+        delete process.env.FLUIDCAD_PACKAGES;
+      } else {
+        process.env.FLUIDCAD_PACKAGES = savedPackages;
+      }
+    }
+  });
 });

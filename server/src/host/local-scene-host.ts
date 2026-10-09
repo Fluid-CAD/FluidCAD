@@ -9,6 +9,8 @@ import {
   ENGINE_PACKAGE_ROOT,
   NO_WORKSPACE_REASON,
   ensureEngineLink,
+  LINK_NOT_WANTED_REASON,
+  probeEngineLink,
   runtimeUsesThisEngine,
 } from './engine-resolution.ts';
 import { EngineImportResolver } from './engine-import-resolver.ts';
@@ -49,8 +51,16 @@ export class LocalSceneHost implements SceneHost {
   /** True when this engine answers the workspace's own `import 'fluidcad'` too, not only its packages'. */
   private engineAnswersWorkspace = false;
 
-  /** `packages` answers `import … from '@scope/name'` (Stage P1: an injected map). */
-  constructor(readonly packages: PackageResolver = new PackageResolver()) {}
+  /**
+   * `packages` answers `import … from '@scope/name'` (Stage P1: an injected
+   * map). `linkEngine: false` leaves the workspace's `node_modules` alone:
+   * no courtesy link is planted (see {@link init}), for a one-shot host that
+   * must not write to the workspace.
+   */
+  constructor(
+    readonly packages: PackageResolver = new PackageResolver(),
+    private readonly options: { linkEngine?: boolean } = {},
+  ) {}
 
   async init(rootPath: string) {
     this.rootPath = normalizePath(rootPath);
@@ -61,8 +71,8 @@ export class LocalSceneHost implements SceneHost {
     // workspace that has one. Loading the model does not depend on it: the
     // resolver installed below answers the import whether or not the link
     // could be made.
-    const link = ensureEngineLink(this.rootPath);
-    if (link.state === 'skipped' && link.reason !== NO_WORKSPACE_REASON) {
+    const link = this.options.linkEngine === false ? probeEngineLink(this.rootPath) : ensureEngineLink(this.rootPath);
+    if (link.state === 'skipped' && link.reason !== NO_WORKSPACE_REASON && link.reason !== LINK_NOT_WANTED_REASON) {
       console.warn(
         `FluidCAD: could not link the engine into this workspace (${link.reason}). ` +
           'Models still load through the running engine.',

@@ -3,7 +3,13 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { vi } from 'vitest';
-import { ensureEngineLink, runtimeUsesThisEngine, ENGINE_LINK_MARKER } from '../src/host/engine-resolution.ts';
+import {
+  ensureEngineLink,
+  probeEngineLink,
+  runtimeUsesThisEngine,
+  ENGINE_LINK_MARKER,
+  LINK_NOT_WANTED_REASON,
+} from '../src/host/engine-resolution.ts';
 
 /**
  * The rule: link this server's package into the workspace *only* when the
@@ -131,6 +137,35 @@ describe('ensureEngineLink', () => {
 
   it('does nothing without a workspace (the hub path)', () => {
     expect(ensureEngineLink('').state).toBe('skipped');
+  });
+});
+
+describe('probeEngineLink — what ensureEngineLink would find, writing nothing', () => {
+  it('plants nothing in a workspace without an engine, and leaves the import to the engine', () => {
+    const result = probeEngineLink(workspace);
+    expect(result).toEqual({ state: 'skipped', reason: LINK_NOT_WANTED_REASON });
+    expect(fs.existsSync(path.join(workspace, 'node_modules'))).toBe(false);
+    expect(runtimeUsesThisEngine(result)).toBe(true);
+  });
+
+  it('leaves a marked link alone, wherever it points', () => {
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-other-engine-'));
+    try {
+      installEngineAt(elsewhere);
+      fs.mkdirSync(path.join(workspace, 'node_modules'));
+      fs.symlinkSync(path.join(elsewhere, 'node_modules', 'fluidcad'), linkPath(), 'junction');
+      fs.writeFileSync(markerPath(), 'managed\n');
+      const result = probeEngineLink(workspace);
+      expect(result).toEqual({ state: 'skipped', reason: LINK_NOT_WANTED_REASON });
+      expect(fs.realpathSync(linkPath())).toBe(fs.realpathSync(path.join(elsewhere, 'node_modules', 'fluidcad')));
+    } finally {
+      fs.rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it('reports the workspace\'s own install, as ensureEngineLink does', () => {
+    installEngineAt(workspace);
+    expect(probeEngineLink(workspace)).toEqual({ state: 'already-resolvable', own: true });
   });
 });
 

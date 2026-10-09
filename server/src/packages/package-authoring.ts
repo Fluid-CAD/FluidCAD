@@ -42,6 +42,9 @@ export class PackageAuthoring {
   /** The version a new package starts at. */
   static readonly INITIAL_VERSION = '0.1.0';
 
+  /** The refusal of a package command in a workspace without a `package` block. */
+  static readonly NOT_A_PACKAGE = "This workspace isn't a package — run `fluidcad package init` first.";
+
   /**
    * Write a new `package` block: `name`, version `0.1.0`, and `exports`
    * prefilled with every feature module in the workspace. Refuses a
@@ -89,7 +92,7 @@ export class PackageAuthoring {
       throw new PackageAuthoringError(`${config.problems.package} Fix it first.`);
     }
     if (!config.package) {
-      throw new PackageAuthoringError("This workspace isn't a package — run `fluidcad package init` first.");
+      throw new PackageAuthoringError(PackageAuthoring.NOT_A_PACKAGE);
     }
 
     const current = Semver.parse(config.package.version);

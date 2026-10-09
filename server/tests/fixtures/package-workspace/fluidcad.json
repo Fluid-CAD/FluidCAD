@@ -1,0 +1,15 @@
+{
+  "engine": "0.0.46",
+  "unit": "mm",
+  "materials": {
+    "acme-pom": { "name": "POM", "density": 1.41, "densityUnit": "g/cm³" }
+  },
+  "package": {
+    "name": "@acme/kit",
+    "version": "0.1.0",
+    "description": "A standoff, a fastener hole and a spacer",
+    "exports": ["standoff.feature.js", "fastener.feature.js", "parts/spacer.part.js"],
+    "license": "MIT",
+    "keywords": ["standoff", "fastener"]
+  }
+}

@@ -41,6 +41,9 @@ const PACKAGE_ROOT = ENGINE_PACKAGE_ROOT;
 /** The `skipped` reason of the hub path, which has no workspace to link into. */
 export const NO_WORKSPACE_REASON = 'no workspace';
 
+/** The `skipped` reason of a host that leaves the workspace's files alone ({@link probeEngineLink}). */
+export const LINK_NOT_WANTED_REASON = 'the host does not link the engine';
+
 /**
  * Names the sibling `fluidcad` entry as engine-managed, so the desktop shell's
  * resolver can tell it from a real install: a managed link must never win the
@@ -113,6 +116,38 @@ export function runtimeUsesThisEngine(link: EngineLinkResult): boolean {
     return false;
   }
   return !(link.state === 'already-resolvable' && link.own);
+}
+
+/**
+ * What {@link ensureEngineLink} would find, without planting, re-pointing or
+ * writing anything: for a one-shot host that must leave the workspace as it
+ * found it (`fluidcad pack` writes nothing but its archive). The workspace's
+ * own install, or an ancestor's copy that is this engine, is
+ * `already-resolvable`; everything else is skipped — a managed link
+ * included, wherever it points — so the engine answers the workspace's
+ * `import 'fluidcad'` itself (`runtimeUsesThisEngine`).
+ */
+export function probeEngineLink(workspacePath: string): EngineLinkResult {
+  if (!workspacePath) {
+    return { state: 'skipped', reason: NO_WORKSPACE_REASON };
+  }
+  const nodeModules = path.join(workspacePath, 'node_modules');
+  if (fs.existsSync(path.join(nodeModules, ENGINE_LINK_MARKER))) {
+    let managed = false;
+    try {
+      managed = fs.lstatSync(path.join(nodeModules, 'fluidcad')).isSymbolicLink();
+    } catch {
+      managed = false;
+    }
+    if (managed) {
+      return { state: 'skipped', reason: LINK_NOT_WANTED_REASON };
+    }
+  }
+  const resolved = resolveEngineFrom(workspacePath);
+  if (resolved && (resolved.own || isThisEngine(resolved.root))) {
+    return { state: 'already-resolvable', own: resolved.own };
+  }
+  return { state: 'skipped', reason: LINK_NOT_WANTED_REASON };
 }
 
 /**

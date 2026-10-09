@@ -2121,6 +2121,15 @@ export class FluidCadServer {
   }
 
   /**
+   * The project's pins may have changed (its `fluidcad.json` was saved):
+   * bring the editors' package types in line now, rather than at the next
+   * render (`SceneHost.refreshEditorTypes`).
+   */
+  refreshEditorTypes(): void {
+    this.host.refreshEditorTypes?.();
+  }
+
+  /**
    * Rebuild every statement of these features on each session's next
    * render, though their values are unchanged — for a feature whose code
    * changed without a workspace module being saved (an installed package

@@ -6,6 +6,7 @@ import { loadPreferencesSync } from '../preferences.ts';
 import { PackageName } from './package-name.ts';
 import { PackageLayout } from './package-manifest.ts';
 import { PackageScratch } from './package-scratch.ts';
+import { PackageTypeLinks } from './package-type-links.ts';
 import { Semver } from './semver.ts';
 
 /** Where a package is installed: the user library, or a project's own copy. */
@@ -133,9 +134,13 @@ export class PackageRoots {
    * The installed package `file` (or directory) is inside, or null. Only
    * the one directory three levels below each root can be a package root,
    * so this is string work until that candidate is asked.
+   *
+   * A path through a project's editor-types link (`node_modules/@types/
+   * <shim>/installed/…`, where go to definition lands) is the installed
+   * file it links to (`PackageTypeLinks.realPath`).
    */
   static containing(file: string, project?: string | null): PackageLocation | null {
-    const target = PackageRoots.canonical(file);
+    const target = PackageRoots.canonical(PackageTypeLinks.realPath(file) ?? file);
     for (const { target: kind, root } of PackageRoots.rootsFor(project)) {
       for (const spelling of PackageRoots.spellings(root)) {
         if (!target.startsWith(`${spelling}/`)) {
@@ -171,7 +176,7 @@ export class PackageRoots {
    * "`parts/spur.part.js` belongs to `@acme/gears` 1.2.0 and is read-only."
    */
   static readOnlySentence(location: PackageLocation, file: string): string {
-    const target = PackageRoots.canonical(file);
+    const target = PackageRoots.canonical(PackageTypeLinks.realPath(file) ?? file);
     const inside = target.startsWith(`${location.directory}/`) ? target.slice(location.directory.length + 1) : null;
     const what = inside ? `\`${inside}\`` : 'This file';
     return `${what} belongs to \`${location.name}\` ${location.version} and is read-only.`;

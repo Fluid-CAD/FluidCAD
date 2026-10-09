@@ -10,6 +10,7 @@ import { PackageName } from '../packages/package-name.ts';
 import { PackagePinError, PackagePins } from '../packages/package-pins.ts';
 import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
 import { ProjectPackages } from '../packages/project-packages.ts';
+import { PackageTypeLibs } from '../packages/package-editor-types.ts';
 import { Semver } from '../packages/semver.ts';
 
 export type PackagesRouterOptions = {
@@ -43,6 +44,8 @@ const DEFAULT_MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
  * - `GET /api/packages/inspected-icon?token=&id=`: a feature's icon from an
  *   inspected archive, for the consent dialog; `POST /api/packages/discard
  *   { token }` drops an inspection the user declined.
+ * - `GET /api/packages/types`: the pinned packages' sources, for the
+ *   in-page editor's language service (`PackageTypeLibs`).
  * - `POST /api/packages/library-offer`: copy what the folder the library was
  *   in before the last Settings change holds into the library;
  *   `DELETE /api/packages/library-offer` declines that (`GET` shows the offer
@@ -143,6 +146,17 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
       });
     } catch (err) {
       PackageRefusal.send(res, err);
+    }
+  });
+
+  router.get('/packages/types', (_req, res) => {
+    try {
+      // The pins' sources for the in-page editor's language service: it
+      // re-registers them only when `key` changes, so no-cache is enough.
+      res.setHeader('Cache-Control', 'no-cache');
+      res.json(PackageTypeLibs.of(project));
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
     }
   });
 

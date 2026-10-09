@@ -17,6 +17,7 @@ import { EngineImportResolver } from './engine-import-resolver.ts';
 import { installSourceUrlEncoding } from './source-url-encoding.ts';
 import { PackageResolveError, PackageResolver, type ResolvedPackage } from '../packages/resolver.ts';
 import { PackageRoots } from '../packages/package-roots.ts';
+import { PackageTypeShims, type PackageTypeShimSync } from '../packages/package-editor-types.ts';
 
 export class LocalSceneHost implements SceneHost {
   /**
@@ -36,13 +37,16 @@ export class LocalSceneHost implements SceneHost {
   private engineImports: EngineImportResolver | null = null;
   /** True when this engine answers the workspace's own `import 'fluidcad'` too, not only its packages'. */
   private engineAnswersWorkspace = false;
+  /** The editor-types refusals already warned about, so a render loop doesn't repeat them. */
+  private readonly warnedEditorTypes = new Set<string>();
 
   /**
    * `packages` answers `import … from '@scope/name'` through the workspace's
    * pins (it learns the workspace in {@link init}). `linkEngine: false`
    * leaves the workspace's `node_modules` alone:
-   * no courtesy link is planted (see {@link init}), for a one-shot host that
-   * must not write to the workspace.
+   * no courtesy link is planted (see {@link init}) and no editor-types shim
+   * is kept ({@link refreshEditorTypes}), for a one-shot host that must not
+   * write to the workspace.
    */
   constructor(
     readonly packages: PackageResolver = new PackageResolver(),
@@ -73,6 +77,7 @@ export class LocalSceneHost implements SceneHost {
     // to this engine changes nothing for a workspace whose own install
     // stands: `lib-identity` has proven that install is this very engine.
     this.engineAnswersWorkspace = runtimeUsesThisEngine(link);
+    this.refreshEditorTypes();
     this.engineImports = new EngineImportResolver(ENGINE_PACKAGE_ROOT);
     this.server = await createServer({
       root: rootPath,
@@ -337,8 +342,35 @@ export class LocalSceneHost implements SceneHost {
    * first render only. The resolver starts over too: the next load reads
    * the project's pins again.
    */
+  /**
+   * Bring the workspace's editor-types shims (`node_modules/@types/…`, for
+   * tsserver) in line with its pins: at start, on every render — the pins
+   * are re-read then anyway, and a package another process installed,
+   * copied or removed shows up there — and when `fluidcad.json` changes.
+   * Like the engine link, a courtesy that never fails a render.
+   */
+  refreshEditorTypes(): void {
+    if (this.options.linkEngine === false || !this.rootPath) {
+      return;
+    }
+    let sync: PackageTypeShimSync;
+    try {
+      sync = PackageTypeShims.sync(this.rootPath);
+    } catch (err: any) {
+      console.warn(`FluidCAD: could not update the editor types of this project's packages (${err?.message ?? err}).`);
+      return;
+    }
+    for (const { reason } of sync.skipped) {
+      if (!this.warnedEditorTypes.has(reason)) {
+        this.warnedEditorTypes.add(reason);
+        console.warn(`FluidCAD: editors won't know a package's types: ${reason}.`);
+      }
+    }
+  }
+
   invalidateModule() {
     this.packages.refresh();
+    this.refreshEditorTypes();
     for (const [id, mod] of this.server.moduleGraph.idToModuleMap) {
       if (this.isOwnModule(id)) {
         this.server.moduleGraph.invalidateModule(mod);

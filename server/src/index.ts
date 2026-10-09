@@ -54,6 +54,7 @@ import { HostRegistry } from './host-registry.ts';
 import { attachEditorHostTransport, broadcastEditorCapabilities } from './editor-host-transport.ts';
 import { normalizePath } from './normalize-path.ts';
 import {
+  PROJECT_CONFIG_FILENAME,
   readProjectConfig,
   describeEnginePinMismatch,
   describeProjectUnitProblem,
@@ -777,6 +778,10 @@ httpServer.listen(PORT, HOST, () => {
         // catalog is stale. UI-only — editor hosts never see this message.
         if (featureCatalog.noteFileChange(event.absPath)) {
           broadcastToUI({ type: 'features-changed', absPath: event.absPath });
+        }
+        // The pins may have changed: tsserver's package types follow.
+        if (normalizePath(event.absPath) === `${normalizePath(WORKSPACE_PATH)}/${PROJECT_CONFIG_FILENAME}`) {
+          fluidCadServer.refreshEditorTypes();
         }
         renderInputChanges.note(event.absPath);
       });

@@ -53,6 +53,12 @@ export interface SceneHost {
   resolvedPackages?(): ResolvedPackage[];
   /** The package imports the current render refused, one per package name. */
   packageProblems?(): PackageResolveError[];
+  /**
+   * Bring the workspace's editor types for its pinned packages (the
+   * tsserver shims in `node_modules/@types`) in line with its pins.
+   * Optional: a host without a workspace on disk keeps none.
+   */
+  refreshEditorTypes?(): void;
 }
 
 /**

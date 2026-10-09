@@ -429,6 +429,8 @@ describe('the feature catalog routes', () => {
     const body = await res.json();
     expect(body.workspacePath).toBe(workspace);
     expect(body.features.map((entry: FeatureCatalogEntry) => entry.id)).toContain('acme.standoff');
+    // Raw OpenCascade use stays in the engine (a trap's cause); the page shows no mark for it.
+    expect(body.features.every((entry: object) => !('usesOcct' in entry))).toBe(true);
   });
 
   it('serves a feature’s declared icon from its module’s directory', async () => {

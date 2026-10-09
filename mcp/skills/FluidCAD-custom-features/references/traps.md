@@ -55,6 +55,12 @@ Read before writing a `*.feature.js` module. Each entry: the mistake, how it sho
 - **Why.** The dialog reads and writes only the call shape's grammar: positional values, one object literal of options, a trailing rest, then the operation chains. Options held in a variable, a spread (`{ ...sizes }`), a computed key, or a string where a number goes can't be written back.
 - **Fix.** In the test part, write calls the way the dialog would. In the design, keep the call to that grammar: picks positional, sizes in one object of options.
 
+## A required pick skipped by going straight to the options
+
+- **Signature.** `standoff({ height: 5 })` fails the model's compilation with `standoff(): 'face' is required — it comes before the options`; in the editor, the call is marked (`… does not exist in type 'ISelection'`).
+- **Why.** An object of options where a positional value goes skips every positional value from there on. That is how a call leaves an optional pick out (`gear({ teeth: 24 })`), but a value with no default that isn't `optional` can't be skipped.
+- **Fix.** Pass the pick first (`standoff(plate.endFaces(), { height: 5 })`), or declare it `optional: true` when the feature has a sensible placement without it. Never write `undefined` to hold its place: the short form is what the dialog writes.
+
 ## The default operation needs no chain
 
 - **Signature.** `ventGrid(face).add()` on a `['remove']` feature fails its row: `ventGrid(): .add() is not an operation this feature offers — it offers 'remove'; 'remove' is its default and needs no chain`.

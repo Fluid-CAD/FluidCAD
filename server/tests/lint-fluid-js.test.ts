@@ -114,6 +114,25 @@ describe('lintFluidJs', () => {
     expect(result.missing).toEqual([]);
   });
 
+  it('treats a name declared in a callback as a binding there, and only there', async () => {
+    const code = [
+      'import { part, sketch, point } from "fluidcad/core";',
+      'part("Wheel", () => {',
+      '  const axis = sketch("xy", () => { point([0, 0]); });',
+      '  console.log(axis.geometries);',
+      '});',
+      'part("Other", (plane) => {',
+      '  for (const [i, { edge }] of []) { edge(i); }',
+      '  try { plane(); } catch (extrude) { extrude(); }',
+      '  return axis;',
+      '});',
+      '',
+    ].join('\n');
+    const result = await lintFluidJs(code);
+    // `axis` on line 3 is the callback's own; on line 8 it is the FluidCAD one.
+    expect(result.missing).toEqual([{ symbol: 'axis', module: 'fluidcad/core', line: 8, column: 9 }]);
+  });
+
   it('records the first occurrence line/column for each missing symbol', async () => {
     const code = [
       '// line 0',

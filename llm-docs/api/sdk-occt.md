@@ -1,7 +1,7 @@
 ---
 id: api/sdk-occt
 title: "fluidcad/sdk/occt and this.occ(scope => …) — raw OpenCascade in a custom feature (unstable)"
-summary: "For geometry the curated kernel can't build, a custom feature runs raw OpenCascade inside this.occ(({ oc, track, keep }) => …): every object constructed through scope.oc, and every method result handed to track(), is freed when the scope ends, except what it returns or keep()s and any shape the scene holds. fluidcad/sdk/occt exports getOC(), OccScope and the binding's types. Unstable and unchecked: a double free can crash the kernel for the whole engine session; the row fails, the engine is marked suspect and the page offers a restart. The editor marks a feature that uses raw OpenCascade."
+summary: "For geometry the curated kernel can't build, a custom feature runs raw OpenCascade inside this.occ(({ oc, track, keep }) => …): every object constructed through scope.oc, and every method result handed to track(), is freed when the scope ends, except what it returns or keep()s and any shape the scene holds. fluidcad/sdk/occt exports getOC(), OccScope and the binding's types. Unstable and unchecked: a double free can crash the kernel for the whole engine session; the row fails, the engine is marked suspect and the page offers a restart."
 tags: [api, sdk, custom-feature, occt, kernel, type]
 symbols: [getOC, OccScope]
 seeAlso: [api/feature, api/sdk-kernel, concepts/custom-features]
@@ -84,10 +84,7 @@ session, not only for the feature. When that ends in a WebAssembly trap:
   `fluidcad serve`) or says how;
 - everything built after the trap is suspect until the restart.
 
-**The editor marks it.** A feature whose module imports `fluidcad/sdk/occt`
-or calls `this.occ(…)` — in the module or in a workspace module it imports,
-found by reading the source, never by running it — carries a warning mark on
-its Custom dropdown cell. The page loads the binding's 2 MB of type
+**Completion in the editor.** The page loads the binding's 2 MB of type
 declarations the first time an open file mentions `fluidcad/sdk/occt` or
 `this.occ(`, so `oc.` completes in the in-page editor.
 

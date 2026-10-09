@@ -72,6 +72,17 @@ type CanLeaveOut<S> =
   : false;
 
 /**
+ * Whether a call that goes straight to its options may skip the value: as
+ * {@link CanLeaveOut}, except that a picked value must be `optional` (or a
+ * sketch that defaults to the active one) — a list left out is empty, which
+ * a required one refuses.
+ */
+type CanSkip<S> =
+  S extends { picker: 'sketch'; implicitDefault: true } ? true
+  : S extends { picker: unknown } ? (S extends { optional: true } ? true : false)
+  : CanLeaveOut<S>;
+
+/**
  * What a value the call may leave out reaches the feature as when it does:
  * its default when it has one — a boolean without one is `false`, a select
  * or a radio without one its first option — an empty list for a list, and
@@ -169,7 +180,21 @@ type Argument<A, CanOmit, Tail extends unknown[]> =
 export type FeatureArgs<P, S> =
   S extends readonly [infer Slot, ...infer Rest]
     ? Slot extends `...${infer N extends keyof P & string}` ? RestArgOf<P[N]>[]
-    : Slot extends keyof P ? Argument<ArgOf<P[Slot]>, CanLeaveOut<P[Slot]>, FeatureArgs<P, Rest>>
+    : Slot extends keyof P
+      ? Argument<ArgOf<P[Slot]>, CanLeaveOut<P[Slot]>, FeatureArgs<P, Rest>>
+        | (CanSkip<P[Slot]> extends true ? FromOptions<P, Rest> : never)
     : Argument<OptionsArg<P, Slot>, OptionsCanLeaveOut<P, Slot>, FeatureArgs<P, Rest>>
     : S extends readonly [] ? []
     : unknown[];
+
+/**
+ * The arguments of a call that goes straight to its object of options,
+ * leaving out the positional values before it — `gear({ teeth: 24 })` —
+ * when each of them may be left out; never for a shape without options.
+ */
+type FromOptions<P, S> =
+  S extends readonly [infer Slot, ...infer Rest]
+    ? Slot extends `...${string}` ? never
+    : Slot extends keyof P ? (CanSkip<P[Slot]> extends true ? FromOptions<P, Rest> : never)
+    : [OptionsArg<P, Slot>, ...FeatureArgs<P, Rest>]
+    : never;

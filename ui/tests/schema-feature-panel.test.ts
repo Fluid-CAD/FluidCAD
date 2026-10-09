@@ -50,12 +50,6 @@ const opTabs = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElemen
 const shown = (el: Element | null) => el !== null && !el.closest('.hidden');
 
 describe('the schema dialog', () => {
-  it('carries no raw OpenCascade mark beside its title — the Custom dropdown cell carries it', () => {
-    const marked = mount(VENT, { usesOcct: true }).root;
-    expect(marked.querySelector('[data-role="raw-occt"]')).toBeNull();
-    expect(marked.querySelector('[data-role="header"]')!.textContent).not.toContain('Raw OpenCascade');
-  });
-
   it('draws each kind of row with its default', () => {
     const { root } = mount();
     const value = (name: string) => root.querySelector<HTMLInputElement & HTMLSelectElement>(`[data-role="value-${name}"]`)!;
@@ -715,7 +709,7 @@ describe("the layout tree of a schema dialog", () => {
   it('draws a derived layout as the dialog always was: rows, plain group hosts, the tab row, a pane per tab', () => {
     const { root, body, sign, all, one } = open(VENT);
     expect([...body.children].map(sign)).toEqual(
-      ['face', 'style', 'group:Pattern', 'group:Slot', 'tabs', 'tab-Finish', 'tab-Notes', 'scope-slot', 'ghost-paused']);
+      ['face', 'style', 'group:Pattern', 'group:Slot', 'tabs', 'tab-Finish', 'tab-Notes', 'scope-slot', 'preview-row', 'ghost-paused']);
     const pattern = one('[data-group="Pattern"]');
     expect(pattern.className).toBe('flex flex-col gap-3.5');
     expect(pattern.firstElementChild!.tagName).toBe('DIV');
@@ -731,7 +725,7 @@ describe("the layout tree of a schema dialog", () => {
   it('lays a row out as a grid of its widths, a note as a cell, and wears the declared width', () => {
     const { root, body, sign, one } = open();
     expect([...body.children].map(sign)).toEqual(
-      ['aside', 'face', 'layout-row', 'tabs', 'tab-Hole', 'tab-Finish', 'note', 'scope-slot', 'ghost-paused']);
+      ['aside', 'face', 'layout-row', 'tabs', 'tab-Hole', 'tab-Finish', 'note', 'scope-slot', 'preview-row', 'ghost-paused']);
     const row = one('[data-role="layout-row"]');
     expect(row.style.gridTemplateColumns).toBe('minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)');
     expect(row.className).toBe('grid gap-2 items-start');

@@ -1,7 +1,7 @@
 ---
 id: api/feature
 title: "Feature / Feature.with(params) — the base class of a custom feature"
-summary: "The class a custom feature extends, from fluidcad/sdk: Feature.with({ … }) declares its values and types this.values; static id names it; a tool implements buildTool(ctx) and returns its solids (the base applies add/new/remove, fuses or cuts, moves them for a repeat), a modifier overrides build(ctx). setBuckets() names startFaces…capFaces (edges derived) plus startPlane; shapesOf/facesOf/edgesOf/axisOf/planeOf/frameOf/pointOf/isLocation read the picked references; ghost(ctx) is the dialog's preview; occ() runs raw OpenCascade in a scope."
+summary: "The class a custom feature extends, from fluidcad/sdk: Feature.with({ … }) declares its values and types this.values; static id names it; a tool implements buildTool(ctx) and returns its solids (the base applies add/new/remove, fuses or cuts, moves them for a repeat), a modifier overrides build(ctx). setBuckets() names startFaces…capFaces (edges derived) plus startPlane; shapesOf/facesOf/edgesOf/axisOf/planeOf/frameOf/pointOf/isLocation read the picked references; getOperationMode() reads the operation the statement applies (chain or default, the dialog's tab in the preview, the same on a repeat's copy); ghost(ctx) is the dialog's preview; occ() runs raw OpenCascade in a scope."
 tags: [api, sdk, custom-feature, type]
 symbols: [Feature, FeatureBuckets, FeatureBuildContext]
 seeAlso: [concepts/custom-features, api/define-feature, api/feature-params, api/sdk-kernel, api/sdk-occt, api/register-builder, api/connector, api/repeat]
@@ -23,6 +23,9 @@ class MyFeature extends Feature.with(params) {   // params: { [name]: ParamSpec 
   build(ctx: FeatureBuildContext): void;
   // Optional — the dialog's preview:
   ghost(ctx: FeatureBuildContext): Shape[] | null;
+
+  // The operation this statement applies — its chain's, else the default:
+  getOperationMode(): 'add' | 'new' | 'remove';
 
   // Protected helpers:
   setBuckets(buckets: FeatureBuckets): void;
@@ -106,6 +109,64 @@ no shape fails the row: `acme.x: buildTool() returned no shapes`.
 `ctx` is the scene as it stands before the feature: `ctx.getSceneObjects()`
 lists the objects in scope. A tool rarely needs it.
 
+**Reading the operation: `this.getOperationMode()`** returns `'add'`,
+`'new'` or `'remove'` — the operation the base applies to what `buildTool()`
+returns: the statement's chain, or with no chain the feature's default
+(never null; a feature that declares no `operations` reads `'add'` unless a
+chain says otherwise). It reads the same in `buildTool()`, in the dialog's
+preview (the tab the dialog shows, the default for a feature without tabs)
+and on every `repeat()` copy (its statement's). A chain the feature doesn't
+offer fails the row before `buildTool()` runs. Under checkJs it is typed
+`'add' | 'new' | 'remove'`, so a misspelt `'cut'` is flagged. Read it when a
+remove means a different tool: an internal gear adds the whole ring but
+removes only the tooth space. Here, a tube cuts only its bore:
+
+```feature.js
+// tube.feature.js
+// A tube standing on XY: added or new, the tube; removed, only its bore.
+import { Feature, defineFeature } from 'fluidcad/sdk';
+import { BooleanOps, Primitives } from 'fluidcad/sdk/kernel';
+
+export class Tube extends Feature.with({
+  outer: { type: 'length', default: 12, min: 0 },
+  bore: { type: 'length', default: 8, min: 0 },
+  height: { type: 'length', default: 10, min: 0 },
+}) {
+  static id = 'acme.tube';
+
+  buildTool() {
+    const { outer, bore, height } = this.values;
+    const space = Primitives.makeCylinder(bore / 2, height);
+    if (this.getOperationMode() === 'remove') {
+      return [space];
+    }
+    const body = Primitives.makeCylinder(outer / 2, height);
+    const tube = BooleanOps.cutShapes(body, space);
+    body.dispose();
+    space.dispose();
+    return [tube];
+  }
+}
+
+export const tube = defineFeature(Tube, {
+  label: 'Tube',
+  group: 'create',
+  operations: ['add', 'new', 'remove'],
+  call: [{ outer: 'outer', bore: 'bore', height: 'height' }],
+});
+```
+
+```fluid.js
+import { part, cylinder } from "fluidcad/core";
+import { tube } from "./tube.feature.js";
+
+export const hub = part("Hub", () => {
+  cylinder(20, 10);
+  tube({ height: 25 });            // fuses a Ø12 tube into the Ø40 disk
+  tube({ height: 25 }).remove();   // bores Ø8 through both; the tube's wall stays
+});
+```
+
 ## Naming the buckets: `setBuckets(buckets)`
 
 Downstream features name the feature's faces and edges through its
@@ -163,9 +224,15 @@ copies read them again. A referenced solid, feature or connector stays.
 
 ## The preview: `ghost(ctx)`
 
-While the dialog is open the engine builds the feature from the dialog's
-values on stand-ins of the picks and draws what `ghost()` returns — green
-for an add or a new, red for a remove. The scene is never changed.
+While the dialog's **Preview** toggle is on, the engine builds the feature
+from the dialog's values on stand-ins of the picks and draws what `ghost()`
+returns — green for an add or a new, red for a remove — again on every
+change. The scene is never changed.
+
+- **The toggle starts off**: the engine runs neither `ghost()` nor
+  `buildTool()` for the dialog until the user turns it on. The page
+  remembers it per feature id, so a feature the user turned it on for opens
+  with it on; turning it off forgets it. Apply never depends on it.
 
 - **A tool** previews by default: `ghost()` runs `buildTool()`. Override it
   to return something cheaper.
@@ -176,7 +243,8 @@ for an add or a new, red for a remove. The scene is never changed.
 - **Budget:** a preview that takes over 1.5 s to build and mesh is not drawn;
   the dialog says "Preview paused. Building it took 2.0 s — over the 1.5 s a
   live preview may take." and offers **Show preview**.
-- `ghost: false` in the metadata turns the preview off.
+- `ghost: false` in the metadata turns the preview off: the dialog shows no
+  toggle.
 
 ## Modifier kind: `build(ctx)`
 

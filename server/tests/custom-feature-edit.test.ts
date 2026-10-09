@@ -175,6 +175,20 @@ const BARE_RIM_META = {
 
 MODULES['/ws/rim.feature.js'] = [{ exportName: 'rim', meta: RIM_META }];
 
+/** A gear placed on an optional pick: left out, the call goes straight to its options. */
+const GEAR_META = {
+  id: 'acme.gear', label: 'Gear', group: 'create', kind: 'tool', operations: ['add', 'new'],
+  params: {
+    at: { picker: ['face', 'edge'], label: 'At', optional: true },
+    teeth: { type: 'integer', default: 24, min: 3, label: 'Teeth' },
+    width: { type: 'length', default: 10, label: 'Width' },
+  },
+  call: ['at', { teeth: 'teeth', width: 'width' }],
+  ghost: true, contexts: ['part'],
+} as unknown as ScannedFeature['meta'];
+
+MODULES['/ws/gear.feature.js'] = [{ exportName: 'gear', meta: GEAR_META }];
+
 function catalog(): FeatureCatalog {
   return new FeatureCatalog({
     workspacePath: '/ws',
@@ -426,6 +440,86 @@ function editSpec(custom: Partial<CustomFeatureOptions>, extra: Partial<ApplyFea
     ...extra,
   };
 }
+
+describe('a call that goes straight to its options', () => {
+  function gearSpec(values: CustomFeatureOptions['values'], picked = false): ApplyFeatureEditSpec {
+    return {
+      feature: 'custom',
+      filePath: MODEL,
+      producers: picked ? [{ line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }] : [],
+      parts: picked ? [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }] : [],
+      imports: [],
+      custom: {
+        id: 'acme.gear', exportName: 'gear', modulePath: '/ws/gear.feature.js',
+        shape: CustomFeatureStatement.shapeOf(GEAR_META),
+        values,
+      },
+    };
+  }
+
+  const GEARED = (call: string) => src(
+    `import { sketch, rect, extrude } from 'fluidcad/core'`,
+    `import { gear } from './gear.feature.js'`,
+    `sketch('xy', () => { rect(40, 40) })`,
+    `const e = extrude(10)`,
+    `const g = ${call}`,
+  );
+
+  function gearEdit(values: CustomFeatureOptions['values'], picked = false): ApplyFeatureEditSpec {
+    return {
+      feature: 'custom',
+      filePath: MODEL,
+      producers: picked ? [{ line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }] : [],
+      parts: picked ? [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }] : [],
+      imports: [],
+      edit: { line: 5, column: 11, custom: { id: 'acme.gear', values } },
+    };
+  }
+
+  it('writes no placeholder for an optional pick left out ahead of the options', async () => {
+    const some = await applyFeatureEdit(PLATE, gearSpec({ teeth: { kind: 'value', value: 30 } }));
+    expect(some.error).toBeUndefined();
+    expect(some.newCode).toContain(`gear({ teeth: 30 })`);
+    expect(some.newCode).not.toContain('undefined');
+
+    const none = await applyFeatureEdit(PLATE, gearSpec({}));
+    expect(none.error).toBeUndefined();
+    expect(none.newCode).toContain(`gear()`);
+
+    const placed = await applyFeatureEdit(PLATE, gearSpec({
+      at: { kind: 'picks', items: [{ kind: 'part', part: 0 }] },
+      teeth: { kind: 'value', value: 30 },
+    }, true));
+    expect(placed.error).toBeUndefined();
+    expect(placed.newCode).toContain(`gear(e.endFaces(), { teeth: 30 })`);
+  });
+
+  it('reads the short form back as editable, and the old placeholder form too', async () => {
+    for (const call of [`gear({ teeth: 30 })`, `gear(undefined, { teeth: 30 })`, `gear(null, { teeth: 30 })`]) {
+      const code = GEARED(call);
+      const parsed = await parseFeatureStatement(code, 5, await catalog().calleesFor(code, MODEL));
+      expect(parsed, call).toMatchObject({ ok: true, parsed: { id: 'acme.gear', values: { teeth: 30 }, picks: {} } });
+    }
+  });
+
+  it('adds the pick in front of the options on an edit, and takes it out again', async () => {
+    const short = GEARED(`gear({ teeth: 30, width: 4 })`);
+    const picked = await applyFeatureEdit(short, gearEdit({
+      at: { kind: 'picks', items: [{ kind: 'part', part: 0 }] }, teeth: { kind: 'keep' }, width: { kind: 'keep' },
+    }, true), { callees: catalog() });
+    expect(picked.error).toBeUndefined();
+    expect(picked.newCode).toContain(`const g = gear(e.endFaces(), { teeth: 30, width: 4 })`);
+
+    const cleared = await applyFeatureEdit(picked.newCode!, gearEdit({ teeth: { kind: 'keep' }, width: { kind: 'keep' } }), { callees: catalog() });
+    expect(cleared.error).toBeUndefined();
+    expect(cleared.newCode).toContain(`const g = gear({ teeth: 30, width: 4 })`);
+
+    const old = GEARED(`gear(undefined, { teeth: 30 })`);
+    const rewritten = await applyFeatureEdit(old, gearEdit({ teeth: { kind: 'value', value: 31 } }), { callees: catalog() });
+    expect(rewritten.error).toBeUndefined();
+    expect(rewritten.newCode).toContain(`const g = gear({ teeth: 31 })`);
+  });
+});
 
 describe('reading a custom feature statement back', () => {
   it('reads the values, the picks as written and the operation by the call shape', async () => {

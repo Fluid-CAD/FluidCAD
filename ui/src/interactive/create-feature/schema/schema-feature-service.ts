@@ -25,6 +25,7 @@ import { enclosingPartLocOf, scopePartLocation, ScopeTargetList } from '../scope
 import { collectSketchProfiles } from '../sketch-profiles';
 import { SketchUISuspender } from '../sketch-suspender';
 import { FeatureSchema } from './feature-schema';
+import { PreviewPreference } from './preview-preference';
 import { SchemaFeaturePanel } from './schema-feature-panel';
 import {
   NO_CHANNELS, PickHighlight, SCOPE_CHANNELS, type PickOutcome, type PickerScene, type SchemaPicker,
@@ -58,10 +59,13 @@ export type SchemaFeatureHooks = {
  * and an edit rewrites only what the user changed. The re-render is the
  * preview, editor undo the rollback.
  *
- * While the values are typed the feature's ghost draws in the viewport —
- * built by the engine from the same values and picks, unless its metadata
- * turns it off. One that takes longer to build than a live preview may
- * pauses: the dialog says so and builds it again only when asked.
+ * While the dialog's Preview toggle is on, the feature's ghost draws in the
+ * viewport — built by the engine from the same values and picks. The toggle
+ * starts off (a preview runs the feature's code on every change) unless the
+ * user turned it on for this feature before, and a feature whose metadata
+ * draws no preview has none. Off, the engine is never asked for a ghost.
+ * One that takes longer to build than a live preview may pauses: the
+ * dialog says so and builds it again only when asked.
  */
 export class SchemaFeatureService implements FeatureDialogService {
   readonly id: string;
@@ -95,6 +99,8 @@ export class SchemaFeatureService implements FeatureDialogService {
   private scopeTouched = false;
   /** The live geometry ("ghost"); null for a feature whose metadata draws none. */
   private readonly ghost: FeatureGhostOverlay | null;
+  /** The Preview toggle is on: the ghost is asked for. */
+  private previewOn = false;
   /** Why the ghost paused (it built slower than a live preview may), or null while it runs. */
   private ghostPaused: string | null = null;
   /** The one unbounded ghost "Show preview" asked for, while it builds. */
@@ -178,6 +184,12 @@ export class SchemaFeatureService implements FeatureDialogService {
       this.runner.schedulePreview();
     };
     this.panel.onShowPreview = () => void this.showGhostOnce();
+    this.panel.onPreviewToggle = (on) => {
+      this.previewOn = on;
+      PreviewPreference.write(schema.id, on);
+      this.resumeGhost();
+      this.runner.schedulePreview();
+    };
     for (const picker of this.panel.pickers.values()) {
       picker.onChange = () => {
         this.panel.setMessage(null);
@@ -273,6 +285,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.parsed = null;
     this.scope.clear();
     this.scopeTouched = false;
+    this.restorePreview();
     this.resumeGhost();
     if (this.sceneSketchActive) {
       this.sketchUI.suspend();
@@ -308,6 +321,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.sourcesLoaded = false;
     this.editSceneStale = false;
     this.scopeTouched = false;
+    this.restorePreview();
     this.resumeGhost();
     this.scope.seedKeeps(parsed, target.filePath);
     this.syncButton();
@@ -857,11 +871,15 @@ export class SchemaFeatureService implements FeatureDialogService {
   }
 
   /**
-   * The bodies the form would build, or null to clear. While paused, none:
+   * The bodies the form would build, or null to clear. With the Preview
+   * toggle off, none, and the engine is never asked. While paused, none:
    * a build that slow would lag every keystroke — "Show preview" asks for
    * one. A ghost that comes back paused pauses the dialog.
    */
   private async fetchGhost(signal: AbortSignal, unbounded = false): Promise<GhostSolid[] | null> {
+    if (!this.previewOn) {
+      return null;
+    }
     if (!unbounded) {
       // The form changed since "Show preview" asked: its answer is stale.
       this.ghostOnce?.abort();
@@ -917,6 +935,12 @@ export class SchemaFeatureService implements FeatureDialogService {
     }
     this.ghostOnce = null;
     this.drawGhost(solids);
+  }
+
+  /** The Preview toggle as the user left it for this feature: off unless they turned it on. */
+  private restorePreview(): void {
+    this.previewOn = this.ghost !== null && PreviewPreference.read(this.schema.id);
+    this.panel.setPreviewOn(this.previewOn);
   }
 
   /** A fresh dialog (or none): no ghost drawn, previews running again. */

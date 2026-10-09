@@ -159,14 +159,12 @@ export class FeatureCatalogDialogs {
       const icon = FeatureCatalogDialogs.iconOf(entry, this.revision);
       // Read at each ask, so an image shown after a save is the saved one.
       const schema = new FeatureSchema(entry.meta, {
-        usesOcct: entry.usesOcct,
         assetUrl: entry.builtIn ? undefined : path => featureAssetUrl(id, path, this.revision),
       });
       const service = entry.builtIn
         ? this.create(schema, icon)
         : this.create(schema, icon, this.menu.add({
           id, label: schema.label, iconSrc: icon, tip: schema.tip, group: FeatureCatalogDialogs.groupOf(entry.meta),
-          usesOcct: schema.usesOcct,
         }));
       this.registry.register(service);
       // A built-in's rows already read the product's own icon by their type.
@@ -263,7 +261,7 @@ export class FeatureCatalogDialogs {
 
   /** What a dialog is built from: a change here rebuilds it. */
   private static signatureOf(entry: OfferedEntry): string {
-    return JSON.stringify({ meta: entry.meta, usesOcct: entry.usesOcct === true });
+    return JSON.stringify({ meta: entry.meta });
   }
 
   /** `…/bolt-boss.feature.js` → `bolt-boss`. */

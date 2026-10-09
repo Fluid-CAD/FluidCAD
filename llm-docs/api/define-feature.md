@@ -19,7 +19,7 @@ defineFeature(FeatureClass, {
   group: 'create' | 'modify';                     // where it sorts in the Custom dropdown
   operations?: ('add' | 'new' | 'remove')[];      // a tool's operations; left out, none
   call: CallShape;                                // how the builder's arguments map to the values
-  ghost?: boolean;                                // false: the dialog draws no preview
+  ghost?: boolean;                                // false: the dialog draws no preview and shows no Preview toggle
   contexts?: ['part'];                            // where it may be used; parts only so far
 }): (...args: FeatureArgs) => InstanceType<FeatureClass>
 
@@ -64,7 +64,7 @@ that message, and a model that imports the module fails to compile with it.
 | `group` | Required: `'create'` or `'modify'`. The dropdown lists create features first, then modify, each sorted by label. |
 | `operations` | A tool's operations, which its dialog offers as tabs (see below). A modifier takes none. |
 | `call` | Required: the call shape (see below). Every value appears in it exactly once. |
-| `ghost` | `false` turns the dialog's preview off. A tool previews by default; a modifier only when its class overrides `ghost(ctx)`, and `ghost: true` on one that doesn't is refused. |
+| `ghost` | `false` turns the dialog's preview off: no **Preview** toggle. Otherwise the dialog has the toggle, off until the user turns it on (remembered per feature). A tool can always preview; a modifier only when its class overrides `ghost(ctx)`, and `ghost: true` on one that doesn't is refused. |
 | `contexts` | `['part']`, the only context so far: custom features run in parts, not at the top level of an assembly file. `'assembly'` is refused ("custom features run in parts only for now — 'contexts' takes 'part'"). |
 | `layout`, `width`, `aside` | Optional: how the dialog is laid out — rows, sections, tabs, notes and images; a wider dialog; static items beside the rows. See [feature-layout](feature-layout.md). Left out, the layout is derived from the values' `group` and `tab`. |
 
@@ -93,6 +93,9 @@ default**: `'add'` when it is offered, else the first listed. So:
   fuses with nothing).
 - `defaultOperation` is not a field: the rule above decides it, and naming
   it is refused.
+- **Reading it.** `buildTool()` reads the operation its statement applies
+  — the chain's, else the default — with `this.getOperationMode()`, to build
+  a different tool for a remove (see [[api/feature]]).
 
 ## The call shape
 
@@ -113,16 +116,27 @@ statement the dialog wrote is exactly one the builder reads back. In order:
 | `['around', { count: 'count', circle: 'circle', … }]` | `boltCircle('z', { count: 6 })` |
 | `['at', { diameter: 'diameter', height: 'height', hole: 'hole' }]` | `boss([bolt, s.geometries.a], { height: 4 })` |
 | `['angle', '...faces']` (`draft()`'s own) | `draft(5, e.sideFaces(), e2.sideFaces())` |
+| `['at', { teeth: 'teeth', width: 'width' }]`, `at` optional | `gear(shaft.endFaces(), { teeth: 14 })`, `gear({ teeth: 24 })`, `gear()` |
 
 - Any argument may be left out when the values it holds may be: a trailing
   one is dropped, an option loses its key, an empty object of options goes.
   A value may be left out when it resolves to a default — a boolean, a
   select, a radio, a slider and a list of options always do — or is optional
-  (the table in [[api/feature-params]]). A positional value left out ahead of a later
-  argument is passed as `undefined` (the dialog writes its default there:
+  (the table in [[api/feature-params]]).
+- **A call may go straight to its object of options**, leaving out the
+  positional values before it: an object written as `{ … }` where a
+  positional value goes is read as the options (a positional value is never
+  one — a scene object, an axis or a plane is not a plain object). So a gear
+  whose placement `at` is optional is `gear({ teeth: 24 })`, not
+  `gear(undefined, { teeth: 24 })`, which still reads. Every value it skips
+  must be one that may be left out: `standoff({ height: 5 })` throws
+  `standoff(): 'face' is required — it comes before the options`.
+- A positional value left out ahead of a later positional or a rest
+  element is passed as `undefined` (the dialog writes its default there:
   `draft(5, …)`).
 - With both options and a rest, an argument that is not a plain object is
-  read as the rest: `f(6, a, b)` and `f(6, { depth: 10 }, a, b)` both read.
+  read as the rest: `f(6, a, b)`, `f(6, { depth: 10 }, a, b)` and
+  `f({ depth: 10 }, a, b)` all read.
 - **In the editor**, the builder's arguments are typed from the shape, and a
   misspelled value name in `call` is marked ("Did you mean …").
 - **At run time**, a call that doesn't fit throws at the call, so the model
@@ -144,7 +158,10 @@ The message ends "— not editable in the dialog; edit the statement in the
 source".
 
 **What the dialog writes.** A create writes the picks, the operation and
-only the typed-in values the user changed. Every row left alone shows the
+only the typed-in values the user changed. Positional values left out right
+before the options are left out of the call too: `gear({ teeth: 30 })` with
+no placement picked, `gear()` with nothing changed, and an edit that picks
+one writes `gear(e.endFaces(), { teeth: 30 })` (clearing it, the reverse). Every row left alone shows the
 value the builder fills for it, so the call leaves it out and still builds:
 `grille(e.endFaces())` for a grille whose pattern (a select) and chamfer (a
 boolean) declare no default gets the first pattern and no chamfer, as its

@@ -35,7 +35,9 @@ export type FeatureCatalogEntry = {
    * OpenCascade (`fluidcad/sdk/occt`, or a scope opened with `this.occ()`;
    * see {@link RawOcctUse}): unstable code that can corrupt the kernel's
    * memory for the whole engine session. Read from the source, never
-   * evaluated. False for the engine's own builders.
+   * evaluated. False for the engine's own builders. Kept in the engine —
+   * a kernel trap names it as the likeliest cause — and never served to
+   * the page.
    */
   usesOcct: boolean;
   /** Why this entry can't be offered. */

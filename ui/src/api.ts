@@ -6294,11 +6294,6 @@ export type FeatureCatalogEntry = {
   modulePath: string;
   builtIn: boolean;
   meta: FeatureMetaSnapshot | null;
-  /**
-   * The feature's module reaches raw OpenCascade (`fluidcad/sdk/occt`, or
-   * `this.occ()`): the page marks it. Absent from an older server.
-   */
-  usesOcct?: boolean;
   error?: string;
 };
 

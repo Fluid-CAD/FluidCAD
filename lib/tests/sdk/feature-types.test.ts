@@ -345,6 +345,54 @@ probe(plate.endFaces(), 'z', { pitch: 0.7 });
     ]);
   });
 
+  it("types a call that goes straight to its options when the positionals before them may be left out", () => {
+    const check = CheckJs.check({
+      'standoff.feature.js': STANDOFF_MODULE,
+      'gear.feature.js': `
+import { Feature, defineFeature } from 'fluidcad/sdk';
+import { Primitives } from 'fluidcad/sdk/kernel';
+
+export class Gear extends Feature.with({
+  at: { picker: ['face', 'edge', 'connector'], optional: true },
+  teeth: { type: 'integer', default: 24, min: 3 },
+  width: { type: 'length', default: 10 },
+}) {
+  static id = 'acme.gear';
+
+  buildTool() {
+    return [Primitives.makeCylinder(this.values.teeth, this.values.width)];
+  }
+}
+
+export const gear = defineFeature(Gear, {
+  label: 'Gear',
+  group: 'create',
+  operations: ['add', 'new'],
+  call: ['at', { teeth: 'teeth', width: 'width' }],
+});
+`,
+      'plate.part.js': `
+import { extrude } from 'fluidcad/core';
+import { gear } from './gear.feature.js';
+import { standoff } from './standoff.feature.js';
+
+const plate = extrude(5);
+gear({ teeth: 30 });
+gear();
+gear(plate.endFaces(), { teeth: 30 });
+gear(undefined, { width: 4 }).new();
+
+gear({ teath: 30 });
+standoff({ height: 5 });
+`,
+    });
+    expect(errorsOf(check)).toEqual([
+      expect.stringMatching(/^plate\.part\.js:12: .*'teath' does not exist in type .*Did you mean to write 'teeth'\?/s),
+      // A positional that must be given is still a positional: the options don't stand in for it.
+      expect.stringContaining("plate.part.js:13: Object literal may only specify known properties, and 'height' does not exist in type 'ISelection'."),
+    ]);
+  });
+
   it("types a layout over the class's values: a misspelled name is an error, in a row, a section and a tab as at the top", () => {
     const check = CheckJs.check({
       'plate.feature.js': `

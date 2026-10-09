@@ -16,6 +16,12 @@
  * `standoff(face, { height, outer, hole })` is
  * `['face', { height: 'height', outer: 'outer', hole: 'hole' }]`.
  *
+ * A call may go straight to its object of options, leaving out the
+ * positional values before it: an object written as `{ … }` in a
+ * positional slot is the options (a positional value never is one), so
+ * `gear({ teeth: 24 })` reads for `['at', { teeth: 'teeth' }]`. Whether the
+ * values it skips may be left out is the feature's declaration to say.
+ *
  * A feature that declares operations also owns the operation chains on its
  * statement: `.add()`, `.new()`, `.remove()` and `.scope(…)`. A statement
  * without an operation chain applies the feature's **default operation**:
@@ -113,7 +119,7 @@ export class FeatureCall {
   private static readonly OPERATION_METHODS = new Set<string>(['add', 'new', 'remove', 'scope']);
 
   /** The run-time reader: a plain object is the object of options. */
-  private static readonly VALUES: CallReader<unknown> = {
+  static readonly VALUES: CallReader<unknown> = {
     isAbsent: arg => arg === undefined,
     optionEntries: arg => FeatureCall.isPlainObject(arg) ? Object.entries(arg) : null,
   };
@@ -249,7 +255,7 @@ export class FeatureCall {
     let at = 0;
 
     for (const name of this.positional) {
-      if (at >= list.length) {
+      if (at >= list.length || this.opensOptions(list[at], reader)) {
         break;
       }
       if (!reader.isAbsent(list[at])) {
@@ -289,12 +295,39 @@ export class FeatureCall {
   }
 
   /**
+   * The positional values a call leaves out by going straight to its object
+   * of options — `gear({ teeth: 24 })` skips `at` — in order. Whether each
+   * may be left out is the caller's to check: the shape knows only names.
+   */
+  skipped<A>(args: ArrayLike<A>, reader: CallReader<A>): string[] {
+    const list = Array.from(args);
+    for (let at = 0; at < this.positional.length && at < list.length; at++) {
+      if (this.opensOptions(list[at], reader)) {
+        return this.positional.slice(at);
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Whether an argument in a positional slot is the object of options
+   * instead: a positional value is never an object written as `{ … }` (a
+   * scene object, an axis or a plane is a class instance), so one there
+   * means the positionals from that slot on are left out.
+   */
+  private opensOptions<A>(arg: A, reader: CallReader<A>): boolean {
+    return this.options !== null && !reader.isAbsent(arg) && reader.optionEntries(arg) !== null;
+  }
+
+  /**
    * Named values laid out as arguments, and the operation as chains — none
    * for the default operation unless `explicit` asks for it. A value that
    * is `undefined` is left out: a trailing one is dropped, an option loses
-   * its entry, and an object left with none is dropped. A positional one
-   * that a later argument follows — an option, a rest element — keeps its
-   * place: it writes what `placeholder` gives for it, else `undefined`.
+   * its entry, and an object left with none is dropped. Positional ones
+   * right before the object of options go too: the object reads as the
+   * options from their slot on. A positional one that a later positional
+   * or a rest element follows keeps its place: it writes what `placeholder`
+   * gives for it, else `undefined`.
    */
   layout<T>(
     values: Readonly<Record<string, T | T[] | undefined>>,
@@ -318,6 +351,17 @@ export class FeatureCall {
     }
     const restValue = this.rest === null ? undefined : values[this.rest];
     const rest = restValue === undefined ? [] : Array.isArray(restValue) ? restValue : [restValue];
+    // Positionals left out right before the object of options go: the
+    // object reads as the options from their slot on — `gear({ teeth: 24 })`,
+    // not `gear(undefined, { teeth: 24 })`.
+    const last = args[args.length - 1];
+    if (last?.kind === 'options') {
+      let first = args.length - 1;
+      while (first > 0 && args[first - 1].kind === 'positional' && (args[first - 1] as { value: unknown }).value === undefined) {
+        first--;
+      }
+      args.splice(first, args.length - 1 - first);
+    }
     // Trailing positionals left out go, unless a rest element follows them:
     // dropping their places would hand the rest to the positionals.
     while (rest.length === 0 && args.length > 0) {

@@ -20,21 +20,13 @@ const OPERATION_LABELS: Record<FeatureOpKind, { label: string; title: string }> 
  * panel renders it and the service drives it.
  */
 export class FeatureSchema {
-  /**
-   * The feature's module reaches raw OpenCascade (the catalog's
-   * `usesOcct`): its cell in the Custom dropdown carries the mark; its
-   * dialog carries none.
-   */
-  readonly usesOcct: boolean;
-
   private readonly resolveAsset: ((path: string) => string) | undefined;
 
   /**
    * `assetUrl`: where a file the feature declares is served (the catalog's,
    * for a workspace feature). A built-in declares none.
    */
-  constructor(readonly meta: FeatureMetaSnapshot, opts: { usesOcct?: boolean; assetUrl?: (path: string) => string } = {}) {
-    this.usesOcct = opts.usesOcct === true;
+  constructor(readonly meta: FeatureMetaSnapshot, opts: { assetUrl?: (path: string) => string } = {}) {
     this.resolveAsset = opts.assetUrl;
   }
 

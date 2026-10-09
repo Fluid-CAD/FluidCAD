@@ -1,7 +1,7 @@
 ---
 id: concepts/custom-features
 title: Custom features — your own feature types in *.feature.js modules
-summary: "A custom feature is a feature type a project writes in JavaScript: a Feature.with() class whose buildTool() returns its solids, exported through defineFeature() from a *.feature.js module. The editor finds it by scanning the module's exports (no init.js), lists it under the toolbar's Custom dropdown with a dialog built from its declared values, a live preview, Apply that writes the import and the call, and timeline edits; models call it like a built-in, and repeat, copy and fillet its buckets. The module re-evaluates on every render, so never instanceof your own class; saving its code rebuilds its statements with no restart."
+summary: "A custom feature is a feature type a project writes in JavaScript: a Feature.with() class whose buildTool() returns its solids, exported through defineFeature() from a *.feature.js module. The editor finds it by scanning the module's exports (no init.js), lists it under the toolbar's Custom dropdown with a dialog built from its declared values, a live preview behind a toggle, Apply that writes the import and the call, and timeline edits; models call it like a built-in, and repeat, copy and fillet its buckets. The module re-evaluates on every render, so never instanceof your own class; saving its code rebuilds its statements with no restart."
 tags: [concept, sdk, custom-feature, feature]
 seeAlso: [api/feature, api/define-feature, api/feature-params, api/feature-layout, api/register-builder, api/sdk-kernel, api/sdk-occt, api/draft, api/repeat, concepts/scene-graph]
 ---
@@ -15,8 +15,9 @@ from then on it behaves like a built-in feature:
 - the part toolbar's **Custom** dropdown (the last button on the bar) lists it;
 - its dialog is built from the values it declares: picks in the viewport or
   the timeline, typed values, tabs and groups;
-- the dialog draws a live preview, green for what it adds and red for what it
-  cuts;
+- the dialog draws a live preview once its **Preview** toggle is on, green for
+  what it adds and red for what it cuts (the toggle starts off, and stays on
+  for a feature the user turned it on for);
 - **Apply** writes `import { standoff } from './standoff.feature.js'` and the
   call into the model;
 - double-clicking its timeline row opens the same dialog on the statement;
@@ -243,8 +244,8 @@ shape: {
 - **Saving the module rebuilds its features.** When a `*.feature.js` file, or
   a workspace module it imports, is saved, every model whose last render read
   it rebuilds the statements of its features though their values match;
-  statements before the first of them stay cached. An open dialog's preview
-  redraws with the saved code. No engine restart. Unsaved editor buffers of a
+  statements before the first of them stay cached. An open dialog's preview,
+  when on, redraws with the saved code. No engine restart. Unsaved editor buffers of a
   feature module don't reach the engine: saving is the trigger.
 
 ## Errors, and where they show

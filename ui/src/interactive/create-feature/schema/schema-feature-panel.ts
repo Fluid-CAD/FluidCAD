@@ -60,6 +60,8 @@ export class SchemaFeaturePanel extends FeaturePanel {
   onScopeRemove?: (index: number) => void;
   /** The paused preview's "Show preview": build it once, however long it takes. */
   onShowPreview?: () => void;
+  /** The Preview toggle flipped. */
+  onPreviewToggle?: (on: boolean) => void;
 
   readonly fields = new Map<string, SchemaField>();
   readonly pickers = new Map<string, SchemaPicker>();
@@ -75,6 +77,8 @@ export class SchemaFeaturePanel extends FeaturePanel {
   private readonly images: { img: HTMLImageElement; path: string }[] = [];
   private readonly pausedRow: HTMLElement;
   private readonly pausedText: HTMLElement;
+  /** The Preview toggle; null for a feature whose metadata draws no preview (`ghost: false`). */
+  private readonly previewToggle: HTMLInputElement | null = null;
   private armed: ArmedSlot = null;
 
   constructor(container: HTMLElement, readonly schema: FeatureSchema, iconSrc: string) {
@@ -121,6 +125,24 @@ export class SchemaFeaturePanel extends FeaturePanel {
       this.scopeSlot.onRemove = (index) => this.onScopeRemove?.(index);
     }
 
+    if (schema.meta.ghost) {
+      const row = this.append('preview-row', 'text-xs');
+      const label = document.createElement('label');
+      label.className = 'flex items-center justify-between w-full cursor-pointer';
+      label.title = 'Draw what the feature builds while you edit it — runs its code on every change';
+      const text = document.createElement('span');
+      text.className = 'text-base-content/70';
+      text.textContent = 'Preview';
+      const toggle = document.createElement('input');
+      toggle.type = 'checkbox';
+      toggle.dataset.role = 'preview-toggle';
+      toggle.className = 'toggle toggle-sm toggle-primary';
+      toggle.addEventListener('change', () => this.onPreviewToggle?.(toggle.checked));
+      label.append(text, toggle);
+      row.append(label);
+      this.previewToggle = toggle;
+    }
+
     this.pausedRow = this.append('ghost-paused', 'hidden flex-col items-start gap-1.5 text-xs leading-snug text-base-content/70');
     this.pausedText = document.createElement('span');
     const showPreview = document.createElement('button');
@@ -130,6 +152,18 @@ export class SchemaFeaturePanel extends FeaturePanel {
     showPreview.textContent = 'Show preview';
     showPreview.addEventListener('click', () => this.onShowPreview?.());
     this.pausedRow.append(this.pausedText, showPreview);
+  }
+
+  /** Whether the Preview toggle is on; false for a feature without one. */
+  get previewOn(): boolean {
+    return this.previewToggle?.checked ?? false;
+  }
+
+  /** Set the Preview toggle without firing its change. */
+  setPreviewOn(on: boolean): void {
+    if (this.previewToggle) {
+      this.previewToggle.checked = on;
+    }
   }
 
   /**

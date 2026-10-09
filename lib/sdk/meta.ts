@@ -1503,7 +1503,25 @@ export class FeatureMetas {
    * list — one scene object passed for it becomes a list of one.
    */
   static values(meta: ResolvedFeatureMeta, args: ArrayLike<unknown>): FeatureValues {
-    return FeatureMetas.complete(meta, FeatureMetas.callOf(meta).parse(args));
+    const call = FeatureMetas.callOf(meta);
+    const read = call.parse(args);
+    // A call that went straight to its options left the positionals before
+    // them out: one that must be given says where it goes.
+    for (const name of call.skipped(args, FeatureCall.VALUES)) {
+      const spec = meta.params[name];
+      if (spec && FeatureMetas.requires(spec)) {
+        throw new Error(`${FeatureMetas.calleeOf(meta.id)}(): '${name}' is required — it comes before the options`);
+      }
+    }
+    return FeatureMetas.complete(meta, read);
+  }
+
+  /** Whether a value left out of a call fails it: nothing fills it — no default, not optional. */
+  static requires(spec: ParamSpec): boolean {
+    if ('picker' in spec) {
+      return !spec.optional && !(spec.picker === 'sketch' && spec.implicitDefault);
+    }
+    return !spec.optional && !FeatureMetas.isChoices(spec) && FeatureMetas.defaultOf(spec) === undefined;
   }
 
   /**

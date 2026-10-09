@@ -385,6 +385,30 @@ describe("parseCall", () => {
     expect(parseCall(['angle', '...faces'], [3, 'a', 'b'])).toEqual({ angle: 3, faces: ['a', 'b'] });
   });
 
+  it("reads a call that goes straight to its options when the positionals it skips may be left out", () => {
+    const gear = bossMeta({
+      params: {
+        at: { picker: ['face', 'edge'], optional: true },
+        turn: { type: 'angle', default: 0 },
+        teeth: { type: 'integer', default: 24, min: 3 },
+      },
+      call: ['at', 'turn', { teeth: 'teeth' }],
+    });
+    expect(parseCall(gear, [{ teeth: 30 }])).toEqual({ at: undefined, turn: 0, teeth: 30 });
+    expect(parseCall(gear, [])).toEqual({ at: undefined, turn: 0, teeth: 24 });
+    expect(parseCall(gear, [undefined, undefined, { teeth: 30 }])).toEqual({ at: undefined, turn: 0, teeth: 30 });
+    expect(parseCall(gear, [sel(), 15, { teeth: 30 }]).turn).toBe(15);
+    expect(parseCall(gear, [sel(), { teeth: 30 }]).turn).toBe(0);
+
+    // A positional that must be given still must: skipping it says where it goes.
+    expect(() => parseCall(bossMeta(), [{ height: 5 }])).toThrow("boss(): 'face' is required — it comes before the options");
+    expect(() => parseCall(bossMeta({
+      params: { face: { picker: 'face', optional: true }, depth: { type: 'length' }, height: { type: 'length', default: 5 } },
+      call: ['face', 'depth', { height: 'height' }],
+    }), [{ height: 5 }])).toThrow("boss(): 'depth' is required — it comes before the options");
+    expect(() => parseCall(bossMeta(), [undefined, { height: 5 }])).toThrow("boss(): 'face' is required");
+  });
+
   it("checks each typed-in value against its declaration", () => {
     const meta = bossMeta({
       params: {

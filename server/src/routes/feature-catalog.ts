@@ -28,7 +28,9 @@ export function createFeatureCatalogRouter(catalog: FeatureCatalog, workspacePat
         res.status(503).json({ error: 'Engine not initialized yet' });
         return;
       }
-      res.json({ workspacePath, features });
+      // Whether a feature reaches raw OpenCascade stays in the engine: it
+      // only names the likeliest cause when the kernel traps.
+      res.json({ workspacePath, features: features.map(({ usesOcct: _, ...entry }) => entry) });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }

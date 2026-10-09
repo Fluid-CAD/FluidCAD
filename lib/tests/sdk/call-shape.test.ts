@@ -65,7 +65,10 @@ describe("a call shape", () => {
     expect(argsOf(call.layout({ a: 1 }))).toEqual([1]);
     expect(argsOf(call.layout({ a: 1, b: undefined, size: undefined }))).toEqual([1]);
     expect(argsOf(call.layout({ b: 2 }))).toEqual([undefined, 2]);
-    expect(argsOf(call.layout({ size: 3 }))).toEqual([undefined, undefined, { size: 3 }]);
+    // Positionals left out right before the options go: the object reads from their slot.
+    expect(argsOf(call.layout({ size: 3 }))).toEqual([{ size: 3 }]);
+    expect(argsOf(call.layout({ a: 1, size: 3 }))).toEqual([1, { size: 3 }]);
+    expect(argsOf(call.layout({ b: 2, size: 3 }))).toEqual([undefined, 2, { size: 3 }]);
     expect(argsOf(call.layout({}))).toEqual([]);
     expect(call.parse([undefined, 2, { size: undefined }])).toEqual({ b: 2 });
   });
@@ -87,7 +90,8 @@ describe("a call shape", () => {
 
     const options = new FeatureCall(['a', 'b', { size: 'size' }]);
     const fill = (param: string) => (param === 'a' ? 'A' : undefined);
-    expect(argsOf(options.layout<unknown>({ size: 3 }, undefined, { placeholder: fill }))).toEqual(['A', undefined, { size: 3 }]);
+    expect(argsOf(options.layout<unknown>({ size: 3 }, undefined, { placeholder: fill }))).toEqual([{ size: 3 }]);
+    expect(argsOf(options.layout<unknown>({ b: 2, size: 3 }, undefined, { placeholder: fill }))).toEqual(['A', 2, { size: 3 }]);
     expect(argsOf(options.layout<unknown>({ b: 2 }, undefined, { placeholder: fill }))).toEqual(['A', 2]);
   });
 
@@ -102,6 +106,42 @@ describe("a call shape", () => {
     expect(argsOf(call.layout<unknown>({ angle: 5, neutral: 'xy', faces: [a] }))).toEqual([5, { neutral: 'xy' }, a]);
     // One scene object for the rest value is a list of one.
     expect(argsOf(call.layout({ angle: 5, faces: a as never }))).toEqual([5, a]);
+  });
+
+  it("reads an object of options in a positional slot as the options, skipping the positionals from there", () => {
+    const gear = new FeatureCall(['at', { teeth: 'teeth' }], [], 'gear');
+    const face = new Ref('face');
+    expect(gear.parse([{ teeth: 24 }])).toEqual({ teeth: 24 });
+    expect(gear.parse([])).toEqual({});
+    expect(gear.parse([face, { teeth: 24 }])).toEqual({ at: face, teeth: 24 });
+    // The old spelling still reads, and null holds a place as undefined does.
+    expect(gear.parse([undefined, { teeth: 24 }])).toEqual({ teeth: 24 });
+    expect(gear.parse([null, { teeth: 24 }])).toEqual({ at: null, teeth: 24 });
+    expect(gear.skipped([{ teeth: 24 }], FeatureCall.VALUES)).toEqual(['at']);
+    expect(gear.skipped([face, { teeth: 24 }], FeatureCall.VALUES)).toEqual([]);
+    expect(gear.skipped([undefined, { teeth: 24 }], FeatureCall.VALUES)).toEqual([]);
+    expect(() => gear.parse([{ teeth: 24 }, { teeth: 30 }])).toThrow('gear(): takes at most 1 argument, got 2');
+
+    // From the middle: the first positional given, the second skipped.
+    const two = new FeatureCall(['a', 'b', { size: 'size' }]);
+    expect(two.parse([1, { size: 3 }])).toEqual({ a: 1, size: 3 });
+    expect(two.skipped([1, { size: 3 }], FeatureCall.VALUES)).toEqual(['b']);
+    expect(two.parse(argsOf(two.layout({ size: 3 })))).toEqual({ size: 3 });
+    expect(two.parse(argsOf(two.layout({ a: 1, size: 3 })))).toEqual({ a: 1, size: 3 });
+
+    // A shape without options keeps an object where it stands: the value's check refuses it.
+    expect(new FeatureCall(['a']).parse([{ size: 3 }])).toEqual({ a: { size: 3 } });
+  });
+
+  it("skips to the options ahead of a rest value, and still reads scene objects as the rest", () => {
+    const call = new FeatureCall(['angle', { neutral: 'neutral' }, '...faces']);
+    const [a, b] = [new Ref('a'), new Ref('b')];
+    expect(call.parse([{ neutral: 'xy' }, a, b])).toEqual({ neutral: 'xy', faces: [a, b] });
+    expect(call.parse([5, a, b])).toEqual({ angle: 5, faces: [a, b] });
+    expect(call.parse([a, b])).toEqual({ angle: a, faces: [b] });
+    expect(argsOf(call.layout<unknown>({ neutral: 'xy', faces: [a] }))).toEqual([{ neutral: 'xy' }, a]);
+    expect(argsOf(call.layout<unknown>({ faces: [a] }))).toEqual([undefined, a]);
+    expect(call.parse(argsOf(call.layout<unknown>({ neutral: 'xy', faces: [a] })))).toEqual({ neutral: 'xy', faces: [a] });
   });
 
   it("lays a list value out in its own slot", () => {

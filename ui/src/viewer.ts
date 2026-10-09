@@ -418,9 +418,7 @@ export class Viewer {
     const sceneContainer = document.getElementById('fluidcad-scene') ?? container;
     this.ctx = new SceneContext(sceneContainer);
     this.connectorPicker = new ConnectorGizmoPicker(() => this.ctx.camera, this.ctx.renderer.domElement);
-    this.vertexPicking = new VertexPicking(this.ctx,
-      (point, occluders) => this.isPointVisible(point, occluders, worldFromMm(1e-5)),
-      () => this.standardPlanes.pickTargets);
+    this.vertexPicking = new VertexPicking(this.ctx, () => this.standardPlanes.pickTargets);
     this.modeManager = new SceneModeManager(this.ctx);
     new DialogViewOffset(this.ctx);
     this.settingsPanel = new SettingsPanel(container, client, (mode) => this.ctx.switchCamera(mode));

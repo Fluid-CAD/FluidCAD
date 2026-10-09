@@ -4,7 +4,6 @@ import { CustomFeaturesMenu, type CustomFeatureCellSpec } from '../src/interacti
 import { FinishSketchButton } from '../src/interactive/create-feature/finish-sketch-button';
 import { Navbar } from '../src/ui/navbar/navbar';
 import { viewportChrome } from '../src/ui/viewport-chrome';
-import { RawOcctMarker } from '../src/interactive/create-feature/schema/raw-occt-marker';
 
 // The toolbar's Custom button and its dropdown on their own: where the
 // group sits, the grid's order, what opens and closes it, the armed look,
@@ -260,21 +259,6 @@ describe('the Custom features button', () => {
     // An entry with no id still lists.
     menu.add(spec(null as unknown as string, 'bolt-boss', { tip: "bolt-boss can't be offered: boom", disabled: true, id: null }));
     expect(menu.entries.map(c => c.spec.label)).toEqual(['bolt-boss', 'Standoff']);
-  });
-
-  it('marks a feature that reaches raw OpenCascade, its tooltip saying what that risks', () => {
-    const { button, menu, panel } = mount();
-    menu.add(spec('acme.twist', 'Twist', { usesOcct: true }));
-    menu.add(spec('acme.standoff', 'Standoff'));
-    button.click();
-    const marks = [...panel()!.querySelectorAll<HTMLElement>('[data-role="raw-occt"]')];
-    expect(marks).toHaveLength(1);
-    expect(marks[0].closest('[data-tool]')!.getAttribute('data-tool')).toBe('feature:acme.twist');
-    expect(marks[0].title).toBe(RawOcctMarker.TIP);
-    expect(marks[0].title).toContain('can corrupt the kernel\'s memory for the whole engine session');
-    expect(marks[0].getAttribute('aria-label')).toBe(RawOcctMarker.TIP);
-    // Over the cell's corner, not in the way of its button.
-    expect(marks[0].parentElement!.className).toContain('relative');
   });
 
   it('hangs centred under the button and stays on screen at narrow widths', () => {

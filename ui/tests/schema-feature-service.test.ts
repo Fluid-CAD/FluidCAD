@@ -28,6 +28,7 @@ import { DerivedLayout, type BareFeatureMeta } from './fixtures/derived-layout';
 import { FeatureCatalogDialogs } from '../src/interactive/create-feature/schema/feature-catalog-dialogs';
 import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
 import { SchemaFeatureService } from '../src/interactive/create-feature/schema/schema-feature-service';
+import { PreviewPreference } from '../src/interactive/create-feature/schema/preview-preference';
 import { FinishSketchButton } from '../src/interactive/create-feature/finish-sketch-button';
 import { FeatureGhostOverlay } from '../src/interactive/create-feature/feature-ghost';
 import { FeatureDialogRegistry } from '../src/interactive/feature-dialog-registry';
@@ -54,6 +55,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
+  localStorage.clear();
   setActivePartLocationProvider(() => null);
   document.body.innerHTML = '';
 });
@@ -250,7 +252,13 @@ function stubViewer() {
   return { viewer: viewer as unknown as Viewer, state, ghostBodies };
 }
 
-function mount(featureMeta: FeatureMetaSnapshot = STANDOFF) {
+/**
+ * `preview`: whether the user turned the dialog's Preview toggle on for this
+ * feature before (remembered in the browser). On here, so the tests of what
+ * the ghost draws see one; the toggle's own tests pass false.
+ */
+function mount(featureMeta: FeatureMetaSnapshot = STANDOFF, opts: { preview?: boolean } = {}) {
+  PreviewPreference.write(featureMeta.id, opts.preview ?? true);
   const container = document.createElement('div');
   document.body.appendChild(container);
   const { viewer, state, ghostBodies } = stubViewer();
@@ -857,6 +865,83 @@ describe("a custom feature's ghost", () => {
     api.setActivePartProvider(() => null);
   });
 
+  const previewToggle = (panel: () => HTMLElement) => panel().querySelector<HTMLInputElement>('[data-role="preview-toggle"]');
+  const flip = (toggle: HTMLInputElement) => {
+    toggle.checked = !toggle.checked;
+    toggle.dispatchEvent(new Event('change'));
+  };
+
+  it('starts with the Preview toggle off and asks the engine for no ghost — Apply still writes the call', async () => {
+    const { service, panel, type, lastCreate, ghostBodies } = mount(STANDOFF, { preview: false });
+    service.enter();
+    expect(previewToggle(panel)!.checked).toBe(false);
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    type('height', '12');
+    await vi.advanceTimersByTimeAsync(300);
+    // The statement still previews; the ghost is never built.
+    expect(api.applyCustomFeature).toHaveBeenCalled();
+    expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
+    expect(ghostBodies()).toBe(0);
+
+    panel().querySelector<HTMLButtonElement>('[data-role="apply"]')!.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lastCreate()).toMatchObject({ id: 'acme.standoff', values: { height: 12 } });
+    expect(lastCreate()).not.toHaveProperty('preview');
+    expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
+  });
+
+  it('builds the ghost once the toggle is on, follows the form, and clears it when turned off', async () => {
+    const { service, panel, type, lastGhost, ghostBodies } = mount(STANDOFF, { preview: false });
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
+
+    flip(previewToggle(panel)!);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(1);
+    expect(ghostBodies()).toBe(1);
+    type('height', '14');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(2);
+    expect(lastGhost()![0]).toMatchObject({ values: { height: 14 } });
+
+    flip(previewToggle(panel)!);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(ghostBodies()).toBe(0);
+    type('height', '15');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(2);
+  });
+
+  it('remembers the toggle per feature: one turned on opens on, the others still start off', async () => {
+    const standoff = mount(STANDOFF, { preview: false });
+    standoff.service.enter();
+    flip(previewToggle(standoff.panel)!);
+    standoff.service.exit();
+    expect(PreviewPreference.read('acme.standoff')).toBe(true);
+    standoff.service.enter();
+    expect(previewToggle(standoff.panel)!.checked).toBe(true);
+    standoff.service.exit();
+
+    const bolt = mount(BOLT_CIRCLE, { preview: false });
+    bolt.service.enter();
+    expect(previewToggle(bolt.panel)!.checked).toBe(false);
+    bolt.service.exit();
+
+    // Turned off again, it is forgotten: the next dialog starts off.
+    standoff.service.enter();
+    flip(previewToggle(standoff.panel)!);
+    standoff.service.exit();
+    expect(PreviewPreference.read('acme.standoff')).toBe(false);
+  });
+
+  it('shows no toggle for a feature whose metadata draws no preview', () => {
+    const { service, panel } = mount(meta('acme.quiet', 'Quiet', { height: { type: 'length', label: 'Height', default: 5 } }, { ghost: false }));
+    service.enter();
+    expect(previewToggle(panel)).toBeNull();
+  });
+
   it('draws the form as the engine builds it: every value the rows hold, the picks as refs, where the statement lands', async () => {
     const { service, type, lastGhost, ghostBodies } = mount();
     api.setActivePartProvider(() => at(3, 22));
@@ -1113,33 +1198,6 @@ describe('the feature catalog on the page', () => {
     expect(ObjectIcons.srcFor(undefined, 'draft')).toBe('icons/draft.png');
   });
 
-  it('marks a feature whose module reaches raw OpenCascade on its cell, not in its dialog, and rebuilds it when that changes', () => {
-    const { dialogs, built, menuButton } = catalog();
-    dialogs.apply([entry(STANDOFF, { usesOcct: true }), entry(BRACKET, { usesOcct: false })]);
-    const [standoff, bracket] = built;
-    expect(standoff.schema.usesOcct).toBe(true);
-    expect(bracket.schema.usesOcct).toBe(false);
-
-    menuButton.click();
-    const marked = [...document.querySelectorAll<HTMLElement>('[data-role="custom-features-menu"] [data-role="raw-occt"]')];
-    expect(marked.map(mark => mark.closest('[data-tool]')!.getAttribute('data-tool'))).toEqual(['feature:acme.standoff']);
-    dialogs.menu.close();
-    standoff.enter();
-    expect(document.querySelector('#fluidcad-feature-acme-standoff [data-role="raw-occt"]')).toBeNull();
-    standoff.exit();
-    bracket.enter();
-    expect(document.querySelector('#fluidcad-feature-acme-bracket [data-role="raw-occt"]')).toBeNull();
-    bracket.exit();
-
-    // The module stopped reaching it: the feature is rebuilt, its cell without the mark.
-    dialogs.apply([entry(STANDOFF, { usesOcct: false }), entry(BRACKET, { usesOcct: false })]);
-    expect(built).toHaveLength(3);
-    expect(built[2].schema.usesOcct).toBe(false);
-    menuButton.click();
-    expect(document.querySelectorAll('[data-role="custom-features-menu"] [data-role="raw-occt"]')).toHaveLength(0);
-    dialogs.menu.close();
-  });
-
   it('rebuilds a dialog whose metadata changed, closing it, and leaves the others open', () => {
     const { registry, dialogs, built, changes } = catalog();
     dialogs.apply([entry(STANDOFF), entry(BRACKET)]);
@@ -1307,6 +1365,8 @@ describe('the feature catalog on the page', () => {
   });
 
   it('asks an open dialog its metadata left as it was for its preview again once a module is saved', async () => {
+    // The user turned the standoff's preview on before.
+    PreviewPreference.write('acme.standoff', true);
     const { dialogs, built } = catalog();
     vi.mocked(api.getFeatureCatalog).mockResolvedValue([entry(STANDOFF), entry(BRACKET)]);
     await dialogs.refresh();

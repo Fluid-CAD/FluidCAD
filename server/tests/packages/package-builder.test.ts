@@ -27,7 +27,6 @@ import { TreeHash } from '../../src/packages/tree-hash.ts';
 
 const FIXTURES = path.resolve(__dirname, '../fixtures');
 const PACKAGE_WORKSPACE = path.join(FIXTURES, 'package-workspace');
-const CREATED_AT = '2026-10-09T12:00:00.000Z';
 
 const SHIPPED = [
   'LICENSE',
@@ -94,7 +93,17 @@ async function quietly<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 function pack(extra: { engine?: PackEngine } = {}): Promise<PackPackageResult> {
-  return quietly(() => packPackage({ workspacePath: ws, fluidcadVersion: '0.0.46', createdAt: CREATED_AT, ...extra }));
+  return quietly(() => packPackage({ workspacePath: ws, fluidcadVersion: '0.0.46', ...extra }));
+}
+
+/** A pack while the clock reads `iso`. */
+async function packAt(iso: string): Promise<PackPackageResult> {
+  vi.setSystemTime(new Date(iso));
+  try {
+    return await pack();
+  } finally {
+    vi.useRealTimers();
+  }
 }
 
 /** The refusal a pack ends in. */
@@ -203,8 +212,8 @@ describe('packing a package workspace', () => {
       unit: 'mm',
       fileUnits: { 'parts/spacer.part.js': 'in' },
       contents: ['features', 'parts'],
+      // Nothing dated: no `createdAt` (see the reproducibility test).
       files: SHIPPED,
-      createdAt: CREATED_AT,
     });
     expect(features.map(({ id, exportName, module, usesOcct }) => ({ id, exportName, module, usesOcct }))).toEqual([
       { id: 'acme.fastener', exportName: 'fastener', module: 'fastener.feature.js', usesOcct: false },
@@ -262,9 +271,11 @@ describe('packing a package workspace', () => {
     expect(manifest.unit).toBe('mm');
   });
 
-  it('produces the same tree, and the same zip, twice; the tree hash is the extracted directory\'s', async () => {
-    const first = await pack();
-    const second = await pack();
+  it('packs the same tree to the same bytes whenever it runs: the same zip and tree hash, the extracted directory\'s', async () => {
+    // Nothing is pinned: the clock moves years between the two packs, so
+    // anything dated by it (a manifest field, the zip entries) would differ.
+    const first = await packAt('2026-10-09T12:00:00.000Z');
+    const second = await packAt('2031-03-17T08:30:46.000Z');
 
     const hash = TreeHash.ofFiles(first.files);
     expect(hash).toMatch(/^sha256-[A-Za-z0-9+/]{43}=$/);

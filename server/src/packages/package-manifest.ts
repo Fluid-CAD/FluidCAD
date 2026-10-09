@@ -37,6 +37,11 @@ export type PackageManifestPart = {
  *
  * `manifestVersion` is what tells a package from an archive of the old
  * model packer, whose `manifest.json` has a `schemaVersion` instead.
+ *
+ * Nothing in it records when it was packed, so packing the same tree twice
+ * gives the same archive and the same tree hash. Archives packed before
+ * that carry a `createdAt`; readers ignore it, like any field they don't
+ * know.
  */
 export type PackageManifest = {
   manifestVersion: 1;
@@ -63,7 +68,6 @@ export type PackageManifest = {
   parts: PackageManifestPart[];
   /** Every file of the archive except `manifest.json` itself, sorted. */
   files: string[];
-  createdAt: string;
 };
 
 /**

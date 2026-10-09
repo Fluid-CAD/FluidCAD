@@ -49,8 +49,6 @@ export type PackPackageInputs = {
   workspacePath: string;
   /** The packing engine's version: the manifest's `engine`, and the last fallback for `minEngine`. */
   fluidcadVersion: string;
-  /** The manifest's `createdAt`; now when omitted. */
-  createdAt?: string;
   /** The engine to evaluate with. Omitted, one is booted in process over the workspace and closed after. */
   engine?: PackEngine;
 };
@@ -107,6 +105,12 @@ export async function packPackage(inputs: PackPackageInputs): Promise<PackPackag
 export class PackageBuilder {
   /** Root files that ship when present, matched without regard to case. */
   private static readonly EXTRAS = [/^readme\.md$/i, /^licen[cs]e(\..*)?$/i, /^changelog\.md$/i];
+  /**
+   * The date every zip entry carries: the zip format's epoch, never the
+   * clock. Nothing in an archive depends on when it was packed, so the same
+   * tree packs to the same bytes and the same tree hash.
+   */
+  private static readonly ENTRY_DATE = new Date('1980-01-01T00:00:00.000Z');
 
   private constructor(
     private readonly workspace: string,
@@ -459,10 +463,17 @@ export class PackageBuilder {
     const manifest = await this.manifest(files, features, parts);
     files[PackageLayout.MANIFEST] = Buffer.from(JSON.stringify(manifest, null, 2) + '\n');
 
+    // Folder entries are added here, dated like the files: JSZip's own
+    // (`createFolders`) would be dated by the clock.
     const zip = new JSZip();
-    const date = new Date(manifest.createdAt);
+    const date = PackageBuilder.ENTRY_DATE;
     for (const rel of Object.keys(files).sort()) {
-      zip.file(rel, files[rel], { date });
+      for (const folder of PackageBuilder.folders(rel)) {
+        if (zip.files[folder] === undefined) {
+          zip.file(folder, null, { dir: true, date, createFolders: false });
+        }
+      }
+      zip.file(rel, files[rel], { date, createFolders: false });
     }
     const buffer = await zip.generateAsync({
       type: 'nodebuffer',
@@ -470,6 +481,12 @@ export class PackageBuilder {
       compressionOptions: { level: 6 },
     });
     return { manifest, zip: buffer, files };
+  }
+
+  /** The folders above an archive path, outermost first: `a/b/c.js` → `a/`, `a/b/`. */
+  private static folders(rel: string): string[] {
+    const parts = rel.split('/').slice(0, -1);
+    return parts.map((_, i) => parts.slice(0, i + 1).join('/') + '/');
   }
 
   /** `index.js`: one named re-export line per module, modules and names sorted. */
@@ -532,7 +549,6 @@ export class PackageBuilder {
       features: [...features].sort((a, b) => PackageBuilder.byModuleThenName(a, b)),
       parts: [...parts].sort((a, b) => PackageBuilder.byModuleThenName(a, b)),
       files: Object.keys(files).sort(),
-      createdAt: this.inputs.createdAt ?? new Date().toISOString(),
     };
   }
 

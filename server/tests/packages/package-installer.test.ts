@@ -195,6 +195,21 @@ describe('PackageInstaller.install', () => {
     expect(() => fs.writeFileSync(path.join(result.directory, 'index.js'), 'changed')).toThrow();
   });
 
+  it('installs an archive packed while the manifest still had createdAt, the installed manifest kept byte for byte', async () => {
+    const old = { manifest: { createdAt: '2026-10-09T12:00:00.000Z' } };
+    const inspection = await inspect(old);
+    expect(inspection.manifest).toMatchObject({ name: '@acme/kit', version: '0.1.0', createdAt: '2026-10-09T12:00:00.000Z' });
+    expect(inspection.warnings).toEqual([]);
+
+    const result = await PackageInstaller.install(inspection.token, 'library', { project, replace: false });
+    expect(result).toMatchObject({ name: '@acme/kit', version: '0.1.0', status: 'installed', integrity: inspection.integrity });
+    expect(fs.readFileSync(path.join(result.directory, 'manifest.json'), 'utf8'))
+      .toBe(JSON.stringify(ArchiveFixture.manifest(old), null, 2) + '\n');
+    const [listed] = PackageInstaller.list('library');
+    expect(listed).toMatchObject({ name: '@acme/kit', version: '0.1.0', target: 'library' });
+    expect(listed.manifest?.features[0].id).toBe('acme.standoff');
+  });
+
   it('installs into the project copy', async () => {
     const result = await install({}, 'project');
     expect(result.directory).toBe(path.posix.join(project, 'packages', '@acme', 'kit', '0.1.0'));

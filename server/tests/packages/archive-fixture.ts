@@ -44,7 +44,6 @@ export class ArchiveFixture {
       features: [{ id: 'acme.standoff', exportName: 'standoff', module: 'standoff.feature.js', meta: { label: 'Standoff' }, usesOcct: false }],
       parts: [],
       files: Object.keys(files).sort(),
-      createdAt: '2026-10-09T12:00:00.000Z',
       ...(options.manifest ?? {}),
     };
   }

@@ -74,6 +74,10 @@ export type PackageInspectOptions = {
  * `manifestVersion`), which `fluidcad publish` still writes; a manifest a
  * newer FluidCAD wrote, or one whose identity or file list doesn't hold up;
  * and any `.js` file importing a blocked Node built-in.
+ *
+ * Fields the manifest has beyond the ones checked are accepted and kept
+ * (the installed `manifest.json` is the archive's, byte for byte), so an
+ * archive packed when the manifest still had `createdAt` installs as is.
  */
 export class PackageArchive {
   /** The most an archive may unpack to; a package is source files and small images. */

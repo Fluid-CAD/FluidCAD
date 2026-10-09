@@ -23,8 +23,60 @@
       "exportName": "standoff",
       "module": "standoff.feature.js",
       "meta": {
+        "id": "acme.standoff",
         "label": "Standoff",
-        "group": "create"
+        "description": "A boss with a bore through it, standing on a planar face",
+        "icon": "./standoff.svg",
+        "group": "create",
+        "kind": "tool",
+        "operations": [
+          "add",
+          "new"
+        ],
+        "defaultOperation": "add",
+        "params": {
+          "face": {
+            "picker": "face",
+            "label": "On face",
+            "surface": "planar"
+          },
+          "height": {
+            "type": "length",
+            "default": 10,
+            "min": 0,
+            "label": "Height"
+          },
+          "outer": {
+            "type": "length",
+            "default": 6,
+            "min": 0,
+            "label": "Boss diameter"
+          },
+          "hole": {
+            "type": "length",
+            "default": 3,
+            "min": 0,
+            "label": "Hole diameter"
+          }
+        },
+        "call": [
+          "face",
+          {
+            "height": "height",
+            "outer": "outer",
+            "hole": "hole"
+          }
+        ],
+        "ghost": true,
+        "contexts": [
+          "part"
+        ],
+        "layout": [
+          "face",
+          "height",
+          "outer",
+          "hole"
+        ]
       },
       "usesOcct": false
     }
@@ -35,11 +87,14 @@
       "module": "parts/spacer.part.js",
       "name": "Spacer",
       "kind": "part",
+      "exportKind": "value",
       "params": [
         {
-          "name": "Length",
-          "type": "number",
-          "default": 0.5
+          "label": "Length",
+          "defaultValue": 0.5,
+          "currentValue": 0.5,
+          "controlType": "number",
+          "min": 0.1
         }
       ]
     }

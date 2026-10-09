@@ -14,6 +14,20 @@ import { validateNewVariables } from './validate/common.ts';
 export type FeatureCatalogReader = {
   /** Every feature, error entries included; null while the engine is not up. */
   list(): Promise<FeatureCatalogEntry[] | null>;
+  /**
+   * The specifier `filePath` imports an entry's builder by — the package's
+   * bare name for a package's feature (`FeatureCatalog.importSpecifier`);
+   * null when the file can't reach it. Absent, the module's relative path.
+   */
+  importSpecifier?(entry: FeatureCatalogEntry, filePath: string): string | null;
+  /** Why {@link importSpecifier} answered null, as a sentence. */
+  unreachableReason?(entry: FeatureCatalogEntry): string;
+  /**
+   * Pin a library entry's package into the project before the statement
+   * is written (K7); resolves null when nothing needed pinning, and throws
+   * the adoption's refusal.
+   */
+  adoptForUse?(entry: FeatureCatalogEntry): Promise<unknown>;
 };
 
 /** What every endpoint of the apply-feature router shares, created once per router. */

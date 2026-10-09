@@ -1,14 +1,17 @@
 import { Router } from 'express';
 import { relativeSpecifier } from '../files/relative-specifier.ts';
+import { ModuleSpecifiers } from '../files/module-specifiers.ts';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
-import { findInvalidParam } from '../part-catalog/insert-edit.ts';
-import { listCandidateFiles } from '../part-catalog/walk.ts';
+import { findInvalidParam, type InsertPartEntry } from '../part-catalog/insert-edit.ts';
+import { listCandidateFiles, PackagePartFiles } from '../part-catalog/walk.ts';
 import { PartScanCache } from '../part-catalog/cache.ts';
 import { readProjectConfig } from '../project-config.ts';
+import { PackageAdoption } from '../packages/package-adoption.ts';
+import { PackageRoots, type PackageLocation } from '../packages/package-roots.ts';
 
 const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
@@ -18,6 +21,12 @@ const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
  * mutex, cached by dependency mtimes), and write the chosen part's
  * `insert()` statement into the current assembly file through the shared
  * edit dispatcher.
+ *
+ * Installed packages' parts are candidates too, listed under their package
+ * (research §5): the packages the project pins, and the library's newest
+ * version of each one it doesn't (K7). A package part is imported by the
+ * package's bare name, and inserting one from a library package pins the
+ * package first ({@link PackageAdoption}); no file is copied.
  */
 export function createPartCatalogRouter(
   fluidCadServer: FluidCadServer,
@@ -29,6 +38,10 @@ export function createPartCatalogRouter(
 
   const inWorkspace = (absPath: string): boolean =>
     workspacePath !== '' && (absPath === workspacePath || absPath.startsWith(workspacePath + '/'));
+  // A file of an installed package — the project copy (inside the
+  // workspace anyway) or the library — by location plus marker.
+  const packageOf = (absPath: string): PackageLocation | null =>
+    workspacePath !== '' ? PackageRoots.owner(absPath, workspacePath) : null;
 
   // Read per request: `fluidcad.json` may change while the server runs, and
   // a stale project unit would mislabel every file without its own `unit()`.
@@ -40,7 +53,10 @@ export function createPartCatalogRouter(
       return;
     }
     try {
-      const files = await listCandidateFiles(workspacePath, p => fluidCadServer.getLiveBuffer(p), projectUnit());
+      const files = [
+        ...await listCandidateFiles(workspacePath, p => fluidCadServer.getLiveBuffer(p), projectUnit()),
+        ...PackagePartFiles.list(workspacePath),
+      ];
       res.json({ workspacePath, files });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
@@ -54,10 +70,14 @@ export function createPartCatalogRouter(
       return;
     }
     const absPath = normalizePath(file);
-    if (!inWorkspace(absPath)) {
+    const owner = packageOf(absPath);
+    if (!inWorkspace(absPath) && owner === null) {
       res.status(400).json({ error: 'File is outside the workspace' });
       return;
     }
+    // A package's files are in the package's own unit (its fluidcad.json),
+    // never the project's.
+    const fallbackUnit = owner ? readProjectConfig(owner.directory).unit ?? 'mm' : projectUnit();
 
     // A live editor buffer (the file being edited, or one of its imports)
     // overlays the disk content, so mtime-keyed cache entries can't vouch for
@@ -69,7 +89,7 @@ export function createPartCatalogRouter(
     }
 
     try {
-      const result = await fluidCadServer.scanPartsInFile(absPath, projectUnit());
+      const result = await fluidCadServer.scanPartsInFile(absPath, fallbackUnit);
       if (!result) {
         res.status(503).json({ error: 'Engine not initialized yet' });
         return;
@@ -114,6 +134,37 @@ export function createPartCatalogRouter(
       return;
     }
     const currentAbs = normalizePath(currentFile);
+    // One answer per request for which specifier reaches each part: a
+    // relative path, or the package's bare name (only for a name its entry
+    // exports, at the version the project pins, if it pins one).
+    const specifiers = workspacePath ? new ModuleSpecifiers(workspacePath) : ModuleSpecifiers.LOCAL;
+    const entries: InsertPartEntry[] = [];
+    // Each library package a part comes from, pinned before the edit lands.
+    const adoptions = new Map<string, PackageLocation>();
+    for (const entry of inserts) {
+      const partAbs = normalizePath(entry.file);
+      let importFrom: string | null = null;
+      if (partAbs !== currentAbs) {
+        importFrom = specifiers.specifierFor(currentFile, partAbs, entry.exportName);
+        if (importFrom === null) {
+          res.status(422).json({
+            success: false,
+            reason: specifiers.unreachableReason(partAbs, entry.exportName) ?? `${entry.exportName} can't be imported here.`,
+          });
+          return;
+        }
+      }
+      const owner = packageOf(partAbs);
+      if (owner) {
+        adoptions.set(owner.name, owner);
+      }
+      entries.push({
+        importFrom,
+        exportName: entry.exportName,
+        kind: entry.kind,
+        ...(entry.params && Object.keys(entry.params).length > 0 ? { params: entry.params } : {}),
+      });
+    }
     const spec: ApplyFeatureEditSpec = {
       // Placeholder feature, exactly as paramEdit rides the round trip: the
       // insertPart side-channel supersedes every other field.
@@ -123,19 +174,17 @@ export function createPartCatalogRouter(
       parts: [],
       imports: [],
       newVariables,
-      insertPart: {
-        inserts: inserts.map((entry: any) => {
-          const partAbs = normalizePath(entry.file);
-          return {
-            importFrom: partAbs === currentAbs ? null : relativeSpecifier(currentFile, partAbs),
-            exportName: entry.exportName,
-            kind: entry.kind,
-            ...(entry.params && Object.keys(entry.params).length > 0 ? { params: entry.params } : {}),
-          };
-        }),
-      },
+      insertPart: { inserts: entries },
     };
-    await dispatcher.dispatch(res, spec, { success: true });
+    await dispatcher.dispatch(res, spec, { success: true }, adoptions.size > 0 && workspacePath
+      ? {
+        beforeSend: PackageAdoption.step(async () => {
+          for (const owner of adoptions.values()) {
+            await PackageAdoption.adoptForUse(workspacePath, owner.name, owner.version);
+          }
+        }),
+      }
+      : {});
   });
 
   return router;

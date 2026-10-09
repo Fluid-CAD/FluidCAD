@@ -1,6 +1,10 @@
 import { realpathSync } from 'fs';
 import { dirname, resolve, sep } from 'path';
 import { normalizePath } from '../normalize-path.ts';
+import { PROJECT_CONFIG_FILENAME } from '../project-config.ts';
+import { ModuleSpecifiers } from '../files/module-specifiers.ts';
+import { PackageOffers, type PackageOffer, type PackageRef } from '../packages/package-offers.ts';
+import { PackageAdoption, type PackageAdoptionOutcome } from '../packages/package-adoption.ts';
 import { getJavaScriptParser, namedImportBindings, type NamedImportBinding, type TSTree } from '../code-editor/index.ts';
 import {
   CustomFeatureStatement,
@@ -26,16 +30,29 @@ export type FeatureCatalogEntry = {
   id: string | null;
   /** The name the builder is imported by; null for a module that did not evaluate. */
   exportName: string | null;
-  /** The module's absolute path, or `fluidcad/core` for a built-in. */
+  /**
+   * The declaring module's absolute path — for a package's feature, the
+   * module inside its installed directory, never the generated entry, so
+   * the feature's images resolve beside it — or `fluidcad/core` for a
+   * built-in.
+   */
   modulePath: string;
   builtIn: boolean;
+  /**
+   * The installed package the feature comes from, and whether the project
+   * pins it (`dependency`) or it is the library's newest version of a
+   * package the project doesn't use yet (`library`, K7): using one pins it
+   * first. Absent for the workspace's own features and the built-ins.
+   */
+  package?: PackageRef;
   meta: FeatureMetaSnapshot | null;
   /**
    * The feature's module — or a workspace module it imports — reaches raw
    * OpenCascade (`fluidcad/sdk/occt`, or a scope opened with `this.occ()`;
    * see {@link RawOcctUse}): unstable code that can corrupt the kernel's
    * memory for the whole engine session. Read from the source, never
-   * evaluated. False for the engine's own builders. Kept in the engine —
+   * evaluated; a package's feature carries what its manifest says (the
+   * packer read the source). False for the engine's own builders. Kept in the engine —
    * a kernel trap names it as the likeliest cause — and never served to
    * the page.
    */
@@ -64,8 +81,12 @@ export type FeatureAssetLookup = { file: string } | { status: number; error: str
  * The features a workspace offers: every `*.feature.js` module's exported
  * builders (discovered by evaluating the module and scanning its exports —
  * nothing registers itself), plus the engine's own builders that carry
- * metadata. Module scans are cached by the mtimes of everything the module
- * imported.
+ * metadata, plus the features of installed packages (K7): those the
+ * project pins, and the newest library version of each one it doesn't
+ * (see {@link PackageOffers}). Module scans are cached by the mtimes of
+ * everything the module imported; a package's features are read from its
+ * manifest's snapshots, and its module is evaluated only when a dialog
+ * needs the live builder (a ghost, through `FeatureScanner.loadBuilder`).
  *
  * The catalog is also how the code-writing layer learns what a call in a
  * file builds: {@link resolveCallee} follows the file's import of a callee
@@ -88,10 +109,14 @@ export class FeatureCatalog implements FeatureCalleeSource {
   }
 
   /**
-   * Every feature, built-ins first, then each module in path order; null
-   * while the engine is not up. An id two builders share marks both
-   * entries with an error — which one a statement means would depend on
-   * the walk order, and the id is what the timeline and the cache key on.
+   * Every feature, built-ins first, then each module in path order, then
+   * the packages' (pinned ones, then the library's); null while the engine
+   * is not up. An id two builders share marks both entries with an error —
+   * which one a statement means would depend on the walk order, and the id
+   * is what the timeline and the cache key on. A library entry is only an
+   * offer, so one whose id the project already has (its own module, a
+   * built-in, a pinned package) is left out rather than marking the
+   * project's own.
    */
   async list(): Promise<FeatureCatalogEntry[] | null> {
     const entries = [...await this.builtIns()];
@@ -102,7 +127,43 @@ export class FeatureCatalog implements FeatureCalleeSource {
       }
       entries.push(...moduleEntries);
     }
+    const offered = PackageOffers.of(this.workspacePath || null).flatMap(offer => FeatureCatalog.packageEntries(offer));
+    entries.push(...offered.filter(entry => entry.package?.availability === 'dependency'));
+    const used = new Set(entries.map(entry => entry.id).filter((id): id is string => id !== null));
+    entries.push(...offered.filter(entry => entry.package?.availability === 'library' && !used.has(entry.id!)));
     return FeatureCatalog.markSharedIds(entries);
+  }
+
+  /**
+   * The specifier `filePath` imports an entry's builder by
+   * ({@link ModuleSpecifiers.specifierFor}): a relative path, the package's
+   * bare name, or the core. Null when the file can't reach it under its
+   * export name.
+   */
+  importSpecifier(entry: FeatureCatalogEntry, filePath: string): string | null {
+    if (entry.exportName === null) {
+      return null;
+    }
+    return this.specifiers().specifierFor(filePath, entry.modulePath, entry.exportName);
+  }
+
+  /** Why {@link importSpecifier} answered null for an entry, as a sentence. */
+  unreachableReason(entry: FeatureCatalogEntry): string {
+    return (entry.exportName ? this.specifiers().unreachableReason(entry.modulePath, entry.exportName) : null)
+      ?? `${entry.meta?.label ?? entry.id ?? 'This feature'} can't be imported here.`;
+  }
+
+  /**
+   * Pin a library entry's package into the project before a statement
+   * using it is written (K7, {@link PackageAdoption.adoptForUse}); null for
+   * an entry that needs no pin (a workspace feature, a built-in, a package
+   * the project pins already). Throws the adoption's refusal.
+   */
+  async adoptForUse(entry: FeatureCatalogEntry): Promise<PackageAdoptionOutcome | null> {
+    if (entry.package?.availability !== 'library' || !this.workspacePath) {
+      return null;
+    }
+    return PackageAdoption.adoptForUse(this.workspacePath, entry.package.name, entry.package.version);
   }
 
   /**
@@ -110,8 +171,8 @@ export class FeatureCatalog implements FeatureCalleeSource {
    * import of that name, followed to the module it names and matched
    * against the module's exports — so an alias (`import { standoff as so }`)
    * resolves `so`. Null for a name the file declares itself, imports from
-   * anything but a feature module or `fluidcad/core`, or that names no
-   * feature there.
+   * anything but a feature module, a package the project pins, or
+   * `fluidcad/core`, or that names no feature there.
    */
   async resolveCallee(tree: TSTree, calleeName: string, filePath: string): Promise<FeatureCatalogEntry | null> {
     const binding = namedImportBindings(tree).get(calleeName);
@@ -127,8 +188,9 @@ export class FeatureCatalog implements FeatureCalleeSource {
     const parser = await getJavaScriptParser();
     const tree = parser.parse(code);
     const custom = new Map<string, CustomFeatureCallee>();
+    const specifiers = this.specifiers();
     for (const [local, binding] of namedImportBindings(tree)) {
-      const entry = await this.entryFor(binding, filePath);
+      const entry = await this.entryFor(binding, filePath, specifiers);
       if (entry?.meta) {
         custom.set(local, { id: entry.meta.id, kind: entry.meta.kind, shape: CustomFeatureStatement.shapeOf(entry.meta) });
       }
@@ -173,13 +235,19 @@ export class FeatureCatalog implements FeatureCalleeSource {
   /**
    * A workspace file changed on disk: drop the scans it invalidates and say
    * whether the catalog may have changed — the file is a feature module,
-   * one a cached module imports, or an image a scanned feature declares
-   * (its metadata stands, but the page must fetch the image again).
+   * one a cached module imports, an image a scanned feature declares (its
+   * metadata stands, but the page must fetch the image again), or the
+   * project's `fluidcad.json`, whose pins decide which packages' features
+   * are dependencies and which are library offers.
    */
   noteFileChange(absPath: string): boolean {
     const file = normalizePath(absPath);
     const dropped = this.cache.dropDependents(file);
-    return FeatureModules.isModule(file) || dropped || this.declaresAsset(file);
+    return FeatureModules.isModule(file) || dropped || this.declaresAsset(file) || this.isProjectConfig(file);
+  }
+
+  private isProjectConfig(file: string): boolean {
+    return this.workspacePath !== '' && file === `${this.workspacePath}/${PROJECT_CONFIG_FILENAME}`;
   }
 
   /** Whether a scanned module's features declare the file as an image. */
@@ -284,34 +352,57 @@ export class FeatureCatalog implements FeatureCalleeSource {
   }
 
   /** The feature an import binding names, in the module its specifier resolves to from `filePath`. */
-  private async entryFor(binding: NamedImportBinding, filePath: string): Promise<FeatureCatalogEntry | null> {
-    const modulePath = this.moduleOf(binding.source, filePath);
-    if (modulePath === null) {
+  private async entryFor(binding: NamedImportBinding, filePath: string, specifiers = this.specifiers()): Promise<FeatureCatalogEntry | null> {
+    const target = specifiers.moduleOf(binding.source, filePath, binding.imported);
+    let entries: FeatureCatalogEntry[] | null;
+    if (target === null) {
+      return null;
+    } else if (target.kind === 'built-in') {
+      entries = await this.builtIns();
+    } else if (target.kind === 'package') {
+      entries = FeatureCatalog.packageEntries({
+        name: target.package.name,
+        version: target.package.version,
+        availability: 'dependency',
+        directory: target.package.directory,
+        manifest: target.manifest,
+      }).filter(entry => entry.modulePath === target.path);
+    } else if (this.isWorkspaceModule(target.path)) {
+      entries = await this.moduleEntries(target.path);
+    } else {
       return null;
     }
-    const entries = modulePath === FeatureCatalog.BUILT_IN_MODULE
-      ? await this.builtIns()
-      : await this.moduleEntries(modulePath);
     return entries?.find(entry => entry.exportName === binding.imported && entry.meta !== null) ?? null;
   }
 
+  /** A feature module inside the workspace (installed copies are pruned from the walk, not reached here). */
+  private isWorkspaceModule(absPath: string): boolean {
+    return this.workspacePath !== '' && FeatureModules.isModule(absPath) && absPath.startsWith(this.workspacePath + '/');
+  }
+
+  /** Who answers which module a specifier names: one per question, so the pins it reads are the current ones. */
+  private specifiers(): ModuleSpecifiers {
+    return this.workspacePath ? new ModuleSpecifiers(this.workspacePath) : ModuleSpecifiers.LOCAL;
+  }
+
   /**
-   * The catalog module an import specifier names from `filePath`: a
-   * relative specifier resolved to a feature module inside the workspace,
-   * or the engine's core entry (either spelling the editor writes it in).
+   * A package's features as catalog entries, from its manifest's snapshots:
+   * each at its declaring module, with the package it belongs to. A
+   * package that can't be used here (`offer.problem`) gives its features
+   * as error entries carrying the sentence.
    */
-  private moduleOf(source: string, filePath: string): string | null {
-    if (source === 'fluidcad/core' || source === 'fluidcad') {
-      return FeatureCatalog.BUILT_IN_MODULE;
-    }
-    if (!this.workspacePath || !(source.startsWith('./') || source.startsWith('../'))) {
-      return null;
-    }
-    const absPath = normalizePath(resolve(dirname(normalizePath(filePath)), source));
-    if (!FeatureModules.isModule(absPath) || !absPath.startsWith(this.workspacePath + '/')) {
-      return null;
-    }
-    return absPath;
+  private static packageEntries(offer: PackageOffer): FeatureCatalogEntry[] {
+    const pkg: PackageRef = { name: offer.name, version: offer.version, availability: offer.availability };
+    return offer.manifest.features.map(feature => ({
+      id: feature.id,
+      exportName: feature.exportName,
+      modulePath: normalizePath(`${offer.directory}/${feature.module}`),
+      builtIn: false,
+      meta: feature.meta,
+      usesOcct: feature.usesOcct === true,
+      package: pkg,
+      ...(offer.problem !== undefined ? { error: offer.problem } : {}),
+    }));
   }
 
   /** Every entry whose id another entry shares, refused with a message naming both. */

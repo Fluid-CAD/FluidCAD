@@ -4,6 +4,9 @@ import { EditAckRegistry } from './edit-acks.ts';
 import { applyFeatureEdit, type ApplyFeatureEditSpec, type FeatureCalleeSource } from './apply-feature-edit/index.ts';
 import type { PackageEditGuard } from './packages/package-edit-guard.ts';
 
+/** Why a dispatch's {@link FeatureEditDispatcher.dispatch} `beforeSend` step refused the edit. */
+export type DispatchRefusal = { status: number; reason: string; code?: string };
+
 export type EditDispatcherOptions = {
   /**
    * Dry-run every outgoing edit spec against the server's copy of the file
@@ -67,10 +70,19 @@ export class FeatureEditDispatcher {
     return this.packages?.refuse(res, ...files) ?? false;
   }
 
+  /**
+   * Preflight `spec`, hand it to the editor, and answer `res` with the
+   * editor's outcome. `options.beforeSend` runs once the preflight has
+   * accepted the edit and before the editor writes it — a write the edit
+   * depends on, such as the pin a library package's statement needs
+   * (`PackageAdoption`), so the ack answers for both; a refusal it returns
+   * answers the request and nothing is sent.
+   */
   async dispatch(
     res: Response,
     spec: ApplyFeatureEditSpec,
     successBody: Record<string, unknown>,
+    options: { beforeSend?: () => Promise<DispatchRefusal | null> } = {},
   ): Promise<void> {
     if (this.refuseReadOnly(res, spec.filePath)) {
       return;
@@ -87,6 +99,13 @@ export class FeatureEditDispatcher {
         } catch {
           // A preflight crash is not a verdict — the editor round-trip decides.
         }
+      }
+    }
+    if (options.beforeSend) {
+      const refusal = await options.beforeSend();
+      if (refusal) {
+        res.status(refusal.status).json({ success: false, reason: refusal.reason, ...(refusal.code ? { code: refusal.code } : {}) });
+        return;
       }
     }
     const { editId, result } = this.acks.register();

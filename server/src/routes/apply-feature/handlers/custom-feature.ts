@@ -19,6 +19,7 @@ import type { SelectionBoundary } from '../../../fluidcad-server/index.ts';
 import { detectKind } from '../../../file-kind.ts';
 import { normalizePath } from '../../../normalize-path.ts';
 import type { FeatureCatalogEntry } from '../../../feature-catalog/catalog.ts';
+import { PackageAdoption } from '../../../packages/package-adoption.ts';
 import { validateBoundary } from '../picks.ts';
 import { validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { allocateProducerVars, makeProducerMerger } from '../synthesis.ts';
@@ -88,10 +89,18 @@ export async function handleCustomFeature(ctx: ApplyFeatureRequestContext, req: 
       res.status(422).json({ success: false, reason: refusal });
       return;
     }
+    // The import the file writes: the package's bare name for a package's
+    // feature (K7), a relative path for a workspace module.
+    const importFrom = CustomFeatureRoute.importFrom(ctx, entry, filePath);
+    if ('reason' in importFrom) {
+      res.status(importFrom.status).json({ success: false, reason: importFrom.reason });
+      return;
+    }
     const custom: CustomFeatureOptions = {
       id: meta.id,
       exportName: entry.exportName!,
       modulePath: entry.modulePath,
+      ...(importFrom.specifier !== undefined ? { importFrom: importFrom.specifier } : {}),
       shape: CustomFeatureStatement.shapeOf(meta),
       values: picks.values,
       ...(request.operation ? { operation: request.operation } : {}),
@@ -120,7 +129,7 @@ export async function handleCustomFeature(ctx: ApplyFeatureRequestContext, req: 
       return;
     }
     const callee = staged.code
-      ? (await CustomFeatureImport.plan(staged.code, filePath, custom.exportName!, custom.modulePath!)).local
+      ? (await CustomFeatureImport.plan(staged.code, filePath, custom.exportName!, custom.modulePath!, custom.importFrom)).local
       : custom.exportName!;
     const vars = await allocateProducerVars(staged.spec.producers, staged.code, await ctx.currentCallees());
     const rendered = CustomFeatureStatement.render(callee, staged.spec.custom!, staged.spec, i => vars[i] ?? null);
@@ -132,7 +141,12 @@ export async function handleCustomFeature(ctx: ApplyFeatureRequestContext, req: 
       res.json({ success: true, preview: rendered.statement, args: picks.args });
       return;
     }
-    await dispatcher.dispatch(res, spec, { success: true, preview: rendered.statement });
+    // A library package's feature pins its package first (K7): once the
+    // preflight has accepted the edit, before the editor writes it.
+    const adopt = ctx.catalog?.adoptForUse;
+    await dispatcher.dispatch(res, spec, { success: true, preview: rendered.statement }, adopt && entry.package?.availability === 'library'
+      ? { beforeSend: PackageAdoption.step(() => adopt.call(ctx.catalog, entry)) }
+      : {});
   } catch (err: any) {
     res.status(500).json({ success: false, reason: err?.message ?? String(err) });
   }
@@ -286,6 +300,29 @@ class CustomFeatureRoute {
       return { status: 422, reason: entry.error ?? `feature '${id}' can't be offered` };
     }
     return entry;
+  }
+
+  /**
+   * The specifier `filePath` imports the entry's builder by, from the
+   * catalog; undefined when the catalog doesn't say (the transform then
+   * writes the module's relative path); a refusal when the file can't
+   * reach it — a package module its entry doesn't export, or another
+   * version than the project pins.
+   */
+  static importFrom(
+    ctx: ApplyFeatureRequestContext,
+    entry: FeatureCatalogEntry,
+    filePath: string,
+  ): { specifier: string | undefined } | Refusal {
+    const catalog = ctx.catalog;
+    if (!catalog?.importSpecifier) {
+      return { specifier: undefined };
+    }
+    const specifier = catalog.importSpecifier(entry, filePath);
+    if (specifier === null) {
+      return { status: 422, reason: catalog.unreachableReason?.(entry) ?? `feature '${entry.id}' can't be imported here` };
+    }
+    return { specifier };
   }
 
   /** Why the statement can't go in `filePath`, or null. */

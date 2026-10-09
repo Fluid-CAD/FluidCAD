@@ -7,6 +7,7 @@ import {
   LENGTH_UNITS,
 } from '../../server/dist/project-config.js';
 import { preferredNewProjectUnit } from '../../server/dist/preferences.js';
+import { ProjectJsconfig } from '../../server/dist/project-jsconfig.js';
 import { readPackageVersion } from '../lib/workspace.js';
 
 const INIT_JS = `import { init } from 'fluidcad'\n\nexport default await init()\n`;
@@ -18,13 +19,6 @@ const PART_JS = `import { part } from 'fluidcad/core';
 export const part1 = part('Part 1', () => {
 });
 `;
-
-const JSCONFIG = JSON.stringify({
-  compilerOptions: {
-    checkJs: true,
-    module: 'node20',
-  },
-}, null, 2) + '\n';
 
 async function runInit(options) {
   const cwd = process.cwd();
@@ -54,9 +48,11 @@ async function runInit(options) {
     writeFileSync(partPath, PART_JS);
   }
 
-  const jsconfigPath = resolve(cwd, 'jsconfig.json');
+  // checkJs, and deep enough for a pinned package's types (see
+  // ProjectJsconfig). An existing one is the user's and stays as it is.
+  const jsconfigPath = resolve(cwd, ProjectJsconfig.FILENAME);
   if (!existsSync(jsconfigPath)) {
-    writeFileSync(jsconfigPath, JSCONFIG);
+    writeFileSync(jsconfigPath, ProjectJsconfig.text());
   }
 
   // Pin the engine this project is being authored against. Left alone if it

@@ -1,7 +1,11 @@
 import express, { Router, type NextFunction, type Request, type Response } from 'express';
+import { readFile } from 'fs/promises';
+import { extname } from 'path';
+import { ASSET_TYPES } from './feature-catalog.ts';
 import { loadPreferences } from '../preferences.ts';
 import { PackageArchive, PackageArchiveError } from '../packages/package-archive.ts';
 import { PackageInstallError, PackageInstaller } from '../packages/package-installer.ts';
+import { LibraryMove } from '../packages/library-move.ts';
 import { PackageName } from '../packages/package-name.ts';
 import { PackagePinError, PackagePins } from '../packages/package-pins.ts';
 import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
@@ -36,6 +40,13 @@ const DEFAULT_MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
  *   (`to: 'project'`) and Add to my library (`to: 'library'`).
  * - `DELETE /api/packages/@scope/name/<version>?target=library|project`
  *   (the version may be left out when only one is installed).
+ * - `GET /api/packages/inspected-icon?token=&id=`: a feature's icon from an
+ *   inspected archive, for the consent dialog; `POST /api/packages/discard
+ *   { token }` drops an inspection the user declined.
+ * - `POST /api/packages/library-offer`: copy what the folder the library was
+ *   in before the last Settings change holds into the library;
+ *   `DELETE /api/packages/library-offer` declines that (`GET` shows the offer
+ *   as `libraryOffer`).
  *
  * A refusal is a 4xx whose `error` is the sentence the CLI prints, with its
  * `code`; a pin that would change is a 409 and leaves everything as it was.
@@ -80,14 +91,55 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
     }
   });
 
+  router.post('/packages/discard', (req, res) => {
+    const { token } = req.body ?? {};
+    if (typeof token !== 'string') {
+      res.status(400).json({ error: 'Expected { token }.' });
+      return;
+    }
+    PackageArchive.discard(token);
+    res.json({ success: true });
+  });
+
+  router.get('/packages/inspected-icon', async (req, res) => {
+    const { token, id } = req.query;
+    if (typeof token !== 'string' || typeof id !== 'string') {
+      res.status(400).json({ error: 'Expected ?token=&id=.' });
+      return;
+    }
+    const icon = PackageArchive.iconOf(token, id);
+    if ('error' in icon) {
+      res.status(icon.status).json({ error: icon.error });
+      return;
+    }
+    const type = ASSET_TYPES[extname(icon.file).toLowerCase()];
+    if (!type) {
+      res.status(415).json({ error: `${id}'s icon is not an image.` });
+      return;
+    }
+    try {
+      const content = await readFile(icon.file);
+      // The feature asset route's headers: an SVG served alone stays inert.
+      res.setHeader('Content-Type', type);
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.send(content);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
+    }
+  });
+
   router.get('/packages', async (_req, res) => {
     try {
       // `problems`: the pins installed in neither root, structured for an
-      // Install action (empty without a project).
+      // Install action (empty without a project). `libraryOffer`: what the
+      // folder the library just left still holds.
       res.json({
         ...ProjectPackages.overview(project),
         problems: PackagePins.problems(project),
         defaultTarget: await defaultTarget(undefined),
+        libraryOffer: LibraryMove.offer(),
       });
     } catch (err) {
       PackageRefusal.send(res, err);
@@ -109,6 +161,27 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
     } catch (err) {
       PackageRefusal.send(res, err);
     }
+  });
+
+  router.post('/packages/library-offer', async (_req, res) => {
+    try {
+      const copied = await LibraryMove.copy(project);
+      if (!copied) {
+        res.status(404).json({ error: 'The library folder hasn\'t changed, so there is nothing to copy.' });
+        return;
+      }
+      if (copied.copies.every((copy) => copy.status !== 'refused')) {
+        LibraryMove.dismiss();
+      }
+      res.json(copied);
+    } catch (err) {
+      PackageRefusal.send(res, err);
+    }
+  });
+
+  router.delete('/packages/library-offer', (_req, res) => {
+    LibraryMove.dismiss();
+    res.json({ success: true });
   });
 
   router.delete('/packages/:scope/:name{/:version}', (req, res) => {

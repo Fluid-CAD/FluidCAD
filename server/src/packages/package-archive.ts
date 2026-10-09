@@ -127,6 +127,36 @@ export class PackageArchive {
     return held.entry;
   }
 
+  /**
+   * The icon a feature of an inspected archive declares (`meta.icon`), for
+   * the consent dialog before anything is installed: the file inside the
+   * extracted tree, next to the feature's module and never outside it.
+   */
+  static iconOf(token: string, featureId: string): { file: string } | { status: number; error: string } {
+    const held = PackageArchive.pending.get(token)?.entry;
+    if (!held) {
+      return { status: 404, error: 'That inspected package is gone; inspect the file again.' };
+    }
+    const feature = held.inspection.manifest.features.find((entry) => entry.id === featureId);
+    const icon = feature?.meta?.icon;
+    if (!feature || typeof icon !== 'string' || icon === '') {
+      return { status: 404, error: `The package declares no icon for ${JSON.stringify(featureId)}.` };
+    }
+    const directory = path.dirname(path.join(held.tree, feature.module));
+    let realDirectory: string;
+    let realFile: string;
+    try {
+      realDirectory = fs.realpathSync(directory);
+      realFile = fs.realpathSync(path.resolve(directory, icon));
+    } catch {
+      return { status: 404, error: `${icon} isn't in the package.` };
+    }
+    if (!realFile.startsWith(realDirectory + path.sep)) {
+      return { status: 403, error: `${icon} leads outside its feature's directory.` };
+    }
+    return { file: realFile };
+  }
+
   /** Drop an inspected archive the user declined. */
   static discard(token: string): void {
     PackageArchive.take(token)?.scratch.dispose();

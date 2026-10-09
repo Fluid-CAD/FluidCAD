@@ -3,8 +3,8 @@ import { readFile } from 'fs/promises';
 import { extname } from 'path';
 import type { FeatureCatalog } from '../feature-catalog/catalog.ts';
 
-/** The image types a feature's declared images may be (the metadata check admits no others). */
-const ASSET_TYPES: Record<string, string> = {
+/** The image types a feature's declared images may be (the metadata check admits no others); the package consent dialog's icons too. */
+export const ASSET_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',

@@ -3,6 +3,7 @@ import path from 'path';
 import { createWorkspaceIgnore } from './workspace-ignore.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { isFluidScriptFile } from '../file-kind.ts';
+import { PackageRoots } from '../packages/package-roots.ts';
 
 /**
  * A flat listing of the workspace's editable files. Flat rather than nested
@@ -65,6 +66,10 @@ export function listWorkspaceFiles(workspacePath: string): ListWorkspaceFilesRes
   const files: FileTreeEntry[] = [];
   const folders: string[] = [];
   let truncated = false;
+  // Folders that directly hold something listed, and folders the walk
+  // pruned an installed package (or the installer's scratch) out of.
+  const holdsListed = new Set<string>();
+  const heldPackage = new Set<string>();
 
   const queue: string[] = [''];
   while (queue.length > 0 && !truncated) {
@@ -84,6 +89,9 @@ export function listWorkspaceFiles(workspacePath: string): ListWorkspaceFilesRes
         continue;
       }
       if (workspaceIgnore.isIgnored(relPath, entry.isDirectory())) {
+        if (entry.isDirectory() && PackageRoots.isManaged(path.join(workspacePath, relPath), workspacePath)) {
+          heldPackage.add(dirRel);
+        }
         continue;
       }
       if (entry.isDirectory()) {
@@ -104,6 +112,7 @@ export function listWorkspaceFiles(workspacePath: string): ListWorkspaceFilesRes
       } catch {
         continue;
       }
+      holdsListed.add(dirRel);
       files.push({
         path: relPath,
         absPath: normalizePath(path.join(workspacePath, relPath)),
@@ -130,5 +139,35 @@ export function listWorkspaceFiles(workspacePath: string): ListWorkspaceFilesRes
 
   folders.sort((a, b) => a.localeCompare(b));
 
-  return { files, folders, truncated };
+  return { files, folders: FileTreeFolders.withoutPackageParents(folders, holdsListed, heldPackage), truncated };
+}
+
+/**
+ * The folder list without the folders that exist only to hold installed
+ * packages: a project copy's `packages/@scope/name/<version>/` is pruned
+ * (K8), and its `packages/@scope/name`, `packages/@scope` — and `packages`
+ * itself when that is all it holds — would otherwise linger in the editor's
+ * list as empty folders. A folder the user made empty, or one holding
+ * anything else (their own `packages/models/`), stays.
+ */
+class FileTreeFolders {
+  static withoutPackageParents(
+    folders: string[],
+    holdsListed: ReadonlySet<string>,
+    heldPackage: ReadonlySet<string>,
+  ): string[] {
+    const kept = new Set(folders);
+    // Deepest first, so a folder's verdict sees its children's.
+    for (const folder of [...folders].sort((a, b) => b.split('/').length - a.split('/').length)) {
+      const keptChild = [...kept].some((other) => other !== folder && other.startsWith(`${folder}/`) && !other.slice(folder.length + 1).includes('/'));
+      const droppedChild = folders.some((other) => !kept.has(other) && other.startsWith(`${folder}/`) && !other.slice(folder.length + 1).includes('/'));
+      if (holdsListed.has(folder) || keptChild) {
+        continue;
+      }
+      if (heldPackage.has(folder) || droppedChild) {
+        kept.delete(folder);
+      }
+    }
+    return folders.filter((folder) => kept.has(folder));
+  }
 }

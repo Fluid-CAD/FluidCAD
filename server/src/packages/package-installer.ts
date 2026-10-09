@@ -37,6 +37,14 @@ export type InstalledPackage = PackageLocation & {
   bytes: number;
 };
 
+/** One package of {@link PackageInstaller.copyFolder}: copied (`installed`), already there (`unchanged`), or refused with why. */
+export type PackageFolderCopy = {
+  name: string;
+  version: string;
+  status: 'installed' | 'unchanged' | 'refused';
+  error?: string;
+};
+
 export type PackageInstallOptions = {
   /** The open project: required for the `project` target. */
   project?: string | null;
@@ -87,6 +95,42 @@ export class PackageInstaller {
     if (!PackageRoots.isPackageRoot(source, project)) {
       throw new PackageInstallError('not-installed', `${name} ${version} isn't in ${PackageInstaller.describe(from)}, so there is nothing to copy.`);
     }
+    return PackageInstaller.copyTree(source, name, version, to, project);
+  }
+
+  /**
+   * Copy every package installed in `folder` (read as a library root:
+   * `@scope/name/<version>/` holding `manifest.json`) into the library: what
+   * Settings → Packages offers after the library folder changed, since a
+   * change moves nothing. Each tree goes across unchanged, so every pin of it
+   * stays valid; one already in the library with the same contents is
+   * `unchanged`, and one there with other contents is refused on its own
+   * (the others still copy).
+   */
+  static async copyFolder(folder: string, project?: string | null): Promise<PackageFolderCopy[]> {
+    const copies: PackageFolderCopy[] = [];
+    for (const location of PackageRoots.installedAt(folder)) {
+      try {
+        const result = await PackageInstaller.copyTree(location.directory, location.name, location.version, 'library', project ?? null);
+        copies.push({ name: location.name, version: location.version, status: result.status === 'unchanged' ? 'unchanged' : 'installed' });
+      } catch (err) {
+        if (!(err instanceof PackageInstallError)) {
+          throw err;
+        }
+        copies.push({ name: location.name, version: location.version, status: 'refused', error: err.message });
+      }
+    }
+    return copies;
+  }
+
+  /** Copy the installed tree at `source` into `to`'s root through its scratch, re-hashed on the way. */
+  private static async copyTree(
+    source: string,
+    name: string,
+    version: string,
+    to: PackageTarget,
+    project: string | null,
+  ): Promise<PackageInstallResult> {
     const sourceHash = await TreeHash.ofDirectory(source);
     const root = PackageRoots.rootFor(to, project);
     const scratch = PackageScratch.create(root);

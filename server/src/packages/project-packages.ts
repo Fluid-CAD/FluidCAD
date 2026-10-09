@@ -41,13 +41,20 @@ export type RemoveOutcome = {
 
 /** The two roots and a project's pins, as `fluidcad packages` and `GET /api/packages` show them. */
 export type PackagesOverview = {
-  library: { path: string; packages: InstalledPackage[] };
+  /** `source`: where the path comes from — `FLUIDCAD_PACKAGES`, the Settings preference, or the default. */
+  library: { path: string; source: 'env' | 'preference' | 'default'; packages: InstalledPackage[] };
   /** Null outside a project. */
   project: { path: string; packages: InstalledPackage[] } | null;
   /** Null outside a project. */
   pins: PinnedPackage[] | null;
   /** Why the pins couldn't be read (a broken `dependencies` map). */
   pinsProblem?: string;
+  /**
+   * Each pinned package the library holds a newer version of, with the
+   * newest one: the "update available" chip (the previewed upgrade is
+   * Stage P10's). Empty outside a project.
+   */
+  updates: Record<string, string>;
 };
 
 /**
@@ -125,14 +132,16 @@ export class ProjectPackages {
 
   static overview(project?: string | null): PackagesOverview {
     const overview: PackagesOverview = {
-      library: { path: PackageRoots.libraryPath(), packages: PackageInstaller.list('library', project) },
+      library: { path: PackageRoots.libraryPath(), source: PackageRoots.librarySource(), packages: PackageInstaller.list('library', project) },
       project: null,
       pins: null,
+      updates: {},
     };
     if (project) {
       overview.project = { path: PackageRoots.projectCopyPath(project), packages: PackageInstaller.list('project', project) };
       try {
         overview.pins = PackagePins.availability(project);
+        overview.updates = ProjectPackages.updates(overview.pins, overview.library.packages);
       } catch (err) {
         if (!(err instanceof PackagePinError)) {
           throw err;
@@ -142,6 +151,28 @@ export class ProjectPackages {
       }
     }
     return overview;
+  }
+
+  /** The newest library version above each pin, for the pins that have one. */
+  static updates(pins: readonly PinnedPackage[], library: readonly PackageLocation[]): Record<string, string> {
+    const updates: Record<string, string> = {};
+    for (const pin of pins) {
+      const pinned = Semver.parse(pin.version);
+      if (!pinned) {
+        continue;
+      }
+      let newest: Semver | null = null;
+      for (const installed of library) {
+        const version = installed.name === pin.name ? Semver.parse(installed.version) : null;
+        if (version && Semver.compare(version, pinned) > 0 && (!newest || Semver.compare(version, newest) > 0)) {
+          newest = version;
+        }
+      }
+      if (newest) {
+        updates[pin.name] = newest.toString();
+      }
+    }
+    return updates;
   }
 
   /** `@acme/gears` or `@acme/gears@1.2.0`. */

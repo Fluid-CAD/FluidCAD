@@ -31,6 +31,7 @@ import { createPackagesRouter } from './routes/packages.ts';
 import { PackageInstaller } from './packages/package-installer.ts';
 import { PackageEditGuard } from './packages/package-edit-guard.ts';
 import { PackagePins } from './packages/package-pins.ts';
+import { PackageRoots } from './packages/package-roots.ts';
 import { createShareRouter } from './routes/share.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
 import { createFeatureCatalogRouter } from './routes/feature-catalog.ts';
@@ -587,6 +588,13 @@ async function handleExtensionMessage(msg: any) {
 
       case 'live-update': {
         if (pageWrites.isEcho(msg.fileName, msg.code)) {
+          break;
+        }
+        // An installed package's files never change under an edit (K8): a
+        // disk watcher announcing one (`fluidcad serve`'s, as Copy into
+        // project or an install renames a tree into `packages/`) is the
+        // installer moving it, not a model to switch the scene to.
+        if (PackageRoots.isManaged(msg.fileName, WORKSPACE_PATH)) {
           break;
         }
         await runLiveRender(msg.fileName, msg.code, msg.keepCurrent === true);

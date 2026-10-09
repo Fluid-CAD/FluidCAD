@@ -209,26 +209,37 @@ export class PackageRoots {
 
   /** Every installed package under one root, sorted by name, then by version precedence. */
   static installedIn(rootDir: PackageRootDir, project?: string | null): PackageLocation[] {
-    const found: PackageLocation[] = [];
-    for (const scope of PackageRoots.subdirectories(rootDir.root)) {
-      if (!scope.startsWith('@')) {
-        continue;
+    return PackageRoots.walk(rootDir, (directory) => PackageRoots.isPackageRoot(directory, project));
+  }
+
+  /**
+   * Every package installed in `folder` read as a library root of its own:
+   * the same `@scope/name/<version>/` shape plus `manifest.json`, without
+   * the question of whether `folder` is one of the roots a project resolves
+   * from. What the folder the library used to be in still holds, after the
+   * Settings → Packages folder changed (`LibraryMove`).
+   */
+  static installedAt(folder: string): PackageLocation[] {
+    const root = PackageRoots.canonical(folder);
+    return PackageRoots.walk({ target: 'library', root }, (directory) => {
+      try {
+        return fs.statSync(path.join(directory, PackageLayout.MANIFEST)).isFile();
+      } catch {
+        return false;
       }
-      for (const bare of PackageRoots.subdirectories(path.join(rootDir.root, scope))) {
-        const name = `${scope}/${bare}`;
-        if (!PackageName.isValid(name)) {
-          continue;
-        }
-        for (const version of PackageRoots.subdirectories(path.join(rootDir.root, scope, bare))) {
-          const directory = PackageRoots.packageDir(rootDir.root, name, version);
-          if (PackageRoots.isPackageRoot(directory, project)) {
-            found.push({ ...rootDir, name, version, directory });
-          }
-        }
-      }
+    });
+  }
+
+  /**
+   * Where the library path comes from (Settings → Packages shows it):
+   * `FLUIDCAD_PACKAGES` (`env`), which outranks the setting, the
+   * `packageLibraryPath` preference, or the default.
+   */
+  static librarySource(): 'env' | 'preference' | 'default' {
+    if (process.env.FLUIDCAD_PACKAGES) {
+      return 'env';
     }
-    return found.sort((a, b) =>
-      a.name === b.name ? Semver.compare(Semver.parse(a.version)!, Semver.parse(b.version)!) : a.name < b.name ? -1 : 1);
+    return PackageRoots.preferredLibrary() ? 'preference' : 'default';
   }
 
   /**
@@ -328,6 +339,33 @@ export class PackageRoots {
       PackageRoots.libraryPreference = typeof value === 'string' && path.isAbsolute(value) ? value : null;
     }
     return PackageRoots.libraryPreference;
+  }
+
+  /** The `@scope/name/<version>` directories under `rootDir` that `accept` takes, sorted by name, then by version precedence. */
+  private static walk(rootDir: PackageRootDir, accept: (directory: string) => boolean): PackageLocation[] {
+    const found: PackageLocation[] = [];
+    for (const scope of PackageRoots.subdirectories(rootDir.root)) {
+      if (!scope.startsWith('@')) {
+        continue;
+      }
+      for (const bare of PackageRoots.subdirectories(path.join(rootDir.root, scope))) {
+        const name = `${scope}/${bare}`;
+        if (!PackageName.isValid(name)) {
+          continue;
+        }
+        for (const version of PackageRoots.subdirectories(path.join(rootDir.root, scope, bare))) {
+          if (!Semver.isValid(version)) {
+            continue;
+          }
+          const directory = PackageRoots.packageDir(rootDir.root, name, version);
+          if (accept(directory)) {
+            found.push({ ...rootDir, name, version, directory });
+          }
+        }
+      }
+    }
+    return found.sort((a, b) =>
+      a.name === b.name ? Semver.compare(Semver.parse(a.version)!, Semver.parse(b.version)!) : a.name < b.name ? -1 : 1);
   }
 
   /** A root as given and with its links resolved (macOS `/var` → `/private/var`). */

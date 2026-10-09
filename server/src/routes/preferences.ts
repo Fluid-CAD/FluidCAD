@@ -15,6 +15,7 @@ import {
   type Preferences,
 } from '../preferences.ts';
 import { parseProjectMaterials } from '../project-config.ts';
+import { LibraryMove } from '../packages/library-move.ts';
 import { PackageRoots } from '../packages/package-roots.ts';
 
 /** Bounds an editor font family: one line of plain text, no CSS injection surface. */
@@ -69,6 +70,7 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
         res.status(400).json({ error: libraryProblem, key: 'packageLibraryPath' });
         return;
       }
+      const libraryBefore = PackageRoots.libraryPath();
       const saved = await serialized(async () => {
         const current = await loadPreferences();
         if (body.theme && typeof body.theme === 'string') {
@@ -177,8 +179,10 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
         await savePreferences(current);
         return current;
       });
-      // The library may have moved: every cached package-root verdict goes.
+      // The library may have moved: every cached package-root verdict goes,
+      // and the folder it left is remembered for the copy offer.
       PackageRoots.forget();
+      LibraryMove.note(libraryBefore, PackageRoots.libraryPath());
       onSaved(saved);
       res.json(saved);
     } catch (err: any) {
@@ -191,8 +195,10 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
   // cannot resurrect the old file.
   router.post('/preferences/reset', async (_req, res) => {
     try {
+      const libraryBefore = PackageRoots.libraryPath();
       const prefs = await serialized(() => resetPreferences());
       PackageRoots.forget();
+      LibraryMove.note(libraryBefore, PackageRoots.libraryPath());
       onSaved(prefs);
       res.json(prefs);
     } catch (err: any) {

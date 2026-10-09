@@ -4,6 +4,7 @@ import { AdvancedTab } from './advanced-tab';
 import { AppearanceTab } from './appearance-tab';
 import { EditorTab } from './editor-tab';
 import { MaterialsTab } from './materials-tab';
+import { PackagesTab, type PackagesTabDeps } from './packages-tab';
 import type { SettingsContext, SettingsTab } from './settings-tab';
 import { SketchTab } from './sketch-tab';
 import { TimelineTab } from './timeline-tab';
@@ -18,6 +19,8 @@ export interface SettingsModalHandlers {
   applyPreferences(prefs: UserPreferences): void;
   /** The merged materials list; the Materials tab reads the built-ins off it for its override hint. Optional. */
   loadMaterials?(): Promise<Material[] | null>;
+  /** The package state and install flow the Packages tab lists and installs through. Optional. */
+  packages?: PackagesTabDeps;
 }
 
 const TAB_BTN = 'flex items-center gap-2 w-full text-left px-3 py-1.5 rounded text-[13px] whitespace-nowrap';
@@ -55,6 +58,7 @@ export class SettingsModal {
       new TimelineTab(),
       new UnitsTab(),
       new MaterialsTab(handlers.loadMaterials ? () => handlers.loadMaterials!() : null),
+      new PackagesTab(handlers.packages ?? null),
       new AdvancedTab(),
     ];
     this.activeId = this.tabs[0].id;

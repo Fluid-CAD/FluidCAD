@@ -35,6 +35,7 @@ export const FIELD_LABEL = 'text-xs text-base-content/70';
 export const FIELD_HINT = 'text-[11px] text-base-content/50';
 export const SELECT = 'select select-sm select-bordered w-full';
 export const NUMBER_INPUT = 'input input-sm input-bordered w-28';
+export const TEXT_INPUT = 'input input-sm input-bordered w-full';
 export const TOGGLE_ROW = 'flex items-center justify-between gap-3 mb-4 cursor-pointer';
 export const TOGGLE = 'toggle toggle-sm toggle-primary';
 
@@ -106,6 +107,31 @@ export function numberField(min: number, max: number, onChange: (value: number) 
     if (e.key === 'Enter') {
       e.preventDefault();
       commit();
+      input.blur();
+    }
+  });
+  return input;
+}
+
+/**
+ * A one-line text input; `onChange` gets the text on every keystroke, so
+ * the draft follows typing. Enter commits nothing by itself — the dialog's
+ * Save does — so it only blurs. `mono` sets it in the monospace face, for
+ * a path.
+ */
+export function textField(onChange: (value: string) => void, options: { placeholder?: string; mono?: boolean } = {}): HTMLInputElement {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = options.mono ? `${TEXT_INPUT} font-mono text-xs` : TEXT_INPUT;
+  input.spellcheck = false;
+  input.autocomplete = 'off';
+  if (options.placeholder) {
+    input.placeholder = options.placeholder;
+  }
+  input.addEventListener('input', () => onChange(input.value));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
       input.blur();
     }
   });

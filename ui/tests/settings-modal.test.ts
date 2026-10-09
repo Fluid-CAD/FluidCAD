@@ -72,10 +72,10 @@ function typeNumber(input: HTMLInputElement, value: string): void {
 }
 
 describe('SettingsModal', () => {
-  it('lists the seven tabs, opens on Appearance, switches on click, and has a fixed-height box', () => {
+  it('lists the eight tabs, opens on Appearance, switches on click, and has a fixed-height box', () => {
     const { modal, overlay } = mount();
     expect(Array.from(overlay.querySelectorAll('[data-tab]')).map((b) => b.textContent)).toEqual([
-      'Appearance', 'Editor', 'Sketch', 'Timeline', 'Units', 'Materials', 'Advanced',
+      'Appearance', 'Editor', 'Sketch', 'Timeline', 'Units', 'Materials', 'Packages', 'Advanced',
     ]);
     expect(overlay.querySelector('[data-ref="box"]')!.className).toMatch(/\bh-\[480px\]/);
     expect(modal.isOpen()).toBe(false);

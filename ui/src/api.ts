@@ -264,6 +264,10 @@ export interface UserPreferences {
   maxWorkers?: number;
   /** The user's own materials (Settings → Materials), in the `fluidcad.json` map shape; a pick copies one into the project. */
   materials?: ProjectMaterials;
+  /** Settings → Packages "Library folder": an absolute path, or empty for the default. */
+  packageLibraryPath?: string;
+  /** Settings → Packages "New packages go to". Default 'library'. */
+  packageInstallTarget?: PackageTarget;
 }
 
 /** Which of a sketch's children the timeline lists: every row, or only the features that open an edit dialog. */
@@ -5249,9 +5253,11 @@ export function removeProperty(target: PropertyTarget): Promise<ParamEditRespons
 // ---------------------------------------------------------------------------
 
 export type CatalogFileEntry = {
-  /** Workspace-relative path, for display. */
+  /** Workspace-relative path, for display; `@scope/name/<module>` for a package's file. */
   path: string;
   absPath: string;
+  /** The installed package the file belongs to; absent for the workspace's own. */
+  package?: PackageRef;
   /**
    * The unit the file's parts are authored in (its `unit()` statement, else
    * the project unit) — read statically; absent on servers predating units.
@@ -6343,6 +6349,12 @@ export type FeatureCatalogEntry = {
   builtIn: boolean;
   meta: FeatureMetaSnapshot | null;
   error?: string;
+  /**
+   * The installed package the feature comes from; absent for the
+   * workspace's own and the engine's. `library`: in the user library but
+   * not used by this project yet — using it pins it first.
+   */
+  package?: PackageRef;
 };
 
 /**
@@ -6464,5 +6476,207 @@ class CustomFeatureRequests {
       ...(options.operation ? { operation: options.operation } : {}),
       ...(options.scope !== undefined ? { scope: options.scope } : {}),
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Packages (Settings → Packages, the consent dialog, the project's Packages)
+// ---------------------------------------------------------------------------
+
+/** Where a package installs: the user library, or the open project's `packages/` copy. */
+export type PackageTarget = 'library' | 'project';
+
+/** A package a catalog entry or a timeline row comes from. `library`: not used by this project yet. */
+export type PackageRef = { name: string; version: string; availability?: 'dependency' | 'library' };
+
+/** One feature of a package, as its manifest snapshots it. */
+export type PackageManifestFeature = {
+  id: string;
+  exportName: string;
+  module: string;
+  meta: FeatureMetaSnapshot;
+  usesOcct: boolean;
+};
+
+/** One part or assembly of a package. */
+export type PackageManifestPart = {
+  exportName: string;
+  module: string;
+  name: string;
+  kind: 'part' | 'assembly';
+};
+
+/** What the page reads of a package's `manifest.json`. */
+export type PackageManifest = {
+  name: string;
+  version: string;
+  description?: string;
+  license?: string;
+  author?: string;
+  homepage?: string;
+  /** The engine it was packed and checked on. */
+  engine: string;
+  minEngine: string;
+  sdkVersion: number;
+  features: PackageManifestFeature[];
+  parts: PackageManifestPart[];
+  files: string[];
+};
+
+/** Something the consent dialog says before an install. */
+export type PackageWarning = { code: 'uses-occt' | 'min-engine' | 'sdk-version' | string; message: string };
+
+/** `POST /api/packages/inspect`: the archive checked and extracted, waiting for its install. */
+export type PackageInspection = {
+  token: string;
+  manifest: PackageManifest;
+  integrity: string;
+  warnings: PackageWarning[];
+  bytes: number;
+  /** Where the "New packages go to" setting sends it (the project only when one is open). */
+  defaultTarget: PackageTarget;
+};
+
+/** One installed package directory. */
+export type InstalledPackage = {
+  target: PackageTarget;
+  name: string;
+  version: string;
+  directory: string;
+  manifest: PackageManifest | null;
+  problem?: string;
+  bytes: number;
+};
+
+/** One pin of the project, and where it is installed. */
+export type PinnedPackage = {
+  name: string;
+  version: string;
+  integrity: string;
+  availability: PackageTarget | 'missing';
+  directory: string | null;
+};
+
+/** A package the project can't load (`code: 'missing'` for a pin installed nowhere). */
+export type PackageProblem = { code: string; name: string; version: string | null; message: string };
+
+/** `GET /api/packages`. */
+export type PackagesOverview = {
+  library: { path: string; source: 'env' | 'preference' | 'default'; packages: InstalledPackage[] };
+  project: { path: string; packages: InstalledPackage[] } | null;
+  pins: PinnedPackage[] | null;
+  pinsProblem?: string;
+  /** Pinned name → the newest library version above the pin. */
+  updates?: Record<string, string>;
+  problems: PackageProblem[];
+  defaultTarget: PackageTarget;
+  /** What the folder the library just left still holds. */
+  libraryOffer?: { path: string; packages: { name: string; version: string }[] } | null;
+};
+
+/** `POST /api/packages/install`. */
+export type PackageInstallOutcome = {
+  target: PackageTarget;
+  name: string;
+  version: string;
+  directory: string;
+  integrity: string;
+  status: 'installed' | 'unchanged' | 'replaced';
+  pin: 'pinned' | 'unchanged' | null;
+};
+
+/** One package of a library-folder copy. */
+export type PackageFolderCopy = { name: string; version: string; status: 'installed' | 'unchanged' | 'refused'; error?: string };
+
+/** A refusal from a package route: its sentence, and the code (`conflict` offers Replace). */
+export type PackageRefusal = { ok: false; status: number; error: string; code?: string };
+
+export type PackageResult<T> = ({ ok: true } & T) | PackageRefusal;
+
+/**
+ * The package routes, as one object the package UI is handed (tests give
+ * it a fake). Every call answers a result rather than throwing: a refusal
+ * carries the server's sentence, which the UI shows as it is.
+ */
+export interface PackagesClient {
+  overview(): Promise<PackagesOverview | null>;
+  inspect(file: Blob, target?: PackageTarget): Promise<PackageResult<{ inspection: PackageInspection }>>;
+  install(request: { token: string; target: PackageTarget; replace?: boolean; pin?: boolean }): Promise<PackageResult<{ outcome: PackageInstallOutcome }>>;
+  discard(token: string): Promise<void>;
+  copy(name: string, version: string, to: PackageTarget): Promise<PackageResult<{}>>;
+  remove(name: string, version: string, target: PackageTarget): Promise<PackageResult<{ strandedPin: PinnedPackage | null }>>;
+  copyLibraryOffer(): Promise<PackageResult<{ copies: PackageFolderCopy[] }>>;
+  dismissLibraryOffer(): Promise<void>;
+  /** Save preferences and hear the answer: a refused library folder comes back with its reason. */
+  savePreferences(patch: Partial<UserPreferences>): Promise<PackageResult<{ prefs: UserPreferences }>>;
+  /** Where an inspected archive's feature icon is served. */
+  inspectedIconUrl(token: string, featureId: string): string;
+}
+
+/** {@link PackagesClient} over the engine's HTTP routes. */
+export class HttpPackagesClient implements PackagesClient {
+  async overview(): Promise<PackagesOverview | null> {
+    return getJson<PackagesOverview>('api/packages');
+  }
+
+  async inspect(file: Blob, target?: PackageTarget): Promise<PackageResult<{ inspection: PackageInspection }>> {
+    const url = target ? `api/packages/inspect?target=${target}` : 'api/packages/inspect';
+    const answer = await HttpPackagesClient.send(url, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+    return answer.ok === false ? answer : { ok: true, inspection: answer.body as PackageInspection };
+  }
+
+  async install(request: { token: string; target: PackageTarget; replace?: boolean; pin?: boolean }): Promise<PackageResult<{ outcome: PackageInstallOutcome }>> {
+    const answer = await HttpPackagesClient.sendJson('api/packages/install', 'POST', request);
+    return answer.ok === false ? answer : { ok: true, outcome: answer.body as PackageInstallOutcome };
+  }
+
+  async discard(token: string): Promise<void> {
+    await HttpPackagesClient.sendJson('api/packages/discard', 'POST', { token });
+  }
+
+  async copy(name: string, version: string, to: PackageTarget): Promise<PackageResult<{}>> {
+    const answer = await HttpPackagesClient.sendJson('api/packages/copy', 'POST', { name, version, to });
+    return answer.ok === false ? answer : { ok: true };
+  }
+
+  async remove(name: string, version: string, target: PackageTarget): Promise<PackageResult<{ strandedPin: PinnedPackage | null }>> {
+    const answer = await HttpPackagesClient.send(`api/packages/${name}/${encodeURIComponent(version)}?target=${target}`, { method: 'DELETE' });
+    return answer.ok === false ? answer : { ok: true, strandedPin: (answer.body as { strandedPin?: PinnedPackage | null }).strandedPin ?? null };
+  }
+
+  async copyLibraryOffer(): Promise<PackageResult<{ copies: PackageFolderCopy[] }>> {
+    const answer = await HttpPackagesClient.send('api/packages/library-offer', { method: 'POST' });
+    return answer.ok === false ? answer : { ok: true, copies: (answer.body as { copies: PackageFolderCopy[] }).copies };
+  }
+
+  async dismissLibraryOffer(): Promise<void> {
+    await HttpPackagesClient.send('api/packages/library-offer', { method: 'DELETE' });
+  }
+
+  async savePreferences(patch: Partial<UserPreferences>): Promise<PackageResult<{ prefs: UserPreferences }>> {
+    const answer = await HttpPackagesClient.sendJson('api/preferences', 'POST', patch);
+    return answer.ok === false ? answer : { ok: true, prefs: answer.body as UserPreferences };
+  }
+
+  inspectedIconUrl(token: string, featureId: string): string {
+    return `api/packages/inspected-icon?${new URLSearchParams({ token, id: featureId }).toString()}`;
+  }
+
+  private static sendJson(url: string, method: string, body: unknown) {
+    return HttpPackagesClient.send(url, { method, headers: JSON_HEADERS, body: JSON.stringify(body) });
+  }
+
+  /** One request: the parsed body on success, the server's sentence (or a network one) otherwise. */
+  private static async send(url: string, init: RequestInit): Promise<{ ok: true; body: unknown } | PackageRefusal> {
+    try {
+      const res = await fetch(url, init);
+      const body = await res.json().catch(() => null) as { error?: string; code?: string } | null;
+      if (!res.ok) {
+        return { ok: false, status: res.status, error: body?.error ?? `The engine answered ${res.status}.`, ...(body?.code ? { code: body.code } : {}) };
+      }
+      return { ok: true, body };
+    } catch (err: any) {
+      return { ok: false, status: 0, error: `The engine didn't answer: ${err?.message ?? String(err)}` };
+    }
   }
 }

@@ -1,5 +1,6 @@
-import { type ViteDevServer, createServer } from 'vite';
+import { type DevEnvironment, type ViteDevServer, createServer } from 'vite';
 import { dirname, resolve, isAbsolute } from 'path';
+import { ENGINE_NAMESPACE_SPECIFIERS } from '../../../lib/dist/browser/linking.js';
 import { normalizePath } from '../normalize-path.ts';
 import type { SceneHost } from './scene-host.ts';
 import { isAssemblyDefinition, isPartDefinition } from './scene-host.ts';
@@ -12,6 +13,7 @@ import {
 } from './engine-resolution.ts';
 import { EngineImportResolver } from './engine-import-resolver.ts';
 import { installSourceUrlEncoding } from './source-url-encoding.ts';
+import { PackageResolveError, PackageResolver } from '../packages/resolver.ts';
 
 const IMPORT_PATTERN = /\b(?:import|export)\s[\s\S]*?from\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 
@@ -29,11 +31,26 @@ function scanForBlockedImports(code: string): string | null {
 }
 
 export class LocalSceneHost implements SceneHost {
+  /**
+   * Every engine specifier, by exact name. Vite caches "is this external?"
+   * per specifier string, not per importer: a subpath a package file asks for
+   * first, from a directory where Node finds no `fluidcad`, would be cached
+   * as "not external", and a workspace import of it would then be compiled
+   * inline — a second kernel (research M2). An id listed by its exact name
+   * skips that resolution altogether. `fluidcad` itself also covers the
+   * subpaths outside this list through the package-name rule.
+   */
+  static readonly ENGINE_SPECIFIERS: readonly string[] = [...new Set(['fluidcad', ...ENGINE_NAMESPACE_SPECIFIERS])];
+
   server!: ViteDevServer;
   private rootPath: string = '';
   private buffers: Map<string, string> = new Map();
-  /** Set when this engine answers the workspace's `import 'fluidcad'` itself. */
   private engineImports: EngineImportResolver | null = null;
+  /** True when this engine answers the workspace's own `import 'fluidcad'` too, not only its packages'. */
+  private engineAnswersWorkspace = false;
+
+  /** `packages` answers `import … from '@scope/name'` (Stage P1: an injected map). */
+  constructor(readonly packages: PackageResolver = new PackageResolver()) {}
 
   async init(rootPath: string) {
     this.rootPath = normalizePath(rootPath);
@@ -51,13 +68,22 @@ export class LocalSceneHost implements SceneHost {
           'Models still load through the running engine.',
       );
     }
-    this.engineImports = runtimeUsesThisEngine(link) ? new EngineImportResolver(ENGINE_PACKAGE_ROOT) : null;
+    // The engine answers `fluidcad` for the workspace when it has no usable
+    // install of its own, and always for files outside it — a package's
+    // files sit in the user library, where a `node_modules` walk finds
+    // nothing, or an unrelated copy further up (research M3). Steering those
+    // to this engine changes nothing for a workspace whose own install
+    // stands: `lib-identity` has proven that install is this very engine.
+    this.engineAnswersWorkspace = runtimeUsesThisEngine(link);
+    this.engineImports = new EngineImportResolver(ENGINE_PACKAGE_ROOT);
     this.server = await createServer({
       root: rootPath,
       server: {
         watch: {
           ignoreInitial: true,
-          ignored: ['**/node_modules/**']
+          // Vite watches every file it reads outside the root. Installed
+          // packages are immutable: nothing there is worth an event.
+          ignored: ['**/node_modules/**', (file: string) => that.packages.rootOf(file) !== null]
         }
       },
       optimizeDeps: {
@@ -71,9 +97,24 @@ export class LocalSceneHost implements SceneHost {
         // This must stay unconditional — dev SSR ignores a plugin's
         // `external: true` and would inline the kernel through the module
         // runner, which is precisely that second copy.
-        external: ['fluidcad']
+        external: [...LocalSceneHost.ENGINE_SPECIFIERS]
       },
       plugins: [
+        {
+          // Before Vite's own resolver, which would look for the name in a
+          // `node_modules` folder (research M1). A package loads inline
+          // through the module runner, like a workspace file, so its own
+          // engine imports reach the steering below.
+          name: 'fluidcad-packages',
+          enforce: 'pre',
+          resolveId(id, importer) {
+            const resolved = that.packages.resolve(id, importer);
+            if (resolved instanceof PackageResolveError) {
+              throw resolved;
+            }
+            return resolved?.entry ?? null;
+          },
+        },
         {
           name: 'virtual-module',
           resolveId(id, importer) {
@@ -87,7 +128,8 @@ export class LocalSceneHost implements SceneHost {
             }
           },
           transform(code, id) {
-            if ((id.startsWith(that.rootPath) && !id.includes('/node_modules/')) || id.startsWith('virtual:live-render')) {
+            // Package files are scanned like the workspace's own (research M5).
+            if (that.isOwnModule(id)) {
               const blocked = scanForBlockedImports(code);
               if (blocked) {
                 const moduleName = getBlockedNodeModule(blocked)!;
@@ -116,12 +158,68 @@ export class LocalSceneHost implements SceneHost {
         }
       ]
     });
-    this.engineImports?.install(this.server.environments.ssr);
+    this.engineImports.install(this.server.environments.ssr, importer => this.engineAnswersFor(importer));
     installSourceUrlEncoding(this.server.environments.ssr);
+    this.refuseExternalizedPackages(this.server.environments.ssr);
   }
 
   steeredEngineEntry(): string | null {
-    return this.engineImports?.resolveFile('fluidcad') ?? null;
+    return this.engineAnswersWorkspace ? this.engineImports?.resolveFile('fluidcad') ?? null : null;
+  }
+
+  /**
+   * Whether this engine, not Vite's `node_modules` walk, answers an engine
+   * import from `importer`: every importer when the workspace has no install
+   * of its own, else the importers outside the workspace and in packages.
+   */
+  private engineAnswersFor(importer: string | undefined): boolean {
+    if (this.engineAnswersWorkspace) {
+      return true;
+    }
+    if (!importer) {
+      return false;
+    }
+    const file = normalizePath(importer.replace(/^virtual:live-render:/, ''));
+    if (this.packages.rootOf(file) !== null) {
+      return true;
+    }
+    return this.rootPath !== '' && isAbsolute(file) && !file.startsWith(`${this.rootPath.replace(/\/+$/, '')}/`);
+  }
+
+  /**
+   * A package name the runner fetches by its bare name was externalized by
+   * Vite — resolved through a `node_modules` folder before the package plugin
+   * was asked (research M1). Node would load that copy natively, past every
+   * guard here, so it is refused with the resolver's sentence (K11).
+   */
+  private refuseExternalizedPackages(environment: DevEnvironment): void {
+    const viteFetch = environment.fetchModule.bind(environment);
+    environment.fetchModule = async (id, importer, options) => {
+      const resolved = this.packages.resolve(id, importer);
+      if (resolved instanceof PackageResolveError) {
+        throw resolved;
+      }
+      if (resolved !== null) {
+        throw PackageResolver.nodeModulesRefusal(resolved.name, null);
+      }
+      return viteFetch(id, importer, options);
+    };
+  }
+
+  /**
+   * A module this host evaluates as the model's own code: a workspace file
+   * outside `node_modules`, a live editor buffer, or a file of an installed
+   * package. These are scanned for blocked imports and re-evaluated on
+   * every render.
+   */
+  private isOwnModule(id: string): boolean {
+    if (id.startsWith('virtual:live-render')) {
+      return true;
+    }
+    if (id.startsWith(this.rootPath) && !id.includes('/node_modules/')) {
+      return true;
+    }
+    return this.packages.rootOf(id) !== null;
   }
 
   setBuffer(id: string, code: string) {
@@ -227,9 +325,15 @@ export class LocalSceneHost implements SceneHost {
     return Array.from(importers);
   }
 
+  /**
+   * Mark every module of the model stale, so the next load evaluates it
+   * again. Package modules included (K9): evaluated once per process, their
+   * top-level `part()` tracking, `unit()` and `param()` would act on the
+   * first render only.
+   */
   invalidateModule() {
     for (const [id, mod] of this.server.moduleGraph.idToModuleMap) {
-      if ((id.startsWith(this.rootPath) && !id.includes('/node_modules/')) || id.startsWith('virtual:live-render')) {
+      if (this.isOwnModule(id)) {
         this.server.moduleGraph.invalidateModule(mod);
       }
     }

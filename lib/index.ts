@@ -18,8 +18,31 @@ export function isFluidScriptFile(p: string): boolean {
   return SCRIPT_SUFFIXES.some(s => p.endsWith(s));
 }
 
+/**
+ * The stack depth a capture reads. V8 keeps 10 frames by default, and a
+ * statement reached through helper modules, a part body and an insert from
+ * an assembly can sit deeper than that: its script frame would be cut off
+ * and the object would get no location — no unit, no part, no way back to
+ * its line.
+ */
+const CAPTURE_STACK_LIMIT = 50;
+
 export function captureSourceLocation(): SourceLocation | null {
-  const stack = new Error().stack;
+  // Raised for this one capture only: every other error keeps the limit the
+  // host chose. Engines without the knob (Firefox, Safari) leave it undefined.
+  const limit = Error.stackTraceLimit;
+  const raise = typeof limit === 'number' && limit < CAPTURE_STACK_LIMIT;
+  let stack: string | undefined;
+  if (raise) {
+    Error.stackTraceLimit = CAPTURE_STACK_LIMIT;
+  }
+  try {
+    stack = new Error().stack;
+  } finally {
+    if (raise) {
+      Error.stackTraceLimit = limit;
+    }
+  }
   if (!stack) {
     return null;
   }

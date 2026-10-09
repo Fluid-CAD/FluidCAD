@@ -3,7 +3,7 @@ id: concepts/custom-features
 title: Custom features — your own feature types in *.feature.js modules
 summary: "A custom feature is a feature type a project writes in JavaScript: a Feature.with() class whose buildTool() returns its solids, exported through defineFeature() from a *.feature.js module. The editor finds it by scanning the module's exports (no init.js), lists it under the toolbar's Custom dropdown with a dialog built from its declared values, a live preview behind a toggle, Apply that writes the import and the call, and timeline edits; models call it like a built-in, and repeat, copy and fillet its buckets. The module re-evaluates on every render, so never instanceof your own class; saving its code rebuilds its statements with no restart."
 tags: [concept, sdk, custom-feature, feature]
-seeAlso: [api/feature, api/define-feature, api/feature-params, api/feature-layout, api/register-builder, api/sdk-kernel, api/sdk-occt, api/draft, api/repeat, concepts/scene-graph]
+seeAlso: [api/feature, api/define-feature, api/feature-params, api/feature-layout, api/register-builder, api/sdk-kernel, api/sdk-occt, api/draft, api/repeat, concepts/scene-graph, concepts/packages]
 ---
 
 # Custom features
@@ -257,6 +257,26 @@ shape: {
 | A call the builder can't read (a wrong value, a missing required one) | the model fails to compile: `standoff(): 'height' must be at least 0, got -2` |
 | `buildTool()` throws, or returns nothing | that statement's row fails with the message; the rest of the model builds |
 | An operation the feature doesn't offer (`.remove()` on an add/new feature) | that row fails: `standoff(): .remove() is not an operation this feature offers — it offers 'add' and 'new'; 'add' is its default and needs no chain` |
+
+## Sharing as a package
+
+A feature module serves the workspace it lives in. To use it in other
+projects, make the workspace a package and pack it ([[concepts/packages]]):
+
+```bash
+npx fluidcad package init --name @acme/mounting-hardware   # the "package" block; every *.feature.js becomes an export
+npx fluidcad pack                                          # → acme-mounting-hardware-0.1.0.fluidpkg
+```
+
+- The feature's `static id` must start with the package's scope
+  (`acme.standoff` in `@acme/…`); pack refuses any other.
+- Pack ships the module, the files it imports and the images it declares
+  verbatim, and snapshots its metadata. Test models stay out.
+- Installed elsewhere, the feature appears in the Custom dropdown under the
+  package's name and version; using it pins the package in the project's
+  `fluidcad.json` and writes `import { standoff } from '@acme/mounting-hardware'`.
+- An installed feature module is read-only: change it in its workspace, bump
+  the version with `fluidcad version`, and pack again.
 
 ## Limits
 

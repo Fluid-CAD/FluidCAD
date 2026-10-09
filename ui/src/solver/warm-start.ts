@@ -228,6 +228,12 @@ function seedTreeEdge(
   const delta = dragDelta(
     spec, driver, driverConn, follower, mates, drag, bodyById, clusters,
   );
+  // A coupled scalar moves with its relation train, which the loop
+  // relaxation solves exactly; turning it alone here would break the
+  // relation (and start the relaxation from a pose off the train's line).
+  const coupled = drag.relationCoupled?.get(mate.mateId);
+  if (coupled?.has('rotZ')) delta.rotZ = 0;
+  if (coupled?.has('slideZ')) delta.slideZ = 0;
   params.rotZ += delta.rotZ;
   params.slideZ += delta.slideZ;
   params.x += delta.x;

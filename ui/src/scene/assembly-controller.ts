@@ -18,6 +18,7 @@ import {
   Solver,
   bodyFreedom,
   buildMateGraph,
+  isAcceptableDragFrame,
   isInstanceFullyLocked,
   makeWorldBody,
   mateReadoutValue,
@@ -831,6 +832,7 @@ export class AssemblyController {
         failed: [],
         failures: [],
         failedRelations: [],
+        contradictedRelations: [],
       });
       return;
     }
@@ -1041,7 +1043,7 @@ export class AssemblyController {
     const tBuild1 = debugPerf ? performance.now() : 0;
     const out = this.solver.solve(input);
     const tSolve1 = debugPerf ? performance.now() : 0;
-    if (out.result === 'okay') {
+    if (isAcceptableDragFrame(out)) {
       this.applySolverOutput(out);
     } else {
       // Solver rejected the drag — keep last good pose and let the user
@@ -1686,7 +1688,7 @@ export class AssemblyController {
       draggedGrabLocal: new Vector3(0, 0, 0),
     };
     const out = this.solver.solve(input);
-    if (out.result === 'okay') {
+    if (isAcceptableDragFrame(out)) {
       this.applySolverOutput(out);
     }
     this.solverUpdateHandler?.(out);
@@ -1712,7 +1714,7 @@ export class AssemblyController {
     }
     state.group.quaternion.copy(quaternion);
     const out = this.solver.solve(this.buildSolverInput(drag.instanceId));
-    if (out.result === 'okay') {
+    if (isAcceptableDragFrame(out)) {
       this.applySolverOutput(out);
     }
     this.solverUpdateHandler?.(out);

@@ -1,7 +1,7 @@
 ---
 id: concepts/packages
 title: Packages — sharing custom features and parts as a versioned .fluidpkg
-summary: "A package is a workspace whose fluidcad.json has a \"package\" block (@scope/name, semver version, the exports list of *.feature.js / *.part.js / *.assembly.js modules). fluidcad pack (MCP pack) checks it on the engine and writes <scope>-<name>-<version>.fluidpkg: the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json. fluidcad install puts it in the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by bare name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
+summary: "A package is a workspace whose fluidcad.json has a \"package\" block (@scope/name, semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). fluidcad pack (MCP pack) checks the layout and the code on the engine and writes <scope>-<name>-<version>.fluidpkg: the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json. fluidcad install puts it in the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by bare name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
 tags: [concept, package, custom-feature, sdk, project]
 seeAlso: [concepts/custom-features, concepts/assemblies, concepts/units, api/insert, api/part, api/define-feature]
 ---
@@ -20,9 +20,27 @@ import { standoff } from '@acme/mounting-hardware';
 
 ## Making a workspace a package
 
-A workspace is a package when its `fluidcad.json` holds a `package` block.
-It is still an ordinary project: its test models render, and it keeps its
-`engine`, `unit` and `materials`.
+A workspace is a package when its `fluidcad.json` holds a `package` block,
+and it keeps what it shares in three folders. It is still an ordinary
+project: its test models render, and it keeps its `engine`, `unit` and
+`materials`.
+
+```
+mounting-hardware/
+  fluidcad.json                  # "package": { "name", "version", … }
+  README.md  LICENSE  CHANGELOG.md
+  features/
+    bolt-circle.feature.js
+    bolt-circle.svg  bolt-circle/      # its icon and option images
+    standoff.feature.js  standoff.svg
+    shared/geometry.js           # a helper module
+  parts/
+    hub-flange.part.js           # imports ../features/bolt-circle.feature.js
+    pcb-plate.part.js
+  assemblies/
+    plate-stack.assembly.js      # inserts ../parts/pcb-plate.part.js
+  bench.part.js                  # a test model: outside the folders, never ships
+```
 
 ```json
 {
@@ -32,14 +50,6 @@ It is still an ordinary project: its test models render, and it keeps its
     "name": "@acme/mounting-hardware",
     "version": "0.1.0",
     "description": "Standoffs, bosses, bolt circles and fastener holes, with a PCB plate and a hub flange",
-    "exports": [
-      "bolt-circle.feature.js",
-      "boss.feature.js",
-      "fastener.feature.js",
-      "standoff.feature.js",
-      "hub-flange.part.js",
-      "pcb-plate.part.js"
-    ],
     "license": "MIT",
     "author": "Acme Robotics"
   }
@@ -50,21 +60,42 @@ It is still an ordinary project: its test models render, and it keeps its
 |---|---|---|
 | `name` | yes | `@scope/name`: lowercase letters, digits and dashes; unscoped names are refused |
 | `version` | yes | strict semver `MAJOR.MINOR.PATCH`, optional `-prerelease`, no build metadata |
-| `exports` | yes | workspace-relative paths, each a `*.feature.js`, `*.part.js` or `*.assembly.js`, none twice |
 | `description`, `license`, `author`, `homepage` | no | strings, copied into the manifest |
 | `keywords` | no | a list of strings |
 | `minEngine` | no | semver; the lowest FluidCAD the package runs on. Default: the `engine` pin, else the packing engine |
 
-- **`exports` is explicit** because a package workspace also holds test
-  models that must not ship. Everything a listed module exports by name
-  (feature builders, `part()` and `assembly()` definitions) becomes public;
-  the modules they import come along but stay private.
+**The folders decide what a package exports.** There is no list to keep in
+sync:
+
+| folder | holds | exported |
+|---|---|---|
+| `features/` | `*.feature.js` modules, their images, helpers | every feature builder each module exports |
+| `parts/` | `*.part.js` and `*.fluid.js` models, helpers | every `part()` definition or factory each module exports |
+| `assemblies/` | `*.assembly.js` models, helpers | every `assembly()` definition or factory each module exports |
+
+- Nested folders are fine (`parts/brackets/l-bracket.part.js`), and plain
+  `.js` helpers may sit in any of the three. A helper ships only when a
+  module imports it.
+- **Models import the package's features relatively**, as any module inside
+  a package does: `import { boltCircle } from '../features/bolt-circle.feature.js'`.
+  An assembly inserts the package's parts the same way
+  (`../parts/pcb-plate.part.js`).
+- Everything outside the three folders is the workspace's own: test models
+  at the root (they import `./features/…`), `init.js`, notes. None of it
+  ships.
+- A block that still lists `exports` (an older layout) is refused: "fluidcad.json
+  has a "package" with an "exports" list, but a package exports its
+  features/, parts/ and assemblies/ folders: remove "exports" (this
+  workspace has features/ and parts/)." Move the modules it listed into the
+  folders, then delete the key.
 - **Feature ids must start with the scope**: `@acme/mounting-hardware` may
   only declare `acme.*` ids (`acme.standoff`).
-- `fluidcad package init --name @acme/mounting-hardware` writes the block:
-  the name, version `0.1.0` and every `*.feature.js` module as an export
-  (add the `*.part.js` modules to share parts). Without `--name` it asks on a
-  terminal.
+- **To publish on the hub, a package needs at least one part or assembly**,
+  so its page has a model to show. A features-only package still packs and
+  installs from a file.
+- `fluidcad package init --name @acme/mounting-hardware` writes the block
+  (the name and version `0.1.0`) and says what the folders hold. Without
+  `--name` it asks on a terminal.
 - `fluidcad version patch|minor|major|<x.y.z>` bumps `version`
   (`@acme/mounting-hardware 0.1.0 → 0.1.1`). Packing never bumps.
 - A broken block is reported at startup ("FluidCAD: fluidcad.json has a
@@ -83,46 +114,65 @@ by itself.
 ```bash
 npx fluidcad pack                    # → acme-mounting-hardware-0.1.0.fluidpkg in the workspace
 npx fluidcad pack -o dist/           # -o takes a file or a directory
+npx fluidcad pack --json             # the result as JSON (contents by folder)
 ```
 
 ```
 Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidpkg
-  4 features: acme.boltCircle, acme.boss, acme.fastener, acme.standoff
-  2 parts: hubFlange, pcbPlate
-  28 files, 17.5 kB, unit mm
+  features/   4 features: acme.boltCircle, acme.boss, acme.fastener, acme.standoff
+  parts/      2 parts: hubFlange, pcbPlate
+  assemblies/ 1 assembly: plateStack
+  29 files, 18.2 kB, unit mm
 ```
 
-The MCP tool `pack` does the same through the running engine (pass
-`saveAsPath`). The archive, which is also the installed folder:
+A package with no part or assembly adds the line "no parts or assemblies:
+it installs, but the hub needs at least one to publish". `--json` prints
+`{ name, version, fileName, savedTo, bytes, files, unit, contents }`, where
+`contents` is `{ features: [{ id, exportName, module, usesOcct }], parts:
+[{ exportName, name, module, params }], assemblies: […], models }` (`params`
+counts the `param()`s). The MCP tool `pack` does the same through the
+running engine (pass `saveAsPath`) and returns the same `contents`. The
+archive, which is also the installed folder:
 
 | file | what |
 |---|---|
-| the exported modules and every workspace file they import | verbatim, paths kept: real `.feature.js` / `.part.js` files, not a bundle |
+| the exported modules and every file they import | verbatim, paths kept (`features/standoff.feature.js`): real modules, not a bundle |
 | the images the features declare (icons, option pictures) | next to their modules |
 | `README.md`, `LICENSE*`, `CHANGELOG.md` | when present at the workspace root |
-| `index.js` | generated: `export { standoff } from "./standoff.feature.js";`, one named re-export per exported name |
-| `manifest.json` | generated: identity, `engine` packed on, `minEngine`, `sdkVersion`, `unit`, `fileUnits`, `contents`, each feature's metadata snapshot and `usesOcct`, each part's name and params, `files` |
+| `index.js` | generated: `export { standoff } from "./features/standoff.feature.js";`, one named re-export per exported name |
+| `manifest.json` | generated: identity, `engine` packed on, `minEngine`, `sdkVersion`, `unit`, `fileUnits`, `contents`, each feature's metadata snapshot and `usesOcct`, each part's and assembly's name, `kind` and params, `files` |
 | `fluidcad.json` | generated: only `unit` (always explicit) and `materials` |
 
-Test models, `init.js`, `jsconfig.json` and anything not exported stay out.
-Pack writes nothing to the workspace except the archive, and the same
-sources always pack to the same bytes (no timestamp anywhere; zip entries are
-dated 1980-01-01), so the same version packed twice has the same hash.
+Test models outside the folders, `init.js`, `jsconfig.json` and anything
+not imported stay out. Pack writes nothing to the workspace except the
+archive, and the same sources always pack to the same bytes (no timestamp
+anywhere; zip entries are dated 1980-01-01), so the same version packed
+twice has the same hash.
 
-**Pack checks.** The engine boots and evaluates every export first. Each
-refusal is one sentence naming the file:
+**Pack checks.** The engine boots, evaluates every export and builds every
+part and assembly with its default parameters first. Each refusal is one
+sentence naming the file (`pack-refused` from MCP, with `details.code`):
 
 - the workspace has no `package` block ("This workspace isn't a package —
-  run `fluidcad package init` first."), or a broken `fluidcad.json`;
-- an export is missing ("\"exports\" lists pcb-tray.part.js, which doesn't
-  exist in the workspace. …"), doesn't evaluate, or exports nothing
-  shareable;
+  run `fluidcad package init` first."), its block still lists `exports`, or
+  `fluidcad.json` is broken;
+- **`wrong-folder`**: a module whose suffix belongs in another folder
+  ("features/hub-flange.part.js is a part in features/, but parts belong in
+  parts/: move it there.");
+- **`no-exports`**: the three folders hold nothing ("@acme/mounting-hardware
+  exports nothing: put its feature modules in features/, its parts in parts/
+  and its assemblies in assemblies/. …");
+- **`outside-layout`**: an import leaves the three folders ("parts/hub-flange.part.js
+  imports lib/sizes.js, which is outside features/, parts/ and assemblies/:
+  a package ships only what those folders hold. Move lib/sizes.js into one
+  of them.");
+- an export doesn't evaluate, or exports nothing shareable;
 - two modules export one name, or two features share an id;
-- a feature id outside the scope ("standoff.feature.js declares the feature
-  id 'mounts.standoff', but @acme/mounting-hardware may only declare ids
-  that start with 'acme.' (the package's scope).");
-- an exported part fails to build with its default parameters (any object in
-  error);
+- a feature id outside the scope ("features/standoff.feature.js declares the
+  feature id 'mounts.standoff', but @acme/mounting-hardware may only declare
+  ids that start with 'acme.' (the package's scope).");
+- a part or assembly fails to build with its default parameters (any object
+  in error);
 - an import reaches `node_modules`, a file outside the workspace, `init.js`,
   a blocked Node built-in, or another package;
 - a declared image is missing ("… declares the image ./standoff.svg (feature
@@ -132,6 +182,10 @@ refusal is one sentence naming the file:
 - a shipped file has unsaved editor changes (the route and MCP; save first).
 
 To release a new version: edit, `fluidcad version minor`, `fluidcad pack`.
+
+Archives packed before the folders existed (modules at the archive root)
+still install and load: the layout is checked when packing, not when
+installing.
 
 ## Installing
 

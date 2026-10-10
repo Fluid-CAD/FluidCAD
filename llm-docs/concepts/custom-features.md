@@ -264,14 +264,19 @@ A feature module serves the workspace it lives in. To use it in other
 projects, make the workspace a package and pack it ([[concepts/packages]]):
 
 ```bash
-npx fluidcad package init --name @acme/mounting-hardware   # the "package" block; every *.feature.js becomes an export
+npx fluidcad package init --name @acme/mounting-hardware   # the "package" block: name and version
 npx fluidcad pack                                          # → acme-mounting-hardware-0.1.0.fluidpkg
 ```
 
+- A package keeps its feature modules (with their images) in `features/`,
+  its parts in `parts/` and its assemblies in `assemblies/`; the folders
+  decide what it exports. Its models import the features relatively
+  (`../features/standoff.feature.js`).
 - The feature's `static id` must start with the package's scope
   (`acme.standoff` in `@acme/…`); pack refuses any other.
 - Pack ships the module, the files it imports and the images it declares
-  verbatim, and snapshots its metadata. Test models stay out.
+  verbatim, and snapshots its metadata. Test models outside the three
+  folders stay out.
 - Installed elsewhere, the feature appears in the Custom dropdown under the
   package's name and version; using it pins the package in the project's
   `fluidcad.json` and writes `import { standoff } from '@acme/mounting-hardware'`.

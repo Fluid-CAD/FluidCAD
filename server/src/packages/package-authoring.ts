@@ -1,7 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { normalizePath } from '../normalize-path.ts';
-import { FeatureModules } from '../feature-catalog/walk.ts';
 import {
   PROJECT_CONFIG_FILENAME,
   isProjectConfigUnreadable,
@@ -10,6 +8,7 @@ import {
   type PackageInfo,
   type ProjectConfig,
 } from '../project-config.ts';
+import { PackageLayout } from './package-manifest.ts';
 import { PackageName } from './package-name.ts';
 import { Semver } from './semver.ts';
 
@@ -46,12 +45,16 @@ export class PackageAuthoring {
   static readonly NOT_A_PACKAGE = "This workspace isn't a package — run `fluidcad package init` first.";
 
   /**
-   * Write a new `package` block: `name`, version `0.1.0`, and `exports`
-   * prefilled with every feature module in the workspace. Refuses a
-   * workspace that is already a package, so an existing identity is never
-   * reset by accident.
+   * Write a new `package` block: `name` and version `0.1.0`. What the
+   * package exports is what its `features/`, `parts/` and `assemblies/`
+   * folders hold (HD20), returned as `exports` so the command can say so.
+   * Refuses a workspace that is already a package, so an existing identity
+   * is never reset by accident.
    */
-  static async init(workspacePath: string, name: string): Promise<{ info: PackageInfo; configPath: string }> {
+  static async init(
+    workspacePath: string,
+    name: string,
+  ): Promise<{ info: PackageInfo; configPath: string; exports: string[] }> {
     if (!PackageName.isValid(name)) {
       throw new PackageAuthoringError(`${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
     }
@@ -73,13 +76,9 @@ export class PackageAuthoring {
       );
     }
 
-    const info: PackageInfo = {
-      name,
-      version: PackageAuthoring.INITIAL_VERSION,
-      exports: await PackageAuthoring.featureExports(workspacePath),
-    };
+    const info: PackageInfo = { name, version: PackageAuthoring.INITIAL_VERSION };
     const configPath = writePackageInfo(workspacePath, info);
-    return { info, configPath };
+    return { info, configPath, exports: PackageLayout.exportsOf(workspacePath) };
   }
 
   /**
@@ -129,17 +128,5 @@ export class PackageAuthoring {
       fs.existsSync(path.join(workspacePath, PROJECT_CONFIG_FILENAME)) ||
       fs.existsSync(path.join(workspacePath, 'init.js'))
     );
-  }
-
-  /**
-   * Every `*.feature.js` in the workspace, workspace-relative. The walk
-   * already leaves out an installed project copy of another package
-   * (`PackageRoots.isPackageRoot`): those are that package's modules, not
-   * this one's.
-   */
-  private static async featureExports(workspacePath: string): Promise<string[]> {
-    const root = normalizePath(workspacePath);
-    const modules = await FeatureModules.list(workspacePath);
-    return modules.map((abs) => normalizePath(path.relative(root, abs)));
   }
 }

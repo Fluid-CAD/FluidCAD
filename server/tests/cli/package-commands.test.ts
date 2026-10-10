@@ -60,17 +60,32 @@ afterEach(() => {
 });
 
 describe('fluidcad package init', () => {
-  it('writes the block with version 0.1.0 and the feature modules, and prints it', () => {
+  it('writes the block with the name and version 0.1.0, prints it, and says what the folders export', () => {
     const run = cli('package', 'init', '--name', '@acme/demo');
 
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
-    const block = { name: '@acme/demo', version: '0.1.0', exports: ['features/boss.feature.js', 'standoff.feature.js'] };
+    const block = { name: '@acme/demo', version: '0.1.0' };
     expect(readConfig()).toEqual({ engine: '0.0.46', unit: 'in', package: block });
     expect(run.stdout).toContain('Wrote the "package" block to');
     expect(run.stdout).toContain(JSON.stringify(block, null, 2).split('\n').map((l) => `  ${l}`).join('\n'));
+    expect(run.stdout).toContain(
+      'Pack exports what features/, parts/ and assemblies/ hold. Today: features/ 1 module, parts/ none, assemblies/ none.',
+    );
     // Nothing reached the library.
     expect(fs.readdirSync(library)).toEqual([]);
+  });
+
+  it('says where modules go when the folders hold nothing yet', () => {
+    fs.rmSync(path.join(workspace, 'features'), { recursive: true });
+
+    const run = cli('package', 'init', '--name', '@acme/demo');
+
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain(
+      "Put the package's feature modules in features/, its parts in parts/ and its assemblies in assemblies/: " +
+        'pack exports what those folders hold.',
+    );
   });
 
   it('takes the workspace from --workspace', () => {
@@ -135,7 +150,7 @@ describe('fluidcad version', () => {
     const config = readConfig();
     expect(config.package.version).toBe('1.1.0');
     expect(config).toMatchObject({ engine: '0.0.46', unit: 'in' });
-    expect(config.package.exports).toEqual(['features/boss.feature.js', 'standoff.feature.js']);
+    expect(config.package).toEqual({ name: '@acme/demo', version: '1.1.0' });
   });
 
   it('refuses outside a package', () => {

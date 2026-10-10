@@ -1,7 +1,7 @@
 // A round spacer, authored in inches whatever the package's unit is.
 
 import { cylinder, param, part, unit } from 'fluidcad/core';
-import { SPACER_LENGTH, SPACER_RADIUS } from '../helpers/sizes.js';
+import { SPACER_LENGTH, SPACER_RADIUS } from './helpers/sizes.js';
 
 unit('in');
 

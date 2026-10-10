@@ -13,11 +13,12 @@ import { PackageLayout } from '../../src/packages/package-manifest.ts';
 import { PackageAuthoring } from '../../src/packages/package-authoring.ts';
 import { TreeHash } from '../../src/packages/tree-hash.ts';
 
-// `fluidcad pack` (research §2) over a package workspace: a copy of
-// fixtures/package-workspace — two feature modules (the fastener with its
-// option images), a part module and its helper, a test model and notes
-// that must not ship, a README and a LICENSE. Each pack boots the engine
-// in process, as the CLI does.
+// `fluidcad pack` (research §2) over a package workspace in the package
+// layout (HD20): a copy of fixtures/package-workspace — two feature modules
+// in features/ (the fastener with its option images), a part and its
+// nested helper in parts/, a root test model and notes that must not ship,
+// a README and a LICENSE. The folders decide the exports. Each pack boots
+// the engine in process, as the CLI does.
 //
 // The part snapshots' `params` are not asserted here: under vitest the
 // server's own copy of lib/dist is not the instance the workspace's kernel
@@ -28,28 +29,32 @@ import { TreeHash } from '../../src/packages/tree-hash.ts';
 const FIXTURES = path.resolve(__dirname, '../fixtures');
 const PACKAGE_WORKSPACE = path.join(FIXTURES, 'package-workspace');
 
+const PRE_LAYOUT_ARCHIVE = path.join(FIXTURES, 'pre-layout', 'acme-kit-0.1.0.fluidpkg');
+
 const SHIPPED = [
   'LICENSE',
   'README.md',
-  'fastener.feature.js',
-  'fastener.svg',
-  'fastener/counterbore.svg',
-  'fastener/countersink.svg',
-  'fastener/depth.svg',
-  'fastener/m3.svg',
-  'fastener/m4.svg',
-  'fastener/m5.svg',
-  'fastener/n4.svg',
-  'fastener/n6.svg',
-  'fastener/plain.svg',
-  'fastener/section.svg',
+  'features/fastener.feature.js',
+  'features/fastener.svg',
+  'features/fastener/counterbore.svg',
+  'features/fastener/countersink.svg',
+  'features/fastener/depth.svg',
+  'features/fastener/m3.svg',
+  'features/fastener/m4.svg',
+  'features/fastener/m5.svg',
+  'features/fastener/n4.svg',
+  'features/fastener/n6.svg',
+  'features/fastener/plain.svg',
+  'features/fastener/section.svg',
+  'features/standoff.feature.js',
+  'features/standoff.svg',
   'fluidcad.json',
-  'helpers/sizes.js',
   'index.js',
+  'parts/helpers/sizes.js',
   'parts/spacer.part.js',
-  'standoff.feature.js',
-  'standoff.svg',
 ];
+
+const HELPER = 'parts/helpers/sizes.js';
 
 const MATERIALS = { 'acme-pom': { name: 'POM', density: 1.41, densityUnit: 'g/cm³' } };
 
@@ -72,12 +77,6 @@ function editPackage(edit: (block: Record<string, any>) => void): void {
   const config = readConfig();
   edit(config.package);
   write('fluidcad.json', JSON.stringify(config, null, 2) + '\n');
-}
-
-function addExport(rel: string): void {
-  editPackage((block) => {
-    block.exports.push(rel);
-  });
 }
 
 /** Run `fn` with the engine's own logging silenced. */
@@ -107,14 +106,24 @@ async function packAt(iso: string): Promise<PackPackageResult> {
 }
 
 /** The refusal a pack ends in. */
-async function refusal(extra: { engine?: PackEngine } = {}): Promise<string> {
+async function refused(extra: { engine?: PackEngine } = {}): Promise<PackageBuildError> {
   try {
     await pack(extra);
   } catch (err) {
     expect(err).toBeInstanceOf(PackageBuildError);
-    return (err as Error).message;
+    return err as PackageBuildError;
   }
   throw new Error('the pack was expected to be refused');
+}
+
+/** The sentence of the refusal a pack ends in. */
+async function refusal(extra: { engine?: PackEngine } = {}): Promise<string> {
+  return (await refused(extra)).message;
+}
+
+/** Prepend a line to the spacer's helper module. */
+function prependToHelper(line: string): void {
+  write(HELPER, `${line}\n${fs.readFileSync(at(HELPER), 'utf8')}`);
 }
 
 async function unzip(zip: Buffer): Promise<Record<string, Buffer>> {
@@ -154,7 +163,7 @@ const BROKEN_STANDOFF_PART = [
   `import { part, sketch, line, extrude, select } from 'fluidcad/core';`,
   `import { coincident, fix } from 'fluidcad/constraints';`,
   `import { face } from 'fluidcad/filters';`,
-  `import { standoff } from '../standoff.feature.js';`,
+  `import { standoff } from '../features/standoff.feature.js';`,
   ``,
   `export const wobbly = part('Wobbly plate', () => {`,
   `  sketch('xy', () => {`,
@@ -170,7 +179,7 @@ const BROKEN_STANDOFF_PART = [
 
 /** A copy of the standoff fixture under another class, export name and id. */
 function standoffCopy(id: string, exportName: string): string {
-  return fs.readFileSync(at('standoff.feature.js'), 'utf8')
+  return fs.readFileSync(at('features/standoff.feature.js'), 'utf8')
     .replace("static id = 'acme.standoff';", `static id = '${id}';`)
     .replace('export class Standoff ', 'export class StandoffCopy ')
     .replace('export const standoff = defineFeature(Standoff,', `export const ${exportName} = defineFeature(StandoffCopy,`);
@@ -188,7 +197,7 @@ afterEach(() => {
 
 describe('the package-workspace fixture', () => {
   it('carries the JavaScript standoff fixture unchanged', () => {
-    expect(fs.readFileSync(path.join(PACKAGE_WORKSPACE, 'standoff.feature.js'), 'utf8'))
+    expect(fs.readFileSync(path.join(PACKAGE_WORKSPACE, 'features/standoff.feature.js'), 'utf8'))
       .toBe(fs.readFileSync(path.join(FIXTURES, 'custom-features/standoff.feature.js'), 'utf8'));
   });
 });
@@ -216,8 +225,8 @@ describe('packing a package workspace', () => {
       files: SHIPPED,
     });
     expect(features.map(({ id, exportName, module, usesOcct }) => ({ id, exportName, module, usesOcct }))).toEqual([
-      { id: 'acme.fastener', exportName: 'fastener', module: 'fastener.feature.js', usesOcct: false },
-      { id: 'acme.standoff', exportName: 'standoff', module: 'standoff.feature.js', usesOcct: false },
+      { id: 'acme.fastener', exportName: 'fastener', module: 'features/fastener.feature.js', usesOcct: false },
+      { id: 'acme.standoff', exportName: 'standoff', module: 'features/standoff.feature.js', usesOcct: false },
     ]);
     const standoff = features.find((f) => f.id === 'acme.standoff')!;
     expect(standoff.meta).toMatchObject({ id: 'acme.standoff', label: 'Standoff', icon: './standoff.svg' });
@@ -226,7 +235,7 @@ describe('packing a package workspace', () => {
     ]);
   });
 
-  it('ships the exports\' closure, their images, the README and LICENSE: never the test model, init.js or the notes', async () => {
+  it('ships the folders\' exports, their closure and images, the README and LICENSE: never the root test model, init.js or the notes', async () => {
     const { manifest, zip, files } = await pack();
     const archived = await unzip(zip);
 
@@ -249,9 +258,9 @@ describe('packing a package workspace', () => {
     const { files } = await pack();
     expect(files['index.js'].toString('utf8')).toBe([
       '// Generated by `fluidcad pack`: every feature, part and assembly @acme/kit exports, by name.',
-      'export { fastener } from "./fastener.feature.js";',
+      'export { fastener } from "./features/fastener.feature.js";',
+      'export { standoff } from "./features/standoff.feature.js";',
       'export { spacer } from "./parts/spacer.part.js";',
-      'export { standoff } from "./standoff.feature.js";',
       '',
     ].join('\n'));
   });
@@ -333,7 +342,7 @@ describe('packing a package workspace', () => {
   });
 
   it('records raw OpenCascade use per feature', async () => {
-    write('raw.feature.js', [
+    write('features/raw.feature.js', [
       `import { Feature, defineFeature } from 'fluidcad/sdk';`,
       `import { getOC } from 'fluidcad/sdk/occt';`,
       ``,
@@ -345,7 +354,6 @@ describe('packing a package workspace', () => {
       `export const raw = defineFeature(Raw, { label: 'Raw', description: 'Reaches raw OpenCascade', group: 'create', call: ['face'] });`,
       ``,
     ].join('\n'));
-    addExport('raw.feature.js');
     const { manifest } = await pack();
     expect(manifest.features.map((f) => [f.id, f.usesOcct])).toEqual([
       ['acme.fastener', false],
@@ -354,10 +362,10 @@ describe('packing a package workspace', () => {
     ]);
   });
 
-  it('snapshots an exported assembly as a part of kind assembly', async () => {
-    write('pair.assembly.js', [
+  it('snapshots an assembly in assemblies/ as a part of kind assembly', async () => {
+    write('assemblies/pair.assembly.js', [
       `import { assembly, insert } from 'fluidcad/core';`,
-      `import { spacer } from './parts/spacer.part.js';`,
+      `import { spacer } from '../parts/spacer.part.js';`,
       ``,
       `export const pair = assembly('Spacer pair', () => {`,
       `  insert(spacer);`,
@@ -365,13 +373,70 @@ describe('packing a package workspace', () => {
       `});`,
       ``,
     ].join('\n'));
-    addExport('pair.assembly.js');
     const { manifest, files } = await pack();
     expect(manifest.parts.map(({ params, ...part }) => part)).toEqual([
+      { exportName: 'pair', module: 'assemblies/pair.assembly.js', name: 'Spacer pair', kind: 'assembly', exportKind: 'value' },
       { exportName: 'spacer', module: 'parts/spacer.part.js', name: 'Spacer', kind: 'part', exportKind: 'value' },
-      { exportName: 'pair', module: 'pair.assembly.js', name: 'Spacer pair', kind: 'assembly', exportKind: 'value' },
-    ].sort((a, b) => (a.module < b.module ? -1 : 1)));
-    expect(files['index.js'].toString('utf8')).toContain('export { pair } from "./pair.assembly.js";');
+    ]);
+    expect(files['index.js'].toString('utf8')).toContain('export { pair } from "./assemblies/pair.assembly.js";');
+    expect(PackageLayout.modelCount(manifest)).toBe(2);
+    expect(PackageLayout.contentsOf(manifest).assemblies.map((a) => a.module)).toEqual(['assemblies/pair.assembly.js']);
+  });
+});
+
+describe('the package layout: the folders decide the exports (HD20)', () => {
+  it('exports a *.fluid.js model in parts/ as a part', async () => {
+    write('parts/washer.fluid.js', [
+      `import { cylinder, part } from 'fluidcad/core';`,
+      ``,
+      `export const washer = part('Washer', () => {`,
+      `  cylinder(4, 1);`,
+      `});`,
+      ``,
+    ].join('\n'));
+    const { manifest, files } = await pack();
+    expect(manifest.parts.map((p) => [p.module, p.exportName, p.kind])).toEqual([
+      ['parts/spacer.part.js', 'spacer', 'part'],
+      ['parts/washer.fluid.js', 'washer', 'part'],
+    ]);
+    expect(files['index.js'].toString('utf8')).toContain('export { washer } from "./parts/washer.fluid.js";');
+  });
+
+  it('exports modules in nested folders, and ships a plain helper only when a module imports it', async () => {
+    write('features/holes/bore.feature.js', standoffCopy('acme.bore', 'bore'));
+    fs.copyFileSync(at('features/standoff.svg'), at('features/holes/standoff.svg'));
+    write('features/holes/unused.js', 'export const UNUSED = 1;\n');
+    const { manifest } = await pack();
+    expect(manifest.features.map((f) => f.module)).toEqual([
+      'features/fastener.feature.js',
+      'features/holes/bore.feature.js',
+      'features/standoff.feature.js',
+    ]);
+    expect(manifest.files).toContain('features/holes/standoff.svg');
+    expect(manifest.files).not.toContain('features/holes/unused.js');
+  });
+
+  it('packs a features-only package for a local install, with no models', async () => {
+    fs.rmSync(at('parts'), { recursive: true });
+    fs.rmSync(at('demo.part.js'));
+    const { manifest } = await pack();
+    expect(manifest.contents).toEqual(['features']);
+    expect(manifest.parts).toEqual([]);
+    expect(PackageLayout.modelCount(manifest)).toBe(0);
+    expect(PackageLayout.contentsOf(manifest)).toMatchObject({ parts: [], assemblies: [], models: 0 });
+  });
+
+  it('keeps the manifest\'s shape: the same keys as an archive packed before the layout', async () => {
+    const archived = await unzip(fs.readFileSync(PRE_LAYOUT_ARCHIVE));
+    const before = JSON.parse(archived['manifest.json'].toString('utf8'));
+    const { manifest } = await pack();
+    expect(Object.keys(manifest).sort()).toEqual(Object.keys(before).sort());
+    expect(Object.keys(manifest.features[0]).sort()).toEqual(Object.keys(before.features[0]).sort());
+    expect(Object.keys(manifest.parts[0]).sort()).toEqual(Object.keys(before.parts[0]).sort());
+    // The same package, moved into the folders: the same identity, ids and names.
+    expect(manifest.features.map((f) => f.id)).toEqual(before.features.map((f: any) => f.id));
+    expect(manifest.parts.map((p) => p.exportName)).toEqual(before.parts.map((p: any) => p.exportName));
+    expect(manifest.features.map((f) => f.module)).toEqual(before.features.map((f: any) => `features/${f.module}`));
   });
 });
 
@@ -392,71 +457,109 @@ describe('what pack refuses', () => {
     expect(message).toContain('Fix it, then pack again.');
   });
 
-  it('an export that doesn\'t exist', async () => {
-    addExport('gone.feature.js');
-    expect(await refusal()).toBe(
-      '"exports" lists gone.feature.js, which doesn\'t exist in the workspace. Fix the path, or remove it from "exports".',
+  it('a package block that still lists exports, naming the folders the workspace has', async () => {
+    editPackage((block) => {
+      block.exports = ['features/standoff.feature.js'];
+    });
+    const err = await refused();
+    expect(err.code).toBe('refused');
+    expect(err.message).toBe(
+      'fluidcad.json has a "package" with an "exports" list, but a package exports its features/, parts/ and assemblies/ ' +
+        'folders: remove "exports" (this workspace has features/ and parts/). Fix it, then pack again.',
+    );
+  });
+
+  it('a part in assemblies/\'s place: parts/x.assembly.js is in the wrong folder', async () => {
+    write('parts/pair.assembly.js', `export const NOTHING = 1;\n`);
+    const err = await refused();
+    expect(err.code).toBe('wrong-folder');
+    expect(err.message).toBe('parts/pair.assembly.js is an assembly in parts/, but assemblies belong in assemblies/: move it there.');
+  });
+
+  it('a part in features/: features/x.part.js is in the wrong folder', async () => {
+    fs.renameSync(at('parts/spacer.part.js'), at('features/spacer.part.js'));
+    const err = await refused();
+    expect(err.code).toBe('wrong-folder');
+    expect(err.message).toBe('features/spacer.part.js is a part in features/, but parts belong in parts/: move it there.');
+  });
+
+  it('an import of a root-level module: outside the layout', async () => {
+    write('lib/x.js', 'export const X = 1;\n');
+    prependToHelper(`import { X } from '../../lib/x.js';`);
+    const err = await refused();
+    expect(err.code).toBe('outside-layout');
+    expect(err.message).toBe(
+      'parts/helpers/sizes.js imports lib/x.js, which is outside features/, parts/ and assemblies/: ' +
+        'a package ships only what those folders hold. Move lib/x.js into one of them.',
+    );
+  });
+
+  it('a workspace with nothing in the three folders', async () => {
+    fs.rmSync(at('features'), { recursive: true });
+    fs.rmSync(at('parts'), { recursive: true });
+    const err = await refused();
+    expect(err.code).toBe('no-exports');
+    expect(err.message).toBe(
+      '@acme/kit exports nothing: put its feature modules in features/, its parts in parts/ and its assemblies in ' +
+        'assemblies/. Pack exports what those folders hold.',
     );
   });
 
   it('two modules exporting the same name', async () => {
-    write('more.feature.js', standoffCopy('acme.standoffCopy', 'standoff'));
-    addExport('more.feature.js');
+    write('features/more.feature.js', standoffCopy('acme.standoffCopy', 'standoff'));
     expect(await refusal()).toBe(
-      "more.feature.js and standoff.feature.js both export 'standoff': the package entry re-exports by name, so rename one of them.",
+      "features/more.feature.js and features/standoff.feature.js both export 'standoff': the package entry re-exports by name, so rename one of them.",
     );
   });
 
   it('a feature id outside the package\'s scope', async () => {
-    write('other.feature.js', standoffCopy('other.standoff', 'otherStandoff'));
-    addExport('other.feature.js');
+    write('features/other.feature.js', standoffCopy('other.standoff', 'otherStandoff'));
     expect(await refusal()).toBe(
-      "other.feature.js declares the feature id 'other.standoff', but @acme/kit may only declare ids that start with 'acme.' (the package's scope).",
+      "features/other.feature.js declares the feature id 'other.standoff', but @acme/kit may only declare ids that start with 'acme.' (the package's scope).",
     );
   });
 
   it('two features sharing an id', async () => {
-    write('twin.feature.js', standoffCopy('acme.standoff', 'twinStandoff'));
-    addExport('twin.feature.js');
+    write('features/twin.feature.js', standoffCopy('acme.standoff', 'twinStandoff'));
     expect(await refusal()).toBe(
-      "standoff.feature.js and twin.feature.js both declare the feature id 'acme.standoff': give each feature its own id.",
+      "features/standoff.feature.js and features/twin.feature.js both declare the feature id 'acme.standoff': give each feature its own id.",
     );
   });
 
   it('an import from node_modules', async () => {
     write('node_modules/left-pad/package.json', JSON.stringify({ name: 'left-pad', main: 'index.js' }));
     write('node_modules/left-pad/index.js', 'module.exports = (s) => s;\n');
-    write('helpers/sizes.js', `import pad from 'left-pad';\n${fs.readFileSync(at('helpers/sizes.js'), 'utf8')}`);
+    prependToHelper(`import pad from 'left-pad';`);
     expect(await refusal()).toBe(
-      "helpers/sizes.js imports node_modules/left-pad/index.js, an npm dependency: a package can't carry npm dependencies yet.",
+      "parts/helpers/sizes.js imports node_modules/left-pad/index.js, an npm dependency: a package can't carry npm dependencies yet.",
     );
   });
 
   it('an import of another package', async () => {
-    write('helpers/sizes.js', `import { gear } from '@acme/gears';\n${fs.readFileSync(at('helpers/sizes.js'), 'utf8')}`);
+    prependToHelper(`import { gear } from '@acme/gears';`);
     expect(await refusal()).toBe(
-      'helpers/sizes.js:1: "@acme/gears" is the package @acme/gears: a package can\'t import another package yet.',
+      'parts/helpers/sizes.js:1: "@acme/gears" is the package @acme/gears: a package can\'t import another package yet.',
     );
   });
 
   it('a blocked Node built-in', async () => {
-    write('helpers/sizes.js', `import fs from 'fs';\n${fs.readFileSync(at('helpers/sizes.js'), 'utf8')}`);
+    prependToHelper(`import fs from 'fs';`);
     expect(await refusal()).toBe(
-      'helpers/sizes.js:1: Module "fs" is not allowed in FluidCAD scripts. Access to Node.js "fs" module is restricted for security.',
+      'parts/helpers/sizes.js:1: Module "fs" is not allowed in FluidCAD scripts. Access to Node.js "fs" module is restricted for security.',
     );
   });
 
   it('an import from outside the workspace', async () => {
     fs.writeFileSync(path.join(scratch, 'shared.js'), 'export const SHARED = 1;\n');
-    write('helpers/sizes.js', `import { SHARED } from '../../shared.js';\n${fs.readFileSync(at('helpers/sizes.js'), 'utf8')}`);
+    prependToHelper(`import { SHARED } from '../../../shared.js';`);
     expect(await refusal()).toBe(
-      'helpers/sizes.js imports ../shared.js, which lies outside the workspace: a package ships only its own files.',
+      'parts/helpers/sizes.js imports ../shared.js, which lies outside the workspace: a package ships only its own files.',
     );
   });
 
   it('an import of init.js', async () => {
-    write('helpers/sizes.js', `import '../init.js';\n${fs.readFileSync(at('helpers/sizes.js'), 'utf8')}`);
-    expect(await refusal()).toContain('helpers/sizes.js imports init.js, which never ships');
+    prependToHelper(`import '../../init.js';`);
+    expect(await refusal()).toContain('parts/helpers/sizes.js imports init.js, which never ships');
   });
 
   it('a part that fails to build with its default parameters', async () => {
@@ -468,7 +571,6 @@ describe('what pack refuses', () => {
       `});`,
       ``,
     ].join('\n'));
-    addExport('parts/broken.part.js');
     expect(await refusal()).toBe(
       "parts/broken.part.js: 'broken' doesn't build with its default parameters: the broken part never builds",
     );
@@ -476,38 +578,35 @@ describe('what pack refuses', () => {
 
   it('a part one of whose objects fails to build, though nothing throws', async () => {
     write('parts/wobbly.part.js', BROKEN_STANDOFF_PART);
-    addExport('parts/wobbly.part.js');
     const message = await refusal();
     expect(message).toMatch(/^parts\/wobbly\.part\.js: 'wobbly' doesn't build with its default parameters: its .+ fails \(/);
     expect(message).toContain('must be narrower than the boss');
   });
 
   it('a module that doesn\'t evaluate', async () => {
-    write('bad.feature.js', `throw new Error('no such luck');\n`);
-    addExport('bad.feature.js');
-    expect(await refusal()).toBe('bad.feature.js doesn\'t evaluate: no such luck');
+    write('features/bad.feature.js', `throw new Error('no such luck');\n`);
+    expect(await refusal()).toBe('features/bad.feature.js doesn\'t evaluate: no such luck');
   });
 
   it('an export module that exports nothing a package can share', async () => {
-    write('empty.feature.js', `export const NOTHING = 1;\n`);
-    addExport('empty.feature.js');
+    write('features/empty.feature.js', `export const NOTHING = 1;\n`);
     expect(await refusal()).toBe(
-      'empty.feature.js exports nothing a package can share: export its feature builders, parts or assemblies by name.',
+      'features/empty.feature.js exports nothing a package can share: export its feature builders, parts or assemblies by name.',
     );
   });
 
   it('a missing declared image', async () => {
-    fs.rmSync(at('fastener/m4.svg'));
+    fs.rmSync(at('features/fastener/m4.svg'));
     expect(await refusal()).toBe(
-      "fastener.feature.js declares the image ./fastener/m4.svg (feature 'acme.fastener'), which doesn't exist next to the module.",
+      "features/fastener.feature.js declares the image ./fastener/m4.svg (feature 'acme.fastener'), which doesn't exist next to the module.",
     );
   });
 
   it('an authored root index.js in the closure', async () => {
     write('index.js', 'export const SIZE = 1;\n');
-    write('helpers/sizes.js', `import { SIZE } from '../index.js';\n${fs.readFileSync(at('helpers/sizes.js'), 'utf8')}`);
+    prependToHelper(`import { SIZE } from '../../index.js';`);
     expect(await refusal()).toBe(
-      'index.js would ship at the package root (helpers/sizes.js imports it), where pack writes its own generated index.js. Rename or move it.',
+      'index.js would ship at the package root (parts/helpers/sizes.js imports it), where pack writes its own generated index.js. Rename or move it.',
     );
   });
 
@@ -515,9 +614,9 @@ describe('what pack refuses', () => {
     if (reserved === 'manifest.json') {
       write('manifest.json', '{}\n');
     }
-    write('helpers/sizes.js', `import data from '../${reserved}';\n${fs.readFileSync(at('helpers/sizes.js'), 'utf8')}`);
+    prependToHelper(`import data from '../../${reserved}';`);
     expect(await refusal()).toBe(
-      `${reserved} would ship at the package root (helpers/sizes.js imports it), where pack writes its own generated ${reserved}. Rename or move it.`,
+      `${reserved} would ship at the package root (parts/helpers/sizes.js imports it), where pack writes its own generated ${reserved}. Rename or move it.`,
     );
   });
 
@@ -532,9 +631,9 @@ describe('what pack refuses', () => {
       describeMissingEngine: () => null,
       scanFeaturesInFile: scans,
       scanPartsInFile: scans,
-      getLiveBuffer: (file) => (file.endsWith('/helpers/sizes.js') ? 'export const SPACER_RADIUS = 9;\n' : null),
+      getLiveBuffer: (file) => (file.endsWith('/parts/helpers/sizes.js') ? 'export const SPACER_RADIUS = 9;\n' : null),
     };
-    expect(await refusal({ engine })).toBe('helpers/sizes.js has unsaved changes: save it, then pack again.');
+    expect(await refusal({ engine })).toBe('parts/helpers/sizes.js has unsaved changes: save it, then pack again.');
     expect(scans).not.toHaveBeenCalled();
   });
 });

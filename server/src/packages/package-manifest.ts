@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import type { FeatureMetaSnapshot } from '../../../lib/dist/index.js';
 import type { CatalogParamDef } from '../part-catalog/scan.ts';
 import type { LengthUnit } from '../project-config.ts';
@@ -70,11 +72,46 @@ export type PackageManifest = {
   files: string[];
 };
 
+/** One of the three folders a package keeps its modules in (HD20). */
+export type PackageFolder = 'features' | 'parts' | 'assemblies';
+
+/** A module whose suffix belongs in another of the three folders. */
+export type MisplacedModule = {
+  /** Workspace-relative, POSIX. */
+  path: string;
+  /** The folder it sits in. */
+  folder: PackageFolder;
+  /** The folder its suffix belongs in. */
+  belongsIn: PackageFolder;
+};
+
+/** A package's manifest entries by folder, as `fluidcad pack` lists them. */
+export type PackageContents = {
+  features: { id: string; exportName: string; module: string; usesOcct: boolean }[];
+  parts: { exportName: string; name: string; module: string; params: number }[];
+  assemblies: { exportName: string; name: string; module: string; params: number }[];
+  /** The parts and assemblies together: a package needs at least one to publish (`no-models`). */
+  models: number;
+};
+
 /**
- * Where things are in a package archive, which is also the installed
- * directory, byte for byte. The three generated files sit at the root and
- * those paths are reserved: pack refuses a workspace file that would land
- * on one.
+ * Where things are in a package, which is also the archive and the
+ * installed directory, byte for byte.
+ *
+ * **The three folders (HD20).** A package keeps its feature modules in
+ * `features/`, its parts in `parts/` and its assemblies in `assemblies/`,
+ * nested folders and plain `.js` helpers allowed inside each. The folders
+ * decide what it exports: every module in them whose suffix fits its
+ * folder. Every script pack ships must live in one of them, and a module
+ * whose suffix belongs in another folder is refused.
+ *
+ * **The root.** The three generated files sit at the root and those paths
+ * are reserved: pack refuses a workspace file that would land on one.
+ * README, LICENSE and CHANGELOG ship beside them.
+ *
+ * Node builtins and import-free siblings only (the type imports vanish at
+ * compile time): `package-fields.ts`, which the plain-JS CLI imports
+ * compiled through `project-config.ts`, names the folders from here.
  */
 export class PackageLayout {
   static readonly MANIFEST_VERSION = 1 as const;
@@ -87,6 +124,32 @@ export class PackageLayout {
   static readonly RESERVED: readonly string[] = [PackageLayout.MANIFEST, PackageLayout.ENTRY, PackageLayout.CONFIG];
   static readonly EXTENSION = '.fluidpkg';
 
+  /** The three folders, in the order pack lists them. */
+  static readonly FOLDERS: readonly PackageFolder[] = ['features', 'parts', 'assemblies'];
+
+  /**
+   * The suffix ↔ folder table: which folder each kind of module belongs in.
+   * `*.fluid.js` is a part, as everywhere in FluidCAD. A script with none of
+   * these suffixes is a helper, at home in any of the three.
+   */
+  static readonly SUFFIX_FOLDERS: readonly (readonly [suffix: string, folder: PackageFolder])[] = [
+    ['.feature.js', 'features'],
+    ['.part.js', 'parts'],
+    ['.fluid.js', 'parts'],
+    ['.assembly.js', 'assemblies'],
+  ];
+
+  /** What a module of each suffix is called in a refusal. */
+  private static readonly KIND_NAMES: Record<string, { one: string; many: string }> = {
+    '.feature.js': { one: 'a feature module', many: 'feature modules' },
+    '.part.js': { one: 'a part', many: 'parts' },
+    '.fluid.js': { one: 'a part', many: 'parts' },
+    '.assembly.js': { one: 'an assembly', many: 'assemblies' },
+  };
+
+  /** Directory names the walk never enters, besides dot-entries. */
+  private static readonly SKIPPED = ['node_modules'];
+
   /** `@acme/gears` 1.2.0 → `acme-gears-1.2.0.fluidpkg`. */
   static archiveName(name: string, version: string): string {
     const scope = PackageName.scope(name);
@@ -98,5 +161,133 @@ export class PackageLayout {
 
   static isReserved(packagePath: string): boolean {
     return PackageLayout.RESERVED.includes(packagePath);
+  }
+
+  /** The folder a package path sits in (`parts/gears/spur.part.js` → `parts`), or null outside the three. */
+  static folderOf(packagePath: string): PackageFolder | null {
+    const slash = packagePath.indexOf('/');
+    if (slash <= 0) {
+      return null;
+    }
+    const top = packagePath.slice(0, slash);
+    return (PackageLayout.FOLDERS as readonly string[]).includes(top) ? (top as PackageFolder) : null;
+  }
+
+  /** The folder a module's suffix belongs in, or null for a helper script or any other file. */
+  static folderFor(packagePath: string): PackageFolder | null {
+    const suffix = PackageLayout.suffixOf(packagePath);
+    return suffix === null ? null : PackageLayout.SUFFIX_FOLDERS.find(([s]) => s === suffix)![1];
+  }
+
+  /** `features/`, `parts/` and `assemblies/`, for a sentence. */
+  static describeFolders(folders: readonly PackageFolder[] = PackageLayout.FOLDERS): string {
+    const named = folders.map((f) => `${f}/`);
+    return named.length <= 1 ? (named[0] ?? '') : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
+  }
+
+  /** Which of the three folders the workspace has, in {@link FOLDERS} order. */
+  static foldersIn(workspacePath: string): PackageFolder[] {
+    return PackageLayout.FOLDERS.filter((folder) => {
+      try {
+        return fs.statSync(path.join(workspacePath, folder)).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  /**
+   * What the package exports, workspace-relative and sorted: every
+   * `*.feature.js` in `features/`, every `*.part.js` and `*.fluid.js` in
+   * `parts/` and every `*.assembly.js` in `assemblies/`, nested folders
+   * included. Dot-entries and `node_modules` are skipped. A module in the
+   * wrong folder is not an export: {@link misplacedIn} lists it.
+   */
+  static exportsOf(workspacePath: string): string[] {
+    return PackageLayout.modulesIn(workspacePath).filter((rel) => PackageLayout.folderFor(rel) === PackageLayout.folderOf(rel));
+  }
+
+  /** Every module in the three folders whose suffix belongs in another one, sorted. */
+  static misplacedIn(workspacePath: string): MisplacedModule[] {
+    const out: MisplacedModule[] = [];
+    for (const rel of PackageLayout.modulesIn(workspacePath)) {
+      const folder = PackageLayout.folderOf(rel)!;
+      const belongsIn = PackageLayout.folderFor(rel)!;
+      if (folder !== belongsIn) {
+        out.push({ path: rel, folder, belongsIn });
+      }
+    }
+    return out;
+  }
+
+  /** The `wrong-folder` sentence for a misplaced module. */
+  static describeMisplaced(module: MisplacedModule): string {
+    const kind = PackageLayout.KIND_NAMES[PackageLayout.suffixOf(module.path)!];
+    return `${module.path} is ${kind.one} in ${module.folder}/, but ${kind.many} belong in ${module.belongsIn}/: move it there.`;
+  }
+
+  /** The parts and assemblies a manifest lists: what H6's `no-models` preflight counts. */
+  static modelCount(manifest: Pick<PackageManifest, 'parts'>): number {
+    return manifest.parts.length;
+  }
+
+  /** A manifest's entries by folder: features, parts, assemblies, each in manifest order. */
+  static contentsOf(manifest: Pick<PackageManifest, 'features' | 'parts'>): PackageContents {
+    const model = (p: PackageManifestPart) => ({
+      exportName: p.exportName,
+      name: p.name,
+      module: p.module,
+      params: p.params?.length ?? 0,
+    });
+    return {
+      features: manifest.features.map((f) => ({ id: f.id, exportName: f.exportName, module: f.module, usesOcct: f.usesOcct })),
+      parts: manifest.parts.filter((p) => p.kind !== 'assembly').map(model),
+      assemblies: manifest.parts.filter((p) => p.kind === 'assembly').map(model),
+      models: PackageLayout.modelCount(manifest),
+    };
+  }
+
+  /** The module suffix of a path, or null. */
+  private static suffixOf(packagePath: string): string | null {
+    return PackageLayout.SUFFIX_FOLDERS.find(([suffix]) => packagePath.endsWith(suffix))?.[0] ?? null;
+  }
+
+  /** Every module with a suffix from the table inside the three folders, workspace-relative and sorted. */
+  private static modulesIn(workspacePath: string): string[] {
+    const out: string[] = [];
+    for (const folder of PackageLayout.foldersIn(workspacePath)) {
+      PackageLayout.walk(path.join(workspacePath, folder), folder, out);
+    }
+    return out.filter((rel) => PackageLayout.suffixOf(rel) !== null).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  }
+
+  /** Files under `dir`, as `prefix/…`. A linked file counts; a linked directory is not entered (no cycles). */
+  private static walk(dir: string, prefix: string, out: string[]): void {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || PackageLayout.SKIPPED.includes(entry.name)) {
+        continue;
+      }
+      const abs = path.join(dir, entry.name);
+      const rel = `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) {
+        PackageLayout.walk(abs, rel, out);
+      } else if (entry.isFile()) {
+        out.push(rel);
+      } else if (entry.isSymbolicLink()) {
+        try {
+          if (fs.statSync(abs).isFile()) {
+            out.push(rel);
+          }
+        } catch {
+          // A dangling link is nothing to export.
+        }
+      }
+    }
   }
 }

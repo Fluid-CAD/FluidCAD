@@ -22,7 +22,7 @@ import { PackageFields, type PackageDependencies, type PackageInfo, type Package
  * ```json
  * {
  *   "engine": "0.0.46",
- *   "package": { "name": "@acme/gears", "version": "1.2.0", "exports": ["gear.feature.js"] },
+ *   "package": { "name": "@acme/gears", "version": "1.2.0" },
  *   "dependencies": { "@acme/fasteners": { "version": "2.0.1", "integrity": "sha256-…" } }
  * }
  * ```
@@ -267,12 +267,13 @@ function readMaterialsField(
  */
 function readPackageField(
   record: Record<string, unknown> | null,
+  workspacePath: string,
 ): { package: PackageInfo | null } | { error: string } {
   const raw = record?.package;
   if (raw === undefined || raw === null) {
     return { package: null };
   }
-  const parsed = PackageFields.parseInfo(raw);
+  const parsed = PackageFields.parseInfo(raw, workspacePath);
   if ('problem' in parsed) {
     return { error: `${PROJECT_CONFIG_FILENAME} has a "package" ${parsed.problem}.` };
   }
@@ -340,7 +341,7 @@ export function readProjectConfig(workspacePath: string): ProjectConfig {
     // The package keys fail on their own, whatever the rest of the file
     // holds — even a bad `engine`, which (below) still costs the unit and
     // the materials, as it always has.
-    const packageField = readPackageField(record);
+    const packageField = readPackageField(record, workspacePath);
     if ('error' in packageField) {
       problems.package = packageField.error;
     } else {
@@ -500,7 +501,7 @@ export function writeProjectMaterials(workspacePath: string, materials: ProjectM
  * writer never leaves a workspace that is suddenly not a package.
  */
 export function writePackageInfo(workspacePath: string, info: PackageInfo): string {
-  const parsed = PackageFields.parseInfo(info);
+  const parsed = PackageFields.parseInfo(info, workspacePath);
   if ('problem' in parsed) {
     throw new Error(`Refusing to write a "package" ${parsed.problem}.`);
   }

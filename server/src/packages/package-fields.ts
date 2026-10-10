@@ -1,3 +1,4 @@
+import { PackageLayout } from './package-manifest.ts';
 import { PackageName } from './package-name.ts';
 import { Semver } from './semver.ts';
 
@@ -5,19 +6,21 @@ import { Semver } from './semver.ts';
  * The `package` block of a workspace's `fluidcad.json` (research §1, K3):
  *
  * ```json
- * { "package": { "name": "@acme/gears", "version": "1.2.0", "exports": ["gear.feature.js"] } }
+ * { "package": { "name": "@acme/gears", "version": "1.2.0" } }
  * ```
  *
  * Having the block is what makes a workspace a package; there is no `type`
- * key. `name`, `version` and `exports` are required, the rest optional.
- * `minEngine` left out defaults at pack time to the engine pin, else to the
- * packing engine.
+ * key. `name` and `version` are required, the rest optional. `minEngine`
+ * left out defaults at pack time to the engine pin, else to the packing
+ * engine.
+ *
+ * There is no list of exports: the `features/`, `parts/` and `assemblies/`
+ * folders decide what a package exports (`PackageLayout`, HD20), and a
+ * block that still has `exports` is refused with a sentence saying so.
  */
 export type PackageInfo = {
   name: string;
   version: string;
-  /** Workspace-relative `*.feature.js`, `*.part.js` or `*.assembly.js` modules whose exports are public. */
-  exports: string[];
   description?: string;
   license?: string;
   author?: string;
@@ -48,17 +51,22 @@ export type PackageDependencies = Record<string, PackagePin>;
  * uses. One bad field rejects the whole block or map, so a typo never
  * resolves half a package.
  *
- * Deliberately dependency-free beyond its two sibling modules, for the same
- * reason as `project-config.ts`: the plain-JS CLI imports it compiled.
+ * Deliberately dependency-free beyond its sibling modules (node builtins
+ * and import-free classes), for the same reason as `project-config.ts`:
+ * the plain-JS CLI imports it compiled.
  */
 export class PackageFields {
-  /** The module kinds a package can make public. */
-  static readonly EXPORT_SUFFIXES: readonly string[] = ['.feature.js', '.part.js', '.assembly.js'];
-
   /** The keys of the `package` block this engine reads, in the order the writer puts them. */
   static readonly INFO_KEYS: readonly (keyof PackageInfo)[] = [
-    'name', 'version', 'description', 'exports', 'license', 'author', 'homepage', 'keywords', 'minEngine',
+    'name', 'version', 'description', 'license', 'author', 'homepage', 'keywords', 'minEngine',
   ];
+
+  /**
+   * Keys a block may no longer have: refused on read, and dropped by the
+   * writer rather than kept as a newer engine's field. `exports` went when
+   * the folders started deciding what a package exports (HD20).
+   */
+  static readonly RETIRED_KEYS: readonly string[] = ['exports'];
 
   /** `sha256-` and the base64 of a 32-byte digest. */
   private static readonly INTEGRITY_PATTERN = /^sha256-[A-Za-z0-9+/]{43}=$/;
@@ -67,11 +75,14 @@ export class PackageFields {
 
   private static readonly SEMVER_RULE = 'MAJOR.MINOR.PATCH, with an optional -prerelease';
 
-  /** Validate a `package` block. */
-  static parseInfo(raw: unknown): { info: PackageInfo } | { problem: string } {
+  /**
+   * Validate a `package` block. `workspacePath`, when given, lets the
+   * `exports` refusal name the layout folders the workspace already has.
+   */
+  static parseInfo(raw: unknown, workspacePath?: string): { info: PackageInfo } | { problem: string } {
     const block = PackageFields.asRecord(raw);
     if (block === null) {
-      return { problem: 'that is not an object { name, version, exports, … }' };
+      return { problem: 'that is not an object { name, version, … }' };
     }
 
     if (block.name === undefined) {
@@ -90,12 +101,11 @@ export class PackageFields {
       };
     }
 
-    const exports = PackageFields.parseExports(block.exports);
-    if ('problem' in exports) {
-      return exports;
+    if (block.exports !== undefined) {
+      return { problem: PackageFields.exportsProblem(workspacePath) };
     }
 
-    const info: PackageInfo = { name: block.name, version: block.version, exports: exports.exports };
+    const info: PackageInfo = { name: block.name, version: block.version };
     for (const key of PackageFields.OPTIONAL_STRINGS) {
       const value = block[key];
       if (value === undefined) {
@@ -174,7 +184,7 @@ export class PackageFields {
    * The block as the writer stores it: the known keys in `INFO_KEYS` order,
    * then whatever keys of `existing` this engine does not read (a newer
    * engine's fields survive an older one's write). A known key `info`
-   * leaves out is removed.
+   * leaves out is removed, and so is a retired one.
    */
   static mergeInfo(info: PackageInfo, existing: unknown): Record<string, unknown> {
     const out: Record<string, unknown> = {};
@@ -185,7 +195,7 @@ export class PackageFields {
     }
     const previous = PackageFields.asRecord(existing) ?? {};
     for (const [key, value] of Object.entries(previous)) {
-      if (!(PackageFields.INFO_KEYS as readonly string[]).includes(key)) {
+      if (!(PackageFields.INFO_KEYS as readonly string[]).includes(key) && !PackageFields.RETIRED_KEYS.includes(key)) {
         out[key] = value;
       }
     }
@@ -193,52 +203,21 @@ export class PackageFields {
   }
 
   /**
-   * `exports`: a list of workspace-relative module paths, each a feature,
-   * part or assembly module, none twice. Whether each file exists is the
-   * packer's check, not the config's — a config is read before every render.
+   * The refusal of a block that still lists `exports`: the folders decide
+   * what a package exports now. Names the folders the workspace has, so the
+   * author knows whether the modules still need moving.
    */
-  private static parseExports(raw: unknown): { exports: string[] } | { problem: string } {
-    if (raw === undefined) {
-      return {
-        problem: `without "exports" (the ${PackageFields.EXPORT_SUFFIXES.map((s) => `*${s}`).join(', ')} modules the package makes public)`,
-      };
+  private static exportsProblem(workspacePath: string | undefined): string {
+    const sentence =
+      `with an "exports" list, but a package exports its ${PackageLayout.describeFolders()} folders: remove "exports"`;
+    if (workspacePath === undefined) {
+      return sentence;
     }
-    if (!Array.isArray(raw)) {
-      return { problem: 'whose "exports" is not a list of module paths' };
+    const folders = PackageLayout.foldersIn(workspacePath);
+    if (folders.length === 0) {
+      return `${sentence} (this workspace has none of them yet: move the modules "exports" lists into them)`;
     }
-    const seen = new Set<string>();
-    for (const entry of raw) {
-      if (typeof entry !== 'string' || entry.trim() === '') {
-        return { problem: `whose "exports" has an entry ${JSON.stringify(entry)} that is not a module path` };
-      }
-      if (!PackageFields.isWorkspaceRelative(entry)) {
-        return {
-          problem:
-            `whose "exports" entry ${JSON.stringify(entry)} is not a path inside the workspace ` +
-            '(write it relative to the workspace root, with forward slashes)',
-        };
-      }
-      if (!PackageFields.EXPORT_SUFFIXES.some((suffix) => entry.endsWith(suffix))) {
-        return {
-          problem:
-            `whose "exports" entry ${JSON.stringify(entry)} is not a ` +
-            `${PackageFields.EXPORT_SUFFIXES.map((s) => `*${s}`).join(', ')} module`,
-        };
-      }
-      if (seen.has(entry)) {
-        return { problem: `whose "exports" lists ${JSON.stringify(entry)} twice` };
-      }
-      seen.add(entry);
-    }
-    return { exports: [...raw] };
-  }
-
-  /** A relative POSIX path that stays inside the workspace: no root, drive, backslash, `.` or `..` segment. */
-  private static isWorkspaceRelative(entry: string): boolean {
-    if (entry.startsWith('/') || entry.includes('\\') || /^[A-Za-z]:/.test(entry)) {
-      return false;
-    }
-    return entry.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+    return `${sentence} (this workspace has ${PackageLayout.describeFolders(folders)})`;
   }
 
   private static asRecord(value: unknown): Record<string, unknown> | null {

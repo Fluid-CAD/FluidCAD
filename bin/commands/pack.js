@@ -4,9 +4,15 @@ import { readPackageVersion } from '../lib/workspace.js';
 
 /**
  * `fluidcad pack`: pack the workspace's package (the "package" block of its
- * fluidcad.json) into `<scope>-<name>-<version>.fluidpkg`. The rules and the
+ * fluidcad.json, exports from its features/, parts/ and assemblies/
+ * folders) into `<scope>-<name>-<version>.fluidpkg`. The rules and the
  * checks live in the server's `PackageBuilder`; this is the terminal around
  * it. Nothing in the workspace is written but the archive.
+ *
+ * `--json` prints one JSON object instead of the summary: the archive's
+ * identity and path, and its contents by folder (`PackageLayout.contentsOf`,
+ * what the MCP `pack` tool returns as `contents`). A refusal prints
+ * `{ "error", "code" }` and exits 1.
  */
 async function runPack(opts) {
   // Imported lazily: the packer boots the engine (Vite + OC wasm), which the
@@ -22,7 +28,11 @@ async function runPack(opts) {
     result = await quietly(() => packPackage({ workspacePath: workspace, fluidcadVersion: readPackageVersion() }));
   } catch (err) {
     if (err instanceof PackageBuildError) {
-      console.error(err.message);
+      if (opts.json) {
+        console.log(JSON.stringify({ error: err.message, code: err.code }, null, 2));
+      } else {
+        console.error(err.message);
+      }
       process.exit(1);
     }
     throw err;
@@ -32,7 +42,22 @@ async function runPack(opts) {
   const archiveName = PackageLayout.archiveName(manifest.name, manifest.version);
   const outPath = outputPath(opts.out, workspace, archiveName);
   writeFileSync(outPath, zip);
-  printSummary(manifest, outPath, zip.length);
+  const contents = PackageLayout.contentsOf(manifest);
+  if (opts.json) {
+    console.log(JSON.stringify({
+      name: manifest.name,
+      version: manifest.version,
+      fileName: archiveName,
+      savedTo: outPath,
+      bytes: zip.length,
+      // The archive holds manifest.json beside the files it lists.
+      files: manifest.files.length + 1,
+      unit: manifest.unit,
+      contents,
+    }, null, 2));
+    return;
+  }
+  printSummary(manifest, contents, outPath, zip.length);
 }
 
 /** `-o` names the archive, or a directory to write it into; the workspace root by default. */
@@ -61,12 +86,20 @@ async function quietly(fn) {
   }
 }
 
-function printSummary(manifest, outPath, bytes) {
+/** The summary, folder by folder: the feature ids, then the parts and assemblies by export name. */
+function printSummary(manifest, contents, outPath, bytes) {
   console.log(`Packed ${manifest.name} ${manifest.version} → ${outPath}`);
-  const features = manifest.features.map((f) => f.id);
-  const parts = manifest.parts.map((p) => (p.kind === 'assembly' ? `${p.exportName} (assembly)` : p.exportName));
-  console.log(`  ${count(features.length, 'feature')}${features.length ? `: ${features.join(', ')}` : ''}`);
-  console.log(`  ${count(parts.length, 'part')}${parts.length ? `: ${parts.join(', ')}` : ''}`);
+  const rows = [
+    ['features/', count(contents.features.length, 'feature'), contents.features.map((f) => f.id)],
+    ['parts/', count(contents.parts.length, 'part'), contents.parts.map((p) => p.exportName)],
+    ['assemblies/', count(contents.assemblies.length, 'assembly', 'assemblies'), contents.assemblies.map((a) => a.exportName)],
+  ];
+  for (const [folder, counted, names] of rows) {
+    console.log(`  ${folder.padEnd(12)}${counted}${names.length ? `: ${names.join(', ')}` : ''}`);
+  }
+  if (contents.models === 0) {
+    console.log('  no parts or assemblies: it installs, but the hub needs at least one to publish');
+  }
   const raw = manifest.features.filter((f) => f.usesOcct).map((f) => f.id);
   if (raw.length > 0) {
     console.log(`  raw OpenCascade: ${raw.join(', ')} (installers warn about it)`);
@@ -75,8 +108,8 @@ function printSummary(manifest, outPath, bytes) {
   console.log(`  ${count(manifest.files.length + 1, 'file')}, ${size(bytes)}, unit ${manifest.unit}`);
 }
 
-function count(n, noun) {
-  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+function count(n, noun, plural = `${noun}s`) {
+  return `${n} ${n === 1 ? noun : plural}`;
 }
 
 function size(bytes) {
@@ -92,9 +125,10 @@ function size(bytes) {
 export function registerPackCommand(program) {
   program
     .command('pack')
-    .description('Pack this package workspace into a .fluidpkg archive others can install')
+    .description('Pack this package workspace (its features/, parts/ and assemblies/) into a .fluidpkg archive others can install')
     .option('-w, --workspace <path>', 'Workspace directory (defaults to cwd)')
     .option('-o, --out <path>', 'Output file, or a directory to write it into (defaults to <scope>-<name>-<version>.fluidpkg in the workspace)')
+    .option('--json', 'Print the result as JSON: the archive and its features, parts and assemblies by folder')
     .action((opts) => {
       runPack(opts).catch((err) => {
         console.error(err?.message ?? err);

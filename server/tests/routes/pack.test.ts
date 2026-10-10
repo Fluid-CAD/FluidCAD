@@ -24,10 +24,12 @@ let baseUrl: string;
 /** The editor buffers the engine reports, by absolute path. */
 let buffers: Map<string, string>;
 
-async function post(): Promise<{ status: number; headers: Headers; bytes: Buffer }> {
+async function post(body?: unknown): Promise<{ status: number; headers: Headers; bytes: Buffer }> {
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
-    const res = await fetch(`${baseUrl}/api/pack`, { method: 'POST' });
+    const res = await fetch(`${baseUrl}/api/pack`, body === undefined
+      ? { method: 'POST' }
+      : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
     return { status: res.status, headers: res.headers, bytes: Buffer.from(await res.arrayBuffer()) };
   } finally {
     log.mockRestore();
@@ -105,24 +107,48 @@ describe('POST /api/pack', () => {
     expect(res.status).toBe(400);
     expect(JSON.parse(res.bytes.toString('utf8'))).toEqual({
       error: "This workspace isn't a package — run `fluidcad package init` first.",
+      code: 'refused',
     });
   });
 
-  it('answers 400 when a pack check fails', async () => {
-    writeConfig((config) => {
-      config.package.exports.push('gone.part.js');
-    });
+  it('answers 400 with the layout code when a pack check fails', async () => {
+    fs.writeFileSync(path.join(ws, 'parts', 'pair.assembly.js'), 'export const NOTHING = 1;\n');
     const res = await post();
     expect(res.status).toBe(400);
-    expect(JSON.parse(res.bytes.toString('utf8')).error).toContain('"exports" lists gone.part.js');
+    expect(JSON.parse(res.bytes.toString('utf8'))).toEqual({
+      error: 'parts/pair.assembly.js is an assembly in parts/, but assemblies belong in assemblies/: move it there.',
+      code: 'wrong-folder',
+    });
+  });
+
+  it('answers the archive and its contents by folder as JSON with { format: "json" }', async () => {
+    const res = await post({ format: 'json' });
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.bytes.toString('utf8'));
+    expect(body).toMatchObject({
+      packageName: '@acme/kit',
+      version: '0.1.0',
+      fileName: 'acme-kit-0.1.0.fluidpkg',
+    });
+    expect(body.contents.features.map((f: { module: string }) => f.module)).toEqual([
+      'features/fastener.feature.js',
+      'features/standoff.feature.js',
+    ]);
+    expect(body.contents.parts.map((p: { module: string }) => p.module)).toEqual(['parts/spacer.part.js']);
+    expect(body.contents.assemblies).toEqual([]);
+    expect(body.contents.models).toBe(1);
+    const archive = Buffer.from(body.archive, 'base64');
+    expect(body.bytes).toBe(archive.length);
+    const zip = await JSZip.loadAsync(archive);
+    expect(zip.file('features/standoff.feature.js')).not.toBeNull();
   });
 
   it('refuses a file whose editor buffer isn\'t saved', async () => {
-    buffers.set(path.join(ws, 'standoff.feature.js').replace(/\\/g, '/'), '// unsaved\n');
+    buffers.set(path.join(ws, 'features', 'standoff.feature.js').replace(/\\/g, '/'), '// unsaved\n');
     const res = await post();
     expect(res.status).toBe(400);
     expect(JSON.parse(res.bytes.toString('utf8')).error).toBe(
-      'standoff.feature.js has unsaved changes: save it, then pack again.',
+      'features/standoff.feature.js has unsaved changes: save it, then pack again.',
     );
   });
 });

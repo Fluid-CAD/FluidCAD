@@ -1,10 +1,11 @@
-// A test model the package workspace renders its features in. It is not
-// one of the package's exports, so it never ships.
+// A test model the package workspace renders its features in. It sits
+// outside features/, parts/ and assemblies/, so it is not an export and
+// never ships.
 
 import { part, sketch, line, extrude, select } from 'fluidcad/core';
 import { coincident, fix } from 'fluidcad/constraints';
 import { face } from 'fluidcad/filters';
-import { standoff } from './standoff.feature.js';
+import { standoff } from './features/standoff.feature.js';
 
 export const demo = part('Demo plate', () => {
   sketch('xy', () => {

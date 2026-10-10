@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync, statSync } from 'fs';
+import { readFileSync, realpathSync, statSync } from 'fs';
 import { readFile, readdir } from 'fs/promises';
 import { dirname, join, relative, resolve, sep } from 'path';
 import JSZip from 'jszip';
@@ -60,9 +60,18 @@ export type PackPackageResult = {
   files: Record<string, Buffer>;
 };
 
+/**
+ * What kind of refusal a {@link PackageBuildError} is. The layout's own
+ * (HD20) have codes the hub shares; every other check is `refused`.
+ * - `no-exports`: nothing in `features/`, `parts/` or `assemblies/`;
+ * - `wrong-folder`: a module whose suffix belongs in another of the three;
+ * - `outside-layout`: a shipped module outside the three folders.
+ */
+export type PackageBuildErrorCode = 'refused' | 'no-exports' | 'wrong-folder' | 'outside-layout';
+
 /** A refusal to pack, worded for the author: one sentence that names the file. */
 export class PackageBuildError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly code: PackageBuildErrorCode = 'refused') {
     super(message);
     this.name = 'PackageBuildError';
   }
@@ -86,19 +95,23 @@ export async function packPackage(inputs: PackPackageInputs): Promise<PackPackag
 
 /**
  * Builds a package archive from a package workspace (research §2). The
- * archive holds the sources verbatim — the closure of the declared
- * exports, the images their features declare, and the README, LICENSE and
- * CHANGELOG — plus three generated files at its root: `index.js` (named
- * re-exports), a reduced `fluidcad.json` (`unit`, `materials`) and
- * `manifest.json`.
+ * exports are what the `features/`, `parts/` and `assemblies/` folders
+ * hold ({@link PackageLayout.exportsOf}, HD20). The archive holds the
+ * sources verbatim — the exports' closure, the images their features
+ * declare, and the README, LICENSE and CHANGELOG — plus three generated
+ * files at its root: `index.js` (named re-exports), a reduced
+ * `fluidcad.json` (`unit`, `materials`) and `manifest.json`.
  *
  * Every check is a refusal ({@link PackageBuildError}) naming the file:
- * 1. the `package` block is valid and every export exists;
+ * 1. the `package` block is valid; no module sits in the wrong folder for
+ *    its suffix (`wrong-folder`), and the folders hold something to export
+ *    (`no-exports`);
  * 2. every export module evaluates in the engine;
  * 3. no name is exported twice, and every feature id starts with the scope (K4);
  * 4. every exported part and assembly builds with its defaults, no object in error;
  * 5. the closure stays inside the workspace: no `node_modules`, `init.js`,
- *    blocked built-in or other package, and nothing on a reserved root path;
+ *    blocked built-in or other package, nothing on a reserved root path,
+ *    and nothing outside the three folders (`outside-layout`);
  * 6. every image a feature declares exists inside its module's directory;
  * 7. raw OpenCascade use is recorded per feature (not a refusal).
  */
@@ -151,14 +164,14 @@ export class PackageBuilder {
   }
 
   private async build(): Promise<PackPackageResult> {
-    this.checkExportsExist();
-    const closure = await this.closure();
+    const exports = this.exports();
+    const closure = await this.closure(exports);
     this.checkLiveBuffers(closure);
 
     const evaluated = this.inputs.engine
-      ? await this.evaluate(this.inputs.engine)
+      ? await this.evaluate(this.inputs.engine, exports)
       // Pack writes nothing to the workspace, not even the engine's courtesy link.
-      : await InProcessEngine.run(this.workspace, (engine) => this.evaluate(engine.server), { linkEngine: false });
+      : await InProcessEngine.run(this.workspace, (engine) => this.evaluate(engine.server, exports), { linkEngine: false });
     this.checkNames(evaluated);
 
     const features = await this.withRawOcct(evaluated);
@@ -169,18 +182,24 @@ export class PackageBuilder {
   }
 
   // ---------------------------------------------------------------------------
-  // Check 1: the exports
+  // Check 1: the layout and the exports
   // ---------------------------------------------------------------------------
 
-  private checkExportsExist(): void {
-    for (const rel of this.info.exports) {
-      const abs = join(this.workspace, rel);
-      if (!existsSync(abs) || !statSync(abs).isFile()) {
-        throw new PackageBuildError(
-          `"exports" lists ${rel}, which doesn't exist in the workspace. Fix the path, or remove it from "exports".`,
-        );
-      }
+  /** What the three folders export, refused when a module sits in the wrong one or none holds anything. */
+  private exports(): string[] {
+    const [misplaced] = PackageLayout.misplacedIn(this.workspace);
+    if (misplaced) {
+      throw new PackageBuildError(PackageLayout.describeMisplaced(misplaced), 'wrong-folder');
     }
+    const exports = PackageLayout.exportsOf(this.workspace);
+    if (exports.length === 0) {
+      throw new PackageBuildError(
+        `${this.info.name} exports nothing: put its feature modules in features/, its parts in parts/ and ` +
+          'its assemblies in assemblies/. Pack exports what those folders hold.',
+        'no-exports',
+      );
+    }
+    return exports;
   }
 
   // ---------------------------------------------------------------------------
@@ -188,11 +207,11 @@ export class PackageBuilder {
   // ---------------------------------------------------------------------------
 
   /** The workspace-relative files the exports import, transitively, themselves included. */
-  private async closure(): Promise<string[]> {
+  private async closure(exports: string[]): Promise<string[]> {
     let closure: ModuleClosure;
     try {
       closure = await ModuleClosure.of(this.workspace, {
-        entries: this.info.exports.map((rel) => `./${rel}`),
+        entries: exports.map((rel) => `./${rel}`),
         wrapperName: '__package_exports__.js',
         plugins: [EsbuildPlugins.refusePackageImports()],
       });
@@ -214,6 +233,13 @@ export class PackageBuilder {
         );
       }
       this.checkNotReserved(rel, importer ? `${importer} imports it` : 'it is exported');
+      if (PackageLayout.folderOf(rel) === null) {
+        throw new PackageBuildError(
+          `${by}, which is outside ${PackageLayout.describeFolders()}: a package ships only what those folders hold. ` +
+            `Move ${rel} into one of them.`,
+          'outside-layout',
+        );
+      }
     }
     return closure.files;
   }
@@ -270,14 +296,14 @@ export class PackageBuilder {
   // Checks 2 and 4: evaluate every export module, build every part
   // ---------------------------------------------------------------------------
 
-  private async evaluate(engine: PackEngine): Promise<ModuleExports[]> {
+  private async evaluate(engine: PackEngine, exports: string[]): Promise<ModuleExports[]> {
     const missing = engine.describeMissingEngine();
     if (missing) {
       throw new PackageBuildError(missing);
     }
     const unit = this.config.unit ?? 'mm';
     const modules: ModuleExports[] = [];
-    for (const rel of [...this.info.exports].sort()) {
+    for (const rel of exports) {
       const abs = normalizePath(join(this.workspace, rel));
       const entry: ModuleExports = { module: rel, features: [], parts: [] };
       if (!rel.endsWith('.assembly.js')) {

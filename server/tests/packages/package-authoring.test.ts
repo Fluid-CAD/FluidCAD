@@ -40,26 +40,15 @@ afterEach(() => {
 });
 
 describe('PackageAuthoring.init', () => {
-  it('writes name, version 0.1.0 and every feature module as exports, keeping the rest of the file', async () => {
+  it('writes name and version 0.1.0, no exports list, keeping the rest of the file', async () => {
     writeConfig({ engine: '0.0.46', unit: 'in', materials: { pine: { name: 'Pine', density: 0.5 } } });
     write('init.js');
-    write('standoff.feature.js');
     write('features/boss.feature.js');
-    write('plate.part.js');
-    write('helpers/sizes.js');
-    write('node_modules/other/x.feature.js');
-    write('.hidden/y.feature.js');
-    write('ignored/z.feature.js');
-    write('.gitignore', 'ignored/\n');
 
     const { info, configPath } = await PackageAuthoring.init(workspace, '@acme/demo');
 
     expect(configPath).toBe(path.join(workspace, PROJECT_CONFIG_FILENAME));
-    expect(info).toEqual({
-      name: '@acme/demo',
-      version: '0.1.0',
-      exports: ['features/boss.feature.js', 'standoff.feature.js'],
-    });
+    expect(info).toEqual({ name: '@acme/demo', version: '0.1.0' });
     expect(readStored()).toEqual({
       engine: '0.0.46',
       unit: 'in',
@@ -69,32 +58,35 @@ describe('PackageAuthoring.init', () => {
     expect(readProjectConfig(workspace).package).toEqual(info);
   });
 
-  it('writes an empty exports list in a workspace with no feature modules', async () => {
+  it('reports what the folders export: features/, parts/ and assemblies/, nothing elsewhere', async () => {
     writeConfig({ engine: '0.0.46' });
-    write('plate.part.js');
+    write('init.js');
+    write('features/boss.feature.js');
+    write('features/holes/bore.feature.js');
+    write('features/shared/geometry.js');
+    write('parts/plate.part.js');
+    write('assemblies/stack.assembly.js');
+    write('standoff.feature.js');
+    write('helpers/sizes.js');
 
-    const { info } = await PackageAuthoring.init(workspace, '@acme/parts');
+    const { exports } = await PackageAuthoring.init(workspace, '@acme/demo');
 
-    expect(info.exports).toEqual([]);
-    expect(readProjectConfig(workspace).package?.exports).toEqual([]);
+    expect(exports).toEqual([
+      'assemblies/stack.assembly.js',
+      'features/boss.feature.js',
+      'features/holes/bore.feature.js',
+      'parts/plate.part.js',
+    ]);
   });
 
-  it('leaves out the feature modules of an installed project copy of another package', async () => {
+  it('reports no exports in a workspace without the folders', async () => {
     writeConfig({ engine: '0.0.46' });
-    write('mine.feature.js');
-    write('packages/@acme/kit/0.1.0/manifest.json', '{}');
-    write('packages/@acme/kit/0.1.0/standoff.feature.js');
-    // The user's own models under packages/ stay ordinary workspace code.
-    write('packages/brackets/bracket.feature.js');
-    write('packages/@acme/draft/0.1.0/draft.feature.js');
+    write('standoff.feature.js');
 
-    const { info } = await PackageAuthoring.init(workspace, '@acme/demo');
+    const { info, exports } = await PackageAuthoring.init(workspace, '@acme/parts');
 
-    expect(info.exports).toEqual([
-      'mine.feature.js',
-      'packages/@acme/draft/0.1.0/draft.feature.js',
-      'packages/brackets/bracket.feature.js',
-    ]);
+    expect(exports).toEqual([]);
+    expect(readProjectConfig(workspace).package).toEqual(info);
   });
 
   it('works in a workspace pinned through init.js alone, creating fluidcad.json', async () => {
@@ -102,7 +94,7 @@ describe('PackageAuthoring.init', () => {
 
     await PackageAuthoring.init(workspace, '@acme/demo');
 
-    expect(readStored()).toEqual({ package: { name: '@acme/demo', version: '0.1.0', exports: [] } });
+    expect(readStored()).toEqual({ package: { name: '@acme/demo', version: '0.1.0' } });
   });
 
   it.each(['demo', '@Acme/demo', '@acme/demo_x', '@acme/', ''])('refuses the name %j', async (name) => {
@@ -122,7 +114,7 @@ describe('PackageAuthoring.init', () => {
   });
 
   it('refuses a workspace that is already a package, keeping its identity', async () => {
-    const existing = { name: '@acme/demo', version: '1.4.0', exports: [] };
+    const existing = { name: '@acme/demo', version: '1.4.0' };
     writeConfig({ engine: '0.0.46', package: existing });
 
     const err = await refusal(() => PackageAuthoring.init(workspace, '@acme/other'));
@@ -154,7 +146,6 @@ describe('PackageAuthoring.bumpVersion', () => {
   const BLOCK = {
     name: '@acme/demo',
     version: '0.1.0',
-    exports: ['standoff.feature.js'],
     license: 'MIT',
   };
 
@@ -190,11 +181,20 @@ describe('PackageAuthoring.bumpVersion', () => {
   });
 
   it('refuses a broken package block, naming the problem', async () => {
-    writeConfig({ package: { ...BLOCK, exports: 'standoff.feature.js' } });
+    writeConfig({ package: { ...BLOCK, keywords: 'standoff' } });
 
     const err = await refusal(() => PackageAuthoring.bumpVersion(workspace, 'patch'));
 
-    expect(err.message).toContain('"exports" is not a list');
+    expect(err.message).toContain('"keywords" is not a list of strings');
+  });
+
+  it('refuses a block that still lists exports, pointing at the folders', async () => {
+    writeConfig({ package: { ...BLOCK, exports: ['standoff.feature.js'] } });
+
+    const err = await refusal(() => PackageAuthoring.bumpVersion(workspace, 'patch'));
+
+    expect(err.message).toContain('a package exports its features/, parts/ and assemblies/ folders: remove "exports"');
+    expect(readStored().package.version).toBe('0.1.0');
   });
 
   it.each(['1.2', 'v1.0.0', 'prerelease', '^1.0.0', ''])('refuses the spec %j', async (spec) => {

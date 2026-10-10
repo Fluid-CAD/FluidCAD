@@ -8,7 +8,6 @@
     "name": "@acme/kit",
     "version": "0.1.0",
     "description": "A standoff, a fastener hole and a spacer",
-    "exports": ["standoff.feature.js", "fastener.feature.js", "parts/spacer.part.js"],
     "license": "MIT",
     "keywords": ["standoff", "fastener"]
   }

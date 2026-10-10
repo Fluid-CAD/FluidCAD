@@ -87,8 +87,9 @@ describe('fluidcad pack', () => {
     const archive = path.join(workspace, 'acme-kit-0.1.0.fluidpkg');
     expect(run.stdout.split('\n')).toEqual([
       expect.stringMatching(/^Packed @acme\/kit 0\.1\.0 → .*acme-kit-0\.1\.0\.fluidpkg$/),
-      '  2 features: acme.fastener, acme.standoff',
-      '  1 part: spacer',
+      '  features/   2 features: acme.fastener, acme.standoff',
+      '  parts/      1 part: spacer',
+      '  assemblies/ 0 assemblies',
       expect.stringMatching(/^ {2}21 files, \d+\.\d kB, unit mm$/),
       '',
     ]);
@@ -159,12 +160,57 @@ describe('fluidcad pack', () => {
   });
 
   it('prints a failed check\'s sentence and exits 1', () => {
-    fs.rmSync(path.join(workspace, 'standoff.svg'));
+    fs.rmSync(path.join(workspace, 'features', 'standoff.svg'));
     const run = cli(['pack']);
     expect(run.status).toBe(1);
     expect(run.stderr).toBe(
-      "standoff.feature.js declares the image ./standoff.svg (feature 'acme.standoff'), which doesn't exist next to the module.\n",
+      "features/standoff.feature.js declares the image ./standoff.svg (feature 'acme.standoff'), which doesn't exist next to the module.\n",
     );
+  });
+
+  it('--json prints the archive and its contents by folder', () => {
+    const run = cli(['pack', '--json', '-o', scratch]);
+
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    const result = JSON.parse(run.stdout);
+    expect(result).toEqual({
+      name: '@acme/kit',
+      version: '0.1.0',
+      fileName: 'acme-kit-0.1.0.fluidpkg',
+      savedTo: path.join(scratch, 'acme-kit-0.1.0.fluidpkg'),
+      bytes: fs.statSync(path.join(scratch, 'acme-kit-0.1.0.fluidpkg')).size,
+      files: 21,
+      unit: 'mm',
+      contents: {
+        features: [
+          { id: 'acme.fastener', exportName: 'fastener', module: 'features/fastener.feature.js', usesOcct: false },
+          { id: 'acme.standoff', exportName: 'standoff', module: 'features/standoff.feature.js', usesOcct: false },
+        ],
+        parts: [{ exportName: 'spacer', name: 'Spacer', module: 'parts/spacer.part.js', params: 1 }],
+        assemblies: [],
+        models: 1,
+      },
+    });
+  });
+
+  it('--json prints a refusal as { error, code } and exits 1', () => {
+    fs.renameSync(path.join(workspace, 'parts', 'spacer.part.js'), path.join(workspace, 'features', 'spacer.part.js'));
+    const run = cli(['pack', '--json']);
+    expect(run.status).toBe(1);
+    expect(JSON.parse(run.stdout)).toEqual({
+      error: 'features/spacer.part.js is a part in features/, but parts belong in parts/: move it there.',
+      code: 'wrong-folder',
+    });
+  });
+
+  it('says when a package has no parts or assemblies: a local pack, not a publishable one', () => {
+    fs.rmSync(path.join(workspace, 'parts'), { recursive: true });
+    fs.rmSync(path.join(workspace, 'demo.part.js'));
+    const run = cli(['pack']);
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('  parts/      0 parts\n');
+    expect(run.stdout).toContain('  no parts or assemblies: it installs, but the hub needs at least one to publish\n');
   });
 
   it('no longer takes --entry or --name', () => {

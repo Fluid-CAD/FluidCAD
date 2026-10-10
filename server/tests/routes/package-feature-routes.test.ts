@@ -193,7 +193,7 @@ describe('the feature catalog lists packages', () => {
 
   it('leaves out the package the workspace is itself, and a library feature whose id the workspace has', async () => {
     await project.install('@acme/kit', '0.1.0');
-    project.config(null, { package: { name: '@acme/kit', version: '0.3.0', exports: [] } });
+    project.config(null, { package: { name: '@acme/kit', version: '0.3.0' } });
     expect(await list()).toEqual([]);
 
     // The workspace's own standoff wins over the library's offer, unmarked.

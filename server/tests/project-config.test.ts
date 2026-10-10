@@ -440,7 +440,6 @@ const OTHER_INTEGRITY = 'sha256-' + 'b'.repeat(43) + '=';
 const GEARS: PackageInfo = {
   name: '@acme/gears',
   version: '1.2.0',
-  exports: ['gear.feature.js', 'parts/spur.part.js'],
 };
 
 function readStored(): Record<string, any> {
@@ -469,12 +468,11 @@ describe('readProjectConfig — package', () => {
     expect(isProjectPackageError(config)).toBe(false);
   });
 
-  it('reads every optional field, a prerelease version and an assembly export', () => {
+  it('reads every optional field and a prerelease version', () => {
     const full = {
       name: '@acme-robotics/gear-train-2',
       version: '2.0.0-rc.1',
       description: 'Spur gears and a gear-train feature',
-      exports: ['gear.feature.js', 'train.assembly.js'],
       license: 'MIT',
       author: 'Acme Robotics',
       homepage: 'https://example.com/gears',
@@ -486,10 +484,29 @@ describe('readProjectConfig — package', () => {
     expect(readProjectConfig(workspace).package).toEqual(full);
   });
 
-  it('accepts an empty exports list (pack is what refuses a package with nothing to ship)', () => {
+  it('refuses an "exports" list: the folders decide what a package exports (HD20)', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { package: { ...GEARS, exports: ['gear.feature.js'] } });
+
+    const config = readProjectConfig(workspace);
+
+    expect(config.package).toBeNull();
+    expect(config.problems?.package).toBe(
+      'fluidcad.json has a "package" with an "exports" list, but a package exports its features/, parts/ and ' +
+        'assemblies/ folders: remove "exports" (this workspace has none of them yet: move the modules "exports" lists into them).',
+    );
+    expect(describeProjectPackageProblem(config)).toContain('Treating this workspace as a plain project');
+  });
+
+  it('names the layout folders the workspace has when it refuses "exports", an empty list included', () => {
+    fs.mkdirSync(path.join(workspace, 'features'));
+    fs.mkdirSync(path.join(workspace, 'assemblies'));
+    fs.writeFileSync(path.join(workspace, 'parts'), 'a file, not a folder');
     writeJson(PROJECT_CONFIG_FILENAME, { package: { ...GEARS, exports: [] } });
 
-    expect(readProjectConfig(workspace).package?.exports).toEqual([]);
+    expect(readProjectConfig(workspace).problems?.package).toBe(
+      'fluidcad.json has a "package" with an "exports" list, but a package exports its features/, parts/ and ' +
+        'assemblies/ folders: remove "exports" (this workspace has features/ and assemblies/).',
+    );
   });
 
   it('drops keys it does not read from the parsed block', () => {
@@ -506,7 +523,7 @@ describe('readProjectConfig — package', () => {
 
   it.each([
     ['a non-object block', ['@acme/gears'], 'that is not an object'],
-    ['a missing name', { version: '1.0.0', exports: [] }, 'without a "name"'],
+    ['a missing name', { version: '1.0.0' }, 'without a "name"'],
     ['an unscoped name', { ...GEARS, name: 'gears' }, '"name" "gears" is not a package name'],
     ['an upper-case name', { ...GEARS, name: '@Acme/gears' }, 'is not a package name'],
     ['an underscore in the name', { ...GEARS, name: '@acme/spur_gears' }, 'is not a package name'],
@@ -514,25 +531,15 @@ describe('readProjectConfig — package', () => {
     ['a scope over 39 characters', { ...GEARS, name: `@${'a'.repeat(40)}/gears` }, 'is not a package name'],
     ['a name over 64 characters', { ...GEARS, name: `@acme/${'g'.repeat(65)}` }, 'is not a package name'],
     ['a non-string name', { ...GEARS, name: 7 }, 'is not a package name'],
-    ['a missing version', { name: '@acme/gears', exports: [] }, 'without a "version"'],
+    ['a missing version', { name: '@acme/gears' }, 'without a "version"'],
     ['a two-part version', { ...GEARS, version: '1.2' }, '"version" "1.2" is not a semver version'],
     ['a v-prefixed version', { ...GEARS, version: 'v1.2.0' }, 'is not a semver version'],
     ['a version range', { ...GEARS, version: '^1.2.0' }, 'is not a semver version'],
     ['build metadata', { ...GEARS, version: '1.2.0+build.5' }, 'is not a semver version'],
     ['a leading zero', { ...GEARS, version: '01.2.0' }, 'is not a semver version'],
     ['a numeric version', { ...GEARS, version: 1 }, 'is not a semver version'],
-    ['missing exports', { name: '@acme/gears', version: '1.0.0' }, 'without "exports"'],
-    ['exports that are not a list', { ...GEARS, exports: 'gear.feature.js' }, '"exports" is not a list'],
-    ['a non-string export', { ...GEARS, exports: [3] }, 'that is not a module path'],
-    ['an empty export', { ...GEARS, exports: [''] }, 'that is not a module path'],
-    ['a plain script export', { ...GEARS, exports: ['helpers/involute.js'] }, 'is not a *.feature.js, *.part.js, *.assembly.js module'],
-    ['a .fluid.js export', { ...GEARS, exports: ['demo.fluid.js'] }, 'is not a *.feature.js'],
-    ['an absolute export', { ...GEARS, exports: ['/abs/gear.feature.js'] }, 'is not a path inside the workspace'],
-    ['an export leaving the workspace', { ...GEARS, exports: ['../gear.feature.js'] }, 'is not a path inside the workspace'],
-    ['a dot segment', { ...GEARS, exports: ['./gear.feature.js'] }, 'is not a path inside the workspace'],
-    ['a backslash', { ...GEARS, exports: ['parts\\spur.part.js'] }, 'is not a path inside the workspace'],
-    ['a drive letter', { ...GEARS, exports: ['C:gear.feature.js'] }, 'is not a path inside the workspace'],
-    ['a duplicate export', { ...GEARS, exports: ['gear.feature.js', 'gear.feature.js'] }, 'lists "gear.feature.js" twice'],
+    ['an exports list', { ...GEARS, exports: ['gear.feature.js'] }, 'with an "exports" list'],
+    ['an exports value of any shape', { ...GEARS, exports: 'gear.feature.js' }, 'remove "exports"'],
     ['a non-string description', { ...GEARS, description: 5 }, '"description" is not a string'],
     ['a non-string license', { ...GEARS, license: ['MIT'] }, '"license" is not a string'],
     ['a non-string author', { ...GEARS, author: { name: 'Acme' } }, '"author" is not a string'],
@@ -571,8 +578,8 @@ describe('readProjectConfig — package', () => {
     expect(describeProjectPackageProblem(config)).toContain('Treating this workspace as a plain project');
   });
 
-  it('is not mistaken for a unit problem when an export path spells "unit"', () => {
-    writeJson(PROJECT_CONFIG_FILENAME, { unit: 'in', package: { ...GEARS, exports: ['unit'] } });
+  it('is not mistaken for a unit problem when a value the author typed spells "unit"', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { unit: 'in', package: { ...GEARS, name: 'unit' } });
 
     const config = readProjectConfig(workspace);
 
@@ -721,13 +728,13 @@ describe('readProjectConfig — dependencies', () => {
 
 describe('writePackageInfo', () => {
   it('creates fluidcad.json with just the block, in the canonical key order', () => {
-    writePackageInfo(workspace, { exports: ['gear.feature.js'], version: '0.1.0', name: '@acme/gears' });
+    writePackageInfo(workspace, { license: 'MIT', version: '0.1.0', name: '@acme/gears' });
 
     expect(fs.readFileSync(path.join(workspace, PROJECT_CONFIG_FILENAME), 'utf8')).toBe(
-      '{\n  "package": {\n    "name": "@acme/gears",\n    "version": "0.1.0",\n    "exports": [\n      "gear.feature.js"\n    ]\n  }\n}\n',
+      '{\n  "package": {\n    "name": "@acme/gears",\n    "version": "0.1.0",\n    "license": "MIT"\n  }\n}\n',
     );
     expect(readProjectConfig(workspace).package).toEqual({
-      name: '@acme/gears', version: '0.1.0', exports: ['gear.feature.js'],
+      name: '@acme/gears', version: '0.1.0', license: 'MIT',
     });
   });
 
@@ -756,6 +763,23 @@ describe('writePackageInfo', () => {
     writePackageInfo(workspace, { ...GEARS, version: '1.3.0' });
 
     expect(readStored().package).toEqual({ ...GEARS, version: '1.3.0', futureField: { x: 1 } });
+  });
+
+  it('drops a retired "exports" from the old block instead of keeping it as an unknown key', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, {
+      package: { ...GEARS, exports: ['gear.feature.js'], futureField: { x: 1 } },
+    });
+
+    writePackageInfo(workspace, GEARS);
+
+    expect(readStored().package).toEqual({ ...GEARS, futureField: { x: 1 } });
+    expect(readProjectConfig(workspace).package).toEqual(GEARS);
+  });
+
+  it('refuses to write an "exports" list', () => {
+    expect(() => writePackageInfo(workspace, { ...GEARS, exports: ['gear.feature.js'] } as PackageInfo))
+      .toThrow('Refusing to write a "package" with an "exports" list');
+    expect(fs.existsSync(path.join(workspace, PROJECT_CONFIG_FILENAME))).toBe(false);
   });
 
   it('refuses a block that would read back invalid, leaving the file alone', () => {

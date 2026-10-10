@@ -12,19 +12,16 @@ async function runPackageInit(opts) {
   // packer's dependencies, which the rest of the CLI doesn't need.
   const { PackageAuthoring, PackageAuthoringError } = await import('../../server/dist/packages/package-authoring.js');
   const { PackageName } = await import('../../server/dist/packages/package-name.js');
+  const { PackageLayout } = await import('../../server/dist/packages/package-manifest.js');
 
   const workspace = resolve(opts.workspace ?? process.cwd());
   const name = opts.name ?? (await askName(PackageName));
 
   try {
-    const { info, configPath } = await PackageAuthoring.init(workspace, name);
+    const { info, configPath, exports } = await PackageAuthoring.init(workspace, name);
     console.log(`Wrote the "package" block to ${configPath}:`);
     console.log(indent(JSON.stringify(info, null, 2)));
-    if (info.exports.length === 0) {
-      console.log('No feature modules found: add the *.feature.js, *.part.js or *.assembly.js modules to share to "exports".');
-    } else {
-      console.log('"exports" lists every feature module. Add *.part.js or *.assembly.js modules to share parts, or remove what stays private.');
-    }
+    printLayout(PackageLayout, exports);
   } catch (err) {
     if (err instanceof PackageAuthoringError) {
       console.error(err.message);
@@ -53,6 +50,25 @@ async function askName(PackageName) {
   }
 }
 
+/**
+ * What `fluidcad pack` will export: the folders decide it. Says how many
+ * modules each folder holds, or where to put them when none does.
+ */
+function printLayout(PackageLayout, exports) {
+  if (exports.length === 0) {
+    console.log(
+      'Put the package\'s feature modules in features/, its parts in parts/ and its assemblies in assemblies/: ' +
+        'pack exports what those folders hold.',
+    );
+    return;
+  }
+  const counts = PackageLayout.FOLDERS.map((folder) => {
+    const n = exports.filter((rel) => PackageLayout.folderOf(rel) === folder).length;
+    return `${folder}/ ${n === 0 ? 'none' : `${n} module${n === 1 ? '' : 's'}`}`;
+  });
+  console.log(`Pack exports what features/, parts/ and assemblies/ hold. Today: ${counts.join(', ')}.`);
+}
+
 function indent(text) {
   return text.split('\n').map((line) => `  ${line}`).join('\n');
 }
@@ -64,7 +80,7 @@ export function registerPackageCommand(program) {
 
   pkg
     .command('init')
-    .description('Write the "package" block of fluidcad.json: the name, version 0.1.0, and every feature module as an export')
+    .description('Write the "package" block of fluidcad.json: the name and version 0.1.0 (the features/, parts/ and assemblies/ folders decide the exports)')
     .option('-w, --workspace <path>', 'Workspace directory (defaults to cwd)')
     .option('-n, --name <@scope/name>', 'Package name (asked for when omitted)')
     .action((opts) => {

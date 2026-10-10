@@ -17,7 +17,6 @@ const PACKAGE = {
   name: '@acme/gears',
   version: '1.2.0',
   description: 'Spur gears and a gear-train feature',
-  exports: ['gear.feature.js', 'parts/spur.part.js'],
   minEngine: '0.0.46',
 };
 

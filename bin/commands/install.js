@@ -1,21 +1,24 @@
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
-import { confirm, isInteractive } from '../lib/prompt.js';
 import { readPackageVersion } from '../lib/workspace.js';
-import { describeTarget, exitOnRefusal, loadPackages, printConsentSummary } from '../lib/packages.js';
+import { HubInstallCli } from '../lib/hub-install.js';
+import { consented, describeTarget, exitOnRefusal, installedLine, preferredTarget, printConsentSummary, printPin } from '../lib/packages.js';
 
 /**
- * `fluidcad install`, the one package verb (research §3):
+ * `fluidcad install`, the one package verb (research §3, hub-plan H8):
  * - `install <file.fluidpkg> [--library|--project] [--yes]` installs from a
  *   file, after the consent summary, and pins it when run in a project;
- * - `install <@scope/name>[@version] [--project]` pins a package already
- *   installed into this project, and with `--project` copies it in too;
- * - `install` alone lists the packages this project pins but has in neither
- *   root, and exits 1 when there are any. Fetching them from the hub comes
- *   with the hub.
+ * - `install <@scope/name>[@version] [--library|--project] [--hub <url>]`
+ *   takes the package from the library first (pinning it into this project,
+ *   and with `--project` copying it in); else it downloads it from the hub,
+ *   verifies it, shows the consent summary, and installs it, pinning it
+ *   when run in a project;
+ * - `install` alone downloads every package this project pins but has in
+ *   neither root, each checked against its pin, after one consent summary;
+ *   it exits 1 when any failed.
  */
 async function runInstall(arg, opts) {
-  const mods = await loadPackages();
+  const mods = await HubInstallCli.load();
   const cwd = process.cwd();
   const project = mods.PackagePins.isProject(cwd) ? cwd : null;
   if (opts.library && opts.project) {
@@ -26,7 +29,7 @@ async function runInstall(arg, opts) {
 
   try {
     if (!arg) {
-      runMissing(mods, project);
+      await runMissing(mods, project, opts);
     } else if (isFile(arg)) {
       await installFile(mods, resolve(arg), project, opts);
     } else {
@@ -44,7 +47,7 @@ async function installFile(mods, file, project, opts) {
   if (!existsSync(file)) {
     fail(`${file} doesn't exist.`);
   }
-  const target = opts.project ? 'project' : opts.library ? 'library' : await preferredTarget(mods, project);
+  const target = await targetOf(mods, project, opts);
   const inspection = await mods.PackageArchive.inspect(readFileSync(file), {
     root: mods.PackageRoots.rootFor(target, project),
     engineVersion: readPackageVersion(),
@@ -78,26 +81,44 @@ async function installFile(mods, file, project, opts) {
   printPin(outcome.pin, name, version);
 }
 
+/** The library first; the hub for what it doesn't have. */
 async function installName(mods, spec, project, opts) {
-  if (!project) {
-    fail(`Run \`fluidcad install ${spec}\` in a project: it pins the package there. To install a package into your library, pass its .fluidpkg file.`);
+  const { name, version: asked } = mods.ProjectPackages.parseSpec(spec);
+  if (opts.project && !project) {
+    fail('--project installs into a project, and this directory is not one (no fluidcad.json or init.js).');
   }
-  if (opts.library) {
-    fail(`${spec} is already installed or it isn't: --library is for installing a .fluidpkg file.`);
+  if (project) {
+    try {
+      const outcome = await mods.ProjectPackages.useInstalled(spec, project, { copy: opts.project === true });
+      const { version } = outcome.location;
+      if (outcome.copied) {
+        console.log(installedLine(mods, outcome.copied));
+      } else if (opts.project) {
+        console.log(`${name} ${version} is already in ${describeTarget(mods, 'project', outcome.location.directory)}.`);
+      }
+      printPin(outcome.pin, name, version, outcome.copied ? null : outcome.location.target);
+      return;
+    } catch (err) {
+      if (!(err instanceof mods.PackageInstallError && err.code === 'not-installed')) {
+        throw err;
+      }
+    }
+  } else if (asked) {
+    const location = mods.PackageRoots.locate(name, asked, null);
+    if (location) {
+      console.log(`${name} ${asked} is already in ${describeTarget(mods, location.target, location.directory)}.`);
+      return;
+    }
   }
-  const outcome = await mods.ProjectPackages.useInstalled(spec, project, { copy: opts.project === true });
-  const { name, version } = outcome.location;
-  if (outcome.copied) {
-    console.log(installedLine(mods, outcome.copied));
-  } else if (opts.project) {
-    console.log(`${name} ${version} is already in ${describeTarget(mods, 'project', outcome.location.directory)}.`);
-  }
-  printPin(outcome.pin, name, version, outcome.copied ? null : outcome.location.target);
+  // Not installed: the version asked for, else the one this project pins, else the hub's latest.
+  const pinned = project ? mods.PackagePins.of(project)[name]?.version ?? null : null;
+  const target = await targetOf(mods, project, opts);
+  await new HubInstallCli(mods, opts).installName({ name, version: asked ?? pinned }, project, target);
 }
 
-function runMissing(mods, project) {
+async function runMissing(mods, project, opts) {
   if (!project) {
-    fail('Run `fluidcad install` in a project: it installs the packages the project pins. To install a package, pass its .fluidpkg file.');
+    fail('Run `fluidcad install` in a project: it installs the packages the project pins. To install a package, pass its name or its .fluidpkg file.');
   }
   const pins = mods.PackagePins.availability(project);
   const missing = pins.filter((pin) => pin.availability === 'missing');
@@ -109,46 +130,12 @@ function runMissing(mods, project) {
     console.log(`Every package this project pins is installed (${pins.length}).`);
     return;
   }
-  console.error(`This project pins ${missing.length === 1 ? 'a package that isn\'t' : 'packages that aren\'t'} installed:`);
-  for (const pin of missing) {
-    console.error(`  ${pin.name} ${pin.version}`);
-  }
-  console.error('Install each from its file: fluidcad install <file.fluidpkg>. Downloading them from the hub comes later.');
-  process.exit(1);
+  await new HubInstallCli(mods, opts).installMissing(missing, project, await targetOf(mods, project, opts));
 }
 
-/** The "New packages go to" setting; the project only when there is one. */
-async function preferredTarget(mods, project) {
-  const preferred = (await mods.loadPreferences()).packageInstallTarget;
-  return preferred === 'project' && project ? 'project' : 'library';
-}
-
-async function consented() {
-  if (!isInteractive()) {
-    console.error('Pass --yes to install without being asked.');
-    return false;
-  }
-  return confirm('Install it?');
-}
-
-function installedLine(mods, result) {
-  const where = describeTarget(mods, result.target, result.directory);
-  switch (result.status) {
-    case 'unchanged':
-      return `${result.name} ${result.version} is already in ${where}, with the same contents: nothing changed.`;
-    case 'replaced':
-      return `Replaced ${result.name} ${result.version} in ${where}.`;
-    default:
-      return `Installed ${result.name} ${result.version} into ${where}.`;
-  }
-}
-
-function printPin(pin, name, version, from = null) {
-  if (pin === 'pinned') {
-    console.log(`Pinned ${name} ${version} in this project's fluidcad.json${from === 'library' ? ' (it loads from your library)' : ''}.`);
-  } else if (pin === 'unchanged') {
-    console.log(`This project already pins ${name} ${version}.`);
-  }
+/** `--project` or `--library`, else the "New packages go to" setting. */
+async function targetOf(mods, project, opts) {
+  return opts.project ? 'project' : opts.library ? 'library' : preferredTarget(mods, project);
 }
 
 /** A `.fluidpkg`, or any existing path that isn't a package name. */
@@ -164,11 +151,12 @@ function fail(message) {
 export function registerInstallCommand(program) {
   program
     .command('install [package]')
-    .description('Install a package from a .fluidpkg file, pin an installed one into this project, or (no arguments) list the pinned packages that are missing')
-    .option('--library', 'Install the file into your package library (the default, unless Settings say otherwise)')
-    .option('--project', "Install into this project's packages/ folder; with a package name, copy it there from your library")
+    .description('Install a package by name (from your library, else the hub) or from a .fluidpkg file; with no arguments, download every package this project pins that is missing')
+    .option('--library', 'Install into your package library (the default, unless Settings say otherwise)')
+    .option('--project', "Install into this project's packages/ folder; with a package name in your library, copy it there")
     .option('-y, --yes', 'Install without asking')
     .option('--replace', 'Replace an installed copy of the same version whose contents differ')
+    .option('--hub <url>', 'The hub to download from (default: FLUIDCAD_HUB_URL, else https://hub.fluidcad.io)')
     .action((arg, opts) => {
       runInstall(arg, opts).catch((err) => {
         console.error(err?.message ?? err);

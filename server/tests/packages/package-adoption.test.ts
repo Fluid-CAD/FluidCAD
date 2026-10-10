@@ -139,6 +139,6 @@ describe('a library package used in a project', () => {
     const newer = await project.install('@acme/kit', '0.2.0');
     project.config(null);
     expect(await PackageAdoption.adoptForUse(project.root, '@acme/kit')).toMatchObject({ version: '0.2.0', integrity: newer.integrity, pin: 'pinned' });
-    await expect(PackageAdoption.adoptForUse(project.root, '@acme/other')).rejects.toThrow("@acme/other isn't in your library — install it from a file.");
+    await expect(PackageAdoption.adoptForUse(project.root, '@acme/other')).rejects.toThrow("@acme/other isn't in your library — `fluidcad install @acme/other` downloads it from the hub, or install it from a file.");
   });
 });

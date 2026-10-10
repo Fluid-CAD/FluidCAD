@@ -1,0 +1,352 @@
+import { SDK_VERSION } from '../../../lib/dist/sdk/version.js';
+import { PackageArchive, type PackageInspection } from '../packages/package-archive.ts';
+import type { PinnedPackage } from '../packages/package-pins.ts';
+import { Semver } from '../packages/semver.ts';
+import { HubClient, type HubLimits, type HubPackageDetail, type HubVersionDetail } from './hub-client.ts';
+import { HubConfig } from './hub-config.ts';
+import { HubDownload } from './hub-download.ts';
+import { HubInstallError } from './hub-install-error.ts';
+import { HubRequestError } from './hub-request-error.ts';
+import { HubTransport } from './hub-transport.ts';
+
+/**
+ * `fluidcad install` from the hub (hub-plan H8; research "Install from the
+ * hub"): which version, then the download, verified, ready for the
+ * existing consent and install path (`ProjectPackages.installInspected`).
+ * Nothing here installs or pins: package code never runs, and nothing
+ * lands in a root, before the caller has the user's consent.
+ *
+ * 1. {@link resolve}: an exact version as asked (a yanked one with a note;
+ *    an unpublished one only for its owner or an admin, whose token the
+ *    hub sees); else the latest; else, when the latest needs a newer
+ *    engine, the hub's `newestCompatible`, with a note. A name alone never
+ *    picks a yanked, removed or unpublished version: the hub's `latest`
+ *    and `compatibility` never name one.
+ * 2. {@link fetch}: the archive downloaded under the stall watchdog
+ *    ({@link HubDownload}), `PackageArchive.inspect`, then the inspection's
+ *    tree hash must equal the hub's `x-fluidcad-integrity` and the pin's
+ *    when there is one (`integrity-mismatch` names all three), and the
+ *    archive must hold the package and version asked for.
+ * 3. {@link missing}: every missing pin of a project, each at its pinned
+ *    version and integrity, failures collected rather than thrown.
+ *
+ * Every read carries the token when there is one (owner and admin
+ * installs). A token the hub refuses (401) is dropped for the rest of the
+ * run and the reads go again anonymously, with a note, since published
+ * packages need none.
+ */
+
+export type HubInstallerOptions = {
+  config: HubConfig;
+  /** The token to send (`HubCredentials.read`); null installs anonymously. */
+  token: string | null;
+  /** This engine's FluidCAD version: what `?engine=` asks about, and what `inspect` warns against. */
+  engineVersion: string;
+  /** This engine's `SDK_VERSION`; defaults to the lib's own. */
+  sdkVersion?: number;
+  /** Defaults to a CLI transport. */
+  transport?: HubTransport;
+  /** The download's stall limit; defaults to {@link HubDownload.STALL_MS}. */
+  stallMs?: number;
+  /** The download's total limit; defaults to {@link HubDownload.TIMEOUT_MS}. */
+  downloadTimeoutMs?: number;
+};
+
+/** `@acme/gears`, or `@acme/gears@1.2.0`. */
+export type HubInstallSpec = { name: string; version: string | null };
+
+/** The version an install will download, and what to tell the user about it. */
+export type ResolvedHubPackage = {
+  hub: string;
+  name: string;
+  version: string;
+  /** The tree hash the hub lists for it: the download's header must say the same. */
+  integrity: string;
+  /** The archive's size in bytes, when the hub listed it. */
+  size: number | null;
+  /** `published`, or an open state the owner or an admin may install by exact version. */
+  status: string;
+  access: 'public' | 'owner' | 'admin';
+  yanked: { at: string; reason: string | null } | null;
+  /** Sentences for the consent summary: a yanked or unpublished version, an older compatible one, a refused token. */
+  notes: string[];
+};
+
+export type HubFetchOptions = {
+  /** The root the package will install into; the download and the inspection use its `.tmp`. */
+  root: string;
+  /** The project's pinned integrity for this version, when it pins one. */
+  pin?: string | null;
+  signal?: AbortSignal;
+  onProgress?: (received: number, total: number | null) => void;
+};
+
+/** A downloaded, verified package waiting for consent: `inspection.token` goes to `ProjectPackages.installInspected`. */
+export type HubFetched = { resolved: ResolvedHubPackage; inspection: PackageInspection };
+
+export type HubMissingOptions = {
+  root: string;
+  signal?: AbortSignal;
+  /** Before each pin is resolved and downloaded. */
+  onStart?: (pin: PinnedPackage) => void;
+  onProgress?: (pin: PinnedPackage, received: number, total: number | null) => void;
+};
+
+export type HubMissingResult = {
+  fetched: HubFetched[];
+  failed: { name: string; version: string; error: Error }[];
+};
+
+export class HubInstaller {
+  readonly config: HubConfig;
+  private client: HubClient;
+  private readonly engineVersion: string;
+  private readonly sdkVersion: number;
+  private readonly stallMs: number | undefined;
+  private readonly downloadTimeoutMs: number | undefined;
+  private limits: HubLimits | null = null;
+  /** The note a refused token leaves on every package resolved after it. */
+  private tokenNote: string | null = null;
+
+  constructor(options: HubInstallerOptions) {
+    this.config = options.config;
+    const transport = options.transport ?? new HubTransport({ version: options.engineVersion, client: 'cli' });
+    this.client = new HubClient(options.config, transport, options.token || null);
+    this.engineVersion = options.engineVersion;
+    this.sdkVersion = options.sdkVersion ?? SDK_VERSION;
+    this.stallMs = options.stallMs;
+    this.downloadTimeoutMs = options.downloadTimeoutMs;
+  }
+
+  /** Which version `spec` installs, with its listed integrity and the notes the consent summary shows. */
+  async resolve(spec: HubInstallSpec): Promise<ResolvedHubPackage> {
+    const resolved = spec.version === null ? await this.resolveLatest(spec.name) : await this.resolveExact(spec.name, spec.version);
+    if (this.tokenNote) {
+      resolved.notes.push(this.tokenNote);
+    }
+    return resolved;
+  }
+
+  /**
+   * Downloads `resolved` and inspects it into `root`'s scratch. The
+   * inspection's tree hash must equal the download's header and `pin`;
+   * otherwise the inspection is discarded and `integrity-mismatch` names
+   * all three.
+   */
+  async fetch(resolved: ResolvedHubPackage, options: HubFetchOptions): Promise<HubFetched> {
+    const at = `${resolved.name}@${resolved.version}`;
+    if (options.pin && options.pin !== resolved.integrity) {
+      throw HubInstallError.local(
+        'integrity-mismatch',
+        `${resolved.hub} lists ${at} as ${resolved.integrity}, but this project pins it as ${options.pin}: these aren't the files the project was built with. Nothing was downloaded.`,
+        { hub: resolved.integrity, pin: options.pin },
+      );
+    }
+    const limits = await this.hubLimits();
+    const download = new HubDownload({ client: this.client, root: options.root, stallMs: this.stallMs, timeoutMs: this.downloadTimeoutMs });
+    const downloaded = await download.archive({
+      name: resolved.name,
+      version: resolved.version,
+      expectIntegrity: resolved.integrity,
+      maxBytes: limits.archiveBytes,
+      signal: options.signal,
+      onProgress: options.onProgress,
+    });
+    const inspection = await PackageArchive.inspect(downloaded.bytes, { root: options.root, engineVersion: this.engineVersion });
+    try {
+      const { name, version } = inspection.manifest;
+      if (name !== resolved.name || version !== resolved.version) {
+        throw HubInstallError.local('wrong-package', `${resolved.hub} answered ${at} with an archive of ${name}@${version}.`, { name, version });
+      }
+      const pinDiffers = Boolean(options.pin) && inspection.integrity !== options.pin;
+      if (inspection.integrity !== downloaded.integrity || pinDiffers) {
+        const pin = options.pin ? `, and this project pins ${options.pin}` : '';
+        throw HubInstallError.local(
+          'integrity-mismatch',
+          `The downloaded ${at} hashes to ${inspection.integrity}, but ${resolved.hub} says ${downloaded.integrity}${pin}.`,
+          { computed: inspection.integrity, hub: downloaded.integrity, pin: options.pin ?? null },
+        );
+      }
+    } catch (err) {
+      PackageArchive.discard(inspection.token);
+      throw err;
+    }
+    return { resolved, inspection };
+  }
+
+  /**
+   * Every pin in `pins` (a project's missing ones) resolved at its version
+   * and fetched against its integrity, one after another. A failure is
+   * collected with its pin and the rest go on.
+   */
+  async missing(pins: readonly PinnedPackage[], options: HubMissingOptions): Promise<HubMissingResult> {
+    const result: HubMissingResult = { fetched: [], failed: [] };
+    for (const pin of pins) {
+      options.onStart?.(pin);
+      try {
+        const resolved = await this.resolve({ name: pin.name, version: pin.version });
+        result.fetched.push(await this.fetch(resolved, {
+          root: options.root,
+          pin: pin.integrity,
+          signal: options.signal,
+          onProgress: (received, total) => options.onProgress?.(pin, received, total),
+        }));
+      } catch (err) {
+        if (!(err instanceof Error)) {
+          throw err;
+        }
+        result.failed.push({ name: pin.name, version: pin.version, error: err });
+      }
+    }
+    return result;
+  }
+
+  /** Drops what {@link missing} fetched but won't install (the user declined). */
+  static discard(fetched: readonly HubFetched[]): void {
+    for (const entry of fetched) {
+      PackageArchive.discard(entry.inspection.token);
+    }
+  }
+
+  // Resolving
+
+  /** An exact version: as asked, whatever its state, if this reader may see it and it has an archive. */
+  private async resolveExact(name: string, version: string): Promise<ResolvedHubPackage> {
+    const at = `${name}@${version}`;
+    let detail: HubVersionDetail | null;
+    try {
+      detail = await this.read(() => this.client.version(name, version));
+    } catch (err) {
+      if (err instanceof HubInstallError && err.code === 'version-removed') {
+        throw HubInstallError.local('version-removed', `${at} was removed from ${this.config.origin} by its admins${HubInstaller.reasonOf(err.details)}, and can't be installed.`, err.details);
+      }
+      throw err;
+    }
+    if (!detail) {
+      throw HubInstallError.local('not-found', `${at} isn't on ${this.config.origin}.${this.signInHint()}`);
+    }
+    if (!detail.integrity || !detail.archiveUrl) {
+      const why = detail.status === 'rejected' ? 'was rejected, and its archive is gone' : 'is still being uploaded';
+      throw HubInstallError.local('not-installable', `${at} ${why}: there is nothing to install.`, { status: detail.status });
+    }
+    const notes: string[] = [];
+    if (detail.status !== 'published') {
+      const state = HubInstaller.STATE_WORDS[detail.status] ?? detail.status;
+      notes.push(`${at} isn't published: it is ${state}, and you can install it as its ${detail.access === 'admin' ? 'reviewer' : 'owner'}.`);
+    }
+    if (detail.yanked) {
+      notes.push(`${at} was yanked${detail.yanked.reason ? ` (${detail.yanked.reason})` : ''}: it installs because you asked for this version, but an install by name never picks it.`);
+    }
+    return {
+      hub: this.config.origin,
+      name,
+      version,
+      integrity: detail.integrity,
+      size: detail.size,
+      status: detail.status,
+      access: detail.access,
+      yanked: detail.yanked,
+      notes,
+    };
+  }
+
+  /** A name alone: the latest version, else the newest this engine runs (`compatibility.newestCompatible`). */
+  private async resolveLatest(name: string): Promise<ResolvedHubPackage> {
+    const detail = await this.read(() => this.client.package(name, { engine: this.engineVersion, sdk: this.sdkVersion }));
+    if (!detail) {
+      throw HubInstallError.local('not-found', `${name} isn't on ${this.config.origin}.${this.signInHint()}`);
+    }
+    const latest = detail.latest;
+    if (!latest || !detail.latestVersion) {
+      const open = detail.openVersion ? ` Install ${detail.openVersion.version}, which isn't published yet, by its exact version: \`fluidcad install ${name}@${detail.openVersion.version}\`.` : '';
+      throw HubInstallError.local('nothing-published', `${name} has no published version on ${this.config.origin} yet.${open}`);
+    }
+    const compatibility = detail.compatibility;
+    if (!compatibility || compatibility.latestCompatible) {
+      return this.resolvedFrom(detail, latest.version, latest.integrity, latest.size, []);
+    }
+    const needs = this.needsOf(latest.minEngine, latest.sdkVersion);
+    if (!compatibility.newestCompatible) {
+      throw HubInstallError.local(
+        'incompatible',
+        `No published version of ${name} runs on this FluidCAD (${this.engineVersion}, feature SDK ${this.sdkVersion}): the latest, ${latest.version}, needs ${needs}.`,
+        { latest: latest.version, minEngine: latest.minEngine, sdkVersion: latest.sdkVersion },
+      );
+    }
+    const chosen = detail.versions.find((v) => v.version === compatibility.newestCompatible && v.status === 'published');
+    if (!chosen?.integrity) {
+      throw HubInstallError.local('unexpected-response', `${this.config.origin} named ${name}@${compatibility.newestCompatible} for this FluidCAD but doesn't list it.`);
+    }
+    const note = `The latest ${name}, ${latest.version}, needs ${needs}; this FluidCAD is ${this.engineVersion}, so this installs ${chosen.version}, the newest version it runs.`;
+    return this.resolvedFrom(detail, chosen.version, chosen.integrity, chosen.size, [note]);
+  }
+
+  private resolvedFrom(detail: HubPackageDetail, version: string, integrity: string, size: number | null, notes: string[]): ResolvedHubPackage {
+    return {
+      hub: this.config.origin,
+      name: detail.name,
+      version,
+      integrity,
+      size,
+      status: 'published',
+      access: detail.access,
+      yanked: null,
+      notes,
+    };
+  }
+
+  /** `FluidCAD 0.0.50 or newer`, with the feature SDK when it isn't this engine's. */
+  private needsOf(minEngine: string, sdkVersion: number): string {
+    const parts: string[] = [];
+    const min = Semver.parse(minEngine);
+    const mine = Semver.parse(this.engineVersion);
+    if (!min || !mine || min.compareTo(mine) > 0) {
+      parts.push(`FluidCAD ${minEngine} or newer`);
+    }
+    if (sdkVersion !== this.sdkVersion) {
+      parts.push(`feature SDK version ${sdkVersion} (this FluidCAD has ${this.sdkVersion})`);
+    }
+    return parts.length > 0 ? parts.join(' and ') : `FluidCAD ${minEngine} or newer`;
+  }
+
+  private signInHint(): string {
+    return this.client.hasToken ? '' : " If it's yours or you review it and it isn't published yet, sign in with `fluidcad login` first.";
+  }
+
+  private static readonly STATE_WORDS: Record<string, string> = { draft: 'a draft', in_review: 'in review', uploading: 'being uploaded' };
+
+  private static reasonOf(details: unknown): string {
+    const reason = (details as { reason?: unknown } | undefined)?.reason;
+    return typeof reason === 'string' && reason.trim() !== '' ? ` (${reason.trim()})` : '';
+  }
+
+  // Requests
+
+  /** `GET /api/v1`'s limits, read once. */
+  private async hubLimits(): Promise<HubLimits> {
+    if (!this.limits) {
+      this.limits = (await this.read(() => this.client.meta())).limits;
+    }
+    return this.limits;
+  }
+
+  /**
+   * A hub read whose refusal becomes a {@link HubInstallError}. A token the
+   * hub refuses is dropped and the read goes again anonymously.
+   */
+  private async read<T>(request: () => Promise<T>): Promise<T> {
+    try {
+      return await request();
+    } catch (err) {
+      if (err instanceof HubRequestError && err.unauthorized && this.client.hasToken) {
+        this.client = this.client.withToken(null);
+        this.tokenNote = `${this.config.origin} refused your saved token (revoked or expired), so this ran signed out: run \`fluidcad login\` to sign in again.`;
+        return this.read(request);
+      }
+      if (err instanceof HubRequestError) {
+        throw HubInstallError.fromHub(err);
+      }
+      throw err;
+    }
+  }
+}

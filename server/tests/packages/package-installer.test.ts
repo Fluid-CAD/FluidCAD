@@ -421,7 +421,7 @@ describe('pins', () => {
 
     await expectRefusal(ProjectPackages.useInstalled('@acme/kit@0.1.0', project), PackagePinError, 'version-change');
     const missing = await expectRefusal(ProjectPackages.useInstalled('@acme/gears', project), PackageInstallError, 'not-installed');
-    expect(missing.message).toBe("@acme/gears isn't in your library — install it from a file.");
+    expect(missing.message).toBe("@acme/gears isn't in your library — `fluidcad install @acme/gears` downloads it from the hub, or install it from a file.");
   });
 });
 

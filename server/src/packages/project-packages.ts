@@ -98,8 +98,7 @@ export class ProjectPackages {
     const version = asked ?? PackagePins.of(project)[name]?.version ?? ProjectPackages.newest(name, project);
     const location = version ? PackageRoots.locate(name, version, project) : null;
     if (!version || !location) {
-      const which = asked ? `${name} ${asked}` : name;
-      throw new PackageInstallError('not-installed', `${which} isn't in your library — install it from a file.`);
+      throw new PackageInstallError('not-installed', ProjectPackages.notInstalledSentence(name, asked));
     }
     const integrity = await TreeHash.ofDirectory(location.directory);
     PackagePins.check(project, name, version, integrity);
@@ -173,6 +172,17 @@ export class ProjectPackages {
       }
     }
     return updates;
+  }
+
+  /**
+   * The not-installed refusal, with the command that downloads it (hub-plan
+   * H8): "`@acme/gears` isn't in your library — `fluidcad install @acme/gears`
+   * downloads it from the hub."
+   */
+  static notInstalledSentence(name: string, version: string | null): string {
+    const which = version ? `${name} ${version}` : name;
+    const spec = version ? `${name}@${version}` : name;
+    return `${which} isn't in your library — \`fluidcad install ${spec}\` downloads it from the hub, or install it from a file.`;
   }
 
   /** `@acme/gears` or `@acme/gears@1.2.0`. */

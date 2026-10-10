@@ -1,7 +1,9 @@
 import crypto from 'crypto';
 import http from 'http';
 import type { AddressInfo } from 'net';
+import JSZip from 'jszip';
 import { Semver } from '../../src/packages/semver.ts';
+import { TreeHash } from '../../src/packages/tree-hash.ts';
 
 /**
  * An in-process stand-in for the hub, so FluidCAD's tests never touch a
@@ -22,7 +24,17 @@ import { Semver } from '../../src/packages/semver.ts';
  *   hub does; answers `draft` for a package with nothing published, else
  *   `in_review`, unless {@link FakeHub.nextUpload} says otherwise) and
  *   `DELETE …/versions/v` (withdraws an open version). The real archive
- *   validation is the hub's own test.
+ *   validation is the hub's own test;
+ * - the read routes (H7, for H8's install): `GET /api/v1/packages/@s/n`
+ *   answers the `PackageDetail` shape to anyone (`?engine=&sdk=` adds
+ *   `compatibility`), `GET …/versions/v` the `VersionDetail` shape, and
+ *   `GET …/versions/v/archive` the archive a test added with
+ *   {@link FakeHub.addArchive}, with `Content-Length` and
+ *   `x-fluidcad-integrity`. Anonymous readers and other accounts see
+ *   published versions only; the owner (the token's handle is the scope)
+ *   and admins see every state. A removed version answers 410
+ *   `version-removed`. {@link FakeHub.nextDownload} makes the next download
+ *   lie about its integrity or length, fail, or stall mid-body.
  *
  * Tell it what to do next with {@link FakeHub.mode}: `approve` (default),
  * `deny`, `expire` (approves, then refuses the exchange as expired), `fail`
@@ -41,6 +53,8 @@ export type FakeHubUser = {
   canPublish?: boolean;
   /** `Account.emailVerified`; true unless set. */
   emailVerified?: boolean;
+  /** `admin` reads every package's unpublished versions; `user` unless set. */
+  role?: 'user' | 'admin';
 };
 
 export type FakeHubVersionState = 'uploading' | 'draft' | 'in_review' | 'rejected' | 'published';
@@ -54,7 +68,34 @@ export type FakeHubVersion = {
   reviewNote?: string | null;
   submittedAt?: string | null;
   publishedAt?: string | null;
+  /** The `.fluidpkg` the archive route serves ({@link FakeHub.addArchive} sets it with its tree hash). */
+  archive?: Buffer | null;
+  /** The archive's `manifest.json`, parsed. */
+  manifest?: Record<string, unknown> | null;
+  engine?: string;
+  minEngine?: string;
+  sdkVersion?: number;
+  yanked?: { at: string; reason: string | null } | null;
+  removed?: { at: string; reason: string | null } | null;
 };
+
+/** What the next archive download does instead of answering the archive whole. */
+export type FakeHubDownloadPlan = {
+  error?: { status: number; code: string; message: string; details?: unknown };
+  /** Sent as `x-fluidcad-integrity` instead of the version's own. */
+  integrity?: string;
+  /** Sent as `Content-Length` instead of the archive's size. */
+  contentLength?: number;
+  /** Sent instead of the archive (with its own length unless `contentLength` says otherwise). */
+  bytes?: Buffer;
+  /** Send this many bytes, then nothing more, never ending the body. */
+  stallAfterBytes?: number;
+  /** Send this many bytes, then end the body short of its `Content-Length`. */
+  truncateAfterBytes?: number;
+};
+
+/** One archive download the hub served (or refused). */
+export type FakeHubDownload = { name: string; version: string; headers: http.IncomingHttpHeaders };
 
 export type FakeHubPackage = { status: 'active' | 'hidden' | 'removed'; versions: FakeHubVersion[] };
 
@@ -108,6 +149,10 @@ export class FakeHub {
   readonly uploads: FakeHubUpload[] = [];
   /** How the next `PUT` answers; used once. */
   nextUpload: FakeHubUploadPlan | null = null;
+  /** Every archive download asked for. */
+  readonly downloads: FakeHubDownload[] = [];
+  /** How the next archive download answers; used once. */
+  nextDownload: FakeHubDownloadPlan | null = null;
   /** Every request, in order. */
   readonly requests: FakeHubRequest[] = [];
   /** The `request` of every `/cli/done` visit. */
@@ -117,19 +162,21 @@ export class FakeHub {
   /** Statuses to answer the next requests to a path with, before answering for real. */
   private readonly failures = new Map<string, number[]>();
   private readonly server = http.createServer((req, res) => void this.handle(req, res));
+  /** Kept from the start, so a late answer after {@link stop} still knows its origin. */
+  private port = 0;
 
   private constructor() {}
 
   static async start(): Promise<FakeHub> {
     const hub = new FakeHub();
     await new Promise<void>((resolve) => hub.server.listen(0, '127.0.0.1', () => resolve()));
+    hub.port = (hub.server.address() as AddressInfo).port;
     return hub;
   }
 
   /** `http://127.0.0.1:<port>`. */
   get origin(): string {
-    const { port } = this.server.address() as AddressInfo;
-    return `http://127.0.0.1:${port}`;
+    return `http://127.0.0.1:${this.port}`;
   }
 
   async stop(): Promise<void> {
@@ -165,13 +212,56 @@ export class FakeHub {
     return this.requests.filter((request) => request.path === path);
   }
 
+  /**
+   * Holds `archive` (a `.fluidpkg`) as a version of the package its
+   * manifest names, published unless `row` says otherwise, with the tree
+   * hash of its files as its integrity and the manifest's engine fields.
+   * Answers the version row, which a test may change afterwards (yank it,
+   * remove it).
+   */
+  async addArchive(archive: Buffer, row: Partial<FakeHubVersion> = {}): Promise<FakeHubVersion> {
+    const zip = await JSZip.loadAsync(archive);
+    const files: Record<string, Uint8Array> = {};
+    for (const entry of Object.values(zip.files)) {
+      if (!entry.dir) {
+        files[entry.name] = await entry.async('uint8array');
+      }
+    }
+    const manifest = JSON.parse(Buffer.from(files['manifest.json']).toString('utf8')) as Record<string, unknown>;
+    const name = String(manifest.name);
+    const version: FakeHubVersion = {
+      version: String(manifest.version),
+      status: 'published',
+      integrity: TreeHash.ofFiles(files),
+      size: archive.length,
+      publishedAt: '2026-10-10T00:00:00.000Z',
+      archive,
+      manifest,
+      engine: String(manifest.engine),
+      minEngine: String(manifest.minEngine),
+      sdkVersion: Number(manifest.sdkVersion),
+      ...row,
+    };
+    const pkg = this.packages.get(name) ?? { status: 'active' as const, versions: [] };
+    pkg.versions.push(version);
+    this.packages.set(name, pkg);
+    return version;
+  }
+
+  /** The archive downloads of `name@version` asked for. */
+  downloadsOf(name: string, version: string): FakeHubDownload[] {
+    return this.downloads.filter((download) => download.name === name && download.version === version);
+  }
+
   /** Back to an empty hub: no packages, uploads or requests, the default user, no minimum CLI. */
   reset(): void {
     this.requests.length = 0;
     this.doneVisits.length = 0;
     this.uploads.length = 0;
+    this.downloads.length = 0;
     this.packages.clear();
     this.nextUpload = null;
+    this.nextDownload = null;
     this.minCliVersion = null;
     this.limits = {};
     this.mode = 'approve';
@@ -222,29 +312,42 @@ export class FakeHub {
       default: {
         const publish = FakeHub.PUBLISH_ROUTE.exec(url.pathname);
         if (publish) {
-          return this.publishRoute(req, res, url, bytes, `${decodeURIComponent(publish[1])}/${decodeURIComponent(publish[2])}`, publish[3] === undefined ? null : decodeURIComponent(publish[3]));
+          const name = `${decodeURIComponent(publish[1])}/${decodeURIComponent(publish[2])}`;
+          const version = publish[3] === undefined ? null : decodeURIComponent(publish[3]);
+          if (publish[4] !== undefined) {
+            return req.method === 'GET' ? this.archiveRoute(req, res, name, version!) : FakeHub.error(res, 404, 'not-found', 'No such route.');
+          }
+          return this.publishRoute(req, res, url, bytes, name, version);
         }
         return FakeHub.error(res, 404, 'not-found', 'No such route.');
       }
     }
   }
 
-  private static readonly PUBLISH_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)(?:\/versions\/([^/]+))?$/;
+  private static readonly PUBLISH_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)(?:\/versions\/([^/]+)(\/archive)?)?$/;
 
   private async publishRoute(req: http.IncomingMessage, res: http.ServerResponse, url: URL, bytes: Buffer, name: string, version: string | null): Promise<void> {
+    const pkg = this.packages.get(name);
+    const route = `${req.method} ${version === null ? 'package' : 'version'}`;
+    if (route === 'GET package' || route === 'GET version') {
+      const access = this.accessOf(req, name);
+      if (access === null) {
+        return FakeHub.error(res, 401, 'unauthorized', 'This API token is not valid. Sign in again with `fluidcad login`.');
+      }
+      if (route === 'GET package') {
+        return this.packageRead(res, url, name, pkg, access);
+      }
+      const row = this.visibleRow(res, name, version!, pkg, access);
+      if (row) {
+        FakeHub.json(res, 200, this.versionDetail(name, pkg!, row, access));
+      }
+      return;
+    }
     const token = this.bearer(req);
     if (!token) {
       return FakeHub.error(res, 401, 'unauthorized', 'This API token is not valid. Sign in again with `fluidcad login`.');
     }
-    const pkg = this.packages.get(name);
-    const route = `${req.method} ${version === null ? 'package' : 'version'}`;
     switch (route) {
-      case 'GET package':
-        return pkg ? FakeHub.json(res, 200, this.packageStatus(name, pkg)) : FakeHub.error(res, 404, 'not-found', `No package ${name}.`);
-      case 'GET version': {
-        const row = pkg?.versions.findLast((v) => v.version === version);
-        return row ? FakeHub.json(res, 200, this.versionStatus(name, row)) : FakeHub.error(res, 404, 'not-found', `No version ${name}@${version}.`);
-      }
       case 'PUT version':
         return this.upload(req, res, url, bytes, name, version!);
       case 'DELETE version': {
@@ -318,27 +421,235 @@ export class FakeHub {
     });
   }
 
-  /** `PackageStatus`, as the hub derives it from the version rows. */
-  private packageStatus(name: string, pkg: FakeHubPackage): Record<string, unknown> {
+  // The read routes (H7)
+
+  /** Who is reading: `owner` (the token's handle is the scope), `admin`, `public`; null for a token the hub refuses. */
+  private accessOf(req: http.IncomingMessage, name: string): 'public' | 'owner' | 'admin' | null {
+    if (!req.headers.authorization) {
+      return 'public';
+    }
+    const token = this.bearer(req);
+    if (!token) {
+      return null;
+    }
+    if (token.user.role === 'admin') {
+      return 'admin';
+    }
+    return token.user.handle !== null && name.startsWith(`@${token.user.handle}/`) ? 'owner' : 'public';
+  }
+
+  /** `GET /packages/@s/n[?engine=&sdk=]`: `PackageDetail`, or 404 when this reader may see nothing of it. */
+  private packageRead(res: http.ServerResponse, url: URL, name: string, pkg: FakeHubPackage | undefined, access: 'public' | 'owner' | 'admin'): void {
+    const engine = url.searchParams.get('engine');
+    const sdkText = url.searchParams.get('sdk');
+    if (engine !== null && !Semver.isValid(engine)) {
+      return FakeHub.error(res, 400, 'bad-request', `engine ${JSON.stringify(engine)} is not a version: send the engine's FluidCAD version, such as 0.0.46.`);
+    }
+    if (sdkText !== null && !/^\d{1,6}$/.test(sdkText)) {
+      return FakeHub.error(res, 400, 'bad-request', 'the SDK version is a whole number');
+    }
+    const publicReader = access === 'public';
+    const servable = pkg?.versions.some((v) => v.status === 'published' && !v.removed);
+    if (!pkg || (publicReader && (pkg.status !== 'active' || !servable))) {
+      return FakeHub.error(res, 404, 'not-found', `${name} doesn't exist.`);
+    }
+    const offer = engine !== null || sdkText !== null ? { engine, sdk: sdkText === null ? null : Number(sdkText) } : null;
+    FakeHub.json(res, 200, this.packageDetail(name, pkg, access, offer));
+  }
+
+  /** The version row this reader may see, or the refusal already answered (404, 410). */
+  private visibleRow(res: http.ServerResponse, name: string, version: string, pkg: FakeHubPackage | undefined, access: 'public' | 'owner' | 'admin'): FakeHubVersion | null {
+    const row = pkg?.versions.findLast((v) => v.version === version);
+    const publicReader = access === 'public';
+    if (!pkg || !row || (publicReader && (row.status !== 'published' || pkg.status === 'removed'))) {
+      FakeHub.error(res, 404, 'not-found', `${name}@${version} doesn't exist.`);
+      return null;
+    }
+    if (row.removed) {
+      FakeHub.json(res, 410, {
+        error: {
+          code: 'version-removed',
+          message: `${name}@${version} was removed by the hub's admins.`,
+          details: { reason: row.removed.reason, removedAt: row.removed.at },
+        },
+      });
+      return null;
+    }
+    return row;
+  }
+
+  /** `GET …/versions/v/archive`: the bytes, as {@link nextDownload} says. */
+  private async archiveRoute(req: http.IncomingMessage, res: http.ServerResponse, name: string, version: string): Promise<void> {
+    this.downloads.push({ name, version, headers: req.headers });
+    const access = this.accessOf(req, name);
+    if (access === null) {
+      return FakeHub.error(res, 401, 'unauthorized', 'This API token is not valid. Sign in again with `fluidcad login`.');
+    }
+    const plan = this.nextDownload ?? {};
+    this.nextDownload = null;
+    if (plan.error) {
+      const { status, code, message, details } = plan.error;
+      return FakeHub.json(res, status, { error: { code, message, ...(details === undefined ? {} : { details }) } });
+    }
+    const row = this.visibleRow(res, name, version, this.packages.get(name), access);
+    if (!row) {
+      return;
+    }
+    const archive = plan.bytes ?? row.archive;
+    if (!archive || row.status === 'rejected') {
+      return FakeHub.error(res, 404, 'not-found', `${name}@${version} has no archive.`);
+    }
+    res.writeHead(200, {
+      'content-type': 'application/vnd.fluidcad.package+zip',
+      'content-length': String(plan.contentLength ?? archive.length),
+      'x-fluidcad-integrity': plan.integrity ?? String(row.integrity ?? ''),
+      etag: `"${crypto.createHash('sha256').update(archive).digest('hex')}"`,
+    });
+    if (plan.stallAfterBytes !== undefined) {
+      // Some bytes, then silence on an open connection: `stop()` closes it.
+      res.write(archive.subarray(0, plan.stallAfterBytes));
+      return;
+    }
+    if (plan.truncateAfterBytes !== undefined) {
+      // After the headers and the first bytes have reached the client, so it can't retry before the body.
+      res.write(archive.subarray(0, plan.truncateAfterBytes));
+      setTimeout(() => res.destroy(), 50);
+      return;
+    }
+    res.end(archive);
+  }
+
+  /**
+   * `PackageDetail` (the hub's H7 shape, with the owner's `PackageStatus`
+   * fields), derived from the version rows: latest by HD11 (the highest
+   * release that is neither yanked nor removed, else the highest such
+   * prerelease), and `compatibility` for `offer`.
+   */
+  private packageDetail(
+    name: string,
+    pkg: FakeHubPackage,
+    access: 'public' | 'owner' | 'admin',
+    offer: { engine: string | null; sdk: number | null } | null,
+  ): Record<string, unknown> {
+    const owner = access !== 'public';
     const published = pkg.versions.filter((v) => v.status === 'published');
-    const byVersion = (a: FakeHubVersion, b: FakeHubVersion) => Semver.parse(a.version)!.compareTo(Semver.parse(b.version)!);
-    const highest = [...published].sort(byVersion).at(-1) ?? null;
-    const releases = published.filter((v) => !Semver.parse(v.version)!.isPrerelease);
-    const latest = [...(releases.length > 0 ? releases : published)].sort(byVersion).at(-1) ?? null;
+    const highest = [...published].sort(FakeHub.byVersion).at(-1) ?? null;
+    const latest = FakeHub.pickLatest(published);
     const open = pkg.versions.find((v) => v.status === 'draft' || v.status === 'in_review' || v.status === 'uploading') ?? null;
     const rejected = pkg.versions
       .filter((v) => v.status === 'rejected' && (!highest || Semver.parse(v.version)!.compareTo(Semver.parse(highest.version)!) > 0))
       .at(-1) ?? null;
+    const listed = (owner ? pkg.versions : published).slice().sort(FakeHub.byVersion).reverse();
+    let compatibility: Record<string, unknown> | null = null;
+    if (offer) {
+      const runs = (v: FakeHubVersion) => FakeHub.compatible(v, offer);
+      const newest = FakeHub.pickLatest(published.filter(runs));
+      compatibility = { engine: offer.engine, sdk: offer.sdk, latestCompatible: latest !== null && runs(latest), newestCompatible: newest?.version ?? null };
+    }
     return {
       name,
       status: pkg.status,
       highestVersion: highest?.version ?? null,
       latestVersion: latest?.version ?? null,
-      openVersion: open ? this.versionStatus(name, open) : null,
-      rejectedVersion: rejected ? this.versionStatus(name, rejected) : null,
+      openVersion: owner && open ? this.versionStatus(name, open) : null,
+      rejectedVersion: owner && rejected ? this.versionStatus(name, rejected) : null,
       createdAt: '2026-10-10T00:00:00.000Z',
       listing: { license: null, homepageUrl: null, repositoryUrl: null, media: [] },
+      access,
+      publisher: name.slice(1, name.indexOf('/')),
+      description: null,
+      keywords: [],
+      homepage: null,
+      deprecatedMessage: null,
+      counts: { installs: 0, likes: 0, comments: 0 },
+      latest: latest ? this.latestOf(name, latest) : null,
+      versions: listed.map((v) => this.versionSummary(v, latest)),
+      compatibility,
+      updatedAt: '2026-10-10T00:00:00.000Z',
     };
+  }
+
+  private latestOf(name: string, row: FakeHubVersion): Record<string, unknown> {
+    return {
+      version: row.version,
+      integrity: row.integrity ?? '',
+      size: row.size ?? 0,
+      unpackedSize: (row.size ?? 0) * 2,
+      engine: row.engine ?? '0.0.46',
+      minEngine: row.minEngine ?? '0.0.46',
+      sdkVersion: row.sdkVersion ?? 1,
+      unit: 'mm',
+      usesOcct: false,
+      notes: row.notes ?? '',
+      license: null,
+      publishedAt: row.publishedAt ?? null,
+      features: [],
+      models: [],
+      archiveUrl: this.archiveUrl(name, row.version),
+    };
+  }
+
+  private versionSummary(row: FakeHubVersion, latest: FakeHubVersion | null): Record<string, unknown> {
+    return {
+      version: row.version,
+      status: row.status,
+      prerelease: Semver.parse(row.version)!.isPrerelease,
+      integrity: row.integrity ?? null,
+      size: row.size ?? null,
+      engine: row.engine ?? null,
+      minEngine: row.minEngine ?? null,
+      sdkVersion: row.sdkVersion ?? null,
+      usesOcct: false,
+      notes: row.notes ?? '',
+      publishedAt: row.publishedAt ?? null,
+      yanked: row.yanked ?? null,
+      removed: row.removed ?? null,
+      isLatest: row === latest,
+    };
+  }
+
+  private versionDetail(name: string, pkg: FakeHubPackage, row: FakeHubVersion, access: 'public' | 'owner' | 'admin'): Record<string, unknown> {
+    const latest = FakeHub.pickLatest(pkg.versions.filter((v) => v.status === 'published'));
+    return {
+      ...this.versionStatus(name, row),
+      ...(access === 'public' ? { reviewNote: null, wizardUrl: null, reviewUrl: null, submittedAt: null, reviewedAt: null } : {}),
+      access,
+      engine: row.engine ?? null,
+      minEngine: row.minEngine ?? null,
+      sdkVersion: row.sdkVersion ?? null,
+      unit: 'mm',
+      manifest: row.manifest ?? null,
+      entries: [],
+      yanked: row.yanked ?? null,
+      isLatest: row === latest,
+      archiveUrl: row.archive && row.status !== 'rejected' && row.status !== 'uploading' ? this.archiveUrl(name, row.version) : null,
+    };
+  }
+
+  private archiveUrl(name: string, version: string): string {
+    return `${this.origin}/api/v1/packages/${name}/versions/${version}/archive`;
+  }
+
+  private static byVersion(a: FakeHubVersion, b: FakeHubVersion): number {
+    return Semver.parse(a.version)!.compareTo(Semver.parse(b.version)!);
+  }
+
+  /** HD11 over published rows: the highest release neither yanked nor removed, else the highest such prerelease. */
+  private static pickLatest(published: FakeHubVersion[]): FakeHubVersion | null {
+    const candidates = published.filter((v) => !v.yanked && !v.removed);
+    const releases = candidates.filter((v) => !Semver.parse(v.version)!.isPrerelease);
+    return [...(releases.length > 0 ? releases : candidates)].sort(FakeHub.byVersion).at(-1) ?? null;
+  }
+
+  /** The hub's `CatalogRules.isCompatible`: `minEngine` at most the engine, the same SDK; a field not offered isn't compared. */
+  private static compatible(row: FakeHubVersion, offer: { engine: string | null; sdk: number | null }): boolean {
+    if (offer.engine !== null) {
+      const minEngine = Semver.parse(row.minEngine ?? '0.0.0');
+      if (!minEngine || minEngine.compareTo(Semver.parse(offer.engine)!) > 0) {
+        return false;
+      }
+    }
+    return offer.sdk === null || (row.sdkVersion ?? 1) === offer.sdk;
   }
 
   private versionStatus(name: string, row: FakeHubVersion): Record<string, unknown> {

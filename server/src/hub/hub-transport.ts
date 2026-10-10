@@ -51,6 +51,12 @@ export type HubTransportRequest = {
   answerMs?: number;
   /** A streamed body: the bytes the request has taken so far, as it takes them. */
   onBodyProgress?: (sent: number) => void;
+  /**
+   * The caller's abort (a download's stall watchdog, a closed window). It
+   * also ends a response body still being read. A request it stops throws
+   * {@link HubRequestError.ABORTED}.
+   */
+  signal?: AbortSignal;
 };
 
 export class HubTransport {
@@ -107,8 +113,8 @@ export class HubTransport {
 
   /**
    * Sends one request and answers the hub's response, whatever its status.
-   * Throws a {@link HubRequestError} only when no response came: `timeout`
-   * or `network`.
+   * Throws a {@link HubRequestError} only when no response came: `timeout`,
+   * `network`, `stalled` (an upload), or `aborted` (the caller's signal).
    */
   async send(url: string, request: HubTransportRequest = {}): Promise<Response> {
     const method = (request.method ?? 'GET').toUpperCase();
@@ -136,6 +142,9 @@ export class HubTransport {
     if (watchdog) {
       signals.push(watchdog.signal);
     }
+    if (request.signal) {
+      signals.push(request.signal);
+    }
     // `duplex` isn't in the DOM's RequestInit yet; undici requires it for a stream body.
     const init: RequestInit & { duplex?: 'half' } = {
       method,
@@ -153,6 +162,9 @@ export class HubTransport {
       const origin = HubTransport.originOf(url);
       if (watchdog?.fired === 'sending') {
         throw new HubRequestError(0, HubRequestError.STALLED, `The upload to ${origin} stalled: nothing moved for ${HubTransport.duration(watchdog.stallMs)}.`, { cause: err });
+      }
+      if (request.signal?.aborted) {
+        throw new HubRequestError(0, HubRequestError.ABORTED, `The request to ${origin} was stopped.`, { cause: err });
       }
       if (watchdog?.fired === 'answering') {
         throw new HubRequestError(0, HubRequestError.TIMEOUT, `${origin} didn't answer within ${HubTransport.duration(watchdog.answerMs)} of the upload's last byte.`, { cause: err });

@@ -168,7 +168,7 @@ describe('a project\'s pins decide what @acme/kit loads', () => {
     expect(server.getPackageProblems()).toEqual([{ code: 'missing', name: '@acme/kit', version: '0.1.0', message: sentence }]);
     expect(PackagePins.problems(project.root)).toEqual([{ code: 'missing', name: '@acme/kit', version: '0.1.0', message: sentence }]);
     expect(PackagePins.describeProblems(project.root)).toEqual([
-      `FluidCAD: ${sentence} Install it with \`fluidcad install <file.fluidpkg>\`.`,
+      `FluidCAD: ${sentence} \`fluidcad install @acme/kit@0.1.0\` downloads it from the hub (\`fluidcad install\` alone fetches every missing one), or install it from a file.`,
     ]);
 
     // Put back, it renders again with no restart.

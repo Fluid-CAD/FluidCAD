@@ -2,7 +2,7 @@ import os from 'os';
 import { readPackageVersion } from './workspace.js';
 
 /**
- * Shared by `login`, `logout`, `whoami` and `publish`: the compiled hub classes they
+ * Shared by `login`, `logout`, `whoami`, `publish` and `install`: the compiled hub classes they
  * wrap, and how they talk to the terminal. The rules — which hub, which
  * token, the sign-in flow — live in the server's `server/src/hub/`, typed
  * and tested there; these commands are the terminal around them.

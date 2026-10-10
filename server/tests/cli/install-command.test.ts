@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import { spawnSync } from 'child_process';
 import fs from 'fs';
+import net from 'net';
 import os from 'os';
 import path from 'path';
 import { ArchiveFixture } from '../packages/archive-fixture.ts';
@@ -13,7 +14,10 @@ import { ArchiveFixture } from '../packages/archive-fixture.ts';
  * covered against the sources in `server/tests/packages/package-installer.test.ts`.
  *
  * FLUIDCAD_PACKAGES, FLUIDCAD_HOME and the preferences' HOME all point at
- * temp folders: nothing reaches the user's library or settings.
+ * temp folders: nothing reaches the user's library or settings. The hub is
+ * a local port nothing listens on (an offline hub), so what isn't in the
+ * library fails clearly without any network; the hub installs are in
+ * `install-hub-command.test.ts`.
  */
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
@@ -25,6 +29,7 @@ let project: string;
 let outside: string;
 let library: string;
 let kit: string;
+let offlineHub: string;
 
 function cli(cwd: string, ...args: string[]): { status: number | null; stdout: string; stderr: string } {
   const home = path.join(tmp, 'home');
@@ -33,6 +38,12 @@ function cli(cwd: string, ...args: string[]): { status: number | null; stdout: s
     encoding: 'utf8',
     env: {
       ...process.env,
+      FLUIDCAD_HUB_URL: offlineHub,
+      FLUIDCAD_HUB_TOKEN: '',
+      HTTPS_PROXY: '',
+      HTTP_PROXY: '',
+      https_proxy: '',
+      http_proxy: '',
       FLUIDCAD_PACKAGES: library,
       FLUIDCAD_HOME: path.join(tmp, 'fluidcad-home'),
       HOME: home,
@@ -67,8 +78,12 @@ function writable(dir: string): void {
 
 const installedKit = () => path.join(library, '@acme', 'kit', '0.1.0');
 
-beforeAll(() => {
+beforeAll(async () => {
   expect(fs.existsSync(COMPILED), 'server/dist is not built: run `npm run build:server`').toBe(true);
+  const server = net.createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  offlineHub = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}`;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
 beforeEach(async () => {
@@ -210,14 +225,21 @@ describe('fluidcad install <@scope/name>', () => {
     expect(copied.stdout).toContain('This project already pins @acme/kit 0.1.0.');
   });
 
-  it('refuses a name the library does not have, and outside a project', () => {
+  it('with the hub offline, still pins what the library has, and says clearly why the rest fails', () => {
+    cli(outside, 'install', kit, '--yes');
+    const pinned = cli(project, 'install', '@acme/kit');
+    expect(pinned.status).toBe(0);
+    expect(pinned.stdout).toContain('Pinned @acme/kit 0.1.0');
+
     const missing = cli(project, 'install', '@acme/gears');
     expect(missing.status).toBe(1);
-    expect(missing.stderr).toContain("@acme/gears isn't in your library — install it from a file.");
+    expect(missing.stderr).toContain(`Couldn't reach ${offlineHub}: ECONNREFUSED.`);
+    expect(missing.stderr).toContain('a package already in your library installs without the hub, and `fluidcad install <file.fluidpkg>` installs from a file.');
+    expect(config().dependencies['@acme/gears']).toBeUndefined();
 
-    const nowhere = cli(outside, 'install', '@acme/kit');
-    expect(nowhere.status).toBe(1);
-    expect(nowhere.stderr).toContain('in a project: it pins the package there');
+    const already = cli(outside, 'install', '@acme/kit@0.1.0');
+    expect(already.status).toBe(0);
+    expect(already.stdout).toContain(`@acme/kit 0.1.0 is already in your library (${installedKit()}).`);
   });
 });
 
@@ -235,8 +257,8 @@ describe('fluidcad install (no arguments)', () => {
     fs.writeFileSync(path.join(project, 'fluidcad.json'), JSON.stringify(pins, null, 2));
     const missing = cli(project, 'install');
     expect(missing.status).toBe(1);
-    expect(missing.stderr).toContain("This project pins a package that isn't installed:\n  @acme/gears 1.2.0\n");
-    expect(missing.stderr).toContain('fluidcad install <file.fluidpkg>');
+    expect(missing.stdout).toContain(`This project pins 1 package that isn't installed; downloading from ${offlineHub}.`);
+    expect(missing.stderr).toContain(`Couldn't install 1 package:\n  @acme/gears 1.2.0: Couldn't reach ${offlineHub}: ECONNREFUSED.`);
   });
 
   it('outside a project says where to run it', () => {

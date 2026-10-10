@@ -1,3 +1,5 @@
+import { confirm, isInteractive } from './prompt.js';
+
 /**
  * Shared by `install`, `remove` and `packages`: the compiled server classes
  * they wrap, and how a package is printed. The rules — roots, inspection,
@@ -28,9 +30,13 @@ export async function loadPackages() {
   };
 }
 
-/** A refusal one of the package classes words for the user: print it and exit 1. Anything else is rethrown. */
+/**
+ * A refusal one of the package classes (or, for an install from the hub, the
+ * hub classes) words for the user: print it and exit 1. Anything else is
+ * rethrown.
+ */
 export function exitOnRefusal(err, mods) {
-  const refusals = [mods.PackageArchiveError, mods.PackageInstallError, mods.PackagePinError];
+  const refusals = [mods.PackageArchiveError, mods.PackageInstallError, mods.PackagePinError, mods.HubInstallError, mods.HubConfigError, mods.HubRequestError].filter(Boolean);
   if (refusals.some((type) => err instanceof type)) {
     console.error(err.message);
     process.exit(1);
@@ -38,8 +44,13 @@ export function exitOnRefusal(err, mods) {
   throw err;
 }
 
-/** The consent summary (research §3, "The install flow"): what the package is, what it needs, and what installing it means. */
-export function printConsentSummary(inspection) {
+/**
+ * The consent summary (research §3, "The install flow"): what the package
+ * is, what it needs, and what installing it means. `notes` are what the
+ * hub's resolution has to say (a yanked or unpublished version, an older
+ * version picked for this engine), shown with the warnings.
+ */
+export function printConsentSummary(inspection, notes = []) {
   const { manifest, warnings, bytes, integrity } = inspection;
   console.log(`${manifest.name} ${manifest.version}${manifest.description ? ` — ${manifest.description}` : ''}`);
   const features = manifest.features.map((f) => (f.meta?.label ? `${f.id} (${f.meta.label})` : f.id));
@@ -48,10 +59,50 @@ export function printConsentSummary(inspection) {
   console.log(`  ${count(parts.length, 'part')}${parts.length ? `: ${parts.join(', ')}` : ''}`);
   console.log(`  needs FluidCAD ${manifest.minEngine} or newer (packed on ${manifest.engine})`);
   console.log(`  ${count(manifest.files.length + 1, 'file')}, ${size(bytes)}, ${integrity}`);
+  for (const note of notes) {
+    console.log(`  ! ${note}`);
+  }
   for (const warning of warnings) {
     console.log(`  ! ${warning.message}`);
   }
   console.log("A package's code runs in the FluidCAD engine with your permissions. Install only packages you trust.");
+}
+
+/** Asks before anything is installed; without a terminal, only `--yes` consents. */
+export async function consented(question = 'Install it?') {
+  if (!isInteractive()) {
+    console.error('Pass --yes to install without being asked.');
+    return false;
+  }
+  return confirm(question);
+}
+
+/** What an install did, on one line. */
+export function installedLine(mods, result) {
+  const where = describeTarget(mods, result.target, result.directory);
+  switch (result.status) {
+    case 'unchanged':
+      return `${result.name} ${result.version} is already in ${where}, with the same contents: nothing changed.`;
+    case 'replaced':
+      return `Replaced ${result.name} ${result.version} in ${where}.`;
+    default:
+      return `Installed ${result.name} ${result.version} into ${where}.`;
+  }
+}
+
+/** What an install did to the project's pin. */
+export function printPin(pin, name, version, from = null) {
+  if (pin === 'pinned') {
+    console.log(`Pinned ${name} ${version} in this project's fluidcad.json${from === 'library' ? ' (it loads from your library)' : ''}.`);
+  } else if (pin === 'unchanged') {
+    console.log(`This project already pins ${name} ${version}.`);
+  }
+}
+
+/** The "New packages go to" setting; the project only when there is one. */
+export async function preferredTarget(mods, project) {
+  const preferred = (await mods.loadPreferences()).packageInstallTarget;
+  return preferred === 'project' && project ? 'project' : 'library';
 }
 
 /** One installed package on one line: name, version, contents, size. */

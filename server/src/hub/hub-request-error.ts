@@ -7,8 +7,9 @@
  *   `invalid-grant`).
  * - An answer that isn't the hub's error shape (a proxy's 502 page) has
  *   the code `unexpected-response`.
- * - No answer at all has status 0 and the code `network`, `timeout`, or
- *   `stalled` (an upload nothing moved on for the stall limit).
+ * - No answer at all has status 0 and the code `network`, `timeout`,
+ *   `stalled` (a transfer nothing moved on for the stall limit), or
+ *   `aborted` (the caller stopped it).
  */
 
 export type HubRequestErrorCode = string;
@@ -17,6 +18,8 @@ export class HubRequestError extends Error {
   static readonly NETWORK = 'network';
   static readonly TIMEOUT = 'timeout';
   static readonly STALLED = 'stalled';
+  /** The caller's signal stopped the request (a closed window, a download's stall watchdog). */
+  static readonly ABORTED = 'aborted';
   static readonly UNEXPECTED = 'unexpected-response';
 
   readonly status: number;

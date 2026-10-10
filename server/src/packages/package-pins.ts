@@ -142,10 +142,14 @@ export class PackagePins {
     }));
   }
 
-  /** The startup warnings for {@link problems}: one line per missing package. */
+  /**
+   * The startup warnings for {@link problems}: one line per missing package,
+   * naming the command that downloads it from the hub (hub-plan H8).
+   */
   static describeProblems(project: string | null): string[] {
     return PackagePins.problems(project).map((problem) =>
-      `FluidCAD: ${problem.message} Install it with \`fluidcad install <file.fluidpkg>\`.`);
+      `FluidCAD: ${problem.message} \`fluidcad install ${problem.name}@${problem.version}\` downloads it from the hub ` +
+      '(`fluidcad install` alone fetches every missing one), or install it from a file.');
   }
 
   /** The sentence for a pin installed in neither root (research §3), shared with the engine's resolver. */

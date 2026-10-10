@@ -1,8 +1,13 @@
 /**
- * Ends a streamed upload that stops moving: GH #80's stall watchdog, for the
- * way up. Each chunk the request takes from the body re-arms it; once the
- * last byte is taken, it waits {@link answerMs} for the hub's answer, which
- * comes after the hub has checked the whole archive.
+ * Ends a transfer that stops moving: GH #80's stall watchdog.
+ *
+ * - **Up** ({@link meter}): each chunk the request takes from the body
+ *   re-arms it; once the last byte is taken, it waits {@link answerMs} for
+ *   the hub's answer, which comes after the hub has checked the whole
+ *   archive.
+ * - **Down** ({@link receive}, then {@link touch} for each chunk read): it
+ *   is armed from the moment the request leaves, so a hub that never
+ *   answers stalls too, and every chunk read re-arms it.
  *
  * It is not a total limit: a slow upload that keeps moving goes on, bounded
  * only by the request's own total limit. Undici takes the next chunk only
@@ -10,7 +15,7 @@
  * the watchdog fires.
  */
 
-export type StallPhase = 'sending' | 'answering';
+export type StallPhase = 'sending' | 'answering' | 'receiving';
 
 export class StallWatchdog {
   readonly stallMs: number;
@@ -66,6 +71,17 @@ export class StallWatchdog {
     });
   }
 
+  /** Starts watching a download: from now on, {@link stallMs} without a {@link touch} fires it. */
+  receive(): void {
+    this.current = 'receiving';
+    this.arm();
+  }
+
+  /** Something moved (a chunk of a download was read): the clock starts again. */
+  touch(): void {
+    this.arm();
+  }
+
   /** Stops watching: the answer came, or the request failed on its own. */
   stop(): void {
     if (this.timer) {
@@ -84,6 +100,6 @@ export class StallWatchdog {
       this.timer = null;
       this.firedIn = phase;
       this.controller.abort();
-    }, phase === 'sending' ? this.stallMs : this.answerMs);
+    }, phase === 'answering' ? this.answerMs : this.stallMs);
   }
 }

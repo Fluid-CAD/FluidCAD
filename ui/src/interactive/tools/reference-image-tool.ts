@@ -102,6 +102,8 @@ export class ReferenceImageTool extends SketchTool {
     this.refreshPreview();
   }
 
+  // No `handleEscape`: the toolbar's Escape deactivates the tool, and
+  // deactivation drops the preview — the same exit Cancel takes.
   protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
@@ -117,11 +119,6 @@ export class ReferenceImageTool extends SketchTool {
     if (current?.pixel && !this.chosen) {
       this.panel.setPixelSize(current.pixel);
     }
-  }
-
-  handleEscape(): boolean {
-    this.cancel();
-    return true;
   }
 
   // ------------------------------------------------------------- viewport

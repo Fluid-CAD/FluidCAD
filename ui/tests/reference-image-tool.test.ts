@@ -164,7 +164,7 @@ describe('ReferenceImageTool', () => {
     expect(field('apply').disabled).toBe(false);
   });
 
-  it('Remove writes null; Cancel and Escape drop the preview and exit', async () => {
+  it('Remove writes null; Cancel drops the preview and exits through the toolbar, never on its own', async () => {
     const { tool, commit, host, onRequestExit, field } = makeTool({ current: { spec: { src: 'images/a.png', width: 80, at: [0, 0], angle: 0, opacity: 0.5 }, pixel: null } });
     tool.onActivate();
     field('remove').click();
@@ -176,8 +176,9 @@ describe('ReferenceImageTool', () => {
     field('exit').click();
     expect(host.clearPreview).toHaveBeenCalledTimes(2);
     expect(onRequestExit).toHaveBeenCalledTimes(2);
-    expect(tool.handleEscape()).toBe(true);
-    expect(onRequestExit).toHaveBeenCalledTimes(3);
+    // The toolbar's deselect asks the tool about Escape first and would
+    // loop if the tool answered by exiting again — so it has no such hook.
+    expect(tool.handleEscape).toBeUndefined();
   });
 
   it('deactivating frees the chosen picture and clears the preview', async () => {

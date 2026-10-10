@@ -4,7 +4,7 @@ title: sketch(plane | face, sketcher)
 summary: Opens a 2D sketching context on a plane or a face. Geometry is drawn at guess positions and solved against constraints. The active sketch is the implicit input to extrude/cut/revolve/sweep/loft.
 tags: [api, 2d, primitive]
 symbols: [sketch, origin, xAxis, yAxis]
-seeAlso: [api/extrude, api/constraints, concepts/last-selection, concepts/scene-graph]
+seeAlso: [api/extrude, api/constraints, api/image, concepts/last-selection, concepts/scene-graph]
 ---
 
 # sketch
@@ -106,37 +106,9 @@ With `region()` declarations the same sketch drives one feature per region
 
 ## Reference image
 
-`.image(src, options)` attaches a picture (a drawing, a photo, a scan) that
-the editor draws on the sketch plane, faded, under the sketch's own lines,
-whenever the sketch is edited — something to trace. It is editor metadata:
-geometry, solving and consumption never read it. `src` is a path relative
-to the model file (png, jpeg, webp, gif or bmp; the sketch toolbar's Image
-tool uploads the file to `images/` beside the model and writes this chain).
-
-```fluid.js
-import { circle, origin, sketch } from "fluidcad/core";
-import { coincident, diameter } from "fluidcad/constraints";
-
-sketch("xy", () => {
-  const c = circle([0, 0], 40);
-  coincident(c.center(), origin());
-  diameter(c, 40);
-}).image("images/side-view.png", { width: 120, at: [10, 0], angle: 0, opacity: 0.4 });
-```
-
-| option    | meaning                                                                  | default |
-|-----------|--------------------------------------------------------------------------|---------|
-| `width`   | the picture's width on the plane, document units                         | —       |
-| `height`  | its height; one of the two is enough (the other follows the pixel aspect), both stretch | from aspect |
-| `at`      | sketch-plane position of the picture's centre                            | `[0, 0]` |
-| `angle`   | rotation about the plane normal, degrees counter-clockwise               | `0`     |
-| `opacity` | 0 (invisible) … 1 (solid)                                                | `0.5`   |
-
-The size is how a known dimension scales the picture: give the real width
-(or height) of what it shows. A missing size, a non-positive one, an
-opacity outside 0…1 or a malformed `at` fails the statement. A later
-`.image()` on the same sketch replaces the earlier one; it composes with
-`.close()` and `.name()` in any order.
+To trace a drawing, a photo or a scan, write `image(src, { width })` first
+in the sketch callback — see `api/image`. It is an editor-only statement
+with its own timeline row; the sketch's geometry never reads it.
 
 ## Sketching on a face
 

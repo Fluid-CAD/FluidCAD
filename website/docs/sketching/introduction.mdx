@@ -111,6 +111,26 @@ The sketch toolbar holds the drawing tools ([Line, Polyline, Bezier, Circle, Pol
 - <kbd>Esc</kbd> leaves the active tool. Typed coordinates clear first, then the tool.
 - **Dragging.** Geometry that still has freedom can be dragged; the solver re-solves live while you drag, honouring every constraint.
 
+## Reference image
+
+To trace a drawing, a photo or a scan, click **Image** on the sketch toolbar. The **Reference image** dialog puts a picture on the sketch plane, faded, under everything you draw:
+
+![The Reference image dialog](/img/docs/ui/reference-image-dialog.png)
+
+1. **Choose image…** picks a PNG, JPEG, WebP, GIF or BMP file. The picture appears in the viewport at once, and its name and pixel size show under the button.
+2. Scale it from a dimension you know: type the real **Width** (or **Height**) of what the picture shows. With **Lock aspect** on, the other side follows the picture's proportions; turn it off to stretch.
+3. Place it with **Centre X / Y**, or click in the viewport to drop the centre there (snapping applies). **Angle** turns it about the plane.
+4. **Opacity** is how faded it draws — a reference should sit behind your lines, not compete with them.
+5. **Apply** writes the picture into the model: the file is copied to an `images/` folder beside the model, and the sketch statement gains an `.image()` chain:
+
+```js
+sketch("xy", () => {
+    // …
+}).image('images/side-view.png', { width: 120, at: [10, 0], angle: 0, opacity: 0.4 })
+```
+
+The picture comes back whenever that sketch is edited again, in any editor, and it leaves the viewport when the sketch is finished. Reopen the dialog to change it; **Remove** takes the chain off. Sizes and the centre are in the document unit; the options are described on the [`sketch()` API page](/docs/api/features/sketch).
+
 ## Keyboard shortcuts
 
 Every drawing tool and every constraint button has a letter shortcut, shown in its tooltip. Press the letters with nothing focused; a two-letter chord is typed one key after the other. A single letter that also starts a chord (<kbd>c</kbd> is Circle, <kbd>cc</kbd> Coincident) fires after a short pause or as soon as the next key rules the chord out.

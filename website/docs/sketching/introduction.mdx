@@ -113,23 +113,23 @@ The sketch toolbar holds the drawing tools ([Line, Polyline, Bezier, Circle, Pol
 
 ## Reference image
 
-To trace a drawing, a photo or a scan, click **Image** on the sketch toolbar. The **Reference image** dialog puts a picture on the sketch plane, faded, under everything you draw:
+To trace a drawing, a photo or a scan, click **Image** on the sketch toolbar. The **Reference image** dialog puts a picture on the sketch plane, faded, under everything you draw, and the picture itself is placed by hand in the viewport:
 
 ![The Reference image dialog](/img/docs/ui/reference-image-dialog.png)
 
-1. **Choose image…** picks a PNG, JPEG, WebP, GIF or BMP file. The picture appears in the viewport at once, and its name and pixel size show under the button.
-2. Scale it from a dimension you know: type the real **Width** (or **Height**) of what the picture shows. With **Lock aspect** on, the other side follows the picture's proportions; turn it off to stretch.
-3. Place it with **Centre X / Y**, or click in the viewport to drop the centre there (snapping applies). **Angle** turns it about the plane.
+1. **Choose image…** picks a PNG, JPEG, WebP, GIF or BMP file. The picture appears in the viewport at once, half the view wide, with a frame around it.
+2. **Drag the picture** to move it. **Drag a corner** to resize it about the opposite corner; the proportions hold unless you hold <kbd>Shift</kbd>, which stretches. **Drag the knob** above the top edge to rotate; <kbd>Shift</kbd> snaps to 15°. The dialog reads out the size, centre and angle as you go.
+3. **Calibrate…** scales the picture from a dimension you know: click two points on it (a hole's edges, the ends of a dimension line) and type the real distance between them. The picture scales about its centre so the points sit that far apart.
 4. **Opacity** is how faded it draws — a reference should sit behind your lines, not compete with them.
 5. **Apply** writes the picture into the model: the file is copied to an `images/` folder beside the model, and the sketch statement gains an `.image()` chain:
 
 ```js
 sketch("xy", () => {
     // …
-}).image('images/side-view.png', { width: 120, at: [10, 0], angle: 0, opacity: 0.4 })
+}).image('images/side-view.png', { width: 120, at: [10, 0], angle: 15, opacity: 0.4 })
 ```
 
-The picture comes back whenever that sketch is edited again, in any editor, and it leaves the viewport when the sketch is finished. Reopen the dialog to change it; **Remove** takes the chain off. Sizes and the centre are in the document unit; the options are described on the [`sketch()` API page](/docs/api/features/sketch).
+The picture comes back whenever that sketch is edited again, in any editor, and it leaves the viewport when the sketch is finished. Reopen the dialog to move or rescale it; **Remove** takes the chain off. <kbd>Esc</kbd> folds a calibration or a drag in progress first, then the tool. Sizes and the centre are in the document unit; the options are described on the [`sketch()` API page](/docs/api/features/sketch).
 
 ## Keyboard shortcuts
 

@@ -140,19 +140,19 @@ Saving the module's code rebuilds its statements in every model that read it, wi
 
 Do this only when the user wants the feature in other projects or for other people; a feature used in its own workspace needs no package. A package is the workspace's own `fluidcad.json` with a `package` block, packed into one `.fluidpkg` file (`read_doc concepts/packages`).
 
-1. **The block.** With a shell, `npx fluidcad package init --name @acme/vent-hardware` in the workspace writes it: version `0.1.0`, every `*.feature.js` as an export. Without one, add it to `fluidcad.json` with `write_file`, keeping every other key (`engine`, `unit`, `materials`):
+1. **The layout.** The folders decide what a package exports: every `*.feature.js` in `features/`, every `*.part.js` (or `*.fluid.js`) in `parts/` and every `*.assembly.js` in `assemblies/`, nested folders allowed. Move each feature module into `features/` with its images (they resolve next to the module, so `./vent-grid.svg` keeps working), and a part or assembly that should travel into `parts/` or `assemblies/`; its imports become relative to the folders (`import { ventGrid } from '../features/vent-grid.feature.js'`). Plain `.js` helpers can sit in any of the three, never at the root: pack refuses an import that leaves them (`outside-layout`) and a module in the wrong folder for its suffix (`wrong-folder`). A test part that should not travel stays outside the three folders, at the root, and imports `./features/vent-grid.feature.js`. A package needs at least one part or assembly to be published on the hub; a features-only package still packs and installs.
+2. **The block.** With a shell, `npx fluidcad package init --name @acme/vent-hardware` in the workspace writes it: the name and version `0.1.0`, and it says what the folders hold. Without one, add it to `fluidcad.json` with `write_file`, keeping every other key (`engine`, `unit`, `materials`):
    ```json
    "package": {
      "name": "@acme/vent-hardware",
      "version": "0.1.0",
-     "description": "A vent grid for enclosure panels",
-     "exports": ["vent-grid.feature.js"]
+     "description": "A vent grid for enclosure panels"
    }
    ```
-   The name is `@scope/name` in lowercase letters, digits and dashes, and every feature id must start with the scope (`acme.ventGrid` in `@acme/…`). `exports` lists only what is shared: the feature modules, plus a `*.part.js` only when its parts should travel too. The test part stays out.
-2. **`pack`** with `saveAsPath` set to an absolute path named as the result's `fileName` (`acme-vent-hardware-0.1.0.fluidpkg`), outside the workspace unless the user asked for it there. The engine evaluates every export and builds every exported part first; `pack-refused` carries one sentence naming the file (an id outside the scope, a missing image, an import from node_modules or another package, a part that fails to build, unsaved editor changes). Fix that file and pack again.
-3. **Report** the package name, version, `savedTo` and what it holds (the features and parts the result lists). Tell the user how it is used: `npx fluidcad install <file>` or **Install package…** in the UI installs it into their library, and a model imports it by name, `import { ventGrid } from '@acme/vent-hardware'`. Never install it yourself into the user's library; to try the archive, install it with `FLUIDCAD_PACKAGES` set to a scratch folder.
-4. **A new version:** edit the module, raise `package.version` (`npx fluidcad version minor`, or edit the block), and `pack` again. An installed version never changes, so a fix to a released version is always a new version.
+   The name is `@scope/name` in lowercase letters, digits and dashes, and every feature id must start with the scope (`acme.ventGrid` in `@acme/…`). There is no `exports` key: a block that has one is refused.
+3. **`pack`** with `saveAsPath` set to an absolute path named as the result's `fileName` (`acme-vent-hardware-0.1.0.fluidpkg`), outside the workspace unless the user asked for it there. The engine evaluates every export and builds every part and assembly first; `pack-refused` carries one sentence naming the file and a `details.code` (`wrong-folder`, `outside-layout`, `no-exports`, or `refused` for an id outside the scope, a missing image, an import from node_modules or another package, a part that fails to build, unsaved editor changes). Fix that file and pack again.
+4. **Report** the package name, version, `savedTo` and what it holds (the result's `contents`: the features, parts and assemblies by folder). Tell the user how it is used: `npx fluidcad install <file>` or **Install package…** in the UI installs it into their library, and a model imports it by name, `import { ventGrid } from '@acme/vent-hardware'`. Never install it yourself into the user's library; to try the archive, install it with `FLUIDCAD_PACKAGES` set to a scratch folder.
+5. **A new version:** edit the module, raise `package.version` (`npx fluidcad version minor`, or edit the block), and `pack` again. An installed version never changes, so a fix to a released version is always a new version.
 
 ## 9. Report only what was checked
 
@@ -167,5 +167,5 @@ Report the design (section 2), what you rendered, validated, measured and resolv
 5. `write_file` a recognisable test part that uses it as a user would.
 6. `render.state`, `objectErrors`, `validate`, `screenshot`, `measure`, `resolve_selection` on its buckets; typecheck and the catalog when a shell is available.
 7. Iterate on the module: each write re-renders the open model (`render.openModel`).
-8. When it should travel: the `package` block in `fluidcad.json`, then `pack` with `saveAsPath` (section 8).
+8. When it should travel: the modules into `features/`, `parts/` and `assemblies/`, the `package` block in `fluidcad.json`, then `pack` with `saveAsPath` (section 8).
 9. Report what was checked, and what was not.

@@ -374,22 +374,30 @@ describe('export', () => {
 
 describe('pack', () => {
   const archive = Buffer.from('PK\u0003\u0004 a package archive');
+  const contents = {
+    features: [{ id: 'acme.standoff', exportName: 'standoff', module: 'features/standoff.feature.js', usesOcct: false }],
+    parts: [{ exportName: 'spacer', name: 'Spacer', module: 'parts/spacer.part.js', params: 1 }],
+    assemblies: [],
+    models: 1,
+  };
   const archiveReply = () => ({
     status: 200,
-    body: archive,
-    headers: {
-      'content-type': 'application/zip',
-      'x-fluidcad-package-name': '@acme/kit',
-      'x-fluidcad-package-version': '0.1.0',
-      'content-disposition': 'attachment; filename="acme-kit-0.1.0.fluidpkg"',
-    },
+    body: Buffer.from(JSON.stringify({
+      packageName: '@acme/kit',
+      version: '0.1.0',
+      fileName: 'acme-kit-0.1.0.fluidpkg',
+      bytes: archive.length,
+      contents,
+      archive: archive.toString('base64'),
+    })),
+    headers: { 'content-type': 'application/json' },
   });
 
   afterEach(() => {
     packReply = null;
   });
 
-  it('saveAsPath: writes the archive there and returns savedTo with the package identity', async () => {
+  it('saveAsPath: writes the archive there and returns savedTo with the package identity and contents', async () => {
     packReply = archiveReply();
     const out = path.join(workspace, 'acme-kit-0.1.0.fluidpkg');
     const result = await packPackage({ saveAsPath: out });
@@ -401,35 +409,44 @@ describe('pack', () => {
         packageName: '@acme/kit',
         version: '0.1.0',
         fileName: 'acme-kit-0.1.0.fluidpkg',
+        contents,
       },
     });
     expect(fs.readFileSync(out).equals(archive)).toBe(true);
     const request = requests.find((r) => r.url === '/api/pack')!;
     expect(request.method).toBe('POST');
+    // The JSON form of the route: the archive beside its contents by folder.
+    expect(JSON.parse(request.body)).toEqual({ format: 'json' });
   });
 
-  it('without saveAsPath returns the archive inline as base64', async () => {
+  it('without saveAsPath returns the archive inline as base64, with the contents', async () => {
     packReply = archiveReply();
     const result = await packPackage({});
     expect(result.ok).toBe(true);
     if (!result.ok) { return; }
-    const data = result.data as { mimeType: string; base64: string; bytes: number; fileName: string };
+    const data = result.data as { mimeType: string; base64: string; bytes: number; fileName: string; contents: unknown };
     expect(data.mimeType).toBe('application/zip');
     expect(Buffer.from(data.base64, 'base64').equals(archive)).toBe(true);
     expect(data.bytes).toBe(archive.length);
     expect(data.fileName).toBe('acme-kit-0.1.0.fluidpkg');
+    expect(data.contents).toEqual(contents);
   });
 
-  it('turns the packer\'s refusal into pack-refused, with its sentence, and writes nothing', async () => {
-    const sentence = "This workspace isn't a package — run `fluidcad package init` first.";
+  it('turns the packer\'s refusal into pack-refused, with its sentence and code, and writes nothing', async () => {
+    const sentence = 'features/spacer.part.js is a part in features/, but parts belong in parts/: move it there.';
     packReply = {
       status: 400,
-      body: Buffer.from(JSON.stringify({ error: sentence })),
+      body: Buffer.from(JSON.stringify({ error: sentence, code: 'wrong-folder' })),
       headers: { 'content-type': 'application/json' },
     };
     const out = path.join(workspace, 'never.fluidpkg');
     const result = await packPackage({ saveAsPath: out });
-    expect(result).toEqual({ ok: false, code: 'pack-refused', message: sentence, details: { statusCode: 400 } });
+    expect(result).toEqual({
+      ok: false,
+      code: 'pack-refused',
+      message: sentence,
+      details: { statusCode: 400, code: 'wrong-folder' },
+    });
     expect(fs.existsSync(out)).toBe(false);
   });
 

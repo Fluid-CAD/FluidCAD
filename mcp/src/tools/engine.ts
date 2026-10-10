@@ -10,6 +10,8 @@ import { resolveClient, type WorkspaceArg } from './inspection.ts';
 import { FluidCadClient, HttpError } from '../client.ts';
 import { err, ok, type ToolResult } from '../types.ts';
 import type { ObjectBuildError, RenderChanges } from './source.ts';
+import type { PackageContents } from '../../../server/dist/packages/package-manifest.js';
+import type { PackJsonResponse } from '../../../server/dist/routes/pack.js';
 
 /**
  * Shared shape of the scene-mutating routes: the render ran, but individual
@@ -201,17 +203,24 @@ export type PackInput = WorkspaceArg & {
   saveAsPath?: string;
 };
 
-/** The archive's identity, read off the route's headers. */
-type PackIdentity = { packageName: string; version: string; fileName: string };
+/**
+ * The archive's identity, and what it holds by folder: the features in
+ * `features/`, the parts in `parts/`, the assemblies in `assemblies/`, and
+ * `models` (parts + assemblies). `contents` is what `fluidcad pack --json`
+ * prints under the same key.
+ */
+type PackIdentity = { packageName: string; version: string; fileName: string; contents: PackageContents };
 
 export type PackOutput =
   | ({ savedTo: string; bytesWritten: number } & PackIdentity)
   | ({ mimeType: string; base64: string; bytes: number } & PackIdentity);
 
 /**
- * Pack the workspace's package (`POST /api/pack`, the same packer as
- * `fluidcad pack`). A refusal — not a package, a failed pack check — comes
- * back as `pack-refused` with the packer's sentence.
+ * Pack the workspace's package (`POST /api/pack` in its JSON form, the
+ * same packer as `fluidcad pack`). A refusal — not a package, a failed pack
+ * check — comes back as `pack-refused` with the packer's sentence, and its
+ * `code` (`wrong-folder`, `outside-layout`, `no-exports`, else `refused`)
+ * in `details`.
  */
 export async function packPackage(input: PackInput): Promise<ToolResult<PackOutput>> {
   if (input.saveAsPath !== undefined && typeof input.saveAsPath !== 'string') {
@@ -223,37 +232,47 @@ export async function packPackage(input: PackInput): Promise<ToolResult<PackOutp
   }
   const { client } = resolved.data;
   try {
-    const raw = await client.postRaw('/api/pack', {});
+    const raw = await client.postRaw('/api/pack', { format: 'json' });
+    const text = raw.data.toString('utf8');
+    let body: any = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = null;
+    }
     if (raw.statusCode >= 400) {
-      const text = raw.data.toString('utf8');
-      let refusal: string | null = null;
-      try {
-        const body = JSON.parse(text);
-        refusal = typeof body?.error === 'string' ? body.error : null;
-      } catch {
-        refusal = null;
-      }
+      const refusal = typeof body?.error === 'string' ? body.error : null;
       if (raw.statusCode === 400 && refusal !== null) {
-        return err('pack-refused', refusal, { statusCode: raw.statusCode });
+        const details: Record<string, unknown> = { statusCode: raw.statusCode };
+        if (typeof body.code === 'string') {
+          details.code = body.code;
+        }
+        return err('pack-refused', refusal, details);
       }
       return err('http-error', `HTTP ${raw.statusCode}: ${text.slice(0, 200)}`, {
         statusCode: raw.statusCode,
       });
     }
+    const packed = body as PackJsonResponse | null;
+    if (!packed || typeof packed.archive !== 'string') {
+      return err('internal', 'The engine answered the pack without an archive.');
+    }
+    const archive = Buffer.from(packed.archive, 'base64');
     const identity: PackIdentity = {
-      packageName: raw.headers['x-fluidcad-package-name'] ?? '',
-      version: raw.headers['x-fluidcad-package-version'] ?? '',
-      fileName: /filename="([^"]+)"/.exec(raw.headers['content-disposition'] ?? '')?.[1] ?? 'package.fluidpkg',
+      packageName: packed.packageName,
+      version: packed.version,
+      fileName: packed.fileName,
+      contents: packed.contents,
     };
     if (input.saveAsPath) {
       const absPath = path.resolve(input.saveAsPath);
-      await fsp.writeFile(absPath, raw.data);
-      return ok({ savedTo: absPath, bytesWritten: raw.data.length, ...identity });
+      await fsp.writeFile(absPath, archive);
+      return ok({ savedTo: absPath, bytesWritten: archive.length, ...identity });
     }
     return ok({
-      mimeType: raw.contentType,
-      base64: raw.data.toString('base64'),
-      bytes: raw.data.length,
+      mimeType: 'application/zip',
+      base64: packed.archive,
+      bytes: archive.length,
       ...identity,
     });
   } catch (e: any) {

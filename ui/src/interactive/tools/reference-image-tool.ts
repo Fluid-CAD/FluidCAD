@@ -3,23 +3,41 @@ import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender, SketchImageData } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { ICON_IMAGE } from '../../ui/icons';
+import { DimensionInput } from '../../ui/dimension-input';
 import { setSketchImage, type SketchImageEdit, type SetUnitResult, type SourceLocationParam } from '../../api';
 import { writeWorkspaceBinaryFile, type BinaryWriteResult } from '../../editor/editor-api';
 import { Base64 } from '../../helpers/base64';
+import { pixelToSketchThreshold, projectToSketch, sketchToClient } from '../sketch-plane-utils';
 import {
   MAX_REFERENCE_IMAGE_BYTES,
   REFERENCE_IMAGE_TYPES,
   ReferenceImageLoader,
   type LoadedImage,
+  type PixelSize,
 } from '../../scene/reference-image-loader';
 import type { ReferenceImageHost } from '../../scene/reference-image-controller';
-import { ReferenceImagePanel } from './reference-image-panel';
+import { ReferenceImagePanel, type CalibrateState } from './reference-image-panel';
+import { ReferenceImageFrame, type FrameHit, type FrameTolerances, type Point2 } from './reference-image-frame';
+import { HANDLE_PX, KNOB_PX, ReferenceImageHandles, STEM_PX } from './reference-image-handles';
 
 /** The folder beside the model file that uploaded pictures land in. */
 export const REFERENCE_IMAGE_FOLDER = 'images';
 
-/** A click (not a drag) places the picture's centre: down and up within this many pixels. */
-const CLICK_SLOP_PX = 8;
+/** A press that moves less than this is a click, not a drag. */
+const DRAG_THRESHOLD_PX = 3;
+/** Shift while rotating snaps to this step. */
+const ROTATE_SNAP_DEGREES = 15;
+/** A freshly chosen picture opens this wide, as a share of the visible width. */
+const INITIAL_WIDTH_SHARE = 0.5;
+
+/** What the pointer is doing to the picture. */
+type Drag =
+  | { kind: 'move'; grab: Point2 }
+  | { kind: 'corner'; corner: Exclude<FrameHit, { part: 'body' } | { part: 'rotate' }>['corner'] }
+  | { kind: 'rotate' };
+
+/** A press on the picture that may turn into a drag once the pointer moves. */
+type Pending = { hit: FrameHit; point: Point2; clientX: number; clientY: number };
 
 /**
  * What the tool needs beyond a drawing tool's basics. The I/O is
@@ -37,20 +55,25 @@ export type ReferenceImageToolDeps = {
 };
 
 /**
- * The Image tool: opens the Reference image dialog seeded from the sketch's
- * current `.image()` (if any) and previews every edit on the viewer's
- * picture quad. A viewport click moves the centre (snapped). Apply uploads
- * a newly chosen file beside the model (`images/<name>`, never clobbering
- * an existing one) and writes the chain through the acked
- * `set-sketch-image` edit; the re-render then shows the picture from code.
- * Remove takes the chain off. Cancel and Escape drop the preview.
+ * The Image tool: the picture is placed by hand in the viewport. Drag it to
+ * move it, a corner square to resize it (the opposite corner stays put;
+ * Shift stretches), the knob above it to rotate (Shift snaps to 15°).
+ * Calibrate takes two clicks on the picture and the real distance between
+ * them, and scales the picture to match. The dialog holds what the
+ * viewport cannot: the file, the opacity, Apply / Remove / Cancel. Every
+ * change previews live on the viewer's quad; Apply uploads a newly chosen
+ * file beside the model and writes the sketch's `.image()` chain.
  */
 export class ReferenceImageTool extends SketchTool {
   readonly id = 'image' as const;
   readonly label = 'Image';
   readonly icon = ICON_IMAGE;
+  /** The dialog takes the sketch dialog's dock while the tool is up. */
+  override readonly docksDialog = true;
 
   private readonly panel: ReferenceImagePanel;
+  private readonly handles: ReferenceImageHandles;
+  private readonly distanceInput: DimensionInput;
   private readonly host: ReferenceImageHost;
   private readonly sourceLocation: SourceLocationParam & { filePath: string };
   private readonly onRequestExit: () => void;
@@ -58,13 +81,22 @@ export class ReferenceImageTool extends SketchTool {
   private readonly commit: (loc: SourceLocationParam, image: SketchImageEdit | null) => Promise<SetUnitResult>;
   private readonly decode: (blob: Blob) => Promise<LoadedImage>;
 
+  /** The record as it stands in this session; null until a picture exists. */
+  private spec: SketchImageData | null = null;
+  /** The picture's pixels — the chosen file's, or the loaded model picture's once known. */
+  private pixel: PixelSize | null = null;
   /** A picture chosen in this session, decoded in the page, not yet on disk. */
   private chosen: { file: File; image: LoadedImage } | null = null;
+  private pending: Pending | null = null;
+  private drag: Drag | null = null;
+  private hover: FrameHit | null = null;
+  private calibrate: { state: CalibrateState; points: Point2[] } = { state: 'idle', points: [] };
   private busy = false;
-  private boundMouseDown: (e: MouseEvent) => void;
-  private boundMouseUp: (e: MouseEvent) => void;
-  private downX = 0;
-  private downY = 0;
+  private unsubscribeCamera: (() => void) | null = null;
+
+  private boundPointerDown: (e: PointerEvent) => void;
+  private boundPointerMove: (e: PointerEvent) => void;
+  private boundPointerUp: (e: PointerEvent) => void;
 
   constructor(
     ctx: SceneContext,
@@ -82,62 +114,272 @@ export class ReferenceImageTool extends SketchTool {
     this.commit = deps.commit ?? setSketchImage;
     this.decode = deps.decode ?? ReferenceImageLoader.decode;
     this.panel = new ReferenceImagePanel(container);
-    this.panel.onChange = () => this.refreshPreview();
+    this.panel.onOpacity = (opacity) => this.setSpec(this.spec ? { ...this.spec, opacity } : null);
+    this.panel.onCalibrate = () => this.toggleCalibrate();
     this.panel.onApply = () => void this.apply();
     this.panel.onRemove = () => void this.remove();
     this.panel.onExit = () => this.cancel();
     this.panel.onFile = (file) => void this.chooseFile(file);
-    this.boundMouseDown = this.handleMouseDown.bind(this);
-    this.boundMouseUp = this.handleMouseUp.bind(this);
+    this.handles = new ReferenceImageHandles(plane);
+    this.distanceInput = new DimensionInput(container);
+    this.boundPointerDown = this.handlePointerDown.bind(this);
+    this.boundPointerMove = this.handlePointerMove.bind(this);
+    this.boundPointerUp = this.handlePointerUp.bind(this);
   }
+
+  // ------------------------------------------------------------ lifecycle
 
   protected onActivate(): void {
     const current = this.host.current();
     if (current) {
-      this.panel.setValues(current.spec, current.pixel);
+      this.spec = current.spec;
+      this.pixel = current.pixel;
+      this.panel.setFile(current.spec.src.replace(/^.*\//, ''), current.pixel);
+      this.panel.setOpacity(current.spec.opacity);
+      this.panel.setRemoveVisible(true);
     }
-    this.canvas.addEventListener('mousedown', this.boundMouseDown);
-    this.canvas.addEventListener('mouseup', this.boundMouseUp);
+    this.ctx.scene.add(this.handles.group);
+    this.canvas.addEventListener('pointerdown', this.boundPointerDown, { capture: true });
+    window.addEventListener('pointermove', this.boundPointerMove);
+    window.addEventListener('pointerup', this.boundPointerUp, { capture: true });
+    // Handles keep their pixel size, but the knob's stem is a sketch length: redo it on zoom.
+    this.unsubscribeCamera = this.ctx.subscribeCameraChange(() => this.refreshHandles());
     this.panel.show();
-    this.refreshPreview();
+    this.refresh();
   }
 
-  // No `handleEscape`: the toolbar's Escape deactivates the tool, and
-  // deactivation drops the preview — the same exit Cancel takes.
+  // No `handleEscape` exit: the toolbar's Escape deactivates the tool, and
+  // deactivation drops the preview — the same exit Cancel takes. Escape
+  // here only folds a gesture in progress.
   protected onDeactivate(): void {
-    this.canvas.removeEventListener('mousedown', this.boundMouseDown);
-    this.canvas.removeEventListener('mouseup', this.boundMouseUp);
+    this.canvas.removeEventListener('pointerdown', this.boundPointerDown, { capture: true });
+    window.removeEventListener('pointermove', this.boundPointerMove);
+    window.removeEventListener('pointerup', this.boundPointerUp, { capture: true });
+    this.unsubscribeCamera?.();
+    this.unsubscribeCamera = null;
+    this.endDrag();
+    this.canvas.style.cursor = '';
+    this.distanceInput.hide();
+    this.handles.dispose();
     this.host.clearPreview();
     this.dropChosen();
     this.panel.destroy();
+    this.ctx.requestRender();
   }
 
   onSceneUpdate(_sceneObjects: SceneObjectRender[], _sketchId: string): void {
-    // The picture's record arrives with the render through the host; the
-    // dialog keeps the user's edits until Apply or Cancel.
+    // The model picture's bytes may land after the dialog opened: take its
+    // pixels (they size a one-sided record) unless a chosen file took over.
     const current = this.host.current();
-    if (current?.pixel && !this.chosen) {
-      this.panel.setPixelSize(current.pixel);
+    if (current?.pixel && !this.chosen && !this.pixel) {
+      this.pixel = current.pixel;
+      this.panel.setFile(current.spec.src.replace(/^.*\//, ''), current.pixel);
+      this.refresh();
     }
   }
 
-  // ------------------------------------------------------------- viewport
-
-  private handleMouseDown(e: MouseEvent): void {
-    this.downX = e.clientX;
-    this.downY = e.clientY;
+  override updatePlane(plane: PlaneData): void {
+    super.updatePlane(plane);
+    this.handles.updatePlane(plane);
+    this.refresh();
   }
 
-  private handleMouseUp(e: MouseEvent): void {
-    if (e.button !== 0 || Math.hypot(e.clientX - this.downX, e.clientY - this.downY) > CLICK_SLOP_PX) {
+  /** A gesture in progress folds first; otherwise the toolbar's Escape leaves the tool. */
+  handleEscape(): boolean {
+    if (this.calibrate.state !== 'idle') {
+      this.setCalibrateState('idle');
+      return true;
+    }
+    if (this.drag || this.pending) {
+      this.endDrag();
+      return true;
+    }
+    return false;
+  }
+
+  // -------------------------------------------------------------- pointer
+
+  private handlePointerDown(e: PointerEvent): void {
+    if (e.button !== 0 || !this.spec) {
       return;
     }
-    const point = this.snapAt(e.clientX, e.clientY);
+    const point = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
     if (!point) {
       return;
     }
-    this.panel.setCenter(point[0], point[1]);
-    this.refreshPreview();
+    if (this.calibrate.state === 'first' || this.calibrate.state === 'second') {
+      this.takeCalibrationPoint(this.snapAt(e.clientX, e.clientY) ?? point, e.clientX, e.clientY);
+      e.stopPropagation();
+      e.preventDefault();
+      return;
+    }
+    if (this.calibrate.state === 'distance') {
+      return;
+    }
+    const hit = this.frame()?.hitTest(point, this.tolerances()) ?? null;
+    if (!hit) {
+      return;
+    }
+    this.pending = { hit, point, clientX: e.clientX, clientY: e.clientY };
+    this.ctx.cameraControls.enabled = false;
+    e.stopPropagation();
+    e.preventDefault();
+  }
+
+  private handlePointerMove(e: PointerEvent): void {
+    if (this.pending && !this.drag) {
+      const dx = e.clientX - this.pending.clientX;
+      const dy = e.clientY - this.pending.clientY;
+      if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+        return;
+      }
+      this.startDrag(this.pending);
+      this.pending = null;
+    }
+    const point = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
+    if (!point) {
+      return;
+    }
+    if (this.drag) {
+      this.applyDrag(point, e.shiftKey);
+      return;
+    }
+    if (this.calibrate.state === 'second') {
+      // Rubber-band the second leg so the distance being taken is visible.
+      this.handles.rebuild(this.frame(), this.stem(), [this.calibrate.points[0], this.snapAt(e.clientX, e.clientY) ?? point]);
+      this.ctx.requestRender();
+      return;
+    }
+    if (this.calibrate.state !== 'idle') {
+      return;
+    }
+    this.setHover(this.frame()?.hitTest(point, this.tolerances()) ?? null);
+  }
+
+  private handlePointerUp(e: PointerEvent): void {
+    if (e.button !== 0) {
+      return;
+    }
+    if (this.drag) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    this.endDrag();
+    // The picture moved under a still pointer: re-read what is under it now.
+    const point = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
+    if (point && this.calibrate.state === 'idle') {
+      this.setHover(this.frame()?.hitTest(point, this.tolerances()) ?? null);
+    }
+  }
+
+  private setHover(hit: FrameHit | null): void {
+    if (ReferenceImageTool.sameHit(hit, this.hover)) {
+      return;
+    }
+    this.hover = hit;
+    this.handles.setHover(hit);
+    this.canvas.style.cursor = ReferenceImageFrame.cursorFor(hit, this.spec?.angle ?? 0);
+    this.ctx.requestRender();
+  }
+
+  private startDrag(pending: Pending): void {
+    switch (pending.hit.part) {
+      case 'body':
+        this.drag = { kind: 'move', grab: pending.point };
+        this.canvas.style.cursor = 'move';
+        break;
+      case 'corner':
+        this.drag = { kind: 'corner', corner: pending.hit.corner };
+        break;
+      case 'rotate':
+        this.drag = { kind: 'rotate' };
+        this.canvas.style.cursor = 'grabbing';
+        break;
+    }
+  }
+
+  private applyDrag(point: Point2, shift: boolean): void {
+    const frame = this.frame();
+    if (!frame || !this.drag) {
+      return;
+    }
+    switch (this.drag.kind) {
+      case 'move': {
+        const next = frame.move(this.drag.grab, point);
+        this.drag = { kind: 'move', grab: point };
+        this.setSpec(next);
+        break;
+      }
+      case 'corner':
+        this.setSpec(frame.resizeFromCorner(this.drag.corner, point, !shift));
+        break;
+      case 'rotate':
+        this.setSpec(frame.rotateTo(point, shift ? ROTATE_SNAP_DEGREES : null));
+        break;
+    }
+  }
+
+  private endDrag(): void {
+    if (this.drag || this.pending) {
+      this.ctx.cameraControls.enabled = true;
+    }
+    this.drag = null;
+    this.pending = null;
+    this.canvas.style.cursor = ReferenceImageFrame.cursorFor(this.hover, this.spec?.angle ?? 0);
+  }
+
+  // ------------------------------------------------------------ calibrate
+
+  private toggleCalibrate(): void {
+    this.setCalibrateState(this.calibrate.state === 'idle' ? 'first' : 'idle');
+  }
+
+  private setCalibrateState(state: CalibrateState): void {
+    if (state === 'idle') {
+      this.calibrate = { state, points: [] };
+      this.distanceInput.hide();
+      this.canvas.style.cursor = '';
+    } else {
+      this.calibrate.state = state;
+      this.canvas.style.cursor = 'crosshair';
+    }
+    this.panel.setCalibrateState(state);
+    this.refreshHandles();
+  }
+
+  private takeCalibrationPoint(point: Point2, clientX: number, clientY: number): void {
+    const points = [...this.calibrate.points, point];
+    this.calibrate.points = points;
+    if (points.length < 2) {
+      this.setCalibrateState('second');
+      return;
+    }
+    const measured = ReferenceImageFrame.distance(points[0], points[1]);
+    if (measured <= 0) {
+      this.calibrate.points = [points[0]];
+      return;
+    }
+    this.setCalibrateState('distance');
+    const mid: Point2 = [(points[0][0] + points[1][0]) / 2, (points[0][1] + points[1][1]) / 2];
+    const at = this.midpointClient(mid, clientX, clientY);
+    this.distanceInput.show('Distance', measured, at.clientX, at.clientY, (actual) => this.finishCalibration(measured, actual));
+  }
+
+  private finishCalibration(measured: number, actual: number): void {
+    const frame = this.frame();
+    if (frame) {
+      this.setSpec(frame.calibrate(measured, actual));
+    }
+    this.setCalibrateState('idle');
+  }
+
+  /** Where the distance field goes: over the measured line's midpoint. */
+  private midpointClient(mid: Point2, fallbackX: number, fallbackY: number): { clientX: number; clientY: number } {
+    try {
+      return sketchToClient(this.ctx, this.plane, mid);
+    } catch {
+      return { clientX: fallbackX, clientY: fallbackY };
+    }
   }
 
   // -------------------------------------------------------------- picture
@@ -161,8 +403,25 @@ export class ReferenceImageTool extends SketchTool {
     }
     this.dropChosen();
     this.chosen = { file, image };
-    this.panel.setFile(file.name, { width: image.width, height: image.height });
-    this.refreshPreview();
+    this.pixel = { width: image.width, height: image.height };
+    this.panel.setFile(file.name, this.pixel);
+    this.setCalibrateState('idle');
+    this.setSpec(this.spec ? { ...this.spec, src: '' } : this.initialSpec());
+  }
+
+  /** A new picture opens centred on the view, half the visible width across. */
+  private initialSpec(): SketchImageData {
+    const rect = this.canvas.getBoundingClientRect();
+    const center = projectToSketch(this.ctx, this.plane, rect.left + rect.width / 2, rect.top + rect.height / 2) ?? [0, 0];
+    const visibleWidth = pixelToSketchThreshold(this.ctx, rect.width || 1);
+    const width = Math.max(ReferenceImageTool.round(visibleWidth * INITIAL_WIDTH_SHARE), 1e-3);
+    return {
+      src: '',
+      width,
+      at: [ReferenceImageTool.round(center[0]), ReferenceImageTool.round(center[1])],
+      angle: 0,
+      opacity: this.panel.opacity,
+    };
   }
 
   private dropChosen(): void {
@@ -170,38 +429,56 @@ export class ReferenceImageTool extends SketchTool {
     this.chosen = null;
   }
 
-  /** The dialog's fields as a record, or null with the problem shown. */
-  private currentValues(): SketchImageData | null {
-    const read = this.panel.values();
-    if ('error' in read) {
-      this.panel.setMessage(read.error);
-      return null;
-    }
-    this.panel.setMessage(null);
-    return read.values;
+  // -------------------------------------------------------------- refresh
+
+  private frame(): ReferenceImageFrame | null {
+    return this.spec ? new ReferenceImageFrame(this.spec, this.pixel) : null;
   }
 
-  private refreshPreview(): void {
-    const values = this.currentValues();
-    if (!values) {
-      return;
+  /** Handle reaches in sketch units for the current zoom. */
+  private tolerances(): FrameTolerances {
+    return {
+      corner: pixelToSketchThreshold(this.ctx, HANDLE_PX),
+      rotate: pixelToSketchThreshold(this.ctx, KNOB_PX),
+      stem: this.stem(),
+    };
+  }
+
+  private stem(): number {
+    return pixelToSketchThreshold(this.ctx, STEM_PX);
+  }
+
+  private setSpec(spec: SketchImageData | null): void {
+    this.spec = spec;
+    this.refresh();
+  }
+
+  /** Preview, handles and read-out from the record as it stands. */
+  private refresh(): void {
+    if (this.spec) {
+      this.host.preview(this.plane, this.spec, this.chosen?.image ?? null);
+      const frame = this.frame()!;
+      this.panel.setReadout({ width: frame.width, height: frame.height }, this.spec.at, this.spec.angle);
+    } else {
+      this.host.clearPreview();
     }
-    this.host.preview(this.plane, values, this.chosen?.image ?? null);
+    this.refreshHandles();
+  }
+
+  private refreshHandles(): void {
+    this.handles.rebuild(this.frame(), this.stem(), this.calibrate.points);
+    this.ctx.requestRender();
   }
 
   // --------------------------------------------------------------- commit
 
   private async apply(): Promise<void> {
-    if (this.busy) {
-      return;
-    }
-    const values = this.currentValues();
-    if (!values) {
+    if (this.busy || !this.spec) {
       return;
     }
     this.setBusy(true);
     try {
-      let src = values.src;
+      let src = this.spec.src;
       if (this.chosen) {
         const uploaded = await this.upload(this.uploadPath(this.chosen.file.name), await Base64.fromBlob(this.chosen.file));
         src = ReferenceImageTool.relativeSrc(this.sourceLocation.filePath, uploaded.absPath);
@@ -210,7 +487,7 @@ export class ReferenceImageTool extends SketchTool {
         this.panel.setMessage('Choose an image first.');
         return;
       }
-      const result = await this.commit(this.sourceLocation, ReferenceImageTool.editOf({ ...values, src }));
+      const result = await this.commit(this.sourceLocation, ReferenceImageTool.editOf({ ...this.spec, src }));
       if (!result.success) {
         this.panel.setMessage(result.reason ?? 'The image could not be written to the sketch.');
         return;
@@ -252,7 +529,7 @@ export class ReferenceImageTool extends SketchTool {
 
   private setBusy(busy: boolean): void {
     this.busy = busy;
-    this.panel.setApplyEnabled(!busy);
+    this.panel.setBusy(busy);
   }
 
   /** Where a chosen file goes: `images/<name>` beside the model, the name made path-safe. */
@@ -261,16 +538,33 @@ export class ReferenceImageTool extends SketchTool {
     return `${folder}/${REFERENCE_IMAGE_FOLDER}/${ReferenceImageTool.safeName(fileName)}`;
   }
 
-  /** The chain's record: the dialog's fields with the written path. */
+  // ------------------------------------------------------------- statics
+
+  /** The chain's record: the session's fields with the written path, rounded to what the writer keeps. */
   static editOf(values: SketchImageData): SketchImageEdit {
+    const r = ReferenceImageTool.round;
     return {
       src: values.src,
-      ...(values.width !== undefined ? { width: values.width } : {}),
-      ...(values.height !== undefined ? { height: values.height } : {}),
-      at: values.at,
-      angle: values.angle,
-      opacity: values.opacity,
+      ...(values.width !== undefined ? { width: r(values.width) } : {}),
+      ...(values.height !== undefined ? { height: r(values.height) } : {}),
+      at: [r(values.at[0]), r(values.at[1])],
+      angle: r(values.angle),
+      opacity: r(values.opacity),
     };
+  }
+
+  private static round(value: number): number {
+    return Math.round(value * 1000) / 1000;
+  }
+
+  private static sameHit(a: FrameHit | null, b: FrameHit | null): boolean {
+    if (a === b) {
+      return true;
+    }
+    if (!a || !b || a.part !== b.part) {
+      return false;
+    }
+    return a.part !== 'corner' || b.part !== 'corner' || a.corner === b.corner;
   }
 
   /** A file name with only letters, digits, dots, dashes and underscores. */
@@ -296,3 +590,4 @@ export class ReferenceImageTool extends SketchTool {
     return posix.startsWith(`${folder}/`) ? posix.slice(folder.length + 1) : posix;
   }
 }
+

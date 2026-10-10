@@ -38,6 +38,12 @@ export abstract class SketchTool {
   abstract readonly id: ToolId;
   abstract readonly label: string;
   abstract readonly icon: string;
+  /**
+   * True for a tool whose dialog takes the docked spot the sketch dialog
+   * uses: the toolbar service suspends the sketch dialog while the tool is
+   * active, the way it does for the 2D op dialogs.
+   */
+  readonly docksDialog: boolean = false;
 
   protected ctx: SceneContext;
   protected plane: PlaneData;

@@ -595,8 +595,7 @@ export class SketchToolbarService {
       this.dofStatus.update(computeSketchDofState(buildSolvedSketchModel(lastRoot, sceneObjects)));
     } else {
       if (this.activeDrawingTool) {
-        this.activeDrawingTool.deactivate();
-        this.activeDrawingTool = null;
+        this.deactivateDrawingTool();
       }
       for (const service of Object.values(this.opServices)) {
         // An edit dialog opens before its sketch renders — the double-click's
@@ -1044,8 +1043,7 @@ export class SketchToolbarService {
     }
 
     if (this.activeDrawingTool) {
-      this.activeDrawingTool.deactivate();
-      this.activeDrawingTool = null;
+      this.deactivateDrawingTool();
     }
 
     // Project and Intersect share the projection service; switching between
@@ -1097,6 +1095,22 @@ export class SketchToolbarService {
 
     tool.activate();
     this.activeDrawingTool = tool;
+    if (tool.docksDialog) {
+      this.onOpDialogToggle?.(true);
+    }
+  }
+
+  /** Drop the active drawing tool, giving the sketch dialog its dock back if the tool took it. */
+  private deactivateDrawingTool(): void {
+    const tool = this.activeDrawingTool;
+    if (!tool) {
+      return;
+    }
+    tool.deactivate();
+    this.activeDrawingTool = null;
+    if (tool.docksDialog) {
+      this.onOpDialogToggle?.(false);
+    }
   }
 
   /** Transient toast under the navbar (mirrors main.ts's edit-refusal toast). */

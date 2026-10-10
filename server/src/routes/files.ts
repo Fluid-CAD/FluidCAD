@@ -39,6 +39,47 @@ export interface FilesRouterDeps {
 /** Text files only: Monaco has nothing to do with a STEP binary. */
 const MAX_READ_BYTES = 8 * 1024 * 1024;
 
+/**
+ * The binary routes (`files/write-binary`, `files/raw`) carry the sketch
+ * reference pictures: a decoded upload is capped well under the JSON body
+ * limit, and a served file a little above it so a picture the user put in
+ * the folder by hand still loads.
+ */
+const MAX_BINARY_WRITE_BYTES = 20 * 1024 * 1024;
+const MAX_RAW_BYTES = 32 * 1024 * 1024;
+
+/** Content types the raw route labels by extension; anything else is served as a plain byte stream. */
+const RAW_CONTENT_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml',
+  '.avif': 'image/avif',
+};
+
+/**
+ * A sibling path that does not exist yet: `name.png`, then `name-2.png`,
+ * `name-3.png`… — the `ifExists: 'unique'` policy of a binary write, so a
+ * second upload of `side.png` never clobbers the first.
+ */
+function uniqueSibling(absPath: string): string {
+  if (!fs.existsSync(absPath)) {
+    return absPath;
+  }
+  const dir = path.dirname(absPath);
+  const ext = path.extname(absPath);
+  const stem = path.basename(absPath, ext);
+  for (let n = 2; ; n++) {
+    const candidate = path.join(dir, `${stem}-${n}${ext}`);
+    if (!fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+}
+
 function fileInfo(file: WorkspaceFile, stat: fs.Stats) {
   return {
     path: file.relPath,
@@ -295,6 +336,69 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
         ...(imports ? { imports } : {}),
       });
     } catch (err) {
+      respondToError(res, err);
+    }
+  });
+
+  // A binary file from the page (a sketch's reference picture), base64 in
+  // JSON like `import-file`. `ifExists` is `'replace'` by default;
+  // `'unique'` writes beside an existing file under a numbered name and
+  // reports the path actually used. The parent folder is created.
+  router.post('/files/write-binary', (req, res) => {
+    const { data, ifExists } = req.body ?? {};
+    if (typeof data !== 'string' || data === '') {
+      res.status(400).json({ error: 'Invalid request body: data must be a base64 string.' });
+      return;
+    }
+    if (ifExists !== undefined && ifExists !== 'replace' && ifExists !== 'unique') {
+      res.status(400).json({ error: "Invalid request body: ifExists must be 'replace' or 'unique'." });
+      return;
+    }
+    try {
+      const requested = resolveWorkspaceFile(workspacePath, req.body?.path);
+      const bytes = Buffer.from(data, 'base64');
+      if (bytes.length === 0) {
+        res.status(400).json({ error: 'Invalid request body: data is not base64.' });
+        return;
+      }
+      if (bytes.length > MAX_BINARY_WRITE_BYTES) {
+        res.status(413).json({ error: `File too large (${bytes.length} bytes; the limit is ${MAX_BINARY_WRITE_BYTES}).` });
+        return;
+      }
+      const absPath = ifExists === 'unique' ? uniqueSibling(requested.absPath) : requested.absPath;
+      const file = resolveWorkspaceFile(workspacePath, absPath);
+      fs.mkdirSync(path.dirname(file.absPath), { recursive: true });
+      fs.writeFileSync(file.absPath, bytes);
+      res.json({ path: file.relPath, absPath: file.absPath, size: bytes.length });
+    } catch (err) {
+      respondToError(res, err);
+    }
+  });
+
+  // The bytes of a workspace file, labelled by extension — how the page
+  // loads a sketch's reference picture. Confined like every file route.
+  router.get('/files/raw', (req, res) => {
+    try {
+      const file = resolveWorkspaceFile(workspacePath, req.query.path);
+      const stat = fs.statSync(file.absPath);
+      if (!stat.isFile()) {
+        res.status(400).json({ error: `Not a file: ${file.relPath}` });
+        return;
+      }
+      if (stat.size > MAX_RAW_BYTES) {
+        res.status(413).json({ error: `File too large (${stat.size} bytes; the limit is ${MAX_RAW_BYTES}).` });
+        return;
+      }
+      const type = RAW_CONTENT_TYPES[path.extname(file.absPath).toLowerCase()] ?? 'application/octet-stream';
+      res.setHeader('Content-Type', type);
+      res.setHeader('Content-Length', String(stat.size));
+      res.setHeader('Cache-Control', 'no-cache');
+      res.send(fs.readFileSync(file.absPath));
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        res.status(404).json({ error: 'File not found.' });
+        return;
+      }
       respondToError(res, err);
     }
   });

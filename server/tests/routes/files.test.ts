@@ -383,4 +383,78 @@ describe('workspace file routes', () => {
       expect(status).toBe(403);
     });
   });
+  describe('binary', () => {
+    const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+
+    async function getRaw(route: string): Promise<{ status: number; type: string | null; bytes: Buffer; body?: any }> {
+      const res = await fetch(`${baseUrl}/api${route}`);
+      const type = res.headers.get('content-type');
+      if (type && type.includes('application/json')) {
+        return { status: res.status, type, bytes: Buffer.alloc(0), body: await res.json() };
+      }
+      return { status: res.status, type, bytes: Buffer.from(await res.arrayBuffer()) };
+    }
+
+    it('writes decoded bytes, creating the folder, and serves them back labelled by extension', async () => {
+      const { status, body } = await post('/files/write-binary', { path: 'images/side.png', data: PNG.toString('base64') });
+      expect(status).toBe(200);
+      expect(body).toEqual({ path: 'images/side.png', absPath: path.join(workspace, 'images', 'side.png'), size: PNG.length });
+      expect(fs.readFileSync(path.join(workspace, 'images', 'side.png'))).toEqual(PNG);
+      // Not a text write: the watcher ledger is for source edits.
+      expect(written).toEqual([]);
+
+      const raw = await getRaw('/files/raw?path=images/side.png');
+      expect(raw.status).toBe(200);
+      expect(raw.type).toBe('image/png');
+      expect(raw.bytes).toEqual(PNG);
+
+      const abs = await getRaw(`/files/raw?path=${encodeURIComponent(path.join(workspace, 'images', 'side.png'))}`);
+      expect(abs.status).toBe(200);
+      expect(abs.bytes).toEqual(PNG);
+    });
+
+    it('replaces by default and writes beside an existing file under ifExists: unique', async () => {
+      await post('/files/write-binary', { path: 'images/side.png', data: PNG.toString('base64') });
+      const other = Buffer.from('ffd8ffe0', 'hex');
+      const replaced = await post('/files/write-binary', { path: 'images/side.png', data: other.toString('base64') });
+      expect(replaced.body.path).toBe('images/side.png');
+      expect(fs.readFileSync(path.join(workspace, 'images', 'side.png'))).toEqual(other);
+
+      const unique = await post('/files/write-binary', { path: 'images/side.png', data: PNG.toString('base64'), ifExists: 'unique' });
+      expect(unique.status).toBe(200);
+      expect(unique.body.path).toBe('images/side-2.png');
+      const third = await post('/files/write-binary', { path: 'images/side.png', data: PNG.toString('base64'), ifExists: 'unique' });
+      expect(third.body.path).toBe('images/side-3.png');
+      expect(fs.readFileSync(path.join(workspace, 'images', 'side-3.png'))).toEqual(PNG);
+    });
+
+    it('labels unknown extensions as a byte stream', async () => {
+      await post('/files/write-binary', { path: 'blob.bin', data: PNG.toString('base64') });
+      const raw = await getRaw('/files/raw?path=blob.bin');
+      expect(raw.type).toBe('application/octet-stream');
+      expect(raw.bytes).toEqual(PNG);
+    });
+
+    it('rejects a bad body', async () => {
+      expect((await post('/files/write-binary', { path: 'a.png' })).status).toBe(400);
+      expect((await post('/files/write-binary', { path: 'a.png', data: '' })).status).toBe(400);
+      expect((await post('/files/write-binary', { path: 'a.png', data: '!!!' })).status).toBe(400);
+      expect((await post('/files/write-binary', { path: 'a.png', data: 'AAAA', ifExists: 'skip' })).status).toBe(400);
+      expect((await post('/files/write-binary', { data: 'AAAA' })).status).toBe(403);
+    });
+
+    it('keeps both routes inside the workspace', async () => {
+      expect((await post('/files/write-binary', { path: '../escape.png', data: 'AAAA' })).status).toBe(403);
+      expect((await post('/files/write-binary', { path: '/etc/escape.png', data: 'AAAA' })).status).toBe(403);
+      expect((await getRaw('/files/raw?path=../../etc/passwd')).status).toBe(403);
+      expect((await getRaw('/files/raw?path=/etc/passwd')).status).toBe(403);
+      expect((await getRaw('/files/raw')).status).toBe(403);
+    });
+
+    it('answers 404 for a missing file and 400 for a folder', async () => {
+      expect((await getRaw('/files/raw?path=nope.png')).status).toBe(404);
+      fs.mkdirSync(path.join(workspace, 'images'));
+      expect((await getRaw('/files/raw?path=images')).status).toBe(400);
+    });
+  });
 });

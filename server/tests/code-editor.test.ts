@@ -11,6 +11,7 @@ import {
   removeStatement,
   setFeatureName,
   setSketchClosed,
+  setSketchImage,
   setPartMaterial,
   setSectionOptions,
   insertGeometryCall,
@@ -884,6 +885,65 @@ describe('removeStatement', () => {
     const code = `const a = 1; extrude(10);\n`;
     const result = await removeStatement(code, 1);
     expect(result.newCode).toBe(`const a = 1; \n`);
+  });
+});
+
+describe('setSketchImage', () => {
+  const sketchCode = `const s = sketch('xy', () => {\n  line([0, 0], [10, 0]);\n});\nextrude(5);\n`;
+
+  it('appends .image() with the written options after a multi-line sketch statement', async () => {
+    const result = await setSketchImage(sketchCode, 1, { src: 'images/side.png', width: 120, opacity: 0.4 });
+    expect(result.newCode).toBe(`const s = sketch('xy', () => {\n  line([0, 0], [10, 0]);\n}).image('images/side.png', { width: 120, opacity: 0.4 });\nextrude(5);\n`);
+  });
+
+  it('writes every non-default option, rounding to three decimals, and keeps earlier chains in place', async () => {
+    const code = `sketch('xy', () => {}).name('Profile').close();\n`;
+    const result = await setSketchImage(code, 1, { src: 'scan.jpg', width: 80.12345, height: 50, at: [10.5, -5], angle: 15, opacity: 0.25 });
+    expect(result.newCode).toBe(`sketch('xy', () => {}).name('Profile').close().image('scan.jpg', { width: 80.123, height: 50, at: [10.5, -5], angle: 15, opacity: 0.25 });\n`);
+  });
+
+  it('leaves a default centre and angle out of the literal', async () => {
+    const result = await setSketchImage(`sketch('xy', () => {});\n`, 1, { src: 'a.png', height: 30, at: [0, 0], angle: 0 });
+    expect(result.newCode).toBe(`sketch('xy', () => {}).image('a.png', { height: 30 });\n`);
+  });
+
+  it('escapes the path for a single-quoted literal', async () => {
+    const result = await setSketchImage(`sketch('xy', () => {});\n`, 1, { src: "it's.png", width: 1 });
+    expect(result.newCode).toBe(`sketch('xy', () => {}).image('it\\'s.png', { width: 1 });\n`);
+  });
+
+  it('rewrites an existing chain\'s arguments wholesale, wherever it sits in the chain', async () => {
+    const code = `sketch('xy', () => {}).image('old.png', { width: 10, angle: 90 }).close();\n`;
+    const result = await setSketchImage(code, 1, { src: 'new.png', width: 20, opacity: 0.5 });
+    expect(result.newCode).toBe(`sketch('xy', () => {}).image('new.png', { width: 20, opacity: 0.5 }).close();\n`);
+  });
+
+  it('null removes the chain, leaving the others', async () => {
+    const code = `sketch('xy', () => {}).image('a.png', { width: 10 }).close();\n`;
+    const result = await setSketchImage(code, 1, null);
+    expect(result.newCode).toBe(`sketch('xy', () => {}).close();\n`);
+  });
+
+  it('removes a chain broken onto its own line together with its indentation', async () => {
+    const code = `sketch('xy', () => {\n  line([0, 0], [10, 0]);\n})\n  .image('a.png', { width: 10 });\n`;
+    const result = await setSketchImage(code, 1, null);
+    expect(result.newCode).toBe(`sketch('xy', () => {\n  line([0, 0], [10, 0]);\n});\n`);
+  });
+
+  it('is a no-op when removing from a sketch without the chain', async () => {
+    const result = await setSketchImage(sketchCode, 1, null);
+    expect(result.newCode).toBe(sketchCode);
+  });
+
+  it('refuses a line whose statement is not a sketch, and a line with no statement', async () => {
+    expect((await setSketchImage(sketchCode, 4, { src: 'a.png', width: 1 })).newCode).toBe(sketchCode);
+    expect((await setSketchImage(sketchCode, 3, { src: 'a.png', width: 1 })).newCode).toBe(sketchCode);
+  });
+
+  it('refuses an existing .image() whose path is not a string literal', async () => {
+    const code = `sketch('xy', () => {}).image(src, { width: 10 });\n`;
+    expect((await setSketchImage(code, 1, { src: 'a.png', width: 1 })).newCode).toBe(code);
+    expect((await setSketchImage(code, 1, null)).newCode).toBe(code);
   });
 });
 

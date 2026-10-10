@@ -68,6 +68,8 @@ export {
   setPartMaterial,
   setSectionOptions,
   setSketchClosed,
+  setSketchImage,
+  type SketchImageEdit,
 } from './statements.ts';
 export {
   updateSketchPositions,

@@ -1,5 +1,6 @@
 // The apply-feature-edit request and result contracts shared by every host and route.
 
+import type { SketchImageEdit } from '../code-editor/index.ts';
 import type { SketchConstraintEditSpec } from '../sketch-constraint-edit.ts';
 import type { SketchSplitSpec } from '../sketch-split.ts';
 import type { SketchTrimSpec } from '../sketch-trim.ts';
@@ -381,6 +382,13 @@ export type ApplyFeatureEditSpec = {
    * edit after it; every other spec field is ignored.
    */
   sketchClosed?: SketchClosedEditSpec;
+  /**
+   * The sketch Image dialog's chain edit — set, replace or remove the
+   * `.image(…)` reference picture on the sketch statement at `sourceLine`
+   * — alone on its round trip like `sketchClosed`; every other spec field
+   * is ignored.
+   */
+  sketchImage?: SketchImageEditSpec;
   /**
    * The part row menu's "Set material…" chain edit, alone on its round
    * trip like `sketchClosed`; every other spec field is ignored.
@@ -824,6 +832,14 @@ export type SketchClosedEditSpec = {
   /** The sketch statement's 1-based source line. */
   sourceLine: number;
   closed: boolean;
+};
+
+/** The sketch Image dialog's commit: see {@link setSketchImage}. */
+export type SketchImageEditSpec = {
+  /** The sketch statement's 1-based source line. */
+  sourceLine: number;
+  /** The picture and its options to write, or null to remove the `.image()` chain. */
+  image: SketchImageEdit | null;
 };
 
 /** The section arrow's offset commit: see {@link setSectionOptions}. */

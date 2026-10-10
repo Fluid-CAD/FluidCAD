@@ -1,6 +1,6 @@
 // The apply-feature-edit entry point: dispatches a spec to its transform and sweeps orphaned selections.
 
-import { setPartMaterial, setSectionOptions, setSketchClosed } from '../../code-editor/index.ts';
+import { setPartMaterial, setSectionOptions, setSketchClosed, setSketchImage } from '../../code-editor/index.ts';
 import { applySketchConstraint } from '../../sketch-constraint-edit.ts';
 import { SketchSplit } from '../../sketch-split.ts';
 import { SketchTrim } from '../../sketch-trim.ts';
@@ -152,6 +152,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.sketchClosed) {
     return setSketchClosed(code, spec.sketchClosed.sourceLine, spec.sketchClosed.closed);
+  }
+  if (spec.sketchImage) {
+    return setSketchImage(code, spec.sketchImage.sourceLine, spec.sketchImage.image);
   }
   if (spec.partMaterial) {
     return setPartMaterial(code, spec.partMaterial.sourceLine, spec.partMaterial.material);

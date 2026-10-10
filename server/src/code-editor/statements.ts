@@ -274,6 +274,95 @@ export function setSketchClosed(
 }
 
 // ---------------------------------------------------------------------------
+// Sketch reference image — set/replace/remove the chained .image(src, {…})
+// ---------------------------------------------------------------------------
+
+/**
+ * The `.image()` chain as the sketch dialog writes it: the path relative to
+ * the model file and the options the dialog holds. `width` / `height` as
+ * the lib takes them (one or both); `at`, `angle` and `opacity` are
+ * optional and a default-valued one (`[0, 0]`, `0`) is left out of the
+ * written literal. Numbers only — the dialog has no expression fields.
+ */
+export type SketchImageEdit = {
+  src: string;
+  width?: number;
+  height?: number;
+  at?: [number, number];
+  angle?: number;
+  opacity?: number;
+};
+
+/** Compact numeric literal for a written option (no float noise). */
+function imageNumber(value: number): string {
+  return String(Math.round(value * 1000) / 1000);
+}
+
+/** The `.image(…)` argument list for `edit`, as source text. */
+function imageArguments(edit: SketchImageEdit): string {
+  const fields: string[] = [];
+  if (edit.width !== undefined) {
+    fields.push(`width: ${imageNumber(edit.width)}`);
+  }
+  if (edit.height !== undefined) {
+    fields.push(`height: ${imageNumber(edit.height)}`);
+  }
+  if (edit.at && (edit.at[0] !== 0 || edit.at[1] !== 0)) {
+    fields.push(`at: [${imageNumber(edit.at[0])}, ${imageNumber(edit.at[1])}]`);
+  }
+  if (edit.angle !== undefined && edit.angle !== 0) {
+    fields.push(`angle: ${imageNumber(edit.angle)}`);
+  }
+  if (edit.opacity !== undefined) {
+    fields.push(`opacity: ${imageNumber(edit.opacity)}`);
+  }
+  return `'${quoteForSingleQuotes(edit.src)}', { ${fields.join(', ')} }`;
+}
+
+/**
+ * Set, replace, or remove the `.image('src', { … })` chain of the sketch
+ * statement at `sourceLine` — the sketch toolbar's Image dialog. An edit
+ * rewrites an existing chain's arguments wholesale (the dialog holds every
+ * option) or appends `.image(…)` at the end of the chain, after `.name()`
+ * / `.close()` and any other trailing call; null removes the chain the way
+ * `setSketchClosed` strips `.close()`. Refuses (returns null) a line that
+ * is not a `sketch(...)` statement — a stale line must not grow a chain
+ * some other feature has no meaning for — and an existing `.image()` whose
+ * first argument is not a string literal (an expression the user wrote by
+ * hand is theirs to change). Removing from a sketch without the chain is a
+ * no-op.
+ */
+export function setSketchImage(
+  code: string,
+  sourceLine: number,
+  image: SketchImageEdit | null,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call || chainRootCallee(call) !== 'sketch') {
+      return null;
+    }
+    const imageCall = findMemberCallInChain(call, 'image');
+    const existingArgs = imageCall ? getArgumentsNode(imageCall) : null;
+    if (imageCall) {
+      const first = existingArgs?.namedChildren.find(arg => arg.type !== 'comment');
+      if (!existingArgs || !first || first.type !== 'string') {
+        return null;
+      }
+    }
+    if (image === null) {
+      const removal = imageCall ? chainCallRemoval(imageCall) : null;
+      return removal ? applySpliceEdits(code, [removal]) : null;
+    }
+    const args = imageArguments(image);
+    if (imageCall && existingArgs) {
+      return spliceCode(code, existingArgs.startIndex + 1, existingArgs.endIndex - 1, args);
+    }
+    return spliceCode(code, call.endIndex, call.endIndex, `.image(${args})`);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Part material — set/replace/remove the chained .material('id') on a part
 // ---------------------------------------------------------------------------
 

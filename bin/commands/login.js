@@ -1,145 +1,83 @@
-import http from 'http';
-import os from 'os';
-import { randomBytes, createHash } from 'crypto';
-import { getHubUrl, writeCredentials } from '../lib/config.js';
-import { HubClient } from '../lib/api-client.js';
-import { readPackageVersion } from '../lib/workspace.js';
+import { HubCli } from '../lib/hub.js';
 import { openBrowser } from '../lib/browser.js';
 
-const CLIENT_ID = 'fluidcad-cli';
-const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
-
-function base64url(buf) {
-  return buf.toString('base64url');
+/**
+ * `fluidcad login` (HD7): signs this machine in to the hub and saves the
+ * token in `$FLUIDCAD_HOME/credentials.json`, keyed by the hub's origin.
+ * - In a browser: loopback + PKCE (`HubLogin`).
+ * - `--with-token`: reads a token from stdin (a personal token made on the
+ *   web, or CI), checks it with `GET /me`, then saves it.
+ */
+async function runLogin(opts) {
+  const mods = await HubCli.load();
+  const config = HubCli.config(mods, opts);
+  try {
+    const signedIn = opts.withToken ? await loginWithToken(mods, config) : await loginInBrowser(mods, config);
+    console.log(`✓ Signed in as ${HubCli.who(signedIn.handle, signedIn.email)} · saved to ${HubCli.displayPath(signedIn.path)}`);
+    if (config.source !== 'default') {
+      console.log(`  hub: ${config.origin}`);
+    }
+    if (process.env[mods.HubCredentials.ENV_TOKEN]) {
+      console.log(`  ${mods.HubCredentials.ENV_TOKEN} is set, and it wins over the saved token while it is.`);
+    }
+  } catch (err) {
+    HubCli.exitOnRefusal(err, mods);
+  }
 }
 
-const PLATFORM_NAMES = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' };
-
-/**
- * Human-readable device hints shown on the hub's authorize page so the user can
- * confirm the request came from this machine. Display-only — the hub never uses
- * them for the authorization decision (PKCE + loopback do that). The browser
- * request already reveals OS/arch via its User-Agent, so this leaks nothing new.
- */
-function deviceHints() {
-  const platform = PLATFORM_NAMES[process.platform] ?? process.platform;
-  // os.release() is the kernel/Darwin/NT version; the leading x.y.z is the
-  // useful part (e.g. "7.0.10-201.fc44.x86_64" → "7.0.10").
-  const release = os.release().split('-')[0];
-  return {
-    os: `${platform} ${release}`.trim(),
-    arch: process.arch,
-    version: readPackageVersion(),
-  };
+function loginInBrowser(mods, config) {
+  return mods.HubLogin.run({
+    config,
+    openBrowser,
+    print: (line) => console.log(line),
+    version: HubCli.version(),
+  });
 }
 
-/**
- * Loopback + PKCE login (RFC 8252): spin up a one-shot 127.0.0.1 server, send
- * the browser to the hub's /cli/authorize, receive the code on /callback,
- * exchange it (with the PKCE verifier) for a token, and save it.
- */
-function runLogin(opts) {
+async function loginWithToken(mods, config) {
+  if (process.stdin.isTTY) {
+    console.error('Paste the token, then press Enter and Ctrl+D:');
+  }
+  const token = (await readStdin()).trim();
+  if (!token) {
+    console.error('No token on stdin. Pipe one in: `fluidcad login --with-token < token.txt`.');
+    process.exit(1);
+  }
+  let me;
+  try {
+    me = await HubCli.client(mods, config, token).me();
+  } catch (err) {
+    if (err instanceof mods.HubRequestError && err.unauthorized) {
+      console.error(`${config.origin} doesn't accept that token (revoked, expired or mistyped). Nothing was saved.`);
+      process.exit(1);
+    }
+    throw err;
+  }
+  const entry = { token, tokenId: me.token?.id ?? null, handle: me.account.handle, email: me.account.email };
+  const path = mods.HubCredentials.write(config.origin, entry);
+  return { handle: entry.handle, email: entry.email, path };
+}
+
+function readStdin() {
   return new Promise((resolve, reject) => {
-    const hubUrl = getHubUrl(opts.hub);
-    const verifier = base64url(randomBytes(32));
-    const challenge = base64url(createHash('sha256').update(verifier).digest());
-    const state = base64url(randomBytes(16));
-    let redirectUri;
-    let settled = false;
-
-    const finish = (fn, arg) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      server.close();
-      fn(arg);
-    };
-
-    const server = http.createServer((req, res) => {
-      const url = new URL(req.url, 'http://127.0.0.1');
-      if (url.pathname !== '/callback') {
-        res.writeHead(404);
-        res.end();
-        return;
-      }
-      const error = url.searchParams.get('error');
-      const code = url.searchParams.get('code');
-      const returnedState = url.searchParams.get('state');
-
-      // The code has now been received here on the loopback; hand the browser
-      // to the hub's branded result screen (nav + design system) to finish.
-      const doneStatus = error ? 'denied' : code ? 'ok' : 'error';
-      res.writeHead(302, { location: `${hubUrl}/cli/done?status=${doneStatus}` });
-      res.end();
-
-      (async () => {
-        if (error) {
-          throw new Error(`authorization ${error}`);
-        }
-        if (returnedState !== state) {
-          throw new Error('state mismatch — aborting (possible CSRF)');
-        }
-        if (!code) {
-          throw new Error('no authorization code in callback');
-        }
-        const { status, body } = await new HubClient(hubUrl).postJson('/api/cli/token', {
-          client_id: CLIENT_ID,
-          code,
-          code_verifier: verifier,
-          redirect_uri: redirectUri,
-        });
-        if (status !== 200 || !body.access_token) {
-          throw new Error(`token exchange failed: ${body.error_description || body.error || `HTTP ${status}`}`);
-        }
-        writeCredentials({ token: body.access_token, email: body.user?.email ?? null, hubUrl });
-        return body.user?.email ?? null;
-      })().then(
-        (email) => finish(resolve, email),
-        (err) => finish(reject, err),
-      );
-    });
-
-    const timer = setTimeout(
-      () => finish(reject, new Error('login timed out — no response within 5 minutes')),
-      LOGIN_TIMEOUT_MS,
-    );
-
-    server.on('error', (err) => finish(reject, err));
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      redirectUri = `http://127.0.0.1:${port}/callback`;
-      const device = deviceHints();
-      const authorizeUrl =
-        `${hubUrl}/cli/authorize?` +
-        new URLSearchParams({
-          response_type: 'code',
-          client_id: CLIENT_ID,
-          redirect_uri: redirectUri,
-          code_challenge: challenge,
-          code_challenge_method: 'S256',
-          state,
-          // Display-only context for the approval screen (not part of PKCE).
-          client_version: device.version,
-          os: device.os,
-          arch: device.arch,
-        });
-      console.log('Opening your browser to authorize the FluidCAD CLI…');
-      console.log(`\n  ${authorizeUrl}\n`);
-      openBrowser(authorizeUrl);
-    });
+    const chunks = [];
+    process.stdin.on('data', (chunk) => chunks.push(chunk));
+    process.stdin.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    process.stdin.on('error', reject);
   });
 }
 
 export function registerLoginCommand(program) {
   program
     .command('login')
-    .description('Authenticate this machine with the FluidCAD hub')
-    .option('--hub <url>', 'Hub base URL (default: $FLUIDCAD_HUB_URL or https://hub.fluidcad.io)')
+    .description('Sign this machine in to the FluidCAD hub')
+    .option('--hub <url>', 'Hub URL (default: $FLUIDCAD_HUB_URL or https://hub.fluidcad.io)')
+    .option('--with-token', 'Read an API token from stdin instead of signing in through the browser')
     .action((opts) => {
       runLogin(opts)
-        .then((email) => console.log(`Logged in as ${email ?? 'your account'}`))
+        // The loopback server and the keep-alive sockets are closed; exit
+        // anyway so nothing left in the event loop holds the terminal.
+        .then(() => process.exit(0))
         .catch((err) => {
           console.error(err?.message ?? err);
           process.exit(1);

@@ -16,6 +16,8 @@ import { registerRemoveCommand } from './commands/remove.js';
 import { registerPackagesCommand } from './commands/packages.js';
 import { registerExportCommand } from './commands/export.js';
 import { registerLoginCommand } from './commands/login.js';
+import { registerLogoutCommand } from './commands/logout.js';
+import { registerWhoamiCommand } from './commands/whoami.js';
 import { registerPublishCommand } from './commands/publish.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -38,6 +40,8 @@ registerRemoveCommand(program);
 registerPackagesCommand(program);
 registerExportCommand(program);
 registerLoginCommand(program);
+registerLogoutCommand(program);
+registerWhoamiCommand(program);
 registerPublishCommand(program);
 
 program.parseAsync(process.argv);

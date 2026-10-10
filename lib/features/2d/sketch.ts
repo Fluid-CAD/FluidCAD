@@ -14,15 +14,12 @@ import { isMacroProducer } from "./solved/macros/finalize.js";
 import { SketchRegionBuilder, SketchRegion } from "./regions/region-builder.js";
 import { StatementLabels } from "./regions/statement-label.js";
 import type { SketchRegionDeclaration } from "./regions/region-declaration.js";
-import { SketchImage, SketchImageOptions, SketchImageSpec } from "./sketch-image.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
   private _solver: SketchSolverContext | null;
   private _solveDone = false;
   private _closed = false;
-  /** The reference picture shown under this sketch while it is edited; see {@link image}. */
-  private _image: SketchImageSpec | null = null;
   /** The `region()` declarations of this sketch, by name, in statement order. */
   private _regionDeclarations = new Map<string, SketchRegionDeclaration>();
 
@@ -78,25 +75,6 @@ export class Sketch extends SceneObject implements Extrudable {
 
   isClosed(): boolean {
     return this._closed;
-  }
-
-  /**
-   * Attach a reference picture to the sketch: the editor draws it on the
-   * sketch plane, faded, under the sketch's own lines, whenever this sketch
-   * is being edited. `src` is a path relative to the model file; the
-   * options size the picture in document units (`width` and/or `height`),
-   * place its centre (`at`), turn it (`angle`, degrees) and set how solid
-   * it draws (`opacity`, 0…1). Editor metadata only — nothing geometric
-   * reads it, and a later `.image()` replaces an earlier one.
-   */
-  image(src: string, options: SketchImageOptions): this {
-    this._image = SketchImage.normalize(src, options);
-    return this;
-  }
-
-  /** The reference picture attached by {@link image}, or null. */
-  getImage(): SketchImageSpec | null {
-    return this._image;
   }
 
   /**
@@ -327,7 +305,6 @@ export class Sketch extends SceneObject implements Extrudable {
       plane: this.planeObj.serialize(),
       solvedMode: true,
       solver: this.getState('solver-system') ?? null,
-      ...(this._image ? { image: this._image } : {}),
     };
   }
 

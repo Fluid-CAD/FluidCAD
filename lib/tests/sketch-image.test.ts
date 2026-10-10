@@ -2,59 +2,80 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "./setup.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
+import { image } from "../core/2d/index.js";
 import { testRect } from "./helpers/profiles.js";
-import { SketchImage } from "../features/2d/sketch-image.js";
+import { SketchImage, SketchImageStatement } from "../features/2d/sketch-image.js";
 
-// `.image()` is editor metadata on a sketch statement: the render carries the
-// resolved record on the sketch row's `object.image` and nowhere else;
+// `image()` is a sketch-body statement with no geometry: its own row (a
+// child of the sketch) carries the resolved record and the sketch plane;
 // geometry, solving and consumption are untouched.
-describe("sketch().image()", () => {
+describe("image() in a sketch", () => {
   setupOC();
 
-  const sketchRow = () => render().getRenderedObjects().find(o => o.type === "sketch")!;
+  const rows = () => render().getRenderedObjects();
+  const imageRow = () => rows().find(o => o.type === "image")!;
 
-  it("carries the picture on the sketch row with defaults filled in", () => {
-    sketch("xy", () => { testRect(20, 10); }).image("images/side.png", { width: 120 });
-    const row = sketchRow();
+  it("is a child row of its sketch carrying the picture with defaults filled in, and the plane", () => {
+    sketch("xy", () => {
+      image("images/side.png", { width: 120 });
+      testRect(20, 10);
+    });
+    const all = rows();
+    const sketchRow = all.find(o => o.type === "sketch")!;
+    const row = all.find(o => o.type === "image")!;
+    expect(row.parentId).toBe(sketchRow.id);
     expect(row.object.image).toEqual({
       src: "images/side.png", width: 120, at: [0, 0], angle: 0, opacity: 0.5,
     });
-    expect(row.visible).toBe(true);
+    expect(row.object.plane).toEqual(sketchRow.object.plane);
+    expect(row.sceneShapes).toEqual([]);
   });
 
   it("keeps every option as given", () => {
-    sketch("xy", () => { testRect(20, 10); })
-      .image("scan.jpg", { width: 80, height: 50, at: [10, -5], angle: 15, opacity: 0.25 });
-    expect(sketchRow().object.image).toEqual({
+    sketch("xy", () => {
+      image("scan.jpg", { width: 80, height: 50, at: [10, -5], angle: 15, opacity: 0.25 });
+    });
+    expect(imageRow().object.image).toEqual({
       src: "scan.jpg", width: 80, height: 50, at: [10, -5], angle: 15, opacity: 0.25,
     });
   });
 
-  it("composes with .close() in either order", () => {
-    sketch("xy", () => { testRect(20, 10); }).image("a.png", { height: 30 }).close();
-    const row = sketchRow();
-    expect(row.closed).toBe(true);
-    expect(row.object.image.height).toBe(30);
-  });
-
-  it("leaves a sketch without the chain bare", () => {
-    sketch("xy", () => { testRect(20, 10); });
-    expect(sketchRow().object.image).toBeUndefined();
+  it("allows more than one picture per sketch", () => {
+    sketch("xy", () => {
+      image("a.png", { width: 10 });
+      image("b.png", { height: 20, at: [30, 0] });
+    });
+    expect(rows().filter(o => o.type === "image").map(o => o.object.image.src)).toEqual(["a.png", "b.png"]);
   });
 
   it("does not change consumption: the sketch still feeds extrude", () => {
-    sketch("xy", () => { testRect(20, 10); }).image("a.png", { width: 10 });
+    sketch("xy", () => {
+      image("a.png", { width: 10 });
+      testRect(20, 10);
+    });
     extrude(5);
-    const rows = render().getRenderedObjects();
-    expect(rows.find(o => o.type === "sketch")!.visible).toBe(false);
-    expect(rows.find(o => o.type === "extrude")!.sceneShapes.some(s => s.shapeType === "solid")).toBe(true);
+    const all = rows();
+    expect(all.find(o => o.type === "sketch")!.visible).toBe(false);
+    expect(all.find(o => o.type === "extrude")!.sceneShapes.some(s => s.shapeType === "solid")).toBe(true);
   });
 
-  it("refuses a malformed call at the statement, like any other bad argument", () => {
-    // A build-time error would be cleared and lose the geometry; the chain
-    // fails where it is written, with the message pointing at the option.
-    expect(() => sketch("xy", () => { testRect(20, 10); }).image("a.png", { width: 10, opacity: 2 } as any))
-      .toThrow(/opacity must be between 0/);
+  it("reports a malformed call as its own build error and leaves the sketch building", () => {
+    let statement!: SketchImageStatement;
+    sketch("xy", () => {
+      statement = image("a.png", { width: 10, opacity: 2 }) as unknown as SketchImageStatement;
+      testRect(20, 10);
+    });
+    extrude(5);
+    const all = rows();
+    expect(statement.getError()).toMatch(/opacity must be between 0/);
+    expect(all.find(o => o.type === "image")!.object.image).toBeUndefined();
+    expect(all.find(o => o.type === "extrude")!.sceneShapes.some(s => s.shapeType === "solid")).toBe(true);
+  });
+
+  it("refuses a call outside a sketch body", () => {
+    const statement = image("a.png", { width: 10 }) as unknown as SketchImageStatement;
+    render();
+    expect(statement.getError()).toMatch(/inside a sketch/);
   });
 });
 

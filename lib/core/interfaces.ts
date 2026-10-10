@@ -6,6 +6,7 @@ import type { Matrix4 } from "../math/matrix4.js";
 import type { Axis, AxisLike } from "../math/axis.js";
 import type { Plane, PlaneLike } from "../math/plane.js";
 import type { NumberParam } from "./param.js";
+import type { SketchImageOptions } from "../features/2d/sketch-image.js";
 
 export interface ISceneObject {
   /**
@@ -24,6 +25,20 @@ export interface ISketch extends ISceneObject {
    * removes it again when the sketch is reopened for editing.
    */
   close(): this;
+  /**
+   * Attaches a reference picture the editor draws on the sketch plane, faded
+   * and under the sketch's own lines, whenever this sketch is edited — a
+   * drawing, photo or scan to trace. `src` is a path relative to the model
+   * file; `options` size it on the plane in document units (`width` and/or
+   * `height` — one is enough, the other follows the picture's aspect),
+   * place its centre (`at`, default `[0, 0]`), turn it (`angle`, degrees,
+   * default 0) and set how solid it draws (`opacity`, 0…1, default 0.5).
+   * Editor metadata only: geometry, solving and consumption are untouched.
+   * The sketch toolbar's Image tool writes and edits this chain.
+   * @param src - Image file path, relative to the model file (png, jpeg, webp, gif, bmp).
+   * @param options - Size, position, rotation and opacity on the plane.
+   */
+  image(src: string, options: SketchImageOptions): this;
 }
 
 export interface LoadOptions {

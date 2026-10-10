@@ -43,6 +43,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
   ]},
   { tools: [
     { id: 'text', label: 'Text', iconPng: 'text' },
+    { id: 'image', label: 'Reference Image', caption: 'Image', iconPng: 'image' },
   ]},
   { tools: [
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
@@ -77,6 +78,7 @@ export const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   copy: 'cp',
   mirror: 'm',
   text: 'x',
+  image: 'im',
   project: 'pj',
   intersect: 'ix',
 };

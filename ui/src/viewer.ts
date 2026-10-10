@@ -3,6 +3,8 @@ import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import type { FitMode } from './scene/camera-fit';
 import { DialogViewOffset } from './scene/dialog-view-offset';
 import { SceneModeManager, sketchCameraDistance } from './scene/scene-mode';
+import { ReferenceImageController, type ReferenceImageSource } from './scene/reference-image-controller';
+import { ReferenceImageLoader } from './scene/reference-image-loader';
 import { worldFromMm } from './units/scene-scale';
 import { sceneUnit } from './units/scene-unit';
 import { GridScaleBar } from './ui/grid-scale-bar';
@@ -10,7 +12,7 @@ import { setBottomRightRowVisible } from './ui/bottom-right-row';
 import { buildSceneMesh } from './meshes/mesh-factory';
 import type { SketchMesh } from './meshes/containers/sketch-mesh';
 import { refreshSketchConstraintGlyphs } from './meshes/containers/sketch-constraint-visibility';
-import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SubSelection } from './types';
+import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SketchImageData, SubSelection } from './types';
 import { AssemblyController, DragValueHandler, InstanceDragReleaseHandler, SolverUpdateHandler } from './scene/assembly-controller';
 import { CONNECTOR_HOVER_SCALE, ConnectorGizmoPicker, type ConnectorPickCandidate } from './scene/connector-gizmo-picker';
 import { FaceMesh } from './meshes/shape-meshes/face-mesh';
@@ -171,6 +173,8 @@ const SKETCH_GHOST_EDGE_TINT_FACTOR = 0.3;
 export class Viewer {
   private ctx: SceneContext;
   private modeManager: SceneModeManager;
+  /** The active sketch's reference picture: loaded once per path, placed on every render, previewed by the Image tool. */
+  readonly referenceImage: ReferenceImageController;
   private settingsPanel: SettingsPanel;
   private gridScaleBar: GridScaleBar;
   private sceneObjects: SceneObjectRender[] = [];
@@ -422,6 +426,7 @@ export class Viewer {
       (point, occluders) => this.isPointVisible(point, occluders, worldFromMm(1e-5)),
       () => this.standardPlanes.pickTargets);
     this.modeManager = new SceneModeManager(this.ctx);
+    this.referenceImage = new ReferenceImageController(this.ctx.scene, new ReferenceImageLoader(), () => this.ctx.requestRender());
     new DialogViewOffset(this.ctx);
     this.settingsPanel = new SettingsPanel(container, client, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
@@ -1358,6 +1363,7 @@ export class Viewer {
     this.activeSketchId = null;
     if (!this.sketchCameraHeld) {
       if (this.modeManager.isSketchMode) {
+        this.referenceImage.sync(null);
         this.modeManager.enterDefaultMode();
       }
       this.settingsPanel.setProjectionLocked(false);
@@ -1478,12 +1484,15 @@ export class Viewer {
         this.activeSketchId = activeObject.id;
         this.settingsPanel.setProjectionLocked(true);
         this.settingsPanel.setFitButtonVisible(false);
+        this.referenceImage.sync(Viewer.referenceImageOf(activeObject));
       } else if (this.sketchCameraHeld && activeObject?.object?.plane) {
         // A suspension holding the sketch view: draw as plain 3D, move nothing.
         this.activeSketchId = null;
+        this.referenceImage.sync(null);
       } else {
         this.sketchCameraHeld = false;
         this.activeSketchId = null;
+        this.referenceImage.sync(null);
         this.modeManager.enterDefaultMode();
         this.settingsPanel.setProjectionLocked(false);
         this.settingsPanel.setFitButtonVisible(true);
@@ -1670,6 +1679,7 @@ export class Viewer {
 
     this.removeCompiledMesh();
     this.activeSketchId = null;
+    this.referenceImage.sync(null);
     this.modeManager.enterDefaultMode();
     this.settingsPanel.setProjectionLocked(false);
     this.settingsPanel.setFitButtonVisible(true);
@@ -2539,7 +2549,23 @@ export class Viewer {
 
   dispose(): void {
     this.vertexPicking?.dispose();
+    this.referenceImage.dispose();
     this.ctx.dispose();
+  }
+
+  /**
+   * The active sketch's `.image()` record with the frame and file it needs
+   * to show, or null for a sketch without one (or one whose statement has
+   * no file — a scene with no source location cannot resolve the path).
+   */
+  private static referenceImageOf(sketch: SceneObjectRender): ReferenceImageSource | null {
+    const image = sketch.object?.image as SketchImageData | undefined;
+    const plane = sketch.object?.plane as PlaneData | undefined;
+    const modelFile = sketch.sourceLocation?.filePath;
+    if (!image || !plane || !modelFile) {
+      return null;
+    }
+    return { plane, spec: image, modelFile };
   }
 
   // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ import { PolylineTool } from './tools/polyline';
 import { BezierTool } from './tools/bezier-tool';
 import { PolygonTool } from './tools/polygon-tool';
 import { TextTool } from './tools/text-tool';
+import { ReferenceImageTool } from './tools/reference-image-tool';
 import { SolvedDragHandler } from './drag-move-handler/solved-drag-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { SnapManager } from '../snapping/snap-manager';
@@ -821,6 +822,18 @@ export class SketchToolbarService {
         // dialog session, onSceneUpdate would otherwise never fire.
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
+      }
+      case 'image': {
+        // The reference picture dialog: edits preview on the viewer's quad,
+        // Apply writes the sketch's `.image()` chain — no geometry emission.
+        if (!this.activeSketchInfo) {
+          return null;
+        }
+        return new ReferenceImageTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, {
+          host: this.viewer.referenceImage,
+          sourceLocation: this.activeSketchInfo.sourceLocation,
+          onRequestExit: () => this.handleToolSelect(null),
+        });
       }
       default:
         return null;

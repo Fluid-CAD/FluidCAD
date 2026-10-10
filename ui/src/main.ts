@@ -288,6 +288,11 @@ const measureController = new MeasureController(
   },
 );
 measureController.onNotice = (message) => showToast(message);
+viewer.referenceImage.onStatus = (message) => {
+  if (message) {
+    showToast(message);
+  }
+};
 // The whole-assembly export ships the same live poses measure does — the
 // browser-side solver owns them, the server only knows the statement pose.
 const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext, {

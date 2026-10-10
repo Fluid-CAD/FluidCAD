@@ -29,6 +29,24 @@ export type PlaneData = {
 };
 
 /**
+ * A sketch's reference picture as `sketch(...).image(src, options)` wrote
+ * it, resolved by the lib: `src` is relative to the model file; sizes and
+ * the centre are document units on the sketch plane; whichever of
+ * `width` / `height` is absent follows the picture's pixel aspect ratio.
+ * Carried on the sketch row's `object.image`.
+ */
+export type SketchImageData = {
+  src: string;
+  width?: number;
+  height?: number;
+  at: [number, number];
+  /** Degrees, counter-clockwise about the plane normal. */
+  angle: number;
+  /** 0 = invisible … 1 = solid. */
+  opacity: number;
+};
+
+/**
  * Where a connector copy sits: the pattern slot the `copy()` statement put it
  * at, and the scene id of the connector it copies (its seed). Code names the
  * copy `<seed name>.instance(<slot>)`.

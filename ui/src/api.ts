@@ -4736,6 +4736,32 @@ export function setSketchClosed(sourceLocation: SourceLocationParam, closed: boo
 }
 
 /**
+ * The `.image()` record the sketch Image dialog commits: the path relative
+ * to the model file and the options it holds (`width` and/or `height`
+ * required; a default-valued `at` / `angle` is left out of the written
+ * chain by the server).
+ */
+export type SketchImageEdit = {
+  src: string;
+  width?: number;
+  height?: number;
+  at?: [number, number];
+  angle?: number;
+  opacity?: number;
+};
+
+/**
+ * Set / replace (a record) or remove (null) the `.image(…)` reference
+ * picture chain on the sketch statement at `sourceLocation` — the sketch
+ * toolbar's Image dialog. Acked like {@link setSketchClosed}: resolves once
+ * the host applied the edit, so the dialog closes on the re-render that
+ * shows the picture from code.
+ */
+export function setSketchImage(sourceLocation: SourceLocationParam, image: SketchImageEdit | null): Promise<SetUnitResult> {
+  return postAcked('api/set-sketch-image', { sourceLocation, image });
+}
+
+/**
  * Set (or, with null, remove) the `.material('id')` chain on the `part(...)`
  * statement at `sourceLocation` — the timeline row menu's Set material….
  * Acked like {@link setSketchClosed}: resolves once the host applied the

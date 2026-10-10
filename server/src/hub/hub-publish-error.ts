@@ -50,6 +50,8 @@ export class HubPublishMessages {
   static readonly STATUS_HINT = 'See it with `fluidcad publish --status`, or withdraw it with `fluidcad publish --withdraw`.';
   static readonly BUMP_HINT = 'Bump the version with `fluidcad version patch` (or minor, or major), then publish again.';
   static readonly LOGIN_HINT = 'Run `fluidcad login`, then publish again.';
+  /** The hub's own sentence for `sources-too-large` ends with it, so it is never said twice. */
+  static readonly SOURCES_HINT = 'Move large data out of .js and .json files, or split the package.';
 
   private static readonly HINTS: Record<string, string> = {
     'open-version-exists': HubPublishMessages.STATUS_HINT,
@@ -64,6 +66,7 @@ export class HubPublishMessages {
     'network': 'Nothing was stored: check the connection, then publish again.',
     'stalled': 'Nothing was stored: check the connection, then publish again.',
     'upload-expired': 'Nothing was stored: publish again.',
+    'sources-too-large': HubPublishMessages.SOURCES_HINT,
   };
 
   /** `message`, then the hint for `code` when it has one (and the message doesn't already end with it). */

@@ -35,7 +35,7 @@ import { HubTransport } from './hub-transport.ts';
  * 5. `packPackage` into a scratch directory under `FluidcadHome` (removed
  *    afterwards, whatever happens), the integrity from `TreeHash.ofFiles`,
  *    at least one part or assembly (HD20, `no-models`), and the hub's
- *    limits;
+ *    limits (the scripts and JSON files' total, `sourcesBytes`, among them);
  * 6. the caller confirms what will be uploaded (not for a dry run);
  * 7. `PUT` with progress, then the hub's integrity must equal ours.
  *
@@ -294,6 +294,15 @@ export class HubPublisher {
     if (unpacked > limits.unpackedBytes) {
       throw HubPublishError.local('unpacked-too-large', `The package is ${HubPublisher.megabytes(unpacked)} unpacked; ${this.config.origin} takes at most ${HubPublisher.megabytes(limits.unpackedBytes)}.`);
     }
+    const sources = HubPublisher.sourcesBytes(packed.files);
+    if (sources > limits.sourcesBytes) {
+      throw HubPublishError.local(
+        'sources-too-large',
+        `The package's scripts and JSON files come to ${sources.toLocaleString('en-US')} bytes; ${this.config.origin}'s package viewer takes at most ` +
+          `${limits.sourcesBytes.toLocaleString('en-US')} (${HubPublisher.megabytes(limits.sourcesBytes)}).`,
+        { bytes: sources, limit: limits.sourcesBytes },
+      );
+    }
     const manifestBytes = packed.files[PackageLayout.MANIFEST]?.length ?? 0;
     if (manifestBytes > limits.manifestBytes) {
       throw HubPublishError.local('bad-manifest', `manifest.json is ${HubPublisher.megabytes(manifestBytes)}; ${this.config.origin} takes at most ${HubPublisher.megabytes(limits.manifestBytes)}.`);
@@ -421,6 +430,25 @@ export class HubPublisher {
       }
       throw err;
     }
+  }
+
+  /** The files the hub's sources route serves (`CatalogRules.SOURCE_EXTENSIONS`), whose total the hub caps at `sourcesBytes`. */
+  static readonly SOURCE_EXTENSIONS: readonly string[] = ['.js', '.mjs', '.json'];
+
+  /**
+   * The uncompressed bytes of the archive's `.js`, `.mjs` and `.json` files,
+   * `manifest.json` included: what the hub's package viewer receives in one
+   * message, counted as the hub counts it (`ArchiveValidator.checkSources`).
+   */
+  static sourcesBytes(files: Record<string, Buffer>): number {
+    let total = 0;
+    for (const [path, bytes] of Object.entries(files)) {
+      const lower = path.toLowerCase();
+      if (HubPublisher.SOURCE_EXTENSIONS.some((extension) => lower.endsWith(extension))) {
+        total += bytes.length;
+      }
+    }
+    return total;
   }
 
   /** `24.1 kB`, `3.2 MB`. */

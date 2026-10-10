@@ -206,6 +206,12 @@ describe('HubPublisher.publish', () => {
     expect(hub.uploads).toHaveLength(0);
   });
 
+  it("uploads a package whose scripts and JSON files come to exactly the hub's sourcesBytes", async () => {
+    hub.limits = { sourcesBytes: HubPublisher.sourcesBytes(packed.files) };
+    expect(await publisher().publish({ workspacePath: workspace, dryRun: true })).not.toBeNull();
+    expect(hub.uploads).toHaveLength(1);
+  });
+
   it("refuses an answer whose integrity isn't the packed one, and removes the scratch directory", async () => {
     hub.nextUpload = { integrity: 'sha256-somethingElse=' };
     const error = await refusal(publisher().publish({ workspacePath: workspace }));
@@ -300,6 +306,25 @@ describe('HubPublisher.publish refuses locally, before any upload', () => {
     expect(notes.message).toContain('281 characters');
   });
 
+  it("when the scripts and JSON files together are over the hub's sourcesBytes, counted as the hub counts them", async () => {
+    const sources = HubPublisher.sourcesBytes(packed.files);
+    const scripts = Object.entries(packed.files).filter(([file]) => /\.(js|mjs|json)$/i.test(file));
+    expect(scripts.some(([file]) => file === 'manifest.json')).toBe(true);
+    expect(sources).toBe(scripts.reduce((sum, [, bytes]) => sum + bytes.length, 0));
+    expect(sources).toBeLessThan(Object.values(packed.files).reduce((sum, bytes) => sum + bytes.length, 0));
+
+    hub.limits = { sourcesBytes: sources - 1 };
+    const over = await refusal(publisher().publish({ workspacePath: workspace }));
+    expect(over.code).toBe('sources-too-large');
+    expect(over.local).toBe(true);
+    expect(over.details).toEqual({ bytes: sources, limit: sources - 1 });
+    expect(over.message).toBe(
+      `The package's scripts and JSON files come to ${sources.toLocaleString('en-US')} bytes; ${hub.origin}'s package viewer takes at most ` +
+        `${(sources - 1).toLocaleString('en-US')} (${HubPublisher.megabytes(sources - 1)}). ${HubPublishMessages.SOURCES_HINT}`,
+    );
+    expect(hub.uploads).toHaveLength(0);
+  });
+
   it('when the version is not greater than the highest published one, before packing', async () => {
     hold([{ version: '0.2.0', status: 'published' }]);
     const lower = await refusal(publisher().publish({ workspacePath: workspace }));
@@ -353,6 +378,7 @@ describe("the hub's refusals as messages", () => {
     ['publish-daily-limit', 429, '@acme/kit had 20 uploads today (UTC), the most the hub takes in a day: try again tomorrow.', 'try again tomorrow.'],
     ['rate-limited', 429, 'Too many uploads in a minute: wait a moment and try again.', 'wait a moment'],
     ['archive-too-large', 413, 'The archive is 30.0 MB; the hub takes at most 25.0 MB.', 'at most 25.0 MB'],
+    ['sources-too-large', 422, "The package's scripts and JSON files come to 6,000,000 bytes; the package viewer takes at most 5,242,880 (5.0 MB).", HubPublishMessages.SOURCES_HINT],
   ];
 
   it.each(cases)('%s keeps the hub sentence and adds its next step', async (code, status, message, expected) => {
@@ -363,6 +389,13 @@ describe("the hub's refusals as messages", () => {
     expect(error.message.startsWith(message)).toBe(true);
     expect(error.message).toContain(expected);
     expect(fs.existsSync(scratchRoot())).toBe(false);
+  });
+
+  it("the hub's sources-too-large sentence, which already ends with the hint, is not given it twice", () => {
+    const sentence = "The package's scripts and JSON files come to 6,000,000 bytes; the package viewer takes at most 5,242,880 (5.0 MB). Move large data out of .js and .json files, or split the package.";
+    const error = HubPublishError.fromHub(new HubRequestError(422, 'sources-too-large', sentence, { details: { bytes: 6_000_000, limit: 5_242_880 } }), 'https://hub.test');
+    expect(error.message).toBe(sentence);
+    expect(error.details).toEqual({ bytes: 6_000_000, limit: 5_242_880 });
   });
 
   it('a revoked token asks to sign in again', () => {

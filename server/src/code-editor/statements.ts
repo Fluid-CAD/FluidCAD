@@ -3,7 +3,7 @@
 import { DERIVED_OP_CALLEES, REGION_DECLARATION_CALLEE, SOLVED_CONSTRAINT_KINDS, SOLVED_ENTITY_NAME_HINTS } from '../sketch-symbols.ts';
 import { allocateSolvedName, collectIdentifiers } from '../sketch-names.ts';
 import { isBreakpointStatement } from './breakpoints.ts';
-import { ensureSymbolImport } from './imports.ts';
+import { ensureSymbolImport, importLocalName } from './imports.ts';
 import {
   applySpliceEdits,
   indentOf,
@@ -274,15 +274,16 @@ export function setSketchClosed(
 }
 
 // ---------------------------------------------------------------------------
-// Sketch reference image — set/replace/remove the chained .image(src, {…})
+// Sketch reference image — the image('src', {…}) statement in a sketch body
 // ---------------------------------------------------------------------------
 
 /**
- * The `.image()` chain as the sketch dialog writes it: the path relative to
- * the model file and the options the dialog holds. `width` / `height` as
- * the lib takes them (one or both); `at`, `angle` and `opacity` are
- * optional and a default-valued one (`[0, 0]`, `0`) is left out of the
- * written literal. Numbers only — the dialog has no expression fields.
+ * An `image()` statement as the sketch Image tool writes it: the path
+ * relative to the model file and the options the tool holds. `width` /
+ * `height` as the lib takes them (one or both); `at`, `angle` and `opacity`
+ * are optional and a default-valued `at` (`[0, 0]`) or `angle` (`0`) is left
+ * out of the written literal. Numbers only — the tool has no expression
+ * fields.
  */
 export type SketchImageEdit = {
   src: string;
@@ -293,12 +294,15 @@ export type SketchImageEdit = {
   opacity?: number;
 };
 
+/** The lib export the statement calls. */
+const SKETCH_IMAGE_SYMBOL = 'image';
+
 /** Compact numeric literal for a written option (no float noise). */
 function imageNumber(value: number): string {
   return String(Math.round(value * 1000) / 1000);
 }
 
-/** The `.image(…)` argument list for `edit`, as source text. */
+/** The `image(…)` argument list for `edit`, as source text. */
 function imageArguments(edit: SketchImageEdit): string {
   const fields: string[] = [];
   if (edit.width !== undefined) {
@@ -319,46 +323,87 @@ function imageArguments(edit: SketchImageEdit): string {
   return `'${quoteForSingleQuotes(edit.src)}', { ${fields.join(', ')} }`;
 }
 
+/** Whether `statement` is a bare `<callee>(…);` call statement. */
+function isImageStatement(statement: TSNode, callee: string): boolean {
+  if (statement.type !== 'expression_statement') {
+    return false;
+  }
+  const call = statement.namedChildren[0];
+  return call?.type === 'call_expression' && chainRootCallee(call) === callee;
+}
+
 /**
- * Set, replace, or remove the `.image('src', { … })` chain of the sketch
- * statement at `sourceLine` — the sketch toolbar's Image dialog. An edit
- * rewrites an existing chain's arguments wholesale (the dialog holds every
- * option) or appends `.image(…)` at the end of the chain, after `.name()`
- * / `.close()` and any other trailing call; null removes the chain the way
- * `setSketchClosed` strips `.close()`. Refuses (returns null) a line that
- * is not a `sketch(...)` statement — a stale line must not grow a chain
- * some other feature has no meaning for — and an existing `.image()` whose
- * first argument is not a string literal (an expression the user wrote by
- * hand is theirs to change). Removing from a sketch without the chain is a
- * no-op.
+ * Write a new `image('src', { … })` statement into the body of the sketch
+ * whose call starts at `sketchLine` — the sketch Image tool's create. It
+ * goes first in the body, after any picture already there: a picture
+ * changes no geometry, and at the top of the body every pause inside the
+ * sketch still shows it. `image` is imported from `fluidcad/core` under a
+ * free local name. Refuses (code unchanged) a line that is not a sketch
+ * with a callback body.
  */
-export function setSketchImage(
+export async function insertSketchImage(
   code: string,
-  sourceLine: number,
-  image: SketchImageEdit | null,
+  sketchLine: number,
+  image: SketchImageEdit,
 ): Promise<CodeEditResult> {
-  return withParsedCode(code, (tree, lines) => {
-    const call = findEditableCallAt(tree, lines, sourceLine);
+  const callee = await importLocalName(code, SKETCH_IMAGE_SYMBOL);
+  const inserted = await withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sketchLine);
     if (!call || chainRootCallee(call) !== 'sketch') {
       return null;
     }
-    const imageCall = findMemberCallInChain(call, 'image');
-    const existingArgs = imageCall ? getArgumentsNode(imageCall) : null;
-    if (imageCall) {
-      const first = existingArgs?.namedChildren.find(arg => arg.type !== 'comment');
-      if (!existingArgs || !first || first.type !== 'string') {
-        return null;
-      }
+    const body = findSketchBody(call);
+    if (!body) {
+      return null;
     }
-    if (image === null) {
-      const removal = imageCall ? chainCallRemoval(imageCall) : null;
-      return removal ? applySpliceEdits(code, [removal]) : null;
+    const children = body.namedChildren.filter(child => child.type !== 'comment');
+    const leading = children.findIndex(child => !isImageStatement(child, callee));
+    const anchor = leading === -1 ? null : children[leading];
+    const indent = anchor
+      ? indentOf(lines, anchor.startPosition.row)
+      : children.length > 0
+        ? indentOf(lines, children[0].startPosition.row)
+        : indentOf(lines, body.startPosition.row) + '  ';
+    const insertRow = anchor
+      ? anchor.startPosition.row
+      : children.length > 0
+        ? children[children.length - 1].endPosition.row + 1
+        : body.startPosition.row + 1;
+    const next = [...lines];
+    next.splice(insertRow, 0, `${indent}${callee}(${imageArguments(image)});`);
+    return joinLines(next);
+  });
+  if (inserted.newCode === code) {
+    return inserted;
+  }
+  return { newCode: await ensureSymbolImport(inserted.newCode, SKETCH_IMAGE_SYMBOL, 'fluidcad/core', callee) };
+}
+
+/**
+ * Rewrite the `image('src', { … })` statement at `imageLine` — the sketch
+ * Image tool re-opened on a picture. The arguments are rewritten wholesale
+ * (the tool holds every option). Refuses (code unchanged) a line that is
+ * not an `image()` call, and one whose first argument is not a string
+ * literal: a path the user computes by hand is theirs to change. Deleting
+ * a picture is the timeline row's generic remove.
+ */
+export async function setSketchImage(
+  code: string,
+  imageLine: number,
+  image: SketchImageEdit,
+): Promise<CodeEditResult> {
+  const callee = await importLocalName(code, SKETCH_IMAGE_SYMBOL);
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, imageLine);
+    if (!call || call.childForFieldName('function')?.type !== 'identifier' || chainRootCallee(call) !== callee) {
+      return null;
     }
-    const args = imageArguments(image);
-    if (imageCall && existingArgs) {
-      return spliceCode(code, existingArgs.startIndex + 1, existingArgs.endIndex - 1, args);
+    const args = getArgumentsNode(call);
+    const first = args?.namedChildren.find(arg => arg.type !== 'comment');
+    if (!args || !first || first.type !== 'string') {
+      return null;
     }
-    return spliceCode(code, call.endIndex, call.endIndex, `.image(${args})`);
+    return spliceCode(code, args.startIndex + 1, args.endIndex - 1, imageArguments(image));
   });
 }
 

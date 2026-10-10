@@ -187,7 +187,9 @@ function moduleStemIdentifier(module: string): string {
  * when nothing in the file binds it yet; else a fresh alias: the module's
  * file stem (`part` from `./bracket.fluid.js` → `bracket`), then stem +
  * Symbol (`bracketPart`), then `symbol2`, `symbol3`, … — whichever is free
- * first. Pass the result to `ensureSymbolImport` as `alias` so the emitted
+ * first. A package module (`fluidcad/core`) has no file stem worth naming
+ * a binding after, so its symbols go straight to `symbol2`, `symbol3`, ….
+ * Pass the result to `ensureSymbolImport` as `alias` so the emitted
  * import binds exactly the name the generated statement references.
  *
  * Two files exporting the same name (`part`, `main`) or an export that
@@ -210,7 +212,8 @@ export async function importLocalName(
   if (!bound.has(symbol)) {
     return symbol;
   }
-  const stem = moduleStemIdentifier(module);
+  const isFileModule = module.startsWith('.') || module.startsWith('/');
+  const stem = isFileModule ? moduleStemIdentifier(module) : '';
   const candidates: string[] = [];
   if (stem && stem !== symbol) {
     candidates.push(stem, `${stem}${symbol.charAt(0).toUpperCase()}${symbol.slice(1)}`);

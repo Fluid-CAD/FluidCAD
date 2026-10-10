@@ -23,9 +23,9 @@ function optionalFinite(value: unknown): number | undefined | false {
 }
 
 /**
- * The Image dialog's record as the route accepts it: a non-empty path, a
+ * The Image tool's record as the route accepts it: a non-empty path, a
  * positive width and/or height, and well-formed optional centre, angle and
- * opacity (0…1) — the same rules the lib applies to the written chain, so
+ * opacity (0…1) — the same rules the lib applies to the written statement, so
  * a rejected edit never reaches the host.
  */
 function isSketchImageEdit(value: unknown): boolean {
@@ -297,18 +297,18 @@ export function createTimelineRouter(
     await options.dispatcher.dispatch(res, spec, { success: true });
   });
 
-  // The sketch toolbar's Image dialog: set / replace (an image record) or
-  // remove (null) the `.image(…)` reference picture on a sketch statement.
-  // Acked through the dispatcher like set-sketch-closed so the dialog can
-  // close on the re-render that shows the picture from code.
-  router.post('/set-sketch-image', async (req, res) => {
-    const { sourceLocation, image } = req.body ?? {};
-    if (
-      !sourceLocation ||
-      typeof sourceLocation.filePath !== 'string' ||
-      typeof sourceLocation.line !== 'number' ||
-      (image !== null && !isSketchImageEdit(image))
-    ) {
+  // The sketch toolbar's Image tool: a new picture in a sketch body
+  // (`sketch` + an image record), or the `image()` statement at `target`
+  // rewritten. (A picture is deleted from its timeline row, through the
+  // generic remove-statement route.) Acked through the dispatcher
+  // like set-sketch-closed so the tool can close on the re-render that
+  // shows the picture from code.
+  router.post('/sketch-image', async (req, res) => {
+    const { sketch, target, image } = req.body ?? {};
+    const isLocation = (loc: any) => !!loc && typeof loc.filePath === 'string' && typeof loc.line === 'number';
+    const creating = isLocation(sketch) && target === undefined && isSketchImageEdit(image);
+    const editing = isLocation(target) && sketch === undefined && isSketchImageEdit(image);
+    if (!creating && !editing) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
@@ -316,13 +316,16 @@ export function createTimelineRouter(
       res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
       return;
     }
+    const record = sketchImageEditOf(image);
     const spec: ApplyFeatureEditSpec = {
       feature: 'sketch',
-      filePath: sourceLocation.filePath,
+      filePath: creating ? sketch.filePath : target.filePath,
       producers: [],
       parts: [],
       imports: [],
-      sketchImage: { sourceLine: sourceLocation.line, image: image === null ? null : sketchImageEditOf(image) },
+      sketchImage: creating
+        ? { sketchLine: sketch.line, image: record }
+        : { imageLine: target.line, image: record },
     };
     await options.dispatcher.dispatch(res, spec, { success: true });
   });

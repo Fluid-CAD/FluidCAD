@@ -383,10 +383,9 @@ export type ApplyFeatureEditSpec = {
    */
   sketchClosed?: SketchClosedEditSpec;
   /**
-   * The sketch Image dialog's chain edit — set, replace or remove the
-   * `.image(…)` reference picture on the sketch statement at `sourceLine`
-   * — alone on its round trip like `sketchClosed`; every other spec field
-   * is ignored.
+   * The sketch Image tool's commit — write a new `image(…)` statement into
+   * a sketch body, or rewrite an existing one — alone on its round
+   * trip like `sketchClosed`; every other spec field is ignored.
    */
   sketchImage?: SketchImageEditSpec;
   /**
@@ -834,13 +833,22 @@ export type SketchClosedEditSpec = {
   closed: boolean;
 };
 
-/** The sketch Image dialog's commit: see {@link setSketchImage}. */
-export type SketchImageEditSpec = {
-  /** The sketch statement's 1-based source line. */
-  sourceLine: number;
-  /** The picture and its options to write, or null to remove the `.image()` chain. */
-  image: SketchImageEdit | null;
-};
+/**
+ * The sketch Image tool's commit: a new picture in the sketch at
+ * `sketchLine` (see {@link insertSketchImage}), or the `image()` statement
+ * at `imageLine` rewritten (see {@link setSketchImage}).
+ */
+export type SketchImageEditSpec =
+  | {
+    /** The sketch statement's 1-based source line. */
+    sketchLine: number;
+    image: SketchImageEdit;
+  }
+  | {
+    /** The `image()` statement's 1-based source line. */
+    imageLine: number;
+    image: SketchImageEdit;
+  };
 
 /** The section arrow's offset commit: see {@link setSectionOptions}. */
 export type SectionOptionsEditSpec = {

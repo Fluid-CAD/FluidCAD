@@ -1,8 +1,8 @@
 // The sketch Image tool's commit goes through the acked edit dispatcher
 // like set-sketch-closed: the route validates the record with the lib's
 // rules (so a bad edit never reaches the host), hands the host a
-// `sketchImage` spec — a create into a sketch body, or an edit / removal of
-// an image() statement — and answers with the host's real outcome so the
+// `sketchImage` spec — a create into a sketch body, or an edit of an
+// image() statement — and answers with the host's real outcome so the
 // tool closes on the re-render that shows the picture from code.
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
@@ -75,6 +75,7 @@ describe('POST /api/sketch-image', () => {
       { sketch: LOC, image: null },
       { sketch: LOC, target: IMAGE_LOC, image: { src: 'a.png', width: 1 } },
       { target: IMAGE_LOC },
+      { target: IMAGE_LOC, image: null },
       { sketch: LOC, image: 'a.png' },
       { sketch: LOC, image: { width: 10 } },
       { sketch: LOC, image: { src: '', width: 10 } },
@@ -114,16 +115,6 @@ describe('POST /api/sketch-image', () => {
     expect(msg.spec.sketchImage).toEqual({ imageLine: 4, image: { src: 'b.png', height: 7 } });
     const applied = await applyFeatureEdit(EDIT_CODE, msg.spec);
     expect(applied.newCode).toContain(`  image('b.png', { height: 7 })\n`);
-    dispatcher.settle(msg.spec.editId, applied.error);
-    expect((await pending).status).toBe(200);
-  });
-
-  it('null removes the statement, riding the same round trip', async () => {
-    const pending = post({ target: IMAGE_LOC, image: null });
-    const msg = await untilRelayed();
-    expect(msg.spec.sketchImage).toEqual({ imageLine: 4, image: null });
-    const applied = await applyFeatureEdit(EDIT_CODE, msg.spec);
-    expect(applied.newCode).not.toContain(`a.png`);
     dispatcher.settle(msg.spec.editId, applied.error);
     expect((await pending).status).toBe(200);
   });

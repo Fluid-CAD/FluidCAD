@@ -112,7 +112,29 @@ Like every settings tab, the folder and the target wait for **Save**.
 
 ## Making a package
 
-A package is made from a project whose `fluidcad.json` has a `package` block: the package's name, its version, and the files it shares.
+A package is made from a project whose `fluidcad.json` has a `package` block (the package's name and version) and whose features and parts sit in three folders. The folders decide what the package shares:
+
+```
+mounting-hardware/
+├── fluidcad.json              ← the package block
+├── README.md
+├── features/                  ← *.feature.js files, with their pictures
+│   ├── bolt-circle.feature.js
+│   ├── bolt-circle.svg
+│   ├── standoff.feature.js
+│   └── standoff.svg
+├── parts/                     ← *.part.js files
+│   ├── hub-flange.part.js
+│   └── pcb-plate.part.js
+├── assemblies/                ← *.assembly.js files
+│   └── plate-stack.assembly.js
+└── bench.part.js              ← a test model: outside the folders, never packed
+```
+
+- Every feature in `features/`, every part in `parts/` and every assembly in `assemblies/` is shared. Subfolders are fine, and so are plain `.js` helper files inside the three folders.
+- The package's own parts import its features relatively: `import { boltCircle } from '../features/bolt-circle.feature.js'`. An assembly inserts its parts the same way.
+- Anything outside the three folders stays in the project: test models, `init.js`, notes. A test model at the root imports `./features/standoff.feature.js`.
+- To be published on the hub later, a package needs at least one part or assembly, so its page has a model to show. A package of features alone still packs and installs from its file.
 
 1. In the project that holds the features and parts, run:
 
@@ -120,7 +142,7 @@ A package is made from a project whose `fluidcad.json` has a `package` block: th
    npx fluidcad package init --name @acme/mounting-hardware
    ```
 
-   It writes the block with version `0.1.0` and every `*.feature.js` file as an export. Add the `*.part.js` files whose parts you want to share to `exports`. See [Project configuration](/docs/project-configuration#package) for every key.
+   It writes the block with the name and version `0.1.0`, and says what the folders hold. See [Project configuration](/docs/project-configuration#package) for every key.
 
 2. Pack it:
 
@@ -130,12 +152,13 @@ A package is made from a project whose `fluidcad.json` has a `package` block: th
 
    ```
    Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidpkg
-     4 features: acme.boltCircle, acme.boss, acme.fastener, acme.standoff
-     2 parts: hubFlange, pcbPlate
-     28 files, 17.5 kB, unit mm
+     features/   4 features: acme.boltCircle, acme.boss, acme.fastener, acme.standoff
+     parts/      2 parts: hubFlange, pcbPlate
+     assemblies/ 1 assembly: plateStack
+     29 files, 18.2 kB, unit mm
    ```
 
-   The package holds the exported files, the files they import and the pictures the features declare, as they are. The project's test models and `init.js` stay out. Before writing the file, FluidCAD builds every exported part and checks every feature; a problem stops the pack with a sentence naming the file.
+   The package holds the three folders' files, the files they import and the pictures the features declare, as they are. The project's test models and `init.js` stay out. Before writing the file, FluidCAD builds every part and assembly and checks every feature; a problem stops the pack with a sentence naming the file. A part file inside `features/`, an assembly inside `parts/`, or an import of a file outside the three folders stops it too.
 
 3. To release a new version, edit the files, raise the version with `npx fluidcad version minor` (or `patch`, `major`, or an exact `1.2.0`), and pack again.
 

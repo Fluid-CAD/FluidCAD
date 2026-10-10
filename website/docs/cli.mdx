@@ -392,21 +392,15 @@ A [package](/docs/packages) is a project's custom features and parts, packed int
 npx fluidcad package init --name @acme/mounting-hardware
 ```
 
-Makes the project a package by writing the [`package` block](/docs/project-configuration#package) of its `fluidcad.json`: the name, version `0.1.0`, and every `*.feature.js` file as an export.
+Makes the project a package by writing the [`package` block](/docs/project-configuration#package) of its `fluidcad.json`: the name and version `0.1.0`. What the package shares is what its `features/`, `parts/` and `assemblies/` folders hold, and the command says how much that is today:
 
 ```
 Wrote the "package" block to …/mounting-hardware/fluidcad.json:
   {
     "name": "@acme/mounting-hardware",
-    "version": "0.1.0",
-    "exports": [
-      "bolt-circle.feature.js",
-      "boss.feature.js",
-      "fastener.feature.js",
-      "standoff.feature.js"
-    ]
+    "version": "0.1.0"
   }
-"exports" lists every feature module. Add *.part.js or *.assembly.js modules to share parts, or remove what stays private.
+Pack exports what features/, parts/ and assemblies/ hold. Today: features/ 4 modules, parts/ 2 modules, assemblies/ none.
 ```
 
 | Flag | Description | Default |
@@ -431,29 +425,31 @@ npx fluidcad pack
 npx fluidcad pack -o dist/
 ```
 
-Packs the project's package into `<scope>-<name>-<version>.fluidpkg`, written into the project unless `-o` says otherwise:
+Packs the project's package into `<scope>-<name>-<version>.fluidpkg`, written into the project unless `-o` says otherwise. It lists what the package holds, folder by folder:
 
 ```
 Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidpkg
-  4 features: acme.boltCircle, acme.boss, acme.fastener, acme.standoff
-  2 parts: hubFlange, pcbPlate
-  28 files, 17.5 kB, unit mm
+  features/   4 features: acme.boltCircle, acme.boss, acme.fastener, acme.standoff
+  parts/      2 parts: hubFlange, pcbPlate
+  assemblies/ 1 assembly: plateStack
+  29 files, 18.2 kB, unit mm
 ```
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-o, --out <path>` | The output file, or a folder to write it into | `<scope>-<name>-<version>.fluidpkg` in the project |
 | `-w, --workspace <path>` | Path to the project | Current directory |
+| `--json` | Print the result as JSON: `name`, `version`, `fileName`, `savedTo`, `bytes`, `files`, `unit`, and `contents` (the features, parts and assemblies by folder, with `models`, their count). A refused pack prints `{ "error", "code" }`. | off |
 
-The file holds the files `exports` lists, the files they import and the pictures their features declare, unchanged, plus `README.md`, `LICENSE` and `CHANGELOG.md` when the project has them, and three generated files: `index.js`, `manifest.json` (what the package holds, read by the installer) and a `fluidcad.json` with only the unit and materials. Test models, `init.js` and anything else not exported stay out, and nothing else is written to the project. The same project packs to the same bytes every time.
+The file holds what the [`features/`, `parts/` and `assemblies/` folders](/docs/packages#making-a-package) hold, the files they import and the pictures their features declare, unchanged, plus `README.md`, `LICENSE` and `CHANGELOG.md` when the project has them, and three generated files: `index.js`, `manifest.json` (what the package holds, read by the installer) and a `fluidcad.json` with only the unit and materials. Test models outside the folders, `init.js` and anything else not imported stay out, and nothing else is written to the project. The same project packs to the same bytes every time. A package with no part or assembly packs, and the summary notes that the hub needs at least one to publish it.
 
-Before writing, the engine loads every export, builds every exported part with its default values and checks every feature. A problem stops the pack with one sentence naming the file, for example:
+Before writing, the engine loads every file the folders export, builds every part and assembly with its default values and checks every feature. A problem stops the pack with one sentence naming the file, for example:
 
 ```
-standoff.feature.js declares the feature id 'mounts.standoff', but @acme/mounting-hardware may only declare ids that start with 'acme.' (the package's scope).
+features/hub-flange.part.js is a part in features/, but parts belong in parts/: move it there.
 ```
 
-The checks: the `package` block is valid and every export exists; no two files export the same name and no two features share an id; every feature id starts with the scope; every exported part builds without an error; nothing is imported from `node_modules`, from outside the project, from `init.js`, from a blocked Node built-in or from another package; every picture a feature declares exists. A project without a `package` block is refused with "This workspace isn't a package — run `fluidcad package init` first."
+The checks: the `package` block is valid and has no `exports` list; every file sits in the folder for its kind (`wrong-folder`) and the folders hold something (`no-exports`); nothing is imported from outside the three folders (`outside-layout`); no two files export the same name and no two features share an id; every feature id starts with the scope; every part and assembly builds without an error; nothing is imported from `node_modules`, from outside the project, from `init.js`, from a blocked Node built-in or from another package; every picture a feature declares exists. A project without a `package` block is refused with "This workspace isn't a package — run `fluidcad package init` first."
 
 To release a new version: edit, `npx fluidcad version minor`, `npx fluidcad pack`.
 

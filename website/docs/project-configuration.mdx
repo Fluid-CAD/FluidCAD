@@ -126,7 +126,7 @@ An invalid map is reported like a bad `unit` — an entry without a `name` strin
 
 ### `package`
 
-Makes the project a [package](/docs/packages) that others can install: its name, its version, and the files it shares. A project with this block is still an ordinary project; its own models render as before.
+Makes the project a [package](/docs/packages) that others can install: its name and its version. A project with this block is still an ordinary project; its own models render as before.
 
 ```json
 {
@@ -136,14 +136,6 @@ Makes the project a [package](/docs/packages) that others can install: its name,
     "name": "@acme/mounting-hardware",
     "version": "0.1.0",
     "description": "Standoffs, bosses, bolt circles and fastener holes, with a PCB plate and a hub flange",
-    "exports": [
-      "bolt-circle.feature.js",
-      "boss.feature.js",
-      "fastener.feature.js",
-      "standoff.feature.js",
-      "hub-flange.part.js",
-      "pcb-plate.part.js"
-    ],
     "license": "MIT",
     "author": "Acme Robotics"
   }
@@ -154,10 +146,11 @@ Makes the project a [package](/docs/packages) that others can install: its name,
 |-------|---------|
 | `name` | Required. `@scope/name`, in lowercase letters, digits and dashes. Feature ids in the package must start with the scope: `acme.standoff`. |
 | `version` | Required. An exact version, `MAJOR.MINOR.PATCH` with an optional `-prerelease` (`1.2.0`, `2.0.0-beta.1`). |
-| `exports` | Required. The files whose features and parts are shared, relative to the project: `*.feature.js`, `*.part.js` or `*.assembly.js`. The files they import are packed along but not shared. Test models stay out. |
 | `description`, `license`, `author`, `homepage` | Optional text, shown when the package is installed. |
 | `keywords` | Optional list of words. |
 | `minEngine` | Optional. The oldest FluidCAD the package runs on; by default the project's `engine` pin. |
+
+What the package shares is not listed here: its `features/`, `parts/` and `assemblies/` folders decide it ([Making a package](/docs/packages#making-a-package)). A block with an `exports` list, from before the folders, is refused with a sentence that says to move the files into the folders and remove `exports`.
 
 [`npx fluidcad package init`](/docs/cli#fluidcad-package-init) writes the block, [`npx fluidcad version`](/docs/cli#fluidcad-version) raises the version, and [`npx fluidcad pack`](/docs/cli#fluidcad-pack) packs the project into a `.fluidpkg`. Packing never changes the project. A broken block is reported when the server starts and the project is treated as a plain project; `engine`, `unit` and `materials` keep working.
 

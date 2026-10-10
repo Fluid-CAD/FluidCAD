@@ -822,6 +822,1003 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/packages/{scope}/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where publishing a package stands: its highest published version and its open version (the owner and admins) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The package; `Cache-Control: private, no-store` */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PackageStatus"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package, or not yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Set the package's license, homepage and repository (the owner) */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EditPackageRequest"];
+                };
+            };
+            responses: {
+                /** @description The listing; `Cache-Control: private, no-store` */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PackageListing"];
+                    };
+                };
+                /** @description A license the hub doesn't offer, a link that isn't https (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/packages/{scope}/{name}/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A package's screenshots, in order (the owner and admins; anyone once the package is public) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The screenshots */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MediaList"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package, or not public and not yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Add a screenshot: an uploaded image, or a capture from the viewer (the owner)
+         * @description The raw image, `image/png`, `image/jpeg` or `image/webp`, at most 2 MB and 4096 px a side. The type is read from the bytes and must be the one sent. At most 12 per package; the first is the card image. A capture names its model with `modelModule`.
+         */
+        post: {
+            parameters: {
+                query?: {
+                    /** @description At most 140 characters; empty for none. */
+                    caption?: string;
+                    /** @description The image's file name as the owner chose it, shown on its tile; the hub keeps the last path segment. */
+                    fileName?: string;
+                    /** @description For a capture from the viewer: the part's or assembly's module, such as `parts/hub-flange.part.js`. */
+                    modelModule?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                    "image/webp": string;
+                };
+            };
+            responses: {
+                /** @description The screenshot */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Media"];
+                    };
+                };
+                /** @description `image-type-mismatch`, `image-dimensions`, `unknown-model`, `bad-request` */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Already 12 (`too-many-screenshots`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No Content-Length (`length-required`) */
+                411: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Over 2 MB (`image-too-large`) */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not PNG, JPEG or WebP (`unsupported-media-type`) */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/{scope}/{name}/media/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A screenshot image (the owner and admins; anyone once the package is public)
+         * @description Served with `nosniff`, `Content-Disposition: inline` and its stored type; immutable once public (an id is never reused), `private, no-store` before.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A screenshot id; never reused. */
+                    id: components["schemas"]["MediaIdParam"];
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The image */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "image/jpeg": string;
+                        "image/png": string;
+                        "image/webp": string;
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such screenshot, or not public and not yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /**
+         * Delete a screenshot (the owner)
+         * @description The image goes from storage; the next one becomes the card image when this was it.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A screenshot id; never reused. */
+                    id: components["schemas"]["MediaIdParam"];
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Set a screenshot's caption, its place in the order, or make it the card image (the owner) */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A screenshot id; never reused. */
+                    id: components["schemas"]["MediaIdParam"];
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EditMediaRequest"];
+                };
+            };
+            responses: {
+                /** @description The screenshot */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Media"];
+                    };
+                };
+                /** @description A caption over 140 characters, a position out of range (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/packages/{scope}/{name}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A version's state, notes, license and review note (the owner and admins) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                    /** @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease. */
+                    version: components["schemas"]["VersionParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The version; `Cache-Control: private, no-store` */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VersionStatus"];
+                    };
+                };
+                /** @description Not a version (`bad-version`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package or version, or not yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        /**
+         * Upload a package version (a draft for a first version, else submitted for review)
+         * @description The raw `.fluidpkg` bytes. Checks that need no body run first (token with `publish`, verified email, publisher, scope, name, version, open version, limits), then the hub validates the archive, recomputes its integrity and stores it. Nothing becomes public: an admin approves every version.
+         */
+        put: {
+            parameters: {
+                query?: {
+                    /** @description Validate everything and answer as an upload would, without storing anything. */
+                    dryRun?: "0" | "1" | "true" | "false";
+                };
+                header?: {
+                    /** @description Required; at most the `archiveBytes` limit. */
+                    "content-length"?: string;
+                    /** @description Must be `application/vnd.fluidcad.package+zip`. */
+                    "content-type"?: string;
+                    /** @description The client's tree hash (`sha256-…`). When sent, it must equal the hub's own. */
+                    "x-fluidcad-integrity"?: string;
+                    /** @description Release notes, percent-encoded, at most 280 characters once decoded; else the CHANGELOG section for the version. */
+                    "x-fluidcad-release-notes"?: string;
+                };
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                    /** @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease. */
+                    version: components["schemas"]["VersionParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/vnd.fluidcad.package+zip": string;
+                };
+            };
+            responses: {
+                /** @description A dry run: what an upload would give (`dryRun: true`); nothing stored */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UploadResult"];
+                    };
+                };
+                /** @description Stored as `draft` (with `wizardUrl`) or `in_review` (with `reviewUrl`) */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UploadResult"];
+                    };
+                };
+                /** @description Not valid: the archive codes, `bad-version`, `reserved-name`, `integrity-mismatch`, `bad-request` */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No valid token (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description `forbidden`, `email-unverified`, `publishing-closed`, `package-unavailable` */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description `version-not-greater`, `version-exists`, `open-version-exists`, `in-review`, `upload-expired` */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No Content-Length (`length-required`) */
+                411: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Over the archive limit (`archive-too-large`) */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not `application/vnd.fluidcad.package+zip` (`unsupported-media-type`) */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description `rate-limited`, `publish-daily-limit` */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        /**
+         * Withdraw a draft or a version in review (the owner)
+         * @description Deletes the version and its archive; its number is free again.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                    /** @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease. */
+                    version: components["schemas"]["VersionParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Withdrawn */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not a version (`bad-version`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No `publish` scope, or not the owner (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package or version (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not a draft or in review (`version-not-open`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Set an open version's release notes and license (the owner)
+         * @description A draft or a version in review. The notes and license are marked as the owner's, so a re-upload of the same draft keeps them (unless it sends `--notes`, or its manifest names a license).
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                    /** @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease. */
+                    version: components["schemas"]["VersionParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EditVersionRequest"];
+                };
+            };
+            responses: {
+                /** @description The version; `Cache-Control: private, no-store` */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VersionStatus"];
+                    };
+                };
+                /** @description Notes over 280 characters, a license the hub doesn't offer, `bad-version` (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not a draft or in review (`version-not-open`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/packages/{scope}/{name}/versions/{version}/contents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the hub read from a version's archive (the owner and admins)
+         * @description The description, engine, unit, features, parts and assemblies with their parameters, files, warnings and what the archive lacks: the wizard's Review step.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                    /** @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease. */
+                    version: components["schemas"]["VersionParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The contents; `Cache-Control: private, no-store` */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VersionContents"];
+                    };
+                };
+                /** @description Not a version (`bad-version`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package or version, still uploading, or not yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/{scope}/{name}/versions/{version}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a draft for review (the owner)
+         * @description Needs at least one screenshot and a license. The version becomes `in_review`; nothing is public until an admin approves it.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                    /** @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease. */
+                    version: components["schemas"]["VersionParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The version, now `in_review` */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VersionStatus"];
+                    };
+                };
+                /** @description Not a version (`bad-version`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not a draft (`not-a-draft`), or something missing (`incomplete`, `details.missing`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 };
 export type webhooks = Record<string, never>;
 export type components = {
@@ -865,6 +1862,11 @@ export type components = {
         };
         ApiTokenList: {
             tokens: components["schemas"]["ApiToken"][];
+        };
+        ArchiveWarning: {
+            /** @enum {string} */
+            code: "uses-occt";
+            message: string;
         };
         ClaimHandleRequest: {
             handle: components["schemas"]["HandleParam"];
@@ -919,6 +1921,29 @@ export type components = {
                 name: string;
             };
         };
+        ContentsFeature: {
+            description: string | null;
+            id: string;
+            label: string;
+            module: string;
+            paramCount: number;
+            usesOcct: boolean;
+        };
+        ContentsModel: {
+            /** @enum {string} */
+            exportKind: "value" | "factory";
+            exportName: string;
+            /** @enum {string} */
+            folder: "parts" | "assemblies";
+            /** @enum {string} */
+            kind: "part" | "assembly";
+            module: string;
+            name: string;
+            params: {
+                defaultValue: string;
+                label: string;
+            }[];
+        };
         CreateApiTokenRequest: {
             expiresInDays?: number;
             name: string;
@@ -940,11 +1965,32 @@ export type components = {
             /** @description Shown once; the hub keeps only its hash. */
             token: string;
         };
+        EditMediaRequest: {
+            /** @description At most 140 characters; empty for none. */
+            caption?: string;
+            /**
+             * @description Make this the card image; the previous card stops being one.
+             * @enum {boolean}
+             */
+            isCard?: true;
+            /** @description The 0-based place in the package page's order; the others move up or down to make room. */
+            position?: number;
+        };
+        EditPackageRequest: {
+            homepageUrl?: components["schemas"]["ListingUrl"];
+            license?: components["schemas"]["LicenseId"] & (string | null);
+            repositoryUrl?: components["schemas"]["ListingUrl"];
+        };
+        EditVersionRequest: {
+            license?: components["schemas"]["LicenseId"];
+            /** @description Release notes, at most 280 characters; empty for none. */
+            notes?: string;
+        };
         /** @description The body of every error response. */
         ErrorBody: {
             error: {
                 /** @enum {string} */
-                code: "bad-request" | "unauthorized" | "forbidden" | "not-found" | "rate-limited" | "internal" | "handle-invalid" | "handle-taken" | "handle-locked" | "cli-request-invalid" | "cli-request-closed" | "invalid-grant";
+                code: "bad-request" | "unauthorized" | "forbidden" | "not-found" | "rate-limited" | "internal" | "handle-invalid" | "handle-taken" | "handle-locked" | "cli-request-invalid" | "cli-request-closed" | "invalid-grant" | "not-a-zip" | "unsafe-path" | "too-large" | "no-manifest" | "model-archive" | "newer-manifest" | "bad-manifest" | "files-mismatch" | "blocked-import" | "archive-too-large" | "unpacked-too-large" | "too-many-entries" | "name-mismatch" | "version-mismatch" | "scope-mismatch" | "reserved-name" | "bad-script" | "bad-reference" | "bad-icon" | "bad-params" | "no-models" | "outside-layout" | "wrong-folder" | "email-unverified" | "publishing-closed" | "bad-version" | "length-required" | "unsupported-media-type" | "package-unavailable" | "version-not-greater" | "version-exists" | "open-version-exists" | "in-review" | "integrity-mismatch" | "publish-daily-limit" | "upload-expired" | "version-not-open" | "not-a-draft" | "incomplete" | "image-too-large" | "image-type-mismatch" | "image-dimensions" | "too-many-screenshots" | "unknown-model";
                 details?: unknown;
                 message: string;
             };
@@ -978,6 +2024,7 @@ export type components = {
             readmeBytes: number;
             releaseNotesChars: number;
             screenshotBytes: number;
+            screenshotCaptionChars: number;
             screenshotMaxSidePx: number;
             screenshotsPerPackage: number;
             screenshotTypes: string[];
@@ -985,6 +2032,16 @@ export type components = {
             unpackedBytes: number;
             versionsPerPackagePerDay: number;
         };
+        /**
+         * @description An SPDX id from the hub's list (`SpdxLicenses`), or `LicenseRef-Proprietary`.
+         * @example MIT
+         */
+        LicenseId: string;
+        /**
+         * Format: uri
+         * @example https://github.com/acme/feature-tests
+         */
+        ListingUrl: string | null;
         Me: {
             account: components["schemas"]["Account"];
             /** @description The calling token (`via: token`), readable with any scope; null for a browser session. */
@@ -1000,18 +2057,246 @@ export type components = {
             /** @enum {string} */
             via: "session" | "token";
         };
+        Media: {
+            bytes: number;
+            caption: string;
+            contentType: components["schemas"]["ScreenshotType"];
+            createdAt: string;
+            /** @description The uploaded file's name, or null (a capture, or none sent). */
+            fileName: string | null;
+            height: number;
+            id: string;
+            /** @description The image that stands for the package wherever the hub lists it; one at a time. */
+            isCard: boolean;
+            /** @description The model it was captured from, or null for an upload. */
+            modelModule: string | null;
+            /** @description The 0-based place in the package page's order. */
+            position: number;
+            /** @description Where the image is served, same-origin. */
+            url: string;
+            width: number;
+        };
+        /**
+         * Format: uuid
+         * @description A screenshot id; never reused.
+         */
+        MediaIdParam: string;
+        MediaList: {
+            /** @description How many screenshots a package may have. */
+            limit: number;
+            /** @description In the package page's order. */
+            media: components["schemas"]["Media"][];
+        };
         Meta: {
             /** @enum {string} */
             apiVersion: "v1";
             limits: components["schemas"]["HubLimits"];
+            /**
+             * @description The oldest FluidCAD CLI this hub takes uploads from, a semver (`MAJOR.MINOR.PATCH`): an older CLI refuses to publish and asks to be updated. Null: no minimum.
+             * @example 0.0.47
+             */
+            minCliVersion: string | null;
             /** @enum {string} */
             name: "FluidCAD Hub";
             openapi: string;
         };
+        PackageListing: {
+            homepageUrl: string | null;
+            /** @description The package's license; a version is approved under its own. */
+            license: string | null;
+            /** @description The screenshots, in order. */
+            media: components["schemas"]["Media"][];
+            repositoryUrl: string | null;
+        };
+        /**
+         * @description The package name after the scope.
+         * @example gears
+         */
+        PackageNameParam: string;
+        /**
+         * @description The scope with its `@`: the publisher's handle.
+         * @example @acme
+         */
+        PackageScopeParam: string;
+        PackageStatus: {
+            createdAt: string;
+            /** @description The highest published version, yanked ones included: an upload must be greater. */
+            highestVersion: string | null;
+            /** @description What installs by name get; null until a version is approved. */
+            latestVersion: string | null;
+            /** @description The package's license, links and screenshots (HD28). */
+            listing: {
+                homepageUrl: string | null;
+                /** @description The package's license; a version is approved under its own. */
+                license: string | null;
+                /** @description The screenshots, in order. */
+                media: components["schemas"]["Media"][];
+                repositoryUrl: string | null;
+            };
+            name: string;
+            /** @description The draft, in-review or uploading version, if any. */
+            openVersion: {
+                createdAt: string;
+                /** @description For a draft: when it may be deleted if nothing changes (`updatedAt` + `draftDays`). */
+                draftExpiresAt: string | null;
+                /** @description Null while uploading. */
+                integrity: string | null;
+                /** @description The manifest's license, until the owner picks one. */
+                license: string | null;
+                /** @description The owner set the license in the wizard (a re-upload keeps it unless its manifest names one). */
+                licenseEdited: boolean;
+                name: string;
+                /** @description Release notes, at most 280 characters. */
+                notes: string;
+                /** @description The owner set the notes in the wizard (a re-upload keeps them unless it sends `--notes`). */
+                notesEdited: boolean;
+                publishedAt: string | null;
+                reviewedAt: string | null;
+                /** @description Why a reviewer rejected the version. */
+                reviewNote: string | null;
+                /** @description The owner's status page, for any other state. */
+                reviewUrl: string | null;
+                size: number | null;
+                status: components["schemas"]["VersionState"];
+                submittedAt: string | null;
+                unpackedSize: number | null;
+                /** @description The last change: an upload or a wizard save. */
+                updatedAt: string;
+                usesOcct: boolean;
+                version: string;
+                /** @description The first-publish wizard, for a `draft`. */
+                wizardUrl: string | null;
+            } | null;
+            /** @description The most recent rejection above the highest published version, with its reason. */
+            rejectedVersion: {
+                createdAt: string;
+                /** @description For a draft: when it may be deleted if nothing changes (`updatedAt` + `draftDays`). */
+                draftExpiresAt: string | null;
+                /** @description Null while uploading. */
+                integrity: string | null;
+                /** @description The manifest's license, until the owner picks one. */
+                license: string | null;
+                /** @description The owner set the license in the wizard (a re-upload keeps it unless its manifest names one). */
+                licenseEdited: boolean;
+                name: string;
+                /** @description Release notes, at most 280 characters. */
+                notes: string;
+                /** @description The owner set the notes in the wizard (a re-upload keeps them unless it sends `--notes`). */
+                notesEdited: boolean;
+                publishedAt: string | null;
+                reviewedAt: string | null;
+                /** @description Why a reviewer rejected the version. */
+                reviewNote: string | null;
+                /** @description The owner's status page, for any other state. */
+                reviewUrl: string | null;
+                size: number | null;
+                status: components["schemas"]["VersionState"];
+                submittedAt: string | null;
+                unpackedSize: number | null;
+                /** @description The last change: an upload or a wizard save. */
+                updatedAt: string;
+                usesOcct: boolean;
+                version: string;
+                /** @description The first-publish wizard, for a `draft`. */
+                wizardUrl: string | null;
+            } | null;
+            /** @enum {string} */
+            status: "active" | "hidden" | "removed";
+        };
+        /** @enum {string} */
+        ScreenshotType: "image/png" | "image/jpeg" | "image/webp";
         /** Format: uuid */
         TokenIdParam: string;
         /** @enum {string} */
         TokenScope: "account" | "publish";
+        UploadResult: {
+            dryRun: boolean;
+            /** @description The hub's tree hash of the archive: what installs are checked against. */
+            integrity: string;
+            name: string;
+            /** @description True when a draft of this version was replaced. */
+            replaced: boolean;
+            /** @description The owner's status page, for a version `in_review`. */
+            reviewUrl: string | null;
+            /** @description The archive in bytes. */
+            size: number;
+            /**
+             * @description `draft`: the package's first version; finish publishing in the wizard. `in_review`: submitted for review.
+             * @enum {string}
+             */
+            status: "draft" | "in_review";
+            unpackedSize: number;
+            version: string;
+            warnings: components["schemas"]["ArchiveWarning"][];
+            /** @description The first-publish wizard, for a `draft`. */
+            wizardUrl: string | null;
+        };
+        VersionContents: {
+            description: string | null;
+            /** @description The FluidCAD the archive was packed with. */
+            engine: string;
+            features: components["schemas"]["ContentsFeature"][];
+            /** @description Every file in the archive, sorted, with its size. */
+            files: {
+                path: string;
+                size: number;
+            }[];
+            hasChangelog: boolean;
+            hasReadme: boolean;
+            integrity: string;
+            manifestLicense: string | null;
+            minEngine: string;
+            /** @description Parts (`parts/`), then assemblies. */
+            models: components["schemas"]["ContentsModel"][];
+            name: string;
+            size: number;
+            unit: string;
+            unpackedSize: number;
+            version: string;
+            warnings: components["schemas"]["ArchiveWarning"][];
+        };
+        /**
+         * @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease.
+         * @example 0.1.0
+         */
+        VersionParam: string;
+        /**
+         * @description `uploading` → `draft` (a first version, finished in the wizard) → `in_review` → `published`, or `rejected`. A withdrawn version is deleted.
+         * @enum {string}
+         */
+        VersionState: "uploading" | "draft" | "in_review" | "rejected" | "published";
+        VersionStatus: {
+            createdAt: string;
+            /** @description For a draft: when it may be deleted if nothing changes (`updatedAt` + `draftDays`). */
+            draftExpiresAt: string | null;
+            /** @description Null while uploading. */
+            integrity: string | null;
+            /** @description The manifest's license, until the owner picks one. */
+            license: string | null;
+            /** @description The owner set the license in the wizard (a re-upload keeps it unless its manifest names one). */
+            licenseEdited: boolean;
+            name: string;
+            /** @description Release notes, at most 280 characters. */
+            notes: string;
+            /** @description The owner set the notes in the wizard (a re-upload keeps them unless it sends `--notes`). */
+            notesEdited: boolean;
+            publishedAt: string | null;
+            reviewedAt: string | null;
+            /** @description Why a reviewer rejected the version. */
+            reviewNote: string | null;
+            /** @description The owner's status page, for any other state. */
+            reviewUrl: string | null;
+            size: number | null;
+            status: components["schemas"]["VersionState"];
+            submittedAt: string | null;
+            unpackedSize: number | null;
+            /** @description The last change: an upload or a wizard save. */
+            updatedAt: string;
+            usesOcct: boolean;
+            version: string;
+            /** @description The first-publish wizard, for a `draft`. */
+            wizardUrl: string | null;
+        };
     };
     responses: never;
     parameters: never;

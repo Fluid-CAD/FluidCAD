@@ -1,5 +1,6 @@
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 import { HubRequestError } from './hub-request-error.ts';
+import { StallWatchdog } from './hub-stall-watchdog.ts';
 
 /**
  * How every hub request leaves the machine. It carries the lessons of
@@ -11,7 +12,12 @@ import { HubRequestError } from './hub-request-error.ts';
  *   its own), with loopback always exempt;
  * - an idempotent GET is retried once, after a short pause, on a network
  *   error or a 502/503/504, the failures a retry can fix. Writes are never
- *   retried: the hub may have acted on the first one.
+ *   retried: the hub may have acted on the first one;
+ * - a streamed body (an upload) is sent with `duplex: 'half'` under a
+ *   {@link StallWatchdog}: it fails when nothing moves for the stall limit,
+ *   however long the request's total limit is. The caller sets
+ *   `Content-Length` itself: without it Node's `fetch` sends a stream
+ *   chunked, and the hub refuses that (`length-required`).
  *
  * Every request names its client in the user agent:
  * `fluidcad/<version> (<platform>; <arch>; cli|app)`.
@@ -35,14 +41,25 @@ export type HubTransportOptions = {
 export type HubTransportRequest = {
   method?: string;
   headers?: Record<string, string>;
-  body?: string;
-  /** Overrides the transport's limit for this request. */
+  /** JSON text, or a stream (an upload; never retried). */
+  body?: string | ReadableStream<Uint8Array>;
+  /** Overrides the transport's limit for this request: the total, a streamed body's sending included. */
   timeoutMs?: number;
+  /** A streamed body: fail when nothing moves for this long. Defaults to {@link HubTransport.STALL_MS}. */
+  stallMs?: number;
+  /** A streamed body: how long the answer may take after its last byte. Defaults to {@link HubTransport.ANSWER_MS}. */
+  answerMs?: number;
+  /** A streamed body: the bytes the request has taken so far, as it takes them. */
+  onBodyProgress?: (sent: number) => void;
 };
 
 export class HubTransport {
   static readonly JSON_TIMEOUT_MS = 20_000;
   static readonly RETRY_DELAY_MS = 500;
+  /** A streamed body that takes nothing for this long has stalled. */
+  static readonly STALL_MS = 30_000;
+  /** After a streamed body's last byte, the hub checks the whole archive before it answers. */
+  static readonly ANSWER_MS = 120_000;
   static readonly RETRY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
   private static readonly IDEMPOTENT_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD']);
   private static readonly LOOPBACK = ['localhost', '127.0.0.1', '::1', '[::1]'];
@@ -113,20 +130,39 @@ export class HubTransport {
 
   private async attempt(url: string, method: string, request: HubTransportRequest): Promise<Response> {
     const timeoutMs = request.timeoutMs ?? this.timeoutMs;
+    const stream = typeof request.body === 'string' || request.body === undefined ? null : request.body;
+    const watchdog = stream ? new StallWatchdog(request.stallMs ?? HubTransport.STALL_MS, request.answerMs ?? HubTransport.ANSWER_MS) : null;
+    const signals = [AbortSignal.timeout(timeoutMs)];
+    if (watchdog) {
+      signals.push(watchdog.signal);
+    }
+    // `duplex` isn't in the DOM's RequestInit yet; undici requires it for a stream body.
+    const init: RequestInit & { duplex?: 'half' } = {
+      method,
+      headers: { 'user-agent': this.userAgent, accept: 'application/json', ...request.headers },
+      body: stream && watchdog ? watchdog.meter(stream, request.onBodyProgress) : (request.body as string | undefined),
+      redirect: 'manual',
+      signal: signals.length === 1 ? signals[0] : AbortSignal.any(signals),
+    };
+    if (stream) {
+      init.duplex = 'half';
+    }
     try {
-      return await fetch(url, {
-        method,
-        headers: { 'user-agent': this.userAgent, accept: 'application/json', ...request.headers },
-        body: request.body,
-        redirect: 'manual',
-        signal: AbortSignal.timeout(timeoutMs),
-      });
+      return await fetch(url, init);
     } catch (err) {
       const origin = HubTransport.originOf(url);
+      if (watchdog?.fired === 'sending') {
+        throw new HubRequestError(0, HubRequestError.STALLED, `The upload to ${origin} stalled: nothing moved for ${HubTransport.duration(watchdog.stallMs)}.`, { cause: err });
+      }
+      if (watchdog?.fired === 'answering') {
+        throw new HubRequestError(0, HubRequestError.TIMEOUT, `${origin} didn't answer within ${HubTransport.duration(watchdog.answerMs)} of the upload's last byte.`, { cause: err });
+      }
       if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
         throw new HubRequestError(0, HubRequestError.TIMEOUT, `${origin} didn't answer within ${HubTransport.duration(timeoutMs)}.`, { cause: err });
       }
       throw new HubRequestError(0, HubRequestError.NETWORK, `Couldn't reach ${origin}: ${HubTransport.reasonOf(err)}.`, { cause: err });
+    } finally {
+      watchdog?.stop();
     }
   }
 
@@ -142,9 +178,15 @@ export class HubTransport {
     return err instanceof Error ? err.message : String(err);
   }
 
-  /** `20 s`, or `150 ms` under a second. */
+  /** `20 s`, `10 min`, or `150 ms` under a second. */
   private static duration(ms: number): string {
-    return ms < 1000 ? `${ms} ms` : `${Math.round(ms / 1000)} s`;
+    if (ms < 1000) {
+      return `${ms} ms`;
+    }
+    if (ms >= 120_000 && ms % 60_000 === 0) {
+      return `${ms / 60_000} min`;
+    }
+    return `${Math.round(ms / 1000)} s`;
   }
 
   private static originOf(url: string): string {

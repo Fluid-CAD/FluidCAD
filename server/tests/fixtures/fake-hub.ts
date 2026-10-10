@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import http from 'http';
 import type { AddressInfo } from 'net';
+import { Semver } from '../../src/packages/semver.ts';
 
 /**
  * An in-process stand-in for the hub, so FluidCAD's tests never touch a
@@ -13,7 +14,15 @@ import type { AddressInfo } from 'net';
  * - `GET /cli/authorize?…` redirects straight back to the loopback with a
  *   code, `state` and `request`, as an approving user would, or with
  *   `error=access_denied` when told to deny;
- * - `GET /cli/done?request=<id>` records the visit and answers a page.
+ * - `GET /cli/done?request=<id>` records the visit and answers a page;
+ * - the publish routes (H6): `GET /api/v1/packages/@s/n` (the owner's
+ *   `PackageStatus`, 404 for a package it doesn't hold), `GET …/versions/v`,
+ *   `PUT …/versions/v` (records the bytes and headers; refuses a chunked
+ *   body or one without `Content-Length` with `length-required`, as the
+ *   hub does; answers `draft` for a package with nothing published, else
+ *   `in_review`, unless {@link FakeHub.nextUpload} says otherwise) and
+ *   `DELETE …/versions/v` (withdraws an open version). The real archive
+ *   validation is the hub's own test.
  *
  * Tell it what to do next with {@link FakeHub.mode}: `approve` (default),
  * `deny`, `expire` (approves, then refuses the exchange as expired), `fail`
@@ -23,7 +32,43 @@ import type { AddressInfo } from 'net';
 
 export type FakeHubMode = 'approve' | 'deny' | 'expire' | 'fail' | 'tamper-state';
 
-export type FakeHubUser = { id: string; handle: string | null; name: string; email: string };
+export type FakeHubUser = {
+  id: string;
+  handle: string | null;
+  name: string;
+  email: string;
+  /** `Account.canPublish`; true unless set. */
+  canPublish?: boolean;
+  /** `Account.emailVerified`; true unless set. */
+  emailVerified?: boolean;
+};
+
+export type FakeHubVersionState = 'uploading' | 'draft' | 'in_review' | 'rejected' | 'published';
+
+export type FakeHubVersion = {
+  version: string;
+  status: FakeHubVersionState;
+  integrity?: string | null;
+  size?: number | null;
+  notes?: string;
+  reviewNote?: string | null;
+  submittedAt?: string | null;
+  publishedAt?: string | null;
+};
+
+export type FakeHubPackage = { status: 'active' | 'hidden' | 'removed'; versions: FakeHubVersion[] };
+
+/** One `PUT` the hub took: the archive's bytes, its headers and whether it was a dry run. */
+export type FakeHubUpload = { name: string; version: string; bytes: Buffer; headers: http.IncomingHttpHeaders; dryRun: boolean };
+
+/** What the next `PUT` answers instead of the default: a refusal, a state, another integrity, or a delay. */
+export type FakeHubUploadPlan = {
+  error?: { status: number; code: string; message: string; details?: unknown };
+  status?: 'draft' | 'in_review';
+  integrity?: string;
+  /** Wait this long after the last byte before answering. */
+  answerDelayMs?: number;
+};
 
 type IssuedToken = { id: string; token: string; kind: 'cli' | 'personal'; scopes: string[]; user: FakeHubUser; revoked: boolean };
 
@@ -37,7 +82,7 @@ type Authorization = {
   query: Record<string, string>;
 };
 
-export type FakeHubRequest = { method: string; path: string; headers: http.IncomingHttpHeaders; body: string };
+export type FakeHubRequest = { method: string; path: string; query: string; headers: http.IncomingHttpHeaders; body: string; bytes: Buffer };
 
 export class FakeHub {
   static readonly CLIENT_ID = 'fluidcad-cli';
@@ -53,6 +98,16 @@ export class FakeHub {
   /** How long `POST /cli/token` takes to answer. */
   exchangeDelayMs = 0;
   user: FakeHubUser = { ...FakeHub.DEFAULT_USER };
+  /** Limits `GET /api/v1` answers instead of the hub's own (`HubLimits`). */
+  limits: Record<string, number> = {};
+  /** `GET /api/v1`'s `minCliVersion`; null is no minimum. */
+  minCliVersion: string | null = null;
+  /** The packages the default user holds, by full name. */
+  readonly packages = new Map<string, FakeHubPackage>();
+  /** Every `PUT` taken, dry runs included. */
+  readonly uploads: FakeHubUpload[] = [];
+  /** How the next `PUT` answers; used once. */
+  nextUpload: FakeHubUploadPlan | null = null;
   /** Every request, in order. */
   readonly requests: FakeHubRequest[] = [];
   /** The `request` of every `/cli/done` visit. */
@@ -110,10 +165,31 @@ export class FakeHub {
     return this.requests.filter((request) => request.path === path);
   }
 
+  /** Back to an empty hub: no packages, uploads or requests, the default user, no minimum CLI. */
+  reset(): void {
+    this.requests.length = 0;
+    this.doneVisits.length = 0;
+    this.uploads.length = 0;
+    this.packages.clear();
+    this.nextUpload = null;
+    this.minCliVersion = null;
+    this.limits = {};
+    this.mode = 'approve';
+    this.user = { ...FakeHub.DEFAULT_USER };
+  }
+
   private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', this.origin);
-    const body = await FakeHub.readBody(req);
-    this.requests.push({ method: req.method ?? 'GET', path: url.pathname, headers: req.headers, body });
+    let bytes: Buffer;
+    try {
+      bytes = await FakeHub.readBody(req);
+    } catch {
+      // The client went away mid-body (an upload the test let stall).
+      res.destroy();
+      return;
+    }
+    const body = bytes.toString('utf8');
+    this.requests.push({ method: req.method ?? 'GET', path: url.pathname, query: url.search, headers: req.headers, body, bytes });
 
     const queued = this.failures.get(url.pathname);
     if (queued && queued.length > 0) {
@@ -126,7 +202,7 @@ export class FakeHub {
     const route = `${req.method} ${url.pathname}`;
     switch (route) {
       case 'GET /api/v1':
-        return FakeHub.json(res, 200, FakeHub.meta());
+        return FakeHub.json(res, 200, this.meta());
       case 'GET /api/v1/me':
         return this.me(req, res);
       case 'POST /api/v1/cli/token':
@@ -143,9 +219,151 @@ export class FakeHub {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         res.end('<!doctype html><title>Signed in</title><p>Done.</p>');
         return;
+      default: {
+        const publish = FakeHub.PUBLISH_ROUTE.exec(url.pathname);
+        if (publish) {
+          return this.publishRoute(req, res, url, bytes, `${decodeURIComponent(publish[1])}/${decodeURIComponent(publish[2])}`, publish[3] === undefined ? null : decodeURIComponent(publish[3]));
+        }
+        return FakeHub.error(res, 404, 'not-found', 'No such route.');
+      }
+    }
+  }
+
+  private static readonly PUBLISH_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)(?:\/versions\/([^/]+))?$/;
+
+  private async publishRoute(req: http.IncomingMessage, res: http.ServerResponse, url: URL, bytes: Buffer, name: string, version: string | null): Promise<void> {
+    const token = this.bearer(req);
+    if (!token) {
+      return FakeHub.error(res, 401, 'unauthorized', 'This API token is not valid. Sign in again with `fluidcad login`.');
+    }
+    const pkg = this.packages.get(name);
+    const route = `${req.method} ${version === null ? 'package' : 'version'}`;
+    switch (route) {
+      case 'GET package':
+        return pkg ? FakeHub.json(res, 200, this.packageStatus(name, pkg)) : FakeHub.error(res, 404, 'not-found', `No package ${name}.`);
+      case 'GET version': {
+        const row = pkg?.versions.findLast((v) => v.version === version);
+        return row ? FakeHub.json(res, 200, this.versionStatus(name, row)) : FakeHub.error(res, 404, 'not-found', `No version ${name}@${version}.`);
+      }
+      case 'PUT version':
+        return this.upload(req, res, url, bytes, name, version!);
+      case 'DELETE version': {
+        const row = pkg?.versions.find((v) => v.version === version && v.status !== 'rejected' && v.status !== 'published');
+        if (!pkg || !row) {
+          const published = pkg?.versions.some((v) => v.version === version);
+          return published
+            ? FakeHub.error(res, 409, 'version-not-open', `${name}@${version} is not a draft or in review.`)
+            : FakeHub.error(res, 404, 'not-found', `No version ${name}@${version}.`);
+        }
+        pkg.versions.splice(pkg.versions.indexOf(row), 1);
+        res.writeHead(204);
+        res.end();
+        return;
+      }
       default:
         return FakeHub.error(res, 404, 'not-found', 'No such route.');
     }
+  }
+
+  private async upload(req: http.IncomingMessage, res: http.ServerResponse, url: URL, bytes: Buffer, name: string, version: string): Promise<void> {
+    const dryRun = ['1', 'true'].includes(url.searchParams.get('dryRun') ?? '');
+    this.uploads.push({ name, version, bytes, headers: req.headers, dryRun });
+    const plan = this.nextUpload ?? {};
+    this.nextUpload = null;
+    if ((req.headers['content-type'] ?? '') !== 'application/vnd.fluidcad.package+zip') {
+      return FakeHub.error(res, 415, 'unsupported-media-type', 'Send the archive as application/vnd.fluidcad.package+zip.');
+    }
+    if (req.headers['content-length'] === undefined || req.headers['transfer-encoding'] !== undefined) {
+      return FakeHub.error(res, 411, 'length-required', 'Send the archive with a Content-Length.');
+    }
+    if (plan.answerDelayMs) {
+      await new Promise((resolve) => setTimeout(resolve, plan.answerDelayMs));
+    }
+    if (plan.error) {
+      const { status, code, message, details } = plan.error;
+      return FakeHub.json(res, status, { error: { code, message, ...(details === undefined ? {} : { details }) } });
+    }
+    const pkg = this.packages.get(name) ?? { status: 'active' as const, versions: [] };
+    const published = pkg.versions.some((v) => v.status === 'published');
+    const status = plan.status ?? (published ? 'in_review' : 'draft');
+    const integrity = plan.integrity ?? String(req.headers['x-fluidcad-integrity'] ?? '');
+    const draft = pkg.versions.find((v) => v.version === version && v.status === 'draft');
+    if (!dryRun) {
+      if (draft) {
+        pkg.versions.splice(pkg.versions.indexOf(draft), 1);
+      }
+      const notes = req.headers['x-fluidcad-release-notes'];
+      pkg.versions.push({
+        version,
+        status,
+        integrity,
+        size: bytes.length,
+        notes: typeof notes === 'string' ? decodeURIComponent(notes) : '',
+        submittedAt: status === 'in_review' ? new Date().toISOString() : null,
+      });
+      this.packages.set(name, pkg);
+    }
+    FakeHub.json(res, dryRun ? 200 : 201, {
+      name,
+      version,
+      integrity,
+      size: bytes.length,
+      unpackedSize: bytes.length * 2,
+      status,
+      wizardUrl: status === 'draft' ? `${this.origin}/publish/${name}/${version}` : null,
+      reviewUrl: status === 'in_review' ? `${this.origin}/${name}/status` : null,
+      replaced: Boolean(draft),
+      dryRun,
+      warnings: [],
+    });
+  }
+
+  /** `PackageStatus`, as the hub derives it from the version rows. */
+  private packageStatus(name: string, pkg: FakeHubPackage): Record<string, unknown> {
+    const published = pkg.versions.filter((v) => v.status === 'published');
+    const byVersion = (a: FakeHubVersion, b: FakeHubVersion) => Semver.parse(a.version)!.compareTo(Semver.parse(b.version)!);
+    const highest = [...published].sort(byVersion).at(-1) ?? null;
+    const releases = published.filter((v) => !Semver.parse(v.version)!.isPrerelease);
+    const latest = [...(releases.length > 0 ? releases : published)].sort(byVersion).at(-1) ?? null;
+    const open = pkg.versions.find((v) => v.status === 'draft' || v.status === 'in_review' || v.status === 'uploading') ?? null;
+    const rejected = pkg.versions
+      .filter((v) => v.status === 'rejected' && (!highest || Semver.parse(v.version)!.compareTo(Semver.parse(highest.version)!) > 0))
+      .at(-1) ?? null;
+    return {
+      name,
+      status: pkg.status,
+      highestVersion: highest?.version ?? null,
+      latestVersion: latest?.version ?? null,
+      openVersion: open ? this.versionStatus(name, open) : null,
+      rejectedVersion: rejected ? this.versionStatus(name, rejected) : null,
+      createdAt: '2026-10-10T00:00:00.000Z',
+      listing: { license: null, homepageUrl: null, repositoryUrl: null, media: [] },
+    };
+  }
+
+  private versionStatus(name: string, row: FakeHubVersion): Record<string, unknown> {
+    return {
+      name,
+      version: row.version,
+      status: row.status,
+      integrity: row.integrity ?? null,
+      size: row.size ?? null,
+      unpackedSize: row.size ? row.size * 2 : null,
+      notes: row.notes ?? '',
+      license: null,
+      reviewNote: row.reviewNote ?? null,
+      usesOcct: false,
+      createdAt: '2026-10-10T00:00:00.000Z',
+      updatedAt: '2026-10-10T00:00:00.000Z',
+      draftExpiresAt: row.status === 'draft' ? '2026-11-09T00:00:00.000Z' : null,
+      notesEdited: false,
+      licenseEdited: false,
+      submittedAt: row.submittedAt ?? null,
+      reviewedAt: null,
+      publishedAt: row.publishedAt ?? null,
+      wizardUrl: row.status === 'draft' ? `${this.origin}/publish/${name}/${row.version}` : null,
+      reviewUrl: row.status === 'draft' ? null : `${this.origin}/${name}/status`,
+    };
   }
 
   private me(req: http.IncomingMessage, res: http.ServerResponse): void {
@@ -159,11 +377,11 @@ export class FakeHub {
         handle: token.user.handle,
         name: token.user.name,
         email: token.user.email,
-        emailVerified: true,
+        emailVerified: token.user.emailVerified ?? true,
         githubLogin: null,
         image: null,
         role: 'user',
-        canPublish: false,
+        canPublish: token.user.canPublish ?? true,
         handleLocked: false,
         createdAt: '2026-10-10T00:00:00.000Z',
       },
@@ -273,11 +491,12 @@ export class FakeHub {
     return token && !token.revoked ? token : null;
   }
 
-  private static meta(): Record<string, unknown> {
+  private meta(): Record<string, unknown> {
     return {
       name: 'FluidCAD Hub',
       apiVersion: 'v1',
       openapi: '/api/v1/openapi.json',
+      minCliVersion: this.minCliVersion,
       limits: {
         archiveBytes: 26214400,
         unpackedBytes: 104857600,
@@ -288,16 +507,18 @@ export class FakeHub {
         commentChars: 4000,
         listTitleChars: 60,
         versionsPerPackagePerDay: 20,
-        screenshotsPerPackage: 6,
+        screenshotsPerPackage: 12,
         screenshotBytes: 2097152,
-        screenshotMaxSidePx: 2560,
+        screenshotMaxSidePx: 4096,
+        screenshotCaptionChars: 140,
         screenshotTypes: ['image/png', 'image/jpeg', 'image/webp'],
         openVersionsPerPackage: 1,
         draftDays: 30,
         manifestBytes: 1048576,
-        modelsPerVersion: 50,
+        modelsPerVersion: 100,
         paramsPerModel: 100,
         sourcesBytes: 5242880,
+        ...this.limits,
       },
     };
   }
@@ -321,11 +542,11 @@ export class FakeHub {
     FakeHub.json(res, status, { error: { code, message } });
   }
 
-  private static readBody(req: http.IncomingMessage): Promise<string> {
+  private static readBody(req: http.IncomingMessage): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       req.on('data', (chunk: Buffer) => chunks.push(chunk));
-      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      req.on('end', () => resolve(Buffer.concat(chunks)));
       req.on('error', reject);
     });
   }

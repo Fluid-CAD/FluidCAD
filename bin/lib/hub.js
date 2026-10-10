@@ -2,7 +2,7 @@ import os from 'os';
 import { readPackageVersion } from './workspace.js';
 
 /**
- * Shared by `login`, `logout` and `whoami`: the compiled hub classes they
+ * Shared by `login`, `logout`, `whoami` and `publish`: the compiled hub classes they
  * wrap, and how they talk to the terminal. The rules — which hub, which
  * token, the sign-in flow — live in the server's `server/src/hub/`, typed
  * and tested there; these commands are the terminal around them.
@@ -27,6 +27,26 @@ export class HubCli {
       HubLogin: login.HubLogin,
       HubLoginError: login.HubLoginError,
       HubRequestError: error.HubRequestError,
+    };
+  }
+
+  /**
+   * {@link load}, plus what `publish` needs: `HubPublisher` and its error,
+   * and the packer. Separate because the packer pulls in the engine.
+   */
+  static async loadPublisher() {
+    const [hub, publisher, publishError, builder] = await Promise.all([
+      HubCli.load(),
+      import('../../server/dist/hub/hub-publisher.js'),
+      import('../../server/dist/hub/hub-publish-error.js'),
+      import('../../server/dist/packages/package-builder.js'),
+    ]);
+    return {
+      ...hub,
+      HubPublisher: publisher.HubPublisher,
+      HubPublishError: publishError.HubPublishError,
+      packPackage: builder.packPackage,
+      PackageBuildError: builder.PackageBuildError,
     };
   }
 
@@ -68,7 +88,7 @@ export class HubCli {
 
   /** A refusal the hub classes word for the user: print it and exit 1. Anything else is rethrown. */
   static exitOnRefusal(err, mods) {
-    const refusals = [mods.HubConfigError, mods.HubLoginError, mods.HubRequestError];
+    const refusals = [mods.HubConfigError, mods.HubLoginError, mods.HubRequestError, mods.HubPublishError].filter(Boolean);
     if (refusals.some((type) => err instanceof type)) {
       console.error(err.message);
       process.exit(1);

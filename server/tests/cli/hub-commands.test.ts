@@ -306,12 +306,3 @@ describe('fluidcad logout', () => {
     expect(hub.requests).toHaveLength(0);
   });
 });
-
-describe('fluidcad publish', () => {
-  it('says it is being rewritten, and exits 1 without touching the hub', async () => {
-    const run = await cli(['publish', '--new-model']);
-    expect(run.status).toBe(1);
-    expect(run.stderr).toContain('`fluidcad publish` is being rewritten for the new FluidCAD hub');
-    expect(hub.requests).toHaveLength(0);
-  });
-});

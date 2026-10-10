@@ -210,3 +210,69 @@ describe('HubClient', () => {
     expect(hub.requestsTo('/api/v1/cli/token')[0].headers['content-type']).toBe('application/json');
   });
 });
+
+describe('HubTransport, a streamed body (an upload)', () => {
+  /** One chunk, then a body that never moves again. */
+  function stallingBody(): ReadableStream<Uint8Array> {
+    let sent = false;
+    return new ReadableStream<Uint8Array>({
+      pull: async (controller) => {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(new Uint8Array(16));
+          return;
+        }
+        await new Promise(() => {});
+      },
+    });
+  }
+
+  function upload(body: ReadableStream<Uint8Array>, length: number, options: { stallMs?: number; answerMs?: number; onBodyProgress?: (sent: number) => void } = {}) {
+    const token = hub.issueToken();
+    return new HubTransport({ version: '9.9.9' }).send(`${hub.origin}/api/v1/packages/@acme/kit/versions/0.1.0`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${token.token}`, 'content-type': 'application/vnd.fluidcad.package+zip', 'content-length': String(length) },
+      body,
+      ...options,
+    });
+  }
+
+  it('sends it with its Content-Length, not chunked, and reports the bytes as they go', async () => {
+    const bytes = new Uint8Array(100_000).map((_, i) => i % 251);
+    const seen: number[] = [];
+    const response = await upload(new Blob([bytes]).stream(), bytes.length, { onBodyProgress: (sent) => seen.push(sent) });
+    expect(response.status).toBe(201);
+    await response.body?.cancel();
+    const received = hub.uploads.at(-1)!;
+    expect(Buffer.compare(received.bytes, Buffer.from(bytes))).toBe(0);
+    expect(received.headers['content-length']).toBe('100000');
+    expect(received.headers['transfer-encoding']).toBeUndefined();
+    expect(seen.at(-1)).toBe(100_000);
+    expect(seen).toEqual([...seen].sort((a, b) => a - b));
+  });
+
+  it('fails as stalled when nothing moves for the stall limit, whatever the total limit', async () => {
+    const started = Date.now();
+    const err = await upload(stallingBody(), 1024, { stallMs: 200 }).catch((e) => e);
+    expect(err).toBeInstanceOf(HubRequestError);
+    expect(err.code).toBe(HubRequestError.STALLED);
+    expect(err.status).toBe(0);
+    expect(err.message).toBe(`The upload to ${hub.origin} stalled: nothing moved for 200 ms.`);
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  it("times out when the answer doesn't come in time after the last byte", async () => {
+    hub.nextUpload = { answerDelayMs: 1000 };
+    const err = await upload(new Blob([new Uint8Array(64)]).stream(), 64, { stallMs: 5000, answerMs: 150 }).catch((e) => e);
+    expect(err).toMatchObject({ code: HubRequestError.TIMEOUT, status: 0 });
+    expect(err.message).toBe(`${hub.origin} didn't answer within 150 ms of the upload's last byte.`);
+  });
+
+  it('is never retried', async () => {
+    hub.failNext('/api/v1/packages/@acme/kit/versions/0.1.0', 503);
+    const response = await upload(new Blob([new Uint8Array(8)]).stream(), 8);
+    expect(response.status).toBe(503);
+    await response.body?.cancel();
+    expect(hub.requestsTo('/api/v1/packages/@acme/kit/versions/0.1.0')).toHaveLength(1);
+  });
+});

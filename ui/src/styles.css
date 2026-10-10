@@ -48,6 +48,8 @@
   --scene-vertex-hover: #ffb433;
   --scene-vertex-selected: #11a4ed;
   --scene-loft-match: #ff1493;
+  --scene-image-handle: #a78bfa;
+  --scene-image-handle-hover: #ddd6fe;
   --scene-grid-color: #6f6f6f;
   --scene-meta-edge-color: #b0b0b0;
   --scene-highlight-color: #ffb433;
@@ -106,6 +108,8 @@
   --scene-vertex-hover: #ad6900;
   --scene-vertex-selected: #0074aa;
   --scene-loft-match: #ff1493;
+  --scene-image-handle: #7c3aed;
+  --scene-image-handle-hover: #a78bfa;
   --scene-grid-color: #e8e8e8;
   --scene-meta-edge-color: #888888;
   --scene-highlight-color: #ffb433;

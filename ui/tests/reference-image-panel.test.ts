@@ -4,7 +4,7 @@ import { ReferenceImagePanel } from '../src/interactive/tools/reference-image-pa
 import { sceneUnit } from '../src/units/scene-unit';
 
 // The Reference image dialog holds only what the viewport cannot do: the
-// file, the opacity, the calibration gesture's state, Apply / Remove /
+// file, the opacity, the calibration gesture's state, Apply /
 // Cancel, and a read-out of the size the handles set.
 
 function mount() {
@@ -82,24 +82,18 @@ describe('ReferenceImagePanel', () => {
     const { panel, field } = mount();
     const onApply = vi.fn();
     const onExit = vi.fn();
-    const onRemove = vi.fn();
     const onCalibrate = vi.fn();
     const onFile = vi.fn();
     panel.onApply = onApply;
     panel.onExit = onExit;
-    panel.onRemove = onRemove;
     panel.onCalibrate = onCalibrate;
     panel.onFile = onFile;
-    expect(field('remove').classList.contains('hidden')).toBe(true);
-    panel.setRemoveVisible(true);
-    expect(field('remove').classList.contains('hidden')).toBe(false);
+    expect(field('remove')).toBeNull();
     field('exit').click();
-    field('remove').click();
     panel.setFile('a.png', { width: 1, height: 1 });
     field('apply').click();
     field('calibrate').click();
     expect(onExit).toHaveBeenCalledTimes(1);
-    expect(onRemove).toHaveBeenCalledTimes(1);
     expect(onApply).toHaveBeenCalledTimes(1);
     expect(onCalibrate).toHaveBeenCalledTimes(1);
 

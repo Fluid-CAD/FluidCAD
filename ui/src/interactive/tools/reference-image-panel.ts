@@ -18,15 +18,15 @@ const CALIBRATE_HINTS: Record<CalibrateState, string> = {
 /**
  * The Image tool's dialog, reduced to what the viewport cannot do: pick
  * the file, set how faded the picture draws, start a calibration, and
- * Apply / Remove / Cancel. Size, place and angle are read-outs here — they
- * are set by dragging the picture, its corner handles and its rotate knob.
+ * Apply / Cancel. Size, place and angle are read-outs here — they are set
+ * by dragging the picture, its corner handles and its rotate knob. A
+ * picture is removed from its timeline row, like any other statement.
  */
 export class ReferenceImagePanel {
   onOpacity?: (opacity: number) => void;
   onCalibrate?: () => void;
   onApply?: () => void;
   onExit?: () => void;
-  onRemove?: () => void;
   /** A picture the user picked; the tool decodes it and calls {@link setFile}. */
   onFile?: (file: File) => void;
 
@@ -39,7 +39,6 @@ export class ReferenceImagePanel {
   private opacityLabel: HTMLSpanElement;
   private calibrateBtn: HTMLButtonElement;
   private applyBtn: HTMLButtonElement;
-  private removeBtn: HTMLButtonElement;
   private hasFile = false;
   private busy = false;
 
@@ -72,7 +71,6 @@ export class ReferenceImagePanel {
     `);
     this.shell.footer.insertAdjacentHTML('beforeend', `
       <button type="button" data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
-      <button type="button" data-role="remove" class="btn btn-ghost btn-sm text-error hidden" title="Take the picture off this sketch">Remove</button>
       <button type="button" data-role="exit" class="btn btn-ghost btn-sm">Cancel</button>
     `);
 
@@ -84,7 +82,6 @@ export class ReferenceImagePanel {
     this.opacityLabel = this.role('opacity-label');
     this.calibrateBtn = this.role('calibrate');
     this.applyBtn = this.role('apply');
-    this.removeBtn = this.role('remove');
 
     this.role<HTMLButtonElement>('choose').addEventListener('click', () => this.fileInput.click());
     this.fileInput.addEventListener('change', () => {
@@ -100,7 +97,6 @@ export class ReferenceImagePanel {
     });
     this.calibrateBtn.addEventListener('click', () => this.onCalibrate?.());
     this.applyBtn.addEventListener('click', () => this.onApply?.());
-    this.removeBtn.addEventListener('click', () => this.onRemove?.());
     this.role<HTMLButtonElement>('exit').addEventListener('click', () => this.onExit?.());
     // The sketch tools' single-letter chords must not fire from the dialog.
     this.shell.body.addEventListener('keydown', (e) => {
@@ -144,10 +140,6 @@ export class ReferenceImagePanel {
   setOpacity(opacity: number): void {
     this.opacityRange.value = String(Math.round(opacity * 100));
     this.syncOpacityLabel();
-  }
-
-  setRemoveVisible(visible: boolean): void {
-    this.removeBtn.classList.toggle('hidden', !visible);
   }
 
   setCalibrateState(state: CalibrateState): void {
@@ -197,6 +189,5 @@ export class ReferenceImagePanel {
   private syncButtons(): void {
     this.applyBtn.disabled = this.busy || !this.hasFile;
     this.calibrateBtn.disabled = this.busy || !this.hasFile;
-    this.removeBtn.disabled = this.busy;
   }
 }

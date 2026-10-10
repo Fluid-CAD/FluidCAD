@@ -29,11 +29,12 @@ export type PlaneData = {
 };
 
 /**
- * A sketch's reference picture as `sketch(...).image(src, options)` wrote
- * it, resolved by the lib: `src` is relative to the model file; sizes and
- * the centre are document units on the sketch plane; whichever of
- * `width` / `height` is absent follows the picture's pixel aspect ratio.
- * Carried on the sketch row's `object.image`.
+ * A reference picture as an `image(src, options)` statement in a sketch
+ * body wrote it, resolved by the lib: `src` is relative to the model file;
+ * sizes and the centre are document units on the sketch plane; whichever
+ * of `width` / `height` is absent follows the picture's pixel aspect ratio.
+ * Carried on the image row's `object.image`, beside the sketch's frame in
+ * `object.plane`.
  */
 export type SketchImageData = {
   src: string;
@@ -127,6 +128,8 @@ export type ObjectType =
   | 'sketch'
   | 'plane'
   | 'axis'
+  /** A reference picture inside a sketch body — `image(src, options)`. */
+  | 'image'
   /** A saved section view — never a timeline row. */
   | 'section'
   // Selection overlay

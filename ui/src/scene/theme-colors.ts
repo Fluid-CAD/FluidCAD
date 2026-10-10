@@ -27,6 +27,8 @@ function readAll() {
   themeColors.vertexHoverColor.set(readCssVar('--scene-vertex-hover', '#ffb433'));
   themeColors.vertexSelectedColor.set(readCssVar('--scene-vertex-selected', '#11a4ed'));
   themeColors.loftMatchColor.set(readCssVar('--scene-loft-match', '#ff1493'));
+  themeColors.imageHandleColor.set(readCssVar('--scene-image-handle', '#a78bfa'));
+  themeColors.imageHandleHoverColor.set(readCssVar('--scene-image-handle-hover', '#ddd6fe'));
   themeColors.selectEdgeColor.set(readCssVar('--scene-select-edge-color', '#11a4ed'));
   themeColors.selectFaceColor.set(readCssVar('--scene-select-face-color', '#5c9fcc'));
   themeColors.constraintColor.set(readCssVar('--scene-constraint-color', '#cccccc'));
@@ -54,6 +56,11 @@ export const themeColors = {
   vertexHoverColor: new Color('#ffb433'),
   vertexSelectedColor: new Color('#11a4ed'),
   loftMatchColor: new Color('#ff1493'),
+  // The reference picture's frame, corner squares, rotate knob and
+  // calibration points: violet, so they never read as sketch geometry
+  // (selection blue, constrained green, hover orange, diagnostic red/amber).
+  imageHandleColor: new Color('#a78bfa'),
+  imageHandleHoverColor: new Color('#ddd6fe'),
   selectEdgeColor: new Color('#11a4ed'),
   selectFaceColor: new Color('#5c9fcc'),
   constraintColor: new Color('#cccccc'),

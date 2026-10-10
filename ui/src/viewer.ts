@@ -3,7 +3,7 @@ import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import type { FitMode } from './scene/camera-fit';
 import { DialogViewOffset } from './scene/dialog-view-offset';
 import { SceneModeManager, sketchCameraDistance } from './scene/scene-mode';
-import { ReferenceImageController, type ReferenceImageSource } from './scene/reference-image-controller';
+import { ReferenceImageController } from './scene/reference-image-controller';
 import { ReferenceImageLoader } from './scene/reference-image-loader';
 import { worldFromMm } from './units/scene-scale';
 import { sceneUnit } from './units/scene-unit';
@@ -12,7 +12,7 @@ import { setBottomRightRowVisible } from './ui/bottom-right-row';
 import { buildSceneMesh } from './meshes/mesh-factory';
 import type { SketchMesh } from './meshes/containers/sketch-mesh';
 import { refreshSketchConstraintGlyphs } from './meshes/containers/sketch-constraint-visibility';
-import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SketchImageData, SubSelection } from './types';
+import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SubSelection } from './types';
 import { AssemblyController, DragValueHandler, InstanceDragReleaseHandler, SolverUpdateHandler } from './scene/assembly-controller';
 import { CONNECTOR_HOVER_SCALE, ConnectorGizmoPicker, type ConnectorPickCandidate } from './scene/connector-gizmo-picker';
 import { FaceMesh } from './meshes/shape-meshes/face-mesh';
@@ -173,7 +173,7 @@ const SKETCH_GHOST_EDGE_TINT_FACTOR = 0.3;
 export class Viewer {
   private ctx: SceneContext;
   private modeManager: SceneModeManager;
-  /** The active sketch's reference picture: loaded once per path, placed on every render, previewed by the Image tool. */
+  /** The sketches' reference pictures: loaded once per path, placed on every render, previewed by the Image tool. */
   readonly referenceImage: ReferenceImageController;
   private settingsPanel: SettingsPanel;
   private gridScaleBar: GridScaleBar;
@@ -1363,7 +1363,6 @@ export class Viewer {
     this.activeSketchId = null;
     if (!this.sketchCameraHeld) {
       if (this.modeManager.isSketchMode) {
-        this.referenceImage.sync(null);
         this.modeManager.enterDefaultMode();
       }
       this.settingsPanel.setProjectionLocked(false);
@@ -1484,15 +1483,12 @@ export class Viewer {
         this.activeSketchId = activeObject.id;
         this.settingsPanel.setProjectionLocked(true);
         this.settingsPanel.setFitButtonVisible(false);
-        this.referenceImage.sync(Viewer.referenceImageOf(activeObject));
       } else if (this.sketchCameraHeld && activeObject?.object?.plane) {
         // A suspension holding the sketch view: draw as plain 3D, move nothing.
         this.activeSketchId = null;
-        this.referenceImage.sync(null);
       } else {
         this.sketchCameraHeld = false;
         this.activeSketchId = null;
-        this.referenceImage.sync(null);
         this.modeManager.enterDefaultMode();
         this.settingsPanel.setProjectionLocked(false);
         this.settingsPanel.setFitButtonVisible(true);
@@ -1509,6 +1505,7 @@ export class Viewer {
 
     const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, isRollback, this.shownIds());
     this.ctx.scene.add(mesh);
+    this.syncReferenceImages(sceneObjects);
     this.applyShapeOverridesAndPrune(sceneObjects);
     this.applyConnectorVisibility();
     this.applyConnectorScales();
@@ -1679,7 +1676,7 @@ export class Viewer {
 
     this.removeCompiledMesh();
     this.activeSketchId = null;
-    this.referenceImage.sync(null);
+    this.referenceImage.sync([]);
     this.modeManager.enterDefaultMode();
     this.settingsPanel.setProjectionLocked(false);
     this.settingsPanel.setFitButtonVisible(true);
@@ -2554,18 +2551,12 @@ export class Viewer {
   }
 
   /**
-   * The active sketch's `.image()` record with the frame and file it needs
-   * to show, or null for a sketch without one (or one whose statement has
-   * no file — a scene with no source location cannot resolve the path).
+   * Put the `image()` rows this render shows on screen — the sketch being
+   * edited's in sketch mode, every on-screen sketch's otherwise. Outside
+   * the compiled mesh, so ghosting and the section clip leave them alone.
    */
-  private static referenceImageOf(sketch: SceneObjectRender): ReferenceImageSource | null {
-    const image = sketch.object?.image as SketchImageData | undefined;
-    const plane = sketch.object?.plane as PlaneData | undefined;
-    const modelFile = sketch.sourceLocation?.filePath;
-    if (!image || !plane || !modelFile) {
-      return null;
-    }
-    return { plane, spec: image, modelFile };
+  private syncReferenceImages(sceneObjects: SceneObjectRender[]): void {
+    this.referenceImage.sync(ReferenceImageController.sourcesOf(sceneObjects, this.activeSketchId, this.shownIds()));
   }
 
   // ---------------------------------------------------------------------------
@@ -2715,6 +2706,7 @@ export class Viewer {
     this.removeCompiledMesh();
     const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, this.lastRenderIsRollback, this.shownIds());
     this.ctx.scene.add(mesh);
+    this.syncReferenceImages(this.sceneObjects);
     this.applyShapeOverridesAndPrune(this.sceneObjects);
     this.applyConnectorVisibility();
     this.applyConnectorScales();

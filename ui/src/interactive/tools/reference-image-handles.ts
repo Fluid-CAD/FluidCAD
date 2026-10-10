@@ -98,7 +98,7 @@ export class ReferenceImageHandles {
 
   private addOutline(frame: ReferenceImageFrame): void {
     const geometry = new BufferGeometry().setFromPoints(CORNERS.map((c) => this.world(frame.corner(c))));
-    const material = new LineBasicMaterial({ color: themeColors.selectEdgeColor, transparent: true, opacity: 0.9, depthTest: false });
+    const material = new LineBasicMaterial({ color: themeColors.imageHandleColor, transparent: true, opacity: 0.9, depthTest: false });
     const loop = new LineLoop(geometry, material);
     loop.renderOrder = RENDER_ORDER;
     this.group.add(loop);
@@ -117,7 +117,7 @@ export class ReferenceImageHandles {
     const to = this.world(frame.rotateKnob(stem));
     const stemLine = new Line(
       new BufferGeometry().setFromPoints([from, to]),
-      new LineBasicMaterial({ color: themeColors.selectEdgeColor, transparent: true, opacity: 0.9, depthTest: false }),
+      new LineBasicMaterial({ color: themeColors.imageHandleColor, transparent: true, opacity: 0.9, depthTest: false }),
     );
     stemLine.renderOrder = RENDER_ORDER;
     this.group.add(stemLine);
@@ -125,7 +125,7 @@ export class ReferenceImageHandles {
     const wrapper = new Group();
     const knob = new Mesh(
       new CircleGeometry(MARKER_UNITS / 2, 24),
-      new MeshBasicMaterial({ color: themeColors.selectEdgeColor, depthTest: false, transparent: true, opacity: 1 }),
+      new MeshBasicMaterial({ color: themeColors.imageHandleColor, depthTest: false, transparent: true, opacity: 1 }),
     );
     knob.renderOrder = RENDER_ORDER;
     const ring = new Mesh(
@@ -145,10 +145,10 @@ export class ReferenceImageHandles {
     if (points.length === 2) {
       const a = this.world(points[0]);
       const b = this.world(points[1]);
-      this.group.add(createDashedPolyline(new Float32Array([a.x, a.y, a.z, b.x, b.y, b.z]), RENDER_ORDER, themeColors.highlightColor.getHex()));
+      this.group.add(createDashedPolyline(new Float32Array([a.x, a.y, a.z, b.x, b.y, b.z]), RENDER_ORDER, themeColors.imageHandleHoverColor.getHex()));
     }
     for (const p of points) {
-      this.group.add(createPointMarker(this.world(p), themeColors.highlightColor.getHex(), {
+      this.group.add(createPointMarker(this.world(p), themeColors.imageHandleHoverColor.getHex(), {
         radius: MARKER_UNITS, segments: 16, pixelRadius: CALIBRATION_DOT_PX, opacity: 1, renderOrder: RENDER_ORDER + 1, normal: this.normal(),
       }));
     }
@@ -159,7 +159,7 @@ export class ReferenceImageHandles {
     const wrapper = new Group();
     const mesh = new Mesh(
       new PlaneGeometry(MARKER_UNITS, MARKER_UNITS),
-      new MeshBasicMaterial({ color: themeColors.selectEdgeColor, depthTest: false, transparent: true, opacity: 1 }),
+      new MeshBasicMaterial({ color: themeColors.imageHandleColor, depthTest: false, transparent: true, opacity: 1 }),
     );
     mesh.renderOrder = RENDER_ORDER;
     const border = new LineLoop(
@@ -180,13 +180,13 @@ export class ReferenceImageHandles {
   }
 
   private applyHover(): void {
-    const hot = themeColors.highlightColor;
+    const hot = themeColors.imageHandleHoverColor;
     for (const [id, mesh] of this.corners) {
       const over = this.hovered?.part === 'corner' && this.hovered.corner === id;
-      (mesh.material as MeshBasicMaterial).color.copy(over ? hot : themeColors.selectEdgeColor);
+      (mesh.material as MeshBasicMaterial).color.copy(over ? hot : themeColors.imageHandleColor);
     }
     if (this.knob) {
-      (this.knob.material as MeshBasicMaterial).color.copy(this.hovered?.part === 'rotate' ? hot : themeColors.selectEdgeColor);
+      (this.knob.material as MeshBasicMaterial).color.copy(this.hovered?.part === 'rotate' ? hot : themeColors.imageHandleColor);
     }
   }
 }

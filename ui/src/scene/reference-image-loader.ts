@@ -9,7 +9,7 @@ export type LoadedImage = {
   close(): void;
 };
 
-/** Pixel size of a picture — what sizes the missing dimension of a `.image()`. */
+/** Pixel size of a picture — what sizes the missing dimension of an `image()`. */
 export type PixelSize = { width: number; height: number };
 
 /** The picture types the dialog's file picker offers and the loader decodes. */

@@ -4,7 +4,7 @@ import { PlaneData, SceneObjectRender, SketchImageData } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { ICON_IMAGE } from '../../ui/icons';
 import { DimensionInput } from '../../ui/dimension-input';
-import { setSketchImage, type SketchImageEdit, type SetUnitResult, type SourceLocationParam } from '../../api';
+import { addSketchImage, setSketchImage, type SketchImageEdit, type SetUnitResult, type SourceLocationParam } from '../../api';
 import { writeWorkspaceBinaryFile, type BinaryWriteResult } from '../../editor/editor-api';
 import { Base64 } from '../../helpers/base64';
 import { pixelToSketchThreshold, projectToSketch, sketchToClient } from '../sketch-plane-utils';
@@ -15,7 +15,7 @@ import {
   type LoadedImage,
   type PixelSize,
 } from '../../scene/reference-image-loader';
-import type { ReferenceImageHost } from '../../scene/reference-image-controller';
+import { ReferenceImageController, type ReferenceImageHost } from '../../scene/reference-image-controller';
 import { ReferenceImagePanel, type CalibrateState } from './reference-image-panel';
 import { ReferenceImageFrame, type FrameHit, type FrameTolerances, type Point2 } from './reference-image-frame';
 import { HANDLE_PX, KNOB_PX, ReferenceImageHandles, STEM_PX } from './reference-image-handles';
@@ -39,6 +39,17 @@ type Drag =
 /** A press on the picture that may turn into a drag once the pointer moves. */
 type Pending = { hit: FrameHit; point: Point2; clientX: number; clientY: number };
 
+/** A statement location with the file it is in. */
+type FileLocation = SourceLocationParam & { filePath: string };
+
+/**
+ * What Apply writes: a new `image()` statement in the sketch body, or the
+ * re-opened statement rewritten.
+ */
+export type ReferenceImageCommit =
+  | { kind: 'create'; sketch: FileLocation; image: SketchImageEdit }
+  | { kind: 'update'; target: FileLocation; image: SketchImageEdit };
+
 /**
  * What the tool needs beyond a drawing tool's basics. The I/O is
  * injectable so the apply flow runs under test without a server.
@@ -46,11 +57,13 @@ type Pending = { hit: FrameHit; point: Point2; clientX: number; clientY: number 
 export type ReferenceImageToolDeps = {
   /** The viewer's reference-image controller: the seed and the live preview. */
   host: ReferenceImageHost;
-  /** The sketch statement being edited — the chain's address and the model file the path is relative to. */
-  sourceLocation: SourceLocationParam & { filePath: string };
+  /** The sketch being edited — where a new statement goes, and the model file the path is relative to. */
+  sketchLocation: FileLocation;
+  /** The `image()` statement re-opened from its timeline row, or null to place a new picture. */
+  target: FileLocation | null;
   onRequestExit: () => void;
   upload?: (path: string, base64: string) => Promise<BinaryWriteResult>;
-  commit?: (loc: SourceLocationParam, image: SketchImageEdit | null) => Promise<SetUnitResult>;
+  commit?: (commit: ReferenceImageCommit) => Promise<SetUnitResult>;
   decode?: (blob: Blob) => Promise<LoadedImage>;
 };
 
@@ -60,9 +73,10 @@ export type ReferenceImageToolDeps = {
  * Shift stretches), the knob above it to rotate (Shift snaps to 15°).
  * Calibrate takes two clicks on the picture and the real distance between
  * them, and scales the picture to match. The dialog holds what the
- * viewport cannot: the file, the opacity, Apply / Remove / Cancel. Every
+ * viewport cannot: the file, the opacity, Apply / Cancel. Every
  * change previews live on the viewer's quad; Apply uploads a newly chosen
- * file beside the model and writes the sketch's `.image()` chain.
+ * file beside the model and writes an `image()` statement into the sketch
+ * body — or, opened from a picture's timeline row, rewrites that statement.
  */
 export class ReferenceImageTool extends SketchTool {
   readonly id = 'image' as const;
@@ -75,10 +89,11 @@ export class ReferenceImageTool extends SketchTool {
   private readonly handles: ReferenceImageHandles;
   private readonly distanceInput: DimensionInput;
   private readonly host: ReferenceImageHost;
-  private readonly sourceLocation: SourceLocationParam & { filePath: string };
+  private readonly sketchLocation: FileLocation;
+  private readonly target: FileLocation | null;
   private readonly onRequestExit: () => void;
   private readonly upload: (path: string, base64: string) => Promise<BinaryWriteResult>;
-  private readonly commit: (loc: SourceLocationParam, image: SketchImageEdit | null) => Promise<SetUnitResult>;
+  private readonly commit: (commit: ReferenceImageCommit) => Promise<SetUnitResult>;
   private readonly decode: (blob: Blob) => Promise<LoadedImage>;
 
   /** The record as it stands in this session; null until a picture exists. */
@@ -108,16 +123,16 @@ export class ReferenceImageTool extends SketchTool {
   ) {
     super(ctx, plane, snapController, insertGeometry, container);
     this.host = deps.host;
-    this.sourceLocation = deps.sourceLocation;
+    this.sketchLocation = deps.sketchLocation;
+    this.target = deps.target;
     this.onRequestExit = deps.onRequestExit;
     this.upload = deps.upload ?? ((path, data) => writeWorkspaceBinaryFile(path, data, 'unique'));
-    this.commit = deps.commit ?? setSketchImage;
+    this.commit = deps.commit ?? ReferenceImageTool.writeCommit;
     this.decode = deps.decode ?? ReferenceImageLoader.decode;
     this.panel = new ReferenceImagePanel(container);
     this.panel.onOpacity = (opacity) => this.setSpec(this.spec ? { ...this.spec, opacity } : null);
     this.panel.onCalibrate = () => this.toggleCalibrate();
     this.panel.onApply = () => void this.apply();
-    this.panel.onRemove = () => void this.remove();
     this.panel.onExit = () => this.cancel();
     this.panel.onFile = (file) => void this.chooseFile(file);
     this.handles = new ReferenceImageHandles(plane);
@@ -130,14 +145,7 @@ export class ReferenceImageTool extends SketchTool {
   // ------------------------------------------------------------ lifecycle
 
   protected onActivate(): void {
-    const current = this.host.current();
-    if (current) {
-      this.spec = current.spec;
-      this.pixel = current.pixel;
-      this.panel.setFile(current.spec.src.replace(/^.*\//, ''), current.pixel);
-      this.panel.setOpacity(current.spec.opacity);
-      this.panel.setRemoveVisible(true);
-    }
+    this.seedFromRecord();
     this.ctx.scene.add(this.handles.group);
     this.canvas.addEventListener('pointerdown', this.boundPointerDown, { capture: true });
     window.addEventListener('pointermove', this.boundPointerMove);
@@ -168,14 +176,34 @@ export class ReferenceImageTool extends SketchTool {
   }
 
   onSceneUpdate(_sceneObjects: SceneObjectRender[], _sketchId: string): void {
-    // The model picture's bytes may land after the dialog opened: take its
-    // pixels (they size a one-sided record) unless a chosen file took over.
-    const current = this.host.current();
+    // A re-opened picture's record, or its bytes, may land after the dialog
+    // opened: seed from it, or take its pixels (they size a one-sided
+    // record), unless this session already moved past it.
+    if (!this.spec) {
+      this.seedFromRecord();
+      if (this.spec) {
+        this.refresh();
+      }
+      return;
+    }
+    const current = this.currentRecord();
     if (current?.pixel && !this.chosen && !this.pixel) {
       this.pixel = current.pixel;
       this.panel.setFile(current.spec.src.replace(/^.*\//, ''), current.pixel);
       this.refresh();
     }
+  }
+
+  /** Take the re-opened statement's record as the session's starting point, when there is one yet. */
+  private seedFromRecord(): void {
+    const current = this.currentRecord();
+    if (!current) {
+      return;
+    }
+    this.spec = current.spec;
+    this.pixel = current.pixel;
+    this.panel.setFile(current.spec.src.replace(/^.*\//, ''), current.pixel);
+    this.panel.setOpacity(current.spec.opacity);
   }
 
   override updatePlane(plane: PlaneData): void {
@@ -448,6 +476,11 @@ export class ReferenceImageTool extends SketchTool {
     return pixelToSketchThreshold(this.ctx, STEM_PX);
   }
 
+  /** The re-opened statement's record as the last render carried it; null for a new picture. */
+  private currentRecord() {
+    return this.target ? this.host.current(ReferenceImageController.keyOf(this.target)) : null;
+  }
+
   private setSpec(spec: SketchImageData | null): void {
     this.spec = spec;
     this.refresh();
@@ -456,7 +489,13 @@ export class ReferenceImageTool extends SketchTool {
   /** Preview, handles and read-out from the record as it stands. */
   private refresh(): void {
     if (this.spec) {
-      this.host.preview(this.plane, this.spec, this.chosen?.image ?? null);
+      this.host.preview({
+        key: this.target ? ReferenceImageController.keyOf(this.target) : null,
+        plane: this.plane,
+        spec: this.spec,
+        modelFile: this.sketchLocation.filePath,
+        image: this.chosen?.image ?? null,
+      });
       const frame = this.frame()!;
       this.panel.setReadout({ width: frame.width, height: frame.height }, this.spec.at, this.spec.angle);
     } else {
@@ -481,38 +520,21 @@ export class ReferenceImageTool extends SketchTool {
       let src = this.spec.src;
       if (this.chosen) {
         const uploaded = await this.upload(this.uploadPath(this.chosen.file.name), await Base64.fromBlob(this.chosen.file));
-        src = ReferenceImageTool.relativeSrc(this.sourceLocation.filePath, uploaded.absPath);
+        src = ReferenceImageTool.relativeSrc(this.sketchLocation.filePath, uploaded.absPath);
       }
       if (!src) {
         this.panel.setMessage('Choose an image first.');
         return;
       }
-      const result = await this.commit(this.sourceLocation, ReferenceImageTool.editOf({ ...this.spec, src }));
+      const image = ReferenceImageTool.editOf({ ...this.spec, src });
+      const result = await this.commit(this.target
+        ? { kind: 'update', target: this.target, image }
+        : { kind: 'create', sketch: this.sketchLocation, image });
       if (!result.success) {
         this.panel.setMessage(result.reason ?? 'The image could not be written to the sketch.');
         return;
       }
       // The re-render carries the record; the host shows it from the model.
-      this.host.clearPreview();
-      this.onRequestExit();
-    } catch (error) {
-      this.panel.setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      this.setBusy(false);
-    }
-  }
-
-  private async remove(): Promise<void> {
-    if (this.busy) {
-      return;
-    }
-    this.setBusy(true);
-    try {
-      const result = await this.commit(this.sourceLocation, null);
-      if (!result.success) {
-        this.panel.setMessage(result.reason ?? 'The image could not be removed from the sketch.');
-        return;
-      }
       this.host.clearPreview();
       this.onRequestExit();
     } catch (error) {
@@ -534,13 +556,20 @@ export class ReferenceImageTool extends SketchTool {
 
   /** Where a chosen file goes: `images/<name>` beside the model, the name made path-safe. */
   private uploadPath(fileName: string): string {
-    const folder = ReferenceImageTool.folderOf(this.sourceLocation.filePath);
+    const folder = ReferenceImageTool.folderOf(this.sketchLocation.filePath);
     return `${folder}/${REFERENCE_IMAGE_FOLDER}/${ReferenceImageTool.safeName(fileName)}`;
   }
 
   // ------------------------------------------------------------- statics
 
-  /** The chain's record: the session's fields with the written path, rounded to what the writer keeps. */
+  /** The server round trip behind a commit: a create into the sketch body, or the statement's update. */
+  static writeCommit(commit: ReferenceImageCommit): Promise<SetUnitResult> {
+    return commit.kind === 'create'
+      ? addSketchImage(commit.sketch, commit.image)
+      : setSketchImage(commit.target, commit.image);
+  }
+
+  /** The statement's record: the session's fields with the written path, rounded to what the writer keeps. */
   static editOf(values: SketchImageData): SketchImageEdit {
     const r = ReferenceImageTool.round;
     return {

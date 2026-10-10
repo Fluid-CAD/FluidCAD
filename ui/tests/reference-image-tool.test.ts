@@ -10,15 +10,18 @@ import type { PlaneData } from '../src/types';
 
 // The Image tool's flows, driven against its panel and a stubbed scene:
 // direct manipulation in the viewport (move, corner resize, rotate), the
-// two-click calibration, a chosen file uploaded beside the model and the
-// chain written with the relative path, Remove writing null, Cancel
-// dropping the preview, a refused commit staying open with the reason.
+// two-click calibration, a chosen file uploaded beside the model and a new
+// image() statement written into the sketch with the relative path, a
+// re-opened statement rewritten, Cancel dropping the
+// preview, a refused commit staying open with the reason.
 
 const XY: PlaneData = {
   origin: { x: 0, y: 0, z: 0 }, center: { x: 0, y: 0, z: 0 },
   normal: { x: 0, y: 0, z: 1 }, xDirection: { x: 1, y: 0, z: 0 }, yDirection: { x: 0, y: 1, z: 0 },
 };
-const LOC = { filePath: '/ws/parts/bracket.part.js', line: 7, column: 1 };
+const SKETCH = { filePath: '/ws/parts/bracket.part.js', line: 7, column: 1 };
+const TARGET = { filePath: '/ws/parts/bracket.part.js', line: 8, column: 3 };
+const TARGET_KEY = '/ws/parts/bracket.part.js:8:3';
 const SEED = { src: 'images/a.png', width: 80, at: [0, 0] as [number, number], angle: 0, opacity: 0.5 };
 const PIXEL = { width: 400, height: 200 };
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -28,12 +31,13 @@ const image = (w: number, h: number): LoadedImage => ({ source: {} as any, width
 const toSketch = (clientX: number, clientY: number): [number, number] => [clientX - 500, 500 - clientY];
 const toClient = (p: [number, number]) => ({ clientX: p[0] + 500, clientY: 500 - p[1] });
 
+/** With `current`, the tool re-opens the image() statement at TARGET seeded from it; without, it places a new picture. */
 function makeTool(opts: { current?: { spec: any; pixel: any } | null; commitResult?: { success: boolean; reason?: string } } = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const scene = new Scene();
   const host = {
-    current: vi.fn(() => opts.current ?? null),
+    current: vi.fn((key: string) => (key === TARGET_KEY ? opts.current ?? null : null)),
     preview: vi.fn(),
     clearPreview: vi.fn(),
   };
@@ -48,7 +52,8 @@ function makeTool(opts: { current?: { spec: any; pixel: any } | null; commitResu
   tool.canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 1000, right: 1000, bottom: 1000, x: 0, y: 0, toJSON() {} });
   tool.ctx = { scene, cameraControls, requestRender: vi.fn(), subscribeCameraChange: vi.fn(() => () => {}) };
   tool.host = host;
-  tool.sourceLocation = LOC;
+  tool.sketchLocation = SKETCH;
+  tool.target = opts.current !== undefined ? TARGET : null;
   tool.onRequestExit = onRequestExit;
   tool.upload = upload;
   tool.commit = commit;
@@ -69,7 +74,6 @@ function makeTool(opts: { current?: { spec: any; pixel: any } | null; commitResu
   tool.panel.onOpacity = (opacity: number) => tool.setSpec(tool.spec ? { ...tool.spec, opacity } : null);
   tool.panel.onCalibrate = () => tool.toggleCalibrate();
   tool.panel.onApply = () => void tool.apply();
-  tool.panel.onRemove = () => void tool.remove();
   tool.panel.onExit = () => tool.cancel();
   tool.panel.onFile = (file: File) => void tool.chooseFile(file);
   tool.handles = new ReferenceImageHandles(XY);
@@ -91,7 +95,7 @@ function makeTool(opts: { current?: { spec: any; pixel: any } | null; commitResu
   const release = (p: [number, number]) => {
     window.dispatchEvent(new PointerEvent('pointerup', { ...toClient(p), button: 0, bubbles: true }));
   };
-  const lastPreview = () => host.preview.mock.calls[host.preview.mock.calls.length - 1][1];
+  const lastPreview = () => (host.preview.mock.calls[host.preview.mock.calls.length - 1] as any)[0].spec;
   return { tool, host, scene, upload, commit, decode, onRequestExit, cameraControls, field, message, press, moveTo, release, lastPreview };
 }
 
@@ -130,25 +134,37 @@ describe('ReferenceImageTool path helpers', () => {
 });
 
 describe('ReferenceImageTool', () => {
-  it('opens seeded from the sketch record: preview, handles, read-out and Remove', () => {
+  it('re-opens seeded from the statement\'s record: preview in its place, handles and read-out', () => {
     const { tool, host, scene, field } = makeTool({ current: { spec: SEED, pixel: PIXEL } });
     tool.onActivate();
-    expect(host.preview).toHaveBeenLastCalledWith(XY, SEED, null);
+    expect(host.preview).toHaveBeenLastCalledWith({ key: TARGET_KEY, plane: XY, spec: SEED, modelFile: SKETCH.filePath, image: null });
     expect(field('readout').textContent).toBe('80.00 × 40.00 mm at 0.00, 0.00');
-    expect(field('remove').classList.contains('hidden')).toBe(false);
     expect(scene.children).toContain(tool.handles.group);
     expect(tool.handles.group.children.length).toBeGreaterThan(0);
   });
 
-  it('opens empty without a record and draws no handles until a file is chosen', async () => {
-    const { tool, host, decode } = makeTool();
+  it('re-opened before its record arrived, seeds from the render that brings it', () => {
+    const { tool, host } = makeTool({ current: { spec: SEED, pixel: PIXEL } });
+    host.current.mockReturnValueOnce(null as any);
+    tool.onActivate();
+    expect(host.preview).not.toHaveBeenCalled();
+    tool.onSceneUpdate([], 'sk');
+    expect(host.preview).toHaveBeenLastCalledWith(expect.objectContaining({ key: TARGET_KEY, spec: SEED }));
+  });
+
+  it('opens empty for a new picture and draws no handles until a file is chosen', async () => {
+    const { tool, host, decode, field } = makeTool();
     tool.onActivate();
     expect(host.preview).not.toHaveBeenCalled();
     expect(tool.handles.group.children.length).toBe(0);
     await tool.chooseFile(new File([new Uint8Array([1, 2, 3])], 'Side View.png', { type: 'image/png' }));
     expect(decode).toHaveBeenCalled();
     // Half the visible width (1000 px = 1000 units), centred on the view.
-    expect(host.preview).toHaveBeenLastCalledWith(XY, { src: '', width: 500, at: [0, 0], angle: 0, opacity: 0.5 }, expect.objectContaining({ width: 400 }));
+    expect(host.preview).toHaveBeenLastCalledWith({
+      key: null, plane: XY, modelFile: SKETCH.filePath,
+      spec: { src: '', width: 500, at: [0, 0], angle: 0, opacity: 0.5 },
+      image: expect.objectContaining({ width: 400 }),
+    });
     expect(tool.handles.group.children.length).toBeGreaterThan(0);
   });
 
@@ -243,7 +259,7 @@ describe('ReferenceImageTool', () => {
     expect(tool.handleEscape()).toBe(false);
   });
 
-  it('uploads a chosen file beside the model and writes the chain with the relative path', async () => {
+  it('uploads a chosen file beside the model and writes a new statement into the sketch with the relative path', async () => {
     const { tool, host, upload, commit, onRequestExit, field } = makeTool();
     tool.onActivate();
     await tool.chooseFile(new File([new Uint8Array([1, 2, 3])], 'Side View.png', { type: 'image/png' }));
@@ -256,7 +272,7 @@ describe('ReferenceImageTool', () => {
     expect(upload).toHaveBeenCalledTimes(1);
     expect(upload.mock.calls[0][0]).toBe('/ws/parts/images/Side-View.png');
     expect(upload.mock.calls[0][1]).toBe('AQID');
-    expect(commit).toHaveBeenCalledWith(LOC, { src: 'images/pic.png', width: 500, at: [0, 0], angle: 0, opacity: 0.3 });
+    expect(commit).toHaveBeenCalledWith({ kind: 'create', sketch: SKETCH, image: { src: 'images/pic.png', width: 500, at: [0, 0], angle: 0, opacity: 0.3 } });
     expect(host.clearPreview).toHaveBeenCalled();
     expect(onRequestExit).toHaveBeenCalledTimes(1);
   });
@@ -273,7 +289,7 @@ describe('ReferenceImageTool', () => {
     expect(decode).not.toHaveBeenCalled();
   });
 
-  it('Apply on an existing record without a new file commits the record as the gestures left it', async () => {
+  it('Apply on a re-opened statement without a new file rewrites it as the gestures left it', async () => {
     const { tool, upload, commit, field, press, moveTo, release } = makeTool({ current: { spec: SEED, pixel: PIXEL } });
     tool.onActivate();
     press([0, 0]);
@@ -282,7 +298,7 @@ describe('ReferenceImageTool', () => {
     field('apply').click();
     await flush();
     expect(upload).not.toHaveBeenCalled();
-    expect(commit).toHaveBeenCalledWith(LOC, { src: 'images/a.png', width: 80, at: [5, 2], angle: 0, opacity: 0.5 });
+    expect(commit).toHaveBeenCalledWith({ kind: 'update', target: TARGET, image: { src: 'images/a.png', width: 80, at: [5, 2], angle: 0, opacity: 0.5 } });
   });
 
   it('a refused commit keeps the dialog open with the reason', async () => {
@@ -299,17 +315,13 @@ describe('ReferenceImageTool', () => {
     expect(field('apply').disabled).toBe(false);
   });
 
-  it('Remove writes null; Cancel drops the preview and exits through the toolbar', async () => {
+  it('Cancel drops the preview and exits through the toolbar, writing nothing', () => {
     const { tool, commit, host, onRequestExit, field } = makeTool({ current: { spec: SEED, pixel: null } });
     tool.onActivate();
-    field('remove').click();
-    await flush();
-    expect(commit).toHaveBeenCalledWith(LOC, null);
+    field('exit').click();
+    expect(commit).not.toHaveBeenCalled();
     expect(host.clearPreview).toHaveBeenCalledTimes(1);
     expect(onRequestExit).toHaveBeenCalledTimes(1);
-    field('exit').click();
-    expect(host.clearPreview).toHaveBeenCalledTimes(2);
-    expect(onRequestExit).toHaveBeenCalledTimes(2);
   });
 
   it('deactivating frees the chosen picture, the handles and the preview', async () => {

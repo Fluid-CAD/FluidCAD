@@ -56,7 +56,7 @@ import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, Seri
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
-import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey } from './helpers/scene-utils';
+import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey, findActiveSketch } from './helpers/scene-utils';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { SectionViewService } from './interactive/section-view/section-view-service';
@@ -1524,16 +1524,19 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   // while another sketch is being edited. (A workspace kernel new enough to
   // flag its internal objects leaves that row out of the timeline entirely.)
   panel.isFeatureEditable = (obj) =>
-    obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
+    (obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
     && !SceneIndex.isConnectorCopy(obj)
-    && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects));
+    && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects)))
+    || isImageRowEditable(obj);
   // A 2D offset row's edit pauses the build BEFORE its statement (see
   // openFeatureEditor), so its double-click defers the generic breakpoint. A
   // closed sketch row defers it too: its `.close()` must come off first, or
   // the paused build would end in a finished sketch and enter nothing.
+  // A picture row pauses after its whole sketch, not after its own
+  // statement at the top of the body (see enterImageEdit).
   panel.managesOwnBreakpoint = (obj) =>
     (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type)) || isCopy2DRow(obj) || isMirror2DRow(obj)
-    || (obj.type === 'sketch' && obj.closed === true);
+    || (obj.type === 'sketch' && obj.closed === true) || obj.type === 'image';
 }
 
 /** Rows whose edit dialog pauses the build before its own statement. */
@@ -1617,6 +1620,10 @@ function sketchLocKey(loc: { filePath: string; line: number; column: number }): 
 async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise<void> {
   if (obj.type === 'sketch' && obj.sourceLocation) {
     await enterSketchEdit(obj.sourceLocation, obj.closed === true);
+    return;
+  }
+  if (obj.type === 'image' && obj.sourceLocation) {
+    await enterImageEdit(obj);
     return;
   }
   // A connector copy shares its copy statement's call site but is no
@@ -1768,6 +1775,41 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     // What's left of the parse union: the shell/fillet/chamfer dialog's.
     modifyService.enterEdit(target, parsed, info);
   }
+}
+
+/**
+ * A picture row edits inside its own sketch: it opens while no sketch is
+ * being edited, or while its own is — never over another sketch's session.
+ */
+function isImageRowEditable(obj: SceneObjectRender): boolean {
+  if (obj.type !== 'image' || !obj.sourceLocation) {
+    return false;
+  }
+  return !viewer.isSketchMode || findActiveSketch(viewer.currentSceneObjects)?.id === obj.parentId;
+}
+
+/**
+ * Re-open a reference picture: its `image()` statement sits at the top of
+ * a sketch body, so the sketch opens for editing — paused after the whole
+ * sketch, its lines on screen to align the picture against — and the
+ * sketch toolbar's Image tool arms on the statement once the sketch is in
+ * (at once when it already is the one being edited).
+ */
+async function enterImageEdit(obj: SceneObjectRender): Promise<void> {
+  const sketch = SceneIndex.of(viewer.currentSceneObjects).parent(obj);
+  if (sketch?.type !== 'sketch' || !sketch.sourceLocation) {
+    showEditRefusal('this picture is not inside a sketch.');
+    return;
+  }
+  closeFeatureDialogs();
+  const editing = viewer.isSketchMode && findActiveSketch(viewer.currentSceneObjects)?.id === sketch.id;
+  if (!editing) {
+    if (sketch.closed !== true) {
+      addBreakpoint(sketch.sourceLocation);
+    }
+    await enterSketchEdit(sketch.sourceLocation, sketch.closed === true);
+  }
+  sketchService.enterImageEdit(obj.sourceLocation!);
 }
 
 /**

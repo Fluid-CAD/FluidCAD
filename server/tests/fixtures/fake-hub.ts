@@ -431,7 +431,6 @@ export class FakeHub {
       reviewUrl: status === 'in_review' ? `${this.origin}/${name}/status` : null,
       replaced: Boolean(draft),
       dryRun,
-      warnings: [],
     });
   }
 
@@ -593,7 +592,6 @@ export class FakeHub {
       minEngine: row.minEngine ?? '0.0.46',
       sdkVersion: row.sdkVersion ?? 1,
       unit: 'mm',
-      usesOcct: false,
       notes: row.notes ?? '',
       license: null,
       publishedAt: row.publishedAt ?? null,
@@ -613,7 +611,6 @@ export class FakeHub {
       engine: row.engine ?? null,
       minEngine: row.minEngine ?? null,
       sdkVersion: row.sdkVersion ?? null,
-      usesOcct: false,
       notes: row.notes ?? '',
       publishedAt: row.publishedAt ?? null,
       yanked: row.yanked ?? null,
@@ -677,7 +674,6 @@ export class FakeHub {
       notes: row.notes ?? '',
       license: null,
       reviewNote: row.reviewNote ?? null,
-      usesOcct: false,
       createdAt: '2026-10-10T00:00:00.000Z',
       updatedAt: '2026-10-10T00:00:00.000Z',
       draftExpiresAt: row.status === 'draft' ? '2026-11-09T00:00:00.000Z' : null,

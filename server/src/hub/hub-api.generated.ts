@@ -110,7 +110,7 @@ export type paths = {
             cookie?: never;
         };
         /**
-         * One version's review: contents, warnings, files, notes, license, screenshots and the file diff (admins)
+         * One version's review: contents, files, notes, license, screenshots and the file diff (admins)
          * @description Any version by id; the diff is against the highest published version below it, from the stored entry tables.
          */
         get: {
@@ -2312,7 +2312,7 @@ export type paths = {
         };
         /**
          * What the hub read from a version's archive (the owner and admins)
-         * @description The description, engine, unit, features, parts and assemblies with their parameters, files, warnings and what the archive lacks: the wizard's Review step.
+         * @description The description, engine, unit, features, parts and assemblies with their parameters, files and what the archive lacks: the wizard's Review step.
          */
         get: {
             parameters: {
@@ -2705,11 +2705,6 @@ export type components = {
         ApiTokenList: {
             tokens: components["schemas"]["ApiToken"][];
         };
-        ArchiveWarning: {
-            /** @enum {string} */
-            code: "uses-occt";
-            message: string;
-        };
         CatalogFeature: {
             description: string | null;
             exportName: string;
@@ -2723,7 +2718,6 @@ export type components = {
             label: string;
             module: string;
             paramCount: number;
-            usesOcct: boolean;
         };
         CatalogModel: {
             /** @enum {string} */
@@ -2820,7 +2814,6 @@ export type components = {
             label: string;
             module: string;
             paramCount: number;
-            usesOcct: boolean;
         };
         ContentsModel: {
             /** @enum {string} */
@@ -3052,7 +3045,6 @@ export type components = {
                 size: number;
                 unit: string;
                 unpackedSize: number;
-                usesOcct: boolean;
                 version: string;
             } | null;
             /** @description What installs by name get; null until a version is approved. */
@@ -3095,7 +3087,6 @@ export type components = {
                 unpackedSize: number | null;
                 /** @description The last change: an upload or a wizard save. */
                 updatedAt: string;
-                usesOcct: boolean;
                 version: string;
                 /** @description The first-publish wizard, for a `draft`. */
                 wizardUrl: string | null;
@@ -3130,7 +3121,6 @@ export type components = {
                 unpackedSize: number | null;
                 /** @description The last change: an upload or a wizard save. */
                 updatedAt: string;
-                usesOcct: boolean;
                 version: string;
                 /** @description The first-publish wizard, for a `draft`. */
                 wizardUrl: string | null;
@@ -3220,7 +3210,6 @@ export type components = {
                 unit: string;
                 unpackedSize: number;
                 version: string;
-                warnings: components["schemas"]["ArchiveWarning"][];
             } | null;
             createdAt: string;
             diff: components["schemas"]["FileDiff"];
@@ -3270,7 +3259,6 @@ export type components = {
             submittedAt: string | null;
             /** @description The handle of the account that uploaded it. */
             uploadedBy: string | null;
-            usesOcct: boolean;
             version: string;
             versionId: string;
         };
@@ -3298,7 +3286,6 @@ export type components = {
             status: "draft" | "in_review";
             unpackedSize: number;
             version: string;
-            warnings: components["schemas"]["ArchiveWarning"][];
             /** @description The first-publish wizard, for a `draft`. */
             wizardUrl: string | null;
         };
@@ -3324,7 +3311,6 @@ export type components = {
             unit: string;
             unpackedSize: number;
             version: string;
-            warnings: components["schemas"]["ArchiveWarning"][];
         };
         VersionDetail: {
             /** @enum {string} */
@@ -3376,7 +3362,6 @@ export type components = {
                         [key: string]: unknown;
                     };
                     module: string;
-                    usesOcct: boolean;
                 } & {
                     [key: string]: unknown;
                 })[];
@@ -3430,7 +3415,6 @@ export type components = {
             unpackedSize: number | null;
             /** @description The last change: an upload or a wizard save. */
             updatedAt: string;
-            usesOcct: boolean;
             version: string;
             /** @description The first-publish wizard, for a `draft`. */
             wizardUrl: string | null;
@@ -3486,7 +3470,6 @@ export type components = {
             unpackedSize: number | null;
             /** @description The last change: an upload or a wizard save. */
             updatedAt: string;
-            usesOcct: boolean;
             version: string;
             /** @description The first-publish wizard, for a `draft`. */
             wizardUrl: string | null;
@@ -3514,7 +3497,6 @@ export type components = {
              * @enum {string}
              */
             status: "uploading" | "draft" | "in_review" | "rejected" | "published";
-            usesOcct: boolean;
             version: string;
             yanked: components["schemas"]["Yank"];
         };

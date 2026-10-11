@@ -193,11 +193,19 @@ export class BrowserEngineHost {
    * desktop's "use mm" fallback. The project materials follow the same
    * rule (`options.materials`, else the file's `materials` map, else none —
    * see {@link resolveWorkspaceMaterials}). Text values are encoded as UTF-8.
+   *
+   * `options.fileUnits` is a package manifest's per-file `unit()`
+   * declarations, by package path. The model runs as one bundled module, so
+   * a `unit()` call can't tell which file it is in: the desktop reads each
+   * file's own statement, and here the manifest's static read of the same
+   * statements stands in for them (see {@link BrowserEngineHost.fileUnitsOf}).
+   * A file it names then measures in its unit, and its `unit()` call is
+   * accepted rather than refused.
    */
   setWorkspace(
     files: Record<string, string | Uint8Array>,
     entryPath: string,
-    options?: { unit?: string | null; materials?: ProjectMaterials | null },
+    options?: { unit?: string | null; fileUnits?: Record<string, string> | null; materials?: ProjectMaterials | null },
   ): void {
     this.entryPath = entryPath.startsWith("/") ? entryPath : "/" + entryPath;
     const encoder = new TextEncoder();
@@ -209,8 +217,34 @@ export class BrowserEngineHost {
     setAssetProvider((relPath) => bytes.get(relPath) ?? null);
     if (this.manager) {
       this.manager.projectUnit = resolveWorkspaceUnit(options?.unit, bytes.get(PROJECT_CONFIG_FILENAME), this.bootUnit);
+      this.manager.knownFileUnits = BrowserEngineHost.fileUnitsOf(options?.fileUnits);
     }
     this.projectMaterials = resolveWorkspaceMaterials(options?.materials, bytes.get(PROJECT_CONFIG_FILENAME));
+  }
+
+  /**
+   * A package manifest's `fileUnits` (package path → the unit its `unit()`
+   * statement names) keyed the way the host names files to the engine: a
+   * leading `/`, as {@link setWorkspace} sets the entry. An entry whose unit
+   * is not a length unit is skipped, so that file follows the project unit
+   * as it would without a statement.
+   */
+  static fileUnitsOf(fileUnits: Record<string, string> | null | undefined): Map<string, LengthUnit> {
+    const units = new Map<string, LengthUnit>();
+    if (!fileUnits || typeof fileUnits !== "object" || Array.isArray(fileUnits)) {
+      return units;
+    }
+    for (const [path, unit] of Object.entries(fileUnits)) {
+      if (path.trim() === "") {
+        continue;
+      }
+      try {
+        units.set(path.startsWith("/") ? path : "/" + path, parseLengthUnit(unit));
+      } catch {
+        // Not a length unit: the file follows the project unit.
+      }
+    }
+    return units;
   }
 
   /**

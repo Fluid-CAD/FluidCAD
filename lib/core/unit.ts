@@ -26,6 +26,12 @@ export default function unit(name: string): void {
   const parsed = parseLengthUnit(name);
   const location = captureSourceLocation();
   if (!location) {
+    // A bundled browser model: the call can't say which file it is in, but
+    // the host already told the registry every file's unit() (a package
+    // manifest's fileUnits), read from these same statements.
+    if (getUnitRegistry().knowsFileUnits) {
+      return;
+    }
     throw new Error(
       "unit(): could not determine the calling file — call unit() at the top level of a .part.js / .fluid.js model file.",
     );

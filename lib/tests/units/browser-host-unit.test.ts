@@ -70,7 +70,47 @@ describe("BrowserEngineHost unit field", () => {
     expect(resolveWorkspaceUnit(undefined, undefined, "m")).toBe("m");
   });
 
+  it("takes a manifest's fileUnits for the entry: its unit, its declaration, and its unit() accepted", async () => {
+    host.setWorkspace({ "parts/inch.part.js": "" }, "parts/inch.part.js", { unit: "mm", fileUnits: { "parts/inch.part.js": "in" } });
+    host.setModuleEvaluator(async () => {
+      // A bundled model: unit() can't find its file, and the manifest's
+      // static read of this same statement stands in for it.
+      unit("in");
+      sketch("xy", () => { testRect(1, 1); });
+      extrude(0.5);
+      return {};
+    });
+    const outcome = await host.render();
+    expect(outcome.compileError).toBeNull();
+    expect(outcome.unit).toBe("in");
+    expect(outcome.declaredUnit).toBe("in");
+    expect(outcome.projectUnit).toBe("mm");
+    expect((outcome.result[0] as { unit?: string }).unit).toBe("in");
+
+    // Another entry of the same workspace that declares nothing follows the project unit.
+    host.setWorkspace({ "parts/inch.part.js": "", "parts/metric.part.js": "" }, "parts/metric.part.js", { unit: "mm", fileUnits: { "parts/inch.part.js": "in" } });
+    host.setModuleEvaluator(async () => {
+      sketch("xy", () => { testRect(10, 10); });
+      extrude(5);
+      return {};
+    });
+    const metric = await host.render();
+    expect(metric.compileError).toBeNull();
+    expect(metric.unit).toBe("mm");
+    expect(metric.declaredUnit).toBeNull();
+  });
+
+  it("keys fileUnits like the entry and skips a unit that isn't one", () => {
+    expect([...BrowserEngineHost.fileUnitsOf({ "parts/a.part.js": "inches", "/parts/b.part.js": "cm", "parts/c.part.js": "furlong", "": "mm" })]).toEqual([
+      ["/parts/a.part.js", "in"],
+      ["/parts/b.part.js", "cm"],
+    ]);
+    expect(BrowserEngineHost.fileUnitsOf(null).size).toBe(0);
+    expect(BrowserEngineHost.fileUnitsOf(undefined).size).toBe(0);
+  });
+
   it("carries the unit on the compile-error path", async () => {
+    host.setWorkspace({ "model.fluid.js": "" }, "model.fluid.js");
     host.setModuleEvaluator(async () => {
       // Outside a model file unit() cannot find its caller — the error is
       // surfaced as a compile error, and the result still names a unit.

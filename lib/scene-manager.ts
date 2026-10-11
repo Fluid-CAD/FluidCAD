@@ -98,6 +98,13 @@ class SceneManager {
    */
   projectUnit: LengthUnit;
   /**
+   * The files' unit() declarations a host read before running them (a
+   * package manifest's `fileUnits`), by file as setCurrentFile() names it;
+   * empty unless a host sets it. Each render's unit registry gets it — see
+   * UnitRegistryOptions.knownFileUnits.
+   */
+  knownFileUnits: ReadonlyMap<string, LengthUnit> = new Map();
+  /**
    * Workspace files the current render read that no module import shows — a
    * load()'s imported asset. A host that re-serves a finished render checks
    * these along with the module graph before trusting it.
@@ -121,6 +128,7 @@ class SceneManager {
       projectUnit: this.projectUnit,
       rootFile: this.currentFile,
       projectUnitForFile: createProjectUnitLookup(this.rootPath),
+      knownFileUnits: this.knownFileUnits,
     });
   }
 

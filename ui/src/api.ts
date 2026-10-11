@@ -6535,6 +6535,13 @@ export type PackageInspection = {
   bytes: number;
   /** Where the "New packages go to" setting sends it (the project only when one is open). */
   defaultTarget: PackageTarget;
+  /**
+   * The public name it installs under (`@acme/kit`): the archive holds only
+   * its author's bare name (`kit`), so the engine names it — the `as` the
+   * inspection was asked with, else the project's one pin of that name,
+   * else `@local/kit`.
+   */
+  installsAs: string;
 };
 
 /** One installed package directory. */
@@ -6574,6 +6581,9 @@ export type PackagesOverview = {
   libraryOffer?: { path: string; packages: { name: string; version: string }[] } | null;
 };
 
+/** `POST /api/packages/install`: `as` is the public name to install under (the inspection's `installsAs`). */
+export type PackageInstallRequest = { token: string; target: PackageTarget; replace?: boolean; pin?: boolean; as?: string };
+
 /** `POST /api/packages/install`. */
 export type PackageInstallOutcome = {
   target: PackageTarget;
@@ -6600,8 +6610,9 @@ export type PackageResult<T> = ({ ok: true } & T) | PackageRefusal;
  */
 export interface PackagesClient {
   overview(): Promise<PackagesOverview | null>;
-  inspect(file: Blob, target?: PackageTarget): Promise<PackageResult<{ inspection: PackageInspection }>>;
-  install(request: { token: string; target: PackageTarget; replace?: boolean; pin?: boolean }): Promise<PackageResult<{ outcome: PackageInstallOutcome }>>;
+  /** Inspect an archive; `as` names the public name it should install under (the banner's pin). */
+  inspect(file: Blob, target?: PackageTarget, as?: string | null): Promise<PackageResult<{ inspection: PackageInspection }>>;
+  install(request: PackageInstallRequest): Promise<PackageResult<{ outcome: PackageInstallOutcome }>>;
   discard(token: string): Promise<void>;
   copy(name: string, version: string, to: PackageTarget): Promise<PackageResult<{}>>;
   remove(name: string, version: string, target: PackageTarget): Promise<PackageResult<{ strandedPin: PinnedPackage | null }>>;
@@ -6619,13 +6630,21 @@ export class HttpPackagesClient implements PackagesClient {
     return getJson<PackagesOverview>('api/packages');
   }
 
-  async inspect(file: Blob, target?: PackageTarget): Promise<PackageResult<{ inspection: PackageInspection }>> {
-    const url = target ? `api/packages/inspect?target=${target}` : 'api/packages/inspect';
+  async inspect(file: Blob, target?: PackageTarget, as?: string | null): Promise<PackageResult<{ inspection: PackageInspection }>> {
+    const query = new URLSearchParams();
+    if (target) {
+      query.set('target', target);
+    }
+    if (as) {
+      query.set('as', as);
+    }
+    const search = query.toString();
+    const url = search ? `api/packages/inspect?${search}` : 'api/packages/inspect';
     const answer = await HttpPackagesClient.send(url, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
     return answer.ok === false ? answer : { ok: true, inspection: answer.body as PackageInspection };
   }
 
-  async install(request: { token: string; target: PackageTarget; replace?: boolean; pin?: boolean }): Promise<PackageResult<{ outcome: PackageInstallOutcome }>> {
+  async install(request: PackageInstallRequest): Promise<PackageResult<{ outcome: PackageInstallOutcome }>> {
     const answer = await HttpPackagesClient.sendJson('api/packages/install', 'POST', request);
     return answer.ok === false ? answer : { ok: true, outcome: answer.body as PackageInstallOutcome };
   }

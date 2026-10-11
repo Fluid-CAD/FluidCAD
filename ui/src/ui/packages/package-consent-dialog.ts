@@ -30,7 +30,8 @@ const WARNING = 'flex items-start gap-2 rounded-md px-3 py-2 text-xs leading-snu
  * the window all land here once the engine has inspected the archive.
  *
  * It shows what is about to run: the package's name, version and
- * description, its features (with their icons, served from the inspected
+ * description, the public name it installs under (`installsAs`: the
+ * archive holds only its author's bare name), its features (with their icons, served from the inspected
  * archive) and parts, the engine it needs, a warning for every feature that
  * reaches raw OpenCascade, and the plain statement that a package's code
  * runs in the engine with the user's permissions. The user picks where it
@@ -164,6 +165,19 @@ export class PackageConsentDialog {
     version.textContent = manifest.version;
     title.append(name, version);
     this.body.appendChild(title);
+
+    // The public name it installs under: the archive knows only its bare name (HD29).
+    if (request.inspection.installsAs) {
+      const installsAs = document.createElement('p');
+      installsAs.dataset.ref = 'installs-as';
+      installsAs.className = 'text-[11px] text-base-content/60 mt-0.5';
+      installsAs.append('Installs as ');
+      const publicName = document.createElement('span');
+      publicName.className = 'font-mono text-base-content/80';
+      publicName.textContent = request.inspection.installsAs;
+      installsAs.appendChild(publicName);
+      this.body.appendChild(installsAs);
+    }
 
     if (manifest.description) {
       const description = document.createElement('p');
@@ -336,16 +350,18 @@ export class PackageConsentDialog {
     const target = this.target;
     const pin = this.request.pin === true;
     this.setState('installing');
+    // Under the name the inspection said (`installsAs`): the archive holds only its bare name.
+    const as = this.inspection.installsAs;
     if (replace) {
       // The refused install used the inspection up: inspect the same bytes again.
-      const again = await this.client.inspect(this.request.file, target);
+      const again = await this.client.inspect(this.request.file, target, as);
       if (again.ok === false) {
         this.fail(again.error, 'error');
         return;
       }
       this.inspection = again.inspection;
     }
-    const answer = await this.client.install({ token: this.inspection.token, target, replace, pin });
+    const answer = await this.client.install({ token: this.inspection.token, target, replace, pin, as: this.inspection.installsAs ?? as });
     if (!this.request) {
       return;
     }

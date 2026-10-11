@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { FeaturePickerParam } from '../src/api';
 import { PickHighlight, SchemaPicker, type PickerScene } from '../src/interactive/create-feature/schema/schema-pickers';
 import type { SceneObjectRender, SourceLocation } from '../src/types';
+import { CustomFeatureTypes } from '../src/ui/custom-feature-types';
 
 // One picked value of a custom feature's dialog: what each picker kind takes
 // from the viewport and the timeline, what the armed slot asks the viewer to
@@ -531,6 +532,24 @@ describe('point values', () => {
     const picker = mountAt({ picker: 'point' }, objects);
     picker.takeClick('boss-body', vertex(0, 'boss-body').sub);
     expect(chips(picker)).toEqual(['Boss vertex']);
+  });
+
+  it("name a package feature's vertex (a keyed row, HD29) and a plain-id workspace feature's by the row's name", () => {
+    for (const [type, name] of [['@acme/kit:boss', 'Boss (Acme)'], ['boss', 'Boss (mine)']]) {
+      if (type === 'boss') {
+        CustomFeatureTypes.register('boss');
+      }
+      const objects = [...connectorScene(), {
+        id: 'b', type, name, parentId: 'part', ownShapes: [], sourceLocation: at(16, 2),
+        sceneShapes: [{ shapeId: 'boss-body', shapeType: 'solid', meshes: MESH }],
+      }] as SceneObjectRender[];
+      const picker = mountAt({ picker: 'point' }, objects);
+      picker.takeClick('boss-body', vertex(0, 'boss-body').sub);
+      expect(chips(picker)).toEqual([`${name} vertex`]);
+    }
+    CustomFeatureTypes.unregister('boss');
+    expect(CustomFeatureTypes.isCustom('boss')).toBe(false);
+    expect(CustomFeatureTypes.isCustom('extrude')).toBe(false);
   });
 });
 

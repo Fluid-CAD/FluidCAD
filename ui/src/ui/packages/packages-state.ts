@@ -50,6 +50,16 @@ export class PackagesState {
 
 /** How the package UI words a package: its name and version, its contents, its size. */
 export class PackageText {
+  /**
+   * `@acme/gears` → `gears`: the bare name an archive's manifest holds
+   * (HD29; the engine's `PackageName.bareOf`). A name that isn't scoped is
+   * answered as it is.
+   */
+  static bareOf(name: string): string {
+    const slash = name.indexOf('/');
+    return name.startsWith('@') && slash > 0 ? name.slice(slash + 1) : name;
+  }
+
   /** `@acme/gears 1.2.0`. */
   static label(name: string, version: string | null): string {
     return version ? `${name} ${version}` : name;

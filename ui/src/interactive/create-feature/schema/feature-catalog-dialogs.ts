@@ -3,6 +3,7 @@ import {
 } from '../../../api';
 import { iconUrl } from '../../../ui/icon-url';
 import { DEFAULT_ICON_SRC, ObjectIcons } from '../../../ui/object-icons';
+import { CustomFeatureTypes } from '../../../ui/custom-feature-types';
 import type { Navbar } from '../../../ui/navbar';
 import type { FeatureDialogRegistry } from '../../feature-dialog-registry';
 import { FeatureButton, type FeatureLauncher } from '../feature-button';
@@ -176,6 +177,7 @@ export class FeatureCatalogDialogs {
       // A built-in's rows already read the product's own icon by their type.
       if (!entry.builtIn) {
         ObjectIcons.register(id, icon);
+        CustomFeatureTypes.register(id);
       }
       this.dialogs.set(id, {
         service, signature: FeatureCatalogDialogs.signatureOf(entry), builtIn: entry.builtIn,
@@ -199,6 +201,7 @@ export class FeatureCatalogDialogs {
     held.service.destroy();
     if (!held.builtIn) {
       ObjectIcons.unregister(id);
+      CustomFeatureTypes.unregister(id);
     }
     this.dialogs.delete(id);
   }

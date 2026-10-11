@@ -47,21 +47,29 @@ describe('PackageConsentDialog', () => {
     void h.dialog.open({ inspection: FakePackagesClient.inspection(), file: packageFile(), projectOpen: true });
     expect(h.dialog.isOpen()).toBe(true);
     expect(h.overlay.dataset.state).toBe('review');
-    expect(h.ref('name').textContent).toBe('@acme/kit');
+    // The archive's bare name, and the public name it installs under (HD29).
+    expect(h.ref('name').textContent).toBe('kit');
+    expect(h.ref('installs-as').textContent).toBe('Installs as @acme/kit');
     expect(h.ref('version').textContent).toBe('0.1.0');
     expect(h.ref('description').textContent).toBe('Standoffs and spacers');
     const features = [...h.ref('features').querySelectorAll<HTMLElement>('[data-feature-id]')];
-    expect(features.map((row) => row.dataset.featureId)).toEqual(['acme.standoff', 'acme.twist']);
-    expect(features[0].querySelector('img')!.getAttribute('src')).toBe('icon/token-1/acme.standoff');
+    expect(features.map((row) => row.dataset.featureId)).toEqual(['standoff', 'twist']);
+    expect(features[0].querySelector('img')!.getAttribute('src')).toBe('icon/token-1/standoff');
     expect(features[1].querySelector('img')!.getAttribute('src')).toContain('icons/solid.png');
     expect(features[0].querySelector('[data-ref="occt"]')).toBeNull();
     expect(features[1].querySelector('[data-ref="occt"]')!.textContent).toBe('raw OpenCascade');
     expect(h.ref('parts').textContent).toContain('Spacer');
     expect(h.ref('engine').textContent).toBe('Needs FluidCAD 0.0.45 or newer (packed on 0.0.46). 6 files, 48.6 kB.');
-    expect(h.overlay.querySelector('[data-warning="uses-occt"]')!.textContent!.trim()).toBe('acme.twist calls raw OpenCascade.');
+    expect(h.overlay.querySelector('[data-warning="uses-occt"]')!.textContent!.trim()).toBe('twist calls raw OpenCascade.');
     expect(h.ref('trust').textContent).toBe("A package's code runs in the FluidCAD engine with your permissions. Install only packages you trust.");
     const targets = [...h.overlay.querySelectorAll<HTMLInputElement>('input[name="package-target"]')];
     expect(targets.map((input) => [input.value, input.checked, input.disabled])).toEqual([['library', true, false], ['project', false, false]]);
+  });
+
+  it('shows the @local name a file nothing names installs under', () => {
+    const h = mountDialog();
+    void h.dialog.open({ inspection: FakePackagesClient.inspection({ installsAs: '@local/kit' }), file: packageFile(), projectOpen: true });
+    expect(h.ref('installs-as').textContent).toBe('Installs as @local/kit');
   });
 
   it("can't target the project without one, and opens on the setting's target with one", () => {
@@ -84,7 +92,7 @@ describe('PackageConsentDialog', () => {
     expect(h.overlay.dataset.state).toBe('installing');
     expect(h.ref<HTMLButtonElement>('install').disabled).toBe(true);
     const outcome = await done;
-    expect(h.client.install).toHaveBeenCalledWith({ token: 'token-1', target: 'project', replace: false, pin: false });
+    expect(h.client.install).toHaveBeenCalledWith({ token: 'token-1', target: 'project', replace: false, pin: false, as: '@acme/kit' });
     expect(outcome).toMatchObject({ status: 'installed', target: 'project' });
     expect(h.dialog.isOpen()).toBe(false);
     expect(h.client.discard).not.toHaveBeenCalled();
@@ -104,8 +112,8 @@ describe('PackageConsentDialog', () => {
 
     h.ref<HTMLButtonElement>('install').click();
     const outcome = await done;
-    expect(client.inspect).toHaveBeenCalledWith(file, 'library');
-    expect(client.install).toHaveBeenLastCalledWith({ token: 'token-2', target: 'library', replace: true, pin: false });
+    expect(client.inspect).toHaveBeenCalledWith(file, 'library', '@acme/kit');
+    expect(client.install).toHaveBeenLastCalledWith({ token: 'token-2', target: 'library', replace: true, pin: false, as: '@acme/kit' });
     expect(outcome).not.toBeNull();
   });
 
@@ -171,17 +179,22 @@ describe('PackageInstallFlow', () => {
 
   it('checks the banner\'s file against the pin by pinning it, and says when it is another package', async () => {
     const h = mountFlow();
-    const matching = h.flow.installFile(packageFile(), { expect: { name: '@acme/kit', version: '0.1.0' } });
+    const matching = h.flow.installFile(packageFile(), { expect: { name: '@bea-tools/kit', version: '0.1.0' } });
     await settle();
+    // The archive says `kit`: the pin's bare name. It is inspected and installed under the pin's name.
+    expect(h.client.inspect).toHaveBeenLastCalledWith(expect.anything(), undefined, '@bea-tools/kit');
     expect(h.overlay().querySelector('[data-warning="note"]')).toBeNull();
+    expect(h.overlay().querySelector('[data-ref="installs-as"]')!.textContent).toBe('Installs as @bea-tools/kit');
     h.overlay().querySelector<HTMLButtonElement>('[data-ref="install"]')!.click();
     await matching;
-    expect(h.client.install).toHaveBeenLastCalledWith(expect.objectContaining({ pin: true }));
+    expect(h.client.install).toHaveBeenLastCalledWith(expect.objectContaining({ pin: true, as: '@bea-tools/kit' }));
 
     const other = h.flow.installFile(packageFile(), { expect: { name: '@acme/gears', version: '1.2.0' } });
     await settle();
     expect(h.overlay().querySelector('[data-warning="note"]')!.textContent!.trim())
       .toBe("This project uses @acme/gears 1.2.0, but this file is @acme/kit 0.1.0. Installing it won't fix the project.");
+    // Refused under the pin's name, then inspected as itself.
+    expect(h.client.inspect.mock.calls.slice(-2).map((call) => call[2])).toEqual(['@acme/gears', undefined]);
     h.overlay().querySelector<HTMLButtonElement>('[data-ref="install"]')!.click();
     await other;
     expect(h.client.install).toHaveBeenLastCalledWith(expect.objectContaining({ pin: false }));

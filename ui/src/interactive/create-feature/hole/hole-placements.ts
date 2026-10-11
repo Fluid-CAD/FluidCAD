@@ -14,6 +14,7 @@ import type { PickSlotChip } from '../../pick-slot';
 import { ConnectorOptions, type ConnectorOption } from '../connector-options';
 import { anchorChipLabel, type LockedAnchor } from '../anchor-suggestions';
 import { gotoSource } from '../../../api';
+import { CustomFeatureTypes } from '../../../ui/custom-feature-types';
 
 /** A placement's world frame: the point the hole starts from and the outward normal. */
 export type PlacementFrame = { origin: Vec3Data; normal: Vec3Data };
@@ -88,9 +89,10 @@ export function vertexLabel(shapeId: string, sceneObjects: SceneObjectRender[]):
   }
   const { row, shape } = owner;
   const sketch = SceneIndex.of(sceneObjects).enclosing(row, 'sketch');
-  // A row's type names its entity — a custom feature's id (`acme.boss`) is
-  // no word, so its timeline name ("Boss") does.
-  const entity = row.type && !row.type.includes('.')
+  // A row's type names its entity — a custom feature's type (`boss`, or a
+  // package's key `@acme/kit:boss`) is no word to show, so its timeline
+  // name ("Boss") does.
+  const entity = row.type && !CustomFeatureTypes.isCustom(row.type)
     ? row.type.charAt(0).toUpperCase() + row.type.slice(1)
     : row.name ?? 'Entity';
   const role = (row.type as string) === 'point'

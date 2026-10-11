@@ -6,6 +6,7 @@ import type {
   PackagesClient,
   PackagesOverview,
 } from '../../src/api';
+import { PackageText } from '../../src/ui/packages/packages-state';
 
 /**
  * A {@link PackagesClient} for the package UI's tests: every call is a
@@ -20,8 +21,14 @@ export class FakePackagesClient implements PackagesClient {
   }
 
   overview = vi.fn(async () => this.overviewValue);
-  inspect = vi.fn(async (_file: Blob, _target?: 'library' | 'project') => ({ ok: true as const, inspection: FakePackagesClient.inspection({ token: 'token-2' }) }));
-  install = vi.fn(async (request: { token: string; target: 'library' | 'project'; replace?: boolean; pin?: boolean }) => ({
+  /** As the engine: an `as` whose bare part isn't the archive's (`kit`) is refused; without one it installs as the project's pin, `@acme/kit`. */
+  inspect = vi.fn(async (_file: Blob, _target?: 'library' | 'project', as?: string | null): Promise<any> => {
+    if (as && PackageText.bareOf(as) !== 'kit') {
+      return { ok: false as const, status: 400, code: 'wrong-name', error: `This file is kit, so it can't install as ${as}.` };
+    }
+    return { ok: true as const, inspection: FakePackagesClient.inspection({ token: 'token-2', installsAs: as ?? '@acme/kit' }) };
+  });
+  install = vi.fn(async (request: { token: string; target: 'library' | 'project'; replace?: boolean; pin?: boolean; as?: string }) => ({
     ok: true as const,
     outcome: {
       target: request.target, name: '@acme/kit', version: '0.1.0', directory: '/lib/@acme/kit/0.1.0',
@@ -38,15 +45,15 @@ export class FakePackagesClient implements PackagesClient {
 
   static manifest(extra: Partial<PackageManifest> = {}): PackageManifest {
     return {
-      name: '@acme/kit',
+      name: 'kit',
       version: '0.1.0',
       description: 'Standoffs and spacers',
       engine: '0.0.46',
       minEngine: '0.0.45',
       sdkVersion: 1,
       features: [
-        { id: 'acme.standoff', exportName: 'standoff', module: 'standoff.feature.js', meta: { label: 'Standoff', icon: './standoff.svg' } as any, usesOcct: false },
-        { id: 'acme.twist', exportName: 'twist', module: 'twist.feature.js', meta: { label: 'Twist' } as any, usesOcct: true },
+        { id: 'standoff', exportName: 'standoff', module: 'standoff.feature.js', meta: { label: 'Standoff', icon: './standoff.svg' } as any, usesOcct: false },
+        { id: 'twist', exportName: 'twist', module: 'twist.feature.js', meta: { label: 'Twist' } as any, usesOcct: true },
       ],
       parts: [{ exportName: 'spacer', module: 'parts/spacer.part.js', name: 'Spacer', kind: 'part' }],
       files: ['fluidcad.json', 'index.js', 'standoff.feature.js', 'standoff.svg', 'twist.feature.js', 'parts/spacer.part.js'],
@@ -59,9 +66,10 @@ export class FakePackagesClient implements PackagesClient {
       token: 'token-1',
       manifest: FakePackagesClient.manifest(),
       integrity: 'sha256-x',
-      warnings: [{ code: 'uses-occt', message: 'acme.twist calls raw OpenCascade.' }],
+      warnings: [{ code: 'uses-occt', message: 'twist calls raw OpenCascade.' }],
       bytes: 48_600,
       defaultTarget: 'library',
+      installsAs: '@acme/kit',
       ...extra,
     };
   }
@@ -69,7 +77,7 @@ export class FakePackagesClient implements PackagesClient {
   static installed(name: string, version: string, extra: Partial<InstalledPackage> = {}): InstalledPackage {
     return {
       target: 'library', name, version, directory: `/lib/${name}/${version}`,
-      manifest: FakePackagesClient.manifest({ name, version }), bytes: 48_600, ...extra,
+      manifest: FakePackagesClient.manifest({ name: PackageText.bareOf(name), version }), bytes: 48_600, ...extra,
     };
   }
 

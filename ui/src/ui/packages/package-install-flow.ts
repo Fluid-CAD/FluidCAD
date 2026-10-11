@@ -67,17 +67,23 @@ export class PackageInstallFlow {
     }
     // The project's state decides the target choice and the pin.
     await this.deps.state.refresh();
-    const inspected = await this.deps.client.inspect(file);
+    const expected = intent.expect;
+    // The banner's file installs under the pin's name: the archive holds only
+    // its bare name (HD29). A file of another package is refused under that
+    // name (`wrong-name`), and is then inspected as itself, with the note.
+    let inspected = await this.deps.client.inspect(file, undefined, expected?.name ?? null);
+    if (inspected.ok === false && expected && inspected.code === 'wrong-name') {
+      inspected = await this.deps.client.inspect(file);
+    }
     if (inspected.ok === false) {
       this.deps.notify(`Can't install ${file.name}: ${inspected.error}`);
       return null;
     }
     const { manifest } = inspected.inspection;
-    const expected = intent.expect;
-    const matches = expected !== undefined && manifest.name === expected.name
+    const matches = expected !== undefined && manifest.name === PackageText.bareOf(expected.name)
       && (expected.version === null || manifest.version === expected.version);
     const note = expected && !matches
-      ? `This project uses ${PackageText.label(expected.name, expected.version)}, but this file is ${PackageText.label(manifest.name, manifest.version)}. Installing it won't fix the project.`
+      ? `This project uses ${PackageText.label(expected.name, expected.version)}, but this file is ${PackageText.label(inspected.inspection.installsAs ?? manifest.name, manifest.version)}. Installing it won't fix the project.`
       : undefined;
     const outcome = await this.consent.open({
       inspection: inspected.inspection,

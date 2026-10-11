@@ -18,9 +18,12 @@ import { LocalSceneHost } from '../src/host/local-scene-host.ts';
  */
 
 const ROOT = fs.realpathSync(ENGINE_PACKAGE_ROOT);
-const EXPORTS: Record<string, string> = JSON.parse(
-  fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'),
-).exports;
+/** The package's `exports`, each subpath's runtime file: a plain target, or a conditional one's `default` (`./viewer-ui` names its `types` too). */
+const EXPORTS: Record<string, string> = Object.fromEntries(
+  Object.entries(JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).exports as Record<string, string | { default: string }>).map(
+    ([subpath, target]) => [subpath, typeof target === 'string' ? target : target.default],
+  ),
+);
 
 function epermSymlink(): never {
   const err: any = new Error("EPERM: operation not permitted, symlink 'engine' -> 'workspace/node_modules/fluidcad'");

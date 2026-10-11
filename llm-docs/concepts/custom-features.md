@@ -48,7 +48,14 @@ A `*.feature.js` module holds a class and the builder it exports:
    values: each is typed in (`{ type: 'length', default: 10 }`) or picked
    (`{ picker: 'face' }`). `this.values` is typed from them, in plain
    JavaScript.
-2. **`static id`** is the feature's type, namespaced: `'acme.standoff'`.
+2. **`static id`** is the feature's type, a plain name: `'standoff'`. It
+   can't be one of the engine's own types (`extrude`, `fillet`, `part`, …:
+   "'extrude' is one of the engine's own types: give the feature another
+   id"). Dotted ids (`acme.standoff`) still load, but plain ones are the
+   rule. Installed from a package, a feature is keyed by the package at load
+   time (`@acme/mounting-hardware:standoff`, the type its timeline rows and
+   `get_scene_summary` show), so two packages' `standoff` never collide; a
+   model never writes that key, it imports and calls `standoff`.
 3. **`buildTool()`** returns the solids the feature adds or cuts, built where
    its picked references stand. The base applies the operation (add, new or
    remove), fuses or cuts, and carries the buckets `setBuckets()` names.
@@ -69,7 +76,7 @@ export class Standoff extends Feature.with({
   outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },
   hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
 }) {
-  static id = 'acme.standoff';
+  static id = 'standoff';
 
   buildTool() {
     const { height, outer, hole } = this.values;
@@ -224,8 +231,9 @@ shape: {
   dropdown with the reason as their tooltip: a module that fails to evaluate
   (a refused metadata field is one), a module that exports no feature ("the
   module exports no feature — export the builder …"), and two builders that
-  share one id (both are refused: "the feature id 'acme.standoff' is used by
-  more than one builder …").
+  share one id (both are refused: "the feature id 'standoff' is used by
+  more than one builder …"). Installed packages' features never collide
+  with these or each other: their ids are keyed by the package.
 - **The dropdown** lists create-group features first, then modify-group
   ones, each sorted by label, with the module's `icon` (an image next to it)
   or a generic one. Built-in features keep their own toolbar buttons.
@@ -253,7 +261,7 @@ shape: {
 
 | What went wrong | Where it shows |
 |---|---|
-| Metadata refused (`defineFeature()` checks it where the module loads) | the module's catalog entry is greyed; a model importing it fails to compile with the message, such as `feature 'acme.standoff': param 'face': unknown field 'surfce' for a face picker — its fields are …` |
+| Metadata refused (`defineFeature()` checks it where the module loads) | the module's catalog entry is greyed; a model importing it fails to compile with the message, such as `feature 'standoff': param 'face': unknown field 'surfce' for a face picker — its fields are …` |
 | A call the builder can't read (a wrong value, a missing required one) | the model fails to compile: `standoff(): 'height' must be at least 0, got -2` |
 | `buildTool()` throws, or returns nothing | that statement's row fails with the message; the rest of the model builds |
 | An operation the feature doesn't offer (`.remove()` on an add/new feature) | that row fails: `standoff(): .remove() is not an operation this feature offers — it offers 'add' and 'new'; 'add' is its default and needs no chain` |
@@ -264,16 +272,17 @@ A feature module serves the workspace it lives in. To use it in other
 projects, make the workspace a package and pack it ([[concepts/packages]]):
 
 ```bash
-npx fluidcad package init --name @acme/mounting-hardware   # the "package" block: name and version
-npx fluidcad pack                                          # → acme-mounting-hardware-0.1.0.fluidpkg
+npx fluidcad package init --name mounting-hardware   # the "package" block: name and version
+npx fluidcad pack                                    # → mounting-hardware-0.1.0.fluidpkg
 ```
 
 - A package keeps its feature modules (with their images) in `features/`,
   its parts in `parts/` and its assemblies in `assemblies/`; the folders
   decide what it exports. Its models import the features relatively
   (`../features/standoff.feature.js`).
-- The feature's `static id` must start with the package's scope
-  (`acme.standoff` in `@acme/…`); pack refuses any other.
+- The package's name is bare (`mounting-hardware`, no handle): the hub
+  publishes it as `@<handle>/mounting-hardware`. Feature ids stay plain
+  (`standoff`); pack only refuses two features sharing one.
 - Pack ships the module, the files it imports and the images it declares
   verbatim, and snapshots its metadata. Test models outside the three
   folders stay out.

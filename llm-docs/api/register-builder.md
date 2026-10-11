@@ -75,7 +75,7 @@ import { Matrix4, Plane } from 'fluidcad/math';
 
 /** @extends {Feature<StandoffValues>} */
 export class Standoff extends Feature {
-  static id = 'acme.standoff';
+  static id = 'standoff';
 
   buildTool() {
     const { height, outer, hole } = this.values;

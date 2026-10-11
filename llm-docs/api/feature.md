@@ -13,7 +13,7 @@ Imported from `fluidcad/sdk`.
 
 ```ts
 class MyFeature extends Feature.with(params) {   // params: { [name]: ParamSpec }
-  static id = 'acme.myFeature';                  // namespaced: the timeline type and the cache's
+  static id = 'myFeature';                       // plain: the timeline type and the cache's
 
   readonly values: ValuesOf<params>;             // frozen; a length is a number, a face pick an ISelection
 
@@ -81,9 +81,14 @@ default is `false` and a select without one its first option, so neither is
 present in `this.values`, so the cache's key set never depends on how the
 call was written.
 
-`static id` is required and namespaced: dot-separated names of letters,
-digits, `-` and `_`, each starting with a letter (`'acme.standoff'`). Plain
-ids are the engine's own. A class declares **no constructor**: the
+`static id` is required: a plain name of letters, digits, `-` and `_`,
+starting with a letter (`'standoff'`); dot-separated names (`'acme.standoff'`)
+are accepted too. It may not be one of the engine's own scene types
+(`extrude`, `fillet`, `part`, `sketch`, `distance`, …): "'extrude' is one of
+the engine's own types: give the feature another id". `getType()` answers
+the id, keyed by the package for a class an installed package defines
+(`@acme/mounting-hardware:standoff`); models never write that key. A class
+declares **no constructor**: the
 framework constructs a feature from its values alone, and a repeat's copy is
 the same class constructed from the same values.
 
@@ -104,7 +109,7 @@ A `repeat()`'s copy builds the tool again from the same references, read
 where they stand, and moves it: the references are never copied (copying
 the face a standoff stands on would copy the plate with it), and the buckets
 move with the tool. `copy()` duplicates the finished solid. Returning
-no shape fails the row: `acme.x: buildTool() returned no shapes`.
+no shape fails the row: `standoff: buildTool() returned no shapes`.
 
 `ctx` is the scene as it stands before the feature: `ctx.getSceneObjects()`
 lists the objects in scope. A tool rarely needs it.
@@ -132,7 +137,7 @@ export class Tube extends Feature.with({
   bore: { type: 'length', default: 8, min: 0 },
   height: { type: 'length', default: 10, min: 0 },
 }) {
-  static id = 'acme.tube';
+  static id = 'tube';
 
   buildTool() {
     const { outer, bore, height } = this.values;
@@ -289,7 +294,7 @@ export class Boss extends Feature.with({
   height: { type: 'length', default: 6, min: 0 },
   hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
 }) {
-  static id = 'acme.boss';
+  static id = 'boss';
 
   buildTool() {
     const { at, diameter, height, hole } = this.values;

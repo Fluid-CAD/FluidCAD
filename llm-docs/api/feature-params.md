@@ -351,7 +351,7 @@ export class BoltCircle extends Feature.with({
   through: { type: 'boolean', label: 'Through all', default: true, tab: 'Hole', group: 'Depth' },
   depth: { type: 'length', label: 'Depth', default: 3, min: 0, tab: 'Hole', group: 'Depth', visibleWhen: { through: false } },
 }) {
-  static id = 'acme.boltCircle';
+  static id = 'boltCircle';
 
   buildTool() {
     const { count, circle, start, size, diameter, through, depth } = this.values;
@@ -488,7 +488,7 @@ export class ScrewHole extends Feature.with({
     options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Chamfer', value: 'chamfer' }, { label: 'Polish', value: 'polish' }],
   },
 }) {
-  static id = 'acme.screwHole';
+  static id = 'screwHole';
 
   buildTool() {
     const { size, head, washers, through, depth } = this.values;

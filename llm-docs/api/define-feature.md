@@ -50,7 +50,7 @@ standoff(pad.endFaces(), { outer: 6, hole: 3.2 });   // in a model
 ```
 
 The metadata is checked where the module loads: a mistake names the
-feature and the field (`feature 'acme.standoff': the value 'width' has no
+feature and the field (`feature 'standoff': the value 'width' has no
 place in the call shape`), the editor greys the feature's dropdown cell with
 that message, and a model that imports the module fails to compile with it.
 

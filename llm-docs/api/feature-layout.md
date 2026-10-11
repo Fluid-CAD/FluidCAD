@@ -107,7 +107,7 @@ export class BoltCircle extends Feature.with({
   through: { type: 'boolean', label: 'Through all', default: true },
   depth: { type: 'length', label: 'Depth', default: 3, min: 0, visibleWhen: { through: false } },
 }) {
-  static id = 'acme.boltCircle';
+  static id = 'boltCircle';
 
   buildTool() {
     const { count, circle, start, size, diameter, through, depth } = this.values;

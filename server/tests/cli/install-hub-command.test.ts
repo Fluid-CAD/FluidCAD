@@ -4,8 +4,10 @@ import fs from 'fs';
 import net from 'net';
 import os from 'os';
 import path from 'path';
+import { PackageRoots } from '../../src/packages/package-roots.ts';
 import { TreeHash } from '../../src/packages/tree-hash.ts';
 import { ArchiveFixture } from '../packages/archive-fixture.ts';
+import { LibrarySeed } from '../packages/library-seed.ts';
 import { FakeHub } from '../fixtures/fake-hub.ts';
 
 /**
@@ -13,7 +15,9 @@ import { FakeHub } from '../fixtures/fake-hub.ts';
  * it: the real `bin/fluidcad.js` in a child process (spawned, not
  * `spawnSync`, since the in-process `FakeHub` must keep answering), over
  * archives built in memory. FLUIDCAD_PACKAGES, FLUIDCAD_HOME and the
- * preferences' HOME are temp folders. The CLI imports the compiled server
+ * preferences' HOME are temp folders. A library a test starts with is
+ * seeded in-process (`LibrarySeed`): packages install only from the hub
+ * (HD31), so there is no file install to seed it with. The CLI imports the compiled server
  * out of `server/dist`, so these need `npm run build:server` after a
  * server change; the rules are covered against the sources in
  * `server/tests/hub/hub-installer.test.ts`.
@@ -32,6 +36,7 @@ let tmp: string;
 let project: string;
 let outside: string;
 let library: string;
+let savedPackages: string | undefined;
 
 function cli(cwd: string, args: string[], extraEnv: Record<string, string> = {}): Promise<Run> {
   const home = path.join(tmp, 'home');
@@ -67,7 +72,7 @@ function cli(cwd: string, args: string[], extraEnv: Record<string, string> = {})
 
 /** A package on the hub, built like the packer builds it; each version's feature module differs. */
 async function publish(name: string, version: string, row: Parameters<FakeHub['addArchive']>[1] = {}, manifest: Record<string, unknown> = {}) {
-  return hub.addArchive(await kitArchive(name, version, manifest), row, name);
+  return hub.addArchive(await kitArchive(name, version, manifest), row);
 }
 
 /** The archive {@link publish} uploads: each version's feature module differs. */
@@ -76,12 +81,9 @@ async function kitArchive(name: string, version: string, manifest: Record<string
   return Buffer.from(await ArchiveFixture.zip({ name, version, files, manifest }));
 }
 
-/** `name@version` put in the library from a file, as a user without the hub would. */
-async function installFromFile(name: string, version: string): Promise<void> {
-  const file = path.join(tmp, `${name.replace(/[@/]/g, '-')}-${version}.fluidpkg`);
-  fs.writeFileSync(file, await kitArchive(name, version));
-  const run = await cli(outside, ['install', file, '--as', name, '-y']);
-  expect(run.status).toBe(0);
+/** `name@version` already in the library, with the bytes {@link publish} uploads: what an earlier hub install left. */
+async function seedLibrary(name: string, version: string): Promise<void> {
+  await LibrarySeed.install(await kitArchive(name, version));
 }
 
 /** A local port nothing listens on: an offline hub. */
@@ -138,9 +140,18 @@ beforeEach(() => {
   fs.mkdirSync(project);
   fs.mkdirSync(outside);
   fs.writeFileSync(path.join(project, 'fluidcad.json'), JSON.stringify({ engine: ArchiveFixture.ENGINE, unit: 'mm' }, null, 2) + '\n');
+  savedPackages = process.env.FLUIDCAD_PACKAGES;
+  process.env.FLUIDCAD_PACKAGES = library;
+  PackageRoots.forget();
 });
 
 afterEach(() => {
+  if (savedPackages === undefined) {
+    delete process.env.FLUIDCAD_PACKAGES;
+  } else {
+    process.env.FLUIDCAD_PACKAGES = savedPackages;
+  }
+  PackageRoots.forget();
   writable(tmp);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -155,7 +166,8 @@ describe('fluidcad install <@scope/name> from the hub', () => {
     expect(run.status).toBe(0);
     expect(run.stdout).toContain(`Downloading @acme/kit 0.2.0 (${latest.size} B) from ${hub.origin}…`);
     expect(run.stdout).toContain(`Verified: its files hash to ${latest.integrity}, as ${hub.origin} says.`);
-    expect(run.stdout).toContain('kit 0.2.0 — A test kit\n  installs as @acme/kit\n');
+    expect(run.stdout).toContain('@acme/kit 0.2.0 — A test kit\n  1 feature: standoff (Standoff)\n');
+    expect(run.stdout).not.toContain('installs as');
     expect(run.stdout).toContain("A package's code runs in the FluidCAD engine with your permissions.");
     expect(run.stdout).toContain(`Installed @acme/kit 0.2.0 into your library (${installed(KIT, '0.2.0')}).`);
     expect(run.stdout).toContain("Pinned @acme/kit 0.2.0 in this project's fluidcad.json.");
@@ -243,7 +255,7 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
   it('downloads the hub\'s latest and pins it when the library holds an older version', async () => {
     await publish(KIT, '0.1.0');
     const latest = await publish(KIT, '0.2.0');
-    await installFromFile(KIT, '0.1.0');
+    await seedLibrary(KIT, '0.1.0');
 
     const run = await cli(project, ['install', KIT, '-y']);
     expect(run.stderr).toBe('');
@@ -257,7 +269,7 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
   it('uses the library\'s copy of the latest without a download when it has the hub\'s contents', async () => {
     await publish(KIT, '0.1.0');
     const latest = await publish(KIT, '0.2.0');
-    await installFromFile(KIT, '0.2.0');
+    await seedLibrary(KIT, '0.2.0');
 
     const pinned = await cli(project, ['install', KIT]);
     expect(pinned.stderr).toBe('');
@@ -283,8 +295,8 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
   });
 
   it('with the hub offline, pins the library\'s newest version with a note, and fails when the library has none', async () => {
-    await installFromFile(KIT, '0.1.0');
-    await installFromFile(KIT, '0.3.0');
+    await seedLibrary(KIT, '0.1.0');
+    await seedLibrary(KIT, '0.3.0');
     const offline = await closedPort();
 
     const run = await cli(project, ['install', KIT], { FLUIDCAD_HUB_URL: offline });
@@ -303,7 +315,7 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
   });
 
   it('refuses a package the hub doesn\'t know even with a library copy, naming the exact install, which then works offline', async () => {
-    await installFromFile(KIT, '0.1.0');
+    await seedLibrary(KIT, '0.1.0');
 
     const refused = await cli(project, ['install', KIT, '-y']);
     expect(refused.status).toBe(1);
@@ -319,7 +331,7 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
   it('an exact version in the library is still used without asking the hub, even when the hub has a newer one', async () => {
     await publish(KIT, '0.1.0');
     await publish(KIT, '0.2.0');
-    await installFromFile(KIT, '0.1.0');
+    await seedLibrary(KIT, '0.1.0');
     hub.requests.length = 0;
 
     const run = await cli(project, ['install', `${KIT}@0.1.0`]);
@@ -341,8 +353,8 @@ describe('fluidcad install (no arguments) from the hub', () => {
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
     expect(run.stdout).toContain(`This project pins 2 packages that aren't installed; downloading from ${hub.origin}.`);
-    expect(run.stdout).toContain('gears 1.2.0 — A test kit\n  installs as @acme/gears\n');
-    expect(run.stdout).toContain('kit 0.1.0 — A test kit\n  installs as @acme/kit\n');
+    expect(run.stdout).toContain('@acme/gears 1.2.0 — A test kit\n');
+    expect(run.stdout).toContain('@acme/kit 0.1.0 — A test kit\n');
     expect(run.stdout.match(/A package's code runs in the FluidCAD engine/g)).toHaveLength(2);
     expect(run.stdout).toContain(`Installed @acme/gears 1.2.0 into your library (${installed('@acme/gears', '1.2.0')}).`);
     expect(run.stdout).toContain(`Installed @acme/kit 0.1.0 into your library (${installed(KIT, '0.1.0')}).`);

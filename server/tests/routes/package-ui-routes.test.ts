@@ -7,7 +7,8 @@ import path from 'path';
 import { ArchiveFixture } from '../packages/archive-fixture.ts';
 import { createPackagesRouter } from '../../src/routes/packages.ts';
 import { createPreferencesRouter } from '../../src/routes/preferences.ts';
-import { PackageRoots } from '../../src/packages/package-roots.ts';
+import { PackageArchive } from '../../src/packages/package-archive.ts';
+import { PackageRoots, type PackageTarget } from '../../src/packages/package-roots.ts';
 import { LibraryMove } from '../../src/packages/library-move.ts';
 import { listWorkspaceFiles } from '../../src/files/file-tree.ts';
 import { TreeHash } from '../../src/packages/tree-hash.ts';
@@ -21,6 +22,8 @@ import { normalizePath } from '../../src/normalize-path.ts';
 // folders a project copy leaves. The preferences and package routers share
 // one app, as in index.ts. HOME (with XDG_CONFIG_HOME and APPDATA) and
 // FLUIDCAD_HOME point at temp folders; FLUIDCAD_PACKAGES is set per test.
+// No route takes an archive (HD31): inspections are made in-process with
+// `PackageArchive.inspect`, as the hub download makes them.
 
 const ENV_KEYS = ['FLUIDCAD_PACKAGES', 'FLUIDCAD_HOME', 'HOME', 'XDG_CONFIG_HOME', 'APPDATA'] as const;
 const ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3"/></svg>';
@@ -34,7 +37,7 @@ async function serve(): Promise<string> {
   const app = express();
   app.use(express.json());
   app.use('/api', createPreferencesRouter());
-  app.use('/api', createPackagesRouter({ workspacePath: project, engineVersion: ArchiveFixture.ENGINE }));
+  app.use('/api', createPackagesRouter({ workspacePath: project }));
   const server = http.createServer(app);
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
@@ -60,14 +63,14 @@ function withIcon(): Parameters<typeof ArchiveFixture.zip>[0] {
   };
 }
 
-async function install(base: string, options: Parameters<typeof ArchiveFixture.zip>[0] = {}, target = 'library') {
-  const inspected = await call(`${base}/packages/inspect?target=${target}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/zip' },
-    body: await ArchiveFixture.zip(options),
-  });
-  expect(inspected.status).toBe(200);
-  return postJson(`${base}/packages/install`, { token: inspected.body.token, target, as: ArchiveFixture.publicName(options) });
+/** An archive inspected in-process into `target`'s scratch: what the hub download hands the routes. */
+async function inspect(options: Parameters<typeof ArchiveFixture.zip>[0] = {}, target: PackageTarget = 'library') {
+  return PackageArchive.inspect(await ArchiveFixture.zip(options), { root: PackageRoots.rootFor(target, project), engineVersion: ArchiveFixture.ENGINE });
+}
+
+async function install(base: string, options: Parameters<typeof ArchiveFixture.zip>[0] = {}, target: PackageTarget = 'library') {
+  const inspected = await inspect(options, target);
+  return postJson(`${base}/packages/install`, { token: inspected.token, target });
 }
 
 function writable(dir: string): void {
@@ -150,12 +153,7 @@ describe('the consent dialog', () => {
   it('serves a feature icon from the inspected archive, and nothing for an unknown token or feature', async () => {
     process.env.FLUIDCAD_PACKAGES = path.posix.join(tmp, 'library');
     const base = await serve();
-    const inspected = await call(`${base}/packages/inspect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/zip' },
-      body: await ArchiveFixture.zip(withIcon()),
-    });
-    const token = inspected.body.token;
+    const { token } = await inspect(withIcon());
 
     const res = await fetch(`${base}/packages/inspected-icon?token=${token}&id=acme.standoff`);
     expect(res.status).toBe(200);
@@ -176,29 +174,20 @@ describe('the consent dialog', () => {
     options.manifest = {
       features: [{ id: 'acme.standoff', exportName: 'standoff', module: 'parts/standoff.feature.js', meta: { label: 'Standoff', icon: '../standoff.svg' } }],
     };
-    const inspected = await call(`${base}/packages/inspect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/zip' },
-      body: await ArchiveFixture.zip(options),
-    });
-    expect(inspected.status).toBe(200);
-    expect((await call(`${base}/packages/inspected-icon?token=${inspected.body.token}&id=acme.standoff`)).status).toBe(403);
+    const inspected = await inspect(options);
+    expect((await call(`${base}/packages/inspected-icon?token=${inspected.token}&id=acme.standoff`)).status).toBe(403);
   });
 
   it('discards a declined inspection, so its token no longer installs and its scratch is gone', async () => {
     const library = path.posix.join(tmp, 'library');
     process.env.FLUIDCAD_PACKAGES = library;
     const base = await serve();
-    const inspected = await call(`${base}/packages/inspect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/zip' },
-      body: await ArchiveFixture.zip(),
-    });
+    const inspected = await inspect();
     expect(fs.readdirSync(path.join(library, '.tmp'))).toHaveLength(1);
 
-    expect((await postJson(`${base}/packages/discard`, { token: inspected.body.token })).status).toBe(200);
+    expect((await postJson(`${base}/packages/discard`, { token: inspected.token })).status).toBe(200);
     expect(fs.existsSync(path.join(library, '.tmp'))).toBe(false);
-    expect((await postJson(`${base}/packages/install`, { token: inspected.body.token, target: 'library' })).status).toBe(404);
+    expect((await postJson(`${base}/packages/install`, { token: inspected.token, target: 'library' })).status).toBe(404);
     expect((await postJson(`${base}/packages/discard`, {})).status).toBe(400);
   });
 });

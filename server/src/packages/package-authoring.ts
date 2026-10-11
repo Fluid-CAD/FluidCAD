@@ -8,6 +8,7 @@ import {
   type PackageInfo,
   type ProjectConfig,
 } from '../project-config.ts';
+import { PackageFields } from './package-fields.ts';
 import { PackageLayout } from './package-manifest.ts';
 import { PackageName } from './package-name.ts';
 import { Semver } from './semver.ts';
@@ -45,9 +46,29 @@ export class PackageAuthoring {
   static readonly NOT_A_PACKAGE = "This workspace isn't a package — run `fluidcad package init` first.";
 
   /**
-   * Write a new `package` block: the bare `name` (`feature-tests`; the hub
-   * adds the publisher's handle) and version `0.1.0`. What the
-   * package exports is what its `features/`, `parts/` and `assemblies/`
+   * The name `package init` writes (HD30): a package name (`@acme/kit`) as
+   * it is; a name without its scope (`kit`) under the signed-in `handle`
+   * (`@acme/kit`), or, signed out (`handle` null), refused with the
+   * sentence saying to add the scope; anything else refused with the rule.
+   * The CLI only finds the handle; the rule lives here.
+   */
+  static scopedName(name: string, handle: string | null): string {
+    if (PackageName.isValid(name)) {
+      return name;
+    }
+    if (PackageName.isBare(name)) {
+      if (handle === null) {
+        throw new PackageAuthoringError(`${PackageFields.unscopedProblem(name)}.`);
+      }
+      return PackageName.publicName(handle, name);
+    }
+    throw new PackageAuthoringError(`${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
+  }
+
+  /**
+   * Write a new `package` block: the package's `name` (`@acme/feature-tests`,
+   * the author's hub handle as its scope, HD30) and version `0.1.0`. What
+   * the package exports is what its `features/`, `parts/` and `assemblies/`
    * folders hold (HD20), returned as `exports` so the command can say so.
    * Refuses a workspace that is already a package, so an existing identity
    * is never reset by accident.
@@ -56,14 +77,11 @@ export class PackageAuthoring {
     workspacePath: string,
     name: string,
   ): Promise<{ info: PackageInfo; configPath: string; exports: string[] }> {
-    if (PackageName.isValid(name)) {
-      throw new PackageAuthoringError(
-        `${JSON.stringify(name)} carries a scope, but the hub adds your handle when you publish: `
-          + `name the package ${JSON.stringify(PackageName.bareOf(name))}.`,
-      );
+    if (PackageName.isBare(name)) {
+      throw new PackageAuthoringError(`${PackageFields.unscopedProblem(name)}.`);
     }
-    if (!PackageName.isBare(name)) {
-      throw new PackageAuthoringError(`${JSON.stringify(name)} is not a package name: ${PackageName.BARE_RULE}.`);
+    if (!PackageName.isValid(name)) {
+      throw new PackageAuthoringError(`${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
     }
     if (!PackageAuthoring.isWorkspace(workspacePath)) {
       throw new PackageAuthoringError(

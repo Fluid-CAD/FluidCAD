@@ -8,20 +8,24 @@ import { FeatureCatalog, type FeatureCatalogEntry } from '../../src/feature-cata
 import { FeatureScanner } from '../../src/feature-catalog/scan.ts';
 import { packPackage } from '../../src/packages/package-builder.ts';
 import { PackageArchive } from '../../src/packages/package-archive.ts';
+import { PackageOffers } from '../../src/packages/package-offers.ts';
 import { PackageRoots } from '../../src/packages/package-roots.ts';
 import { ProjectPackages } from '../../src/packages/project-packages.ts';
+import { TreeHash } from '../../src/packages/tree-hash.ts';
 import type { SceneRenderedData } from '../../src/fluidcad-server/render-types.ts';
 import { getFeatureMeta } from '../../../lib/dist/index.js';
 import { PackageProject } from './package-project.ts';
 
 /**
- * HD29 end to end with the real engine: two publishers' packages share the
- * bare name `kit`, each with a `standoff`, installed from packed archives
- * as `@acme/kit` and `@bea-tools/kit` — the second into a library reached
- * through a symbolic link — and a model imports both. The engine keys each
- * package's features by the package it is installed as
- * (`@acme/kit:standoff`), so nothing collides; the workspace's own and a
- * file installed under nothing else (`@local/kit`) follow the same rule.
+ * Feature keys end to end with the real engine (H8c's keys, HD30's names):
+ * two publishers' packages share the part after the slash, `@acme/kit` and
+ * `@bea-tools/kit`, each with a `standoff`, packed from workspaces named
+ * that way and installed in-process under their manifests' names — the
+ * second into a library reached through a symbolic link — and a model
+ * imports both. The engine keys each package's features by the package
+ * (`@acme/kit:standoff`), so nothing collides; the workspace's own keep
+ * their plain ids, and a tree installed under HD29 (a manifest name without
+ * its scope) keys by where it is installed.
  *
  * Bea's package registers one feature from a plain helper module inside
  * `features/` (`features/helpers/probe.js`, re-exported by
@@ -87,9 +91,12 @@ let beaArchive: Buffer;
 let beaNext: Buffer;
 let host: LocalSceneHost | null = null;
 
-/** The package workspace copied to `dir`, packed. */
-async function pack(dir: string, edit: (ws: string) => void = () => {}): Promise<Buffer> {
+/** The package workspace copied to `dir` and named `name`, packed. */
+async function pack(dir: string, name: string, edit: (ws: string) => void = () => {}): Promise<Buffer> {
   fs.cpSync(PACKAGE_WORKSPACE, dir, { recursive: true });
+  const config = JSON.parse(fs.readFileSync(path.join(dir, 'fluidcad.json'), 'utf8'));
+  config.package.name = name;
+  fs.writeFileSync(path.join(dir, 'fluidcad.json'), JSON.stringify(config, null, 2));
   edit(dir);
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   try {
@@ -99,10 +106,10 @@ async function pack(dir: string, edit: (ws: string) => void = () => {}): Promise
   }
 }
 
-/** Inspect `archive` into the library and install it as `as` (null: the default name), pinned in the project. */
-async function install(archive: Buffer, as: string | null): Promise<string> {
+/** Inspect `archive` into the library and install it under its manifest's name, pinned in the project unless told not to. */
+async function install(archive: Buffer, pin = true): Promise<string> {
   const inspection = await PackageArchive.inspect(archive, { root: PackageRoots.libraryPath(), engineVersion: '0.0.46' });
-  const outcome = await ProjectPackages.installInspected({ token: inspection.token, target: 'library', project: project.root, pin: true, as });
+  const outcome = await ProjectPackages.installInspected({ token: inspection.token, target: 'library', project: project.root, pin });
   return outcome.name;
 }
 
@@ -131,8 +138,8 @@ function catalog(): FeatureCatalog {
 
 beforeAll(async () => {
   scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'fluidcad-package-names-'));
-  acmeArchive = await pack(path.join(scratch, 'acme'));
-  beaArchive = await pack(path.join(scratch, 'bea'), (ws) => {
+  acmeArchive = await pack(path.join(scratch, 'acme'), '@acme/kit');
+  beaArchive = await pack(path.join(scratch, 'bea'), '@bea-tools/kit', (ws) => {
     const standoff = path.join(ws, 'features', 'standoff.feature.js');
     fs.writeFileSync(standoff, fs.readFileSync(standoff, 'utf8').replace("label: 'Standoff',", "label: 'Standoff (Bea)',"));
     fs.mkdirSync(path.join(ws, 'features', 'helpers'), { recursive: true });
@@ -140,7 +147,7 @@ beforeAll(async () => {
     fs.writeFileSync(path.join(ws, 'features', 'probe.feature.js'), `export { probe } from './helpers/probe.js';\n`);
   });
   // Bea's next version: the same features, another tree.
-  beaNext = await pack(path.join(scratch, 'bea-next'), (ws) => {
+  beaNext = await pack(path.join(scratch, 'bea-next'), '@bea-tools/kit', (ws) => {
     fs.cpSync(path.join(scratch, 'bea', 'features'), path.join(ws, 'features'), { recursive: true });
     const config = JSON.parse(fs.readFileSync(path.join(ws, 'fluidcad.json'), 'utf8'));
     config.package.version = '0.2.0';
@@ -167,8 +174,8 @@ describe('two publishers\' packages of one name', () => {
     fs.rmSync(project.library, { recursive: true, force: true });
     fs.symlinkSync(real, project.library);
     PackageRoots.forget();
-    expect(await install(acmeArchive, '@acme/kit')).toBe('@acme/kit');
-    expect(await install(beaArchive, '@bea-tools/kit')).toBe('@bea-tools/kit');
+    expect(await install(acmeArchive)).toBe('@acme/kit');
+    expect(await install(beaArchive)).toBe('@bea-tools/kit');
     project.write('model.part.js', MODEL);
     return serve();
   }
@@ -225,7 +232,7 @@ describe('two publishers\' packages of one name', () => {
     expect(standoffs(cached)).toEqual([['@acme/kit:standoff', true], ['@bea-tools/kit:standoff', true]]);
 
     const inspection = await PackageArchive.inspect(beaNext, { root: PackageRoots.libraryPath(), engineVersion: '0.0.46' });
-    await ProjectPackages.installInspected({ token: inspection.token, target: 'library', project: project.root, as: '@bea-tools/kit' });
+    await ProjectPackages.installInspected({ token: inspection.token, target: 'library', project: project.root });
     const config = JSON.parse(fs.readFileSync(project.at('fluidcad.json'), 'utf8'));
     config.dependencies['@bea-tools/kit'] = { version: '0.2.0', integrity: inspection.integrity };
     fs.writeFileSync(project.at('fluidcad.json'), JSON.stringify(config, null, 2));
@@ -236,13 +243,23 @@ describe('two publishers\' packages of one name', () => {
   });
 });
 
-describe('a file installed under no other name', () => {
-  it('installs as @local/kit, pinned and importable, its features keyed by that name', async () => {
-    project = new PackageProject('fluidcad-package-local-');
-    expect(await install(acmeArchive, null)).toBe('@local/kit');
-    expect(Object.keys(JSON.parse(fs.readFileSync(project.at('fluidcad.json'), 'utf8')).dependencies)).toEqual(['@local/kit']);
+describe('a tree installed under HD29', () => {
+  it('keeps loading: its manifest names no scope, and its features key by where it is installed', async () => {
+    project = new PackageProject('fluidcad-package-hd29-');
+    // What an HD29 install left: the tree at <library>/@acme/kit/0.1.0, its
+    // manifest saying "kit", pinned with its own tree hash.
+    const inspection = await PackageArchive.inspect(acmeArchive, { root: PackageRoots.libraryPath(), engineVersion: '0.0.46' });
+    const installed = await ProjectPackages.installInspected({ token: inspection.token, target: 'library', project: project.root });
+    const manifestPath = path.join(installed.directory, 'manifest.json');
+    PackageProject.chmodFiles(installed.directory, 0o644);
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.name = 'kit';
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    const integrity = await TreeHash.ofDirectory(installed.directory);
+    PackageProject.chmodFiles(installed.directory, 0o444);
+    project.config({ '@acme/kit': { version: '0.1.0', integrity } });
+
     const model = MODEL
-      .replace(`import { standoff } from '@acme/kit';`, `import { standoff } from '@local/kit';`)
       .replace(`import { standoff as beaStandoff, probe } from '@bea-tools/kit';\n`, '')
       .replace(`beaStandoff(select(face().planar().onPlane('xy', 0)), { height: 8 });\n`, '')
       .replace(`probe(4);\n`, '');
@@ -250,7 +267,22 @@ describe('a file installed under no other name', () => {
     const server = await serve();
     const data = await server.updateLiveCode(project.at('model.part.js'), model);
     expect(errorsOf(data)).toEqual([]);
-    expect(rowsOf(data).filter(row => row.type.includes(':')).map(row => row.type)).toEqual(['@local/kit:standoff']);
+    expect(rowsOf(data).filter(row => row.type.includes(':')).map(row => row.type)).toEqual(['@acme/kit:standoff']);
+  });
+});
+
+describe('the library\'s offers in an author\'s workspace', () => {
+  it('leave out only the workspace\'s own package, by its exact name: another publisher\'s @…/kit is offered', async () => {
+    project = new PackageProject('fluidcad-package-offers-');
+    fs.cpSync(PACKAGE_WORKSPACE, project.root, { recursive: true });
+    expect(JSON.parse(fs.readFileSync(project.at('fluidcad.json'), 'utf8')).package.name).toBe('@acme/kit');
+    await install(acmeArchive, false);
+    await install(beaArchive, false);
+    expect(PackageRoots.installedAt(project.library).map(location => location.name).sort()).toEqual(['@acme/kit', '@bea-tools/kit']);
+
+    const offers = PackageOffers.of(project.root);
+    expect(offers.map(offer => offer.name)).toEqual(['@bea-tools/kit']);
+    expect(offers[0].manifest.features.map(feature => feature.id).sort()).toEqual(['fastener', 'probe', 'standoff']);
   });
 });
 

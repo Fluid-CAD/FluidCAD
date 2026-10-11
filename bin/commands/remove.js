@@ -26,7 +26,7 @@ async function runRemove(spec, opts) {
     if (strandedPin) {
       console.log(
         `This project still pins ${strandedPin.name} ${strandedPin.version}, which is no longer installed: ` +
-          'its models will ask for it until you install it again (fluidcad install <file.fluidpkg>).',
+          'its models will ask for it until you install it again (fluidcad install).',
       );
     }
   } catch (err) {

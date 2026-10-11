@@ -4,6 +4,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { PackageArchive, PackageArchiveError } from '../../src/packages/package-archive.ts';
+import { PackageName } from '../../src/packages/package-name.ts';
 import { TreeHash } from '../../src/packages/tree-hash.ts';
 
 /**
@@ -86,7 +87,7 @@ describe('package conformance fixtures', () => {
       'not-a-zip', 'ok', 'too-large', 'unsafe-path',
     ]);
     const hubOnly = Object.values(archives).filter((a) => a.verdict === 'ok' && a.hub !== 'ok').map((a) => a.hub);
-    expect([...new Set(hubOnly)].sort()).toEqual(['bad-params', 'no-models', 'outside-layout', 'wrong-folder']);
+    expect([...new Set(hubOnly)].sort()).toEqual(['bad-params', 'no-models', 'outside-layout', 'scope-mismatch', 'wrong-folder']);
     for (const verdict of Object.values(archives)) {
       if (verdict.verdict !== 'ok') {
         expect(verdict.hub).toBe(verdict.verdict);
@@ -94,13 +95,28 @@ describe('package conformance fixtures', () => {
     }
   });
 
-  it('name the package by its bare name (HD29): a scoped manifest name is refused, never converted', () => {
-    const { package: pkg, archives } = readJson<Expected>(path.join(KEPT, 'expected.json')) as Expected & { package: Record<string, unknown> };
-    expect(pkg).toMatchObject({ name: 'kit', scope: 'acme', publicName: '@acme/kit' });
-    expect(archives['scoped-name.fluidpkg']).toMatchObject({ verdict: 'bad-manifest', hub: 'bad-manifest' });
+  it('name the package by its scoped name (HD30): a name without its scope is refused, never converted, and another scope is the hub\'s scope-mismatch', () => {
+    const { package: pkg, archives } = readJson<Expected>(path.join(KEPT, 'expected.json'));
+    expect(pkg).toEqual({ name: '@acme/kit', version: '0.1.0', scope: 'acme' });
+    expect(archives['bare-name.fluidpkg']).toMatchObject({ verdict: 'bad-manifest', hub: 'bad-manifest' });
     expect(archives['bad-manifest-name.fluidpkg']).toMatchObject({ verdict: 'bad-manifest', hub: 'bad-manifest' });
+    expect(archives['bad-manifest-scope.fluidpkg']).toMatchObject({ verdict: 'bad-manifest', hub: 'bad-manifest' });
+    expect(archives['scope-mismatch.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'scope-mismatch' });
+    expect(archives['scoped-name.fluidpkg']).toBeUndefined();
+    // H3b's archive as it was packed: a scoped name, dotted ids, the old layout.
     expect(archives['pre-layout.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'outside-layout' });
-    expect(archives['scope-mismatch.fluidpkg']).toBeUndefined();
+  });
+
+  it('refuse an HD29 archive with the sentence saying to pack it again under a scoped name', async () => {
+    const bytes = fs.readFileSync(path.join(out, 'archives', 'bare-name.fluidpkg'));
+    const root = path.join(scratch, 'bare-name-root');
+    fs.mkdirSync(root, { recursive: true });
+    await expect(PackageArchive.inspect(bytes, { root, engineVersion: '0.0.46' }))
+      .rejects.toMatchObject({ code: 'bad-manifest', message: PackageArchive.unscopedNameSentence('kit') });
+    for (const file of ['bad-manifest-name.fluidpkg', 'bad-manifest-scope.fluidpkg']) {
+      await expect(PackageArchive.inspect(fs.readFileSync(path.join(out, 'archives', file)), { root, engineVersion: '0.0.46' }))
+        .rejects.toMatchObject({ code: 'bad-manifest', message: expect.stringContaining(PackageName.RULE) });
+    }
   });
 
   it('inspect from the sources as the compiled script saw them, integrity included', async () => {

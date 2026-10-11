@@ -136,7 +136,6 @@ describe('HubPublisher.publish', () => {
       hub: hub.origin,
       handle: 'acme',
       name: NAME,
-      bareName: 'kit',
       version: '0.1.0',
       size: packed.zip.length,
       files: packed.manifest.files.length + 1,
@@ -146,6 +145,7 @@ describe('HubPublisher.publish', () => {
       notes: null,
       dryRun: false,
     });
+    expect(confirmed).not.toHaveProperty('bareName');
     expect(confirmed!.contents.features.map((f) => f.id)).toEqual(['fastener', 'standoff']);
     expect(confirmed!.contents.parts.map((p) => p.exportName)).toEqual(['spacer']);
 
@@ -253,14 +253,34 @@ describe('HubPublisher.publish refuses locally, before any upload', () => {
     hub.uploads.length = 0;
   });
 
-  it("under the account's handle, whatever it is: the workspace names no handle (HD29)", async () => {
-    hub.user = { ...hub.user, handle: 'bea-tools' };
+  it("when the package's scope isn't the signed-in handle (HD30): before reading the package, packing or uploading, dry run too", async () => {
+    const theirs = path.join(scratch, 'bea-kit');
+    fs.cpSync(FIXTURE, theirs, { recursive: true });
+    const config = JSON.parse(fs.readFileSync(path.join(theirs, 'fluidcad.json'), 'utf8'));
+    config.package.name = '@bea-tools/kit';
+    fs.writeFileSync(path.join(theirs, 'fluidcad.json'), JSON.stringify(config, null, 2));
+
+    for (const dryRun of [false, true]) {
+      const error = await refusal(publisher().publish({ workspacePath: theirs, dryRun }));
+      expect(error.code).toBe('forbidden');
+      expect(error.local).toBe(true);
+      expect(error.message).toBe(
+        `@bea-tools/kit is under @bea-tools, but you are signed in to ${hub.origin} as @acme, and you can only publish under your own handle: `
+          + 'name the package "@acme/kit" in fluidcad.json, or sign in as @bea-tools.',
+      );
+      expect(error.details).toEqual({ scope: '@acme', name: '@bea-tools/kit' });
+    }
+    expect(packCalls).toBe(0);
+    expect(hub.uploads).toEqual([]);
+    expect(hub.requests.filter((r) => r.path.startsWith('/api/v1/packages/'))).toEqual([]);
+    expect(fs.existsSync(scratchRoot())).toBe(false);
+  });
+
+  it('under the name the workspace writes, when its scope is the signed-in handle', async () => {
     const result = await publisher().publish({ workspacePath: workspace });
-    expect(result!.summary).toMatchObject({ handle: 'bea-tools', name: '@bea-tools/kit', bareName: 'kit' });
-    expect(hub.uploads.map((u) => u.name)).toEqual(['@bea-tools/kit']);
-    expect(result!.upload.wizardUrl).toBe(`${hub.origin}/publish/@bea-tools/kit/0.1.0`);
-    expect(hub.requestsTo('/api/v1/packages/@bea-tools/kit').length).toBeGreaterThan(0);
-    expect(hub.requestsTo(`/api/v1/packages/${NAME}`)).toEqual([]);
+    expect(result!.summary).toMatchObject({ handle: 'acme', name: NAME });
+    expect(hub.uploads.map((u) => u.name)).toEqual([NAME]);
+    expect(hub.requestsTo(`/api/v1/packages/${NAME}`).length).toBeGreaterThan(0);
     hub.uploads.length = 0;
   });
 
@@ -380,7 +400,8 @@ describe("the hub's refusals as messages", () => {
     ['version-not-greater', 409, '0.1.0 is not greater than 0.2.0: bump the version.', HubPublishMessages.BUMP_HINT],
     ['email-unverified', 403, 'Verify your email address on the hub before you publish.', 'Verify it from the email the hub sent'],
     ['forbidden', 403, 'You can only publish under your own scope, @acme.', 'You can only publish under your own scope, @acme.'],
-    ['name-mismatch', 400, 'The archive is kit, but it was uploaded as @acme/gears.', 'publish from the workspace with `fluidcad publish`'],
+    ['scope-mismatch', 400, "The archive is @bea-tools/kit, but you're publishing as @acme.", HubPublishMessages.NAME_HINT],
+    ['name-mismatch', 400, 'The archive is @acme/kit, but it was uploaded as @acme/gears.', HubPublishMessages.NAME_HINT],
     ['reserved-name', 400, '"settings" is a reserved package name.', 'Give the package another "name" in fluidcad.json'],
     ['publish-daily-limit', 429, '@acme/kit had 20 uploads today (UTC), the most the hub takes in a day: try again tomorrow.', 'try again tomorrow.'],
     ['rate-limited', 429, 'Too many uploads in a minute: wait a moment and try again.', 'wait a moment'],
@@ -416,35 +437,39 @@ describe("the hub's refusals as messages", () => {
   });
 });
 
-describe('HubPublisher.publicNameOf', () => {
-  it('names the workspace\'s bare name under the signed-in handle, from GET /me', async () => {
-    expect(await publisher().publicNameOf('kit')).toBe(NAME);
-    hub.user = { ...hub.user, handle: 'bea-tools' };
-    expect(await publisher().publicNameOf('kit')).toBe('@bea-tools/kit');
-    expect(hub.requestsTo('/api/v1/me')).toHaveLength(2);
-  });
-
-  it('refuses signed out, and an account without a handle', async () => {
-    expect((await refusal(publisher({ credential: null }).publicNameOf('kit'))).code).toBe('signed-out');
-    hub.user = { ...hub.user, handle: null };
-    expect((await refusal(publisher().publicNameOf('kit'))).message).toContain('has no handle yet');
-  });
-});
-
-describe('the uploaded archive\'s name (HD29)', () => {
-  it('is the URL\'s name part: the hub refuses an archive uploaded under another name', async () => {
+describe('the uploaded archive\'s name (HD30)', () => {
+  function upload(name: string): Promise<HubRequestError | null> {
     const client = new HubClient(HubConfig.resolve({ hub: hub.origin, env: {} }), new HubTransport({ version: '0.0.46' }), signedIn().token);
     const body = new Blob([new Uint8Array(packed.zip)]).stream() as ReadableStream<Uint8Array>;
-    const error = await client.uploadVersion('@acme/gears', '0.1.0', body, { size: packed.zip.length, integrity: TreeHash.ofFiles(packed.files) })
+    return client.uploadVersion(name, '0.1.0', body, { size: packed.zip.length, integrity: TreeHash.ofFiles(packed.files) })
       .then((): HubRequestError | null => null, (e: unknown): HubRequestError | null => e as HubRequestError);
-    expect(error).toMatchObject({ status: 400, code: 'name-mismatch', message: 'The archive is kit, but it was uploaded as @acme/gears.' });
-    expect(error!.details).toEqual({ manifest: 'kit', url: '@acme/gears' });
+  }
+
+  it('must be the URL\'s: another scope is scope-mismatch, any other name name-mismatch, as the hub answers a hand-made upload', async () => {
+    const scope = await upload('@bea-tools/kit');
+    expect(scope).toMatchObject({ status: 400, code: 'scope-mismatch', message: "The archive is @acme/kit, but you're publishing as @bea-tools." });
+    expect(scope!.details).toEqual({ manifest: '@acme/kit', url: '@bea-tools/kit' });
+
+    const name = await upload('@acme/gears');
+    expect(name).toMatchObject({ status: 400, code: 'name-mismatch', message: 'The archive is @acme/kit, but it was uploaded as @acme/gears.' });
+    expect(name!.details).toEqual({ manifest: '@acme/kit', url: '@acme/gears' });
+
+    expect(hub.packages.has('@bea-tools/kit')).toBe(false);
+    expect(hub.packages.has('@acme/gears')).toBe(false);
   });
 });
 
 describe('HubPublisher.status', () => {
   it('answers no package when the hub has none for this account', async () => {
     expect(await publisher().status(NAME)).toEqual({ name: NAME, package: null, latest: null });
+  });
+
+  it('asks about the name the workspace writes, with no GET /me (HD30), and so does withdraw', async () => {
+    hold([{ version: '0.1.0', status: 'draft' }]);
+    await publisher().status(NAME);
+    await publisher().withdraw(NAME, { confirm: () => false });
+    expect(hub.requestsTo('/api/v1/me')).toEqual([]);
+    expect(hub.requestsTo(`/api/v1/packages/${NAME}`)).toHaveLength(2);
   });
 
   it('answers the open version, the latest rejection and the latest published version', async () => {

@@ -49,7 +49,7 @@ export type PackageManifestPart = {
  */
 export type PackageManifest = {
   manifestVersion: 1;
-  /** The author's bare name (`gears`, HD29): the public name comes from where the package is installed. */
+  /** The package's name, `@acme/gears` (HD30). */
   name: string;
   version: string;
   description?: string;
@@ -154,18 +154,14 @@ export class PackageLayout {
   private static readonly SKIPPED = ['node_modules'];
 
   /**
-   * The archive's file name: an author's bare name gives
-   * `gears-1.2.0.fluidpkg` (what `fluidcad pack` writes); a public name
-   * gives `acme-gears-1.2.0.fluidpkg` (the hub's download, and the
-   * installer's scratch file).
+   * The archive's file name, `@acme/gears` 1.2.0 →
+   * `acme-gears-1.2.0.fluidpkg`: what `fluidcad pack` writes, and the hub
+   * download's scratch file.
    */
   static archiveName(name: string, version: string): string {
-    if (PackageName.isBare(name)) {
-      return `${name}-${version}${PackageLayout.EXTENSION}`;
-    }
     const scope = PackageName.scope(name);
     if (scope === null) {
-      throw new Error(`${JSON.stringify(name)} is not a package name: ${PackageName.BARE_RULE}.`);
+      throw new Error(`${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
     }
     return `${scope}-${PackageName.bareOf(name)}-${version}${PackageLayout.EXTENSION}`;
   }

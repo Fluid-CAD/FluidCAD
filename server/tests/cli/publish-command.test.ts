@@ -109,7 +109,7 @@ describe('fluidcad publish', () => {
     fs.mkdirSync(out, { recursive: true });
     const pack = await cli(['pack', '-o', out]);
     expect(pack.status).toBe(0);
-    const archive = fs.readFileSync(path.join(out, 'kit-0.1.0.fluidpkg'));
+    const archive = fs.readFileSync(path.join(out, 'acme-kit-0.1.0.fluidpkg'));
 
     const run = await cli(['publish', '-y']);
     expect(run.stderr).toBe('');
@@ -119,7 +119,7 @@ describe('fluidcad publish', () => {
     const integrity = String(hub.uploads[0].headers['x-fluidcad-integrity']);
     expect(integrity).toMatch(/^sha256-[A-Za-z0-9+/]+=*$/);
 
-    expect(run.stdout).toContain(`Publishing kit 0.1.0 on ${hub.origin} as @acme: it publishes as ${NAME}`);
+    expect(run.stdout).toContain(`Publishing ${NAME} 0.1.0 on ${hub.origin} as @acme:\n`);
     expect(run.stdout).toContain('  features/   2 features');
     expect(run.stdout).toContain('  parts/      1 part');
     expect(run.stdout).toContain('  assemblies/ 0 assemblies');
@@ -153,7 +153,7 @@ describe('fluidcad publish', () => {
     const run = await cli(['publish']);
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('Pass -y to go ahead without being asked (this is not an interactive terminal). Nothing was sent.');
-    expect(run.stdout).toContain(`Publishing kit 0.1.0 on ${hub.origin} as @acme: it publishes as ${NAME}`);
+    expect(run.stdout).toContain(`Publishing ${NAME} 0.1.0 on ${hub.origin} as @acme:\n`);
     expect(hub.uploads).toHaveLength(0);
     expectNoScratch();
   }, 120_000);
@@ -205,6 +205,27 @@ describe('fluidcad publish', () => {
     expectNoScratch();
   }, 120_000);
 
+  it("refuses a package under another handle's scope before reading, packing or uploading anything (HD30), dry run too", async () => {
+    const theirs = path.join(scratch, 'bea-kit');
+    fs.cpSync(FIXTURE, theirs, { recursive: true });
+    const config = JSON.parse(fs.readFileSync(path.join(theirs, 'fluidcad.json'), 'utf8'));
+    config.package.name = '@bea-tools/kit';
+    fs.writeFileSync(path.join(theirs, 'fluidcad.json'), JSON.stringify(config, null, 2));
+
+    for (const args of [['publish', '-y', '-w', theirs], ['publish', '--dry-run', '-w', theirs]]) {
+      const run = await cli(args);
+      expect(run.status).toBe(1);
+      expect(run.stderr.trim()).toBe(
+        `@bea-tools/kit is under @bea-tools, but you are signed in to ${hub.origin} as @acme, and you can only publish under your own handle: `
+          + 'name the package "@acme/kit" in fluidcad.json, or sign in as @bea-tools.',
+      );
+    }
+    expect(hub.uploads).toHaveLength(0);
+    expect(hub.requests.filter((r) => r.method === 'PUT')).toEqual([]);
+    expect(hub.requests.filter((r) => r.path.startsWith('/api/v1/packages/'))).toEqual([]);
+    expectNoScratch();
+  });
+
   it('has no model flags any more', async () => {
     const run = await cli(['publish', '--new-model']);
     expect(run.status).toBe(1);
@@ -214,10 +235,11 @@ describe('fluidcad publish', () => {
 });
 
 describe('fluidcad publish --status', () => {
-  it('says when the package is not on the hub yet', async () => {
+  it('says when the package is not on the hub yet, asking about the name fluidcad.json writes with no GET /me', async () => {
     const run = await cli(['publish', '--status']);
     expect(run.status).toBe(0);
     expect(run.stdout.trim()).toBe(`${NAME} is not on ${hub.origin} yet. \`fluidcad publish\` uploads its first version.`);
+    expect(hub.requestsTo('/api/v1/me')).toEqual([]);
   });
 
   it('gives a draft its wizard URL', async () => {

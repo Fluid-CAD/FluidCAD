@@ -243,7 +243,7 @@ app.use('/api', createUnitRouter({
   broadcastToUI,
 }));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
-app.use('/api', createPackagesRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION }));
+app.use('/api', createPackagesRouter({ workspacePath: WORKSPACE_PATH }));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createFeatureCatalogRouter(featureCatalog, WORKSPACE_PATH));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));

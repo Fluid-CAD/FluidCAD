@@ -64,9 +64,11 @@ export type PackageInspectOptions = {
 };
 
 /**
- * The first step of every install (research §3): open a `.fluidpkg`, check
- * it, and extract it into scratch, so the consent summary describes exactly
- * the files the install then renames into place.
+ * The check of every archive the hub download brings (research §3; HD31:
+ * packages install only from the hub, never from a file), and of the
+ * conformance harness's fixtures: open a `.fluidpkg`, check it, and extract
+ * it into scratch, so the consent summary describes exactly the files the
+ * install then renames into place.
  *
  * Refused: anything that isn't a zip; an entry path that is absolute,
  * climbs out with `..`, or is a link; an archive without `manifest.json`;
@@ -139,7 +141,7 @@ export class PackageArchive {
   static iconOf(token: string, featureId: string): { file: string } | { status: number; error: string } {
     const held = PackageArchive.pending.get(token)?.entry;
     if (!held) {
-      return { status: 404, error: 'That inspected package is gone; inspect the file again.' };
+      return { status: 404, error: 'That inspected package is gone; start the install again.' };
     }
     const feature = held.inspection.manifest.features.find((entry) => entry.id === featureId);
     const icon = feature?.meta?.icon;
@@ -240,13 +242,14 @@ export class PackageArchive {
   }
 
   /**
-   * The refusal of an archive whose manifest names `@scope/name`: packed
-   * before package names lost their scope (HD29). It is never converted —
-   * rewriting `manifest.json` would change the tree hash every pin holds.
+   * The refusal of an archive whose manifest names the package without its
+   * scope (`feature-tests`): packed under HD29, when package names had none.
+   * It is never converted — rewriting `manifest.json` would change the tree
+   * hash every pin holds.
    */
-  static scopedNameSentence(name: string): string {
-    return `This archive names ${name}: it was packed by an earlier FluidCAD, whose package names carried the scope. `
-      + 'Pack it again with this one.';
+  static unscopedNameSentence(name: string): string {
+    return `This archive names ${name}, without a scope: it was packed by an earlier FluidCAD, whose package names had none. `
+      + `Pack it again with this one, after naming the package "@<your-handle>/${name}" in its fluidcad.json.`;
   }
 
   private static readManifest(tree: string, files: string[]): PackageManifest {
@@ -272,11 +275,11 @@ export class PackageArchive {
       }
       throw new PackageArchiveError('bad-manifest', `The package's manifestVersion ${JSON.stringify(raw.manifestVersion)} isn't one FluidCAD knows.`);
     }
-    if (PackageName.isValid(raw.name)) {
-      throw new PackageArchiveError('bad-manifest', PackageArchive.scopedNameSentence(raw.name));
+    if (PackageName.isBare(raw.name)) {
+      throw new PackageArchiveError('bad-manifest', PackageArchive.unscopedNameSentence(raw.name));
     }
-    if (!PackageName.isBare(raw.name)) {
-      throw new PackageArchiveError('bad-manifest', `The package's name ${JSON.stringify(raw.name)} is not a package name: ${PackageName.BARE_RULE}.`);
+    if (!PackageName.isValid(raw.name)) {
+      throw new PackageArchiveError('bad-manifest', `The package's name ${JSON.stringify(raw.name)} is not a package name: ${PackageName.RULE}.`);
     }
     for (const key of ['version', 'minEngine'] as const) {
       if (!Semver.isValid(raw[key])) {

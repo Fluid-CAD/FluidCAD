@@ -52,6 +52,8 @@ export class HubPublishMessages {
   static readonly LOGIN_HINT = 'Run `fluidcad login`, then publish again.';
   /** The hub's own sentence for `sources-too-large` ends with it, so it is never said twice. */
   static readonly SOURCES_HINT = 'Move large data out of .js and .json files, or split the package.';
+  /** The hint for an archive whose name isn't the upload URL's (`scope-mismatch`, `name-mismatch`): hand-made uploads only. */
+  static readonly NAME_HINT = 'Publish from the package\'s workspace with `fluidcad publish`: it uploads the archive under the "name" in its fluidcad.json, which must start with your handle.';
 
   private static readonly HINTS: Record<string, string> = {
     'open-version-exists': HubPublishMessages.STATUS_HINT,
@@ -61,7 +63,8 @@ export class HubPublishMessages {
     'email-unverified': 'Verify it from the email the hub sent (or sign in on the hub to send another), then publish again.',
     'publishing-closed': 'The hub\'s admins grant publishing; nothing was uploaded.',
     'unauthorized': HubPublishMessages.LOGIN_HINT,
-    'name-mismatch': 'The hub publishes the package under your handle and its fluidcad.json "name": publish from the workspace with `fluidcad publish`, which uploads it under that name.',
+    'scope-mismatch': HubPublishMessages.NAME_HINT,
+    'name-mismatch': HubPublishMessages.NAME_HINT,
     'reserved-name': 'Give the package another "name" in fluidcad.json (`fluidcad package init` names it the first time), pack it again, then publish.',
     'integrity-mismatch': 'Publish again; if it happens again, the archive is changing on its way to the hub.',
     'network': 'Nothing was stored: check the connection, then publish again.',

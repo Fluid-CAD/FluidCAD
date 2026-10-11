@@ -210,17 +210,17 @@ describe('the feature catalog lists packages', () => {
     expect(await list()).toEqual([]);
   });
 
-  it('leaves out the package the workspace is itself, by its bare name, whoever published it', async () => {
+  it('leaves out the package the workspace is itself, by its exact name: another publisher\'s …/kit is offered (HD30)', async () => {
     const acme = await project.install('@acme/kit', '0.1.0');
-    project.config(null, { package: { name: 'kit', version: '0.3.0' } });
+    project.config(null, { package: { name: '@acme/kit', version: '0.3.0' } });
     expect(await list()).toEqual([]);
 
-    // Another publisher's package of the same name is left out in that author's workspace too.
+    // Another publisher's package with the same part after the slash is not this workspace's own.
     fs.cpSync(acme.dir, project.packageDir('@bea-tools/kit', '0.1.0'), { recursive: true });
-    expect(await list()).toEqual([]);
+    expect((await list()).map(e => [e.id, e.error])).toEqual([['@bea-tools/kit:acme.standoff', undefined]]);
 
     // Any other workspace is offered both, keyed apart.
-    project.config(null, { package: { name: 'gears', version: '0.1.0' } });
+    project.config(null, { package: { name: '@acme/gears', version: '0.1.0' } });
     expect((await list()).map(e => [e.id, e.error])).toEqual([
       ['@acme/kit:acme.standoff', undefined], ['@bea-tools/kit:acme.standoff', undefined],
     ]);
@@ -312,7 +312,7 @@ describe('creating with a package feature', () => {
     expect(fs.readFileSync(project.at('fluidcad.json'), 'utf8')).toBe(before);
   });
 
-  it('finds each of two publishers\' same-named features by its key, and writes the import from its own package (HD29)', async () => {
+  it('finds each of two publishers\' same-named features by its key, and writes the import from its own package', async () => {
     const acme = await project.install('@acme/kit', '0.1.0');
     const beaDir = project.packageDir('@bea-tools/kit', '0.1.0');
     fs.cpSync(acme.dir, beaDir, { recursive: true });

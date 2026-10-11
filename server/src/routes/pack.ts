@@ -5,7 +5,7 @@ import { PackageLayout, type PackageContents } from '../packages/package-manifes
 
 /** `POST /api/pack` with `{ "format": "json" }`: the archive and what it holds, in one JSON body. */
 export type PackJsonResponse = {
-  /** The author's bare name (`feature-tests`): the hub adds the publisher's handle when it is published. */
+  /** The package's name (`@acme/feature-tests`), as its `package` block writes it. */
   packageName: string;
   version: string;
   fileName: string;

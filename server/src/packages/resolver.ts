@@ -90,7 +90,7 @@ export type PackageResolverOptions = {
  * else's to resolve.
  */
 export class PackageResolver {
-  /** `@scope/name`, the public name (HD29). The grammar, lengths included, lives in `PackageName`. */
+  /** `@scope/name`, the package's name (HD30). The grammar, lengths included, lives in `PackageName`. */
   static readonly NAME_PATTERN = PackageName.PATTERN;
 
   /** The generated entry every installed package carries (K2). */

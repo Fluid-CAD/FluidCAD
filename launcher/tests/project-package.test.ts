@@ -42,4 +42,13 @@ describe('ProjectPackage', () => {
     expect(ProjectPackage.read(project({ package: { name: 'gears', version: '1.0.0' } }))).toBeNull();
     expect(ProjectPackage.read(project({ package: { name: '@acme/gears' } }))).toBeNull();
   });
+
+  it("badges only the engine's grammar: letter-first parts, single dashes, a 2–39 character handle and a name of at most 64 (HD30)", () => {
+    const badge = (name: string) => ProjectPackage.read(project({ package: { name, version: '0.1.0' } }));
+    expect(badge('@acme/gears')).toEqual({ name: '@acme/gears', version: '0.1.0' });
+    expect(badge(`@${'a'.repeat(39)}/${'k'.repeat(64)}`)).not.toBeNull();
+    for (const name of ['@3d/kit', '@acme/3d-kit', '@acme/a--b', '@a/kit', `@${'a'.repeat(40)}/kit`, `@acme/${'k'.repeat(65)}`, '@acme-/kit', 'feature-tests']) {
+      expect(badge(name), name).toBeNull();
+    }
+  });
 });

@@ -18,8 +18,13 @@ export type ProjectPackageIdentity = { name: string; version: string };
  */
 export class ProjectPackage {
   static readonly CONFIG_FILENAME = 'fluidcad.json';
-  /** `@scope/name`, as the engine requires (K11); anything else gets no badge. */
-  private static readonly NAME = /^@[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9-]{0,63}$/;
+  /**
+   * `@handle/name`, the grammar the engine requires (K11, HD30; the engine's
+   * `PackageName`): each part lowercase letters, digits and single dashes,
+   * starting with a letter, the handle 2–39 characters and the name at most
+   * 64. Anything else gets no badge, so the badge and the engine agree.
+   */
+  private static readonly NAME = /^@(?=[a-z0-9-]{2,39}\/)[a-z][a-z0-9]*(?:-[a-z0-9]+)*\/(?=[a-z0-9-]{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
   static read(workspacePath: string): ProjectPackageIdentity | null {
     let config: unknown;

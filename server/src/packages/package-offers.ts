@@ -1,6 +1,5 @@
 import { readProjectConfig } from '../project-config.ts';
 import { PackageManifests } from './package-manifests.ts';
-import { PackageName } from './package-name.ts';
 import type { PackageManifest } from './package-manifest.ts';
 import { PackageResolveError, PackageResolver } from './resolver.ts';
 import { PackageRoots } from './package-roots.ts';
@@ -39,8 +38,7 @@ export type PackageOffer = PackageRef & {
  *   project's missing-package problem says so;
  * - for each package in the user library the project doesn't pin, its
  *   newest version — except the package the open workspace is itself (a
- *   package's author tries its own modules, not an installed copy), told
- *   by its bare name: every library package of that name is left out.
+ *   package's author tries its own modules, not an installed copy).
  */
 export class PackageOffers {
   /** The offers of `project`, pins first (by name), then the library's (by name); none without a project. */
@@ -57,12 +55,9 @@ export class PackageOffers {
         offers.push(offer);
       }
     }
-    // The workspace's own package goes by its bare name (HD29): its
-    // published copy (`@acme/feature-tests`) is skipped, and so is another
-    // publisher's package of the same name — the author's own modules win.
     const own = config.package?.name ?? null;
     for (const location of PackageOffers.newestInLibrary(project)) {
-      if ((own !== null && PackageName.bareOf(location.name) === own) || Object.prototype.hasOwnProperty.call(pins, location.name)) {
+      if (location.name === own || Object.prototype.hasOwnProperty.call(pins, location.name)) {
         continue;
       }
       const manifest = PackageManifests.of(location.directory);

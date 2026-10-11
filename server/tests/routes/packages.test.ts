@@ -6,13 +6,16 @@ import os from 'os';
 import path from 'path';
 import { ArchiveFixture } from '../packages/archive-fixture.ts';
 import { createPackagesRouter } from '../../src/routes/packages.ts';
-import { PackageRoots } from '../../src/packages/package-roots.ts';
+import { PackageArchive } from '../../src/packages/package-archive.ts';
+import { PackageRoots, type PackageTarget } from '../../src/packages/package-roots.ts';
 import { TreeHash } from '../../src/packages/tree-hash.ts';
 import { normalizePath } from '../../src/normalize-path.ts';
-import { readProjectConfig, writeDependency } from '../../src/project-config.ts';
+import { readProjectConfig } from '../../src/project-config.ts';
 
 // The package routes over a temp project and a temp library, with no scene
-// and no engine: inspecting and installing read only the archive.
+// and no engine: installing reads only the archive. Packages install only
+// from the hub (HD31), so no route takes an archive: the tokens come from
+// `PackageArchive.inspect` in-process, as the hub download makes them.
 // FLUIDCAD_PACKAGES points at the temp library, and HOME (with
 // XDG_CONFIG_HOME and APPDATA) at a temp folder, so the "New packages go to"
 // setting read here is this test's, not the developer's.
@@ -24,10 +27,10 @@ let project: string;
 let library: string;
 let servers: http.Server[];
 
-async function serve(workspacePath: string, maxArchiveBytes?: number): Promise<string> {
+async function serve(workspacePath: string): Promise<string> {
   const app = express();
   app.use(express.json());
-  app.use('/api', createPackagesRouter({ workspacePath, engineVersion: ArchiveFixture.ENGINE, maxArchiveBytes }));
+  app.use('/api', createPackagesRouter({ workspacePath }));
   const server = http.createServer(app);
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
@@ -39,12 +42,13 @@ async function call(url: string, init: RequestInit = {}): Promise<{ status: numb
   return { status: res.status, body: await res.json() };
 }
 
-async function inspect(base: string, options: Parameters<typeof ArchiveFixture.zip>[0] = {}, as?: string) {
-  return call(`${base}/packages/inspect${as ? `?as=${encodeURIComponent(as)}` : ''}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/zip' },
-    body: await ArchiveFixture.zip(options),
+/** An archive inspected in-process into `target`'s scratch, as the hub download inspects one: `{ body: { token, integrity } }`. */
+async function inspect(options: Parameters<typeof ArchiveFixture.zip>[0] = {}, target: PackageTarget = 'library') {
+  const inspection = await PackageArchive.inspect(await ArchiveFixture.zip(options), {
+    root: PackageRoots.rootFor(target, project),
+    engineVersion: ArchiveFixture.ENGINE,
   });
+  return { body: inspection };
 }
 
 function postJson(url: string, body: unknown) {
@@ -91,84 +95,54 @@ afterEach(async () => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-describe('POST /api/packages/inspect', () => {
-  it('answers the consent summary and holds the archive for its install', async () => {
+describe('no upload route (HD31)', () => {
+  it('answers 404 for POST /api/packages/inspect, and holds nothing', async () => {
     const base = await serve(project);
-    const { status, body } = await inspect(base);
-
-    expect(status).toBe(200);
-    expect(body).toMatchObject({ manifest: { name: 'kit', version: '0.1.0' }, warnings: [], defaultTarget: 'library' });
-    expect(body.token).toEqual(expect.any(String));
-    expect(body.integrity).toMatch(/^sha256-/);
-    // No pin of that name and no ?as=: the reserved local scope (HD29).
-    expect(body.installsAs).toBe('@local/kit');
-  });
-
-  it('answers the name it installs as: ?as=, else the project\'s one pin of that name, else @local', async () => {
-    const base = await serve(project);
-    expect((await inspect(base, {}, '@acme/kit')).body.installsAs).toBe('@acme/kit');
-
-    writeDependency(project, '@bea-tools/kit', { version: '0.1.0', integrity: 'sha256-' + 'A'.repeat(42) + 'E=' });
-    expect((await inspect(base)).body.installsAs).toBe('@bea-tools/kit');
-
-    writeDependency(project, '@acme/kit', { version: '0.1.0', integrity: 'sha256-' + 'A'.repeat(42) + 'E=' });
-    const ambiguous = await inspect(base);
-    expect(ambiguous.status).toBe(400);
-    expect(ambiguous.body).toMatchObject({ code: 'ambiguous-name', error: expect.stringContaining('This project pins @acme/kit and @bea-tools/kit') });
-    expect((await inspect(base, {}, '@acme/kit')).body.installsAs).toBe('@acme/kit');
-  });
-
-  it('refuses a name whose bare part isn\'t the file\'s, holding nothing for an install', async () => {
-    const base = await serve(project);
-    const refused = await inspect(base, {}, '@acme/gears');
-    expect(refused.status).toBe(400);
-    expect(refused.body).toEqual({ code: 'wrong-name', error: "This file is kit, so it can't install as @acme/gears." });
-    expect(fs.existsSync(path.join(library, '.tmp'))).toBe(false);
-  });
-
-  it('refuses an empty body, an old model archive and an archive over the limit', async () => {
-    const base = await serve(project);
-    expect((await call(`${base}/packages/inspect`, { method: 'POST' })).status).toBe(400);
-
-    const model = await inspect(base, { manifest: null, raw: { 'manifest.json': JSON.stringify({ schemaVersion: 3 }) } });
-    expect(model.status).toBe(400);
-    expect(model.body.code).toBe('model-archive');
-    expect(model.body.error).toMatch(/model archive, not a package/);
-
-    const small = await serve(project, 64);
-    const big = await inspect(small);
-    expect(big.status).toBe(413);
-    expect(big.body.error).toMatch(/larger than/);
+    const res = await fetch(`${base}/packages/inspect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/zip' },
+      body: new Uint8Array(await ArchiveFixture.zip()),
+    });
+    expect(res.status).toBe(404);
+    expect(fs.existsSync(library)).toBe(false);
   });
 });
 
 describe('POST /api/packages/install', () => {
-  it('installs a file under @local when nothing names it, pinned and listed by that name', async () => {
+  it("installs an inspected archive under its manifest's name, pinned and listed by that name", async () => {
     const base = await serve(project);
-    const inspected = await inspect(base);
+    const inspected = await inspect();
     const installed = await postJson(`${base}/packages/install`, { token: inspected.body.token, target: 'library', pin: true });
-    expect(installed.body).toMatchObject({ name: '@local/kit', status: 'installed', pin: 'pinned' });
-    expect(installed.body.directory).toBe(path.posix.join(library, '@local', 'kit', '0.1.0'));
-    expect(readProjectConfig(project).dependencies).toEqual({ '@local/kit': { version: '0.1.0', integrity: inspected.body.integrity } });
+    expect(installed.status).toBe(200);
+    expect(installed.body).toMatchObject({ name: '@acme/kit', status: 'installed', pin: 'pinned' });
+    expect(installed.body.directory).toBe(path.posix.join(library, '@acme', 'kit', '0.1.0'));
+    expect(readProjectConfig(project).dependencies).toEqual({ '@acme/kit': { version: '0.1.0', integrity: inspected.body.integrity } });
+    const listed = await call(`${base}/packages`);
+    expect(listed.body.library.packages.map((p: any) => `${p.name}@${p.version}`)).toEqual(['@acme/kit@0.1.0']);
   });
 
-  it('refuses an "as" that isn\'t a string', async () => {
+  it('drops a declined inspection on discard, after which install finds nothing', async () => {
     const base = await serve(project);
-    const inspected = await inspect(base);
-    expect((await postJson(`${base}/packages/install`, { token: inspected.body.token, target: 'library', as: 3 })).status).toBe(400);
+    const inspected = await inspect();
+    expect(fs.readdirSync(path.join(library, '.tmp'))).toHaveLength(1);
+    expect((await postJson(`${base}/packages/discard`, { token: inspected.body.token })).body).toEqual({ success: true });
+    expect(fs.existsSync(path.join(library, '.tmp'))).toBe(false);
+    const gone = await postJson(`${base}/packages/install`, { token: inspected.body.token, target: 'library' });
+    expect(gone.status).toBe(404);
+    expect(gone.body).toEqual({ code: 'unknown-token', error: 'That inspected package is gone (installed already, or it expired); start the install again.' });
   });
 
   it('installs into the library without pinning, and into the project with a pin', async () => {
     const base = await serve(project);
 
-    const first = await inspect(base);
-    const intoLibrary = await postJson(`${base}/packages/install`, { token: first.body.token, as: '@acme/kit', target: 'library' });
+    const first = await inspect();
+    const intoLibrary = await postJson(`${base}/packages/install`, { token: first.body.token, target: 'library' });
     expect(intoLibrary.status).toBe(200);
     expect(intoLibrary.body).toMatchObject({ target: 'library', status: 'installed', pin: null });
     expect(readProjectConfig(project).dependencies).toBeNull();
 
-    const second = await inspect(base);
-    const intoProject = await postJson(`${base}/packages/install`, { token: second.body.token, as: '@acme/kit', target: 'project' });
+    const second = await inspect();
+    const intoProject = await postJson(`${base}/packages/install`, { token: second.body.token, target: 'project' });
     expect(intoProject.body).toMatchObject({ target: 'project', status: 'installed', pin: 'pinned' });
     expect(readProjectConfig(project).dependencies).toEqual({ '@acme/kit': { version: '0.1.0', integrity: second.body.integrity } });
     expect(await TreeHash.ofDirectory(intoProject.body.directory)).toBe(second.body.integrity);
@@ -176,11 +150,11 @@ describe('POST /api/packages/install', () => {
 
   it('pins a library install on request, and refuses a pin to another version with a 409', async () => {
     const base = await serve(project);
-    const first = await inspect(base);
-    expect((await postJson(`${base}/packages/install`, { token: first.body.token, as: '@acme/kit', target: 'library', pin: true })).body.pin).toBe('pinned');
+    const first = await inspect();
+    expect((await postJson(`${base}/packages/install`, { token: first.body.token, target: 'library', pin: true })).body.pin).toBe('pinned');
 
-    const newer = await inspect(base, { version: '0.2.0' });
-    const refused = await postJson(`${base}/packages/install`, { token: newer.body.token, as: '@acme/kit', target: 'library', pin: true });
+    const newer = await inspect({ version: '0.2.0' });
+    const refused = await postJson(`${base}/packages/install`, { token: newer.body.token, target: 'library', pin: true });
     expect(refused.status).toBe(409);
     expect(refused.body.code).toBe('version-change');
     expect(fs.existsSync(path.join(library, '@acme', 'kit', '0.2.0'))).toBe(false);
@@ -188,18 +162,18 @@ describe('POST /api/packages/install', () => {
 
   it('answers 409 for other contents under the same version, and replaces them when asked', async () => {
     const base = await serve(project);
-    const first = await inspect(base);
-    await postJson(`${base}/packages/install`, { token: first.body.token, as: '@acme/kit', target: 'library' });
+    const first = await inspect();
+    await postJson(`${base}/packages/install`, { token: first.body.token, target: 'library' });
 
     const files = ArchiveFixture.defaultFiles();
     files['index.js'] += '// changed\n';
-    const other = await inspect(base, { files });
-    const conflict = await postJson(`${base}/packages/install`, { token: other.body.token, as: '@acme/kit', target: 'library' });
+    const other = await inspect({ files });
+    const conflict = await postJson(`${base}/packages/install`, { token: other.body.token, target: 'library' });
     expect(conflict.status).toBe(409);
     expect(conflict.body.code).toBe('conflict');
 
-    const again = await inspect(base, { files });
-    const replaced = await postJson(`${base}/packages/install`, { token: again.body.token, as: '@acme/kit', target: 'library', replace: true });
+    const again = await inspect({ files });
+    const replaced = await postJson(`${base}/packages/install`, { token: again.body.token, target: 'library', replace: true });
     expect(replaced.body.status).toBe('replaced');
   });
 
@@ -211,17 +185,16 @@ describe('POST /api/packages/install', () => {
     expect(gone.body.code).toBe('unknown-token');
 
     const noProject = await serve('');
-    const inspected = await inspect(noProject);
-    expect(inspected.body.defaultTarget).toBe('library');
-    expect((await postJson(`${noProject}/packages/install`, { token: inspected.body.token, as: '@acme/kit', target: 'project' })).status).toBe(400);
+    const inspected = await inspect();
+    expect((await postJson(`${noProject}/packages/install`, { token: inspected.body.token, target: 'project' })).status).toBe(400);
   });
 });
 
 describe('GET, copy and DELETE', () => {
   it('lists both roots and the pins with where each is installed', async () => {
     const base = await serve(project);
-    const first = await inspect(base);
-    await postJson(`${base}/packages/install`, { token: first.body.token, as: '@acme/kit', target: 'library', pin: true });
+    const first = await inspect();
+    await postJson(`${base}/packages/install`, { token: first.body.token, target: 'library', pin: true });
     fs.writeFileSync(path.join(project, 'fluidcad.json'), JSON.stringify({
       engine: ArchiveFixture.ENGINE,
       dependencies: {
@@ -241,8 +214,8 @@ describe('GET, copy and DELETE', () => {
 
   it('copies into the project and back, and removes from either root', async () => {
     const base = await serve(project);
-    const first = await inspect(base);
-    await postJson(`${base}/packages/install`, { token: first.body.token, as: '@acme/kit', target: 'library', pin: true });
+    const first = await inspect();
+    await postJson(`${base}/packages/install`, { token: first.body.token, target: 'library', pin: true });
 
     const copied = await postJson(`${base}/packages/copy`, { name: '@acme/kit', version: '0.1.0', to: 'project' });
     expect(copied.status).toBe(200);

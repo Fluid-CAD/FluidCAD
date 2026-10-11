@@ -1,16 +1,15 @@
 {
   "package": {
-    "name": "kit",
+    "name": "@acme/kit",
     "version": "0.1.0",
-    "scope": "acme",
-    "publicName": "@acme/kit"
+    "scope": "acme"
   },
   "engineVersion": "0.0.46",
   "archives": {
     "valid.fluidpkg": {
       "about": "packed by packPackage from conformance-workspace: three features (icons, option images, raw OpenCascade), a part with a parameter, a factory part, an assembly, README, CHANGELOG and LICENSE",
       "verdict": "ok",
-      "integrity": "sha256-LK4mP/Gfvl4UHcaID1dUhWuuN156dVJfWulKcfw8yqw=",
+      "integrity": "sha256-glmfw3MffTyZp8v0dyB+T+wSS6U1STvzeUKcF+qGMyI=",
       "warnings": [],
       "hub": "ok"
     },
@@ -85,12 +84,17 @@
       "hub": "bad-manifest"
     },
     "bad-manifest-name.fluidpkg": {
-      "about": "name \"3d-kit\" (starts with a digit)",
+      "about": "name \"@acme/3d-kit\" (the name part starts with a digit)",
       "verdict": "bad-manifest",
       "hub": "bad-manifest"
     },
-    "scoped-name.fluidpkg": {
-      "about": "name \"@acme/kit\": packed before package names lost their scope (HD29); refused, never converted",
+    "bad-manifest-scope.fluidpkg": {
+      "about": "name \"@3dtools/kit\" (the scope starts with a digit, which the pre-H8c grammar accepted)",
+      "verdict": "bad-manifest",
+      "hub": "bad-manifest"
+    },
+    "bare-name.fluidpkg": {
+      "about": "name \"kit\", without a scope: packed under HD29; refused, never converted",
       "verdict": "bad-manifest",
       "hub": "bad-manifest"
     },
@@ -134,38 +138,45 @@
       "verdict": "blocked-import",
       "hub": "blocked-import"
     },
+    "scope-mismatch.fluidpkg": {
+      "about": "name \"@other/kit\": another scope than the URL's (@acme/kit)",
+      "verdict": "ok",
+      "integrity": "sha256-gnwuZCp0roVutYCzp4c1wvRXaJx//Sh+gwmpZXrYp8w=",
+      "warnings": [],
+      "hub": "scope-mismatch"
+    },
     "no-models.fluidpkg": {
       "about": "features only: no part and no assembly",
       "verdict": "ok",
-      "integrity": "sha256-dSqQ6S6rMFfUqGNONRGAdFqNCiTA/2rAnLzX304FAzs=",
+      "integrity": "sha256-7ANsMPjl0kMX3giZ8MsBZci2PEAlrJXFp+ECV3fh6oE=",
       "warnings": [],
       "hub": "no-models"
     },
     "outside-layout.fluidpkg": {
       "about": "parts/helpers/sizes.js imports lib/units.js, a script at the root outside the three folders",
       "verdict": "ok",
-      "integrity": "sha256-AzK68OTlMM1s6YeyV2xuhUtPiIklhru8GJ7Kbs76NgQ=",
+      "integrity": "sha256-NS2ubPr021Hyo/8r7JmqBQgWhkYF8iaR/lbCkrQtBBk=",
       "warnings": [],
       "hub": "outside-layout"
     },
     "wrong-folder.fluidpkg": {
       "about": "the washer part moved into features/ (features/washer.part.js)",
       "verdict": "ok",
-      "integrity": "sha256-Th/ZY15RH0LkFUfZUAcyoYbc1E8xkpsY1UAKouqXnzU=",
+      "integrity": "sha256-Lw8VHrfn3Qj0964Osa2A1A0lZGEpDCwO45HkeBEDkXg=",
       "warnings": [],
       "hub": "wrong-folder"
     },
     "bad-params.fluidpkg": {
       "about": "the spacer part declares 101 parameters, one over the cap",
       "verdict": "ok",
-      "integrity": "sha256-y9DqlxYxcO5nfLGzcUaOXO6iXucFbvh3uFC5/Bp7JRo=",
+      "integrity": "sha256-U4H1i6t1tn/XKElqAkDEBC8EcCNHBXParqkq2TsGZmI=",
       "warnings": [],
       "hub": "bad-params"
     },
     "pre-layout.fluidpkg": {
-      "about": "packed before the package layout (server/tests/fixtures/pre-layout): modules at the root; converted for HD29 — its manifest name rewritten to \"kit\" and re-zipped, its layout and dotted ids kept",
+      "about": "packed before the package layout (server/tests/fixtures/pre-layout): modules at the root",
       "verdict": "ok",
-      "integrity": "sha256-vH9+nPBpOm5H/nvMTjwPzRQIcc+mTT/pcBtYUe+wmDI=",
+      "integrity": "sha256-Ce9Fqz9MW8P0f2IvQUiq68k6ZnJfIkbvbv0I0QP0OXc=",
       "warnings": [],
       "hub": "outside-layout"
     }

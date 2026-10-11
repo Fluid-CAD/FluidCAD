@@ -16,10 +16,8 @@ import { HubRequestError } from './hub-request-error.ts';
  * - `truncated`: the download ended before its `Content-Length`;
  * - `integrity-mismatch`: the bytes, the hub and the pin don't agree;
  * - `wrong-package`: the archive holds another package or version;
- * - `local-package`: an `@local` package, installed from a file, which the
- *   hub never has — refused before any request;
- * - `no-publisher`: a bare name (`feature-tests`) that is no file: the hub
- *   needs the publisher's handle (`@acme/feature-tests`).
+ * - `no-publisher`: a bare name (`feature-tests`): the hub needs the
+ *   publisher's handle (`@acme/feature-tests`).
  */
 
 export type HubInstallErrorCode = string;
@@ -62,8 +60,14 @@ export class HubInstallError extends Error {
 /** The next step each refusal calls for, after the sentence that names the problem. */
 export class HubInstallMessages {
   static readonly OFFLINE_HINT =
-    'Nothing was installed. Check the connection and try again; a package already in your library installs without the hub, and `fluidcad install <file.fluidpkg>` installs from a file.';
+    'Nothing was installed. Check the connection and try again; a package already in your library installs without the hub.';
   static readonly RETRY_HINT = 'Nothing was installed: try again.';
+  /**
+   * `fluidcad install <file or path>` (HD31: packages install only from the
+   * hub). Said before anything is read.
+   */
+  static readonly NO_FILE_INSTALLS =
+    'Packages install from the hub: `fluidcad install @<handle>/<name>`. A .fluidpkg file is what `fluidcad pack` makes for `fluidcad publish`; it isn\'t installed.';
   static readonly UPDATE_HINT = 'Update FluidCAD, then install it again.';
 
   private static readonly HINTS: Record<string, string> = {

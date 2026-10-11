@@ -5,13 +5,20 @@ import net from 'net';
 import os from 'os';
 import path from 'path';
 import { ArchiveFixture } from '../packages/archive-fixture.ts';
+import { LibrarySeed } from '../packages/library-seed.ts';
+import { HubInstallMessages } from '../../src/hub/hub-install-error.ts';
+import { PackageRoots } from '../../src/packages/package-roots.ts';
 
 /**
  * `fluidcad install`, `remove` and `packages`, run as the user runs them:
- * the real `bin/fluidcad.js` in a child process, over archives built in
- * memory. The CLI imports the compiled server out of `server/dist`, so
- * these need `npm run build:server` after a server change; the rules are
- * covered against the sources in `server/tests/packages/package-installer.test.ts`.
+ * the real `bin/fluidcad.js` in a child process. The CLI imports the
+ * compiled server out of `server/dist`, so these need `npm run
+ * build:server` after a server change; the rules are covered against the
+ * sources in `server/tests/packages/package-installer.test.ts`.
+ *
+ * Packages install only from the hub (HD31): a file or a path is refused,
+ * so a library these tests need is seeded in-process (`LibrarySeed`, the
+ * hub download's own install path).
  *
  * FLUIDCAD_PACKAGES, FLUIDCAD_HOME and the preferences' HOME all point at
  * temp folders: nothing reaches the user's library or settings. The hub is
@@ -30,6 +37,7 @@ let outside: string;
 let library: string;
 let kit: string;
 let offlineHub: string;
+let savedPackages: string | undefined;
 
 function cli(cwd: string, ...args: string[]): { status: number | null; stdout: string; stderr: string } {
   const home = path.join(tmp, 'home');
@@ -95,126 +103,89 @@ beforeEach(async () => {
   fs.mkdirSync(outside);
   fs.writeFileSync(path.join(project, 'fluidcad.json'), JSON.stringify({ engine: ArchiveFixture.ENGINE, unit: 'mm' }, null, 2) + '\n');
   kit = await archive('acme-kit-0.1.0.fluidpkg');
+  // The in-process seed writes into the same library the child process reads.
+  savedPackages = process.env.FLUIDCAD_PACKAGES;
+  process.env.FLUIDCAD_PACKAGES = library;
+  PackageRoots.forget();
 });
 
 afterEach(() => {
+  if (savedPackages === undefined) {
+    delete process.env.FLUIDCAD_PACKAGES;
+  } else {
+    process.env.FLUIDCAD_PACKAGES = savedPackages;
+  }
+  PackageRoots.forget();
   writable(tmp);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-describe('fluidcad install <file>', () => {
-  it('prints the consent summary, installs into the library and pins it when run in a project', () => {
-    const run = cli(project, 'install', kit, '--as', '@acme/kit', '--library', '--yes');
+/** `@acme/kit` 0.1.0 into the library (or the project copy), pinned in the project when asked: what a hub install leaves. */
+function seed(options: { target?: 'library' | 'project'; pin?: boolean } = {}) {
+  return LibrarySeed.install(fs.readFileSync(kit), { target: options.target, project, pin: options.pin });
+}
 
-    expect(run.stderr).toBe('');
-    expect(run.status).toBe(0);
-    expect(run.stdout).toContain('kit 0.1.0 — A test kit\n  installs as @acme/kit\n');
-    expect(run.stdout).toContain('1 feature: standoff (Standoff)');
-    // --as named it: no hint from the file's name.
-    expect(run.stdout).not.toContain("This file's name suggests");
-    expect(run.stdout).toContain(`needs FluidCAD ${ArchiveFixture.ENGINE} or newer`);
-    expect(run.stdout).toContain("A package's code runs in the FluidCAD engine with your permissions.");
-    expect(run.stdout).toContain(`Installed @acme/kit 0.1.0 into your library (${installedKit()}).`);
-    expect(run.stdout).toContain("Pinned @acme/kit 0.1.0 in this project's fluidcad.json.");
-    expect(config()).toEqual({
-      engine: ArchiveFixture.ENGINE,
-      unit: 'mm',
-      dependencies: { '@acme/kit': { version: '0.1.0', integrity: expect.stringMatching(/^sha256-/) } },
-    });
-    expect(fs.existsSync(path.join(installedKit(), 'manifest.json'))).toBe(true);
-  });
+/** Every entry under `dir`, or none when it doesn't exist. */
+function entries(dir: string): string[] {
+  return fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).map(String).sort() : [];
+}
 
-  it('a second install of the same file changes nothing', () => {
-    cli(project, 'install', kit, '--as', '@acme/kit', '--yes');
+describe('fluidcad install <file or path> (HD31)', () => {
+  it.each([
+    ['a relative .fluidpkg path', () => ['./acme-kit-0.1.0.fluidpkg']],
+    ['an absolute .fluidpkg path', () => [kit]],
+    ['a .fluidpkg path that doesn\'t exist', () => [path.join(tmp, 'missing-0.1.0.fluidpkg')]],
+    ['an existing directory', () => ['./project']],
+    ['a .fluidpkg path with --project', () => [kit, '--project']],
+    ['a .fluidpkg path with --yes and --library', () => [kit, '--yes', '--library']],
+  ])('refuses %s with the sentence, reading nothing and touching neither root', (_label, args) => {
     const before = fs.readFileSync(path.join(project, 'fluidcad.json'), 'utf8');
+    // An unreadable archive: reading it would fail with EACCES, not the sentence.
+    fs.chmodSync(kit, 0o000);
+    const run = cli(tmp, 'install', ...args());
+    fs.chmodSync(kit, 0o644);
 
-    const run = cli(project, 'install', kit, '--as', '@acme/kit', '--yes');
-    expect(run.status).toBe(0);
-    expect(run.stdout).toContain('is already in your library');
-    expect(run.stdout).toContain('with the same contents: nothing changed.');
-    expect(run.stdout).toContain('This project already pins @acme/kit 0.1.0.');
+    expect(run.status).toBe(1);
+    expect(run.stderr.trim()).toBe(HubInstallMessages.NO_FILE_INSTALLS);
+    expect(run.stderr.trim()).toBe(
+      'Packages install from the hub: `fluidcad install @<handle>/<name>`. A .fluidpkg file is what `fluidcad pack` makes for `fluidcad publish`; it isn\'t installed.',
+    );
+    expect(run.stdout).toBe('');
+    expect(fs.existsSync(library)).toBe(false);
+    expect(entries(path.join(project, 'packages'))).toEqual([]);
     expect(fs.readFileSync(path.join(project, 'fluidcad.json'), 'utf8')).toBe(before);
   });
 
-  it('outside a project it installs without pinning; --project there is refused', () => {
-    const run = cli(outside, 'install', kit, '--as', '@acme/kit', '--yes');
-    expect(run.status).toBe(0);
-    expect(run.stdout).not.toContain('Pinned');
-    expect(fs.readdirSync(outside)).toEqual([]);
-
-    const refused = cli(outside, 'install', kit, '--as', '@acme/kit', '--project', '--yes');
-    expect(refused.status).toBe(1);
-    expect(refused.stderr).toContain('this directory is not one');
+  it('refuses a path from inside a project too, leaving its pins and both roots as they were', () => {
+    const run = cli(project, 'install', '../acme-kit-0.1.0.fluidpkg', '--yes');
+    expect(run.status).toBe(1);
+    expect(run.stderr.trim()).toBe(HubInstallMessages.NO_FILE_INSTALLS);
+    expect(config().dependencies).toBeUndefined();
+    expect(fs.existsSync(library)).toBe(false);
+    expect(fs.existsSync(path.join(project, 'packages'))).toBe(false);
   });
 
-  it('installs into the project copy with --project', () => {
-    const run = cli(project, 'install', kit, '--as', '@acme/kit', '--project', '--yes');
-    expect(run.status).toBe(0);
-    expect(run.stdout).toContain("Installed @acme/kit 0.1.0 into this project's packages folder");
-    expect(fs.existsSync(path.join(project, 'packages', '@acme', 'kit', '0.1.0', 'index.js'))).toBe(true);
+  it('knows no --as', () => {
+    const run = cli(project, 'install', kit, '--as', '@acme/kit');
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain("error: unknown option '--as'");
     expect(fs.existsSync(library)).toBe(false);
   });
 
-  it('asks before installing, and without a terminal to ask on says to pass --yes', () => {
-    const run = cli(project, 'install', kit, '--as', '@acme/kit');
+  it('refuses a bare name that is no path, naming the publisher form', () => {
+    const run = cli(project, 'install', 'feature-tests');
     expect(run.status).toBe(1);
-    expect(run.stderr).toContain('Pass --yes to install without being asked.');
-    expect(run.stderr).toContain('Nothing was installed.');
-    expect(fs.existsSync(installedKit())).toBe(false);
-    expect(config().dependencies).toBeUndefined();
-    // The inspected archive's scratch went with the refusal.
-    expect(fs.readdirSync(library)).toEqual([]);
+    expect(run.stderr.trim()).toBe('Name the publisher: `fluidcad install @<handle>/feature-tests`.');
   });
 
-  it('refuses the same version with one byte changed, and replaces it only when told to', async () => {
-    cli(outside, 'install', kit, '--as', '@acme/kit', '--yes');
-    const files = ArchiveFixture.defaultFiles();
-    files['index.js'] = files['index.js'].replace('standoff }', 'standoff  }');
-    const changed = await archive('acme-kit-0.1.0-changed.fluidpkg', { files });
-
-    const refused = cli(outside, 'install', changed, '--as', '@acme/kit', '--yes');
-    expect(refused.status).toBe(1);
-    expect(refused.stderr).toContain('@acme/kit 0.1.0 is already in your library with different contents');
-
-    const replaced = cli(outside, 'install', changed, '--as', '@acme/kit', '--yes', '--replace');
-    expect(replaced.status).toBe(0);
-    expect(replaced.stdout).toContain('Replaced @acme/kit 0.1.0 in your library');
-  });
-
-  it('in a project pinning the version with other contents, the pin refuses first', async () => {
-    cli(project, 'install', kit, '--as', '@acme/kit', '--yes');
-    const files = ArchiveFixture.defaultFiles();
-    files['index.js'] += '\n';
-    const changed = await archive('acme-kit-0.1.0-changed.fluidpkg', { files });
-
-    const run = cli(project, 'install', changed, '--as', '@acme/kit', '--yes', '--replace');
-    expect(run.status).toBe(1);
-    expect(run.stderr).toContain('This project pins @acme/kit 0.1.0 with different contents');
-  });
-
-  it('refuses to change a pin to another version', async () => {
-    cli(project, 'install', kit, '--as', '@acme/kit', '--yes');
-    const newer = await archive('acme-kit-0.2.0.fluidpkg', { version: '0.2.0' });
-
-    const run = cli(project, 'install', newer, '--as', '@acme/kit', '--yes');
-    expect(run.status).toBe(1);
-    expect(run.stderr).toContain('This project pins @acme/kit 0.1.0; pinning 0.2.0 instead would change its geometry');
-    expect(fs.existsSync(path.join(library, '@acme', 'kit', '0.2.0'))).toBe(false);
-  });
-
-  it('refuses an old model archive and both targets at once', async () => {
-    const model = await archive('model.fluidpkg', { manifest: null, raw: { 'manifest.json': JSON.stringify({ schemaVersion: 3 }) } });
-    const run = cli(project, 'install', model, '--yes');
-    expect(run.status).toBe(1);
-    expect(run.stderr).toContain('This is a model archive, not a package');
-
-    expect(cli(project, 'install', kit, '--as', '@acme/kit', '--library', '--project').stderr).toContain('Pass --library or --project, not both.');
+  it('refuses both targets at once', () => {
+    expect(cli(project, 'install', '@acme/kit', '--library', '--project').stderr).toContain('Pass --library or --project, not both.');
   });
 });
 
 describe('fluidcad install <@scope/name>', () => {
-  it('pins a library package into the project, and with --project copies it in', () => {
-    cli(outside, 'install', kit, '--as', '@acme/kit', '--yes');
+  it('pins a library package into the project, and with --project copies it in', async () => {
+    await seed();
 
     // An exact version takes the library's copy without asking the hub.
     const pinned = cli(project, 'install', '@acme/kit@0.1.0');
@@ -229,8 +200,8 @@ describe('fluidcad install <@scope/name>', () => {
     expect(copied.stdout).toContain('This project already pins @acme/kit 0.1.0.');
   });
 
-  it('with the hub offline, a name alone pins the library\'s newest version with a note, and says clearly why the rest fails', () => {
-    cli(outside, 'install', kit, '--as', '@acme/kit', '--yes');
+  it('with the hub offline, a name alone pins the library\'s newest version with a note, and says clearly why the rest fails', async () => {
+    await seed();
     const pinned = cli(project, 'install', '@acme/kit');
     expect(pinned.status).toBe(0);
     expect(pinned.stdout).toContain(`Couldn't reach ${offlineHub}, so this uses @acme/kit 0.1.0 from your library, the newest version there; the hub may have a newer one.`);
@@ -239,7 +210,8 @@ describe('fluidcad install <@scope/name>', () => {
     const missing = cli(project, 'install', '@acme/gears');
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain(`Couldn't reach ${offlineHub}: ECONNREFUSED.`);
-    expect(missing.stderr).toContain('a package already in your library installs without the hub, and `fluidcad install <file.fluidpkg>` installs from a file.');
+    expect(missing.stderr).toContain(HubInstallMessages.OFFLINE_HINT);
+    expect(missing.stderr).not.toContain('.fluidpkg');
     expect(config().dependencies['@acme/gears']).toBeUndefined();
 
     const already = cli(outside, 'install', '@acme/kit@0.1.0');
@@ -249,9 +221,9 @@ describe('fluidcad install <@scope/name>', () => {
 });
 
 describe('fluidcad install (no arguments)', () => {
-  it('exits 0 when every pin is installed, and 1 listing the ones in neither root', () => {
+  it('exits 0 when every pin is installed, and 1 listing the ones in neither root', async () => {
     expect(cli(project, 'install').stdout).toContain('This project pins no packages.');
-    cli(project, 'install', kit, '--as', '@acme/kit', '--yes');
+    await seed({ pin: true });
 
     const complete = cli(project, 'install');
     expect(complete.status).toBe(0);
@@ -266,16 +238,27 @@ describe('fluidcad install (no arguments)', () => {
     expect(missing.stderr).toContain(`Couldn't install 1 package:\n  @acme/gears 1.2.0: Couldn't reach ${offlineHub}: ECONNREFUSED.`);
   });
 
-  it('outside a project says where to run it', () => {
+  it('asks the hub for every missing pin, an @local one left by H8c included (the hub never has one)', async () => {
+    const pins = config();
+    pins.dependencies = { '@local/kit': { version: '0.1.0', integrity: 'sha256-' + 'A'.repeat(42) + 'E=' } };
+    fs.writeFileSync(path.join(project, 'fluidcad.json'), JSON.stringify(pins, null, 2));
+    const run = cli(project, 'install');
+    expect(run.status).toBe(1);
+    expect(run.stdout).toContain(`This project pins 1 package that isn't installed; downloading from ${offlineHub}.`);
+    expect(run.stderr).toContain(`  @local/kit 0.1.0: Couldn't reach ${offlineHub}: ECONNREFUSED.`);
+    expect(run.stderr).not.toContain('from a file');
+  });
+
+  it('outside a project says where to run it, naming no file', () => {
     const run = cli(outside, 'install');
     expect(run.status).toBe(1);
-    expect(run.stderr).toContain('Run `fluidcad install` in a project');
+    expect(run.stderr.trim()).toBe('Run `fluidcad install` in a project: it installs the packages the project pins. To install a package, pass its name.');
   });
 });
 
 describe('fluidcad remove and fluidcad packages', () => {
-  it('lists the library, and in a project its copy and pins', () => {
-    cli(project, 'install', kit, '--as', '@acme/kit', '--yes');
+  it('lists the library, and in a project its copy and pins', async () => {
+    await seed({ pin: true });
 
     const listed = cli(project, 'packages');
     expect(listed.status).toBe(0);
@@ -286,13 +269,13 @@ describe('fluidcad remove and fluidcad packages', () => {
     expect(cli(outside, 'packages').stdout).not.toContain('Pinned in fluidcad.json');
   });
 
-  it('removes from the library and says when the project still pins it', () => {
-    cli(project, 'install', kit, '--as', '@acme/kit', '--yes');
+  it('removes from the library and says when the project still pins it', async () => {
+    await seed({ pin: true });
 
     const run = cli(project, 'remove', '@acme/kit@0.1.0');
     expect(run.status).toBe(0);
     expect(run.stdout).toContain(`Removed @acme/kit 0.1.0 from your library (${library}).`);
-    expect(run.stdout).toContain('This project still pins @acme/kit 0.1.0, which is no longer installed');
+    expect(run.stdout).toContain('This project still pins @acme/kit 0.1.0, which is no longer installed: its models will ask for it until you install it again (fluidcad install).');
     expect(fs.existsSync(installedKit())).toBe(false);
     // The pin is the project's; remove leaves it.
     expect(config().dependencies['@acme/kit'].version).toBe('0.1.0');
@@ -302,97 +285,11 @@ describe('fluidcad remove and fluidcad packages', () => {
     expect(again.stderr).toContain("@acme/kit isn't in your library.");
   });
 
-  it('removes a project copy with --project', () => {
-    cli(project, 'install', kit, '--as', '@acme/kit', '--project', '--yes');
+  it('removes a project copy with --project', async () => {
+    await seed({ target: 'project' });
     const run = cli(project, 'remove', '@acme/kit@0.1.0', '--project');
     expect(run.status).toBe(0);
     expect(run.stdout).toContain("Removed @acme/kit 0.1.0 from this project's packages folder");
     expect(fs.existsSync(path.join(project, 'packages', '@acme'))).toBe(false);
   });
 });
-
-/**
- * HD29: an archive knows only its bare name (`kit`). A file installs under
- * `--as`, else the project's one pin of that name, else `@local/kit`; the
- * hub is never asked for an `@local` pin.
- */
-describe('fluidcad install <file> names the package (HD29)', () => {
-  const localKit = () => path.join(library, '@local', 'kit', '0.1.0');
-
-  it('installs a file nothing names as @local, with the hint its hub-style file name gives', () => {
-    const run = cli(project, 'install', kit, '--yes');
-    expect(run.stderr).toBe('');
-    expect(run.status).toBe(0);
-    expect(run.stdout).toContain('kit 0.1.0 — A test kit\n  installs as @local/kit\n');
-    expect(run.stdout).toContain("This file's name suggests @acme/kit: add `--as @acme/kit` to install it under that name.");
-    expect(run.stdout).toContain(`Installed @local/kit 0.1.0 into your library (${localKit()}).`);
-    expect(run.stdout).toContain("Pinned @local/kit 0.1.0 in this project's fluidcad.json.");
-    expect(Object.keys(config().dependencies)).toEqual(['@local/kit']);
-    expect(fs.existsSync(path.join(localKit(), 'manifest.json'))).toBe(true);
-  });
-
-  it('gives no hint for a file not named like a hub download', async () => {
-    const plain = await archive('kit-0.1.0.fluidpkg');
-    const run = cli(outside, 'install', plain, '--yes');
-    expect(run.status).toBe(0);
-    expect(run.stdout).toContain('installs as @local/kit');
-    expect(run.stdout).not.toContain("This file's name suggests");
-  });
-
-  it("installs as the project's one pin of that name, checking its version and contents (the banner's case)", () => {
-    const first = cli(outside, 'install', kit, '--as', '@acme/kit', '--yes');
-    expect(first.status).toBe(0);
-    const pins = { engine: ArchiveFixture.ENGINE, unit: 'mm', dependencies: { '@acme/kit': { version: '0.1.0', integrity: 'sha256-' + 'A'.repeat(42) + 'E=' } } };
-    fs.writeFileSync(path.join(project, 'fluidcad.json'), JSON.stringify(pins, null, 2));
-    const differing = cli(project, 'install', kit, '--yes');
-    expect(differing.status).toBe(1);
-    expect(differing.stderr).toContain('This project pins @acme/kit 0.1.0 with different contents');
-
-    const listed = cli(outside, 'packages').stdout;
-    expect(listed).toContain('@acme/kit 0.1.0');
-    fs.rmSync(path.join(project, 'fluidcad.json'));
-    fs.writeFileSync(path.join(project, 'fluidcad.json'), JSON.stringify({ engine: ArchiveFixture.ENGINE, unit: 'mm' }, null, 2));
-    expect(cli(project, 'install', '@acme/kit@0.1.0').status).toBe(0);
-    const matching = cli(project, 'install', kit, '--yes');
-    expect(matching.status).toBe(0);
-    expect(matching.stdout).toContain('installs as @acme/kit');
-    expect(matching.stdout).not.toContain("This file's name suggests");
-    expect(matching.stdout).toContain('This project already pins @acme/kit 0.1.0.');
-  });
-
-  it('refuses --as whose name part is not the file\'s, and --as without a file', () => {
-    const wrong = cli(project, 'install', kit, '--as', '@acme/gears', '--yes');
-    expect(wrong.status).toBe(1);
-    expect(wrong.stderr).toContain("This file is kit, so it can't install as @acme/gears.");
-    expect(fs.existsSync(library) ? fs.readdirSync(library) : []).toEqual([]);
-
-    const nameOnly = cli(project, 'install', '@acme/kit', '--as', '@acme/kit');
-    expect(nameOnly.status).toBe(1);
-    expect(nameOnly.stderr).toContain('--as names a package installed from a file');
-  });
-
-  it('says an @local pin comes from a file, and never asks the hub for it', () => {
-    cli(project, 'install', kit, '--yes');
-    PackageCleanup.removeTree(localKit());
-    const run = cli(project, 'install');
-    expect(run.status).toBe(1);
-    expect(run.stderr).toContain("@local/kit 0.1.0: @local/kit 0.1.0 was installed from a file, so the hub doesn't have it: install that file again (`fluidcad install <file>`).");
-    expect(run.stderr).not.toContain('ECONNREFUSED');
-    // Not even announced as a download: the hub is never asked for it.
-    expect(run.stdout).not.toMatch(/[Dd]ownloading/);
-  });
-
-  it('refuses a bare name that is no file, naming the publisher form', () => {
-    const run = cli(project, 'install', 'feature-tests');
-    expect(run.status).toBe(1);
-    expect(run.stderr.trim()).toBe('Name the publisher: `fluidcad install @<handle>/feature-tests`.');
-  });
-});
-
-class PackageCleanup {
-  /** An installed tree is read-only: make it writable, then remove it. */
-  static removeTree(dir: string): void {
-    writable(dir);
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-}

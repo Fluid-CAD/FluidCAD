@@ -6,16 +6,16 @@ import { Semver } from './semver.ts';
  * The `package` block of a workspace's `fluidcad.json` (research §1, K3):
  *
  * ```json
- * { "package": { "name": "gears", "version": "1.2.0" } }
+ * { "package": { "name": "@acme/gears", "version": "1.2.0" } }
  * ```
  *
  * Having the block is what makes a workspace a package; there is no `type`
  * key. `name` and `version` are required, the rest optional. The name is
- * the author's bare name (HD29): the hub publishes it as
- * `@<handle>/gears`, and a scoped name is refused with a sentence saying
- * so. The `dependencies` keys are public names (`@acme/gears`). `minEngine`
- * left out defaults at pack time to the engine pin, else to the packing
- * engine.
+ * the package's one name (HD30), `@<handle>/<name>` with the author's own
+ * hub handle as its scope; a name without the scope is refused with a
+ * sentence saying how to write it. The `dependencies` keys are package
+ * names too. `minEngine` left out defaults at pack time to the engine pin,
+ * else to the packing engine.
  *
  * There is no list of exports: the `features/`, `parts/` and `assemblies/`
  * folders decide what a package exports (`PackageLayout`, HD20), and a
@@ -79,6 +79,16 @@ export class PackageFields {
   private static readonly SEMVER_RULE = 'MAJOR.MINOR.PATCH, with an optional -prerelease';
 
   /**
+   * The clause for a package name written without its scope
+   * (`feature-tests`): `"name" "feature-tests" needs your hub handle as its
+   * scope: write "@<your-handle>/feature-tests"` (HD30). The block's reader
+   * prefixes it with `whose`; `package init` signed out says it as is.
+   */
+  static unscopedProblem(name: string): string {
+    return `"name" ${JSON.stringify(name)} needs your hub handle as its scope: write ${JSON.stringify(`@<your-handle>/${name}`)}`;
+  }
+
+  /**
    * Validate a `package` block. `workspacePath`, when given, lets the
    * `exports` refusal name the layout folders the workspace already has.
    */
@@ -89,16 +99,13 @@ export class PackageFields {
     }
 
     if (block.name === undefined) {
-      return { problem: `without a "name" (${PackageName.BARE_RULE})` };
+      return { problem: `without a "name" (${PackageName.RULE})` };
     }
-    if (typeof block.name === 'string' && PackageName.isValid(block.name)) {
-      return {
-        problem: `whose "name" ${JSON.stringify(block.name)} carries a scope, but the hub adds your handle when you publish: `
-          + `write ${JSON.stringify(PackageName.bareOf(block.name))}`,
-      };
+    if (PackageName.isBare(block.name)) {
+      return { problem: `whose ${PackageFields.unscopedProblem(block.name)}` };
     }
-    if (!PackageName.isBare(block.name)) {
-      return { problem: `whose "name" ${JSON.stringify(block.name)} is not a package name (${PackageName.BARE_RULE})` };
+    if (!PackageName.isValid(block.name)) {
+      return { problem: `whose "name" ${JSON.stringify(block.name)} is not a package name (${PackageName.RULE})` };
     }
 
     if (block.version === undefined) {

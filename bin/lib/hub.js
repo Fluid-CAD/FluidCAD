@@ -50,9 +50,40 @@ export class HubCli {
     };
   }
 
+  /** How long `package init` waits for `GET /me` when the stored credential names no handle. */
+  static HANDLE_TIMEOUT_MS = 5000;
+
   /** This FluidCAD's version. */
   static version() {
     return readPackageVersion();
+  }
+
+  /**
+   * The handle this machine is signed in to the hub as (`--hub`, then
+   * `FLUIDCAD_HUB_URL`, then the default), for `package init` (HD30): the
+   * stored credential's, with no network; only a token that names none (a
+   * `FLUIDCAD_HUB_TOKEN`, or credentials written before a handle was
+   * claimed) asks `GET /me`, with a short timeout. `{ handle, origin }`, or
+   * null when signed out; any failure counts as signed out, never as an
+   * error.
+   */
+  static async signedInHandle(opts) {
+    try {
+      const mods = await HubCli.load();
+      const config = mods.HubConfig.resolve({ hub: opts.hub });
+      const credential = mods.HubCredentials.read(config.origin);
+      if (!credential) {
+        return null;
+      }
+      if (credential.handle) {
+        return { handle: credential.handle, origin: config.origin };
+      }
+      const transport = new mods.HubTransport({ version: HubCli.version(), client: 'cli', timeoutMs: HubCli.HANDLE_TIMEOUT_MS });
+      const me = await new mods.HubClient(config, transport, credential.token).me();
+      return me.account.handle ? { handle: me.account.handle, origin: config.origin } : null;
+    } catch {
+      return null;
+    }
   }
 
   /** A client for `config`'s hub, sending `token`. */

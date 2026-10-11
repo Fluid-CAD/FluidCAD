@@ -39,7 +39,7 @@ async function pin(version = '0.1.0', target: 'library' | 'project' = 'library')
 async function serve(): Promise<string> {
   const app = express();
   app.use(express.json());
-  app.use('/api', createPackagesRouter({ workspacePath: project.root, engineVersion: '0.0.46' }));
+  app.use('/api', createPackagesRouter({ workspacePath: project.root }));
   const server = http.createServer(app);
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));

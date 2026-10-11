@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { PackageAuthoring, PackageAuthoringError } from '../../src/packages/package-authoring.ts';
+import { PackageName } from '../../src/packages/package-name.ts';
 import { PROJECT_CONFIG_FILENAME, readProjectConfig } from '../../src/project-config.ts';
 
 let workspace: string;
@@ -45,10 +46,10 @@ describe('PackageAuthoring.init', () => {
     write('init.js');
     write('features/boss.feature.js');
 
-    const { info, configPath } = await PackageAuthoring.init(workspace, 'demo');
+    const { info, configPath } = await PackageAuthoring.init(workspace, '@acme/demo');
 
     expect(configPath).toBe(path.join(workspace, PROJECT_CONFIG_FILENAME));
-    expect(info).toEqual({ name: 'demo', version: '0.1.0' });
+    expect(info).toEqual({ name: '@acme/demo', version: '0.1.0' });
     expect(readStored()).toEqual({
       engine: '0.0.46',
       unit: 'in',
@@ -69,7 +70,7 @@ describe('PackageAuthoring.init', () => {
     write('standoff.feature.js');
     write('helpers/sizes.js');
 
-    const { exports } = await PackageAuthoring.init(workspace, 'demo');
+    const { exports } = await PackageAuthoring.init(workspace, '@acme/demo');
 
     expect(exports).toEqual([
       'assemblies/stack.assembly.js',
@@ -83,7 +84,7 @@ describe('PackageAuthoring.init', () => {
     writeConfig({ engine: '0.0.46' });
     write('standoff.feature.js');
 
-    const { info, exports } = await PackageAuthoring.init(workspace, 'parts');
+    const { info, exports } = await PackageAuthoring.init(workspace, '@acme/parts');
 
     expect(exports).toEqual([]);
     expect(readProjectConfig(workspace).package).toEqual(info);
@@ -92,68 +93,91 @@ describe('PackageAuthoring.init', () => {
   it('works in a workspace pinned through init.js alone, creating fluidcad.json', async () => {
     write('init.js');
 
-    await PackageAuthoring.init(workspace, 'demo');
+    await PackageAuthoring.init(workspace, '@acme/demo');
 
-    expect(readStored()).toEqual({ package: { name: 'demo', version: '0.1.0' } });
+    expect(readStored()).toEqual({ package: { name: '@acme/demo', version: '0.1.0' } });
   });
 
-  it.each(['Demo', 'demo_x', '3d-demo', 'demo--x', '-demo', 'g'.repeat(65), ''])('refuses the name %j', async (name) => {
+  it.each(['@Acme/demo', '@acme/demo_x', '@acme/', '@acme/3d-demo', '@3d/demo', '@acme/demo--x', '@a/demo', ''])('refuses the name %j with the rule', async (name) => {
     writeConfig({ engine: '0.0.46' });
 
     const err = await refusal(() => PackageAuthoring.init(workspace, name));
 
-    expect(err.message).toContain('is not a package name');
+    expect(err.message).toBe(`${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
     expect(readStored()).toEqual({ engine: '0.0.46' });
   });
 
-  it('refuses a scoped name: the hub adds the handle when the package is published', async () => {
+  it('refuses a name without its scope, saying to add the hub handle (HD30)', async () => {
     writeConfig({ engine: '0.0.46' });
 
-    const err = await refusal(() => PackageAuthoring.init(workspace, '@acme/demo'));
+    const err = await refusal(() => PackageAuthoring.init(workspace, 'demo'));
 
-    expect(err.message).toBe('"@acme/demo" carries a scope, but the hub adds your handle when you publish: name the package "demo".');
+    expect(err.message).toBe('"name" "demo" needs your hub handle as its scope: write "@<your-handle>/demo".');
     expect(readStored()).toEqual({ engine: '0.0.46' });
   });
 
   it('refuses a directory that is not a workspace', async () => {
-    const err = await refusal(() => PackageAuthoring.init(workspace, 'demo'));
+    const err = await refusal(() => PackageAuthoring.init(workspace, '@acme/demo'));
 
     expect(err.message).toContain('not a FluidCAD workspace');
     expect(fs.existsSync(path.join(workspace, PROJECT_CONFIG_FILENAME))).toBe(false);
   });
 
   it('refuses a workspace that is already a package, keeping its identity', async () => {
-    const existing = { name: 'demo', version: '1.4.0' };
+    const existing = { name: '@acme/demo', version: '1.4.0' };
     writeConfig({ engine: '0.0.46', package: existing });
 
-    const err = await refusal(() => PackageAuthoring.init(workspace, 'other'));
+    const err = await refusal(() => PackageAuthoring.init(workspace, '@acme/other'));
 
-    expect(err.message).toContain('already the package demo 1.4.0');
+    expect(err.message).toContain('already the package @acme/demo 1.4.0');
     expect(readStored().package).toEqual(existing);
   });
 
   it('refuses a workspace whose package block is broken, naming the problem', async () => {
-    writeConfig({ engine: '0.0.46', package: { name: 'demo', version: 'one' } });
+    writeConfig({ engine: '0.0.46', package: { name: '@acme/demo', version: 'one' } });
 
-    const err = await refusal(() => PackageAuthoring.init(workspace, 'demo'));
+    const err = await refusal(() => PackageAuthoring.init(workspace, '@acme/demo'));
 
     expect(err.message).toContain('"version" "one"');
-    expect(readStored().package).toEqual({ name: 'demo', version: 'one' });
+    expect(readStored().package).toEqual({ name: '@acme/demo', version: 'one' });
   });
 
   it('refuses a fluidcad.json that is not JSON instead of overwriting it', async () => {
     write(PROJECT_CONFIG_FILENAME, '{ "engine": "0.0.46", ');
 
-    const err = await refusal(() => PackageAuthoring.init(workspace, 'demo'));
+    const err = await refusal(() => PackageAuthoring.init(workspace, '@acme/demo'));
 
     expect(err.message).toContain('not valid JSON');
     expect(fs.readFileSync(path.join(workspace, PROJECT_CONFIG_FILENAME), 'utf8')).toBe('{ "engine": "0.0.46", ');
   });
 });
 
+describe('PackageAuthoring.scopedName', () => {
+  it('takes a package name as it is, signed in or not', () => {
+    expect(PackageAuthoring.scopedName('@acme/kit', null)).toBe('@acme/kit');
+    expect(PackageAuthoring.scopedName('@bea-tools/kit', 'acme')).toBe('@bea-tools/kit');
+  });
+
+  it("puts a name without its scope under the signed-in handle", () => {
+    expect(PackageAuthoring.scopedName('feature-tests', 'acme')).toBe('@acme/feature-tests');
+  });
+
+  it('refuses a name without its scope when signed out, saying to add the handle', () => {
+    expect(() => PackageAuthoring.scopedName('feature-tests', null)).toThrow(PackageAuthoringError);
+    expect(() => PackageAuthoring.scopedName('feature-tests', null))
+      .toThrow('"name" "feature-tests" needs your hub handle as its scope: write "@<your-handle>/feature-tests".');
+  });
+
+  it.each(['@acme/3d-kit', 'Kit', '3d-kit', 'kit--x', ''])('refuses %j with the rule, signed in or not', (name) => {
+    for (const handle of [null, 'acme']) {
+      expect(() => PackageAuthoring.scopedName(name, handle)).toThrow(`${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
+    }
+  });
+});
+
 describe('PackageAuthoring.bumpVersion', () => {
   const BLOCK = {
-    name: 'demo',
+    name: '@acme/demo',
     version: '0.1.0',
     license: 'MIT',
   };
@@ -170,7 +194,7 @@ describe('PackageAuthoring.bumpVersion', () => {
     const change = PackageAuthoring.bumpVersion(workspace, spec);
 
     expect(change).toEqual({
-      name: 'demo', from: '0.1.0', to, configPath: path.join(workspace, PROJECT_CONFIG_FILENAME),
+      name: '@acme/demo', from: '0.1.0', to, configPath: path.join(workspace, PROJECT_CONFIG_FILENAME),
     });
     expect(readStored()).toEqual({ engine: '0.0.46', unit: 'in', package: { ...BLOCK, version: to, futureField: 1 } });
   });
@@ -220,7 +244,7 @@ describe('PackageAuthoring.bumpVersion', () => {
 
     const err = await refusal(() => PackageAuthoring.bumpVersion(workspace, '0.1.0'));
 
-    expect(err.message).toBe('demo is already at 0.1.0.');
+    expect(err.message).toBe('@acme/demo is already at 0.1.0.');
   });
 
   it('refuses a fluidcad.json that is not JSON instead of overwriting it', async () => {

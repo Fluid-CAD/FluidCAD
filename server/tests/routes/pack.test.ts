@@ -77,14 +77,14 @@ beforeEach(() => {
 });
 
 describe('POST /api/pack', () => {
-  it('returns the package archive, named for its bare name and version', async () => {
+  it('returns the package archive, named for its scope, name and version', async () => {
     const res = await post();
 
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('application/zip');
-    expect(res.headers.get('x-fluidcad-package-name')).toBe('kit');
+    expect(res.headers.get('x-fluidcad-package-name')).toBe('@acme/kit');
     expect(res.headers.get('x-fluidcad-package-version')).toBe('0.1.0');
-    expect(res.headers.get('content-disposition')).toBe('attachment; filename="kit-0.1.0.fluidpkg"');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="acme-kit-0.1.0.fluidpkg"');
 
     const zip = await JSZip.loadAsync(res.bytes);
     const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir).sort();
@@ -126,9 +126,9 @@ describe('POST /api/pack', () => {
     expect(res.status).toBe(200);
     const body = JSON.parse(res.bytes.toString('utf8'));
     expect(body).toMatchObject({
-      packageName: 'kit',
+      packageName: '@acme/kit',
       version: '0.1.0',
-      fileName: 'kit-0.1.0.fluidpkg',
+      fileName: 'acme-kit-0.1.0.fluidpkg',
     });
     expect(body.contents.features.map((f: { module: string }) => f.module)).toEqual([
       'features/fastener.feature.js',

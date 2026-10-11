@@ -105,7 +105,7 @@ export async function packPackage(inputs: PackPackageInputs): Promise<PackPackag
  *    its suffix (`wrong-folder`), and the folders hold something to export
  *    (`no-exports`);
  * 2. every export module evaluates in the engine;
- * 3. no name is exported twice, and no feature id is declared twice (ids are plain: HD29);
+ * 3. no name is exported twice, and no feature id is declared twice (ids are plain, keyed by the package at load);
  * 4. every exported part and assembly builds with its defaults, no object in error;
  * 5. the closure stays inside the workspace: no `node_modules`, `init.js`,
  *    blocked built-in or other package, nothing on a reserved root path,
@@ -398,8 +398,9 @@ export class PackageBuilder {
         byName.set(name, module.module);
       }
     }
-    // Ids are plain (HD29): a consumer's engine keys them by the package it
-    // installed this one as, so they only have to be unique in here.
+    // Ids are plain (no scope prefix): a consumer's engine keys them by this
+    // package's name at load (`@acme/kit:standoff`), so they only have to be
+    // unique in here.
     const byId = new Map<string, string>();
     for (const feature of modules.flatMap((m) => m.features)) {
       const other = byId.get(feature.id);

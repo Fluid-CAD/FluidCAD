@@ -1,4 +1,4 @@
-import express, { Router, type NextFunction, type Request, type Response } from 'express';
+import { Router, type Response } from 'express';
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
 import { ASSET_TYPES } from './feature-catalog.ts';
@@ -6,7 +6,6 @@ import { loadPreferences } from '../preferences.ts';
 import { PackageArchive, PackageArchiveError } from '../packages/package-archive.ts';
 import { PackageInstallError, PackageInstaller } from '../packages/package-installer.ts';
 import { LibraryMove } from '../packages/library-move.ts';
-import { PackageIdentity } from '../packages/package-identity.ts';
 import { PackageName } from '../packages/package-name.ts';
 import { PackagePinError, PackagePins } from '../packages/package-pins.ts';
 import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
@@ -17,39 +16,29 @@ import { Semver } from '../packages/semver.ts';
 export type PackagesRouterOptions = {
   /** The open project; empty when the server runs without one (no project target, no pins). */
   workspacePath: string;
-  /** The running engine's version, compared with a package's `minEngine`. */
-  engineVersion: string;
-  /** The largest archive `inspect` accepts. */
-  maxArchiveBytes?: number;
 };
 
-/** A package archive is source files and small images; this is far above any real one. */
-const DEFAULT_MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
-
 /**
- * The package install routes (research §3, "The install flow"), for the
- * engine page's install dialog and Settings → Packages:
+ * The package routes (research §3), for the engine page's Packages dialog
+ * and Settings → Packages. Packages install only from the hub (HD31): no
+ * route takes an archive from the page. The hub download inspects the
+ * archive inside the engine (`PackageArchive.inspect`), and the token it
+ * answers is what `install`, `discard` and `inspected-icon` take — H10's
+ * `POST /api/hub/inspect` hands it to the page; until then no route does.
  *
- * - `POST /api/packages/inspect[?as=@scope/name]`: the raw `.fluidpkg` as
- *   the body. Answers the consent summary — `{ token, manifest, integrity,
- *   warnings, bytes, installsAs }` — with the archive extracted into
- *   scratch, waiting for its install. `installsAs` is the public name it
- *   installs under (`PackageIdentity.forInstall`: `as`, else the project's
- *   single matching pin, else `@local/<name>`); a name it can't take is a
- *   400 with its code, and nothing waits.
- * - `POST /api/packages/install { token, target, replace?, pin?, as? }`:
- *   renames it into the user library or the project copy under that name,
- *   and pins it into the open project when the target is `project` or `pin`
- *   is true.
+ * - `POST /api/packages/install { token, target, replace?, pin? }`: renames
+ *   an inspected archive into the user library or the project copy under
+ *   its manifest's name, and pins it into the open project when the target
+ *   is `project` or `pin` is true.
+ * - `GET /api/packages/inspected-icon?token=&id=`: a feature's icon from an
+ *   inspected archive, for the consent dialog; `POST /api/packages/discard
+ *   { token }` drops an inspection the user declined.
  * - `GET /api/packages`: both roots and the project's pins, each with where
  *   it is installed (`availability`).
  * - `POST /api/packages/copy { name, version, to }`: Copy into project
  *   (`to: 'project'`) and Add to my library (`to: 'library'`).
  * - `DELETE /api/packages/@scope/name/<version>?target=library|project`
  *   (the version may be left out when only one is installed).
- * - `GET /api/packages/inspected-icon?token=&id=`: a feature's icon from an
- *   inspected archive, for the consent dialog; `POST /api/packages/discard
- *   { token }` drops an inspection the user declined.
  * - `GET /api/packages/types`: the pinned packages' sources, for the
  *   in-page editor's language service (`PackageTypeLibs`).
  * - `POST /api/packages/library-offer`: copy what the folder the library was
@@ -63,38 +52,11 @@ const DEFAULT_MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
 export function createPackagesRouter(options: PackagesRouterOptions): Router {
   const router = Router();
   const project = options.workspacePath || null;
-  const rawBody = express.raw({ type: () => true, limit: options.maxArchiveBytes ?? DEFAULT_MAX_ARCHIVE_BYTES });
-
-  router.post('/packages/inspect', rawBody, async (req, res) => {
-    const body = req.body;
-    if (!Buffer.isBuffer(body) || body.length === 0) {
-      res.status(400).json({ error: 'Send the .fluidpkg file as the request body.' });
-      return;
-    }
-    const as = typeof req.query.as === 'string' && req.query.as !== '' ? req.query.as : null;
-    let token: string | null = null;
-    try {
-      const target = await defaultTarget(req.query.target);
-      const inspection = await PackageArchive.inspect(body, {
-        root: PackageRoots.rootFor(target, project),
-        engineVersion: options.engineVersion,
-      });
-      token = inspection.token;
-      const installsAs = PackageIdentity.forInstall(inspection.manifest.name, { as, project });
-      res.json({ ...inspection, defaultTarget: target, installsAs });
-    } catch (err) {
-      // A name it can't install under: nothing waits for an install.
-      if (token !== null) {
-        PackageArchive.discard(token);
-      }
-      PackageRefusal.send(res, err);
-    }
-  });
 
   router.post('/packages/install', async (req, res) => {
-    const { token, target, replace, pin, as } = req.body ?? {};
-    if (typeof token !== 'string' || !PackageRoots.isTarget(target) || (as !== undefined && as !== null && typeof as !== 'string')) {
-      res.status(400).json({ error: 'Expected { token, target: "library" | "project", as?: "@scope/name" }.' });
+    const { token, target, replace, pin } = req.body ?? {};
+    if (typeof token !== 'string' || !PackageRoots.isTarget(target)) {
+      res.status(400).json({ error: 'Expected { token, target: "library" | "project" }.' });
       return;
     }
     if (target === 'project' && !project) {
@@ -102,7 +64,7 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
       return;
     }
     try {
-      res.json(await ProjectPackages.installInspected({ token, target, project, replace: replace === true, pin: pin === true, as: as ?? null }));
+      res.json(await ProjectPackages.installInspected({ token, target, project, replace: replace === true, pin: pin === true }));
     } catch (err) {
       PackageRefusal.send(res, err);
     }
@@ -155,7 +117,7 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
       res.json({
         ...ProjectPackages.overview(project),
         problems: PackagePins.problems(project),
-        defaultTarget: await defaultTarget(undefined),
+        defaultTarget: await preferredTarget(),
         libraryOffer: LibraryMove.offer(),
       });
     } catch (err) {
@@ -231,21 +193,8 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
     }
   });
 
-  // An archive over the limit fails inside express.raw, before the handler:
-  // answer it in the same shape as every other refusal.
-  router.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-    if (err?.type === 'entity.too.large') {
-      res.status(413).json({ error: `The archive is larger than ${Math.round((options.maxArchiveBytes ?? DEFAULT_MAX_ARCHIVE_BYTES) / (1024 * 1024))} MB.` });
-      return;
-    }
-    next(err);
-  });
-
-  /** The target a request names, else the "New packages go to" setting; the project only when one is open. */
-  async function defaultTarget(asked: unknown): Promise<PackageTarget> {
-    if (PackageRoots.isTarget(asked)) {
-      return asked === 'project' && !project ? 'library' : asked;
-    }
+  /** The "New packages go to" setting; the project only when one is open. */
+  async function preferredTarget(): Promise<PackageTarget> {
     const preferred = (await loadPreferences()).packageInstallTarget;
     return preferred === 'project' && project ? 'project' : 'library';
   }

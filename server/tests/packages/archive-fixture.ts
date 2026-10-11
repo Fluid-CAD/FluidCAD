@@ -1,5 +1,4 @@
 import JSZip from 'jszip';
-import { PackageName } from '../../src/packages/package-name.ts';
 
 /**
  * `.fluidpkg` archives built in memory, without booting the engine: the
@@ -8,12 +7,7 @@ import { PackageName } from '../../src/packages/package-name.ts';
  * covered in `package-builder.test.ts`.
  */
 export type ArchiveOptions = {
-  /**
-   * The package: a public name (`@acme/gears`, whose bare part the manifest
-   * holds, as a packed archive does since HD29) or the manifest's name as
-   * given (a bare name, or a bad one a refusal test wants). `@acme/kit` by
-   * default.
-   */
+  /** The manifest's name, as given (a bad one for a refusal test): `@acme/kit` by default. */
   name?: string;
   version?: string;
   /** The package's files besides `manifest.json`; defaults to an entry and one feature module. */
@@ -26,20 +20,6 @@ export type ArchiveOptions = {
 
 export class ArchiveFixture {
   static readonly ENGINE = '0.0.46';
-  /** The handle a bare name installs under in these tests (`kit` → `@acme/kit`). */
-  static readonly SCOPE = 'acme';
-
-  /** The name the archive's manifest holds: the bare part of a public name, else the name as given. */
-  static manifestName(options: ArchiveOptions = {}): string {
-    const name = options.name ?? `@${ArchiveFixture.SCOPE}/kit`;
-    return PackageName.bareOf(name) ?? name;
-  }
-
-  /** The public name the tests install the archive as (`as`): the name given, or `@acme/<bare name>`. */
-  static publicName(options: ArchiveOptions = {}): string {
-    const name = options.name ?? `@${ArchiveFixture.SCOPE}/kit`;
-    return PackageName.isValid(name) ? name : `@${ArchiveFixture.SCOPE}/${name}`;
-  }
 
   static defaultFiles(): Record<string, string> {
     return {
@@ -53,7 +33,7 @@ export class ArchiveFixture {
     const files = options.files ?? ArchiveFixture.defaultFiles();
     return {
       manifestVersion: 1,
-      name: ArchiveFixture.manifestName(options),
+      name: options.name ?? '@acme/kit',
       version: options.version ?? '0.1.0',
       description: 'A test kit',
       engine: ArchiveFixture.ENGINE,

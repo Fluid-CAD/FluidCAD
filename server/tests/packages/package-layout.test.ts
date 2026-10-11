@@ -8,18 +8,6 @@ import { PackageInstaller } from '../../src/packages/package-installer.ts';
 import { PackageRoots } from '../../src/packages/package-roots.ts';
 import { TreeHash } from '../../src/packages/tree-hash.ts';
 import { normalizePath } from '../../src/normalize-path.ts';
-import JSZip from 'jszip';
-
-/** H3b's pre-layout archive with its manifest's scoped name made bare, as `scripts/package-conformance.mjs` converts it. */
-class PreLayout {
-  static async withBareName(archive: Buffer): Promise<Buffer> {
-    const zip = await JSZip.loadAsync(archive);
-    const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
-    manifest.name = 'kit';
-    zip.file('manifest.json', JSON.stringify(manifest, null, 2) + '\n', { date: new Date('1980-01-01T00:00:00.000Z') });
-    return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-  }
-}
 
 /**
  * Stage H3b: a package keeps its feature modules in `features/`, its parts
@@ -188,28 +176,18 @@ describe('an archive packed before the layout', () => {
     PackageRoots.forget();
   });
 
-  // The archive was also packed before HD29: its manifest names `@acme/kit`,
-  // so it is refused as it is ("pack it again"), and converted here the way
-  // the conformance script converts it — the manifest's name made bare.
-  it('is refused as packed, its manifest naming its scope (HD29)', async () => {
-    await expect(PackageArchive.inspect(fs.readFileSync(PRE_LAYOUT_ARCHIVE), {
-      root: PackageRoots.rootFor('library', ws),
-      engineVersion: '0.0.46',
-    })).rejects.toMatchObject({ code: 'bad-manifest', message: expect.stringContaining('Pack it again with this one.') });
-  });
-
-  it('still inspects and installs once its name is bare: install never enforces the layout', async () => {
-    const zip = await PreLayout.withBareName(fs.readFileSync(PRE_LAYOUT_ARCHIVE));
+  it('still inspects and installs: install never enforces the layout', async () => {
+    const zip = fs.readFileSync(PRE_LAYOUT_ARCHIVE);
     const inspection = await PackageArchive.inspect(zip, {
       root: PackageRoots.rootFor('library', ws),
       engineVersion: '0.0.46',
     });
-    expect(inspection.manifest.name).toBe('kit');
+    expect(inspection.manifest.name).toBe('@acme/kit');
     // Its modules sit at the root, outside the three folders.
     expect(inspection.manifest.features.map((f) => f.module)).toEqual(['fastener.feature.js', 'standoff.feature.js']);
     expect(inspection.manifest.features.every((f) => PackageLayout.folderOf(f.module) === null)).toBe(true);
 
-    const installed = await PackageInstaller.install(inspection.token, 'library', { project: ws, replace: false, as: '@acme/kit' });
+    const installed = await PackageInstaller.install(inspection.token, 'library', { project: ws, replace: false });
     expect(installed.status).toBe('installed');
     expect(await TreeHash.ofDirectory(installed.directory)).toBe(installed.integrity);
     expect(inspection.integrity).toBe(installed.integrity);

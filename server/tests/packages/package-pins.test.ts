@@ -163,12 +163,12 @@ describe('a project\'s pins decide what @acme/kit loads', () => {
 
     PackageProject.chmodFiles(kit, 0o644);
     fs.rmSync(kit, { recursive: true, force: true });
-    const sentence = 'This project uses `@acme/kit` 0.1.0, which isn\'t installed.';
+    const sentence = 'This project uses `@acme/kit` 0.1.0, which isn\'t installed: `fluidcad install @acme/kit@0.1.0` downloads it from the hub.';
     await expect(quietly(() => render(`${MODEL}// again\n`))).rejects.toThrow(sentence);
     expect(server.getPackageProblems()).toEqual([{ code: 'missing', name: '@acme/kit', version: '0.1.0', message: sentence }]);
     expect(PackagePins.problems(project.root)).toEqual([{ code: 'missing', name: '@acme/kit', version: '0.1.0', message: sentence }]);
     expect(PackagePins.describeProblems(project.root)).toEqual([
-      `FluidCAD: ${sentence} \`fluidcad install @acme/kit@0.1.0\` downloads it from the hub (\`fluidcad install\` alone fetches every missing one), or install it from a file.`,
+      `FluidCAD: ${sentence} \`fluidcad install\` alone fetches every missing one.`,
     ]);
 
     // Put back, it renders again with no restart.

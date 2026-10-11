@@ -6,6 +6,7 @@ import path from 'path';
 import { ArchiveFixture } from './archive-fixture.ts';
 import { PackageArchive, PackageArchiveError } from '../../src/packages/package-archive.ts';
 import { PackageInstallError, PackageInstaller } from '../../src/packages/package-installer.ts';
+import { PackageName } from '../../src/packages/package-name.ts';
 import { PackagePinError, PackagePins } from '../../src/packages/package-pins.ts';
 import { PackageRoots, type PackageTarget } from '../../src/packages/package-roots.ts';
 import { ProjectPackages } from '../../src/packages/project-packages.ts';
@@ -46,7 +47,7 @@ async function inspect(options: Parameters<typeof ArchiveFixture.zip>[0] = {}, t
 
 async function install(options: Parameters<typeof ArchiveFixture.zip>[0] = {}, target: PackageTarget = 'library', replace = false) {
   const inspection = await inspect(options, target);
-  return PackageInstaller.install(inspection.token, target, { project, replace, as: ArchiveFixture.publicName(options) });
+  return PackageInstaller.install(inspection.token, target, { project, replace });
 }
 
 /** The default archive with one byte of its feature module changed: same version, other contents. */
@@ -115,7 +116,7 @@ describe('PackageArchive.inspect', () => {
   it('extracts into <library>/.tmp and answers the manifest, the tree hash and no warnings', async () => {
     const inspection = await inspect();
 
-    expect(inspection.manifest).toMatchObject({ name: 'kit', version: '0.1.0', manifestVersion: 1 });
+    expect(inspection.manifest).toMatchObject({ name: '@acme/kit', version: '0.1.0', manifestVersion: 1 });
     const files = { ...ArchiveFixture.defaultFiles(), 'manifest.json': JSON.stringify(ArchiveFixture.manifest(), null, 2) + '\n' };
     expect(inspection.integrity).toBe(TreeHash.ofFiles(Object.fromEntries(Object.entries(files).map(([p, c]) => [p, Buffer.from(c)]))));
     expect(inspection.warnings).toEqual([]);
@@ -172,9 +173,20 @@ describe('PackageArchive.inspect', () => {
     await expectRefusal(inspect({ manifest: null }), PackageArchiveError, 'no-manifest');
     await expectRefusal(inspect({ raw: { 'extra.js': '' } }), PackageArchiveError, 'files-mismatch');
     await expectRefusal(inspect({ manifest: { manifestVersion: 2 } }), PackageArchiveError, 'newer-manifest');
-    await expectRefusal(inspect({ manifest: { name: '3d-kit' } }), PackageArchiveError, 'bad-manifest');
-    const scoped = await expectRefusal(inspect({ manifest: { name: '@acme/kit' } }), PackageArchiveError, 'bad-manifest');
-    expect(scoped.message).toBe('This archive names @acme/kit: it was packed by an earlier FluidCAD, whose package names carried the scope. Pack it again with this one.');
+  });
+
+  it('refuses an archive packed under HD29 (a name without its scope) with the sentence, and any other bad name with the rule', async () => {
+    const bare = await expectRefusal(inspect({ manifest: { name: 'kit' } }), PackageArchiveError, 'bad-manifest');
+    expect(bare.message).toBe(
+      'This archive names kit, without a scope: it was packed by an earlier FluidCAD, whose package names had none. '
+        + 'Pack it again with this one, after naming the package "@<your-handle>/kit" in its fluidcad.json.',
+    );
+    expect(bare.message).toBe(PackageArchive.unscopedNameSentence('kit'));
+    for (const name of ['@acme/3d-kit', '@3dtools/kit', '@acme/a--b']) {
+      const err = await expectRefusal(inspect({ manifest: { name } }), PackageArchiveError, 'bad-manifest');
+      expect(err.message).toBe(`The package's name ${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
+    }
+    expect(scratchEntries(library)).toEqual([]);
   });
 });
 
@@ -201,10 +213,10 @@ describe('PackageInstaller.install', () => {
   it('installs an archive packed while the manifest still had createdAt, the installed manifest kept byte for byte', async () => {
     const old = { manifest: { createdAt: '2026-10-09T12:00:00.000Z' } };
     const inspection = await inspect(old);
-    expect(inspection.manifest).toMatchObject({ name: 'kit', version: '0.1.0', createdAt: '2026-10-09T12:00:00.000Z' });
+    expect(inspection.manifest).toMatchObject({ name: '@acme/kit', version: '0.1.0', createdAt: '2026-10-09T12:00:00.000Z' });
     expect(inspection.warnings).toEqual([]);
 
-    const result = await PackageInstaller.install(inspection.token, 'library', { project, replace: false, as: '@acme/kit' });
+    const result = await PackageInstaller.install(inspection.token, 'library', { project, replace: false });
     expect(result).toMatchObject({ name: '@acme/kit', version: '0.1.0', status: 'installed', integrity: inspection.integrity });
     expect(fs.readFileSync(path.join(result.directory, 'manifest.json'), 'utf8'))
       .toBe(JSON.stringify(ArchiveFixture.manifest(old), null, 2) + '\n');
@@ -255,13 +267,13 @@ describe('PackageInstaller.install', () => {
 
   it('refuses a token that is gone', async () => {
     const inspection = await inspect();
-    await PackageInstaller.install(inspection.token, 'library', { as: '@acme/kit' });
-    await expectRefusal(PackageInstaller.install(inspection.token, 'library', { as: '@acme/kit' }), PackageInstallError, 'unknown-token');
+    await PackageInstaller.install(inspection.token, 'library', {});
+    await expectRefusal(PackageInstaller.install(inspection.token, 'library', {}), PackageInstallError, 'unknown-token');
   });
 
   it('moves a tree inspected under one root into the other', async () => {
     const inspection = await inspect({}, 'library');
-    const result = await PackageInstaller.install(inspection.token, 'project', { project, as: '@acme/kit' });
+    const result = await PackageInstaller.install(inspection.token, 'project', { project });
     expect(result.target).toBe('project');
     expect(await TreeHash.ofDirectory(result.directory)).toBe(inspection.integrity);
     expect(scratchEntries(library)).toEqual([]);
@@ -359,21 +371,21 @@ describe('PackageInstaller.sweep', () => {
     expect(fs.existsSync(projectStranded)).toBe(false);
     // This process's own inspection is still waiting for its install.
     expect(scratchEntries(library)).toEqual([expect.stringMatching(new RegExp(`^${process.pid}-`))]);
-    expect((await PackageInstaller.install(pending.token, 'library', { as: '@acme/kit' })).status).toBe('installed');
+    expect((await PackageInstaller.install(pending.token, 'library', {})).status).toBe('installed');
   });
 });
 
 describe('pins', () => {
   it('pins an install into the project, and refuses to change the pin’s version', async () => {
     const inspection = await inspect({}, 'project');
-    const outcome = await ProjectPackages.installInspected({ token: inspection.token, as: '@acme/kit', target: 'project', project });
+    const outcome = await ProjectPackages.installInspected({ token: inspection.token, target: 'project', project });
     expect(outcome.pin).toBe('pinned');
     expect(readProjectConfig(project).dependencies).toEqual({ '@acme/kit': { version: '0.1.0', integrity: inspection.integrity } });
     const before = fs.readFileSync(path.join(project, 'fluidcad.json'), 'utf8');
 
     const newer = await inspect({ version: '0.2.0' });
     const err = await expectRefusal(
-      ProjectPackages.installInspected({ token: newer.token, as: '@acme/kit', target: 'library', project, pin: true }),
+      ProjectPackages.installInspected({ token: newer.token, target: 'library', project, pin: true }),
       PackagePinError, 'version-change');
     expect(err.message).toContain('This project pins @acme/kit 0.1.0; pinning 0.2.0 instead');
     // Refused before anything was written: no 0.2.0 anywhere, the pin as it was.
@@ -384,25 +396,25 @@ describe('pins', () => {
 
   it('pins only when asked for a library install', async () => {
     const inspection = await inspect();
-    const outcome = await ProjectPackages.installInspected({ token: inspection.token, as: '@acme/kit', target: 'library', project });
+    const outcome = await ProjectPackages.installInspected({ token: inspection.token, target: 'library', project });
     expect(outcome.pin).toBeNull();
     expect(readProjectConfig(project).dependencies).toBeNull();
   });
 
   it('refuses a file whose hash differs from the pin of the same version', async () => {
     const first = await inspect();
-    await ProjectPackages.installInspected({ token: first.token, as: '@acme/kit', target: 'library', project, pin: true });
+    await ProjectPackages.installInspected({ token: first.token, target: 'library', project, pin: true });
     PackageInstaller.remove('@acme/kit', '0.1.0', 'library');
 
     const other = await inspect({ files: changedFiles() });
-    await expectRefusal(ProjectPackages.installInspected({ token: other.token, as: '@acme/kit', target: 'library', project, pin: true }), PackagePinError, 'integrity-mismatch');
+    await expectRefusal(ProjectPackages.installInspected({ token: other.token, target: 'library', project, pin: true }), PackagePinError, 'integrity-mismatch');
     expect(fs.existsSync(path.join(library, '@acme', 'kit', '0.1.0'))).toBe(false);
     PackageArchive.discard(other.token);
   });
 
   it('lists a pin as missing when neither root has it', async () => {
     const inspection = await inspect();
-    await ProjectPackages.installInspected({ token: inspection.token, as: '@acme/kit', target: 'library', project, pin: true });
+    await ProjectPackages.installInspected({ token: inspection.token, target: 'library', project, pin: true });
     expect(PackagePins.availability(project).map((p) => p.availability)).toEqual(['library']);
 
     const { strandedPin } = ProjectPackages.remove('@acme/kit', '0.1.0', 'library', project);
@@ -424,7 +436,7 @@ describe('pins', () => {
 
     await expectRefusal(ProjectPackages.useInstalled('@acme/kit@0.1.0', project), PackagePinError, 'version-change');
     const missing = await expectRefusal(ProjectPackages.useInstalled('@acme/gears', project), PackageInstallError, 'not-installed');
-    expect(missing.message).toBe("@acme/gears isn't in your library — `fluidcad install @acme/gears` downloads it from the hub, or install it from a file.");
+    expect(missing.message).toBe("@acme/gears isn't in your library — `fluidcad install @acme/gears` downloads it from the hub.");
   });
 });
 

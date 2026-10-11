@@ -8,7 +8,6 @@ import {
   type PackageDependencies,
 } from '../project-config.ts';
 import type { PackageProblem } from '../ws-protocol.ts';
-import { PackageName } from './package-name.ts';
 import { PackageRoots, type PackageTarget } from './package-roots.ts';
 
 export type PackagePinErrorCode = 'not-a-project' | 'unreadable-config' | 'broken-dependencies' | 'version-change' | 'integrity-mismatch';
@@ -43,16 +42,6 @@ export type PinnedPackage = {
  * was built with.
  */
 export class PackagePins {
-  /**
-   * The scope of a package installed from a file (`PackageIdentity.LOCAL_SCOPE`,
-   * restated: that class reads the pins, so it can't be imported here). An
-   * `@local` pin is never downloaded from the hub.
-   */
-  static readonly LOCAL_SCOPE = 'local';
-
-  /** The tail of every refusal of a missing `@local` package. */
-  static readonly FROM_A_FILE = "was installed from a file, so the hub doesn't have it: install that file again (`fluidcad install <file>`).";
-
   /** A directory holding `fluidcad.json` or `init.js`: what the CLI pins into when it runs there. */
   static isProject(dir: string): boolean {
     return fs.existsSync(path.join(dir, PROJECT_CONFIG_FILENAME)) || fs.existsSync(path.join(dir, 'init.js'));
@@ -155,20 +144,21 @@ export class PackagePins {
 
   /**
    * The startup warnings for {@link problems}: one line per missing package,
-   * naming the command that downloads it from the hub (hub-plan H8).
+   * whose sentence names the command that downloads it from the hub.
    */
   static describeProblems(project: string | null): string[] {
-    return PackagePins.problems(project).map((problem) => {
-      if (PackageName.scope(problem.name) === PackagePins.LOCAL_SCOPE) {
-        return `FluidCAD: ${problem.message} ${problem.name} ${problem.version} ${PackagePins.FROM_A_FILE}`;
-      }
-      return `FluidCAD: ${problem.message} \`fluidcad install ${problem.name}@${problem.version}\` downloads it from the hub ` +
-        '(`fluidcad install` alone fetches every missing one), or install it from a file.';
-    });
+    return PackagePins.problems(project).map((problem) =>
+      `FluidCAD: ${problem.message} \`fluidcad install\` alone fetches every missing one.`);
   }
 
-  /** The sentence for a pin installed in neither root (research §3), shared with the engine's resolver. */
+  /**
+   * The sentence for a pin installed in neither root (research §3), shared
+   * with the engine's resolver, so the missing-package banner, the editors'
+   * diagnostics and the startup warning all say it: it names the command
+   * that downloads the package, since packages install only from the hub
+   * (hub-plan H8, HD31).
+   */
   static missingSentence(name: string, version: string): string {
-    return `This project uses \`${name}\` ${version}, which isn't installed.`;
+    return `This project uses \`${name}\` ${version}, which isn't installed: \`fluidcad install ${name}@${version}\` downloads it from the hub.`;
   }
 }

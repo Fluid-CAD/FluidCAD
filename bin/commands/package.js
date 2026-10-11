@@ -1,24 +1,42 @@
 import { resolve } from 'path';
 import { createInterface } from 'readline/promises';
+import { HubCli } from '../lib/hub.js';
 import { isInteractive } from '../lib/prompt.js';
 
 /**
  * `fluidcad package init`: make the workspace a package by writing the
  * `package` block of its fluidcad.json. The rules live in the server's
  * `PackageAuthoring`; this is the terminal around it.
+ *
+ * The name is the package's one name, `@<handle>/<name>` (HD30). A name
+ * without the scope (`--name feature-tests`, or a bare answer to the
+ * prompt) takes the handle this machine is signed in to the hub as
+ * (`HubCli.signedInHandle`), and the command says so; signed out, it is
+ * refused with the sentence saying to add the scope.
  */
 async function runPackageInit(opts) {
   // Imported lazily, like `pack`: the feature-module walk pulls in the
   // packer's dependencies, which the rest of the CLI doesn't need.
   const { PackageAuthoring, PackageAuthoringError } = await import('../../server/dist/packages/package-authoring.js');
   const { PackageLayout } = await import('../../server/dist/packages/package-manifest.js');
+  const { PackageName } = await import('../../server/dist/packages/package-name.js');
 
   const workspace = resolve(opts.workspace ?? process.cwd());
-  // PackageAuthoring checks the name, a scoped one included.
-  const name = opts.name ?? (await askName());
+  const asked = opts.name ?? null;
+  if (asked === null && !isInteractive()) {
+    console.error('Pass the package name with --name, such as --name @acme/feature-tests.');
+    process.exit(1);
+  }
 
   try {
+    // The handle is only needed for a name without its scope, or to ask for one.
+    const signedIn = asked === null || !PackageName.isValid(asked) ? await HubCli.signedInHandle(opts) : null;
+    const typed = asked ?? (await askName(signedIn?.handle ?? null));
+    const name = PackageAuthoring.scopedName(typed, signedIn?.handle ?? null);
     const { info, configPath, exports } = await PackageAuthoring.init(workspace, name);
+    if (name !== typed) {
+      console.log(`Named it ${name}: your handle on ${signedIn.origin}.`);
+    }
     console.log(`Wrote the "package" block to ${configPath}:`);
     console.log(indent(JSON.stringify(info, null, 2)));
     printLayout(PackageLayout, exports);
@@ -32,18 +50,15 @@ async function runPackageInit(opts) {
 }
 
 /**
- * Ask for the name when `--name` wasn't given; without a terminal to ask on,
- * say which flag to pass. The name is the author's bare name: the hub adds
- * the publisher's handle when the package is published.
+ * Ask for the name when `--name` wasn't given. Signed in, the prompt shows
+ * the handle (`Package name: @acme/`): a bare answer takes it, and an
+ * `@x/y` answer is taken as typed. Signed out, it asks for the whole name.
  */
-async function askName() {
-  if (!isInteractive()) {
-    console.error('Pass the package name with --name, such as --name feature-tests.');
-    process.exit(1);
-  }
+async function askName(handle) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return (await rl.question('Package name (lowercase letters, digits and dashes, starting with a letter): ')).trim();
+    const question = handle ? `Package name: @${handle}/` : 'Package name (@<your-handle>/<name>): ';
+    return (await rl.question(question)).trim();
   } finally {
     rl.close();
   }
@@ -75,13 +90,14 @@ function indent(text) {
 export function registerPackageCommand(program) {
   const pkg = program
     .command('package')
-    .description('Make this workspace a package others can install');
+    .description('Make this workspace a package you can publish on the hub');
 
   pkg
     .command('init')
     .description('Write the "package" block of fluidcad.json: the name and version 0.1.0 (the features/, parts/ and assemblies/ folders decide the exports)')
     .option('-w, --workspace <path>', 'Workspace directory (defaults to cwd)')
-    .option('-n, --name <name>', 'Package name, such as feature-tests: the hub adds your handle when you publish (asked for when omitted)')
+    .option('-n, --name <@handle/name>', 'Package name, @<your hub handle>/<name>; signed in, a name without the scope takes your handle (asked for when omitted)')
+    .option('--hub <url>', 'The hub whose handle scopes a name without one (default: FLUIDCAD_HUB_URL, else https://hub.fluidcad.io)')
     .action((opts) => {
       runPackageInit(opts).catch((err) => {
         console.error(err?.message ?? err);

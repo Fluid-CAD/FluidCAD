@@ -1911,7 +1911,7 @@ export type paths = {
         };
         /**
          * Upload a package version (a draft for a first version, else submitted for review)
-         * @description The raw `.fluidpkg` bytes. Checks that need no body run first (token with `publish`, verified email, publisher, scope, name, version, open version, limits), then the hub validates the archive, recomputes its integrity and stores it. Nothing becomes public: an admin approves every version.
+         * @description The raw `.fluidpkg` bytes. Checks that need no body run first (token with `publish`, verified email, publisher, scope, name, version, open version, limits), then the hub validates the archive, recomputes its integrity and stores it. The manifest of the archive holds the bare name of the package, which must equal the name part of the URL (`name-mismatch`): the scope in the URL, the handle of the uploader, makes the public name `@<handle>/<name>`. Nothing becomes public: an admin approves every version.
          */
         put: {
             parameters: {
@@ -2889,7 +2889,7 @@ export type components = {
         ErrorBody: {
             error: {
                 /** @enum {string} */
-                code: "bad-request" | "unauthorized" | "forbidden" | "not-found" | "rate-limited" | "internal" | "handle-invalid" | "handle-taken" | "handle-locked" | "cli-request-invalid" | "cli-request-closed" | "invalid-grant" | "not-a-zip" | "unsafe-path" | "too-large" | "no-manifest" | "model-archive" | "newer-manifest" | "bad-manifest" | "files-mismatch" | "blocked-import" | "archive-too-large" | "unpacked-too-large" | "too-many-entries" | "name-mismatch" | "version-mismatch" | "scope-mismatch" | "reserved-name" | "bad-script" | "bad-reference" | "bad-icon" | "bad-params" | "no-models" | "outside-layout" | "wrong-folder" | "email-unverified" | "publishing-closed" | "bad-version" | "length-required" | "unsupported-media-type" | "package-unavailable" | "version-not-greater" | "version-exists" | "open-version-exists" | "in-review" | "integrity-mismatch" | "publish-daily-limit" | "upload-expired" | "version-not-open" | "not-a-draft" | "incomplete" | "image-too-large" | "image-type-mismatch" | "image-dimensions" | "too-many-screenshots" | "unknown-model" | "not-in-review" | "version-removed" | "sources-too-large";
+                code: "bad-request" | "unauthorized" | "forbidden" | "not-found" | "rate-limited" | "internal" | "handle-invalid" | "handle-taken" | "handle-locked" | "cli-request-invalid" | "cli-request-closed" | "invalid-grant" | "not-a-zip" | "unsafe-path" | "too-large" | "no-manifest" | "model-archive" | "newer-manifest" | "bad-manifest" | "files-mismatch" | "blocked-import" | "archive-too-large" | "unpacked-too-large" | "too-many-entries" | "name-mismatch" | "version-mismatch" | "reserved-name" | "bad-script" | "bad-reference" | "bad-icon" | "bad-params" | "no-models" | "outside-layout" | "wrong-folder" | "email-unverified" | "publishing-closed" | "bad-version" | "length-required" | "unsupported-media-type" | "package-unavailable" | "version-not-greater" | "version-exists" | "open-version-exists" | "in-review" | "integrity-mismatch" | "publish-daily-limit" | "upload-expired" | "version-not-open" | "not-a-draft" | "incomplete" | "image-too-large" | "image-type-mismatch" | "image-dimensions" | "too-many-screenshots" | "unknown-model" | "not-in-review" | "version-removed" | "sources-too-large";
                 details?: unknown;
                 message: string;
             };

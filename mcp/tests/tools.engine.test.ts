@@ -375,7 +375,7 @@ describe('export', () => {
 describe('pack', () => {
   const archive = Buffer.from('PK\u0003\u0004 a package archive');
   const contents = {
-    features: [{ id: 'acme.standoff', exportName: 'standoff', module: 'features/standoff.feature.js', usesOcct: false }],
+    features: [{ id: 'acme.standoff', exportName: 'standoff', module: 'features/standoff.feature.js' }],
     parts: [{ exportName: 'spacer', name: 'Spacer', module: 'parts/spacer.part.js', params: 1 }],
     assemblies: [],
     models: 1,

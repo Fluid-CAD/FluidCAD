@@ -1,7 +1,11 @@
 import { SDK_VERSION } from '../../../lib/dist/sdk/version.js';
 import { PackageArchive, type PackageInspection } from '../packages/package-archive.ts';
-import type { PinnedPackage } from '../packages/package-pins.ts';
+import { PackageInstaller } from '../packages/package-installer.ts';
+import { PackagePins, type PinnedPackage } from '../packages/package-pins.ts';
+import { PackageRoots, type PackageLocation } from '../packages/package-roots.ts';
+import { ProjectPackages } from '../packages/project-packages.ts';
 import { Semver } from '../packages/semver.ts';
+import { TreeHash } from '../packages/tree-hash.ts';
 import { HubClient, type HubLimits, type HubPackageDetail, type HubVersionDetail } from './hub-client.ts';
 import { HubConfig } from './hub-config.ts';
 import { HubDownload } from './hub-download.ts';
@@ -16,6 +20,9 @@ import { HubTransport } from './hub-transport.ts';
  * Nothing here installs or pins: package code never runs, and nothing
  * lands in a root, before the caller has the user's consent.
  *
+ * 0. {@link choose}: where `fluidcad install <name>[@version]` takes the
+ *    package from (an installed copy, or the hub), the rule both the CLI
+ *    and the app follow.
  * 1. {@link resolve}: an exact version as asked (a yanked one with a note;
  *    an unpublished one only for its owner or an admin, whose token the
  *    hub sees); else the latest; else, when the latest needs a newer
@@ -81,6 +88,19 @@ export type HubFetchOptions = {
   onProgress?: (received: number, total: number | null) => void;
 };
 
+/**
+ * Where an install by name comes from ({@link HubInstaller.choose}):
+ * - `installed`: a copy already in a root the install resolves from, used
+ *   as is. `resolved` is the hub's answer it matched (same version, same
+ *   integrity), or null when the hub wasn't asked (an exact or pinned
+ *   version) or couldn't be reached. `notes` are the sentences to show
+ *   (the hub's resolution notes, or why the hub wasn't used).
+ * - `hub`: download `resolved` ({@link HubInstaller.fetch}).
+ */
+export type HubInstallChoice =
+  | { source: 'installed'; location: PackageLocation; resolved: ResolvedHubPackage | null; notes: string[] }
+  | { source: 'hub'; resolved: ResolvedHubPackage };
+
 /** A downloaded, verified package waiting for consent: `inspection.token` goes to `ProjectPackages.installInspected`. */
 export type HubFetched = { resolved: ResolvedHubPackage; inspection: PackageInspection };
 
@@ -116,6 +136,46 @@ export class HubInstaller {
     this.sdkVersion = options.sdkVersion ?? SDK_VERSION;
     this.stallMs = options.stallMs;
     this.downloadTimeoutMs = options.downloadTimeoutMs;
+  }
+
+  /**
+   * Where `spec` installs from, for the roots `project` resolves from (the
+   * project copy and the library; the library alone outside a project):
+   * - **An exact version** (asked, else the one `project` pins): the
+   *   installed copy when there is one, without asking the hub; else the
+   *   hub's.
+   * - **A name alone** asks the hub first: its latest version this engine
+   *   runs ({@link resolve}). A copy of that version installed with the
+   *   hub's integrity is used without a download; anything else downloads.
+   *   - The hub couldn't be reached (no connection, a timeout, a stall, a
+   *     5xx): the newest installed version, with a note saying so; with
+   *     none installed, the hub's error.
+   *   - The hub doesn't know the package (404): refused, even with a copy
+   *     installed, naming the exact-version install that takes that copy
+   *     without the hub.
+   *   - Any other refusal (nothing published, nothing compatible) as is.
+   */
+  async choose(spec: HubInstallSpec, options: { project?: string | null } = {}): Promise<HubInstallChoice> {
+    const project = options.project ?? null;
+    const exact = spec.version ?? (project ? PackagePins.of(project)[spec.name]?.version ?? null : null);
+    if (exact) {
+      const location = PackageRoots.locate(spec.name, exact, project);
+      if (location) {
+        return { source: 'installed', location, resolved: null, notes: [] };
+      }
+      return { source: 'hub', resolved: await this.resolve({ name: spec.name, version: exact }) };
+    }
+    let resolved: ResolvedHubPackage;
+    try {
+      resolved = await this.resolve({ name: spec.name, version: null });
+    } catch (err) {
+      return this.chooseWithoutHub(spec.name, project, err);
+    }
+    const location = PackageRoots.locate(resolved.name, resolved.version, project);
+    if (location && (await TreeHash.ofDirectory(location.directory)) === resolved.integrity) {
+      return { source: 'installed', location, resolved, notes: resolved.notes };
+    }
+    return { source: 'hub', resolved };
   }
 
   /** Which version `spec` installs, with its listed integrity and the notes the consent summary shows. */
@@ -209,6 +269,32 @@ export class HubInstaller {
   }
 
   // Resolving
+
+  /** A name alone the hub didn't resolve: the newest installed copy when the hub couldn't be reached, else the refusal. */
+  private chooseWithoutHub(name: string, project: string | null, err: unknown): HubInstallChoice {
+    if (!(err instanceof HubInstallError)) {
+      throw err;
+    }
+    const newest = ProjectPackages.newestInstalled(name, project);
+    if (!newest) {
+      throw err;
+    }
+    if (err.hubUnreachable) {
+      const where = PackageInstaller.describe(newest.target);
+      const note = `Couldn't reach ${this.config.origin}, so this uses ${name} ${newest.version} from ${where}, the newest version there; the hub may have a newer one.`;
+      return { source: 'installed', location: newest, resolved: null, notes: [note] };
+    }
+    if (err.code === 'not-found') {
+      const where = PackageInstaller.describe(newest.target);
+      throw HubInstallError.local(
+        'not-found',
+        `${err.message} ${where.charAt(0).toUpperCase()}${where.slice(1)} has a local copy, ${name} ${newest.version}: ` +
+          `\`fluidcad install ${name}@${newest.version}\` installs it by its exact version, without the hub.`,
+        { installed: newest.version, target: newest.target },
+      );
+    }
+    throw err;
+  }
 
   /** An exact version: as asked, whatever its state, if this reader may see it and it has an archive. */
   private async resolveExact(name: string, version: string): Promise<ResolvedHubPackage> {

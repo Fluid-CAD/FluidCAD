@@ -199,13 +199,26 @@ export class ProjectPackages {
     return { name, version };
   }
 
+  /**
+   * The newest version of `name` installed in the roots `project` resolves
+   * from (the project copy and the library; the library alone outside a
+   * project), where it is; null when none holds it.
+   */
+  static newestInstalled(name: string, project?: string | null): PackageLocation | null {
+    let newest: { location: PackageLocation; version: Semver } | null = null;
+    for (const root of PackageRoots.rootsFor(project)) {
+      for (const entry of PackageRoots.installedIn(root, project)) {
+        const version = entry.name === name ? Semver.parse(entry.version) : null;
+        if (version && (!newest || Semver.compare(version, newest.version) > 0)) {
+          newest = { location: entry, version };
+        }
+      }
+    }
+    return newest?.location ?? null;
+  }
+
   /** The newest version of `name` installed in either root. */
   private static newest(name: string, project: string): string | null {
-    const versions = PackageRoots.rootsFor(project)
-      .flatMap((root) => PackageRoots.installedIn(root, project))
-      .filter((entry) => entry.name === name)
-      .map((entry) => Semver.parse(entry.version)!)
-      .sort(Semver.compare);
-    return versions.length > 0 ? versions[versions.length - 1].toString() : null;
+    return ProjectPackages.newestInstalled(name, project)?.version ?? null;
   }
 }

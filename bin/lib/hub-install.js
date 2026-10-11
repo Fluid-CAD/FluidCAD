@@ -3,7 +3,8 @@ import { consented, count, describeTarget, installedLine, loadPackages, printCon
 
 /**
  * `fluidcad install` from the hub (hub-plan H8): the terminal around the
- * server's `HubInstaller`, which resolves, downloads and verifies, and the
+ * server's `HubInstaller`, which chooses between an installed copy and the
+ * hub (`choose`), resolves, downloads and verifies, and the
  * existing consent and install path (`ProjectPackages.installInspected`).
  * Nothing is installed or pinned before the consent summary is answered
  * (or `--yes` given), and package code never runs before then.
@@ -44,20 +45,50 @@ export class HubInstallCli {
   }
 
   /**
-   * One package from the hub: `spec.version`, or the latest (the newest
-   * this engine runs), into `target`, pinned when in a project.
+   * One package by name: `HubInstaller.choose` decides between an installed
+   * copy (pinned, and with `--project` copied in) and a download from the
+   * hub (`spec.version`, else the pin, else the latest this engine runs).
    */
   async installName(spec, project, target) {
+    const choice = await this.installer.choose(spec, { project });
+    if (choice.source === 'installed') {
+      await this.useInstalled(choice, project);
+      return;
+    }
+    await this.download(choice.resolved, project, target);
+  }
+
+  /** An installed copy: its notes, then the pin (and the copy) in a project, or "already there" outside one. */
+  async useInstalled(choice, project) {
+    const { mods, opts } = this;
+    const { location, resolved, notes } = choice;
+    const { name, version } = location;
+    for (const note of notes) {
+      console.log(note);
+    }
+    if (!project) {
+      const contents = resolved ? ", with the hub's contents: nothing changed." : '.';
+      console.log(`${name} ${version} is already in ${describeTarget(mods, location.target, location.directory)}${contents}`);
+      return;
+    }
+    const outcome = await mods.ProjectPackages.useInstalled(`${name}@${version}`, project, { copy: opts.project === true });
+    if (outcome.copied) {
+      console.log(installedLine(mods, outcome.copied));
+    } else if (opts.project) {
+      console.log(`${name} ${version} is already in ${describeTarget(mods, 'project', outcome.location.directory)}.`);
+    }
+    printPin(outcome.pin, name, version, outcome.copied ? null : outcome.location.target);
+  }
+
+  /** A download from the hub, verified, after the consent summary, into `target`, pinned when in a project. */
+  async download(resolved, project, target) {
     const { mods, opts } = this;
     const root = mods.PackageRoots.rootFor(target, project);
-    const resolved = await this.installer.resolve(spec);
     const { name, version } = resolved;
     const pin = project ? mods.PackagePins.of(project)[name] ?? null : null;
     if (project) {
       // A pin that would change refuses before anything is downloaded.
       mods.PackagePins.check(project, name, version, resolved.integrity);
-    } else if (await this.alreadyInstalled(resolved, target)) {
-      return;
     }
 
     console.log(`Downloading ${name} ${version}${resolved.size ? ` (${size(resolved.size)})` : ''} from ${resolved.hub}…`);
@@ -140,21 +171,6 @@ export class HubInstallCli {
       HubInstallCli.printFailures(failures);
       process.exit(1);
     }
-  }
-
-  /** Outside a project: the resolved version already in the target root with the hub's integrity needs no download. */
-  async alreadyInstalled(resolved, target) {
-    const { mods } = this;
-    const location = mods.PackageRoots.locate(resolved.name, resolved.version, null);
-    if (!location || location.target !== target) {
-      return false;
-    }
-    const tree = await import('../../server/dist/packages/tree-hash.js');
-    if ((await tree.TreeHash.ofDirectory(location.directory)) !== resolved.integrity) {
-      return false;
-    }
-    console.log(`${resolved.name} ${resolved.version} is already in ${describeTarget(mods, target, location.directory)}, with the hub's contents: nothing changed.`);
-    return true;
   }
 
   static printFailures(failures) {

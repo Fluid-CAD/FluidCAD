@@ -40,6 +40,19 @@ export class HubInstallError extends Error {
   static fromHub(err: HubRequestError): HubInstallError {
     return new HubInstallError(err.code, HubInstallMessages.withHint(err.code, err.message), { details: err.details, cause: err });
   }
+
+  /**
+   * True when the hub couldn't answer: no connection, a timeout, a stall,
+   * or a failure on its side (5xx). Not a refusal the hub decided (404,
+   * 410, 429), and not the caller's own abort.
+   */
+  get hubUnreachable(): boolean {
+    const cause = this.cause;
+    if (!(cause instanceof HubRequestError) || cause.code === HubRequestError.ABORTED) {
+      return false;
+    }
+    return cause.unreachable || cause.status >= 500;
+  }
 }
 
 /** The next step each refusal calls for, after the sentence that names the problem. */

@@ -8,11 +8,14 @@ import { consented, describeTarget, exitOnRefusal, installedLine, preferredTarge
  * `fluidcad install`, the one package verb (research §3, hub-plan H8):
  * - `install <file.fluidpkg> [--library|--project] [--yes]` installs from a
  *   file, after the consent summary, and pins it when run in a project;
- * - `install <@scope/name>[@version] [--library|--project] [--hub <url>]`
- *   takes the package from the library first (pinning it into this project,
- *   and with `--project` copying it in); else it downloads it from the hub,
- *   verifies it, shows the consent summary, and installs it, pinning it
- *   when run in a project;
+ * - `install <@scope/name>[@version] [--library|--project] [--hub <url>]`:
+ *   an exact version (or the one this project pins) is taken from what is
+ *   installed when it can be, else from the hub; a name alone asks the hub
+ *   for its latest version first, and uses an installed copy of that
+ *   version when it has the hub's contents (the newest installed one when
+ *   the hub can't be reached). An installed copy is pinned into this
+ *   project (and with `--project` copied in); a download is verified,
+ *   shown in the consent summary, installed, and pinned in a project;
  * - `install` alone downloads every package this project pins but has in
  *   neither root, each checked against its pin, after one consent summary;
  *   it exits 1 when any failed.
@@ -81,39 +84,19 @@ async function installFile(mods, file, project, opts) {
   printPin(outcome.pin, name, version);
 }
 
-/** The library first; the hub for what it doesn't have. */
+/**
+ * Where the package comes from is `HubInstaller.choose`'s rule: an exact
+ * (or pinned) version from what is installed, else the hub; a name alone
+ * asks the hub first, with the newest installed version when the hub
+ * can't be reached.
+ */
 async function installName(mods, spec, project, opts) {
-  const { name, version: asked } = mods.ProjectPackages.parseSpec(spec);
+  const parsed = mods.ProjectPackages.parseSpec(spec);
   if (opts.project && !project) {
     fail('--project installs into a project, and this directory is not one (no fluidcad.json or init.js).');
   }
-  if (project) {
-    try {
-      const outcome = await mods.ProjectPackages.useInstalled(spec, project, { copy: opts.project === true });
-      const { version } = outcome.location;
-      if (outcome.copied) {
-        console.log(installedLine(mods, outcome.copied));
-      } else if (opts.project) {
-        console.log(`${name} ${version} is already in ${describeTarget(mods, 'project', outcome.location.directory)}.`);
-      }
-      printPin(outcome.pin, name, version, outcome.copied ? null : outcome.location.target);
-      return;
-    } catch (err) {
-      if (!(err instanceof mods.PackageInstallError && err.code === 'not-installed')) {
-        throw err;
-      }
-    }
-  } else if (asked) {
-    const location = mods.PackageRoots.locate(name, asked, null);
-    if (location) {
-      console.log(`${name} ${asked} is already in ${describeTarget(mods, location.target, location.directory)}.`);
-      return;
-    }
-  }
-  // Not installed: the version asked for, else the one this project pins, else the hub's latest.
-  const pinned = project ? mods.PackagePins.of(project)[name]?.version ?? null : null;
   const target = await targetOf(mods, project, opts);
-  await new HubInstallCli(mods, opts).installName({ name, version: asked ?? pinned }, project, target);
+  await new HubInstallCli(mods, opts).installName(parsed, project, target);
 }
 
 async function runMissing(mods, project, opts) {
@@ -151,7 +134,7 @@ function fail(message) {
 export function registerInstallCommand(program) {
   program
     .command('install [package]')
-    .description('Install a package by name (from your library, else the hub) or from a .fluidpkg file; with no arguments, download every package this project pins that is missing')
+    .description('Install a package by name (a name alone: the hub\'s latest; name@version: your library, else the hub) or from a .fluidpkg file; with no arguments, download every package this project pins that is missing')
     .option('--library', 'Install into your package library (the default, unless Settings say otherwise)')
     .option('--project', "Install into this project's packages/ folder; with a package name in your library, copy it there")
     .option('-y, --yes', 'Install without asking')

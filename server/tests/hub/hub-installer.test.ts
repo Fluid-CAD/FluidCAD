@@ -52,6 +52,15 @@ async function publish(version: string, manifest: Record<string, unknown> = {}, 
   return hub.addArchive(await ArchiveFixture.zip({ version, files, manifest }), row);
 }
 
+/** `@acme/kit` at `version` installed into `root` from the same files {@link publish} uploads (or other ones). */
+async function installLocally(version: string, options: { target?: 'library' | 'project'; feature?: string } = {}): Promise<string> {
+  const target = options.target ?? 'library';
+  const files = { ...ArchiveFixture.defaultFiles(), 'standoff.feature.js': options.feature ?? `export const standoff = () => '${version}';\n` };
+  const inspection = await PackageArchive.inspect(await ArchiveFixture.zip({ version, files }), { root: PackageRoots.rootFor(target, project), engineVersion: ENGINE });
+  const outcome = await ProjectPackages.installInspected({ token: inspection.token, target, project });
+  return outcome.integrity;
+}
+
 async function refusal(promise: Promise<unknown>): Promise<HubInstallError> {
   const err: unknown = await promise.then((): unknown => null, (e: unknown): unknown => e);
   expect(err).toBeInstanceOf(HubInstallError);
@@ -221,6 +230,136 @@ describe('HubInstaller.resolve', () => {
     expect(error.code).toBe('network');
     expect(error.message).toMatch(/^Couldn't reach http:\/\/127\.0\.0\.1:\d+: ECONNREFUSED\. /);
     expect(error.message).toContain(HubInstallMessages.OFFLINE_HINT);
+  });
+});
+
+describe('HubInstaller.choose', () => {
+  const packageRoute = `/api/v1/packages/${NAME}`;
+
+  describe('a name alone asks the hub first', () => {
+    it('downloads the hub\'s latest when the library holds an older version', async () => {
+      await publish('0.1.0');
+      const latest = await publish('0.2.0');
+      await installLocally('0.1.0');
+      const choice = await installer().choose({ name: NAME, version: null }, { project });
+      expect(choice.source).toBe('hub');
+      expect(choice.source === 'hub' && choice.resolved).toMatchObject({ version: '0.2.0', integrity: latest.integrity, notes: [] });
+      expect(hub.requestsTo(packageRoute)).toHaveLength(1);
+    });
+
+    it('uses the installed copy of the latest, with no download, when it has the hub\'s contents', async () => {
+      await publish('0.1.0');
+      const latest = await publish('0.2.0');
+      await installLocally('0.2.0');
+      const choice = await installer().choose({ name: NAME, version: null }, { project });
+      expect(choice).toMatchObject({ source: 'installed', notes: [], resolved: { version: '0.2.0', integrity: latest.integrity } });
+      expect(choice.source === 'installed' && choice.location).toMatchObject({ target: 'library', name: NAME, version: '0.2.0' });
+      expect(hub.downloads).toHaveLength(0);
+
+      // Outside a project too: the library is the only root.
+      expect((await installer().choose({ name: NAME, version: null })).source).toBe('installed');
+    });
+
+    it('downloads when the installed copy of the latest has other contents', async () => {
+      await publish('0.2.0');
+      await installLocally('0.2.0', { feature: 'export const standoff = () => 1;\n' });
+      const choice = await installer().choose({ name: NAME, version: null }, { project });
+      expect(choice.source).toBe('hub');
+    });
+
+    it('takes the newest compatible version when the latest needs a newer engine, with its note', async () => {
+      const older = await publish('0.1.0');
+      await publish('0.2.0', { minEngine: '0.0.99' });
+      const note = 'The latest @acme/kit, 0.2.0, needs FluidCAD 0.0.99 or newer; this FluidCAD is 0.0.46, so this installs 0.1.0, the newest version it runs.';
+      const downloaded = await installer().choose({ name: NAME, version: null }, { project });
+      expect(downloaded).toMatchObject({ source: 'hub', resolved: { version: '0.1.0', integrity: older.integrity, notes: [note] } });
+
+      await installLocally('0.1.0');
+      const installed = await installer().choose({ name: NAME, version: null }, { project });
+      expect(installed).toMatchObject({ source: 'installed', location: { version: '0.1.0' }, notes: [note] });
+    });
+
+    it('with the hub unreachable, uses the newest installed version, with a note', async () => {
+      await installLocally('0.1.0');
+      await installLocally('0.3.0');
+      const offline = await closedPort();
+      const choice = await installer({ hubUrl: offline }).choose({ name: NAME, version: null }, { project });
+      expect(choice).toMatchObject({ source: 'installed', resolved: null, location: { target: 'library', version: '0.3.0' } });
+      expect(choice.source === 'installed' && choice.notes).toEqual([
+        `Couldn't reach ${offline}, so this uses @acme/kit 0.3.0 from your library, the newest version there; the hub may have a newer one.`,
+      ]);
+    });
+
+    it('treats a hub failing on its side (5xx) as unreachable', async () => {
+      await publish('0.2.0');
+      await installLocally('0.1.0');
+      hub.failNext(packageRoute, 500);
+      expect(await installer().choose({ name: NAME, version: null }, { project })).toMatchObject({ source: 'installed', location: { version: '0.1.0' } });
+      hub.failNext(packageRoute, 503, 2);
+      expect(await installer().choose({ name: NAME, version: null }, { project })).toMatchObject({ source: 'installed', location: { version: '0.1.0' } });
+    });
+
+    it('with the hub unreachable and nothing installed, refuses with the offline error', async () => {
+      const error = await refusal(installer({ hubUrl: await closedPort() }).choose({ name: NAME, version: null }, { project }));
+      expect(error.code).toBe('network');
+      expect(error.message).toContain(HubInstallMessages.OFFLINE_HINT);
+    });
+
+    it('refuses a package the hub doesn\'t know, even with a copy installed, naming the exact-version install', async () => {
+      await installLocally('0.1.0');
+      const error = await refusal(installer().choose({ name: NAME, version: null }, { project }));
+      expect(error.code).toBe('not-found');
+      expect(error.message).toBe(
+        `@acme/kit isn't on ${hub.origin}. If it's yours or you review it and it isn't published yet, sign in with \`fluidcad login\` first. ` +
+          'Your library has a local copy, @acme/kit 0.1.0: `fluidcad install @acme/kit@0.1.0` installs it by its exact version, without the hub.',
+      );
+      expect(error.details).toEqual({ installed: '0.1.0', target: 'library' });
+
+      // That exact version is then taken from the library without asking the hub.
+      hub.requests.length = 0;
+      expect(await installer().choose({ name: NAME, version: '0.1.0' }, { project })).toMatchObject({ source: 'installed', location: { version: '0.1.0' } });
+      expect(hub.requests).toHaveLength(0);
+    });
+
+    it('passes on any other refusal, such as a rate limit, without falling back', async () => {
+      await installLocally('0.1.0');
+      hub.failNext(packageRoute, 429);
+      const error = await refusal(installer().choose({ name: NAME, version: null }, { project }));
+      expect(error.code).not.toBe('not-found');
+      expect(error.hubUnreachable).toBe(false);
+    });
+  });
+
+  describe('an exact or pinned version takes the installed copy first (unchanged)', () => {
+    it('an exact version installed is used without asking the hub, even when the hub has a newer one', async () => {
+      await publish('0.1.0');
+      await publish('0.2.0');
+      await installLocally('0.1.0');
+      const choice = await installer().choose({ name: NAME, version: '0.1.0' }, { project });
+      expect(choice).toMatchObject({ source: 'installed', resolved: null, notes: [], location: { version: '0.1.0' } });
+      expect(hub.requests).toHaveLength(0);
+    });
+
+    it('an exact version not installed comes from the hub', async () => {
+      const first = await publish('0.1.0');
+      await publish('0.2.0');
+      const choice = await installer().choose({ name: NAME, version: '0.1.0' }, { project });
+      expect(choice).toMatchObject({ source: 'hub', resolved: { version: '0.1.0', integrity: first.integrity } });
+    });
+
+    it('a name alone in a project that pins it means the pinned version', async () => {
+      const first = await publish('0.1.0');
+      await publish('0.2.0');
+      PackagePins.pin(project, NAME, '0.1.0', first.integrity!);
+      const missing = await installer().choose({ name: NAME, version: null }, { project });
+      expect(missing).toMatchObject({ source: 'hub', resolved: { version: '0.1.0' } });
+
+      await installLocally('0.1.0');
+      hub.requests.length = 0;
+      const installed = await installer().choose({ name: NAME, version: null }, { project });
+      expect(installed).toMatchObject({ source: 'installed', location: { version: '0.1.0' } });
+      expect(hub.requests).toHaveLength(0);
+    });
   });
 });
 

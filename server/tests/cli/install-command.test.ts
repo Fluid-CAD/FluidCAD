@@ -214,9 +214,11 @@ describe('fluidcad install <@scope/name>', () => {
   it('pins a library package into the project, and with --project copies it in', () => {
     cli(outside, 'install', kit, '--yes');
 
-    const pinned = cli(project, 'install', '@acme/kit');
+    // An exact version takes the library's copy without asking the hub.
+    const pinned = cli(project, 'install', '@acme/kit@0.1.0');
+    expect(pinned.stderr).toBe('');
     expect(pinned.status).toBe(0);
-    expect(pinned.stdout).toContain('Pinned @acme/kit 0.1.0 in this project\'s fluidcad.json (it loads from your library).');
+    expect(pinned.stdout).toBe('Pinned @acme/kit 0.1.0 in this project\'s fluidcad.json (it loads from your library).\n');
     expect(fs.existsSync(path.join(project, 'packages'))).toBe(false);
 
     const copied = cli(project, 'install', '@acme/kit@0.1.0', '--project');
@@ -225,10 +227,11 @@ describe('fluidcad install <@scope/name>', () => {
     expect(copied.stdout).toContain('This project already pins @acme/kit 0.1.0.');
   });
 
-  it('with the hub offline, still pins what the library has, and says clearly why the rest fails', () => {
+  it('with the hub offline, a name alone pins the library\'s newest version with a note, and says clearly why the rest fails', () => {
     cli(outside, 'install', kit, '--yes');
     const pinned = cli(project, 'install', '@acme/kit');
     expect(pinned.status).toBe(0);
+    expect(pinned.stdout).toContain(`Couldn't reach ${offlineHub}, so this uses @acme/kit 0.1.0 from your library, the newest version there; the hub may have a newer one.`);
     expect(pinned.stdout).toContain('Pinned @acme/kit 0.1.0');
 
     const missing = cli(project, 'install', '@acme/gears');

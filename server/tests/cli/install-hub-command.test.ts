@@ -66,9 +66,31 @@ function cli(cwd: string, args: string[], extraEnv: Record<string, string> = {})
 }
 
 /** A package on the hub, built like the packer builds it; each version's feature module differs. */
-async function publish(name: string, version: string, row: Parameters<FakeHub['addArchive']>[1] = {}) {
+async function publish(name: string, version: string, row: Parameters<FakeHub['addArchive']>[1] = {}, manifest: Record<string, unknown> = {}) {
+  return hub.addArchive(await kitArchive(name, version, manifest), row);
+}
+
+/** The archive {@link publish} uploads: each version's feature module differs. */
+async function kitArchive(name: string, version: string, manifest: Record<string, unknown> = {}): Promise<Buffer> {
   const files = { ...ArchiveFixture.defaultFiles(), 'standoff.feature.js': `export const standoff = () => '${name}@${version}';\n` };
-  return hub.addArchive(await ArchiveFixture.zip({ name, version, files }), row);
+  return Buffer.from(await ArchiveFixture.zip({ name, version, files, manifest }));
+}
+
+/** `name@version` put in the library from a file, as a user without the hub would. */
+async function installFromFile(name: string, version: string): Promise<void> {
+  const file = path.join(tmp, `${name.replace(/[@/]/g, '-')}-${version}.fluidpkg`);
+  fs.writeFileSync(file, await kitArchive(name, version));
+  const run = await cli(outside, ['install', file, '-y']);
+  expect(run.status).toBe(0);
+}
+
+/** A local port nothing listens on: an offline hub. */
+async function closedPort(): Promise<string> {
+  const server = net.createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const offline = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}`;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return offline;
 }
 
 function config(): Record<string, any> {
@@ -209,14 +231,101 @@ describe('fluidcad install <@scope/name> from the hub', () => {
 
   it('takes --hub over FLUIDCAD_HUB_URL', async () => {
     await publish(KIT, '0.1.0');
-    const server = net.createServer();
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-    const offline = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}`;
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    const offline = await closedPort();
 
     const run = await cli(outside, ['install', KIT, '-y', '--hub', hub.origin], { FLUIDCAD_HUB_URL: offline });
     expect(run.status).toBe(0);
     expect(run.stdout).toContain(`from ${hub.origin}`);
+  });
+});
+
+describe('fluidcad install <@scope/name> asks the hub first', () => {
+  it('downloads the hub\'s latest and pins it when the library holds an older version', async () => {
+    await publish(KIT, '0.1.0');
+    const latest = await publish(KIT, '0.2.0');
+    await installFromFile(KIT, '0.1.0');
+
+    const run = await cli(project, ['install', KIT, '-y']);
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain(`Downloading @acme/kit 0.2.0 (${latest.size} B) from ${hub.origin}…`);
+    expect(run.stdout).toContain("Pinned @acme/kit 0.2.0 in this project's fluidcad.json.");
+    expect(config().dependencies[KIT]).toEqual({ version: '0.2.0', integrity: latest.integrity });
+    expect(hub.downloadsOf(KIT, '0.2.0')).toHaveLength(1);
+  });
+
+  it('uses the library\'s copy of the latest without a download when it has the hub\'s contents', async () => {
+    await publish(KIT, '0.1.0');
+    const latest = await publish(KIT, '0.2.0');
+    await installFromFile(KIT, '0.2.0');
+
+    const pinned = await cli(project, ['install', KIT]);
+    expect(pinned.stderr).toBe('');
+    expect(pinned.status).toBe(0);
+    expect(pinned.stdout).toBe("Pinned @acme/kit 0.2.0 in this project's fluidcad.json (it loads from your library).\n");
+    expect(config().dependencies[KIT]).toEqual({ version: '0.2.0', integrity: latest.integrity });
+
+    const outsideRun = await cli(outside, ['install', KIT]);
+    expect(outsideRun.status).toBe(0);
+    expect(outsideRun.stdout).toContain(`@acme/kit 0.2.0 is already in your library (${installed(KIT, '0.2.0')}), with the hub's contents: nothing changed.`);
+    expect(hub.downloads).toHaveLength(0);
+  });
+
+  it('takes the newest compatible version when the latest needs a newer FluidCAD, with the note', async () => {
+    const older = await publish(KIT, '0.1.0');
+    await publish(KIT, '0.2.0', {}, { minEngine: '0.0.99' });
+
+    const run = await cli(project, ['install', KIT, '-y']);
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain(`Downloading @acme/kit 0.1.0 (${older.size} B) from ${hub.origin}…`);
+    expect(run.stdout).toContain(`! The latest @acme/kit, 0.2.0, needs FluidCAD 0.0.99 or newer; this FluidCAD is ${ArchiveFixture.ENGINE}, so this installs 0.1.0, the newest version it runs.`);
+    expect(config().dependencies[KIT].version).toBe('0.1.0');
+  });
+
+  it('with the hub offline, pins the library\'s newest version with a note, and fails when the library has none', async () => {
+    await installFromFile(KIT, '0.1.0');
+    await installFromFile(KIT, '0.3.0');
+    const offline = await closedPort();
+
+    const run = await cli(project, ['install', KIT], { FLUIDCAD_HUB_URL: offline });
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    expect(run.stdout).toBe(
+      `Couldn't reach ${offline}, so this uses @acme/kit 0.3.0 from your library, the newest version there; the hub may have a newer one.\n` +
+        "Pinned @acme/kit 0.3.0 in this project's fluidcad.json (it loads from your library).\n",
+    );
+    expect(config().dependencies[KIT].version).toBe('0.3.0');
+
+    const missing = await cli(project, ['install', '@acme/gears'], { FLUIDCAD_HUB_URL: offline });
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain(`Couldn't reach ${offline}: ECONNREFUSED.`);
+    expect(config().dependencies['@acme/gears']).toBeUndefined();
+  });
+
+  it('refuses a package the hub doesn\'t know even with a library copy, naming the exact install, which then works offline', async () => {
+    await installFromFile(KIT, '0.1.0');
+
+    const refused = await cli(project, ['install', KIT, '-y']);
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain(`@acme/kit isn't on ${hub.origin}.`);
+    expect(refused.stderr).toContain('Your library has a local copy, @acme/kit 0.1.0: `fluidcad install @acme/kit@0.1.0` installs it by its exact version, without the hub.');
+    expect(config().dependencies).toBeUndefined();
+
+    const exact = await cli(project, ['install', `${KIT}@0.1.0`], { FLUIDCAD_HUB_URL: await closedPort() });
+    expect(exact.status).toBe(0);
+    expect(exact.stdout).toBe("Pinned @acme/kit 0.1.0 in this project's fluidcad.json (it loads from your library).\n");
+  });
+
+  it('an exact version in the library is still used without asking the hub, even when the hub has a newer one', async () => {
+    await publish(KIT, '0.1.0');
+    await publish(KIT, '0.2.0');
+    await installFromFile(KIT, '0.1.0');
+    hub.requests.length = 0;
+
+    const run = await cli(project, ['install', `${KIT}@0.1.0`]);
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain("Pinned @acme/kit 0.1.0 in this project's fluidcad.json (it loads from your library).");
+    expect(hub.requests).toHaveLength(0);
   });
 });
 

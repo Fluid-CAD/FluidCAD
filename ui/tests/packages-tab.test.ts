@@ -3,22 +3,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsModal } from '../src/ui/settings/settings-modal';
 import { packageSettings } from '../src/ui/settings/package-settings';
 import { PackagesState } from '../src/ui/packages/packages-state';
-import { PackageInstallFlow } from '../src/ui/packages/package-install-flow';
 import type { UserPreferences } from '../src/api';
 import { FakePackagesClient, settle } from './fixtures/fake-packages-client';
 
 // Settings → Packages: the library folder (a text field the engine checks
 // on Save, Browse… in the desktop app), "New packages go to", the library's
-// packages with Remove, Install package…, and the copy offered after the
-// folder changed. Drafts like every tab; Remove, Install and the copy act
-// at once.
-
-const flows: PackageInstallFlow[] = [];
+// packages with Remove, and the copy offered after the folder changed. No
+// install button: packages install only from the hub (HD31) until the Hub
+// panel (H11). Drafts like every tab; Remove and the copy act at once.
 
 afterEach(() => {
-  for (const flow of flows.splice(0)) {
-    flow.consent.destroy();
-  }
   packageSettings.update({ libraryPath: '', installTarget: 'library' });
   delete (window as any).fluidcadDesktop;
   document.body.innerHTML = '';
@@ -26,15 +20,13 @@ afterEach(() => {
 
 function mount(client = new FakePackagesClient()) {
   const state = new PackagesState(client);
-  const flow = new PackageInstallFlow(document.body, { client, state, onInstalled: vi.fn(), notify: vi.fn() });
-  flows.push(flow);
   const onLibraryChanged = vi.fn();
   const savePreference = vi.fn();
   const modal = new SettingsModal(document.body, {
     savePreference,
     resetPreferences: vi.fn(async (): Promise<UserPreferences | null> => null),
     applyPreferences: vi.fn(),
-    packages: { state, flow, onLibraryChanged },
+    packages: { state, onLibraryChanged },
   });
   modal.show('packages');
   const overlay = document.body.querySelector<HTMLElement>('[aria-label="Settings"]')!;
@@ -47,7 +39,7 @@ function mount(client = new FakePackagesClient()) {
     input.value = value;
     input.dispatchEvent(new Event('input'));
   };
-  return { client, state, flow, modal, overlay, tab, ref, dot, save, type, onLibraryChanged, savePreference };
+  return { client, state, modal, overlay, tab, ref, dot, save, type, onLibraryChanged, savePreference };
 }
 
 describe('Settings → Packages', () => {
@@ -161,11 +153,12 @@ describe('Settings → Packages', () => {
     expect(offer.classList.contains('hidden')).toBe(true);
   });
 
-  it('opens the package picker from Install package…', () => {
+  it('has no install button (HD31), and says where an install puts a package', async () => {
     const h = mount();
-    const pick = vi.spyOn(h.flow, 'pick').mockImplementation(() => {});
-    h.ref<HTMLButtonElement>('install').click();
-    expect(pick).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(h.tab.querySelector('[data-ref="install"]')).toBeNull();
+    expect(h.tab.textContent).not.toMatch(/Install package/);
+    expect(h.tab.textContent).toContain('Where a package goes when you install it, unless you choose otherwise. This project: a copy in its packages/ folder.');
   });
 
   it('offers Browse… only in the desktop app, asking for a folder it may create', async () => {

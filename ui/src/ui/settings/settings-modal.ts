@@ -19,7 +19,7 @@ export interface SettingsModalHandlers {
   applyPreferences(prefs: UserPreferences): void;
   /** The merged materials list; the Materials tab reads the built-ins off it for its override hint. Optional. */
   loadMaterials?(): Promise<Material[] | null>;
-  /** The package state and install flow the Packages tab lists and installs through. Optional. */
+  /** The package state the Packages tab lists the library from. Optional. */
   packages?: PackagesTabDeps;
 }
 

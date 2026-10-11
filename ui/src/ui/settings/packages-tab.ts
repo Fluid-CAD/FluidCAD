@@ -1,7 +1,6 @@
 import type { InstalledPackage, PackagesOverview, PackageTarget } from '../../api';
 import { desktop } from '../../desktop';
-import { ICON_FOLDER, ICON_PACKAGE_IMPORT, ICON_TRASH } from '../icons';
-import type { PackageInstallFlow } from '../packages/package-install-flow';
+import { ICON_FOLDER, ICON_TRASH } from '../icons';
 import { PackageText, type PackagesState } from '../packages/packages-state';
 import { packageSettings } from './package-settings';
 import {
@@ -18,7 +17,6 @@ import {
 /** What the tab needs beyond the preference stores; absent, it shows the settings without the library list. */
 export type PackagesTabDeps = {
   state: PackagesState;
-  flow: PackageInstallFlow;
   /** The library changed under the page (a new folder, a removal, a copy): the catalogs and the scene catch up. */
   onLibraryChanged(): void;
 };
@@ -36,13 +34,15 @@ const NOTE_BOX = 'border border-base-content/10 rounded-md px-3 py-2.5 text-xs l
  *   draft kept. Changing it moves nothing: projects pin by name and version,
  *   so the tab then offers to copy the old folder's packages across.
  *   `FLUIDCAD_PACKAGES`, when set, outranks the setting, and the tab says so.
- * - **New packages go to** is the install dialog's default target.
+ * - **New packages go to** is where an install puts a package unless it is
+ *   told otherwise (`fluidcad install`, and from H11 the Hub panel).
  * - **Installed in my library** lists each package with its version,
  *   contents and size, with Remove (behind a confirmation: projects that use
- *   it will ask for it again) and Install package….
+ *   it will ask for it again). There is no install button: packages install
+ *   only from the hub (HD31), and the Hub panel (H11) brings one.
  *
  * The two settings are drafts saved by the dialog's Save, like every tab;
- * Remove, Install and the copy act at once, like Advanced's reset.
+ * Remove and the copy act at once, like Advanced's reset.
  */
 export class PackagesTab implements SettingsTab {
   readonly id = 'packages';
@@ -128,7 +128,7 @@ export class PackagesTab implements SettingsTab {
     targetLabel.textContent = 'New packages go to';
     const targetHint = document.createElement('p');
     targetHint.className = FIELD_HINT;
-    targetHint.textContent = "Where Install package… puts a package unless you choose otherwise. This project: a copy in its packages/ folder.";
+    targetHint.textContent = 'Where a package goes when you install it, unless you choose otherwise. This project: a copy in its packages/ folder.';
     targetField.append(targetLabel, this.targetSelect, targetHint);
     root.appendChild(targetField);
 
@@ -143,16 +143,6 @@ export class PackagesTab implements SettingsTab {
     heading.className = FIELD_LABEL;
     heading.textContent = 'Installed in my library';
     header.appendChild(heading);
-    if (this.deps) {
-      const install = document.createElement('button');
-      install.type = 'button';
-      install.dataset.ref = 'install';
-      install.className = 'btn btn-xs btn-soft btn-primary gap-1';
-      install.innerHTML = `<span class="[&>svg]:size-3.5">${ICON_PACKAGE_IMPORT}</span>`;
-      install.appendChild(document.createTextNode('Install package…'));
-      install.addEventListener('click', () => this.deps!.flow.pick());
-      header.appendChild(install);
-    }
     root.appendChild(header);
     this.listEl = document.createElement('div');
     this.listEl.dataset.ref = 'library-list';

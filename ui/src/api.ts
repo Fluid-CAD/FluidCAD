@@ -6525,7 +6525,12 @@ export type PackageManifest = {
 /** Something the consent dialog says before an install. */
 export type PackageWarning = { code: 'min-engine' | 'sdk-version' | string; message: string };
 
-/** `POST /api/packages/inspect`: the archive checked and extracted, waiting for its install. */
+/**
+ * A package archive the engine checked and extracted, waiting for its
+ * install: what the hub download answers (H10's `POST /api/hub/inspect`;
+ * packages install only from the hub, HD31), whose `token` the install,
+ * discard and icon routes take.
+ */
 export type PackageInspection = {
   token: string;
   manifest: PackageManifest;
@@ -6534,13 +6539,6 @@ export type PackageInspection = {
   bytes: number;
   /** Where the "New packages go to" setting sends it (the project only when one is open). */
   defaultTarget: PackageTarget;
-  /**
-   * The public name it installs under (`@acme/kit`): the archive holds only
-   * its author's bare name (`kit`), so the engine names it — the `as` the
-   * inspection was asked with, else the project's one pin of that name,
-   * else `@local/kit`.
-   */
-  installsAs: string;
 };
 
 /** One installed package directory. */
@@ -6580,8 +6578,8 @@ export type PackagesOverview = {
   libraryOffer?: { path: string; packages: { name: string; version: string }[] } | null;
 };
 
-/** `POST /api/packages/install`: `as` is the public name to install under (the inspection's `installsAs`). */
-export type PackageInstallRequest = { token: string; target: PackageTarget; replace?: boolean; pin?: boolean; as?: string };
+/** `POST /api/packages/install`: the package installs under its manifest's name. */
+export type PackageInstallRequest = { token: string; target: PackageTarget; replace?: boolean; pin?: boolean };
 
 /** `POST /api/packages/install`. */
 export type PackageInstallOutcome = {
@@ -6609,8 +6607,6 @@ export type PackageResult<T> = ({ ok: true } & T) | PackageRefusal;
  */
 export interface PackagesClient {
   overview(): Promise<PackagesOverview | null>;
-  /** Inspect an archive; `as` names the public name it should install under (the banner's pin). */
-  inspect(file: Blob, target?: PackageTarget, as?: string | null): Promise<PackageResult<{ inspection: PackageInspection }>>;
   install(request: PackageInstallRequest): Promise<PackageResult<{ outcome: PackageInstallOutcome }>>;
   discard(token: string): Promise<void>;
   copy(name: string, version: string, to: PackageTarget): Promise<PackageResult<{}>>;
@@ -6627,20 +6623,6 @@ export interface PackagesClient {
 export class HttpPackagesClient implements PackagesClient {
   async overview(): Promise<PackagesOverview | null> {
     return getJson<PackagesOverview>('api/packages');
-  }
-
-  async inspect(file: Blob, target?: PackageTarget, as?: string | null): Promise<PackageResult<{ inspection: PackageInspection }>> {
-    const query = new URLSearchParams();
-    if (target) {
-      query.set('target', target);
-    }
-    if (as) {
-      query.set('as', as);
-    }
-    const search = query.toString();
-    const url = search ? `api/packages/inspect?${search}` : 'api/packages/inspect';
-    const answer = await HttpPackagesClient.send(url, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
-    return answer.ok === false ? answer : { ok: true, inspection: answer.body as PackageInspection };
   }
 
   async install(request: PackageInstallRequest): Promise<PackageResult<{ outcome: PackageInstallOutcome }>> {

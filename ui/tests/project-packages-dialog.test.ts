@@ -1,22 +1,21 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProjectPackagesDialog } from '../src/ui/packages/project-packages-dialog';
-import { PackageInstallFlow } from '../src/ui/packages/package-install-flow';
 import { PackagesState } from '../src/ui/packages/packages-state';
 import { ErrorBanner } from '../src/ui/error-banner';
 import { FakePackagesClient, settle } from './fixtures/fake-packages-client';
 
 // The project's Packages dialog: the pins with where each loads from, Copy
-// into project / Use from library, the missing-package banner with Install
-// from file… (checked against the pin), and the "update available" chip.
+// into project / Use from library, the missing-package banner naming the
+// command that downloads the pin (packages install only from the hub,
+// HD31; no install button until H11), and the "update available" chip.
 // Then the render's own missing-package banner (the error banner's action).
 
-const opened: { dialog: ProjectPackagesDialog; flow: PackageInstallFlow }[] = [];
+const opened: ProjectPackagesDialog[] = [];
 
 afterEach(() => {
-  for (const { dialog, flow } of opened.splice(0)) {
+  for (const dialog of opened.splice(0)) {
     dialog.destroy();
-    flow.consent.destroy();
   }
   document.body.innerHTML = '';
 });
@@ -33,15 +32,14 @@ const PINS = FakePackagesClient.overview({
 async function mount(overview = PINS) {
   const client = new FakePackagesClient(overview);
   const state = new PackagesState(client);
-  const flow = new PackageInstallFlow(document.body, { client, state, onInstalled: vi.fn(), notify: vi.fn() });
   const onChanged = vi.fn();
-  const dialog = new ProjectPackagesDialog(document.body, { state, flow, onChanged });
-  opened.push({ dialog, flow });
+  const dialog = new ProjectPackagesDialog(document.body, { state, onChanged });
+  opened.push(dialog);
   dialog.show();
   await settle();
   const overlay = document.body.querySelector<HTMLElement>('[data-role="project-packages"]')!;
   const pin = (name: string) => overlay.querySelector<HTMLElement>(`[data-pin="${name}"]`)!;
-  return { client, state, flow, dialog, overlay, pin, onChanged };
+  return { client, state, dialog, overlay, pin, onChanged };
 }
 
 describe('the project\'s Packages', () => {
@@ -59,15 +57,21 @@ describe('the project\'s Packages', () => {
     expect(h.pin('@beta/gears').querySelector('button')).toBeNull();
   });
 
-  it('leads with the missing-package banner, whose Install from file… is checked against the pin', async () => {
+  it('leads with the missing-package banner, which names the command that downloads the pin and offers no button (HD31)', async () => {
     const h = await mount();
     const banner = h.overlay.querySelector<HTMLElement>('[data-missing="@beta/gears"]')!;
-    expect(banner.textContent).toContain("This project uses @beta/gears 1.2.0, which isn't installed.");
-    const pick = vi.spyOn(h.flow, 'pick').mockImplementation(() => {});
-    banner.querySelector<HTMLButtonElement>('[data-action="install-missing"]')!.click();
-    expect(pick).toHaveBeenCalledWith({ expect: { name: '@beta/gears', version: '1.2.0' } });
-    h.overlay.querySelector<HTMLButtonElement>('[data-ref="install"]')!.click();
-    expect(pick).toHaveBeenLastCalledWith();
+    expect(banner.textContent!.trim()).toBe("This project uses @beta/gears 1.2.0, which isn't installed: fluidcad install @beta/gears@1.2.0 downloads it from the hub.");
+    expect(banner.querySelector('[data-ref="install-command"]')!.textContent).toBe('fluidcad install @beta/gears@1.2.0');
+    expect(banner.querySelector('button')).toBeNull();
+    // No Install package… either: the Hub panel (H11) brings installs to the page.
+    expect(h.overlay.querySelector('[data-ref="install"]')).toBeNull();
+    expect(h.overlay.textContent).not.toMatch(/Install (package|from file)/);
+  });
+
+  it('closes on Escape', async () => {
+    const h = await mount();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(h.dialog.isOpen()).toBe(false);
   });
 
   it('copies a library pin into the project, then refetches and lets the scene follow', async () => {
@@ -108,7 +112,20 @@ describe('the project\'s Packages', () => {
 });
 
 describe('the render\'s missing-package banner', () => {
-  it('offers Install from file… on a compile error naming a missing pin, and nothing on other errors', () => {
+  it('shows the engine\'s sentence, naming the command, and no button while no install handler is set (HD31, as main wires it)', () => {
+    const banner = new ErrorBanner(document.body, () => {});
+    const button = document.body.querySelector<HTMLButtonElement>('[data-ref="install-missing"]')!;
+    const sentence = "This project uses `@acme/feature-tests` 0.1.0, which isn't installed: `fluidcad install @acme/feature-tests@0.1.0` downloads it from the hub.";
+    banner.update([], {
+      message: sentence,
+      packageProblems: [{ code: 'missing', name: '@acme/feature-tests', version: '0.1.0', message: sentence }],
+    });
+    expect(document.body.querySelector('[data-ref="message"]')!.textContent).toBe(sentence);
+    expect(button.classList.contains('hidden')).toBe(true);
+    expect(button.textContent).not.toMatch(/file/);
+  });
+
+  it('offers its install action on a compile error naming a missing pin once a handler is set (H11), and nothing on other errors', () => {
     const banner = new ErrorBanner(document.body, () => {});
     const install = vi.fn();
     banner.setInstallMissingHandler(install);

@@ -1,4 +1,4 @@
-import type { PackageInspection, PackageInstallOutcome, PackagesClient, PackageTarget } from '../../api';
+import type { PackageInspection, PackageInstallOutcome, PackageResult, PackagesClient, PackageTarget } from '../../api';
 import { ICON_ALERT_TRIANGLE, ICON_CLOSE } from '../icons';
 import { DEFAULT_ICON_SRC } from '../object-icons';
 import { PackageText } from './packages-state';
@@ -8,13 +8,17 @@ export type ConsentState = 'review' | 'installing' | 'conflict' | 'error';
 
 export type ConsentRequest = {
   inspection: PackageInspection;
-  /** The archive itself: a Replace inspects it again (an install, even a refused one, uses its inspection up). */
-  file: Blob;
+  /**
+   * A Replace needs a fresh inspection (an install, even a refused one, uses
+   * its inspection up): the caller fetches the package again for `target`
+   * (H11: the hub download again).
+   */
+  reinspect(target: PackageTarget): Promise<PackageResult<{ inspection: PackageInspection }>>;
   /** Whether a project is open, so "This project" can be chosen. */
   projectOpen: boolean;
-  /** Pin into the open project as well (the missing-package banner: the file must match the pin). */
+  /** Pin into the open project as well (the missing-package banner: the download must match the pin). */
   pin?: boolean;
-  /** A sentence shown above the summary (the banner's "this is not the package the project uses"). */
+  /** A sentence shown above the summary. */
   note?: string;
 };
 
@@ -24,21 +28,22 @@ const ROW = 'flex items-center gap-2 px-3 py-1.5 text-xs text-base-content/85 mi
 const WARNING = 'flex items-start gap-2 rounded-md px-3 py-2 text-xs leading-snug bg-warning/15 text-base-content/90';
 
 /**
- * The consent step of every install from the page (research §3, "The
- * install flow"): Settings → Packages' Install package…, the project's
- * Packages dialog, the missing-package banner and a `.fluidpkg` dropped on
- * the window all land here once the engine has inspected the archive.
+ * The consent step of an install from the page (research §3, "The install
+ * flow"). Packages install only from the hub (HD31): the Hub panel and the
+ * missing-package banner's Install from the hub (H11) land here once the
+ * engine has downloaded and inspected the archive. Until H11 nothing on the
+ * page opens it.
  *
  * It shows what is about to run: the package's name, version and
- * description, the public name it installs under (`installsAs`: the
- * archive holds only its author's bare name), its features (with their icons, served from the inspected
+ * description, its features (with their icons, served from the inspected
  * archive) and parts, the engine it needs, the engine's warnings (a newer
  * engine or another SDK version), and the plain statement that a package's
  * code runs in the engine with the user's permissions. The user picks where it
  * goes (the user library, or the open project's `packages/` folder) and
  * confirms. A refusal shows the engine's sentence; the same version with
- * other contents already installed offers Replace, which inspects the file
- * again and installs it over the old one. Cancel drops the inspection.
+ * other contents already installed offers Replace, which asks the caller
+ * for a fresh inspection (`reinspect`) and installs it over the old one.
+ * Cancel drops the inspection.
  *
  * Every value goes through `.textContent`; nothing from the manifest is
  * interpolated into markup.
@@ -165,19 +170,6 @@ export class PackageConsentDialog {
     version.textContent = manifest.version;
     title.append(name, version);
     this.body.appendChild(title);
-
-    // The public name it installs under: the archive knows only its bare name (HD29).
-    if (request.inspection.installsAs) {
-      const installsAs = document.createElement('p');
-      installsAs.dataset.ref = 'installs-as';
-      installsAs.className = 'text-[11px] text-base-content/60 mt-0.5';
-      installsAs.append('Installs as ');
-      const publicName = document.createElement('span');
-      publicName.className = 'font-mono text-base-content/80';
-      publicName.textContent = request.inspection.installsAs;
-      installsAs.appendChild(publicName);
-      this.body.appendChild(installsAs);
-    }
 
     if (manifest.description) {
       const description = document.createElement('p');
@@ -342,18 +334,19 @@ export class PackageConsentDialog {
     const target = this.target;
     const pin = this.request.pin === true;
     this.setState('installing');
-    // Under the name the inspection said (`installsAs`): the archive holds only its bare name.
-    const as = this.inspection.installsAs;
     if (replace) {
-      // The refused install used the inspection up: inspect the same bytes again.
-      const again = await this.client.inspect(this.request.file, target, as);
+      // The refused install used the inspection up: the caller fetches the package again.
+      const again = await this.request.reinspect(target);
+      if (!this.request) {
+        return;
+      }
       if (again.ok === false) {
         this.fail(again.error, 'error');
         return;
       }
       this.inspection = again.inspection;
     }
-    const answer = await this.client.install({ token: this.inspection.token, target, replace, pin, as: this.inspection.installsAs ?? as });
+    const answer = await this.client.install({ token: this.inspection.token, target, replace, pin });
     if (!this.request) {
       return;
     }
@@ -370,7 +363,7 @@ export class PackageConsentDialog {
 
   private fail(sentence: string, state: 'conflict' | 'error'): void {
     this.message.textContent = state === 'conflict'
-      ? `${sentence} Replace it with this file? Projects that pinned the old contents will ask about the change.`
+      ? `${sentence} Replace it with this download? Projects that pinned the old contents will ask about the change.`
       : sentence;
     this.message.className = state === 'conflict'
       ? 'rounded-md px-3 py-2 mt-3 text-xs leading-snug shrink-0 bg-warning/15 text-base-content/90'

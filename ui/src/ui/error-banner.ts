@@ -19,7 +19,11 @@ export class ErrorBanner {
   private sketchActive = false;
   private installEl: HTMLButtonElement;
   private missing: MissingPackage | null = null;
-  /** The missing-package banner's Install from file…; absent, the banner offers no action. */
+  /**
+   * The missing-package banner's install action (H11: Install from the
+   * hub); absent, as it is until then, the banner offers no button and its
+   * sentence names the command that downloads the package.
+   */
   private onInstallMissing: ((pkg: MissingPackage) => void) | null = null;
 
   constructor(container: HTMLElement, onGotoSource: (loc: SourceLocation) => void) {
@@ -34,7 +38,7 @@ export class ErrorBanner {
         <div class="flex items-start gap-3 px-5 py-2.5 text-sm select-none">
           <span class="text-error shrink-0 mt-0.5 [&>svg]:size-5">${ICON_ALERT_TRIANGLE}</span>
           <span data-ref="message" class="text-base-content/90 whitespace-pre-line break-words cursor-pointer hover:underline grow min-w-0"></span>
-          <button data-ref="install-missing" type="button" class="btn btn-xs btn-primary shrink-0 hidden">Install from file…</button>
+          <button data-ref="install-missing" type="button" class="btn btn-xs btn-primary shrink-0 hidden">Install</button>
           <span data-ref="count" class="text-base-content/40 tabular-nums shrink-0 hidden mt-0.5"></span>
           <button data-ref="toggle" class="text-base-content/40 hover:text-base-content/70 shrink-0 hidden cursor-pointer transition-transform mt-0.5" aria-label="Toggle error list">
             ${ICON_CHEVRON_DOWN}
@@ -84,9 +88,10 @@ export class ErrorBanner {
   }
 
   /**
-   * Offer Install from file… on a compile error that says a pinned package
-   * isn't installed (`packageProblems` with `code: 'missing'`): the
+   * Offer an install on a compile error that says a pinned package isn't
+   * installed (`packageProblems` with `code: 'missing'`): the
    * missing-package banner. The handler gets the package the project pins.
+   * Nothing sets one until H11 (packages install only from the hub, HD31).
    */
   setInstallMissingHandler(handler: ((pkg: MissingPackage) => void) | null): void {
     this.onInstallMissing = handler;

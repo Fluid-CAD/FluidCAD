@@ -6,7 +6,6 @@ import type {
   PackagesClient,
   PackagesOverview,
 } from '../../src/api';
-import { PackageText } from '../../src/ui/packages/packages-state';
 
 /**
  * A {@link PackagesClient} for the package UI's tests: every call is a
@@ -21,14 +20,7 @@ export class FakePackagesClient implements PackagesClient {
   }
 
   overview = vi.fn(async () => this.overviewValue);
-  /** As the engine: an `as` whose bare part isn't the archive's (`kit`) is refused; without one it installs as the project's pin, `@acme/kit`. */
-  inspect = vi.fn(async (_file: Blob, _target?: 'library' | 'project', as?: string | null): Promise<any> => {
-    if (as && PackageText.bareOf(as) !== 'kit') {
-      return { ok: false as const, status: 400, code: 'wrong-name', error: `This file is kit, so it can't install as ${as}.` };
-    }
-    return { ok: true as const, inspection: FakePackagesClient.inspection({ token: 'token-2', installsAs: as ?? '@acme/kit' }) };
-  });
-  install = vi.fn(async (request: { token: string; target: 'library' | 'project'; replace?: boolean; pin?: boolean; as?: string }) => ({
+  install = vi.fn(async (request: { token: string; target: 'library' | 'project'; replace?: boolean; pin?: boolean }) => ({
     ok: true as const,
     outcome: {
       target: request.target, name: '@acme/kit', version: '0.1.0', directory: '/lib/@acme/kit/0.1.0',
@@ -45,7 +37,7 @@ export class FakePackagesClient implements PackagesClient {
 
   static manifest(extra: Partial<PackageManifest> = {}): PackageManifest {
     return {
-      name: 'kit',
+      name: '@acme/kit',
       version: '0.1.0',
       description: 'Standoffs and spacers',
       engine: '0.0.46',
@@ -69,7 +61,6 @@ export class FakePackagesClient implements PackagesClient {
       warnings: [{ code: 'sdk-version', message: 'Built against a newer feature SDK (version 2); this engine has version 1.' }],
       bytes: 48_600,
       defaultTarget: 'library',
-      installsAs: '@acme/kit',
       ...extra,
     };
   }
@@ -77,7 +68,7 @@ export class FakePackagesClient implements PackagesClient {
   static installed(name: string, version: string, extra: Partial<InstalledPackage> = {}): InstalledPackage {
     return {
       target: 'library', name, version, directory: `/lib/${name}/${version}`,
-      manifest: FakePackagesClient.manifest({ name: PackageText.bareOf(name), version }), bytes: 48_600, ...extra,
+      manifest: FakePackagesClient.manifest({ name, version }), bytes: 48_600, ...extra,
     };
   }
 
@@ -93,11 +84,6 @@ export class FakePackagesClient implements PackagesClient {
       ...extra,
     };
   }
-}
-
-/** A `.fluidpkg` File for the flow (its bytes never matter to the fake). */
-export function packageFile(name = 'acme-kit-0.1.0.fluidpkg'): File {
-  return new File([new Uint8Array([80, 75, 3, 4])], name);
 }
 
 /** Let the awaited fakes settle. */

@@ -86,7 +86,6 @@ import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials'
 import { applyPackagePreferences } from './ui/settings/package-settings';
 import { HttpPackagesClient, recompute } from './api';
 import { PackagesState } from './ui/packages/packages-state';
-import { PackageDropTarget, PackageInstallFlow } from './ui/packages/package-install-flow';
 import { ProjectPackagesDialog } from './ui/packages/project-packages-dialog';
 import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
@@ -855,13 +854,12 @@ currentRail = initialRail;
 
 // Top application bar (logo, workspace, file tabs) and the secondary tool bar
 // below it (host for conditionally-visible tool groups).
-// Packages: one copy of what the library and the project hold, the install
-// flow every entry point shares (Install package…, the missing-package
-// banner, a .fluidpkg dropped on the window), and the project's Packages
-// dialog. Nothing broadcasts after an install, a copy or a removal, so each
-// one refetches here: the overview, the feature catalog (library entries
-// come and go, a copy moves a module) and the scene (a pin that now
-// resolves elsewhere, or at all).
+// Packages: one copy of what the library and the project hold, and the
+// project's Packages dialog. Packages install only from the hub (HD31): the
+// page has no install entry point until the Hub panel (H11). Nothing
+// broadcasts after a copy or a removal, so each one refetches here: the
+// overview, the feature catalog (library entries come and go, a copy moves
+// a module) and the scene (a pin that now resolves elsewhere, or at all).
 const packagesClient = new HttpPackagesClient();
 const packagesState = new PackagesState(packagesClient);
 function packagesChanged(): void {
@@ -869,16 +867,8 @@ function packagesChanged(): void {
   void featureCatalog.refresh();
   recompute();
 }
-const packageInstallFlow = new PackageInstallFlow(container, {
-  client: packagesClient,
-  state: packagesState,
-  onInstalled: () => packagesChanged(),
-  notify: (message) => showToast(message),
-});
-new PackageDropTarget(container, packageInstallFlow);
 const projectPackagesDialog = new ProjectPackagesDialog(container, {
   state: packagesState,
-  flow: packageInstallFlow,
   onChanged: () => packagesChanged(),
 });
 
@@ -889,7 +879,7 @@ const settingsModal = new SettingsModal(container, {
   resetPreferences,
   applyPreferences: applyLoadedPreferences,
   loadMaterials: () => engineClient.getMaterials(),
-  packages: { state: packagesState, flow: packageInstallFlow, onLibraryChanged: () => packagesChanged() },
+  packages: { state: packagesState, onLibraryChanged: () => packagesChanged() },
 });
 
 const topBar = new TopBar(container, {
@@ -2122,9 +2112,8 @@ const errorBanner = new ErrorBanner(container, (loc) => {
   gotoSource(loc);
 });
 // The missing-package banner: a render that stopped because a pinned
-// package is installed nowhere offers Install from file…, checked against
-// the pin.
-errorBanner.setInstallMissingHandler((pkg) => packageInstallFlow.pick({ expect: pkg }));
+// package is installed nowhere names the command that downloads it. No
+// install handler until H11's Install from the hub (HD31).
 // The engine's kernel trapped: its memory may be damaged until it restarts.
 // The desktop shell restarts its own engine; elsewhere the engine ends
 // itself and its host starts a fresh one, or the banner says how.

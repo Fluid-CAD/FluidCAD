@@ -1,11 +1,9 @@
 import type { PackagesOverview, PinnedPackage } from '../../api';
-import { ICON_ALERT_TRIANGLE, ICON_CLOSE, ICON_PACKAGE_IMPORT } from '../icons';
-import type { PackageInstallFlow } from './package-install-flow';
+import { ICON_ALERT_TRIANGLE, ICON_CLOSE } from '../icons';
 import { PackageText, type PackagesState } from './packages-state';
 
 export type ProjectPackagesDialogDeps = {
   state: PackagesState;
-  flow: PackageInstallFlow;
   /** Where the project loads a package from changed (a copy in, a copy removed): the scene and the catalogs catch up. */
   onChanged(): void;
 };
@@ -27,8 +25,9 @@ const CHIP = 'badge badge-xs shrink-0 whitespace-nowrap';
  *   copy. A library holding other contents under that version refuses it,
  *   and the copy stays.
  * - A pin installed nowhere leads the dialog as the missing-package
- *   banner, with **Install from file…**, which checks the file against the
- *   pin (B5 adds Install from the hub).
+ *   banner, naming the command that downloads it,
+ *   `fluidcad install @acme/kit@0.1.0`. Packages install only from the hub
+ *   (HD31); H11 adds Install from the hub here.
  * - An **update available** chip names a newer version the library holds;
  *   moving to it is Stage P10's previewed upgrade.
  *
@@ -68,10 +67,7 @@ export class ProjectPackagesDialog {
         <div data-ref="banner" class="hidden flex-col gap-2 mb-3 shrink-0"></div>
         <div data-ref="list" class="overflow-y-auto min-h-0 border border-base-content/10 rounded-md"></div>
         <div data-ref="status" class="text-xs min-h-4 mt-2 shrink-0"></div>
-        <div class="flex items-center justify-between gap-2 pt-2 shrink-0">
-          <button data-ref="install" type="button" class="btn btn-ghost btn-sm gap-1.5">
-            <span class="[&>svg]:size-4">${ICON_PACKAGE_IMPORT}</span>Install package…
-          </button>
+        <div class="flex items-center justify-end gap-2 pt-2 shrink-0">
           <button data-ref="done" type="button" class="btn btn-sm">Close</button>
         </div>
       </div>
@@ -82,7 +78,6 @@ export class ProjectPackagesDialog {
     this.status = this.overlay.querySelector<HTMLDivElement>('[data-ref="status"]')!;
     this.overlay.querySelector('[data-ref="close"]')!.addEventListener('click', () => this.hide());
     this.overlay.querySelector('[data-ref="done"]')!.addEventListener('click', () => this.hide());
-    this.overlay.querySelector('[data-ref="install"]')!.addEventListener('click', () => this.deps.flow.pick());
     this.overlay.addEventListener('mousedown', (e) => {
       if (e.target === this.overlay) {
         this.hide();
@@ -113,9 +108,9 @@ export class ProjectPackagesDialog {
     this.overlay.remove();
   }
 
-  /** Escape closes the dialog — unless the consent dialog above it is the one open. */
+  /** Escape closes the dialog. */
   private readonly onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape' && this.overlay.isConnected && this.isOpen() && !this.deps.flow.consent.isOpen()) {
+    if (e.key === 'Escape' && this.overlay.isConnected && this.isOpen()) {
       e.stopPropagation();
       this.hide();
     }
@@ -165,14 +160,13 @@ export class ProjectPackagesDialog {
       icon.innerHTML = ICON_ALERT_TRIANGLE;
       const text = document.createElement('span');
       text.className = 'flex-1 min-w-0 text-base-content/90';
-      text.textContent = `This project uses ${PackageText.label(pin.name, pin.version)}, which isn't installed.`;
-      const install = document.createElement('button');
-      install.type = 'button';
-      install.dataset.action = 'install-missing';
-      install.className = 'btn btn-xs btn-primary shrink-0';
-      install.textContent = 'Install from file…';
-      install.addEventListener('click', () => this.deps.flow.pick({ expect: { name: pin.name, version: pin.version } }));
-      box.append(icon, text, install);
+      text.append(`This project uses ${PackageText.label(pin.name, pin.version)}, which isn't installed: `);
+      const command = document.createElement('code');
+      command.dataset.ref = 'install-command';
+      command.className = 'font-mono text-[11px] text-base-content select-all';
+      command.textContent = ProjectPackagesDialog.installCommand(pin);
+      text.append(command, ' downloads it from the hub.');
+      box.append(icon, text);
       this.banner.appendChild(box);
     }
   }
@@ -215,6 +209,11 @@ export class ProjectPackagesDialog {
       row.appendChild(action);
     }
     return row;
+  }
+
+  /** The command that downloads a missing pin: `fluidcad install @acme/kit@0.1.0`. */
+  static installCommand(pin: Pick<PinnedPackage, 'name' | 'version'>): string {
+    return `fluidcad install ${pin.name}@${pin.version}`;
   }
 
   private static whereText(pin: PinnedPackage): string {

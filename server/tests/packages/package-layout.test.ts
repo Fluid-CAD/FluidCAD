@@ -145,6 +145,7 @@ describe('PackageLayout.exportsOf', () => {
 
 describe('PackageLayout.modelCount and contentsOf', () => {
   const manifest = {
+    // An archive packed before the flag was dropped still carries usesOcct: contentsOf leaves it out.
     features: [{ id: 'acme.gear', exportName: 'gear', module: 'features/gear.feature.js', meta: {} as any, usesOcct: true }],
     parts: [
       { exportName: 'spur', module: 'parts/spur.part.js', name: 'Spur', kind: 'part' as const, exportKind: 'value' as const, params: [{} as any, {} as any] },
@@ -159,7 +160,7 @@ describe('PackageLayout.modelCount and contentsOf', () => {
 
   it('groups the manifest by folder', () => {
     expect(PackageLayout.contentsOf(manifest)).toEqual({
-      features: [{ id: 'acme.gear', exportName: 'gear', module: 'features/gear.feature.js', usesOcct: true }],
+      features: [{ id: 'acme.gear', exportName: 'gear', module: 'features/gear.feature.js' }],
       parts: [{ exportName: 'spur', name: 'Spur', module: 'parts/spur.part.js', params: 2 }],
       assemblies: [{ exportName: 'train', name: 'Train', module: 'assemblies/train.assembly.js', params: 0 }],
       models: 2,

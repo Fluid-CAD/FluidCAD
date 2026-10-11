@@ -224,9 +224,9 @@ describe('packing a package workspace', () => {
       // Nothing dated: no `createdAt` (see the reproducibility test).
       files: SHIPPED,
     });
-    expect(features.map(({ id, exportName, module, usesOcct }) => ({ id, exportName, module, usesOcct }))).toEqual([
-      { id: 'fastener', exportName: 'fastener', module: 'features/fastener.feature.js', usesOcct: false },
-      { id: 'standoff', exportName: 'standoff', module: 'features/standoff.feature.js', usesOcct: false },
+    expect(features.map(({ id, exportName, module }) => ({ id, exportName, module }))).toEqual([
+      { id: 'fastener', exportName: 'fastener', module: 'features/fastener.feature.js' },
+      { id: 'standoff', exportName: 'standoff', module: 'features/standoff.feature.js' },
     ]);
     const standoff = features.find((f) => f.id === 'standoff')!;
     expect(standoff.meta).toMatchObject({ id: 'standoff', label: 'Standoff', icon: './standoff.svg' });
@@ -341,7 +341,7 @@ describe('packing a package workspace', () => {
     expect(manifest.files).not.toContain('manifest.json');
   });
 
-  it('records raw OpenCascade use per feature', async () => {
+  it('writes no raw OpenCascade flag, even for a feature that reaches it', async () => {
     write('features/raw.feature.js', [
       `import { Feature, defineFeature } from 'fluidcad/sdk';`,
       `import { getOC } from 'fluidcad/sdk/occt';`,
@@ -355,11 +355,9 @@ describe('packing a package workspace', () => {
       ``,
     ].join('\n'));
     const { manifest } = await pack();
-    expect(manifest.features.map((f) => [f.id, f.usesOcct])).toEqual([
-      ['fastener', false],
-      ['raw', true],
-      ['standoff', false],
-    ]);
+    // A feature that reaches raw OpenCascade packs like any other: the manifest says nothing about it.
+    expect(manifest.features.map((f) => f.id)).toEqual(['fastener', 'raw', 'standoff']);
+    expect(manifest.features.every((f) => !('usesOcct' in f))).toBe(true);
   });
 
   it('snapshots an assembly in assemblies/ as a part of kind assembly', async () => {
@@ -426,12 +424,13 @@ describe('the package layout: the folders decide the exports (HD20)', () => {
     expect(PackageLayout.contentsOf(manifest)).toMatchObject({ parts: [], assemblies: [], models: 0 });
   });
 
-  it('keeps the manifest\'s shape: the same keys as an archive packed before the layout', async () => {
+  it('keeps the manifest\'s shape: the same keys as an archive packed before the layout, less usesOcct', async () => {
     const archived = await unzip(fs.readFileSync(PRE_LAYOUT_ARCHIVE));
     const before = JSON.parse(archived['manifest.json'].toString('utf8'));
     const { manifest } = await pack();
     expect(Object.keys(manifest).sort()).toEqual(Object.keys(before).sort());
-    expect(Object.keys(manifest.features[0]).sort()).toEqual(Object.keys(before.features[0]).sort());
+    // Features dropped usesOcct since; nothing else changed.
+    expect(Object.keys(manifest.features[0]).sort()).toEqual(Object.keys(before.features[0]).filter((key) => key !== 'usesOcct').sort());
     expect(Object.keys(manifest.parts[0]).sort()).toEqual(Object.keys(before.parts[0]).sort());
     // The same package, moved into the folders: the same names, and the ids
     // without the scope the pre-HD29 archive's carried.

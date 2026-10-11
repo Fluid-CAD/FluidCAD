@@ -62,7 +62,7 @@ export class ArchiveFixture {
       unit: 'mm',
       fileUnits: {},
       contents: ['features'],
-      features: [{ id: 'standoff', exportName: 'standoff', module: 'standoff.feature.js', meta: { label: 'Standoff' }, usesOcct: false }],
+      features: [{ id: 'standoff', exportName: 'standoff', module: 'standoff.feature.js', meta: { label: 'Standoff' } }],
       parts: [],
       files: Object.keys(files).sort(),
       ...(options.manifest ?? {}),

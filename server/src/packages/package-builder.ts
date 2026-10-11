@@ -12,7 +12,6 @@ import {
 } from '../project-config.ts';
 import { FluidCadServer } from '../fluidcad-server/index.ts';
 import { FeatureModules } from '../feature-catalog/walk.ts';
-import { RawOcctUse } from '../feature-catalog/raw-occt.ts';
 import type { FeatureScanResult } from '../feature-catalog/scan.ts';
 import type { PartScanResult } from '../part-catalog/scan.ts';
 import { listFeatureAssets } from '../../../lib/dist/index.js';
@@ -79,7 +78,7 @@ export class PackageBuildError extends Error {
 /** What one evaluated export module offers. */
 type ModuleExports = {
   module: string;
-  features: Omit<PackageManifestFeature, 'usesOcct'>[];
+  features: PackageManifestFeature[];
   parts: PackageManifestPart[];
 };
 
@@ -111,8 +110,7 @@ export async function packPackage(inputs: PackPackageInputs): Promise<PackPackag
  * 5. the closure stays inside the workspace: no `node_modules`, `init.js`,
  *    blocked built-in or other package, nothing on a reserved root path,
  *    and nothing outside the three folders (`outside-layout`);
- * 6. every image a feature declares exists inside its module's directory;
- * 7. raw OpenCascade use is recorded per feature (not a refusal).
+ * 6. every image a feature declares exists inside its module's directory.
  */
 export class PackageBuilder {
   /** Root files that ship when present, matched without regard to case. */
@@ -173,7 +171,7 @@ export class PackageBuilder {
       : await InProcessEngine.run(this.workspace, (engine) => this.evaluate(engine.server, exports), { linkEngine: false });
     this.checkNames(evaluated);
 
-    const features = await this.withRawOcct(evaluated);
+    const features = evaluated.flatMap((m) => m.features);
     const assets = this.assets(features);
     const extras = await this.extras();
     const shipped = [...new Set([...closure, ...assets, ...extras])].sort();
@@ -415,20 +413,8 @@ export class PackageBuilder {
   }
 
   // ---------------------------------------------------------------------------
-  // Checks 6 and 7: images and raw OpenCascade
+  // Check 6: images
   // ---------------------------------------------------------------------------
-
-  private async withRawOcct(modules: ModuleExports[]): Promise<PackageManifestFeature[]> {
-    const features: PackageManifestFeature[] = [];
-    for (const module of modules) {
-      if (module.features.length === 0) {
-        continue;
-      }
-      const { usesOcct } = await RawOcctUse.scan(join(this.workspace, module.module), this.workspace);
-      features.push(...module.features.map((f) => ({ ...f, usesOcct })));
-    }
-    return features;
-  }
 
   /** Every image the features declare, workspace-relative; each must exist inside its module's directory. */
   private assets(features: PackageManifestFeature[]): string[] {

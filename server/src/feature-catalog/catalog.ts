@@ -17,6 +17,7 @@ import { FeatureKey, listFeatureAssets, type FeatureMetaSnapshot } from '../../.
 import { FeatureModules } from './walk.ts';
 import { FeatureScanner, type FeatureScanResult } from './scan.ts';
 import { RawOcctUse } from './raw-occt.ts';
+import type { FeatureDisclosure } from '../engine-health.ts';
 
 /**
  * One feature the editor can offer: a builder a feature module exports, or
@@ -56,12 +57,12 @@ export type FeatureCatalogEntry = {
    * OpenCascade (`fluidcad/sdk/occt`, or a scope opened with `this.occ()`;
    * see {@link RawOcctUse}): unstable code that can corrupt the kernel's
    * memory for the whole engine session. Read from the source, never
-   * evaluated; a package's feature carries what its manifest says (the
-   * packer read the source). False for the engine's own builders. Kept in the engine —
-   * a kernel trap names it as the likeliest cause — and never served to
-   * the page.
+   * evaluated. False for the engine's own builders; absent for an installed
+   * package's feature, whose installed source {@link FeatureCatalog.disclosure}
+   * reads only when a kernel trap asks. Kept in the engine — a kernel trap
+   * names it as the likeliest cause — and never served to the page.
    */
-  usesOcct: boolean;
+  usesOcct?: boolean;
   /** Why this entry can't be offered. */
   error?: string;
 };
@@ -108,6 +109,10 @@ export class FeatureCatalog implements FeatureCalleeSource {
   /** The files each scanned module's features declare (icons, option images), by module. */
   private readonly assets = new Map<string, Set<string>>();
   private builtInEntries: Promise<FeatureCatalogEntry[]> | null = null;
+  /** An installed package's feature module → that package's installed directory (what its relative imports stay inside). */
+  private readonly packageRoots = new Map<string, string>();
+  /** An installed package's feature module → whether it reaches raw OpenCascade, read once from its installed source. */
+  private readonly packageOcct = new Map<string, Promise<boolean>>();
 
   constructor(private readonly options: FeatureCatalogOptions) {
     this.workspacePath = options.workspacePath ? normalizePath(options.workspacePath) : '';
@@ -132,7 +137,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
       }
       entries.push(...moduleEntries);
     }
-    const offered = PackageOffers.of(this.workspacePath || null).flatMap(offer => FeatureCatalog.packageEntries(offer));
+    const offered = PackageOffers.of(this.workspacePath || null).flatMap(offer => this.packageEntries(offer));
     entries.push(...offered.filter(entry => entry.package?.availability === 'dependency'));
     const used = new Set(entries.map(entry => entry.id).filter((id): id is string => id !== null));
     entries.push(...offered.filter(entry => entry.package?.availability === 'library' && !used.has(entry.id!)));
@@ -365,7 +370,7 @@ export class FeatureCatalog implements FeatureCalleeSource {
     } else if (target.kind === 'built-in') {
       entries = await this.builtIns();
     } else if (target.kind === 'package') {
-      entries = FeatureCatalog.packageEntries({
+      entries = this.packageEntries({
         name: target.package.name,
         version: target.package.version,
         availability: 'dependency',
@@ -401,18 +406,48 @@ export class FeatureCatalog implements FeatureCalleeSource {
    * objects when the package's module evaluates (`FeatureNamespaces`); the
    * manifest keeps the plain id. Two packages' features never share a key.
    */
-  private static packageEntries(offer: PackageOffer): FeatureCatalogEntry[] {
+  private packageEntries(offer: PackageOffer): FeatureCatalogEntry[] {
     const pkg: PackageRef = { name: offer.name, version: offer.version, availability: offer.availability };
-    return offer.manifest.features.map(feature => ({
-      id: FeatureKey.of(offer.name, feature.id),
-      exportName: feature.exportName,
-      modulePath: normalizePath(`${offer.directory}/${feature.module}`),
-      builtIn: false,
-      meta: { ...feature.meta, id: FeatureKey.of(offer.name, feature.id) },
-      usesOcct: feature.usesOcct === true,
-      package: pkg,
-      ...(offer.problem !== undefined ? { error: offer.problem } : {}),
-    }));
+    return offer.manifest.features.map(feature => {
+      const modulePath = normalizePath(`${offer.directory}/${feature.module}`);
+      this.packageRoots.set(modulePath, normalizePath(offer.directory));
+      return {
+        id: FeatureKey.of(offer.name, feature.id),
+        exportName: feature.exportName,
+        modulePath,
+        builtIn: false,
+        meta: { ...feature.meta, id: FeatureKey.of(offer.name, feature.id) },
+        package: pkg,
+        ...(offer.problem !== undefined ? { error: offer.problem } : {}),
+      };
+    });
+  }
+
+  /**
+   * What a kernel trap's report says of a feature type (`EngineHealth`):
+   * its label, and whether its module reaches raw OpenCascade. A
+   * workspace feature's answer comes with its scan; an installed package's
+   * is read from its installed source the first time a trap asks (an
+   * installed version's files don't change in place). Null for a type the
+   * catalog doesn't list (a built-in statement).
+   */
+  async disclosure(type: string): Promise<FeatureDisclosure | null> {
+    const entry = (await this.list())?.find(candidate => candidate.id === type && candidate.meta !== null);
+    if (!entry?.meta) {
+      return null;
+    }
+    const usesOcct = entry.package ? await this.packageReachesOcct(entry.modulePath) : entry.usesOcct === true;
+    return { label: entry.meta.label, usesOcct };
+  }
+
+  private packageReachesOcct(modulePath: string): Promise<boolean> {
+    let answer = this.packageOcct.get(modulePath);
+    if (!answer) {
+      const root = this.packageRoots.get(modulePath) ?? dirname(modulePath);
+      answer = RawOcctUse.scan(modulePath, root).then(scan => scan.usesOcct, () => false);
+      this.packageOcct.set(modulePath, answer);
+    }
+    return answer;
   }
 
   /** Every entry whose id another entry shares, refused with a message naming both. */

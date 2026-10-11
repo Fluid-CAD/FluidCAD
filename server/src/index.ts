@@ -180,10 +180,7 @@ const featureCatalog = new FeatureCatalog({
 // supports; a trapped row whose feature reaches raw OpenCascade says so.
 const engineHealth = new EngineHealth({
   broadcast: (msg) => broadcastToUI(msg),
-  feature: async (type) => {
-    const entry = (await featureCatalog.list())?.find(e => e.id === type && e.meta !== null);
-    return entry?.meta ? { label: entry.meta.label, usesOcct: entry.usesOcct } : null;
-  },
+  feature: (type) => featureCatalog.disclosure(type),
 });
 engineHealth.watch(KernelTraps);
 

@@ -146,7 +146,6 @@ describe('the feature catalog lists packages', () => {
       exportName: 'standoff',
       modulePath: `${dir}/standoff.feature.js`,
       builtIn: false,
-      usesOcct: false,
       package: { name: '@acme/kit', version: '0.1.0', availability: 'dependency' },
     });
     // The manifest's snapshot, keyed by the package it is installed as (the manifest keeps the plain id).
@@ -171,7 +170,7 @@ describe('the feature catalog lists packages', () => {
     ]);
   });
 
-  it('carries usesOcct from the manifest', async () => {
+  it('ignores an older manifest\'s usesOcct: a kernel trap\'s disclosure reads the installed source', async () => {
     await project.install('@acme/kit', '0.1.0', {
       edit: (dir) => {
         const manifest = JSON.parse(fs.readFileSync(`${dir}/manifest.json`, 'utf8'));
@@ -180,7 +179,24 @@ describe('the feature catalog lists packages', () => {
       },
     });
     project.config(null);
-    expect((await list())[0].usesOcct).toBe(true);
+    const features = catalog();
+    const [entry] = await list(features);
+    expect(entry).not.toHaveProperty('usesOcct');
+    expect(await features.disclosure(entry.id!)).toEqual({ label: 'Standoff', usesOcct: false });
+  });
+
+  it('names raw OpenCascade in a trap\'s disclosure when the installed module reaches it', async () => {
+    await project.install('@acme/kit', '0.1.0', {
+      edit: (dir) => {
+        const source = fs.readFileSync(`${dir}/standoff.feature.js`, 'utf8');
+        fs.writeFileSync(`${dir}/standoff.feature.js`, `import { getOC } from 'fluidcad/sdk/occt';\n${source}`);
+      },
+    });
+    project.config(null);
+    const features = catalog();
+    const [entry] = await list(features);
+    expect(await features.disclosure(entry.id!)).toEqual({ label: 'Standoff', usesOcct: true });
+    expect(await features.disclosure('@acme/kit:nothing')).toBeNull();
   });
 
   it('gives a pinned package it can’t load as error entries with the render’s sentence, and a missing one as nothing', async () => {

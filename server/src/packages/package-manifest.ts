@@ -18,8 +18,6 @@ export type PackageManifestFeature = {
   /** The declaring module, package-relative: what the feature's images resolve against. */
   module: string;
   meta: FeatureMetaSnapshot;
-  /** The module, or one it imports, reaches raw OpenCascade (see `RawOcctUse`). */
-  usesOcct: boolean;
 };
 
 /** One part or assembly definition a package exports. */
@@ -92,7 +90,7 @@ export type MisplacedModule = {
 
 /** A package's manifest entries by folder, as `fluidcad pack` lists them. */
 export type PackageContents = {
-  features: { id: string; exportName: string; module: string; usesOcct: boolean }[];
+  features: { id: string; exportName: string; module: string }[];
   parts: { exportName: string; name: string; module: string; params: number }[];
   assemblies: { exportName: string; name: string; module: string; params: number }[];
   /** The parts and assemblies together: a package needs at least one to publish (`no-models`). */
@@ -253,7 +251,7 @@ export class PackageLayout {
       params: p.params?.length ?? 0,
     });
     return {
-      features: manifest.features.map((f) => ({ id: f.id, exportName: f.exportName, module: f.module, usesOcct: f.usesOcct })),
+      features: manifest.features.map((f) => ({ id: f.id, exportName: f.exportName, module: f.module })),
       parts: manifest.parts.filter((p) => p.kind !== 'assembly').map(model),
       assemblies: manifest.parts.filter((p) => p.kind === 'assembly').map(model),
       models: PackageLayout.modelCount(manifest),

@@ -55,7 +55,7 @@ function withIcon(): Parameters<typeof ArchiveFixture.zip>[0] {
   return {
     files,
     manifest: {
-      features: [{ id: 'acme.standoff', exportName: 'standoff', module: 'standoff.feature.js', meta: { label: 'Standoff', icon: './standoff.svg' }, usesOcct: false }],
+      features: [{ id: 'acme.standoff', exportName: 'standoff', module: 'standoff.feature.js', meta: { label: 'Standoff', icon: './standoff.svg' } }],
     },
   };
 }
@@ -174,7 +174,7 @@ describe('the consent dialog', () => {
     const options = withIcon();
     options.files = { ...options.files, 'parts/standoff.feature.js': "export const standoff = () => null;\n" };
     options.manifest = {
-      features: [{ id: 'acme.standoff', exportName: 'standoff', module: 'parts/standoff.feature.js', meta: { label: 'Standoff', icon: '../standoff.svg' }, usesOcct: false }],
+      features: [{ id: 'acme.standoff', exportName: 'standoff', module: 'parts/standoff.feature.js', meta: { label: 'Standoff', icon: '../standoff.svg' } }],
     };
     const inspected = await call(`${base}/packages/inspect`, {
       method: 'POST',

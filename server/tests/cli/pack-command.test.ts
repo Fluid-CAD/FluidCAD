@@ -184,8 +184,8 @@ describe('fluidcad pack', () => {
       unit: 'mm',
       contents: {
         features: [
-          { id: 'fastener', exportName: 'fastener', module: 'features/fastener.feature.js', usesOcct: false },
-          { id: 'standoff', exportName: 'standoff', module: 'features/standoff.feature.js', usesOcct: false },
+          { id: 'fastener', exportName: 'fastener', module: 'features/fastener.feature.js' },
+          { id: 'standoff', exportName: 'standoff', module: 'features/standoff.feature.js' },
         ],
         parts: [{ exportName: 'spacer', name: 'Spacer', module: 'parts/spacer.part.js', params: 1 }],
         assemblies: [],

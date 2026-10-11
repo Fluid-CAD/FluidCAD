@@ -134,7 +134,7 @@ describe('PackageArchive.inspect', () => {
       },
     }), { root: library, engineVersion: '0.0.46' });
 
-    // A raw OpenCascade feature (acme.twist) adds no warning: only the engine and SDK versions do.
+    // A manifest packed before usesOcct was dropped still installs, and its raw OpenCascade feature adds no warning.
     expect(inspection.warnings.map((w) => w.code)).toEqual(['min-engine', 'sdk-version']);
     expect(inspection.warnings.map((w) => w.message).join(' ')).not.toMatch(/OpenCascade/);
     expect(inspection.warnings[0].message).toContain('Needs FluidCAD 0.1.0 or newer; this is 0.0.46');

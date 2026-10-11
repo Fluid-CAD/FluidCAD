@@ -61,11 +61,11 @@ afterEach(() => {
 
 describe('fluidcad package init', () => {
   it('writes the block with the name and version 0.1.0, prints it, and says what the folders export', () => {
-    const run = cli('package', 'init', '--name', '@acme/demo');
+    const run = cli('package', 'init', '--name', 'demo');
 
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
-    const block = { name: '@acme/demo', version: '0.1.0' };
+    const block = { name: 'demo', version: '0.1.0' };
     expect(readConfig()).toEqual({ engine: '0.0.46', unit: 'in', package: block });
     expect(run.stdout).toContain('Wrote the "package" block to');
     expect(run.stdout).toContain(JSON.stringify(block, null, 2).split('\n').map((l) => `  ${l}`).join('\n'));
@@ -79,7 +79,7 @@ describe('fluidcad package init', () => {
   it('says where modules go when the folders hold nothing yet', () => {
     fs.rmSync(path.join(workspace, 'features'), { recursive: true });
 
-    const run = cli('package', 'init', '--name', '@acme/demo');
+    const run = cli('package', 'init', '--name', 'demo');
 
     expect(run.status).toBe(0);
     expect(run.stdout).toContain(
@@ -91,11 +91,11 @@ describe('fluidcad package init', () => {
   it('takes the workspace from --workspace', () => {
     const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-cli-cwd-'));
     try {
-      const result = spawnSync(process.execPath, [CLI, 'package', 'init', '-n', '@acme/demo', '-w', workspace], {
+      const result = spawnSync(process.execPath, [CLI, 'package', 'init', '-n', 'demo', '-w', workspace], {
         cwd: elsewhere, encoding: 'utf8', env: { ...process.env, FLUIDCAD_PACKAGES: library },
       });
       expect(result.status).toBe(0);
-      expect(readConfig().package.name).toBe('@acme/demo');
+      expect(readConfig().package.name).toBe('demo');
       expect(fs.existsSync(path.join(elsewhere, 'fluidcad.json'))).toBe(false);
     } finally {
       fs.rmSync(elsewhere, { recursive: true, force: true });
@@ -103,10 +103,18 @@ describe('fluidcad package init', () => {
   });
 
   it('refuses a bad name with exit 1 and leaves the file alone', () => {
-    const run = cli('package', 'init', '--name', 'demo');
+    const run = cli('package', 'init', '--name', '3d-demo');
 
     expect(run.status).toBe(1);
-    expect(run.stderr).toContain('"demo" is not a package name');
+    expect(run.stderr).toContain('"3d-demo" is not a package name: package names are lowercase letters, digits and single dashes, starting with a letter.');
+    expect(readConfig()).toEqual({ engine: '0.0.46', unit: 'in' });
+  });
+
+  it('refuses a scoped name: the hub adds the handle when the package is published', () => {
+    const run = cli('package', 'init', '--name', '@acme/demo');
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('"@acme/demo" carries a scope, but the hub adds your handle when you publish: name the package "demo".');
     expect(readConfig()).toEqual({ engine: '0.0.46', unit: 'in' });
   });
 
@@ -114,31 +122,31 @@ describe('fluidcad package init', () => {
     const run = cli('package', 'init');
 
     expect(run.status).toBe(1);
-    expect(run.stderr).toContain('--name @scope/name');
+    expect(run.stderr).toContain('--name feature-tests');
     expect(readConfig().package).toBeUndefined();
   });
 
   it('refuses a workspace that is already a package', () => {
-    expect(cli('package', 'init', '--name', '@acme/demo').status).toBe(0);
+    expect(cli('package', 'init', '--name', 'demo').status).toBe(0);
 
-    const run = cli('package', 'init', '--name', '@acme/other');
+    const run = cli('package', 'init', '--name', 'other');
 
     expect(run.status).toBe(1);
-    expect(run.stderr).toContain('already the package @acme/demo 0.1.0');
-    expect(readConfig().package.name).toBe('@acme/demo');
+    expect(run.stderr).toContain('already the package demo 0.1.0');
+    expect(readConfig().package.name).toBe('demo');
   });
 });
 
 describe('fluidcad version', () => {
   it('bumps patch, minor and major, and sets an exact version, printing each change', () => {
-    expect(cli('package', 'init', '--name', '@acme/demo').status).toBe(0);
+    expect(cli('package', 'init', '--name', 'demo').status).toBe(0);
 
     const steps: [string, string][] = [
-      ['patch', '@acme/demo 0.1.0 → 0.1.1'],
-      ['minor', '@acme/demo 0.1.1 → 0.2.0'],
-      ['major', '@acme/demo 0.2.0 → 1.0.0'],
-      ['1.1.0-beta.1', '@acme/demo 1.0.0 → 1.1.0-beta.1'],
-      ['minor', '@acme/demo 1.1.0-beta.1 → 1.1.0'],
+      ['patch', 'demo 0.1.0 → 0.1.1'],
+      ['minor', 'demo 0.1.1 → 0.2.0'],
+      ['major', 'demo 0.2.0 → 1.0.0'],
+      ['1.1.0-beta.1', 'demo 1.0.0 → 1.1.0-beta.1'],
+      ['minor', 'demo 1.1.0-beta.1 → 1.1.0'],
     ];
     for (const [spec, printed] of steps) {
       const run = cli('version', spec);
@@ -150,7 +158,7 @@ describe('fluidcad version', () => {
     const config = readConfig();
     expect(config.package.version).toBe('1.1.0');
     expect(config).toMatchObject({ engine: '0.0.46', unit: 'in' });
-    expect(config.package).toEqual({ name: '@acme/demo', version: '1.1.0' });
+    expect(config.package).toEqual({ name: 'demo', version: '1.1.0' });
   });
 
   it('refuses outside a package', () => {
@@ -161,7 +169,7 @@ describe('fluidcad version', () => {
   });
 
   it('refuses a spec that is neither a bump nor a version', () => {
-    expect(cli('package', 'init', '--name', '@acme/demo').status).toBe(0);
+    expect(cli('package', 'init', '--name', 'demo').status).toBe(0);
 
     const run = cli('version', '1.2');
 

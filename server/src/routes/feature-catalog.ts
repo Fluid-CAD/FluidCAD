@@ -36,7 +36,7 @@ export function createFeatureCatalogRouter(catalog: FeatureCatalog, workspacePat
     }
   });
 
-  // `?id=acme.standoff&path=./standoff.svg` — the path exactly as the
+  // `?id=standoff&path=./standoff.svg` (or `?id=%40acme%2Fkit%3Astandoff`, a package's key, encoded) — the path exactly as the
   // feature's metadata declares it: its icon, or an option's image
   // (`./fastener/m3.svg`). Served for <img>, where an SVG's
   // scripts never run; the policy below keeps them inert when the URL is

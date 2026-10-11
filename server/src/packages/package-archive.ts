@@ -239,6 +239,16 @@ export class PackageArchive {
     return (mode & 0o170000) === 0o120000;
   }
 
+  /**
+   * The refusal of an archive whose manifest names `@scope/name`: packed
+   * before package names lost their scope (HD29). It is never converted —
+   * rewriting `manifest.json` would change the tree hash every pin holds.
+   */
+  static scopedNameSentence(name: string): string {
+    return `This archive names ${name}: it was packed by an earlier FluidCAD, whose package names carried the scope. `
+      + 'Pack it again with this one.';
+  }
+
   private static readManifest(tree: string, files: string[]): PackageManifest {
     if (!files.includes(PackageLayout.MANIFEST)) {
       throw new PackageArchiveError('no-manifest', `This archive has no ${PackageLayout.MANIFEST}, so it isn't a FluidCAD package.`);
@@ -262,8 +272,11 @@ export class PackageArchive {
       }
       throw new PackageArchiveError('bad-manifest', `The package's manifestVersion ${JSON.stringify(raw.manifestVersion)} isn't one FluidCAD knows.`);
     }
-    if (!PackageName.isValid(raw.name)) {
-      throw new PackageArchiveError('bad-manifest', `The package's name ${JSON.stringify(raw.name)} is not a package name: ${PackageName.RULE}.`);
+    if (PackageName.isValid(raw.name)) {
+      throw new PackageArchiveError('bad-manifest', PackageArchive.scopedNameSentence(raw.name));
+    }
+    if (!PackageName.isBare(raw.name)) {
+      throw new PackageArchiveError('bad-manifest', `The package's name ${JSON.stringify(raw.name)} is not a package name: ${PackageName.BARE_RULE}.`);
     }
     for (const key of ['version', 'minEngine'] as const) {
       if (!Semver.isValid(raw[key])) {

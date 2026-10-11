@@ -67,7 +67,7 @@ function cli(cwd: string, args: string[], extraEnv: Record<string, string> = {})
 
 /** A package on the hub, built like the packer builds it; each version's feature module differs. */
 async function publish(name: string, version: string, row: Parameters<FakeHub['addArchive']>[1] = {}, manifest: Record<string, unknown> = {}) {
-  return hub.addArchive(await kitArchive(name, version, manifest), row);
+  return hub.addArchive(await kitArchive(name, version, manifest), row, name);
 }
 
 /** The archive {@link publish} uploads: each version's feature module differs. */
@@ -80,7 +80,7 @@ async function kitArchive(name: string, version: string, manifest: Record<string
 async function installFromFile(name: string, version: string): Promise<void> {
   const file = path.join(tmp, `${name.replace(/[@/]/g, '-')}-${version}.fluidpkg`);
   fs.writeFileSync(file, await kitArchive(name, version));
-  const run = await cli(outside, ['install', file, '-y']);
+  const run = await cli(outside, ['install', file, '--as', name, '-y']);
   expect(run.status).toBe(0);
 }
 
@@ -155,7 +155,7 @@ describe('fluidcad install <@scope/name> from the hub', () => {
     expect(run.status).toBe(0);
     expect(run.stdout).toContain(`Downloading @acme/kit 0.2.0 (${latest.size} B) from ${hub.origin}…`);
     expect(run.stdout).toContain(`Verified: its files hash to ${latest.integrity}, as ${hub.origin} says.`);
-    expect(run.stdout).toContain('@acme/kit 0.2.0 — A test kit');
+    expect(run.stdout).toContain('kit 0.2.0 — A test kit\n  installs as @acme/kit\n');
     expect(run.stdout).toContain("A package's code runs in the FluidCAD engine with your permissions.");
     expect(run.stdout).toContain(`Installed @acme/kit 0.2.0 into your library (${installed(KIT, '0.2.0')}).`);
     expect(run.stdout).toContain("Pinned @acme/kit 0.2.0 in this project's fluidcad.json.");
@@ -341,8 +341,8 @@ describe('fluidcad install (no arguments) from the hub', () => {
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
     expect(run.stdout).toContain(`This project pins 2 packages that aren't installed; downloading from ${hub.origin}.`);
-    expect(run.stdout).toContain('@acme/gears 1.2.0 — A test kit');
-    expect(run.stdout).toContain('@acme/kit 0.1.0 — A test kit');
+    expect(run.stdout).toContain('gears 1.2.0 — A test kit\n  installs as @acme/gears\n');
+    expect(run.stdout).toContain('kit 0.1.0 — A test kit\n  installs as @acme/kit\n');
     expect(run.stdout.match(/A package's code runs in the FluidCAD engine/g)).toHaveLength(2);
     expect(run.stdout).toContain(`Installed @acme/gears 1.2.0 into your library (${installed('@acme/gears', '1.2.0')}).`);
     expect(run.stdout).toContain(`Installed @acme/kit 0.1.0 into your library (${installed(KIT, '0.1.0')}).`);

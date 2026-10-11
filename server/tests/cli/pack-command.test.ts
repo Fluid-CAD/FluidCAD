@@ -78,16 +78,16 @@ afterEach(() => {
 });
 
 describe('fluidcad pack', () => {
-  it('writes <scope>-<name>-<version>.fluidpkg in the workspace, and nothing else, and prints the summary', async () => {
+  it('writes <name>-<version>.fluidpkg in the workspace, and nothing else, and prints the summary', async () => {
     const before = listing();
     const run = cli(['pack']);
 
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
-    const archive = path.join(workspace, 'acme-kit-0.1.0.fluidpkg');
+    const archive = path.join(workspace, 'kit-0.1.0.fluidpkg');
     expect(run.stdout.split('\n')).toEqual([
-      expect.stringMatching(/^Packed @acme\/kit 0\.1\.0 → .*acme-kit-0\.1\.0\.fluidpkg$/),
-      '  features/   2 features: acme.fastener, acme.standoff',
+      expect.stringMatching(/^Packed kit 0\.1\.0 → .*kit-0\.1\.0\.fluidpkg$/),
+      '  features/   2 features: fastener, standoff',
       '  parts/      1 part: spacer',
       '  assemblies/ 0 assemblies',
       expect.stringMatching(/^ {2}21 files, \d+\.\d kB, unit mm$/),
@@ -96,13 +96,13 @@ describe('fluidcad pack', () => {
     // The archive is the only new entry; no engine link, no cache.
     const after = listing();
     expect(after.filter((entry) => !before.includes(entry))).toEqual([
-      expect.stringMatching(/^acme-kit-0\.1\.0\.fluidpkg \d+ /),
+      expect.stringMatching(/^kit-0\.1\.0\.fluidpkg \d+ /),
     ]);
     expect(before.filter((entry) => !after.includes(entry))).toEqual([]);
     expect(fs.readdirSync(library)).toEqual([]);
 
     const manifest = await manifestOf(archive);
-    expect(manifest.name).toBe('@acme/kit');
+    expect(manifest.name).toBe('kit');
     expect(manifest.files).not.toContain('demo.part.js');
     expect(manifest.parts).toEqual([{
       exportName: 'spacer',
@@ -123,8 +123,8 @@ describe('fluidcad pack', () => {
     const dir = path.join(scratch, 'dist');
     fs.mkdirSync(dir);
     expect(cli(['pack', '--out', dir]).status).toBe(0);
-    expect(fs.readdirSync(dir)).toEqual(['acme-kit-0.1.0.fluidpkg']);
-    expect(fs.existsSync(path.join(workspace, 'acme-kit-0.1.0.fluidpkg'))).toBe(false);
+    expect(fs.readdirSync(dir)).toEqual(['kit-0.1.0.fluidpkg']);
+    expect(fs.existsSync(path.join(workspace, 'kit-0.1.0.fluidpkg'))).toBe(false);
   });
 
   it('takes the workspace from --workspace', () => {
@@ -132,7 +132,7 @@ describe('fluidcad pack', () => {
     fs.mkdirSync(elsewhere);
     const run = cli(['pack', '-w', workspace], elsewhere);
     expect(run.status).toBe(0);
-    expect(fs.existsSync(path.join(workspace, 'acme-kit-0.1.0.fluidpkg'))).toBe(true);
+    expect(fs.existsSync(path.join(workspace, 'kit-0.1.0.fluidpkg'))).toBe(true);
   });
 
   it('packs again after `fluidcad version patch`, under the new version\'s name', async () => {
@@ -140,9 +140,9 @@ describe('fluidcad pack', () => {
     expect(cli(['version', 'patch']).status).toBe(0);
     const run = cli(['pack']);
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain('Packed @acme/kit 0.1.1');
-    expect((await manifestOf(path.join(workspace, 'acme-kit-0.1.1.fluidpkg'))).version).toBe('0.1.1');
-    expect(fs.existsSync(path.join(workspace, 'acme-kit-0.1.0.fluidpkg'))).toBe(true);
+    expect(run.stdout).toContain('Packed kit 0.1.1');
+    expect((await manifestOf(path.join(workspace, 'kit-0.1.1.fluidpkg'))).version).toBe('0.1.1');
+    expect(fs.existsSync(path.join(workspace, 'kit-0.1.0.fluidpkg'))).toBe(true);
   });
 
   it('refuses a workspace that isn\'t a package, writing nothing', () => {
@@ -164,7 +164,7 @@ describe('fluidcad pack', () => {
     const run = cli(['pack']);
     expect(run.status).toBe(1);
     expect(run.stderr).toBe(
-      "features/standoff.feature.js declares the image ./standoff.svg (feature 'acme.standoff'), which doesn't exist next to the module.\n",
+      "features/standoff.feature.js declares the image ./standoff.svg (feature 'standoff'), which doesn't exist next to the module.\n",
     );
   });
 
@@ -175,17 +175,17 @@ describe('fluidcad pack', () => {
     expect(run.status).toBe(0);
     const result = JSON.parse(run.stdout);
     expect(result).toEqual({
-      name: '@acme/kit',
+      name: 'kit',
       version: '0.1.0',
-      fileName: 'acme-kit-0.1.0.fluidpkg',
-      savedTo: path.join(scratch, 'acme-kit-0.1.0.fluidpkg'),
-      bytes: fs.statSync(path.join(scratch, 'acme-kit-0.1.0.fluidpkg')).size,
+      fileName: 'kit-0.1.0.fluidpkg',
+      savedTo: path.join(scratch, 'kit-0.1.0.fluidpkg'),
+      bytes: fs.statSync(path.join(scratch, 'kit-0.1.0.fluidpkg')).size,
       files: 21,
       unit: 'mm',
       contents: {
         features: [
-          { id: 'acme.fastener', exportName: 'fastener', module: 'features/fastener.feature.js', usesOcct: false },
-          { id: 'acme.standoff', exportName: 'standoff', module: 'features/standoff.feature.js', usesOcct: false },
+          { id: 'fastener', exportName: 'fastener', module: 'features/fastener.feature.js', usesOcct: false },
+          { id: 'standoff', exportName: 'standoff', module: 'features/standoff.feature.js', usesOcct: false },
         ],
         parts: [{ exportName: 'spacer', name: 'Spacer', module: 'parts/spacer.part.js', params: 1 }],
         assemblies: [],

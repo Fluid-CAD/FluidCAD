@@ -93,7 +93,7 @@ const errorsOf = (data: SceneRenderedData | null): string[] =>
 const volumeOf = (rows: Row[]): number => rows
   .flatMap(row => row.sceneShapes ?? [])
   .reduce((sum, shape) => sum + (server.getShapeProperties(shape.shapeId)?.volumeMm3 ?? 0), 0);
-const standoffOf = (data: SceneRenderedData | null): Row => rowsOf(data).find(row => row.type === 'acme.standoff')!;
+const standoffOf = (data: SceneRenderedData | null): Row => rowsOf(data).find(row => row.type === '@acme/kit:acme.standoff')!;
 
 /** Run `fn` with the server's own error log silenced: a refused render logs before it throws. */
 async function quietly<T>(fn: () => Promise<T>): Promise<T> {

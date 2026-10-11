@@ -13,7 +13,7 @@ import {
   type FeatureCalleeSource,
 } from '../apply-feature-edit/index.ts';
 import { ScanCache } from '../part-catalog/cache.ts';
-import { listFeatureAssets, type FeatureMetaSnapshot } from '../../../lib/dist/index.js';
+import { FeatureKey, listFeatureAssets, type FeatureMetaSnapshot } from '../../../lib/dist/index.js';
 import { FeatureModules } from './walk.ts';
 import { FeatureScanner, type FeatureScanResult } from './scan.ts';
 import { RawOcctUse } from './raw-occt.ts';
@@ -26,7 +26,12 @@ import { RawOcctUse } from './raw-occt.ts';
  * feature off the toolbar unexplained.
  */
 export type FeatureCatalogEntry = {
-  /** The feature's id (`acme.standoff`); null for a module that did not evaluate. */
+  /**
+   * The feature's catalog key: its plain id (`standoff`) for the
+   * workspace's own features and the built-ins, keyed by the package for an
+   * installed package's (`@acme/feature-tests:standoff`); null for a module
+   * that did not evaluate.
+   */
   id: string | null;
   /** The name the builder is imported by; null for a module that did not evaluate. */
   exportName: string | null;
@@ -390,15 +395,20 @@ export class FeatureCatalog implements FeatureCalleeSource {
    * each at its declaring module, with the package it belongs to. A
    * package that can't be used here (`offer.problem`) gives its features
    * as error entries carrying the sentence.
+   *
+   * Each is keyed by the package it is installed as (`@acme/feature-tests:
+   * standoff`, `FeatureKey`), as the engine keys the feature's scene
+   * objects when the package's module evaluates (`FeatureNamespaces`); the
+   * manifest keeps the plain id. Two packages' features never share a key.
    */
   private static packageEntries(offer: PackageOffer): FeatureCatalogEntry[] {
     const pkg: PackageRef = { name: offer.name, version: offer.version, availability: offer.availability };
     return offer.manifest.features.map(feature => ({
-      id: feature.id,
+      id: FeatureKey.of(offer.name, feature.id),
       exportName: feature.exportName,
       modulePath: normalizePath(`${offer.directory}/${feature.module}`),
       builtIn: false,
-      meta: feature.meta,
+      meta: { ...feature.meta, id: FeatureKey.of(offer.name, feature.id) },
       usesOcct: feature.usesOcct === true,
       package: pkg,
       ...(offer.problem !== undefined ? { error: offer.problem } : {}),

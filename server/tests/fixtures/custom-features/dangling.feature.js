@@ -12,7 +12,7 @@ import { getOC } from 'fluidcad/sdk/occt';
 export class Dangling extends Feature.with({
   face: { picker: 'face', label: 'On face' },
 }) {
-  static id = 'acme.dangling';
+  static id = 'dangling';
 
   buildTool() {
     getOC().OCJS.getStandard_FailureData(0xFFFFFFFD);

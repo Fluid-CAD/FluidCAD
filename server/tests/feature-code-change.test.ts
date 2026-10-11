@@ -148,7 +148,7 @@ function cacheOf(data: SceneRenderedData | null) {
     plateSketch: plateSketch.fromCache,
     plate: plate.fromCache,
     collar: rows(data, 'acme.collar')[0].fromCache,
-    standoff: rows(data, 'acme.standoff')[0].fromCache,
+    standoff: rows(data, 'standoff')[0].fromCache,
     blockSketch: blockSketch.fromCache,
     block: block.fromCache,
   };

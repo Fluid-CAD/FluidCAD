@@ -7,7 +7,11 @@ import { PackageName } from './package-name.ts';
 
 /** One feature builder a package exports, as its manifest snapshots it. */
 export type PackageManifestFeature = {
-  /** The feature's id (`acme.gear`), which starts with the package's scope (K4). */
+  /**
+   * The feature's plain id (`gear`), as its class declares it. An installed
+   * package's features are keyed by the package at load time
+   * (`@acme/gears:gear`, `FeatureKey`); the manifest never holds a key.
+   */
   id: string;
   /** The name `index.js` re-exports the builder by. */
   exportName: string;
@@ -47,6 +51,7 @@ export type PackageManifestPart = {
  */
 export type PackageManifest = {
   manifestVersion: 1;
+  /** The author's bare name (`gears`, HD29): the public name comes from where the package is installed. */
   name: string;
   version: string;
   description?: string;
@@ -150,13 +155,21 @@ export class PackageLayout {
   /** Directory names the walk never enters, besides dot-entries. */
   private static readonly SKIPPED = ['node_modules'];
 
-  /** `@acme/gears` 1.2.0 → `acme-gears-1.2.0.fluidpkg`. */
+  /**
+   * The archive's file name: an author's bare name gives
+   * `gears-1.2.0.fluidpkg` (what `fluidcad pack` writes); a public name
+   * gives `acme-gears-1.2.0.fluidpkg` (the hub's download, and the
+   * installer's scratch file).
+   */
   static archiveName(name: string, version: string): string {
+    if (PackageName.isBare(name)) {
+      return `${name}-${version}${PackageLayout.EXTENSION}`;
+    }
     const scope = PackageName.scope(name);
     if (scope === null) {
-      throw new Error(`${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
+      throw new Error(`${JSON.stringify(name)} is not a package name: ${PackageName.BARE_RULE}.`);
     }
-    return `${scope}-${name.slice(name.indexOf('/') + 1)}-${version}${PackageLayout.EXTENSION}`;
+    return `${scope}-${PackageName.bareOf(name)}-${version}${PackageLayout.EXTENSION}`;
   }
 
   static isReserved(packagePath: string): boolean {

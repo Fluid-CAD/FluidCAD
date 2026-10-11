@@ -6,8 +6,11 @@ import { consented, describeTarget, exitOnRefusal, installedLine, preferredTarge
 
 /**
  * `fluidcad install`, the one package verb (research §3, hub-plan H8):
- * - `install <file.fluidpkg> [--library|--project] [--yes]` installs from a
- *   file, after the consent summary, and pins it when run in a project;
+ * - `install <file.fluidpkg> [--as @scope/name] [--library|--project] [--yes]`
+ *   installs from a file, after the consent summary, and pins it when run in
+ *   a project. The archive knows only its bare name (`feature-tests`); it
+ *   installs as `--as`, else as this project's one pin of that name, else as
+ *   `@local/feature-tests` (`PackageIdentity`);
  * - `install <@scope/name>[@version] [--library|--project] [--hub <url>]`:
  *   an exact version (or the one this project pins) is taken from what is
  *   installed when it can be, else from the hub; a name alone asks the hub
@@ -36,6 +39,9 @@ async function runInstall(arg, opts) {
     } else if (isFile(arg)) {
       await installFile(mods, resolve(arg), project, opts);
     } else {
+      if (opts.as) {
+        fail('--as names a package installed from a file: pass the .fluidpkg file with it.');
+      }
       await installName(mods, arg, project, opts);
     }
   } catch (err) {
@@ -55,13 +61,19 @@ async function installFile(mods, file, project, opts) {
     root: mods.PackageRoots.rootFor(target, project),
     engineVersion: readPackageVersion(),
   });
-  const { name, version } = inspection.manifest;
+  const { version } = inspection.manifest;
+  let name;
   try {
+    name = mods.PackageIdentity.forInstall(inspection.manifest.name, { as: opts.as ?? null, project });
     // A pin that would change refuses before anything is asked or written.
     if (project) {
       mods.PackagePins.check(project, name, version, inspection.integrity);
     }
-    printConsentSummary(inspection);
+    printConsentSummary(inspection, [], name);
+    const hint = opts.as ? null : mods.PackageIdentity.hintFromFileName(file, inspection.manifest);
+    if (hint && mods.PackageIdentity.isLocal(name)) {
+      console.log(`This file's name suggests ${hint}: add \`--as ${hint}\` to install it under that name.`);
+    }
     console.log(`Installing into ${describeTarget(mods, target, mods.PackageRoots.rootFor(target, project))}${project ? ', and pinning it in this project' : ''}.`);
     if (!opts.yes && !(await consented())) {
       mods.PackageArchive.discard(inspection.token);
@@ -79,6 +91,7 @@ async function installFile(mods, file, project, opts) {
     project,
     pin: project !== null,
     replace: opts.replace === true,
+    as: name,
   });
   console.log(installedLine(mods, outcome));
   printPin(outcome.pin, name, version);
@@ -91,6 +104,13 @@ async function installFile(mods, file, project, opts) {
  * can't be reached.
  */
 async function installName(mods, spec, project, opts) {
+  // A bare name (feature-tests) that is no file: two publishers can each
+  // have one, so the hub needs the handle.
+  const at = spec.lastIndexOf('@');
+  const bare = at > 0 ? spec.slice(0, at) : spec;
+  if (!spec.startsWith('@') && mods.PackageName.isBare(bare)) {
+    throw mods.HubInstaller.noPublisherRefusal(bare);
+  }
   const parsed = mods.ProjectPackages.parseSpec(spec);
   if (opts.project && !project) {
     fail('--project installs into a project, and this directory is not one (no fluidcad.json or init.js).');
@@ -139,6 +159,7 @@ export function registerInstallCommand(program) {
     .option('--project', "Install into this project's packages/ folder; with a package name in your library, copy it there")
     .option('-y, --yes', 'Install without asking')
     .option('--replace', 'Replace an installed copy of the same version whose contents differ')
+    .option('--as <@scope/name>', 'With a .fluidpkg file: the name to install it under (default: this project\'s pin of that package, else @local/<name>)')
     .option('--hub <url>', 'The hub to download from (default: FLUIDCAD_HUB_URL, else https://hub.fluidcad.io)')
     .action((arg, opts) => {
       runInstall(arg, opts).catch((err) => {

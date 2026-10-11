@@ -5,7 +5,7 @@
     "acme-pom": { "name": "POM", "density": 1.41, "densityUnit": "g/cm³" }
   },
   "package": {
-    "name": "@acme/kit",
+    "name": "kit",
     "version": "0.1.0",
     "description": "A standoff, a fastener hole, a twisted column, a spacer, a washer and a stack of them",
     "license": "MIT",

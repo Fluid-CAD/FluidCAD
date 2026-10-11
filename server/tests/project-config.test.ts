@@ -438,7 +438,7 @@ const INTEGRITY = 'sha256-' + 'A'.repeat(42) + 'E=';
 const OTHER_INTEGRITY = 'sha256-' + 'b'.repeat(43) + '=';
 
 const GEARS: PackageInfo = {
-  name: '@acme/gears',
+  name: 'gears',
   version: '1.2.0',
 };
 
@@ -470,7 +470,7 @@ describe('readProjectConfig — package', () => {
 
   it('reads every optional field and a prerelease version', () => {
     const full = {
-      name: '@acme-robotics/gear-train-2',
+      name: 'gear-train-2',
       version: '2.0.0-rc.1',
       description: 'Spur gears and a gear-train feature',
       license: 'MIT',
@@ -516,22 +516,25 @@ describe('readProjectConfig — package', () => {
   });
 
   it('never reads a package from package.json, whose name and version are npm\'s', () => {
-    writeJson('package.json', { name: '@acme/gears', version: '1.0.0', fluidcad: { package: GEARS } });
+    writeJson('package.json', { name: 'gears', version: '1.0.0', fluidcad: { package: GEARS } });
 
     expect(readProjectConfig(workspace).package).toBeNull();
   });
 
   it.each([
-    ['a non-object block', ['@acme/gears'], 'that is not an object'],
+    ['a non-object block', ['gears'], 'that is not an object'],
     ['a missing name', { version: '1.0.0' }, 'without a "name"'],
-    ['an unscoped name', { ...GEARS, name: 'gears' }, '"name" "gears" is not a package name'],
-    ['an upper-case name', { ...GEARS, name: '@Acme/gears' }, 'is not a package name'],
-    ['an underscore in the name', { ...GEARS, name: '@acme/spur_gears' }, 'is not a package name'],
-    ['a name starting with a dash', { ...GEARS, name: '@acme/-gears' }, 'is not a package name'],
-    ['a scope over 39 characters', { ...GEARS, name: `@${'a'.repeat(40)}/gears` }, 'is not a package name'],
-    ['a name over 64 characters', { ...GEARS, name: `@acme/${'g'.repeat(65)}` }, 'is not a package name'],
+    ['a scoped name', { ...GEARS, name: '@acme/gears' }, '"name" "@acme/gears" carries a scope, but the hub adds your handle when you publish: write "gears"'],
+    ['an upper-case name', { ...GEARS, name: 'Gears' }, 'is not a package name'],
+    ['an underscore in the name', { ...GEARS, name: 'spur_gears' }, 'is not a package name'],
+    ['a name starting with a dash', { ...GEARS, name: '-gears' }, 'is not a package name'],
+    ['a name starting with a digit', { ...GEARS, name: '3d-gears' }, 'is not a package name'],
+    ['a double dash', { ...GEARS, name: 'spur--gears' }, 'is not a package name'],
+    ['a trailing dash', { ...GEARS, name: 'gears-' }, 'is not a package name'],
+    ['a name over 64 characters', { ...GEARS, name: 'g'.repeat(65) }, 'is not a package name'],
+    ['an empty name', { ...GEARS, name: '' }, 'is not a package name'],
     ['a non-string name', { ...GEARS, name: 7 }, 'is not a package name'],
-    ['a missing version', { name: '@acme/gears' }, 'without a "version"'],
+    ['a missing version', { name: 'gears' }, 'without a "version"'],
     ['a two-part version', { ...GEARS, version: '1.2' }, '"version" "1.2" is not a semver version'],
     ['a v-prefixed version', { ...GEARS, version: 'v1.2.0' }, 'is not a semver version'],
     ['a version range', { ...GEARS, version: '^1.2.0' }, 'is not a semver version'],
@@ -579,7 +582,7 @@ describe('readProjectConfig — package', () => {
   });
 
   it('is not mistaken for a unit problem when a value the author typed spells "unit"', () => {
-    writeJson(PROJECT_CONFIG_FILENAME, { unit: 'in', package: { ...GEARS, name: 'unit' } });
+    writeJson(PROJECT_CONFIG_FILENAME, { unit: 'in', package: { ...GEARS, name: '@acme/unit' } });
 
     const config = readProjectConfig(workspace);
 
@@ -708,7 +711,7 @@ describe('readProjectConfig — dependencies', () => {
       engine: '0.0.46',
       unit: 'yards',
       materials: { x: { name: 'X', density: 0 } },
-      package: { ...GEARS, name: 'gears' },
+      package: { ...GEARS, name: '@acme/gears' },
       dependencies: { '@acme/fasteners': { version: 'latest', integrity: INTEGRITY } },
     });
 
@@ -718,7 +721,7 @@ describe('readProjectConfig — dependencies', () => {
     expect(describeProjectUnitProblem(config)).toContain('yards');
     expect(describeProjectUnitProblem(config)).not.toContain('"package"');
     expect(describeProjectMaterialsProblem(config)).toContain('"density"');
-    expect(describeProjectPackageProblem(config)).toContain('"gears"');
+    expect(describeProjectPackageProblem(config)).toContain('"@acme/gears" carries a scope');
     expect(describeProjectDependenciesProblem(config)).toContain('"latest"');
     for (const sentence of Object.values(config.problems ?? {})) {
       expect(config.error).toContain(sentence);
@@ -728,13 +731,13 @@ describe('readProjectConfig — dependencies', () => {
 
 describe('writePackageInfo', () => {
   it('creates fluidcad.json with just the block, in the canonical key order', () => {
-    writePackageInfo(workspace, { license: 'MIT', version: '0.1.0', name: '@acme/gears' });
+    writePackageInfo(workspace, { license: 'MIT', version: '0.1.0', name: 'gears' });
 
     expect(fs.readFileSync(path.join(workspace, PROJECT_CONFIG_FILENAME), 'utf8')).toBe(
-      '{\n  "package": {\n    "name": "@acme/gears",\n    "version": "0.1.0",\n    "license": "MIT"\n  }\n}\n',
+      '{\n  "package": {\n    "name": "gears",\n    "version": "0.1.0",\n    "license": "MIT"\n  }\n}\n',
     );
     expect(readProjectConfig(workspace).package).toEqual({
-      name: '@acme/gears', version: '0.1.0', license: 'MIT',
+      name: 'gears', version: '0.1.0', license: 'MIT',
     });
   });
 
@@ -787,7 +790,8 @@ describe('writePackageInfo', () => {
     const before = fs.readFileSync(path.join(workspace, PROJECT_CONFIG_FILENAME), 'utf8');
 
     expect(() => writePackageInfo(workspace, { ...GEARS, version: '1.3' })).toThrow('"version" "1.3"');
-    expect(() => writePackageInfo(workspace, { ...GEARS, name: 'gears' })).toThrow('is not a package name');
+    expect(() => writePackageInfo(workspace, { ...GEARS, name: '@acme/gears' })).toThrow('carries a scope');
+    expect(() => writePackageInfo(workspace, { ...GEARS, name: '3d-gears' })).toThrow('is not a package name');
 
     expect(fs.readFileSync(path.join(workspace, PROJECT_CONFIG_FILENAME), 'utf8')).toBe(before);
   });

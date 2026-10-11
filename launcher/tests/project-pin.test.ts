@@ -14,7 +14,7 @@ import { readProjectConfig } from '../../server/src/project-config';
  */
 
 const PACKAGE = {
-  name: '@acme/gears',
+  name: 'gears',
   version: '1.2.0',
   description: 'Spur gears and a gear-train feature',
   minEngine: '0.0.46',

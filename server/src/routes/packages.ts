@@ -6,6 +6,7 @@ import { loadPreferences } from '../preferences.ts';
 import { PackageArchive, PackageArchiveError } from '../packages/package-archive.ts';
 import { PackageInstallError, PackageInstaller } from '../packages/package-installer.ts';
 import { LibraryMove } from '../packages/library-move.ts';
+import { PackageIdentity } from '../packages/package-identity.ts';
 import { PackageName } from '../packages/package-name.ts';
 import { PackagePinError, PackagePins } from '../packages/package-pins.ts';
 import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
@@ -29,12 +30,17 @@ const DEFAULT_MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
  * The package install routes (research §3, "The install flow"), for the
  * engine page's install dialog and Settings → Packages:
  *
- * - `POST /api/packages/inspect`: the raw `.fluidpkg` as the body. Answers
- *   the consent summary — `{ token, manifest, integrity, warnings, bytes }`
- *   — with the archive extracted into scratch, waiting for its install.
- * - `POST /api/packages/install { token, target, replace?, pin? }`: renames
- *   it into the user library or the project copy, and pins it into the open
- *   project when the target is `project` or `pin` is true.
+ * - `POST /api/packages/inspect[?as=@scope/name]`: the raw `.fluidpkg` as
+ *   the body. Answers the consent summary — `{ token, manifest, integrity,
+ *   warnings, bytes, installsAs }` — with the archive extracted into
+ *   scratch, waiting for its install. `installsAs` is the public name it
+ *   installs under (`PackageIdentity.forInstall`: `as`, else the project's
+ *   single matching pin, else `@local/<name>`); a name it can't take is a
+ *   400 with its code, and nothing waits.
+ * - `POST /api/packages/install { token, target, replace?, pin?, as? }`:
+ *   renames it into the user library or the project copy under that name,
+ *   and pins it into the open project when the target is `project` or `pin`
+ *   is true.
  * - `GET /api/packages`: both roots and the project's pins, each with where
  *   it is installed (`availability`).
  * - `POST /api/packages/copy { name, version, to }`: Copy into project
@@ -65,22 +71,30 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
       res.status(400).json({ error: 'Send the .fluidpkg file as the request body.' });
       return;
     }
+    const as = typeof req.query.as === 'string' && req.query.as !== '' ? req.query.as : null;
+    let token: string | null = null;
     try {
       const target = await defaultTarget(req.query.target);
       const inspection = await PackageArchive.inspect(body, {
         root: PackageRoots.rootFor(target, project),
         engineVersion: options.engineVersion,
       });
-      res.json({ ...inspection, defaultTarget: target });
+      token = inspection.token;
+      const installsAs = PackageIdentity.forInstall(inspection.manifest.name, { as, project });
+      res.json({ ...inspection, defaultTarget: target, installsAs });
     } catch (err) {
+      // A name it can't install under: nothing waits for an install.
+      if (token !== null) {
+        PackageArchive.discard(token);
+      }
       PackageRefusal.send(res, err);
     }
   });
 
   router.post('/packages/install', async (req, res) => {
-    const { token, target, replace, pin } = req.body ?? {};
-    if (typeof token !== 'string' || !PackageRoots.isTarget(target)) {
-      res.status(400).json({ error: 'Expected { token, target: "library" | "project" }.' });
+    const { token, target, replace, pin, as } = req.body ?? {};
+    if (typeof token !== 'string' || !PackageRoots.isTarget(target) || (as !== undefined && as !== null && typeof as !== 'string')) {
+      res.status(400).json({ error: 'Expected { token, target: "library" | "project", as?: "@scope/name" }.' });
       return;
     }
     if (target === 'project' && !project) {
@@ -88,7 +102,7 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
       return;
     }
     try {
-      res.json(await ProjectPackages.installInspected({ token, target, project, replace: replace === true, pin: pin === true }));
+      res.json(await ProjectPackages.installInspected({ token, target, project, replace: replace === true, pin: pin === true, as: as ?? null }));
     } catch (err) {
       PackageRefusal.send(res, err);
     }

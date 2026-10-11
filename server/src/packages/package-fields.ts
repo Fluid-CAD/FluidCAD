@@ -6,11 +6,14 @@ import { Semver } from './semver.ts';
  * The `package` block of a workspace's `fluidcad.json` (research §1, K3):
  *
  * ```json
- * { "package": { "name": "@acme/gears", "version": "1.2.0" } }
+ * { "package": { "name": "gears", "version": "1.2.0" } }
  * ```
  *
  * Having the block is what makes a workspace a package; there is no `type`
- * key. `name` and `version` are required, the rest optional. `minEngine`
+ * key. `name` and `version` are required, the rest optional. The name is
+ * the author's bare name (HD29): the hub publishes it as
+ * `@<handle>/gears`, and a scoped name is refused with a sentence saying
+ * so. The `dependencies` keys are public names (`@acme/gears`). `minEngine`
  * left out defaults at pack time to the engine pin, else to the packing
  * engine.
  *
@@ -86,10 +89,16 @@ export class PackageFields {
     }
 
     if (block.name === undefined) {
-      return { problem: `without a "name" (${PackageName.RULE})` };
+      return { problem: `without a "name" (${PackageName.BARE_RULE})` };
     }
-    if (!PackageName.isValid(block.name)) {
-      return { problem: `whose "name" ${JSON.stringify(block.name)} is not a package name (${PackageName.RULE})` };
+    if (typeof block.name === 'string' && PackageName.isValid(block.name)) {
+      return {
+        problem: `whose "name" ${JSON.stringify(block.name)} carries a scope, but the hub adds your handle when you publish: `
+          + `write ${JSON.stringify(PackageName.bareOf(block.name))}`,
+      };
+    }
+    if (!PackageName.isBare(block.name)) {
+      return { problem: `whose "name" ${JSON.stringify(block.name)} is not a package name (${PackageName.BARE_RULE})` };
     }
 
     if (block.version === undefined) {

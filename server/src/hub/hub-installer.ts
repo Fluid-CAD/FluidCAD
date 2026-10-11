@@ -1,6 +1,8 @@
 import { SDK_VERSION } from '../../../lib/dist/sdk/version.js';
 import { PackageArchive, type PackageInspection } from '../packages/package-archive.ts';
+import { PackageIdentity } from '../packages/package-identity.ts';
 import { PackageInstaller } from '../packages/package-installer.ts';
+import { PackageName } from '../packages/package-name.ts';
 import { PackagePins, type PinnedPackage } from '../packages/package-pins.ts';
 import { PackageRoots, type PackageLocation } from '../packages/package-roots.ts';
 import { ProjectPackages } from '../packages/project-packages.ts';
@@ -36,6 +38,11 @@ import { HubTransport } from './hub-transport.ts';
  *    archive must hold the package and version asked for.
  * 3. {@link missing}: every missing pin of a project, each at its pinned
  *    version and integrity, failures collected rather than thrown.
+ *
+ * An archive holds its author's bare name (`feature-tests`, HD29), and
+ * installs under the hub's public name (`@acme/feature-tests`): the caller
+ * passes `resolved.name` as the install's `as`. An `@local` name was
+ * installed from a file and is never asked of the hub (`local-package`).
  *
  * Every read carries the token when there is one (owner and admin
  * installs). A token the hub refuses (401) is dropped for the rest of the
@@ -165,6 +172,14 @@ export class HubInstaller {
       }
       return { source: 'hub', resolved: await this.resolve({ name: spec.name, version: exact }) };
     }
+    if (PackageIdentity.isLocal(spec.name)) {
+      // The hub never has an @local package: the newest installed copy, or the file install.
+      const newest = ProjectPackages.newestInstalled(spec.name, project);
+      if (!newest) {
+        throw HubInstaller.localRefusal(spec.name, null);
+      }
+      return { source: 'installed', location: newest, resolved: null, notes: [] };
+    }
     let resolved: ResolvedHubPackage;
     try {
       resolved = await this.resolve({ name: spec.name, version: null });
@@ -180,6 +195,9 @@ export class HubInstaller {
 
   /** Which version `spec` installs, with its listed integrity and the notes the consent summary shows. */
   async resolve(spec: HubInstallSpec): Promise<ResolvedHubPackage> {
+    if (PackageIdentity.isLocal(spec.name)) {
+      throw HubInstaller.localRefusal(spec.name, spec.version);
+    }
     const resolved = spec.version === null ? await this.resolveLatest(spec.name) : await this.resolveExact(spec.name, spec.version);
     if (this.tokenNote) {
       resolved.notes.push(this.tokenNote);
@@ -214,8 +232,9 @@ export class HubInstaller {
     });
     const inspection = await PackageArchive.inspect(downloaded.bytes, { root: options.root, engineVersion: this.engineVersion });
     try {
+      // The archive holds the author's bare name (HD29); the hub's name adds the publisher.
       const { name, version } = inspection.manifest;
-      if (name !== resolved.name || version !== resolved.version) {
+      if (name !== PackageName.bareOf(resolved.name) || version !== resolved.version) {
         throw HubInstallError.local('wrong-package', `${resolved.hub} answered ${at} with an archive of ${name}@${version}.`, { name, version });
       }
       const pinDiffers = Boolean(options.pin) && inspection.integrity !== options.pin;
@@ -259,6 +278,23 @@ export class HubInstaller {
       }
     }
     return result;
+  }
+
+  /**
+   * The refusal of an `@local` package: installed from a file, so the hub
+   * never has it (`PackageIdentity.localSentence`). Nothing is asked.
+   */
+  static localRefusal(name: string, version: string | null): HubInstallError {
+    return HubInstallError.local('local-package', PackageIdentity.localSentence(name, version), { name, version });
+  }
+
+  /**
+   * The refusal of a bare name that is no file (`fluidcad install
+   * feature-tests`): two publishers can each have a `feature-tests`, so the
+   * hub needs the handle.
+   */
+  static noPublisherRefusal(bare: string): HubInstallError {
+    return HubInstallError.local('no-publisher', `Name the publisher: \`fluidcad install @<handle>/${bare}\`.`, { name: bare });
   }
 
   /** Drops what {@link missing} fetched but won't install (the user declined). */

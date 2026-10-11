@@ -45,7 +45,8 @@ export class PackageAuthoring {
   static readonly NOT_A_PACKAGE = "This workspace isn't a package — run `fluidcad package init` first.";
 
   /**
-   * Write a new `package` block: `name` and version `0.1.0`. What the
+   * Write a new `package` block: the bare `name` (`feature-tests`; the hub
+   * adds the publisher's handle) and version `0.1.0`. What the
    * package exports is what its `features/`, `parts/` and `assemblies/`
    * folders hold (HD20), returned as `exports` so the command can say so.
    * Refuses a workspace that is already a package, so an existing identity
@@ -55,8 +56,14 @@ export class PackageAuthoring {
     workspacePath: string,
     name: string,
   ): Promise<{ info: PackageInfo; configPath: string; exports: string[] }> {
-    if (!PackageName.isValid(name)) {
-      throw new PackageAuthoringError(`${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
+    if (PackageName.isValid(name)) {
+      throw new PackageAuthoringError(
+        `${JSON.stringify(name)} carries a scope, but the hub adds your handle when you publish: `
+          + `name the package ${JSON.stringify(PackageName.bareOf(name))}.`,
+      );
+    }
+    if (!PackageName.isBare(name)) {
+      throw new PackageAuthoringError(`${JSON.stringify(name)} is not a package name: ${PackageName.BARE_RULE}.`);
     }
     if (!PackageAuthoring.isWorkspace(workspacePath)) {
       throw new PackageAuthoringError(

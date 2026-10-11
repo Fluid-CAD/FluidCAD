@@ -77,14 +77,14 @@ beforeEach(() => {
 });
 
 describe('POST /api/pack', () => {
-  it('returns the package archive, named for its scope, name and version', async () => {
+  it('returns the package archive, named for its bare name and version', async () => {
     const res = await post();
 
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('application/zip');
-    expect(res.headers.get('x-fluidcad-package-name')).toBe('@acme/kit');
+    expect(res.headers.get('x-fluidcad-package-name')).toBe('kit');
     expect(res.headers.get('x-fluidcad-package-version')).toBe('0.1.0');
-    expect(res.headers.get('content-disposition')).toBe('attachment; filename="acme-kit-0.1.0.fluidpkg"');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="kit-0.1.0.fluidpkg"');
 
     const zip = await JSZip.loadAsync(res.bytes);
     const names = Object.keys(zip.files).filter((n) => !zip.files[n].dir).sort();
@@ -94,7 +94,7 @@ describe('POST /api/pack', () => {
     expect(names).not.toContain('demo.part.js');
     expect(names).not.toContain('init.js');
     const manifest = JSON.parse(await zip.file('manifest.json')!.async('string'));
-    expect(manifest.features.map((f: { id: string }) => f.id)).toEqual(['acme.fastener', 'acme.standoff']);
+    expect(manifest.features.map((f: { id: string }) => f.id)).toEqual(['fastener', 'standoff']);
     // Nothing was written to the workspace.
     expect(fs.readdirSync(ws).filter((n) => n.endsWith('.fluidpkg'))).toEqual([]);
   });
@@ -126,9 +126,9 @@ describe('POST /api/pack', () => {
     expect(res.status).toBe(200);
     const body = JSON.parse(res.bytes.toString('utf8'));
     expect(body).toMatchObject({
-      packageName: '@acme/kit',
+      packageName: 'kit',
       version: '0.1.0',
-      fileName: 'acme-kit-0.1.0.fluidpkg',
+      fileName: 'kit-0.1.0.fluidpkg',
     });
     expect(body.contents.features.map((f: { module: string }) => f.module)).toEqual([
       'features/fastener.feature.js',

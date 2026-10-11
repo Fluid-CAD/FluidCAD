@@ -109,7 +109,7 @@ describe('fluidcad publish', () => {
     fs.mkdirSync(out, { recursive: true });
     const pack = await cli(['pack', '-o', out]);
     expect(pack.status).toBe(0);
-    const archive = fs.readFileSync(path.join(out, 'acme-kit-0.1.0.fluidpkg'));
+    const archive = fs.readFileSync(path.join(out, 'kit-0.1.0.fluidpkg'));
 
     const run = await cli(['publish', '-y']);
     expect(run.stderr).toBe('');
@@ -119,7 +119,7 @@ describe('fluidcad publish', () => {
     const integrity = String(hub.uploads[0].headers['x-fluidcad-integrity']);
     expect(integrity).toMatch(/^sha256-[A-Za-z0-9+/]+=*$/);
 
-    expect(run.stdout).toContain(`Publishing ${NAME} 0.1.0 on ${hub.origin} as @acme:`);
+    expect(run.stdout).toContain(`Publishing kit 0.1.0 on ${hub.origin} as @acme: it publishes as ${NAME}`);
     expect(run.stdout).toContain('  features/   2 features');
     expect(run.stdout).toContain('  parts/      1 part');
     expect(run.stdout).toContain('  assemblies/ 0 assemblies');
@@ -153,7 +153,7 @@ describe('fluidcad publish', () => {
     const run = await cli(['publish']);
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('Pass -y to go ahead without being asked (this is not an interactive terminal). Nothing was sent.');
-    expect(run.stdout).toContain(`Publishing ${NAME} 0.1.0 on ${hub.origin} as @acme:`);
+    expect(run.stdout).toContain(`Publishing kit 0.1.0 on ${hub.origin} as @acme: it publishes as ${NAME}`);
     expect(hub.uploads).toHaveLength(0);
     expectNoScratch();
   }, 120_000);

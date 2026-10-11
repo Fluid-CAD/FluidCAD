@@ -87,7 +87,7 @@ describe('a library package used in a project', () => {
       scan: (absPath) => server.scanFeaturesInFile(absPath),
       hasLiveBuffer: (absPath) => server.hasLiveBuffer(absPath),
     });
-    const entry = (await catalog.list())!.find(e => e.id === 'acme.standoff')!;
+    const entry = (await catalog.list())!.find(e => e.id === '@acme/kit:acme.standoff')!;
     expect(entry).toMatchObject({ modulePath: `${dir}/standoff.feature.js`, package: { name: '@acme/kit', version: '0.1.0', availability: 'library' } });
 
     // Before the pin, a statement importing the package is refused.
@@ -99,8 +99,8 @@ describe('a library package used in a project', () => {
 
     const rows = (await render())!.result as Row[];
     expect(rows.filter(row => row.hasError).map(row => `${row.type}: ${row.errorMessage}`)).toEqual([]);
-    expect(rows.some(row => row.type === 'acme.standoff')).toBe(true);
-    const pinned = (await catalog.list())!.find(e => e.id === 'acme.standoff')!;
+    expect(rows.some(row => row.type === '@acme/kit:acme.standoff')).toBe(true);
+    const pinned = (await catalog.list())!.find(e => e.id === '@acme/kit:acme.standoff')!;
     expect(pinned.package?.availability).toBe('dependency');
     // Adopting again writes nothing.
     const config = fs.readFileSync(project.at('fluidcad.json'), 'utf8');
@@ -115,7 +115,7 @@ describe('a library package used in a project', () => {
     await server.init(project.root);
     const builder = await FeatureScanner.loadBuilder(host, (server as any).sceneManager, `${dir}/standoff.feature.js`, 'standoff');
     expect(typeof builder).toBe('function');
-    expect(getFeatureMeta(builder as Function)?.id).toBe('acme.standoff');
+    expect(getFeatureMeta(builder as Function)?.id).toBe('@acme/kit:acme.standoff');
 
     const scan = await server.scanPartsInFile(`${dir}/parts/spacer.part.js`, 'in');
     expect(scan!.errors).toEqual([]);

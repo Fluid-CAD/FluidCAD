@@ -57,7 +57,7 @@ export class Fastener extends Feature.with({
     options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Chamfer', value: 'chamfer' }, { label: 'Polish', value: 'polish' }],
   },
 }) {
-  static id = 'acme.fastener';
+  static id = 'fastener';
 
   buildTool() {
     const tool = this.drilled();

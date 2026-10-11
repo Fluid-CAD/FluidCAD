@@ -15,7 +15,11 @@ import { HubRequestError } from './hub-request-error.ts';
  * - `too-large`: the archive is over the hub's `archiveBytes`;
  * - `truncated`: the download ended before its `Content-Length`;
  * - `integrity-mismatch`: the bytes, the hub and the pin don't agree;
- * - `wrong-package`: the archive holds another package or version.
+ * - `wrong-package`: the archive holds another package or version;
+ * - `local-package`: an `@local` package, installed from a file, which the
+ *   hub never has — refused before any request;
+ * - `no-publisher`: a bare name (`feature-tests`) that is no file: the hub
+ *   needs the publisher's handle (`@acme/feature-tests`).
  */
 
 export type HubInstallErrorCode = string;

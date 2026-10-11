@@ -67,7 +67,7 @@ async function install(base: string, options: Parameters<typeof ArchiveFixture.z
     body: await ArchiveFixture.zip(options),
   });
   expect(inspected.status).toBe(200);
-  return postJson(`${base}/packages/install`, { token: inspected.body.token, target });
+  return postJson(`${base}/packages/install`, { token: inspected.body.token, target, as: ArchiveFixture.publicName(options) });
 }
 
 function writable(dir: string): void {

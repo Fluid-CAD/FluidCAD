@@ -359,7 +359,7 @@ describe('the scene host keeps the shims', () => {
     const data = await quietly(() => server.updateLiveCode(project.at('model.part.js'), MODEL)) as SceneRenderedData;
     const rows = data.result as { type: string; hasError?: boolean; errorMessage?: string; sourceLocation?: { filePath: string } }[];
     expect(rows.filter((row) => row.hasError).map((row) => `${row.type}: ${row.errorMessage}`)).toEqual([]);
-    expect(rows.some((row) => row.type === 'acme.standoff')).toBe(true);
+    expect(rows.some((row) => row.type === '@acme/kit:acme.standoff')).toBe(true);
     // Loaded from the installed directory, never through node_modules.
     expect(host!.resolvedPackages().map((p) => p.directory)).toEqual([dir]);
     expect(rows.some((row) => row.sourceLocation?.filePath.includes('/node_modules/'))).toBe(false);

@@ -1,4 +1,5 @@
-import { type DevEnvironment, type ViteDevServer, createServer } from 'vite';
+import { type DevEnvironment, type ViteDevServer, createServer, createServerModuleRunner } from 'vite';
+import type { ModuleRunner } from 'vite/module-runner';
 import { realpathSync } from 'fs';
 import { dirname, resolve, isAbsolute } from 'path';
 import { ENGINE_NAMESPACE_SPECIFIERS } from '../../../lib/dist/browser/linking.js';
@@ -19,6 +20,7 @@ import { installSourceUrlEncoding } from './source-url-encoding.ts';
 import { PackageResolveError, PackageResolver, type ResolvedPackage } from '../packages/resolver.ts';
 import { PackageRoots } from '../packages/package-roots.ts';
 import { PackageTypeShims, type PackageTypeShimSync } from '../packages/package-editor-types.ts';
+import { PackageEvaluationScope } from './package-evaluation-scope.ts';
 
 export class LocalSceneHost implements SceneHost {
   /**
@@ -33,6 +35,15 @@ export class LocalSceneHost implements SceneHost {
   static readonly ENGINE_SPECIFIERS: readonly string[] = [...new Set(['fluidcad', ...ENGINE_NAMESPACE_SPECIFIERS])];
 
   server!: ViteDevServer;
+  /**
+   * Evaluates the model's modules: Vite's SSR runner as `ssrLoadModule`
+   * builds it (Node's `import.meta`, no HMR, no source-map rewriting, so
+   * stack lines stay the ones source locations read), with an evaluator
+   * that holds each module's owning package around its evaluation — how
+   * `FeatureNamespaces` keys a package's features by the package (see
+   * {@link PackageEvaluationScope}).
+   */
+  private runner!: ModuleRunner;
   private rootPath: string = '';
   /**
    * The workspace root through its symlinks: a workspace opened by a linked
@@ -170,6 +181,12 @@ export class LocalSceneHost implements SceneHost {
     this.engineImports.install(this.server.environments.ssr, importer => this.engineAnswersFor(importer));
     installSourceUrlEncoding(this.server.environments.ssr);
     this.refuseExternalizedPackages(this.server.environments.ssr);
+    this.runner = createServerModuleRunner(this.server.environments.ssr, {
+      hmr: false,
+      sourcemapInterceptor: false,
+      evaluator: PackageEvaluationScope.evaluator(file => this.packages.rootOf(file)?.name ?? null),
+    });
+    PackageEvaluationScope.install();
   }
 
   steeredEngineEntry(): string | null {
@@ -257,7 +274,7 @@ export class LocalSceneHost implements SceneHost {
   }
 
   async loadModule(filePath: string) {
-    const mod = await this.server.ssrLoadModule(filePath);
+    const mod = await this.runner.import(filePath);
     for (const value of Object.values(mod)) {
       let result: unknown = value;
       if (typeof value === 'function') {
@@ -283,7 +300,7 @@ export class LocalSceneHost implements SceneHost {
   }
 
   async loadModuleRaw(filePath: string) {
-    return this.server.ssrLoadModule(filePath);
+    return this.runner.import(filePath);
   }
 
   getModuleDependencies(filePath: string): string[] {

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import http from 'http';
 import type { AddressInfo } from 'net';
 import JSZip from 'jszip';
+import { PackageName } from '../../src/packages/package-name.ts';
 import { Semver } from '../../src/packages/semver.ts';
 import { TreeHash } from '../../src/packages/tree-hash.ts';
 
@@ -22,9 +23,11 @@ import { TreeHash } from '../../src/packages/tree-hash.ts';
  *   `PUT …/versions/v` (records the bytes and headers; refuses a chunked
  *   body or one without `Content-Length` with `length-required`, as the
  *   hub does; answers `draft` for a package with nothing published, else
- *   `in_review`, unless {@link FakeHub.nextUpload} says otherwise) and
- *   `DELETE …/versions/v` (withdraws an open version). The real archive
- *   validation is the hub's own test;
+ *   `in_review`, unless {@link FakeHub.nextUpload} says otherwise; refuses
+ *   `name-mismatch` when the archive's bare manifest name isn't the URL's
+ *   name part, as the hub does since HD29) and `DELETE …/versions/v`
+ *   (withdraws an open version). The rest of the archive validation is the
+ *   hub's own test;
  * - the read routes (H7, for H8's install): `GET /api/v1/packages/@s/n`
  *   answers the `PackageDetail` shape to anyone (`?engine=&sdk=` adds
  *   `compatibility`), `GET …/versions/v` the `VersionDetail` shape, and
@@ -127,6 +130,8 @@ export type FakeHubRequest = { method: string; path: string; query: string; head
 
 export class FakeHub {
   static readonly CLIENT_ID = 'fluidcad-cli';
+  /** The default user's handle: the scope an author's package publishes under unless a test says otherwise. */
+  static readonly DEFAULT_HANDLE = 'acme';
   static readonly DEFAULT_USER: FakeHubUser = {
     id: '6f0d1a52-3c55-4a8e-9a1e-6a1e2f0b7c11',
     handle: 'acme',
@@ -213,13 +218,15 @@ export class FakeHub {
   }
 
   /**
-   * Holds `archive` (a `.fluidpkg`) as a version of the package its
-   * manifest names, published unless `row` says otherwise, with the tree
-   * hash of its files as its integrity and the manifest's engine fields.
-   * Answers the version row, which a test may change afterwards (yank it,
-   * remove it).
+   * Holds `archive` (a `.fluidpkg`) as a version of the package `as`, the
+   * public name the hub gave it — by default `@<the default user's handle>/
+   * <the manifest's bare name>`, as the hub publishes an author's package
+   * (an archive packed before HD29 names its own scope) — published unless
+   * `row` says otherwise, with the tree hash of its files as its integrity
+   * and the manifest's engine fields. Answers the version row, which a test
+   * may change afterwards (yank it, remove it).
    */
-  async addArchive(archive: Buffer, row: Partial<FakeHubVersion> = {}): Promise<FakeHubVersion> {
+  async addArchive(archive: Buffer, row: Partial<FakeHubVersion> = {}, as?: string): Promise<FakeHubVersion> {
     const zip = await JSZip.loadAsync(archive);
     const files: Record<string, Uint8Array> = {};
     for (const entry of Object.values(zip.files)) {
@@ -228,7 +235,7 @@ export class FakeHub {
       }
     }
     const manifest = JSON.parse(Buffer.from(files['manifest.json']).toString('utf8')) as Record<string, unknown>;
-    const name = String(manifest.name);
+    const name = as ?? (PackageName.isValid(manifest.name) ? String(manifest.name) : `@${FakeHub.DEFAULT_HANDLE}/${String(manifest.name)}`);
     const version: FakeHubVersion = {
       version: String(manifest.version),
       status: 'published',
@@ -381,6 +388,13 @@ export class FakeHub {
     }
     if (plan.answerDelayMs) {
       await new Promise((resolve) => setTimeout(resolve, plan.answerDelayMs));
+    }
+    // As the hub (HD29): the archive's bare name must be the URL's name part.
+    const archived = await FakeHub.manifestNameOf(bytes);
+    if (archived !== null && archived !== PackageName.bareOf(name)) {
+      return FakeHub.json(res, 400, {
+        error: { code: 'name-mismatch', message: `The archive is ${archived}, but it was uploaded as ${name}.`, details: { manifest: archived, url: name } },
+      });
     }
     if (plan.error) {
       const { status, code, message, details } = plan.error;
@@ -842,6 +856,21 @@ export class FakeHub {
       body += FakeHub.TOKEN_ALPHABET[byte % FakeHub.TOKEN_ALPHABET.length];
     }
     return `fch_${body}`;
+  }
+
+  /** The `name` an uploaded archive's `manifest.json` holds; null for bytes that aren't such an archive. */
+  private static async manifestNameOf(bytes: Buffer): Promise<string | null> {
+    try {
+      const zip = await JSZip.loadAsync(bytes);
+      const manifest = zip.file('manifest.json');
+      if (!manifest) {
+        return null;
+      }
+      const name = JSON.parse(await manifest.async('string'))?.name;
+      return typeof name === 'string' ? name : null;
+    } catch {
+      return null;
+    }
   }
 
   private static json(res: http.ServerResponse, status: number, body: unknown): void {

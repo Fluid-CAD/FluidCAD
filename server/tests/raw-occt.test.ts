@@ -119,13 +119,13 @@ describe('the feature catalog discloses raw OpenCascade', () => {
 
   it('marks every feature whose module, or a module it imports, reaches it — and no other', async () => {
     expect(await usesOcct()).toEqual({
-      'acme.dangling': true,
+      dangling: true,
       'acme.lazy': true,
       'acme.outside': false,
       'acme.plain': false,
-      'acme.standoff': false,
+      standoff: false,
       'acme.thread': true,
-      'acme.twist': true,
+      twist: true,
     });
   });
 

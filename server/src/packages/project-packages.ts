@@ -5,6 +5,7 @@ import {
   type InstalledPackage,
   type PackageInstallResult,
 } from './package-installer.ts';
+import { PackageIdentity } from './package-identity.ts';
 import { PackageName } from './package-name.ts';
 import { PackagePinError, PackagePins, type PinnedPackage } from './package-pins.ts';
 import { PackageRoots, type PackageLocation, type PackageTarget } from './package-roots.ts';
@@ -19,6 +20,12 @@ export type InstallInspectedRequest = {
   /** Pin into the project even when installing into the library. A project target always pins. */
   pin?: boolean;
   replace?: boolean;
+  /**
+   * The public name to install under (`--as`, the banner's pin, the hub's
+   * name); left out, `PackageIdentity.forInstall` picks the project's
+   * single matching pin, else `@local/<name>`.
+   */
+  as?: string | null;
 };
 
 /** An install, and what it did to the project's pin: null when it pinned nothing. */
@@ -72,14 +79,15 @@ export class ProjectPackages {
     }
     const project = request.project ?? null;
     const pinning = request.target === 'project' || request.pin === true;
-    const { name, version } = inspection.manifest;
+    const { version } = inspection.manifest;
+    const name = PackageIdentity.forInstall(inspection.manifest.name, { as: request.as, project });
     if (pinning) {
       if (!project) {
         throw new PackagePinError('not-a-project', `There is no open project to pin ${name} ${version} into.`);
       }
       PackagePins.check(project, name, version, inspection.integrity);
     }
-    const result = await PackageInstaller.install(request.token, request.target, { project, replace: request.replace });
+    const result = await PackageInstaller.install(request.token, request.target, { project, replace: request.replace, as: name });
     const pin = pinning ? PackagePins.pin(project!, name, version, result.integrity) : null;
     return { ...result, pin };
   }
@@ -177,9 +185,14 @@ export class ProjectPackages {
   /**
    * The not-installed refusal, with the command that downloads it (hub-plan
    * H8): "`@acme/gears` isn't in your library — `fluidcad install @acme/gears`
-   * downloads it from the hub."
+   * downloads it from the hub." An `@local` package was installed from a
+   * file and the hub never has it, so its sentence names the file install
+   * (`PackageIdentity.localSentence`).
    */
   static notInstalledSentence(name: string, version: string | null): string {
+    if (PackageIdentity.isLocal(name)) {
+      return PackageIdentity.localSentence(name, version);
+    }
     const which = version ? `${name} ${version}` : name;
     const spec = version ? `${name}@${version}` : name;
     return `${which} isn't in your library — \`fluidcad install ${spec}\` downloads it from the hub, or install it from a file.`;

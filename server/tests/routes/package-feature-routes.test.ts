@@ -101,7 +101,7 @@ async function post(url: string, body: unknown): Promise<{ status: number; body:
 function standoffBody(extra: Record<string, unknown> = {}) {
   return {
     feature: 'custom',
-    custom: { id: 'acme.standoff', values: { height: 12 }, picks: { face: [{ kind: 'entities', entities: [FACE_PICK] }] } },
+    custom: { id: '@acme/kit:acme.standoff', values: { height: 12 }, picks: { face: [{ kind: 'entities', entities: [FACE_PICK] }] } },
     ...extra,
   };
 }
@@ -142,14 +142,17 @@ describe('the feature catalog lists packages', () => {
     const dir = await pinKit();
     const [entry] = await list();
     expect(entry).toMatchObject({
-      id: 'acme.standoff',
+      id: '@acme/kit:acme.standoff',
       exportName: 'standoff',
       modulePath: `${dir}/standoff.feature.js`,
       builtIn: false,
       usesOcct: false,
       package: { name: '@acme/kit', version: '0.1.0', availability: 'dependency' },
     });
-    expect(entry.meta).toEqual(JSON.parse(fs.readFileSync(`${dir}/manifest.json`, 'utf8')).features[0].meta);
+    // The manifest's snapshot, keyed by the package it is installed as (the manifest keeps the plain id).
+    const snapshot = JSON.parse(fs.readFileSync(`${dir}/manifest.json`, 'utf8')).features[0].meta;
+    expect(snapshot.id).toBe('acme.standoff');
+    expect(entry.meta).toEqual({ ...snapshot, id: '@acme/kit:acme.standoff' });
     expect(entry.error).toBeUndefined();
   });
 
@@ -184,19 +187,31 @@ describe('the feature catalog lists packages', () => {
     const { integrity } = await project.install('@acme/kit', '0.1.0');
     project.config({ '@acme/kit': { version: '0.1.0', integrity: integrity.replace(/.=$/, 'A=') } });
     const [entry] = await list();
-    expect(entry).toMatchObject({ id: 'acme.standoff', package: { availability: 'dependency' } });
+    expect(entry).toMatchObject({ id: '@acme/kit:acme.standoff', package: { availability: 'dependency' } });
     expect(entry.error).toBe('The installed `@acme/kit` 0.1.0 differs from the one this project was built with.');
 
     project.config({ '@acme/kit': { version: '0.3.0', integrity } });
     expect(await list()).toEqual([]);
   });
 
-  it('leaves out the package the workspace is itself, and a library feature whose id the workspace has', async () => {
-    await project.install('@acme/kit', '0.1.0');
-    project.config(null, { package: { name: '@acme/kit', version: '0.3.0' } });
+  it('leaves out the package the workspace is itself, by its bare name, whoever published it', async () => {
+    const acme = await project.install('@acme/kit', '0.1.0');
+    project.config(null, { package: { name: 'kit', version: '0.3.0' } });
     expect(await list()).toEqual([]);
 
-    // The workspace's own standoff wins over the library's offer, unmarked.
+    // Another publisher's package of the same name is left out in that author's workspace too.
+    fs.cpSync(acme.dir, project.packageDir('@bea-tools/kit', '0.1.0'), { recursive: true });
+    expect(await list()).toEqual([]);
+
+    // Any other workspace is offered both, keyed apart.
+    project.config(null, { package: { name: 'gears', version: '0.1.0' } });
+    expect((await list()).map(e => [e.id, e.error])).toEqual([
+      ['@acme/kit:acme.standoff', undefined], ['@bea-tools/kit:acme.standoff', undefined],
+    ]);
+  });
+
+  it('offers a library feature beside the workspace\'s own feature of the same plain id: their keys differ', async () => {
+    await project.install('@acme/kit', '0.1.0');
     project.config(null);
     project.write('standoff.feature.js', '// scanned by the fake\n');
     const own = project.at('standoff.feature.js');
@@ -205,7 +220,10 @@ describe('the feature catalog lists packages', () => {
       scan: async (absPath) => ({ file: absPath, features: [{ exportName: 'standoff', meta: { id: 'acme.standoff', label: 'Mine' } as any }], deps: [] }),
       builtIns: async () => ({}),
     });
-    expect((await list(features)).map(e => [e.modulePath, e.error])).toEqual([[own, undefined]]);
+    const entries = await list(features);
+    expect(entries.find(e => e.modulePath === own)).toMatchObject({ id: 'acme.standoff' });
+    expect(entries.find(e => e.id === '@acme/kit:acme.standoff')).toMatchObject({ package: { name: '@acme/kit', availability: 'library' } });
+    expect(entries.every(e => e.error === undefined)).toBe(true);
   });
 
   it('says the catalog may have changed when the project’s fluidcad.json does', () => {
@@ -218,10 +236,10 @@ describe('the feature catalog lists packages', () => {
     await pinKit();
     const features = catalog();
     const callees = await features.calleesFor(PLACED, model);
-    expect(callees.feature('so')).toMatchObject({ id: 'acme.standoff', kind: 'tool' });
+    expect(callees.feature('so')).toMatchObject({ id: '@acme/kit:acme.standoff', kind: 'tool' });
     expect(callees.feature('so')?.shape?.call).toEqual(['face', { height: 'height', outer: 'outer', hole: 'hole' }]);
     const tree = (await getJavaScriptParser()).parse(PLACED);
-    expect((await features.resolveCallee(tree, 'so', model))?.id).toBe('acme.standoff');
+    expect((await features.resolveCallee(tree, 'so', model))?.id).toBe('@acme/kit:acme.standoff');
 
     // Unpinned, the import names nothing the catalog follows (the render refuses it).
     project.config(null);
@@ -233,7 +251,7 @@ describe('a package feature’s images', () => {
   it('serves its icon from beside its declaring module', async () => {
     const dir = await pinKit();
     const base = await serve();
-    const res = await fetch(`${base}/features/asset?id=acme.standoff&path=${encodeURIComponent('./standoff.svg')}`);
+    const res = await fetch(`${base}/features/asset?id=${encodeURIComponent('@acme/kit:acme.standoff')}&path=${encodeURIComponent('./standoff.svg')}`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/svg+xml');
     expect(await res.text()).toBe(fs.readFileSync(`${dir}/standoff.svg`, 'utf8'));
@@ -251,9 +269,9 @@ describe('a package feature’s images', () => {
     fs.writeFileSync(`${dir}/../outside.svg`, '<svg xmlns="http://www.w3.org/2000/svg"/>');
     project.config({ '@acme/kit': { version: '0.1.0', integrity } });
     const base = await serve();
-    const undeclared = await fetch(`${base}/features/asset?id=acme.standoff&path=${encodeURIComponent('../../../etc/passwd')}`);
+    const undeclared = await fetch(`${base}/features/asset?id=${encodeURIComponent('@acme/kit:acme.standoff')}&path=${encodeURIComponent('../../../etc/passwd')}`);
     expect(undeclared.status).toBe(404);
-    const escaping = await fetch(`${base}/features/asset?id=acme.standoff&path=${encodeURIComponent('../outside.svg')}`);
+    const escaping = await fetch(`${base}/features/asset?id=${encodeURIComponent('@acme/kit:acme.standoff')}&path=${encodeURIComponent('../outside.svg')}`);
     expect(escaping.status).toBe(403);
     expect((await escaping.json()).error).toContain('leads outside its module');
   });
@@ -276,6 +294,30 @@ describe('creating with a package feature', () => {
     expect(written.body.newCode).toContain(`import { standoff } from '@acme/kit';`);
     expect(written.body.newCode).toContain(`const p = part('Body', () => {})\nstandoff(e.endFaces(), { height: 12 })\n`);
     expect(fs.readFileSync(project.at('fluidcad.json'), 'utf8')).toBe(before);
+  });
+
+  it('finds each of two publishers\' same-named features by its key, and writes the import from its own package (HD29)', async () => {
+    const acme = await project.install('@acme/kit', '0.1.0');
+    const beaDir = project.packageDir('@bea-tools/kit', '0.1.0');
+    fs.cpSync(acme.dir, beaDir, { recursive: true });
+    project.config({
+      '@acme/kit': { version: '0.1.0', integrity: acme.integrity },
+      '@bea-tools/kit': { version: '0.1.0', integrity: TreeHash.ofDirectorySync(beaDir) },
+    });
+    expect((await list()).map(e => [e.id, e.error])).toEqual([
+      ['@acme/kit:acme.standoff', undefined], ['@bea-tools/kit:acme.standoff', undefined],
+    ]);
+    const base = await serve();
+    const applied = await post(`${base}/apply-feature`, {
+      ...standoffBody(), custom: { ...standoffBody().custom, id: '@bea-tools/kit:acme.standoff' },
+    });
+    expect(applied.status).toBe(200);
+    const spec = relayed[0].spec;
+    expect(spec.custom).toMatchObject({ exportName: 'standoff', modulePath: `${beaDir}/standoff.feature.js`, importFrom: '@bea-tools/kit' });
+    const written = await post(`${base}/code/apply-feature`, { code: PLATE, spec });
+    expect(written.body.error).toBeUndefined();
+    expect(written.body.newCode).toContain(`import { standoff } from '@bea-tools/kit';`);
+    expect(written.body.newCode).not.toMatch(/kit:/);
   });
 
   it('calls the builder by the alias an existing import of the package gives it', async () => {
@@ -333,12 +375,12 @@ describe('editing a package feature’s statement', () => {
     const base = await serve();
     const parsed = await post(`${base}/feature/parse`, { line: 6, filePath: model });
     expect(parsed.status).toBe(200);
-    expect(parsed.body.parsed).toMatchObject({ feature: 'custom', id: 'acme.standoff', callee: 'so', values: { height: 12, outer: '2 * r' }, operation: 'new' });
+    expect(parsed.body.parsed).toMatchObject({ feature: 'custom', id: '@acme/kit:acme.standoff', callee: 'so', values: { height: 12, outer: '2 * r' }, operation: 'new' });
 
     const preview = await post(`${base}/apply-feature`, {
       feature: 'custom',
       edit: { filePath: model, line: 6, column: 10 },
-      custom: { id: 'acme.standoff', values: { height: 20 } },
+      custom: { id: '@acme/kit:acme.standoff', values: { height: 20 } },
       preview: true,
       expectedStatement: `so(e.endFaces(), { height: 12, outer: 2 * r }).new()`,
     });
@@ -361,7 +403,7 @@ describe('producer gates through a package import', () => {
     feature: 'fillet',
     value: 0.5,
     filePath: model,
-    producers: [{ line: 6, column: 0, featureType: 'acme.standoff', nameHint: 'f', bind: true }],
+    producers: [{ line: 6, column: 0, featureType: '@acme/kit:acme.standoff', nameHint: 'f', bind: true }],
     parts: [{ producer: 0, accessor: 'endEdges', indices: null, filterArgs: null }],
     imports: [],
   });
@@ -369,7 +411,7 @@ describe('producer gates through a package import', () => {
   it('binds a fillet to the standoff statement with the catalog, and refuses it without', async () => {
     await pinKit();
     const refused = await applyFeatureEdit(PLACED, filletSpec());
-    expect(refused.error).toContain('expected a acme.standoff()-producing call');
+    expect(refused.error).toContain('expected a @acme/kit:acme.standoff()-producing call');
     const bound = await applyFeatureEdit(PLACED, filletSpec(), { callees: catalog() });
     expect(bound.error).toBeUndefined();
     expect(bound.newCode).toContain(`const s = so(e.endFaces(), { height: 12, outer: 2 * r }).new().name('boss')\nfillet(0.5, s.endEdges())`);

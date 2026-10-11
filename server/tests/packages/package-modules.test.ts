@@ -170,9 +170,12 @@ afterEach(async () => {
 });
 
 describe('the @acme/kit fixture', () => {
-  it('carries the JavaScript standoff fixture unchanged', () => {
+  // An installed tree from before HD29: its manifest names `@acme/kit` and
+  // its ids carry the scope. Installed trees keep working with no change.
+  it('carries the JavaScript standoff fixture as it was before HD29: its id still dotted', () => {
     expect(fs.readFileSync(path.join(KIT_FIXTURE, 'standoff.feature.js'), 'utf8'))
-      .toBe(fs.readFileSync(path.join(FIXTURES, 'custom-features/standoff.feature.js'), 'utf8'));
+      .toBe(fs.readFileSync(path.join(FIXTURES, 'custom-features/standoff.feature.js'), 'utf8')
+        .replace("static id = 'standoff';", "static id = 'acme.standoff';"));
   });
 });
 
@@ -181,7 +184,9 @@ describe('a model importing an installed package', () => {
     await start();
     const data = await render();
     expect(errorsOf(data)).toEqual([]);
-    expect(rowsOf(data).filter(row => row.type === 'acme.standoff')).toHaveLength(1);
+    // Keyed by the package it is installed as (HD29): a pre-HD29 tree's dotted id too.
+    expect(rowsOf(data).filter(row => row.type === '@acme/kit:acme.standoff')).toHaveLength(1);
+    expect(rowsOf(data).filter(row => row.type === 'acme.standoff')).toEqual([]);
     // The index evaluated the spacer's part() — the part file declares no
     // spacer, so it never builds.
     expect(rowsFrom(data, inKit('parts/spacer.part.js'))).toEqual([]);

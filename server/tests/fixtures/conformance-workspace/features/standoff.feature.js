@@ -16,7 +16,7 @@ export class Standoff extends Feature.with({
   outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },
   hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
 }) {
-  static id = 'acme.standoff';
+  static id = 'standoff';
 
   buildTool() {
     const { height, outer, hole } = this.values;

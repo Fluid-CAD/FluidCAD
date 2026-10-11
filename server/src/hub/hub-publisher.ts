@@ -27,8 +27,11 @@ import { HubTransport } from './hub-transport.ts';
  * 1. a token for this hub (`HubCredentials.read`, the env token first);
  * 2. `GET /api/v1`: this FluidCAD is not older than the hub's
  *    `minCliVersion` (null: no minimum);
- * 3. `GET /me`: a handle, that handle is the package's scope, the token
- *    can publish, the account is a publisher with a verified email;
+ * 3. `GET /me`: a handle, the token can publish, the account is a
+ *    publisher with a verified email. The workspace's `package.name` is
+ *    the author's bare name (`feature-tests`, HD29): the package publishes
+ *    as `@<handle>/feature-tests`, the public name every later step and
+ *    the summary use;
  * 4. `GET /packages/@s/n`: the version is greater than every published one,
  *    and no other version is open (HD11); a draft of the same version is
  *    replaced;
@@ -66,7 +69,10 @@ export type HubPublishProgress =
 export type HubPublishSummary = {
   hub: string;
   handle: string;
+  /** The public name it publishes as: `@<handle>/<bare name>`. */
   name: string;
+  /** The workspace's `package.name`, as the archive holds it. */
+  bareName: string;
   version: string;
   /** The archive in bytes. */
   size: number;
@@ -151,9 +157,10 @@ export class HubPublisher {
     const meta = await this.ask(client.meta());
     this.checkCli(meta);
     const me = await this.ask(client.me());
-    const handle = this.checkAccount(me, info.name);
-    const status = await this.ask(client.package(info.name));
-    const replacesDraft = this.checkVersion(status, info.name, info.version);
+    const handle = this.checkAccount(me);
+    const name = PackageName.publicName(handle, info.name);
+    const status = await this.ask(client.package(name));
+    const replacesDraft = this.checkVersion(status, name, info.version);
 
     progress({ step: 'packing' });
     const scratch = PackageScratch.create(FluidcadHome.dir());
@@ -164,7 +171,8 @@ export class HubPublisher {
       const summary: HubPublishSummary = {
         hub: this.config.origin,
         handle,
-        name: packed.manifest.name,
+        name,
+        bareName: packed.manifest.name,
         version: packed.manifest.version,
         size: packed.size,
         files: packed.manifest.files.length + 1,
@@ -194,7 +202,21 @@ export class HubPublisher {
     }
   }
 
-  /** The open version, the latest rejection and the latest published version of `name`. */
+  /**
+   * The public name the workspace's bare `package.name` publishes as on
+   * this hub, `@<handle>/<bare>`: what `--status` and `--withdraw` ask about.
+   * Reads `GET /me` for the handle.
+   */
+  async publicNameOf(bare: string): Promise<string> {
+    const client = this.client();
+    const me = await this.ask(client.me());
+    if (!me.account.handle) {
+      throw HubPublisher.noHandle(this.config.origin);
+    }
+    return PackageName.publicName(me.account.handle, bare);
+  }
+
+  /** The open version, the latest rejection and the latest published version of `name` (a public name). */
   async status(name: string): Promise<HubPublishStatus> {
     const client = this.client();
     const status = await this.ask(client.package(name));
@@ -237,19 +259,14 @@ export class HubPublisher {
     );
   }
 
-  /** Step 3: who is publishing, under which scope. Answers the handle. */
-  private checkAccount(me: HubMe, name: string): string {
+  /**
+   * Step 3: who is publishing. Answers the handle, the scope the package
+   * publishes under: the author's files never name it (HD29).
+   */
+  private checkAccount(me: HubMe): string {
     const { account } = me;
-    const scope = PackageName.scope(name);
     if (!account.handle) {
-      throw HubPublishError.local('forbidden', `Your account on ${this.config.origin} has no handle yet: claim one on the hub, since it is the scope you publish under.`);
-    }
-    if (scope !== account.handle) {
-      throw HubPublishError.local(
-        'forbidden',
-        `${name} is under @${scope}, but you are signed in to ${this.config.origin} as @${account.handle}, and you can only publish under your own scope.`,
-        { scope: `@${account.handle}` },
-      );
+      throw HubPublisher.noHandle(this.config.origin);
     }
     if (me.token && !me.token.scopes.includes('publish')) {
       const from = this.credential?.source === 'env' ? 'FLUIDCAD_HUB_TOKEN' : 'this machine';
@@ -371,6 +388,10 @@ export class HubPublisher {
       `${at} is ${state}: submit, withdraw or finish it before you upload another version.`,
       { version: open.version, status: open.status },
     );
+  }
+
+  private static noHandle(origin: string): HubPublishError {
+    return HubPublishError.local('forbidden', `Your account on ${origin} has no handle yet: claim one on the hub, since it is the scope you publish under.`);
   }
 
   private static readonly STATE_WORDS: Record<string, string> = { uploading: 'being uploaded', draft: 'a draft', in_review: 'in review' };

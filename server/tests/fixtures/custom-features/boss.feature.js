@@ -17,7 +17,7 @@ export class Boss extends Feature.with({
   height: { type: 'length', default: 6, min: 0 },
   hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
 }) {
-  static id = 'acme.boss';
+  static id = 'boss';
 
   buildTool() {
     const { at, diameter, height, hole } = this.values;

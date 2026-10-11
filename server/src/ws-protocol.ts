@@ -750,7 +750,7 @@ export type UIEngineSuspectMessage = {
   type: 'engine-suspect';
   /** What happened, as the banner says it. */
   message: string;
-  /** The type of the statement whose build (or preview) trapped (`acme.twist`); null when it was no statement's. */
+  /** The type of the statement whose build (or preview) trapped (`twist`, or `@acme/kit:twist` for an installed package's); null when it was no statement's. */
   featureType: string | null;
   /** That statement's name (`Twist`); null when it was no statement's. */
   featureName: string | null;

@@ -30,11 +30,13 @@ async function runPublish(opts) {
     pack: (inputs) => PublishView.quietly(() => mods.packPackage(inputs)),
   });
   try {
-    const { name } = mods.HubPublisher.packageIn(workspace);
+    // fluidcad.json holds the bare name (feature-tests); the hub knows the
+    // package by the public name your handle gives it (@acme/feature-tests).
+    const { name: bare } = mods.HubPublisher.packageIn(workspace);
     if (opts.status) {
-      PublishView.printStatus(await publisher.status(name), config);
+      PublishView.printStatus(await publisher.status(await publisher.publicNameOf(bare)), config);
     } else if (opts.withdraw) {
-      await withdraw(publisher, name, opts);
+      await withdraw(publisher, await publisher.publicNameOf(bare), opts);
     } else {
       await publish(publisher, workspace, opts);
     }
@@ -174,7 +176,7 @@ class PublishView {
   /** What will be uploaded: the package, its folders, its hash, and what happens next. */
   static printSummary(summary) {
     const { contents } = summary;
-    console.log(`${summary.dryRun ? 'Checking' : 'Publishing'} ${summary.name} ${summary.version} on ${summary.hub} as @${summary.handle}:`);
+    console.log(`${summary.dryRun ? 'Checking' : 'Publishing'} ${summary.bareName} ${summary.version} on ${summary.hub} as @${summary.handle}: it publishes as ${summary.name}`);
     const rows = [
       ['features/', PublishView.count(contents.features.length, 'feature')],
       ['parts/', PublishView.count(contents.parts.length, 'part')],

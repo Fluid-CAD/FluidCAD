@@ -1,19 +1,20 @@
 {
   "package": {
-    "name": "@acme/kit",
+    "name": "kit",
     "version": "0.1.0",
-    "scope": "acme"
+    "scope": "acme",
+    "publicName": "@acme/kit"
   },
   "engineVersion": "0.0.46",
   "archives": {
     "valid.fluidpkg": {
       "about": "packed by packPackage from conformance-workspace: three features (icons, option images, raw OpenCascade), a part with a parameter, a factory part, an assembly, README, CHANGELOG and LICENSE",
       "verdict": "ok",
-      "integrity": "sha256-KY/LUIsOq1Nj+gOW6T5dqrLFKGhUVzCgopQP5bfHOm8=",
+      "integrity": "sha256-yUwGU9K1qMM8pSXQTY/tHsd0f3BRnRfO1hK0JJZb3KY=",
       "warnings": [
         {
           "code": "uses-occt",
-          "message": "Uses raw OpenCascade: acme.twist. A mistake there can crash the engine or corrupt its geometry kernel."
+          "message": "Uses raw OpenCascade: twist. A mistake there can crash the engine or corrupt its geometry kernel."
         }
       ],
       "hub": "ok"
@@ -89,7 +90,12 @@
       "hub": "bad-manifest"
     },
     "bad-manifest-name.fluidpkg": {
-      "about": "name \"kit\" (no scope)",
+      "about": "name \"3d-kit\" (starts with a digit)",
+      "verdict": "bad-manifest",
+      "hub": "bad-manifest"
+    },
+    "scoped-name.fluidpkg": {
+      "about": "name \"@acme/kit\": packed before package names lost their scope (HD29); refused, never converted",
       "verdict": "bad-manifest",
       "hub": "bad-manifest"
     },
@@ -133,26 +139,14 @@
       "verdict": "blocked-import",
       "hub": "blocked-import"
     },
-    "scope-mismatch.fluidpkg": {
-      "about": "a feature id without the package's scope (other.standoff)",
-      "verdict": "ok",
-      "integrity": "sha256-83ExhsqSjIxUUtoEz9GZ9yH5snMnP9FR0TqfADwN18E=",
-      "warnings": [
-        {
-          "code": "uses-occt",
-          "message": "Uses raw OpenCascade: acme.twist. A mistake there can crash the engine or corrupt its geometry kernel."
-        }
-      ],
-      "hub": "scope-mismatch"
-    },
     "no-models.fluidpkg": {
       "about": "features only: no part and no assembly",
       "verdict": "ok",
-      "integrity": "sha256-JY6bA9VU8tub+CjfSKBPiyEsKISpVs37tM/HfJuNuWs=",
+      "integrity": "sha256-h/Zty48iu28jS524z0ArGxiehbTIW4TTAIoM49xGcgg=",
       "warnings": [
         {
           "code": "uses-occt",
-          "message": "Uses raw OpenCascade: acme.twist. A mistake there can crash the engine or corrupt its geometry kernel."
+          "message": "Uses raw OpenCascade: twist. A mistake there can crash the engine or corrupt its geometry kernel."
         }
       ],
       "hub": "no-models"
@@ -160,11 +154,11 @@
     "outside-layout.fluidpkg": {
       "about": "parts/helpers/sizes.js imports lib/units.js, a script at the root outside the three folders",
       "verdict": "ok",
-      "integrity": "sha256-ip7jIQZajVUF9Jfoi8ymZ0CwdBO+p3cUITVHVwDgbqg=",
+      "integrity": "sha256-16SGVhNvXcokXLiIfs+qdICuBTlnSJ2LLrwX7QK9HV8=",
       "warnings": [
         {
           "code": "uses-occt",
-          "message": "Uses raw OpenCascade: acme.twist. A mistake there can crash the engine or corrupt its geometry kernel."
+          "message": "Uses raw OpenCascade: twist. A mistake there can crash the engine or corrupt its geometry kernel."
         }
       ],
       "hub": "outside-layout"
@@ -172,11 +166,11 @@
     "wrong-folder.fluidpkg": {
       "about": "the washer part moved into features/ (features/washer.part.js)",
       "verdict": "ok",
-      "integrity": "sha256-VHe7LyC0X+7KXer6j9yi7JqaBqj0jbi7tScSXTeCd5w=",
+      "integrity": "sha256-EGj4TMyTtb4Q3xT8Iv3rruwBrpUspgOFRdBhFbnlfLw=",
       "warnings": [
         {
           "code": "uses-occt",
-          "message": "Uses raw OpenCascade: acme.twist. A mistake there can crash the engine or corrupt its geometry kernel."
+          "message": "Uses raw OpenCascade: twist. A mistake there can crash the engine or corrupt its geometry kernel."
         }
       ],
       "hub": "wrong-folder"
@@ -184,19 +178,19 @@
     "bad-params.fluidpkg": {
       "about": "the spacer part declares 101 parameters, one over the cap",
       "verdict": "ok",
-      "integrity": "sha256-xnLGvyIpqRGghxGyv4BybREFkb2W2gR4lGLNFMJ7Ydg=",
+      "integrity": "sha256-rxgvGsWqcJhmrBRoriemQuEOvxZReyxPW/vm0ihCzP4=",
       "warnings": [
         {
           "code": "uses-occt",
-          "message": "Uses raw OpenCascade: acme.twist. A mistake there can crash the engine or corrupt its geometry kernel."
+          "message": "Uses raw OpenCascade: twist. A mistake there can crash the engine or corrupt its geometry kernel."
         }
       ],
       "hub": "bad-params"
     },
     "pre-layout.fluidpkg": {
-      "about": "packed before the package layout (server/tests/fixtures/pre-layout): modules at the root",
+      "about": "packed before the package layout (server/tests/fixtures/pre-layout): modules at the root; converted for HD29 — its manifest name rewritten to \"kit\" and re-zipped, its layout and dotted ids kept",
       "verdict": "ok",
-      "integrity": "sha256-Ce9Fqz9MW8P0f2IvQUiq68k6ZnJfIkbvbv0I0QP0OXc=",
+      "integrity": "sha256-vH9+nPBpOm5H/nvMTjwPzRQIcc+mTT/pcBtYUe+wmDI=",
       "warnings": [],
       "hub": "outside-layout"
     }

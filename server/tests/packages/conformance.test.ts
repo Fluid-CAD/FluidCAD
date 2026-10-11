@@ -86,12 +86,21 @@ describe('package conformance fixtures', () => {
       'not-a-zip', 'ok', 'too-large', 'unsafe-path',
     ]);
     const hubOnly = Object.values(archives).filter((a) => a.verdict === 'ok' && a.hub !== 'ok').map((a) => a.hub);
-    expect([...new Set(hubOnly)].sort()).toEqual(['bad-params', 'no-models', 'outside-layout', 'scope-mismatch', 'wrong-folder']);
+    expect([...new Set(hubOnly)].sort()).toEqual(['bad-params', 'no-models', 'outside-layout', 'wrong-folder']);
     for (const verdict of Object.values(archives)) {
       if (verdict.verdict !== 'ok') {
         expect(verdict.hub).toBe(verdict.verdict);
       }
     }
+  });
+
+  it('name the package by its bare name (HD29): a scoped manifest name is refused, never converted', () => {
+    const { package: pkg, archives } = readJson<Expected>(path.join(KEPT, 'expected.json')) as Expected & { package: Record<string, unknown> };
+    expect(pkg).toMatchObject({ name: 'kit', scope: 'acme', publicName: '@acme/kit' });
+    expect(archives['scoped-name.fluidpkg']).toMatchObject({ verdict: 'bad-manifest', hub: 'bad-manifest' });
+    expect(archives['bad-manifest-name.fluidpkg']).toMatchObject({ verdict: 'bad-manifest', hub: 'bad-manifest' });
+    expect(archives['pre-layout.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'outside-layout' });
+    expect(archives['scope-mismatch.fluidpkg']).toBeUndefined();
   });
 
   it('inspect from the sources as the compiled script saw them, integrity included', async () => {

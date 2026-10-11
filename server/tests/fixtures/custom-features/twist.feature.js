@@ -22,7 +22,7 @@ export class Twist extends Feature.with({
   sections: { type: 'integer', default: 8, min: 2, max: 64 },
   bore: { type: 'length', default: 0, min: 0, label: 'Bore diameter' },
 }) {
-  static id = 'acme.twist';
+  static id = 'twist';
 
   buildTool() {
     const { face, height, angle, sections, bore } = this.values;

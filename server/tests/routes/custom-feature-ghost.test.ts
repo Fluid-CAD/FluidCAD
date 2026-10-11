@@ -157,6 +157,19 @@ beforeEach(() => {
 });
 
 describe('feature-ghost route — custom features', () => {
+  it('finds each of two packages\' same-named features by its key (HD29)', async () => {
+    const keyed = (pkg: string) => ({ ...STANDOFF_META, id: `${pkg}:standoff` }) as unknown as ScannedFeature['meta'];
+    entries = [
+      { ...entry(keyed('@acme/kit'), 'standoff', '/library/@acme/kit/0.1.0/features/standoff.feature.js'), package: { name: '@acme/kit', version: '0.1.0', availability: 'dependency' } },
+      { ...entry(keyed('@bea-tools/kit'), 'standoff', '/library/@bea-tools/kit/0.1.0/features/standoff.feature.js'), package: { name: '@bea-tools/kit', version: '0.1.0', availability: 'dependency' } },
+    ];
+    for (const pkg of ['@acme/kit', '@bea-tools/kit']) {
+      const { status } = await post({ feature: 'custom', id: `${pkg}:standoff`, values: { height: 5 }, refs: { face: [FACE] } });
+      expect(status).toBe(200);
+      expect(received).toMatchObject({ feature: 'custom', modulePath: `/library/${pkg}/0.1.0/features/standoff.feature.js`, exportName: 'standoff' });
+    }
+  });
+
   it('hands the server the module and export to load, the values resolved and the picks as refs', async () => {
     code = [
       `import { part, param } from 'fluidcad/core';`,

@@ -11,11 +11,11 @@ async function runPackageInit(opts) {
   // Imported lazily, like `pack`: the feature-module walk pulls in the
   // packer's dependencies, which the rest of the CLI doesn't need.
   const { PackageAuthoring, PackageAuthoringError } = await import('../../server/dist/packages/package-authoring.js');
-  const { PackageName } = await import('../../server/dist/packages/package-name.js');
   const { PackageLayout } = await import('../../server/dist/packages/package-manifest.js');
 
   const workspace = resolve(opts.workspace ?? process.cwd());
-  const name = opts.name ?? (await askName(PackageName));
+  // PackageAuthoring checks the name, a scoped one included.
+  const name = opts.name ?? (await askName());
 
   try {
     const { info, configPath, exports } = await PackageAuthoring.init(workspace, name);
@@ -31,20 +31,19 @@ async function runPackageInit(opts) {
   }
 }
 
-/** Ask for the name when `--name` wasn't given; without a terminal to ask on, say which flag to pass. */
-async function askName(PackageName) {
+/**
+ * Ask for the name when `--name` wasn't given; without a terminal to ask on,
+ * say which flag to pass. The name is the author's bare name: the hub adds
+ * the publisher's handle when the package is published.
+ */
+async function askName() {
   if (!isInteractive()) {
-    console.error('Pass the package name with --name @scope/name.');
+    console.error('Pass the package name with --name, such as --name feature-tests.');
     process.exit(1);
   }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = (await rl.question('Package name (@scope/name): ')).trim();
-    if (!PackageName.isValid(answer)) {
-      console.error(`${JSON.stringify(answer)} is not a package name: ${PackageName.RULE}.`);
-      process.exit(1);
-    }
-    return answer;
+    return (await rl.question('Package name (lowercase letters, digits and dashes, starting with a letter): ')).trim();
   } finally {
     rl.close();
   }
@@ -82,7 +81,7 @@ export function registerPackageCommand(program) {
     .command('init')
     .description('Write the "package" block of fluidcad.json: the name and version 0.1.0 (the features/, parts/ and assemblies/ folders decide the exports)')
     .option('-w, --workspace <path>', 'Workspace directory (defaults to cwd)')
-    .option('-n, --name <@scope/name>', 'Package name (asked for when omitted)')
+    .option('-n, --name <name>', 'Package name, such as feature-tests: the hub adds your handle when you publish (asked for when omitted)')
     .action((opts) => {
       runPackageInit(opts).catch((err) => {
         console.error(err?.message ?? err);

@@ -101,7 +101,7 @@ beforeAll(async () => {
     id: 'acme.plate', exportName: 'plate', label: 'PLATE_LABEL',
     header: `import { PLATE_LABEL } from '../plate-defaults.js';`,
   }));
-  write('broken.feature.js', featureModule({ id: 'broken', exportName: 'broken' }));
+  write('broken.feature.js', featureModule({ id: 'extrude', exportName: 'broken' }));
   write('helpers.feature.js', `export const helper = () => 1;\n`);
   write('.gitignore', 'ignored/\n');
   write('ignored/hidden.feature.js', featureModule({ id: 'acme.hidden', exportName: 'hidden' }));
@@ -140,13 +140,13 @@ afterAll(async () => {
 describe('the feature catalog over a workspace', () => {
   it('lists the standoff from its module, as metadata only', async () => {
     const entries = await list();
-    const standoff = entries.find(entry => entry.id === 'acme.standoff');
+    const standoff = entries.find(entry => entry.id === 'standoff');
     expect(standoff).toMatchObject({
       exportName: 'standoff',
       modulePath: at('standoff.feature.js'),
       builtIn: false,
       meta: {
-        id: 'acme.standoff',
+        id: 'standoff',
         label: 'Standoff',
         icon: './standoff.svg',
         group: 'create',
@@ -170,7 +170,7 @@ describe('the feature catalog over a workspace', () => {
     const entries = await list();
     expect(entries.find(entry => entry.modulePath === at('broken.feature.js'))).toMatchObject({
       id: null, exportName: null, meta: null, builtIn: false,
-      error: expect.stringContaining(`the id 'broken' needs a namespace`),
+      error: expect.stringContaining(`'extrude' is one of the engine's own types: give the feature another id`),
     });
     expect(entries.find(entry => entry.modulePath === at('helpers.feature.js'))).toMatchObject({
       id: null, error: expect.stringContaining('exports no feature'),
@@ -198,7 +198,7 @@ describe('the feature catalog over a workspace', () => {
     write('standoff.feature.js', fs.readFileSync(at('standoff.feature.js'), 'utf8')
       .replace(`height: { type: 'length', default: 10, min: 0 }`, `height: { type: 'length', default: 12, min: 0 }`));
     scans.length = 0;
-    const edited = (await list()).find(entry => entry.id === 'acme.standoff');
+    const edited = (await list()).find(entry => entry.id === 'standoff');
     expect(edited!.meta!.params.height).toMatchObject({ default: 12 });
     expect(scans).toEqual(['broken.feature.js', 'standoff.feature.js']);
 
@@ -275,17 +275,17 @@ describe('the feature catalog over a workspace', () => {
   it('refuses an id two builders share, on both entries', async () => {
     write('copy.feature.js', fs.readFileSync(at('standoff.feature.js'), 'utf8'));
     try {
-      const sharing = (await list()).filter(entry => entry.id === 'acme.standoff');
+      const sharing = (await list()).filter(entry => entry.id === 'standoff');
       expect(sharing).toHaveLength(2);
       for (const entry of sharing) {
-        expect(entry.error).toContain(`the feature id 'acme.standoff' is used by more than one builder`);
+        expect(entry.error).toContain(`the feature id 'standoff' is used by more than one builder`);
         expect(entry.error).toContain('standoff (copy.feature.js)');
         expect(entry.error).toContain('standoff (standoff.feature.js)');
       }
     } finally {
       remove('copy.feature.js');
     }
-    expect((await list()).find(entry => entry.id === 'acme.standoff')!.error).toBeUndefined();
+    expect((await list()).find(entry => entry.id === 'standoff')!.error).toBeUndefined();
   });
 
   it('turns a module whose metadata declares an illustration or an onChange hook into an error entry saying why', async () => {
@@ -335,7 +335,7 @@ describe('FeatureScanner.loadBuilder', () => {
     host.invalidateModule();
     const first = await FeatureScanner.loadBuilder(host, manager, at('standoff.feature.js'), 'standoff');
     expect(typeof first).toBe('function');
-    expect(getFeatureMeta(first)).toMatchObject({ id: 'acme.standoff', label: 'Standoff', ghost: true, kind: 'tool' });
+    expect(getFeatureMeta(first)).toMatchObject({ id: 'standoff', label: 'Standoff', ghost: true, kind: 'tool' });
     // Evaluated in a throwaway scene, the live one restored.
     expect(manager.currentFile).toBe('/ws/live.part.js');
     expect(manager.currentScene).toEqual({ marker: 'live' });
@@ -346,14 +346,14 @@ describe('FeatureScanner.loadBuilder', () => {
     host.invalidateModule();
     const again = await FeatureScanner.loadBuilder(host, manager, at('standoff.feature.js'), 'standoff');
     expect(again).not.toBe(first);
-    expect(getFeatureMeta(again)!.id).toBe('acme.standoff');
+    expect(getFeatureMeta(again)!.id).toBe('standoff');
   });
 
   it('says why a builder cannot be loaded', async () => {
     expect(await FeatureScanner.loadBuilder(host, manager, at('standoff.feature.js'), 'nope'))
       .toEqual({ error: `${at('standoff.feature.js')} exports no 'nope'` });
     const broken = await FeatureScanner.loadBuilder(host, manager, at('broken.feature.js'), 'broken');
-    expect(broken).toEqual({ error: expect.stringContaining(`the id 'broken' needs a namespace`) });
+    expect(broken).toEqual({ error: expect.stringContaining(`'extrude' is one of the engine's own types: give the feature another id`) });
     expect(manager.currentScene).toEqual({ marker: 'live' });
   });
 });
@@ -367,7 +367,7 @@ describe('resolveCallee', () => {
     const code = fs.readFileSync(at('model.part.js'), 'utf8');
     const parsed = await tree(code);
     expect(await catalog.resolveCallee(parsed, 'so', at('model.part.js'))).toMatchObject({
-      id: 'acme.standoff', exportName: 'standoff', modulePath: at('standoff.feature.js'),
+      id: 'standoff', exportName: 'standoff', modulePath: at('standoff.feature.js'),
     });
     expect(await catalog.resolveCallee(parsed, 'plate', at('model.part.js'))).toMatchObject({ id: 'acme.plate' });
     // The export's own name is not bound here; nor is a helper, or a core builder without metadata.
@@ -378,14 +378,14 @@ describe('resolveCallee', () => {
 
   it('resolves the specifier from the importing file’s own directory', async () => {
     const parsed = await tree(`import { standoff } from '../standoff.feature.js';\n`);
-    expect(await catalog.resolveCallee(parsed, 'standoff', at('parts/model.part.js'))).toMatchObject({ id: 'acme.standoff' });
+    expect(await catalog.resolveCallee(parsed, 'standoff', at('parts/model.part.js'))).toMatchObject({ id: 'standoff' });
     expect(await catalog.resolveCallee(parsed, 'standoff', at('model.part.js'))).toBeNull();
   });
 
   it('turns a file’s imports into the callees its producer gates read', async () => {
     const callees = await catalog.calleesFor(fs.readFileSync(at('model.part.js'), 'utf8'), at('model.part.js'));
     expect(callees.feature('so')).toEqual({
-      id: 'acme.standoff',
+      id: 'standoff',
       kind: 'tool',
       // The shape the edit dialog reads and writes the call by, with the
       // defaults a value left out ahead of a later argument writes.
@@ -402,7 +402,7 @@ describe('resolveCallee', () => {
     });
     expect(callees.feature('plate')).toMatchObject({ id: 'acme.plate', kind: 'tool' });
     expect(callees.feature('helper')).toBeNull();
-    expect(callees.produces('acme.standoff', 'so')).toBe(true);
+    expect(callees.produces('standoff', 'so')).toBe(true);
   });
 });
 
@@ -428,13 +428,13 @@ describe('the feature catalog routes', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.workspacePath).toBe(workspace);
-    expect(body.features.map((entry: FeatureCatalogEntry) => entry.id)).toContain('acme.standoff');
+    expect(body.features.map((entry: FeatureCatalogEntry) => entry.id)).toContain('standoff');
     // Raw OpenCascade use stays in the engine (a trap's cause); the page shows no mark for it.
     expect(body.features.every((entry: object) => !('usesOcct' in entry))).toBe(true);
   });
 
   it('serves a feature’s declared icon from its module’s directory', async () => {
-    const res = await fetch(`${baseUrl}/features/asset?id=acme.standoff&path=${encodeURIComponent('./standoff.svg')}`);
+    const res = await fetch(`${baseUrl}/features/asset?id=standoff&path=${encodeURIComponent('./standoff.svg')}`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('image/svg+xml');
     expect(res.headers.get('content-security-policy')).toContain('sandbox');
@@ -472,16 +472,16 @@ describe('the feature catalog routes', () => {
       expect((await res.json()).error).toContain(`declares no asset '${asked}'`);
     }
     // Another feature's declared image is not this one's.
-    expect((await fetch(`${baseUrl}/features/asset?id=acme.standoff&path=${encodeURIComponent('./fastener/m3.svg')}`)).status).toBe(404);
+    expect((await fetch(`${baseUrl}/features/asset?id=standoff&path=${encodeURIComponent('./fastener/m3.svg')}`)).status).toBe(404);
   });
 
   it('refuses every path the feature does not declare', async () => {
     for (const asked of ['../secret.svg', './model.part.js', 'standoff.svg', '/etc/passwd', './standoff.feature.js']) {
-      const res = await fetch(`${baseUrl}/features/asset?id=acme.standoff&path=${encodeURIComponent(asked)}`);
+      const res = await fetch(`${baseUrl}/features/asset?id=standoff&path=${encodeURIComponent(asked)}`);
       expect(res.status).toBe(404);
     }
     expect((await fetch(`${baseUrl}/features/asset?id=acme.nothing&path=./standoff.svg`)).status).toBe(404);
-    expect((await fetch(`${baseUrl}/features/asset?id=acme.standoff`)).status).toBe(400);
+    expect((await fetch(`${baseUrl}/features/asset?id=standoff`)).status).toBe(400);
   });
 
   it('refuses a declared icon that links outside the module’s directory', async () => {
@@ -502,7 +502,7 @@ describe('the feature catalog routes', () => {
     try {
       catalog.noteFileChange(at('standoff.feature.js'));
       expect((await fetch(`${baseUrl}/features/catalog`)).status).toBe(503);
-      expect((await fetch(`${baseUrl}/features/asset?id=acme.standoff&path=./standoff.svg`)).status).toBe(503);
+      expect((await fetch(`${baseUrl}/features/asset?id=standoff&path=./standoff.svg`)).status).toBe(503);
     } finally {
       engineUp = true;
     }

@@ -9,13 +9,15 @@ import { confirm, isInteractive } from './prompt.js';
 
 /** The server's package classes, imported lazily: the rest of the CLI doesn't need them at startup. */
 export async function loadPackages() {
-  const [archive, installer, pins, roots, project, preferences] = await Promise.all([
+  const [archive, installer, pins, roots, project, preferences, identity, names] = await Promise.all([
     import('../../server/dist/packages/package-archive.js'),
     import('../../server/dist/packages/package-installer.js'),
     import('../../server/dist/packages/package-pins.js'),
     import('../../server/dist/packages/package-roots.js'),
     import('../../server/dist/packages/project-packages.js'),
     import('../../server/dist/preferences.js'),
+    import('../../server/dist/packages/package-identity.js'),
+    import('../../server/dist/packages/package-name.js'),
   ]);
   return {
     PackageArchive: archive.PackageArchive,
@@ -27,6 +29,8 @@ export async function loadPackages() {
     PackageRoots: roots.PackageRoots,
     ProjectPackages: project.ProjectPackages,
     loadPreferences: preferences.loadPreferences,
+    PackageIdentity: identity.PackageIdentity,
+    PackageName: names.PackageName,
   };
 }
 
@@ -46,13 +50,18 @@ export function exitOnRefusal(err, mods) {
 
 /**
  * The consent summary (research §3, "The install flow"): what the package
- * is, what it needs, and what installing it means. `notes` are what the
- * hub's resolution has to say (a yanked or unpublished version, an older
- * version picked for this engine), shown with the warnings.
+ * is, the public name it installs under (`installsAs`: the hub's, the
+ * project's pin, `--as`, or `@local/<name>`), what it needs, and what
+ * installing it means. `notes` are what the hub's resolution has to say (a
+ * yanked or unpublished version, an older version picked for this engine),
+ * shown with the warnings.
  */
-export function printConsentSummary(inspection, notes = []) {
+export function printConsentSummary(inspection, notes = [], installsAs = null) {
   const { manifest, warnings, bytes, integrity } = inspection;
   console.log(`${manifest.name} ${manifest.version}${manifest.description ? ` — ${manifest.description}` : ''}`);
+  if (installsAs) {
+    console.log(`  installs as ${installsAs}`);
+  }
   const features = manifest.features.map((f) => (f.meta?.label ? `${f.id} (${f.meta.label})` : f.id));
   const parts = manifest.parts.map((p) => (p.kind === 'assembly' ? `${p.exportName} (assembly)` : p.exportName));
   console.log(`  ${count(features.length, 'feature')}${features.length ? `: ${features.join(', ')}` : ''}`);

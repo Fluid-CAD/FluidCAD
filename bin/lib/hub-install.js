@@ -96,7 +96,7 @@ export class HubInstallCli {
     try {
       const vouchers = pin?.version === version ? `${resolved.hub} and this project's pin say` : `${resolved.hub} says`;
       console.log(`Verified: its files hash to ${inspection.integrity}, as ${vouchers}.`);
-      printConsentSummary(inspection, resolved.notes);
+      printConsentSummary(inspection, resolved.notes, name);
       console.log(`Installing into ${describeTarget(mods, target, root)}${project ? ', and pinning it in this project' : ''}.`);
       if (!opts.yes && !(await consented())) {
         mods.PackageArchive.discard(inspection.token);
@@ -108,12 +108,14 @@ export class HubInstallCli {
       throw err;
     }
 
+    // The archive holds the bare name; it installs under the hub's.
     const outcome = await mods.ProjectPackages.installInspected({
       token: inspection.token,
       target,
       project,
       pin: project !== null,
       replace: opts.replace === true,
+      as: name,
     });
     console.log(installedLine(mods, outcome));
     printPin(outcome.pin, name, version);
@@ -128,18 +130,25 @@ export class HubInstallCli {
   async installMissing(missing, project, target) {
     const { mods, opts } = this;
     const root = mods.PackageRoots.rootFor(target, project);
-    console.log(`This project pins ${count(missing.length, 'package')} that ${missing.length === 1 ? "isn't" : "aren't"} installed; downloading from ${this.config.origin}.`);
-    const result = await this.installer.missing(missing, {
-      root,
-      onStart: (pin) => console.log(`Downloading ${pin.name} ${pin.version}…`),
-    });
-    const failures = result.failed.map((failure) => ({ name: failure.name, version: failure.version, message: failure.error.message }));
+    // An @local pin was installed from a file: the hub never has it, so it
+    // is never asked for; it fails with the file-install sentence.
+    const local = missing.filter((pin) => mods.PackageIdentity.isLocal(pin.name));
+    const fromHub = missing.filter((pin) => !mods.PackageIdentity.isLocal(pin.name));
+    const failures = local.map((pin) => ({ name: pin.name, version: pin.version, message: mods.PackageIdentity.localSentence(pin.name, pin.version) }));
+    const result = fromHub.length === 0 ? { fetched: [], failed: [] } : await (async () => {
+      console.log(`This project pins ${count(fromHub.length, 'package')} that ${fromHub.length === 1 ? "isn't" : "aren't"} installed; downloading from ${this.config.origin}.`);
+      return this.installer.missing(fromHub, {
+        root,
+        onStart: (pin) => console.log(`Downloading ${pin.name} ${pin.version}…`),
+      });
+    })();
+    failures.push(...result.failed.map((failure) => ({ name: failure.name, version: failure.version, message: failure.error.message })));
 
     if (result.fetched.length > 0) {
       try {
         for (const { inspection, resolved } of result.fetched) {
           console.log('');
-          printConsentSummary(inspection, resolved.notes);
+          printConsentSummary(inspection, resolved.notes, resolved.name);
         }
         console.log('');
         const verified = result.fetched.length === 1 ? 'Verified: its files hash to its pin' : "Verified: each one's files hash to its pin";
@@ -155,10 +164,10 @@ export class HubInstallCli {
         mods.HubInstaller.discard(result.fetched);
         throw err;
       }
-      for (const { inspection } of result.fetched) {
-        const { name, version } = inspection.manifest;
+      for (const { inspection, resolved } of result.fetched) {
+        const { name, version } = resolved;
         try {
-          const outcome = await mods.ProjectPackages.installInspected({ token: inspection.token, target, project, pin: true });
+          const outcome = await mods.ProjectPackages.installInspected({ token: inspection.token, target, project, pin: true, as: name });
           console.log(installedLine(mods, outcome));
         } catch (err) {
           mods.PackageArchive.discard(inspection.token);

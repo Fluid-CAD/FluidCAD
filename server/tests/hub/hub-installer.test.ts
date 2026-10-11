@@ -57,7 +57,7 @@ async function installLocally(version: string, options: { target?: 'library' | '
   const target = options.target ?? 'library';
   const files = { ...ArchiveFixture.defaultFiles(), 'standoff.feature.js': options.feature ?? `export const standoff = () => '${version}';\n` };
   const inspection = await PackageArchive.inspect(await ArchiveFixture.zip({ version, files }), { root: PackageRoots.rootFor(target, project), engineVersion: ENGINE });
-  const outcome = await ProjectPackages.installInspected({ token: inspection.token, target, project });
+  const outcome = await ProjectPackages.installInspected({ token: inspection.token, target, project, as: NAME });
   return outcome.integrity;
 }
 
@@ -370,10 +370,11 @@ describe('HubInstaller.fetch', () => {
     const resolved = await hubInstaller.resolve({ name: NAME, version: null });
     const fetched = await hubInstaller.fetch(resolved, { root: PackageRoots.rootFor('library', project) });
     expect(fetched.inspection.integrity).toBe(row.integrity);
-    expect(fetched.inspection.manifest).toMatchObject({ name: NAME, version: '0.1.0' });
+    // The archive holds the bare name; it installs under the hub's.
+    expect(fetched.inspection.manifest).toMatchObject({ name: 'kit', version: '0.1.0' });
     expect(hub.downloadsOf(NAME, '0.1.0')).toHaveLength(1);
 
-    const outcome = await ProjectPackages.installInspected({ token: fetched.inspection.token, target: 'library', project, pin: true });
+    const outcome = await ProjectPackages.installInspected({ token: fetched.inspection.token, target: 'library', project, pin: true, as: fetched.resolved.name });
     expect(outcome).toMatchObject({ status: 'installed', pin: 'pinned', integrity: row.integrity });
     expect(await TreeHash.ofDirectory(path.join(library, '@acme', 'kit', '0.1.0'))).toBe(row.integrity);
     expect(PackagePins.of(project)[NAME]).toEqual({ version: '0.1.0', integrity: row.integrity });
@@ -446,7 +447,7 @@ describe('HubInstaller.fetch', () => {
     hub.nextDownload = { bytes: other, integrity: hash };
     const error = await refusal(hubInstaller.fetch({ ...resolved, integrity: hash }, { root: library }));
     expect(error.code).toBe('wrong-package');
-    expect(error.message).toBe(`${hub.origin} answered @acme/kit@0.1.0 with an archive of @acme/kit@0.3.0. Nothing was installed.`);
+    expect(error.message).toBe(`${hub.origin} answered @acme/kit@0.1.0 with an archive of kit@0.3.0. Nothing was installed.`);
     expect(scratchEntries(library)).toEqual([]);
   });
 
@@ -517,7 +518,8 @@ describe('HubInstaller.missing', () => {
     const started: string[] = [];
     const result = await installer().missing(pins, { root: library, onStart: (pin) => started.push(pin.name) });
     expect(started).toEqual(['@acme/gears', NAME, '@acme/bolts']);
-    expect(result.fetched.map((f) => `${f.inspection.manifest.name}@${f.inspection.manifest.version}`)).toEqual(['@acme/gears@1.2.0', '@acme/kit@0.1.0']);
+    expect(result.fetched.map((f) => `${f.inspection.manifest.name}@${f.inspection.manifest.version}`)).toEqual(['gears@1.2.0', 'kit@0.1.0']);
+    expect(result.fetched.map((f) => `${f.resolved.name}@${f.resolved.version}`)).toEqual(['@acme/gears@1.2.0', '@acme/kit@0.1.0']);
     expect(result.fetched.map((f) => f.inspection.integrity)).toEqual([gears.integrity, kit.integrity]);
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0]).toMatchObject({ name: '@acme/bolts', version: '2.0.0' });
@@ -525,5 +527,68 @@ describe('HubInstaller.missing', () => {
 
     HubInstaller.discard(result.fetched);
     expect(scratchEntries(library)).toEqual([]);
+  });
+});
+
+/**
+ * HD29: an archive holds its author's bare name; the hub names the
+ * package `@<handle>/<name>`, and two publishers can each have one. An
+ * `@local` package came from a file, so the hub is never asked for it.
+ */
+describe('package names without handles (HD29)', () => {
+  it('installs a download under the hub\'s name, and two publishers\' packages of one name side by side', async () => {
+    const acme = await publish('0.1.0');
+    const beaFiles = { ...ArchiveFixture.defaultFiles(), 'standoff.feature.js': "export const standoff = () => 'bea';\n" };
+    const bea = await hub.addArchive(await ArchiveFixture.zip({ name: 'kit', version: '0.1.0', files: beaFiles }), {}, '@bea-tools/kit');
+    expect(acme.integrity).not.toBe(bea.integrity);
+
+    for (const name of [NAME, '@bea-tools/kit']) {
+      const resolved = await installer().resolve({ name, version: null });
+      const fetched = await installer().fetch(resolved, { root: library });
+      expect(fetched.inspection.manifest.name).toBe('kit');
+      const outcome = await ProjectPackages.installInspected({ token: fetched.inspection.token, target: 'library', project, pin: true, as: resolved.name });
+      expect(outcome).toMatchObject({ name, directory: path.posix.join(library, ...name.split('/'), '0.1.0'), pin: 'pinned' });
+    }
+    expect(Object.keys(PackagePins.of(project)).sort()).toEqual(['@acme/kit', '@bea-tools/kit']);
+  });
+
+  it('refuses an archive whose bare name isn\'t the hub name\'s, before anything installs', async () => {
+    await publish('0.1.0');
+    const hubInstaller = installer();
+    const resolved = await hubInstaller.resolve({ name: NAME, version: '0.1.0' });
+    const gears = await ArchiveFixture.zip({ name: 'gears', version: '0.1.0' });
+    const hash = (await hub.addArchive(gears, { status: 'rejected' }, '@acme/gears')).integrity!;
+    hub.nextDownload = { bytes: gears, integrity: hash };
+    const error = await refusal(hubInstaller.fetch({ ...resolved, integrity: hash }, { root: library }));
+    expect(error.code).toBe('wrong-package');
+    expect(error.message).toBe(`${hub.origin} answered @acme/kit@0.1.0 with an archive of gears@0.1.0. Nothing was installed.`);
+    expect(scratchEntries(library)).toEqual([]);
+  });
+
+  it('never asks the hub for an @local package: resolve, missing and choose refuse it, or take the installed copy', async () => {
+    const sentence = "@local/kit 0.1.0 was installed from a file, so the hub doesn't have it: install that file again (`fluidcad install <file>`).";
+    const resolveError = await refusal(installer().resolve({ name: '@local/kit', version: '0.1.0' }));
+    expect(resolveError).toMatchObject({ code: 'local-package', message: sentence });
+
+    const pins = [{ name: '@local/kit', version: '0.1.0', integrity: 'sha256-x', availability: 'missing' as const, directory: null as string | null }];
+    const result = await installer().missing(pins, { root: library });
+    expect(result.fetched).toEqual([]);
+    expect(result.failed.map((f) => [(f.error as HubInstallError).code, f.error.message])).toEqual([['local-package', sentence]]);
+
+    const nothing = await refusal(installer().choose({ name: '@local/kit', version: null }, { project }));
+    expect(nothing).toMatchObject({ code: 'local-package', message: "@local/kit was installed from a file, so the hub doesn't have it: install that file again (`fluidcad install <file>`)." });
+    expect((await refusal(installer().choose({ name: '@local/kit', version: '0.1.0' }, { project }))).code).toBe('local-package');
+
+    const inspection = await PackageArchive.inspect(await ArchiveFixture.zip({ name: 'kit' }), { root: library, engineVersion: ENGINE });
+    await ProjectPackages.installInspected({ token: inspection.token, target: 'library', project });
+    expect(await installer().choose({ name: '@local/kit', version: null }, { project })).toMatchObject({ source: 'installed', location: { name: '@local/kit', version: '0.1.0' } });
+    expect(hub.requests).toHaveLength(0);
+  });
+
+  it('refuses a bare name that is no file with the publisher hint', () => {
+    expect(HubInstaller.noPublisherRefusal('feature-tests')).toMatchObject({
+      code: 'no-publisher',
+      message: 'Name the publisher: `fluidcad install @<handle>/feature-tests`.',
+    });
   });
 });

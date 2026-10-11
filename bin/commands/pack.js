@@ -5,7 +5,9 @@ import { readPackageVersion } from '../lib/workspace.js';
 /**
  * `fluidcad pack`: pack the workspace's package (the "package" block of its
  * fluidcad.json, exports from its features/, parts/ and assemblies/
- * folders) into `<scope>-<name>-<version>.fluidpkg`. The rules and the
+ * folders) into `<name>-<version>.fluidpkg`, under the author's bare name
+ * (`feature-tests-0.1.0.fluidpkg`: the hub adds the publisher's handle when
+ * it is published). The rules and the
  * checks live in the server's `PackageBuilder`; this is the terminal around
  * it. Nothing in the workspace is written but the archive.
  *
@@ -127,7 +129,7 @@ export function registerPackCommand(program) {
     .command('pack')
     .description('Pack this package workspace (its features/, parts/ and assemblies/) into a .fluidpkg archive others can install')
     .option('-w, --workspace <path>', 'Workspace directory (defaults to cwd)')
-    .option('-o, --out <path>', 'Output file, or a directory to write it into (defaults to <scope>-<name>-<version>.fluidpkg in the workspace)')
+    .option('-o, --out <path>', 'Output file, or a directory to write it into (defaults to <name>-<version>.fluidpkg in the workspace)')
     .option('--json', 'Print the result as JSON: the archive and its features, parts and assemblies by folder')
     .action((opts) => {
       runPack(opts).catch((err) => {

@@ -8,6 +8,7 @@ import {
   type PackageDependencies,
 } from '../project-config.ts';
 import type { PackageProblem } from '../ws-protocol.ts';
+import { PackageName } from './package-name.ts';
 import { PackageRoots, type PackageTarget } from './package-roots.ts';
 
 export type PackagePinErrorCode = 'not-a-project' | 'unreadable-config' | 'broken-dependencies' | 'version-change' | 'integrity-mismatch';
@@ -42,6 +43,16 @@ export type PinnedPackage = {
  * was built with.
  */
 export class PackagePins {
+  /**
+   * The scope of a package installed from a file (`PackageIdentity.LOCAL_SCOPE`,
+   * restated: that class reads the pins, so it can't be imported here). An
+   * `@local` pin is never downloaded from the hub.
+   */
+  static readonly LOCAL_SCOPE = 'local';
+
+  /** The tail of every refusal of a missing `@local` package. */
+  static readonly FROM_A_FILE = "was installed from a file, so the hub doesn't have it: install that file again (`fluidcad install <file>`).";
+
   /** A directory holding `fluidcad.json` or `init.js`: what the CLI pins into when it runs there. */
   static isProject(dir: string): boolean {
     return fs.existsSync(path.join(dir, PROJECT_CONFIG_FILENAME)) || fs.existsSync(path.join(dir, 'init.js'));
@@ -147,9 +158,13 @@ export class PackagePins {
    * naming the command that downloads it from the hub (hub-plan H8).
    */
   static describeProblems(project: string | null): string[] {
-    return PackagePins.problems(project).map((problem) =>
-      `FluidCAD: ${problem.message} \`fluidcad install ${problem.name}@${problem.version}\` downloads it from the hub ` +
-      '(`fluidcad install` alone fetches every missing one), or install it from a file.');
+    return PackagePins.problems(project).map((problem) => {
+      if (PackageName.scope(problem.name) === PackagePins.LOCAL_SCOPE) {
+        return `FluidCAD: ${problem.message} ${problem.name} ${problem.version} ${PackagePins.FROM_A_FILE}`;
+      }
+      return `FluidCAD: ${problem.message} \`fluidcad install ${problem.name}@${problem.version}\` downloads it from the hub ` +
+        '(`fluidcad install` alone fetches every missing one), or install it from a file.';
+    });
   }
 
   /** The sentence for a pin installed in neither root (research §3), shared with the engine's resolver. */

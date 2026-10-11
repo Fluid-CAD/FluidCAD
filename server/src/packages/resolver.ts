@@ -90,7 +90,7 @@ export type PackageResolverOptions = {
  * else's to resolve.
  */
 export class PackageResolver {
-  /** `@scope/name`: lowercase letters, digits and dashes (research §1). The grammar lives in `PackageName`. */
+  /** `@scope/name`, the public name (HD29). The grammar, lengths included, lives in `PackageName`. */
   static readonly NAME_PATTERN = PackageName.PATTERN;
 
   /** The generated entry every installed package carries (K2). */
@@ -145,7 +145,7 @@ export class PackageResolver {
    */
   static parseSpecifier(specifier: string): { name: string; subpath: string } | null {
     const match = /^(@[^/]+\/[^/]+)(\/.*)?$/.exec(specifier);
-    if (!match || !PackageResolver.NAME_PATTERN.test(match[1])) {
+    if (!match || !PackageName.isValid(match[1])) {
       return null;
     }
     return { name: match[1], subpath: match[2] ?? '' };

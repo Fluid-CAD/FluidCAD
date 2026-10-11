@@ -3,6 +3,7 @@ import path from 'path';
 import { normalizePath } from '../normalize-path.ts';
 import { PackageArchive } from './package-archive.ts';
 import { PackageLayout, type PackageManifest } from './package-manifest.ts';
+import { PackageName } from './package-name.ts';
 import { PackageRoots, type PackageLocation, type PackageTarget } from './package-roots.ts';
 import { PackageScratch } from './package-scratch.ts';
 import { TreeHash } from './tree-hash.ts';
@@ -13,7 +14,9 @@ export type PackageInstallErrorCode =
   | 'not-a-package-folder'
   | 'not-installed'
   | 'which-version'
-  | 'copy-changed';
+  | 'copy-changed'
+  | 'wrong-name'
+  | 'ambiguous-name';
 
 /** A refusal of an install, copy or remove, worded for the user. */
 export class PackageInstallError extends Error {
@@ -52,11 +55,18 @@ export type PackageInstallOptions = {
   replace?: boolean;
 };
 
+/** An install of an inspected archive: it goes under the public name `as` (`PackageIdentity.forInstall`). */
+export type PackageInstallRequest = PackageInstallOptions & {
+  /** `@acme/feature-tests`: the archive knows only its bare name, so the caller names where it goes. */
+  as: string;
+};
+
 /**
  * Puts packages into the two roots (research §3) and takes them out. The
  * only code that writes inside a root:
  * - **install** renames an inspected tree into `<root>/@scope/name/<version>/`
- *   (atomic on one filesystem) and makes its files read-only (K8);
+ *   (atomic on one filesystem), under the public name its caller decided
+ *   (`PackageIdentity`), and makes its files read-only (K8);
  * - **copy** is Copy into project and Add to my library: the installed tree
  *   goes through the other root's scratch, unchanged, so its hash — and
  *   with it every pin — stays valid;
@@ -69,17 +79,26 @@ export type PackageInstallOptions = {
  * `manifest.json`) is the user's own and is never written over.
  */
 export class PackageInstaller {
-  /** Install the archive `PackageArchive.inspect` returned `token` for. */
-  static async install(token: string, target: PackageTarget, options: PackageInstallOptions = {}): Promise<PackageInstallResult> {
-    const pending = PackageArchive.take(token);
+  /**
+   * Install the archive `PackageArchive.inspect` returned `token` for, at
+   * `<root>/@scope/name/<version>/` for the public name `options.as` —
+   * never a name read from the archive, which holds only the author's bare
+   * one. The bare part of `as` must be the archive's.
+   */
+  static async install(token: string, target: PackageTarget, options: PackageInstallRequest): Promise<PackageInstallResult> {
+    const pending = PackageArchive.peek(token);
     if (!pending) {
       throw new PackageInstallError('unknown-token', 'That inspected package is gone (installed already, or it expired); inspect the file again.');
     }
+    if (!PackageName.isValid(options.as) || PackageName.bareOf(options.as) !== pending.manifest.name) {
+      throw new PackageInstallError('wrong-name', `This file is ${pending.manifest.name}, so it can't install as ${options.as}.`);
+    }
+    const taken = PackageArchive.take(token)!;
     try {
-      const { manifest, integrity } = pending.inspection;
-      return await PackageInstaller.place(pending.tree, pending.root, manifest.name, manifest.version, integrity, target, options);
+      const { manifest, integrity } = taken.inspection;
+      return await PackageInstaller.place(taken.tree, taken.root, options.as, manifest.version, integrity, target, options);
     } finally {
-      pending.scratch.dispose();
+      taken.scratch.dispose();
     }
   }
 

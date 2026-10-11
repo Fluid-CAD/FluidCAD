@@ -14,7 +14,9 @@ import JSZip from 'jszip';
  * - `archives/*.fluidpkg`: one valid package packed by `packPackage` from
  *   `server/tests/fixtures/conformance-workspace` (the H3b layout), one
  *   archive per `PackageArchive` refusal, and hand-made archives FluidCAD
- *   installs but the hub refuses (its layout and identity rules);
+ *   installs but the hub refuses (its layout rules). The package is the
+ *   author's bare name, `kit` (HD29), with plain feature ids; the hub's
+ *   tests upload it as `@acme/kit`;
  * - `expected.json`: each archive's verdict from `PackageArchive.inspect`
  *   (`ok` with its integrity and warnings, or the refusal code), and the
  *   verdict the hub must give (`hub`);
@@ -41,8 +43,10 @@ class PackageConformance {
    * itself (the manifest, the tree hash, a refusal) still does.
    */
   static ENGINE = '0.0.46';
-  static NAME = '@acme/kit';
+  /** The author's bare name (HD29): the archive never holds a handle. */
+  static NAME = 'kit';
   static VERSION = '0.1.0';
+  /** The handle the hub's tests upload it under, so its public name is `@acme/kit`. */
   static SCOPE = 'acme';
   /** The zip format's epoch: hand-made archives are dated like packed ones, so they are reproducible too. */
   static DATE = new Date('1980-01-01T00:00:00.000Z');
@@ -121,7 +125,12 @@ class PackageConformance {
       fs.writeFileSync(path.join(this.out, 'source.json'), PackageConformance.json(this.source()));
     }
     const expected = {
-      package: { name: PackageConformance.NAME, version: PackageConformance.VERSION, scope: PackageConformance.SCOPE },
+      package: {
+        name: PackageConformance.NAME,
+        version: PackageConformance.VERSION,
+        scope: PackageConformance.SCOPE,
+        publicName: `@${PackageConformance.SCOPE}/${PackageConformance.NAME}`,
+      },
       engineVersion: PackageConformance.ENGINE,
       archives,
     };
@@ -227,7 +236,11 @@ class PackageConformance {
         file: 'bad-manifest-bom.fluidpkg', about: 'manifest.json starts with a byte order mark, which JSON.parse refuses', fluidcad: 'bad-manifest', hub: 'bad-manifest',
         build: derived((files) => { files['manifest.json'] = PackageConformance.concat([new Uint8Array([0xef, 0xbb, 0xbf]), files['manifest.json']]); return files; }),
       },
-      { file: 'bad-manifest-name.fluidpkg', about: 'name "kit" (no scope)', fluidcad: 'bad-manifest', hub: 'bad-manifest', build: withManifest((m) => { m.name = 'kit'; }) },
+      { file: 'bad-manifest-name.fluidpkg', about: 'name "3d-kit" (starts with a digit)', fluidcad: 'bad-manifest', hub: 'bad-manifest', build: withManifest((m) => { m.name = '3d-kit'; }) },
+      {
+        file: 'scoped-name.fluidpkg', about: 'name "@acme/kit": packed before package names lost their scope (HD29); refused, never converted', fluidcad: 'bad-manifest', hub: 'bad-manifest',
+        build: withManifest((m) => { m.name = '@acme/kit'; }),
+      },
       { file: 'bad-manifest-version.fluidpkg', about: 'version "1.0"', fluidcad: 'bad-manifest', hub: 'bad-manifest', build: withManifest((m) => { m.version = '1.0'; }) },
       { file: 'bad-manifest-sdk.fluidpkg', about: 'sdkVersion "1" (a string)', fluidcad: 'bad-manifest', hub: 'bad-manifest', build: withManifest((m) => { m.sdkVersion = '1'; }) },
       { file: 'bad-manifest-parts.fluidpkg', about: 'no "parts" list', fluidcad: 'bad-manifest', hub: 'bad-manifest', build: withManifest((m) => { delete m.parts; }) },
@@ -252,14 +265,6 @@ class PackageConformance {
         }),
       },
       // ---- installs, but the hub refuses ----
-      {
-        file: 'scope-mismatch.fluidpkg', about: "a feature id without the package's scope (other.standoff)", fluidcad: 'ok', hub: 'scope-mismatch',
-        build: withManifest((m) => {
-          const standoff = m.features.find((f) => f.id === 'acme.standoff');
-          standoff.id = 'other.standoff';
-          standoff.meta.id = 'other.standoff';
-        }),
-      },
       {
         file: 'no-models.fluidpkg', about: 'features only: no part and no assembly', fluidcad: 'ok', hub: 'no-models',
         build: withManifest((m, files) => {
@@ -303,10 +308,31 @@ class PackageConformance {
         }),
       },
       {
-        file: 'pre-layout.fluidpkg', about: 'packed before the package layout (server/tests/fixtures/pre-layout): modules at the root', fluidcad: 'ok', hub: 'outside-layout',
-        build: async () => new Uint8Array(fs.readFileSync(PackageConformance.PRE_LAYOUT)),
+        file: 'pre-layout.fluidpkg',
+        about: 'packed before the package layout (server/tests/fixtures/pre-layout): modules at the root; converted for HD29 — its manifest name rewritten to "kit" and re-zipped, its layout and dotted ids kept',
+        fluidcad: 'ok', hub: 'outside-layout',
+        build: async () => this.convertedPreLayout(),
       },
     ];
+  }
+
+  /**
+   * H3b's pre-layout archive (`@acme/kit`, packed before HD29) with its
+   * manifest's name made bare, re-zipped deterministically: still the
+   * layout the hub refuses, now with a name FluidCAD accepts.
+   */
+  async convertedPreLayout() {
+    const zip = await JSZip.loadAsync(fs.readFileSync(PackageConformance.PRE_LAYOUT));
+    const files = {};
+    for (const entry of Object.values(zip.files)) {
+      if (!entry.dir) {
+        files[entry.name] = await entry.async('uint8array');
+      }
+    }
+    const manifest = JSON.parse(new TextDecoder().decode(files['manifest.json']));
+    manifest.name = PackageConformance.NAME;
+    files['manifest.json'] = PackageConformance.encode(PackageConformance.json(manifest));
+    return this.zip(files);
   }
 
   /** `PackageArchive.inspect`'s verdict: `{ verdict: 'ok', integrity, warnings }` or `{ verdict: <code> }`. */

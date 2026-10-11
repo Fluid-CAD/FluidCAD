@@ -30,6 +30,7 @@ import {
   type SceneInterferenceOutcome,
   type SceneValidationOutcome,
   type ValidateSceneRequest,
+  FeatureKey,
 } from '../../../lib/dist/index.js';
 import { scanFileForParts, type PartScanResult } from '../part-catalog/scan.ts';
 import { FeatureScanner, type FeatureScanResult } from '../feature-catalog/scan.ts';
@@ -754,7 +755,7 @@ export class FluidCadServer {
       }
       for (const pkg of [old, current]) {
         if (pkg) {
-          for (const id of FluidCadServer.packageFeatureIds(pkg.directory)) {
+          for (const id of FluidCadServer.packageFeatureIds(pkg)) {
             ids.add(id);
           }
         }
@@ -763,9 +764,13 @@ export class FluidCadServer {
     return ids;
   }
 
-  /** A package's feature ids from its `manifest.json` (`PackageManifests`); none when it can't be read. */
-  private static packageFeatureIds(directory: string): string[] {
-    return PackageManifests.of(directory)?.features.map(feature => feature.id) ?? [];
+  /**
+   * A package's feature keys (`@acme/feature-tests:standoff`): the plain ids
+   * its `manifest.json` lists (`PackageManifests`), keyed by the name it is
+   * installed as, as its scene objects are typed. None when it can't be read.
+   */
+  private static packageFeatureIds(pkg: ResolvedPackage): string[] {
+    return PackageManifests.of(pkg.directory)?.features.map(feature => FeatureKey.of(pkg.name, feature.id)) ?? [];
   }
 
   /**

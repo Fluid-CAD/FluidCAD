@@ -38,6 +38,11 @@ export interface ScreenshotOptions {
   showGrid: boolean;
   showAxes: boolean;
   transparent: boolean;
+  /**
+   * The capture's background, a CSS colour (`'#ffffff'`), in place of the
+   * scene's own (the theme's base colour). Ignored when `transparent`.
+   */
+  background: string | null;
   autoCrop: boolean;
   /** Fit camera to the model without cropping the canvas. */
   fitToModel: boolean;
@@ -109,6 +114,7 @@ const DEFAULTS: ScreenshotOptions = {
   showGrid: false,
   showAxes: false,
   transparent: false,
+  background: null,
   autoCrop: false,
   fitToModel: false,
   margin: 0,
@@ -185,7 +191,7 @@ export function captureScreenshotMulti(
  */
 function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTMLCanvasElement {
   const {
-    width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin, view, solidsOnly,
+    width, height, showGrid, showAxes, transparent, background, autoCrop, fitToModel, margin, view, solidsOnly,
     showDimensions, showPositional, framePlanes, pixelRatio, highlight, hide, focus, annotations, fitTo, section,
   } = options;
 
@@ -228,7 +234,11 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   if (gridObj) { gridObj.visible = showGrid; }
   if (defaultAxes) { defaultAxes.visible = showAxes; }
   if (sketchAxes) { sketchAxes.visible = showAxes; }
-  if (transparent) { scene.background = null; }
+  if (transparent) {
+    scene.background = null;
+  } else if (background) {
+    scene.background = new Color(background);
+  }
 
   // Adjust camera projection for export aspect ratio BEFORE applying a view,
   // so view fitting computes zoom against the correct frustum dimensions.

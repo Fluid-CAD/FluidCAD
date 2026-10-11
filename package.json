@@ -55,7 +55,10 @@
     "./sdk/kernel": "./lib/dist/sdk/kernel.js",
     "./sdk/occt": "./lib/dist/sdk/occt.js",
     "./browser": "./lib/dist/browser/index.js",
-    "./viewer-ui": "./ui/dist-lib/viewer-ui.js",
+    "./viewer-ui": {
+      "types": "./ui/dist-lib/types/ui/src/viewer-ui.d.ts",
+      "default": "./ui/dist-lib/viewer-ui.js"
+    },
     "./viewer-ui/style.css": "./ui/dist-lib/viewer-ui.css"
   },
   "scripts": {
@@ -63,7 +66,7 @@
     "build:lib": "tsc -p lib/tsconfig.json",
     "build:server": "tsc -p server/tsconfig.json",
     "build:ui": "vite build --config ui/vite.config.ts",
-    "build:viewer-ui": "vite build --config ui/vite.lib.config.ts",
+    "build:viewer-ui": "vite build --config ui/vite.lib.config.ts && node scripts/viewer-ui-types.mjs",
     "build:start-ui": "vite build --config ui/vite.start.config.ts",
     "build:launcher": "tsc -p launcher/tsconfig.json",
     "build:mcp": "tsc -p mcp/tsconfig.json",

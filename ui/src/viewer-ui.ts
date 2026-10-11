@@ -17,7 +17,8 @@ export type { FitPolicy, SelectedEntity } from './viewer';
 export type { FitMode, FitOptions } from './scene/camera-fit';
 export type { NamedView, ScreenshotView } from './screenshot-view';
 export { SceneContext } from './scene/scene-context';
-export { themeColors, onThemeChange } from './scene/theme-colors';
+export { themeColors, onThemeChange, SceneLook } from './scene/theme-colors';
+export type { SceneLookName } from './scene/theme-colors';
 export { viewerSettings, applyPreferences } from './scene/viewer-settings';
 export { sceneUnit } from './units/scene-unit';
 export * from './units/units';
@@ -53,6 +54,7 @@ export { describeMateFailure } from './ui/mate-failure-text';
 export { SelectionInfoOverlay } from './ui/selection-info-overlay';
 export { MeasureController } from './ui/measure/measure-controller';
 export { captureScreenshot, captureScreenshotMulti } from './screenshot';
+export type { ScreenshotOptions } from './screenshot';
 export { SectionController, SectionPlaneMath } from './scene/section-controller';
 export type { SectionSpec, SectionPlaneSpec, SectionPlaneName } from './scene/section-controller';
 

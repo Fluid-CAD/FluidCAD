@@ -22,7 +22,7 @@ import type { EngineClient } from './engine-client';
 import { CentroidIndicator } from './scene/centroid-indicator';
 import { connectorHostHidden } from './scene/connector-host';
 import { viewerSettings } from './scene/viewer-settings';
-import { themeColors } from './scene/theme-colors';
+import { SceneLook, themeColors, type SceneLookName } from './scene/theme-colors';
 import { STANDARD_PLANE_IDS, StandardPlaneId, StandardPlanes } from './scene/standard-planes';
 import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
@@ -802,9 +802,27 @@ export class Viewer {
     this.ctx.setViewShift(y, x);
   }
 
-  /** The current scene as a PNG blob. See {@link captureScreenshot}. */
-  captureView(options: Partial<ScreenshotOptions> = {}): Promise<Blob> {
-    return captureScreenshot(this.ctx, options);
+  /**
+   * The current scene as a PNG blob. See {@link captureScreenshot}.
+   *
+   * `look` takes the shot in that theme's scene colours (`'light'`: the
+   * light faces, edges and background) whatever the page's theme is, and
+   * puts the page's back once the pixels are read; the live view never
+   * shows the switch, since nothing draws to the screen in between.
+   */
+  captureView(options: Partial<ScreenshotOptions> & { look?: SceneLookName } = {}): Promise<Blob> {
+    const { look, ...screenshot } = options;
+    if (!look) {
+      return captureScreenshot(this.ctx, screenshot);
+    }
+    try {
+      return SceneLook.during(look, () => {
+        this.rebuildSceneMesh();
+        return captureScreenshot(this.ctx, screenshot);
+      });
+    } finally {
+      this.rebuildSceneMesh();
+    }
   }
 
   setParamsToggleHandler(fn: () => void): void {

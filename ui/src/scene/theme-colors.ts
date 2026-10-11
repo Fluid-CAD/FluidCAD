@@ -12,12 +12,13 @@ import { Color } from 'three';
 type Listener = () => void;
 const listeners = new Set<Listener>();
 
-function readCssVar(name: string, fallback: string): string {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function readCssVarOf(name: string, fallback: string, source: Element): string {
+  const value = getComputedStyle(source).getPropertyValue(name).trim();
   return value || fallback;
 }
 
-function readAll() {
+function readAll(source: Element = document.documentElement) {
+  const readCssVar = (name: string, fallback: string) => readCssVarOf(name, fallback, source);
   themeColors.faceColor.set(readCssVar('--scene-face-color', '#969696'));
   themeColors.edgeColor.set(readCssVar('--scene-edge-color', '#000000'));
   themeColors.gridColor.set(readCssVar('--scene-grid-color', '#6f6f6f'));
@@ -89,10 +90,52 @@ readAll();
 // Watch for theme changes
 new MutationObserver(() => {
   readAll();
+  notifyAll();
+}).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+function notifyAll() {
   for (const fn of listeners) {
     fn();
   }
-}).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+}
+
+/** A scene look a capture can ask for whatever the page's theme: the light or the dark one. */
+export type SceneLookName = 'light' | 'dark';
+
+/**
+ * The scene's colours of one theme, applied for the length of a call and
+ * then put back — what a capture "always in the light look" needs on a page
+ * that is dark. The values are the theme's own `--scene-*` variables, read
+ * off a detached probe element that carries `data-theme`, so nothing on the
+ * page changes theme: only `themeColors` and the scene objects built from
+ * them (each `onThemeChange` listener rebuilds its own) switch, and switch
+ * back once `run` returns.
+ */
+export class SceneLook {
+  static readonly THEMES: Record<SceneLookName, string> = {
+    light: 'fluidcad-light',
+    dark: 'fluidcad-dark',
+  };
+
+  static during<T>(look: SceneLookName, run: () => T): T {
+    const probe = document.createElement('div');
+    probe.setAttribute('data-theme', SceneLook.THEMES[look]);
+    probe.hidden = true;
+    document.documentElement.append(probe);
+    try {
+      readAll(probe);
+    } finally {
+      probe.remove();
+    }
+    notifyAll();
+    try {
+      return run();
+    } finally {
+      readAll();
+      notifyAll();
+    }
+  }
+}
 
 /**
  * Register a callback that fires when the theme changes.

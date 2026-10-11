@@ -6495,7 +6495,6 @@ export type PackageManifestFeature = {
   exportName: string;
   module: string;
   meta: FeatureMetaSnapshot;
-  usesOcct: boolean;
 };
 
 /** One part or assembly of a package. */

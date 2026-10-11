@@ -52,8 +52,8 @@ export class FakePackagesClient implements PackagesClient {
       minEngine: '0.0.45',
       sdkVersion: 1,
       features: [
-        { id: 'standoff', exportName: 'standoff', module: 'standoff.feature.js', meta: { label: 'Standoff', icon: './standoff.svg' } as any, usesOcct: false },
-        { id: 'twist', exportName: 'twist', module: 'twist.feature.js', meta: { label: 'Twist' } as any, usesOcct: true },
+        { id: 'standoff', exportName: 'standoff', module: 'standoff.feature.js', meta: { label: 'Standoff', icon: './standoff.svg' } as any },
+        { id: 'twist', exportName: 'twist', module: 'twist.feature.js', meta: { label: 'Twist' } as any },
       ],
       parts: [{ exportName: 'spacer', module: 'parts/spacer.part.js', name: 'Spacer', kind: 'part' }],
       files: ['fluidcad.json', 'index.js', 'standoff.feature.js', 'standoff.svg', 'twist.feature.js', 'parts/spacer.part.js'],

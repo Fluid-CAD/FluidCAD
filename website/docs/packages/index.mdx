@@ -9,33 +9,35 @@ import packageController from '!!raw-loader!./_examples/package-controller.assem
 
 # Packages
 
-A package carries [custom features](/docs/custom-features) and parts from one project to others: a set of standoffs, a bolt circle, a fastener hole, a PCB plate. It is a single `.fluidpkg` file. You install it once into your library, and every project can use it from there. A project that uses a package records the exact version in its `fluidcad.json`, so the package's geometry never changes under the project when a newer version is installed.
+A package carries [custom features](/docs/custom-features) and parts from one project to others: a set of standoffs, a bolt circle, a fastener hole, a PCB plate. Packages are shared through the FluidCAD hub: you install one once into your library, and every project can use it from there. A project that uses a package records the exact version in its `fluidcad.json`, so the package's geometry never changes under the project when a newer version is installed.
 
 This page uses `@acme/mounting-hardware`: four features (Bolt circle, Boss, Fastener hole, Standoff) and two parts (Hub flange, PCB plate).
 
 ## Package names
 
-A package has two names:
+A package has one name, `@acme/mounting-hardware`. Its author writes it in the package's `fluidcad.json`, and it stays the same everywhere: in the packed file, on the hub, in the folder it is installed in, in the `fluidcad.json` of every project that uses it, and in every model that imports it.
 
-- **Its own name**, `mounting-hardware`, is what its author writes in the package's `fluidcad.json`. It is lowercase letters, digits and single dashes, and starts with a letter. The author never writes a handle.
-- **Its public name**, `@acme/mounting-hardware`, is the name projects use: the name a model imports, the name `fluidcad.json` records and the folder it is installed in. The part before the slash is the publisher's handle on the hub, which the hub adds when the package is published. Two publishers can each have a `mounting-hardware`; a project can use both, because their public names differ.
+- The part before the slash is the author's handle on the hub. The hub publishes a package only under its uploader's own handle, so `@acme/…` packages come from `acme`.
+- Each part is lowercase letters, digits and single dashes, and starts with a letter.
+- Two publishers can each have a `…/mounting-hardware`. A project can use both, because their names differ.
 
-A `.fluidpkg` file only knows the package's own name. Installed from a file, a package takes the public name the project records for a package of that name (the missing-package banner's case), else the name you give it (`--as @acme/mounting-hardware` from the terminal), else `@local/mounting-hardware`. The **Install package** dialog shows the name under the package's title (**Installs as**). `local` is a name the hub never gives a publisher, so FluidCAD never looks for an `@local` package on the hub: a project that records one asks for the file again.
+Feature ids are plain names (`standoff`). In a project that installs a package, each feature is told apart by the package it comes from, so `@acme/mounting-hardware`'s `standoff` never clashes with another package's `standoff` or the project's own.
 
 ## Installing a package
 
-1. Click **Install package…**, in the dialog of the top bar's **Packages** button or in the **Packages** tab of the settings (the gear in the top bar).
-2. Pick the `.fluidpkg` file. Dragging the file onto the FluidCAD window does steps 1 and 2 at once. The **Install package** dialog lists what the package holds before anything is installed: its name and version, the public name it installs as, its description, the features with their ids, the parts, the FluidCAD version it needs, and its size.
-3. Under **Install into**, choose **My library** (every project can use it) or **This project** (a copy in the project's `packages/` folder, committed with it). The default is the **New packages go to** setting.
-4. Click **Install**.
+Packages install from the hub, from the terminal:
 
-![The Install package dialog](/img/docs/ui/package-install-dialog.png)
+```bash
+npx fluidcad install @acme/mounting-hardware
+```
 
-A package's code runs in the FluidCAD engine with your permissions, as the dialog says. Install only packages you trust.
+FluidCAD downloads the package, checks that its files are the ones the hub lists, and shows what it holds before anything is installed: its name and version, its description, the features with their ids, the parts, the FluidCAD version it needs, and its size. It installs into your library (`--project`: into the project's `packages/` folder, committed with it; the default is the **New packages go to** setting) and, in a project, records the package in `fluidcad.json`. In a project, `npx fluidcad install` alone downloads every package the project records but this machine doesn't have. The [CLI reference](/docs/cli#fluidcad-install) has every form and flag.
 
-Installing the same version again with the same contents changes nothing. A file with the same version but different contents is refused, and the dialog offers **Replace**: an installed version never changes by itself.
+A package's code runs in the FluidCAD engine with your permissions, as the install says. Install only packages you trust.
 
-From the terminal, [`npx fluidcad install`](/docs/cli#fluidcad-install) does the same.
+Installing the same version again with the same contents changes nothing. The same version with different contents is refused unless you add `--replace`: an installed version never changes by itself.
+
+A `.fluidpkg` file doesn't install: it is what `fluidcad pack` makes for `fluidcad publish`. A machine that can't reach the hub uses the packages its library already holds, or a project's own copies (**Copy into project**, below). Installing from the app comes with the hub's panel in a later version.
 
 ## Using a package's features
 
@@ -83,22 +85,21 @@ The **Packages** button on the top bar opens **Packages in this project**: every
 
 - **Copy into project** copies the package from your library into the project's `packages/` folder. Use it for a project that must carry its packages: committed to git, zipped for a teammate, or opened on a machine that doesn't have the package. A copy in the project wins over the library.
 - **Use from library** removes that copy again; the package loads from your library.
-- **Install package…** installs another package file.
 
 The render doesn't change in either direction: the copy and the library hold the same files, checked against the hash in `fluidcad.json`. The `packages/` folder does not show in the editor's file list.
 
 ## When a package is missing
 
-A project whose package is not installed on this machine (a project from a teammate, or after you removed the package) does not render. The error banner names the package and offers **Install from file…**, and the top bar's **Packages** button carries a red dot until it is installed.
+A project whose package is not installed on this machine (a project from a teammate, or after you removed the package) does not render. The error banner names the package and the command that downloads it, and the top bar's **Packages** button carries a red dot until it is installed. **Packages in this project** shows the same command for each missing package.
 
 ![The missing-package banner](/img/docs/ui/package-missing-banner.png)
 
-Install the same `.fluidpkg` the project was built with: the model renders again, without a restart. The other reasons a package can't load are listed in the same banner:
+Run it, `npx fluidcad install @acme/mounting-hardware@0.1.0`, or `npx fluidcad install` for every missing package: FluidCAD downloads the version the project recorded and checks it against the project's hash, and the model renders again, without a restart. The other reasons a package can't load are listed in the same banner:
 
 | Banner | What to do |
 |--------|------------|
 | `` `@acme/mounting-hardware` is not a dependency of this project — install it or add it from your library. `` | The file imports a package the project has not recorded. Use one of its features from the **Custom** dropdown, or run `npx fluidcad install @acme/mounting-hardware`. |
-| `` The installed `@acme/mounting-hardware` 0.1.0 differs from the one this project was built with. `` | The installed copy is not the one the project recorded. Install the original file with **Replace**. |
+| `` The installed `@acme/mounting-hardware` 0.1.0 differs from the one this project was built with. `` | The installed copy is not the one the project recorded. Download the original with `npx fluidcad install @acme/mounting-hardware@0.1.0 --replace`. |
 | `` `@acme/mounting-hardware` 0.1.0 needs FluidCAD 0.0.50 or newer; this engine is 0.0.46. `` | Open the project on a newer engine. |
 
 ## Installed packages are read-only
@@ -114,7 +115,7 @@ The **Packages** tab of the settings holds your library: the packages installed 
 ![Settings, the Packages tab](/img/docs/ui/settings-packages-tab.png)
 
 - **Library folder**: where the library lives. Empty uses the default, the home directory's `~/.fluidcad/packages`. In the desktop app **Browse…** picks a folder. After a change, the tab offers to copy the packages of the old folder into the new one (**Copy packages** / **Leave them**); nothing moves by itself. Projects record packages by name and version, not by folder.
-- **New packages go to**: **My library** or **This project**, the default target of the Install package dialog.
+- **New packages go to**: **My library** or **This project**, where an install puts a package unless told otherwise.
 - **Installed in my library**: each package with its version, contents and size. The bin removes it after a confirmation: projects that use it will ask for it again.
 
 Like every settings tab, the folder and the target wait for **Save**.
@@ -143,15 +144,15 @@ mounting-hardware/
 - Every feature in `features/`, every part in `parts/` and every assembly in `assemblies/` is shared. Subfolders are fine, and so are plain `.js` helper files inside the three folders.
 - The package's own parts import its features relatively: `import { boltCircle } from '../features/bolt-circle.feature.js'`. An assembly inserts its parts the same way.
 - Anything outside the three folders stays in the project: test models, `init.js`, notes. A test model at the root imports `./features/standoff.feature.js`.
-- To be published on the hub later, a package needs at least one part or assembly, so its page has a model to show. A package of features alone still packs and installs from its file.
+- To be published on the hub, a package needs at least one part or assembly, so its page has a model to show. A package of features alone still packs, but can't be published.
 
 1. In the project that holds the features and parts, run:
 
    ```bash
-   npx fluidcad package init --name mounting-hardware
+   npx fluidcad package init --name @acme/mounting-hardware
    ```
 
-   It writes the block with the name and version `0.1.0`, and says what the folders hold. The name is the package's own name, without a handle: the hub adds yours when you publish, and a name with a handle (`@acme/mounting-hardware`) is refused. See [Project configuration](/docs/project-configuration#package) for every key.
+   It writes the block with the name and version `0.1.0`, and says what the folders hold. The part before the slash is your hub handle. Signed in to the hub (`npx fluidcad login`), `--name mounting-hardware` adds your handle and says so; signed out, a name without the handle is refused. See [Project configuration](/docs/project-configuration#package) for every key.
 
 2. Pack it:
 
@@ -160,7 +161,7 @@ mounting-hardware/
    ```
 
    ```
-   Packed mounting-hardware 0.1.0 → …/mounting-hardware-0.1.0.fluidpkg
+   Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidpkg
      features/   4 features: boltCircle, boss, fastener, standoff
      parts/      2 parts: hubFlange, pcbPlate
      assemblies/ 1 assembly: plateStack
@@ -171,4 +172,6 @@ mounting-hardware/
 
 3. To release a new version, edit the files, raise the version with `npx fluidcad version minor` (or `patch`, `major`, or an exact `1.2.0`), and pack again.
 
-Feature ids are plain names (`standoff`); two features of one package can't share one. In a project that installs the package, each feature is told apart by the package it comes from, so another package's `standoff` never clashes with this one. The same project packed twice gives the same file. The [CLI reference](/docs/cli#fluidcad-pack) has every command and flag.
+Feature ids are plain names (`standoff`); two features of one package can't share one. The same project packed twice gives the same file. The [CLI reference](/docs/cli#fluidcad-pack) has every command and flag.
+
+A package reaches other projects only through the hub: `npx fluidcad publish` uploads it under your handle, and an admin reviews it before it is public. Until then, try the package in its own project, with the test models at its root and the parts and assemblies in its folders. There is no step that installs your own file into another project.

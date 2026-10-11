@@ -2661,6 +2661,93 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search packages, with facet counts, sorts and engine compatibility
+         * @description Listed packages only (active, with a published latest version). Filters are OR within a filter and AND across filters; each facet value's count has every other filter applied. With `engine` and/or `sdk`, every result says whether that engine can run it (`compatible`), and `compatible=true` keeps only those. Nothing depends on the caller: `Cache-Control: public, max-age=30, stale-while-revalidate=60`, a weak `ETag`, no `Vary`. Rate-limited per IP.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description With `true`, only packages the engine (`engine` and/or `sdk`, which it needs) can run. */
+                    compatible?: "0" | "1" | "true" | "false";
+                    /** @description Packages holding any of these (repeat the key for more than one). */
+                    contents?: components["schemas"]["ContentsValue"][];
+                    /** @description The engine's FluidCAD version (a semver). With it, the answer says which versions it can run. */
+                    engine?: string;
+                    /** @description Packages with any of these keywords, compared lower-cased (repeat the key). */
+                    keyword?: string[];
+                    /** @description Packages whose latest version has any of these licenses (repeat the key). */
+                    license?: components["schemas"]["LicenseId"][];
+                    /** @description Results per page: 20 by default, at most 50 (a larger one is clamped). */
+                    limit?: number;
+                    /** @description Counts from 1. A page that starts past the first 1,000 results is refused. */
+                    page?: number;
+                    /** @description Words every result must match (by name, feature, part or assembly name, keyword, description or publisher; the last word also as a prefix, and words of 3 or more characters also by similarity). `@handle` limits the results to that publisher; `@handle/name` does too and searches the name. */
+                    q?: string;
+                    /** @description The engine's feature SDK version (`SDK_VERSION`), a whole number. */
+                    sdk?: string;
+                    /** @description `relevance` (Best match: the default with words), `installs` (Most installed: the default without words), `likes` (Most liked), `updated` (Recently updated: the latest version's publish), `newest` (Newest: the first publish). Ties break by full name. */
+                    sort?: components["schemas"]["SearchSort"];
+                    /** @description Packages whose manifest `unit` is in any of these systems (repeat the key). */
+                    units?: components["schemas"]["UnitSystem"][];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The results and the facets */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SearchResponse"];
+                    };
+                };
+                /** @description Not modified (`If-None-Match`) */
+                304: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description A query that is not valid (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many searches from this address (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 };
 export type webhooks = Record<string, never>;
 export type components = {
@@ -2830,6 +2917,11 @@ export type components = {
                 label: string;
             }[];
         };
+        /**
+         * @description What a package holds: features, parts or assemblies.
+         * @enum {string}
+         */
+        ContentsValue: "features" | "parts" | "assemblies";
         CreateApiTokenRequest: {
             expiresInDays?: number;
             name: string;
@@ -3264,10 +3356,119 @@ export type components = {
         };
         /** @enum {string} */
         ScreenshotType: "image/png" | "image/jpeg" | "image/webp";
+        SearchFacets: {
+            /** @description How many the engine can run; null unless the request named `engine` or `sdk`. */
+            compatible: {
+                count: number;
+            } | null;
+            contents: {
+                assemblies: number;
+                features: number;
+                parts: number;
+            };
+            /** @description The 12 most frequent keywords, plus any selected (0 when none matches), by count, then name. */
+            keywords: {
+                count: number;
+                value: string;
+            }[];
+            /** @description By count, then in the license picker's order. */
+            licenses: {
+                count: number;
+                /** @description How the hub's license picker names it. */
+                label: string;
+                value: string;
+            }[];
+            units: {
+                imperial: number;
+                metric: number;
+            };
+        };
+        SearchFeatureChip: {
+            /** @description Where the icon is served (the file route); show it with `<img>`, never inline. */
+            iconUrl: string | null;
+            id: string;
+            label: string;
+        };
+        SearchRequest: {
+            compatible: boolean;
+            contents: components["schemas"]["ContentsValue"][];
+            engine: string | null;
+            keywords: string[];
+            licenses: string[];
+            limit: number;
+            page: number;
+            /** @description The canonical text: scopes, then the words. */
+            q: string;
+            scopes: string[];
+            sdk: number | null;
+            sort: components["schemas"]["SearchSort"];
+            units: components["schemas"]["UnitSystem"][];
+            words: string[];
+        };
+        SearchResponse: {
+            /** @description More than 1000 match; only the first 1000 can be paged to. */
+            capped: boolean;
+            facets: components["schemas"]["SearchFacets"];
+            limit: number;
+            page: number;
+            request: components["schemas"]["SearchRequest"];
+            results: components["schemas"]["SearchResult"][];
+            /** @description How many packages match, counted up to 1000. */
+            total: number;
+        };
+        SearchResult: {
+            /** @description The card image (a screenshot the publisher chose), or null. */
+            cardImageUrl: string | null;
+            /** @description Whether the engine the request named can run the latest version (HD13); null when the request named none. Show "needs FluidCAD minEngine+" only when false. */
+            compatible: boolean | null;
+            counts: {
+                assemblies: number;
+                features: number;
+                parts: number;
+            };
+            /** @description The publisher's deprecation message, or null. */
+            deprecated: string | null;
+            description: string | null;
+            /** @description Up to three features, in manifest order. */
+            features: components["schemas"]["SearchFeatureChip"][];
+            /** @example @acme/feature-tests */
+            fullName: string;
+            installs: number;
+            /** @description The latest version's license (an SPDX id from the hub's list). */
+            license: string | null;
+            likes: number;
+            /** @description The oldest FluidCAD the latest version runs on. */
+            minEngine: string;
+            /** @description How many features the chips leave out. */
+            moreFeatures: number;
+            /** @description The name after the slash. */
+            name: string;
+            publisher: {
+                /** @description The publisher's avatar (https only), or null. */
+                avatarUrl: string | null;
+                handle: string;
+            };
+            /** @description The publisher's handle. */
+            scope: string;
+            /** @description When the latest version was published. */
+            updatedAt: string;
+            /** @description The latest version (HD11): what an install by name gets. */
+            version: string;
+        };
+        /**
+         * @description `relevance` (Best match: the default with words), `installs` (Most installed: the default without words), `likes` (Most liked), `updated` (Recently updated: the latest version's publish), `newest` (Newest: the first publish). Ties break by full name.
+         * @enum {string}
+         */
+        SearchSort: "relevance" | "installs" | "likes" | "updated" | "newest";
         /** Format: uuid */
         TokenIdParam: string;
         /** @enum {string} */
         TokenScope: "account" | "publish";
+        /**
+         * @description The package's manifest `unit`: `metric` (mm, cm, m) or `imperial` (in, ft).
+         * @enum {string}
+         */
+        UnitSystem: "metric" | "imperial";
         UploadResult: {
             dryRun: boolean;
             /** @description The hub's tree hash of the archive: what installs are checked against. */

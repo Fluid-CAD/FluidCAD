@@ -389,15 +389,15 @@ A [package](/docs/packages) is a project's custom features and parts, packed int
 ### `fluidcad package init`
 
 ```bash
-npx fluidcad package init --name @acme/mounting-hardware
+npx fluidcad package init --name mounting-hardware
 ```
 
-Makes the project a package by writing the [`package` block](/docs/project-configuration#package) of its `fluidcad.json`: the name and version `0.1.0`. What the package shares is what its `features/`, `parts/` and `assemblies/` folders hold, and the command says how much that is today:
+Makes the project a package by writing the [`package` block](/docs/project-configuration#package) of its `fluidcad.json`: the name and version `0.1.0`. The name is the package's own name, without a handle: the hub publishes it as `@<your handle>/mounting-hardware` ([Package names](/docs/packages#package-names)), and a name with a handle is refused. What the package shares is what its `features/`, `parts/` and `assemblies/` folders hold, and the command says how much that is today:
 
 ```
 Wrote the "package" block to …/mounting-hardware/fluidcad.json:
   {
-    "name": "@acme/mounting-hardware",
+    "name": "mounting-hardware",
     "version": "0.1.0"
   }
 Pack exports what features/, parts/ and assemblies/ hold. Today: features/ 4 modules, parts/ 2 modules, assemblies/ none.
@@ -405,7 +405,7 @@ Pack exports what features/, parts/ and assemblies/ hold. Today: features/ 4 mod
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-n, --name <@scope/name>` | The package name, in lowercase letters, digits and dashes | asked for in a terminal |
+| `-n, --name <name>` | The package name: lowercase letters, digits and single dashes, starting with a letter | asked for in a terminal |
 | `-w, --workspace <path>` | Path to the project | Current directory |
 
 It refuses a project that already has a `package` block, and a `fluidcad.json` it cannot read.
@@ -416,7 +416,7 @@ It refuses a project that already has a `package` block, and a `fluidcad.json` i
 npx fluidcad version minor
 ```
 
-Raises the package's version in `fluidcad.json`: `major`, `minor` or `patch`, or an exact version such as `1.2.0`. It prints the change, `@acme/mounting-hardware 0.1.0 → 0.2.0`, and refuses the version the package already has. `-w, --workspace <path>` points it at another project.
+Raises the package's version in `fluidcad.json`: `major`, `minor` or `patch`, or an exact version such as `1.2.0`. It prints the change, `mounting-hardware 0.1.0 → 0.2.0`, and refuses the version the package already has. `-w, --workspace <path>` points it at another project.
 
 ### `fluidcad pack`
 
@@ -425,11 +425,11 @@ npx fluidcad pack
 npx fluidcad pack -o dist/
 ```
 
-Packs the project's package into `<scope>-<name>-<version>.fluidpkg`, written into the project unless `-o` says otherwise. It lists what the package holds, folder by folder:
+Packs the project's package into `<name>-<version>.fluidpkg`, written into the project unless `-o` says otherwise. It lists what the package holds, folder by folder:
 
 ```
-Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidpkg
-  features/   4 features: acme.boltCircle, acme.boss, acme.fastener, acme.standoff
+Packed mounting-hardware 0.1.0 → …/mounting-hardware-0.1.0.fluidpkg
+  features/   4 features: boltCircle, boss, fastener, standoff
   parts/      2 parts: hubFlange, pcbPlate
   assemblies/ 1 assembly: plateStack
   29 files, 18.2 kB, unit mm
@@ -437,7 +437,7 @@ Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidp
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-o, --out <path>` | The output file, or a folder to write it into | `<scope>-<name>-<version>.fluidpkg` in the project |
+| `-o, --out <path>` | The output file, or a folder to write it into | `<name>-<version>.fluidpkg` in the project |
 | `-w, --workspace <path>` | Path to the project | Current directory |
 | `--json` | Print the result as JSON: `name`, `version`, `fileName`, `savedTo`, `bytes`, `files`, `unit`, and `contents` (the features, parts and assemblies by folder, with `models`, their count). A refused pack prints `{ "error", "code" }`. | off |
 
@@ -449,14 +449,14 @@ Before writing, the engine loads every file the folders export, builds every par
 features/hub-flange.part.js is a part in features/, but parts belong in parts/: move it there.
 ```
 
-The checks: the `package` block is valid and has no `exports` list; every file sits in the folder for its kind (`wrong-folder`) and the folders hold something (`no-exports`); nothing is imported from outside the three folders (`outside-layout`); no two files export the same name and no two features share an id; every feature id starts with the scope; every part and assembly builds without an error; nothing is imported from `node_modules`, from outside the project, from `init.js`, from a blocked Node built-in or from another package; every picture a feature declares exists. A project without a `package` block is refused with "This workspace isn't a package — run `fluidcad package init` first."
+The checks: the `package` block is valid and has no `exports` list; every file sits in the folder for its kind (`wrong-folder`) and the folders hold something (`no-exports`); nothing is imported from outside the three folders (`outside-layout`); no two files export the same name and no two features share an id; every part and assembly builds without an error; nothing is imported from `node_modules`, from outside the project, from `init.js`, from a blocked Node built-in or from another package; every picture a feature declares exists. A project without a `package` block is refused with "This workspace isn't a package — run `fluidcad package init` first."
 
 To release a new version: edit, `npx fluidcad version minor`, `npx fluidcad pack`.
 
 ### `fluidcad install`
 
 ```bash
-npx fluidcad install acme-mounting-hardware-0.1.0.fluidpkg     # from a file
+npx fluidcad install mounting-hardware-0.1.0.fluidpkg --as @acme/mounting-hardware   # from a file
 npx fluidcad install @acme/mounting-hardware                    # use an installed package in this project
 npx fluidcad install                                            # check this project's packages
 ```
@@ -464,14 +464,17 @@ npx fluidcad install                                            # check this pro
 **From a file**, it shows what the package holds and asks before installing:
 
 ```
-@acme/mounting-hardware 0.1.0 — Standoffs, bosses, bolt circles and fastener holes, with a PCB plate and a hub flange
-  4 features: acme.boltCircle (Bolt circle), acme.boss (Boss), acme.fastener (Fastener hole), acme.standoff (Standoff)
+mounting-hardware 0.1.0 — Standoffs, bosses, bolt circles and fastener holes, with a PCB plate and a hub flange
+  installs as @acme/mounting-hardware
+  4 features: boltCircle (Bolt circle), boss (Boss), fastener (Fastener hole), standoff (Standoff)
   2 parts: hubFlange, pcbPlate
   needs FluidCAD 0.0.45 or newer (packed on 0.0.46)
   28 files, 41.4 kB, sha256-9gPApDnFu7GQz1+By40SoZnvxLgLSZDezAbqJSxF2Mw=
 A package's code runs in the FluidCAD engine with your permissions. Install only packages you trust.
 Installing into your library (/Users/you/.fluidcad/packages), and pinning it in this project.
 ```
+
+A file only knows the package's own name, so the install picks its public name ([Package names](/docs/packages#package-names)): `--as`, else the name this project records for a package of that name, else `@local/mounting-hardware`. A file named the way the hub names its downloads (`acme-mounting-hardware-0.1.0.fluidpkg`) gets a hint: "This file's name suggests @acme/mounting-hardware: add `--as @acme/mounting-hardware` to install it under that name." An `--as` whose part after the slash isn't the file's name is refused ("This file is mounting-hardware, so it can't install as @acme/gears."), and so is a project recording two packages of that name without `--as`. A name without a handle that isn't a file (`npx fluidcad install mounting-hardware`) is refused with "Name the publisher: `fluidcad install @<handle>/mounting-hardware`."
 
 Run inside a project, it also records the package in the project's [`dependencies`](/docs/project-configuration#dependencies); run elsewhere, it only installs. Installing the same version with the same contents again changes nothing. The same version with other contents is refused unless `--replace` is given, and in a project whose recorded hash differs, it is refused either way.
 
@@ -491,6 +494,7 @@ Install each from its file: fluidcad install <file.fluidpkg>. Downloading them f
 | `--project` | Install into this project's `packages/` folder; with a package name, copy it there from your library | _off_ |
 | `-y, --yes` | Install without asking. Without a terminal, a file install needs it | _asks_ |
 | `--replace` | Replace an installed copy of the same version whose contents differ | _off_ |
+| `--as <@scope/name>` | With a file: the public name to install it under | _the project's pin of that name, else `@local/<name>`_ |
 
 ### `fluidcad remove`
 

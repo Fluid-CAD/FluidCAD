@@ -38,7 +38,7 @@ The written call is plain code, and later features use the feature's faces like 
 A feature file holds a class and the builder it exports:
 
 1. The class extends `Feature.with({ … })`, which declares the feature's values: each one is typed in (`{ type: 'length', default: 10 }`) or picked in the viewport (`{ picker: 'face' }`).
-2. `static id` is the feature's type, namespaced: `'acme.standoff'`.
+2. `static id` is the feature's type, a plain name: `'standoff'`. It can't be one of FluidCAD's own types (`extrude`, `fillet`, `part`, …). Installed from a [package](/docs/packages), the feature is told apart by the package it comes from, so two packages' `standoff` never clash.
 3. `buildTool()` builds the solid the feature adds or cuts, where its picked face stands. FluidCAD applies the operation (add, new or remove) and fuses or cuts the result. `setBuckets()` names its faces, so that `post.endEdges()` in a model reaches its top rims.
 4. `defineFeature(Class, { … })` describes the feature for the toolbar and the dialog (label, group, the operations it offers, the call a model writes) and returns the builder. Export it by name.
 

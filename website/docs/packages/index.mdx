@@ -13,10 +13,19 @@ A package carries [custom features](/docs/custom-features) and parts from one pr
 
 This page uses `@acme/mounting-hardware`: four features (Bolt circle, Boss, Fastener hole, Standoff) and two parts (Hub flange, PCB plate).
 
+## Package names
+
+A package has two names:
+
+- **Its own name**, `mounting-hardware`, is what its author writes in the package's `fluidcad.json`. It is lowercase letters, digits and single dashes, and starts with a letter. The author never writes a handle.
+- **Its public name**, `@acme/mounting-hardware`, is the name projects use: the name a model imports, the name `fluidcad.json` records and the folder it is installed in. The part before the slash is the publisher's handle on the hub, which the hub adds when the package is published. Two publishers can each have a `mounting-hardware`; a project can use both, because their public names differ.
+
+A `.fluidpkg` file only knows the package's own name. Installed from a file, a package takes the public name the project records for a package of that name (the missing-package banner's case), else the name you give it (`--as @acme/mounting-hardware` from the terminal), else `@local/mounting-hardware`. The **Install package** dialog shows the name under the package's title (**Installs as**). `local` is a name the hub never gives a publisher, so FluidCAD never looks for an `@local` package on the hub: a project that records one asks for the file again.
+
 ## Installing a package
 
 1. Click **Install package…**, in the dialog of the top bar's **Packages** button or in the **Packages** tab of the settings (the gear in the top bar).
-2. Pick the `.fluidpkg` file. Dragging the file onto the FluidCAD window does steps 1 and 2 at once. The **Install package** dialog lists what the package holds before anything is installed: its name and version, its description, the features with their ids, the parts, the FluidCAD version it needs, and its size. A feature that calls the OpenCascade kernel directly carries a *raw OpenCascade* tag and a warning, because it can crash the engine.
+2. Pick the `.fluidpkg` file. Dragging the file onto the FluidCAD window does steps 1 and 2 at once. The **Install package** dialog lists what the package holds before anything is installed: its name and version, the public name it installs as, its description, the features with their ids, the parts, the FluidCAD version it needs, and its size. A feature that calls the OpenCascade kernel directly carries a *raw OpenCascade* tag and a warning, because it can crash the engine.
 3. Under **Install into**, choose **My library** (every project can use it) or **This project** (a copy in the project's `packages/` folder, committed with it). The default is the **New packages go to** setting.
 4. Click **Install**.
 
@@ -139,10 +148,10 @@ mounting-hardware/
 1. In the project that holds the features and parts, run:
 
    ```bash
-   npx fluidcad package init --name @acme/mounting-hardware
+   npx fluidcad package init --name mounting-hardware
    ```
 
-   It writes the block with the name and version `0.1.0`, and says what the folders hold. See [Project configuration](/docs/project-configuration#package) for every key.
+   It writes the block with the name and version `0.1.0`, and says what the folders hold. The name is the package's own name, without a handle: the hub adds yours when you publish, and a name with a handle (`@acme/mounting-hardware`) is refused. See [Project configuration](/docs/project-configuration#package) for every key.
 
 2. Pack it:
 
@@ -151,8 +160,8 @@ mounting-hardware/
    ```
 
    ```
-   Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidpkg
-     features/   4 features: acme.boltCircle, acme.boss, acme.fastener, acme.standoff
+   Packed mounting-hardware 0.1.0 → …/mounting-hardware-0.1.0.fluidpkg
+     features/   4 features: boltCircle, boss, fastener, standoff
      parts/      2 parts: hubFlange, pcbPlate
      assemblies/ 1 assembly: plateStack
      29 files, 18.2 kB, unit mm
@@ -162,4 +171,4 @@ mounting-hardware/
 
 3. To release a new version, edit the files, raise the version with `npx fluidcad version minor` (or `patch`, `major`, or an exact `1.2.0`), and pack again.
 
-Feature ids in a package must start with its scope: `@acme/mounting-hardware` may only declare `acme.*` features (`acme.standoff`). The same project packed twice gives the same file. The [CLI reference](/docs/cli#fluidcad-pack) has every command and flag.
+Feature ids are plain names (`standoff`); two features of one package can't share one. In a project that installs the package, each feature is told apart by the package it comes from, so another package's `standoff` never clashes with this one. The same project packed twice gives the same file. The [CLI reference](/docs/cli#fluidcad-pack) has every command and flag.

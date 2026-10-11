@@ -12,8 +12,8 @@ export class Standoff extends Feature.with({
   outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },
   hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
 }) {
-  // The feature's type, namespaced: it names the feature in every timeline.
-  static id = 'acme.standoff';
+  // The feature's type: it names the feature in every timeline.
+  static id = 'standoff';
 
   // Returns the solid the feature adds; FluidCAD fuses it with the part.
   buildTool() {

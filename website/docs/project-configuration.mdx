@@ -133,7 +133,7 @@ Makes the project a [package](/docs/packages) that others can install: its name 
   "engine": "0.0.46",
   "unit": "mm",
   "package": {
-    "name": "@acme/mounting-hardware",
+    "name": "mounting-hardware",
     "version": "0.1.0",
     "description": "Standoffs, bosses, bolt circles and fastener holes, with a PCB plate and a hub flange",
     "license": "MIT",
@@ -144,7 +144,7 @@ Makes the project a [package](/docs/packages) that others can install: its name 
 
 | Field | Meaning |
 |-------|---------|
-| `name` | Required. `@scope/name`, in lowercase letters, digits and dashes. Feature ids in the package must start with the scope: `acme.standoff`. |
+| `name` | Required. The package's own name, in lowercase letters, digits and single dashes, starting with a letter: `mounting-hardware`. It never holds a handle: the hub publishes it as `@<your handle>/mounting-hardware`, and a name with a handle is refused. |
 | `version` | Required. An exact version, `MAJOR.MINOR.PATCH` with an optional `-prerelease` (`1.2.0`, `2.0.0-beta.1`). |
 | `description`, `license`, `author`, `homepage` | Optional text, shown when the package is installed. |
 | `keywords` | Optional list of words. |
@@ -156,7 +156,7 @@ What the package shares is not listed here: its `features/`, `parts/` and `assem
 
 ### `dependencies`
 
-The packages the project uses, one entry per package: the exact version and `integrity`, a hash of the installed package's files.
+The packages the project uses, one entry per package, keyed by the package's public name (`@acme/mounting-hardware`; [Package names](/docs/packages#package-names)): the exact version and `integrity`, a hash of the installed package's files. The `package` block names the package this project *is*, by its own name; `dependencies` names the packages it *uses*, by their public names.
 
 ```json
 {
@@ -171,6 +171,8 @@ The packages the project uses, one entry per package: the exact version and `int
 ```
 
 The entry is written for you: the first time a feature or part from a package in your library is used in the project, by [`npx fluidcad install`](/docs/cli#fluidcad-install) run in the project, and when a package is installed into the project. It never holds a range: a project stays on the version it recorded however many newer versions are installed, and the hash catches an installed copy whose contents changed. A model imports the package by its name, `import { standoff } from '@acme/mounting-hardware'`; a name that has no entry here does not load.
+
+A package installed from a file under no other name is recorded as `@local/<name>` (`@local/mounting-hardware`); `npx fluidcad install` never looks for it on the hub, and asks for the file again when it is missing.
 
 The file is re-read before every render, so editing the entry by hand takes effect without a restart. An invalid map (a range instead of a version, a malformed hash) is reported and ignored until it is fixed.
 

@@ -24,6 +24,7 @@ import {
   resolveInstanceBinding,
   resolveSideExpression,
   scopeOfAnchor,
+  scopeStatementOfAnchor,
   type MateConnectorRef,
   type MateFrameRef,
   type MateGeometryRef,
@@ -195,6 +196,11 @@ export async function applyAssemblyMateEdit(
  * after it would never replicate: the new mate goes directly BEFORE that
  * statement instead. The mate's outer side is not one of the replicate's
  * targets yet, so every replica shares it until the user adds the column.
+ *
+ * That hoist only holds when both sides are declared above the replicate.
+ * A side on one of the statement's own replicas (`rotors1Replicas[0]`), or
+ * on anything inserted below it, cannot precede its declaration — such a
+ * mate can never replicate anyway, so it appends as usual (#83).
  */
 async function placeCreatedMate(
   code: string,
@@ -211,7 +217,13 @@ async function placeCreatedMate(
   }
   const replicate = scope ? findReplicateStatementForSeeds(scope, expressions.map(expressionRoot)) : null;
   if (replicate) {
-    return { newCode: insertStatementBefore(code, replicate, statement) };
+    const declaredAbove = anchorLines.every(line => {
+      const declaration = scopeStatementOfAnchor(tree, scope!, line);
+      return declaration === null || declaration.endIndex <= replicate.startIndex;
+    });
+    if (declaredAbove) {
+      return { newCode: insertStatementBefore(code, replicate, statement) };
+    }
   }
   return appendStatementInScope(code, statement, anchorLines[0], anchorLines[1]);
 }

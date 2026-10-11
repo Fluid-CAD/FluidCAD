@@ -628,6 +628,33 @@ export function insertStatementAfter(code: string, node: TSNode, statement: stri
 }
 
 /**
+ * The statement directly in `scope` that declares the binding of the chain
+ * starting on `line` — the anchor statement itself, or the scope-level
+ * statement wrapping it (an `export const …`) — or null when the chain is
+ * missing or lives outside `scope`. A created statement that dereferences
+ * the binding must land BELOW this statement, whatever else decides its row:
+ * a `const` is in its temporal dead zone until its declaration runs.
+ */
+export function scopeStatementOfAnchor(tree: TSTree, scope: TSNode, line: number): TSNode | null {
+  const chain = findChainAt(tree, line);
+  if (!chain) {
+    return null;
+  }
+  return scope.namedChildren.find(c => c.startIndex <= chain.startIndex && c.endIndex >= chain.endIndex) ?? null;
+}
+
+/** The latest-ending of `statements` (nulls skipped), or null when there is none. */
+export function latestStatement(statements: (TSNode | null)[]): TSNode | null {
+  let latest: TSNode | null = null;
+  for (const statement of statements) {
+    if (statement && (!latest || statement.endIndex > latest.endIndex)) {
+      latest = statement;
+    }
+  }
+  return latest;
+}
+
+/**
  * The first of `anchorLines` whose binding is not visible from `statement`
  * (declared in its own scope or one enclosing it), or null when every
  * anchor is. Re-pointing an in-place edit at a binding inside another

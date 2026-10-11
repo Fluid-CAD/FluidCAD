@@ -22,10 +22,12 @@ import {
   findChainAt,
   insertStatementAfter,
   isCopySlot,
+  latestStatement,
   replicateSeedName,
   resolveInstanceBinding,
   resolveSideExpression,
   scopeOfAnchor,
+  scopeStatementOfAnchor,
   sideAnchorLine,
   statementMentions,
   wordUsed,
@@ -65,7 +67,8 @@ export type AssemblyReplicatePayload = {
  * The replicate dialog's edit payload — rides `ApplyFeatureEditSpec` as a
  * side-channel (like `assemblyMate`): every other spec field is ignored and
  * the transform below runs instead. `create` writes a fresh statement
- * directly after the seed's last `mate()`; `edit` re-renders the statement
+ * directly after the seed's last `mate()` (or after the last binding one of
+ * its sides needs, when that comes later); `edit` re-renders the statement
  * at `sourceLine` in place from the full state; `removeRow` splices one
  * replica out (the last row removes the statement).
  */
@@ -368,7 +371,10 @@ export async function applyAssemblyReplicateEdit(
  * A created statement lands directly after the seed's LAST `mate()` in the
  * seed's scope: it reads "insert, mates, replicate", and the kernel only
  * replicates mates that precede the statement. Every side's binding must be
- * visible from that scope.
+ * visible from that scope — and already declared: a row cell that addresses
+ * another statement's replica (`rotors1Replicas[2]`) or an instance inserted
+ * below the mates pushes the statement past that declaration, else the
+ * render dies in the binding's temporal dead zone (#83).
  */
 async function placeReplicateStatement(
   code: string,
@@ -407,7 +413,8 @@ async function placeReplicateStatement(
     };
   }
   const statement = renderReplicateStatement(seedName, targets, rows);
-  return { newCode: insertStatementAfter(code, lastMate, statement) };
+  const after = latestStatement([lastMate, ...anchorLines.map(line => scopeStatementOfAnchor(tree, scope, line))])!;
+  return { newCode: insertStatementAfter(code, after, statement) };
 }
 
 /** Re-render the statement at `sourceLine` in place, keeping its binding form. */

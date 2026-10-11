@@ -1,7 +1,7 @@
 ---
 id: concepts/packages
-title: Packages — sharing custom features and parts as a versioned .fluidpkg
-summary: "A package is a workspace whose fluidcad.json has a \"package\" block (a bare name such as mounting-hardware, never a handle; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). Consumers know it by its public name @<handle>/<name>, which the hub assigns at publish (a file install takes the project's matching pin, --as, or @local/<name>). fluidcad pack (MCP pack) checks the layout and the code on the engine and writes <name>-<version>.fluidpkg: the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json. fluidcad install puts it in the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by bare name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
+title: Packages — sharing custom features and parts through the hub
+summary: "A package is a workspace whose fluidcad.json has a \"package\" block (name @<handle>/<name>, the author's own hub handle as its scope; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). That one name is the archive's, the hub's, the pin's, the library folder's and every import's. fluidcad pack (MCP pack) checks the layout and the code on the engine and writes <scope>-<name>-<version>.fluidpkg, the archive fluidcad publish uploads: the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json. Packages install only from the hub, never from a .fluidpkg file: fluidcad install @scope/name downloads, verifies and installs into the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
 tags: [concept, package, custom-feature, sdk, project]
 seeAlso: [concepts/custom-features, concepts/assemblies, concepts/units, api/insert, api/part, api/define-feature]
 ---
@@ -9,46 +9,53 @@ seeAlso: [concepts/custom-features, concepts/assemblies, concepts/units, api/ins
 # Packages
 
 A package is how a project's custom features ([[concepts/custom-features]])
-and parts travel to other projects and other people. It is one file,
-`<name>-<version>.fluidpkg`, made by `fluidcad pack`. Installed, it is a
-read-only folder the engine loads from; a project that uses it records the
-exact version and a hash of its contents, and imports it by its public name:
+and parts travel to other projects and other people, through the FluidCAD
+hub. `fluidcad pack` makes one file, `<scope>-<name>-<version>.fluidpkg`;
+`fluidcad publish` uploads it; other projects install it from the hub with
+`fluidcad install @scope/name`. The archive itself never installs. Installed,
+it is a read-only folder the engine loads from; a project that uses it
+records the exact version and a hash of its contents, and imports it by its
+name:
 
 ```js
 import { standoff } from '@acme/mounting-hardware';
 ```
 
-## Names: the author's bare name, the consumer's public name
+## Names: one name, with the author's handle
 
-- **The author writes a bare name**: `"name": "mounting-hardware"` in the
-  `package` block, and the same in the archive's `manifest.json`. Lowercase
-  letters, digits and single dashes, starting with a letter, 1–64
-  characters. A scoped name is refused: "fluidcad.json has a "package" whose
-  "name" "@acme/mounting-hardware" carries a scope, but the hub adds your
-  handle when you publish: write "mounting-hardware"."
-- **Consumers use the public name** `@<handle>/<name>`: pins (`dependencies`
-  keys), import specifiers, library folders (`<library>/@acme/mounting-hardware/0.1.0/`),
-  hub URLs. The hub assigns it at publish from the publisher's handle, so two
-  publishers can each have a `mounting-hardware`, side by side in one project.
-- **A file install** takes, in order: `--as @acme/mounting-hardware` (its
-  part after the slash must be the file's name: "This file is
-  mounting-hardware, so it can't install as @acme/gears."); else the
-  project's one pin of that bare name (several → refused, naming them and
-  `--as`); else the reserved local scope, `@local/mounting-hardware`. The
-  consent summary says "installs as …". The hub never has an `@local`
-  package, so `fluidcad install` never asks it for one: a missing `@local`
-  pin says "… was installed from a file, so the hub doesn't have it: install
-  that file again (`fluidcad install <file>`)."
+- **The author writes the full name**: `"name": "@acme/mounting-hardware"`
+  in the `package` block. The scope is the author's own hub handle; the hub
+  publishes a package only under its uploader's handle. Each part is
+  lowercase letters, digits and single dashes, starting with a letter; the
+  handle is 2–39 characters, the name after the slash at most 64.
+- **That name is the package's everywhere**: the archive's `manifest.json`
+  and file name (`acme-mounting-hardware-0.1.0.fluidpkg`), the hub's URLs,
+  pins (`dependencies` keys), import specifiers and library folders
+  (`<library>/@acme/mounting-hardware/0.1.0/`). Two publishers can each have
+  a `…/mounting-hardware`, side by side in one project.
+- **A name without the scope is refused**: "fluidcad.json has a "package"
+  whose "name" "mounting-hardware" needs your hub handle as its scope: write
+  "@<your-handle>/mounting-hardware"." Any other bad name: "… is not a
+  package name (packages are named @handle/name, each part in lowercase
+  letters, digits and single dashes, starting with a letter)."
+- **`fluidcad publish` refuses another handle's scope** before it packs or
+  uploads anything: "@bea-tools/mounting-hardware is under @bea-tools, but
+  you are signed in to <hub> as @acme, and you can only publish under your
+  own handle: name the package "@acme/mounting-hardware" in fluidcad.json,
+  or sign in as @bea-tools."
 - **Feature ids are plain** (`static id = 'standoff'`) and never written into
   a model. The engine keys an installed package's features by the package at
   load time — `@acme/mounting-hardware:standoff` is the type of their
   timeline rows and `get_scene_summary` entries — so two packages'
   `standoff` never collide. In the author's own workspace the type stays
   `standoff`.
-- An archive packed before names lost their scope (its manifest names
-  `@acme/…`) is refused: "This archive names @acme/kit: it was packed by an
-  earlier FluidCAD, whose package names carried the scope. Pack it again
-  with this one." Trees already installed keep working.
+- An archive packed while package names had no scope (its manifest names
+  `mounting-hardware`) is refused when it arrives from a hub, never
+  converted: "This archive names mounting-hardware, without a scope: it was
+  packed by an earlier FluidCAD, whose package names had none. Pack it again
+  with this one, after naming the package "@<your-handle>/mounting-hardware"
+  in its fluidcad.json." Trees already installed keep working: their folder
+  names them.
 
 ## Making a workspace a package
 
@@ -79,7 +86,7 @@ mounting-hardware/
   "engine": "0.0.46",
   "unit": "mm",
   "package": {
-    "name": "mounting-hardware",
+    "name": "@acme/mounting-hardware",
     "version": "0.1.0",
     "description": "Standoffs, bosses, bolt circles and fastener holes, with a PCB plate and a hub flange",
     "license": "MIT",
@@ -90,7 +97,7 @@ mounting-hardware/
 
 | key | required | rule |
 |---|---|---|
-| `name` | yes | the bare name: lowercase letters, digits and single dashes, starting with a letter; a scoped name (`@acme/…`) is refused |
+| `name` | yes | `@<handle>/<name>`, the scope being the author's hub handle; each part lowercase letters, digits and single dashes, starting with a letter; a name without the scope is refused |
 | `version` | yes | strict semver `MAJOR.MINOR.PATCH`, optional `-prerelease`, no build metadata |
 | `description`, `license`, `author`, `homepage` | no | strings, copied into the manifest |
 | `keywords` | no | a list of strings |
@@ -123,17 +130,24 @@ sync:
 - **Feature ids are plain** (`standoff`); no two features of a package may
   share one.
 - **To publish on the hub, a package needs at least one part or assembly**,
-  so its page has a model to show. A features-only package still packs and
-  installs from a file.
-- `fluidcad package init --name mounting-hardware` writes the block
-  (the name and version `0.1.0`) and says what the folders hold. Without
-  `--name` it asks on a terminal.
+  so its page has a model to show. A features-only package still packs, but
+  can't be published.
+- `fluidcad package init --name @acme/mounting-hardware` writes the block
+  (the name and version `0.1.0`) and says what the folders hold. Signed in
+  (`fluidcad login`), `--name mounting-hardware` takes the signed-in handle
+  and prints "Named it @acme/mounting-hardware: your handle on <hub>.";
+  signed out, a name without the scope is refused with the sentence above.
+  Without `--name` it asks on a terminal (`Package name: @acme/` when signed
+  in).
 - `fluidcad version patch|minor|major|<x.y.z>` bumps `version`
-  (`mounting-hardware 0.1.0 → 0.1.1`). Packing never bumps.
+  (`@acme/mounting-hardware 0.1.0 → 0.1.1`). Packing never bumps.
 - A broken block is reported at startup ("FluidCAD: fluidcad.json has a
-  "package" whose "name" "3d-gears" is not a package name (…). Treating this
+  "package" whose "name" "@acme/3d-gears" is not a package name (…). Treating this
   workspace as a plain project, not a package.") and never costs the
   `engine`, `unit` or `materials` keys.
+- **Test a package in its own workspace**, with its own models (test models
+  at the root, the parts and assemblies in its folders). There is no step
+  that installs the author's own archive into another project.
 
 Advisory meaning of versions: **major** may break a statement written
 against the old version (a removed export or parameter); **minor** adds
@@ -144,13 +158,13 @@ by itself.
 ## Packing
 
 ```bash
-npx fluidcad pack                    # → mounting-hardware-0.1.0.fluidpkg in the workspace
+npx fluidcad pack                    # → acme-mounting-hardware-0.1.0.fluidpkg in the workspace
 npx fluidcad pack -o dist/           # -o takes a file or a directory
 npx fluidcad pack --json             # the result as JSON (contents by folder)
 ```
 
 ```
-Packed mounting-hardware 0.1.0 → …/mounting-hardware-0.1.0.fluidpkg
+Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidpkg
   features/   4 features: boltCircle, boss, fastener, standoff
   parts/      2 parts: hubFlange, pcbPlate
   assemblies/ 1 assembly: plateStack
@@ -158,13 +172,14 @@ Packed mounting-hardware 0.1.0 → …/mounting-hardware-0.1.0.fluidpkg
 ```
 
 A package with no part or assembly adds the line "no parts or assemblies:
-it installs, but the hub needs at least one to publish". `--json` prints
+the hub needs at least one to publish". `--json` prints
 `{ name, version, fileName, savedTo, bytes, files, unit, contents }`, where
 `contents` is `{ features: [{ id, exportName, module }], parts:
 [{ exportName, name, module, params }], assemblies: […], models }` (`params`
 counts the `param()`s). The MCP tool `pack` does the same through the
 running engine (pass `saveAsPath`) and returns the same `contents`. The
-archive, which is also the installed folder:
+archive is what `fluidcad publish` uploads, and what a hub install unpacks
+into the installed folder:
 
 | file | what |
 |---|---|
@@ -191,7 +206,7 @@ sentence naming the file (`pack-refused` from MCP, with `details.code`):
 - **`wrong-folder`**: a module whose suffix belongs in another folder
   ("features/hub-flange.part.js is a part in features/, but parts belong in
   parts/: move it there.");
-- **`no-exports`**: the three folders hold nothing ("mounting-hardware
+- **`no-exports`**: the three folders hold nothing ("@acme/mounting-hardware
   exports nothing: put its feature modules in features/, its parts in parts/
   and its assemblies in assemblies/. …");
 - **`outside-layout`**: an import leaves the three folders ("parts/hub-flange.part.js
@@ -213,12 +228,13 @@ sentence naming the file (`pack-refused` from MCP, with `details.code`):
 To release a new version: edit, `fluidcad version minor`, `fluidcad pack`.
 
 Archives packed before the folders existed (modules at the archive root)
-still install and load: the layout is checked when packing, not when
-installing.
+still install and load: the layout is checked when packing (and by the hub
+on upload), not when installing.
 
 ## Installing
 
-Two places hold installed packages, as `<root>/@scope/name/<version>/`:
+Packages install only from the hub. Two places hold installed packages, as
+`<root>/@scope/name/<version>/`:
 
 - **the user library**, once per machine. Its folder is, first match:
   `FLUIDCAD_PACKAGES`, the Settings → Packages **Library folder**,
@@ -232,32 +248,43 @@ anything else in a user's `packages/` folder (their own models) is ordinary
 workspace code.
 
 ```bash
-npx fluidcad install mounting-hardware-0.1.0.fluidpkg --as @acme/mounting-hardware  # into the library; pins it when run in a project
-npx fluidcad install mounting-hardware-0.1.0.fluidpkg --project      # into this project's packages/ (and pins it), as the pin's name or @local/mounting-hardware
-npx fluidcad install @acme/mounting-hardware                       # pin a library package into this project, no files copied
-npx fluidcad install @acme/mounting-hardware --project             # …and copy it into packages/
-npx fluidcad install                                               # check every pin is installed
-npx fluidcad packages                                              # the library, the project copy and the pins
-npx fluidcad remove @acme/mounting-hardware [--project]            # @scope/name@version when several are installed
+npx fluidcad install @acme/mounting-hardware          # the hub's latest this FluidCAD runs; pins it when run in a project
+npx fluidcad install @acme/mounting-hardware@0.1.0    # that version: the library's copy when there is one, else the hub
+npx fluidcad install @acme/mounting-hardware --project  # …into (or copied into) this project's packages/
+npx fluidcad install                                  # in a project: download every pinned package that isn't installed
+npx fluidcad packages                                 # the library, the project copy and the pins
+npx fluidcad remove @acme/mounting-hardware [--project]  # @scope/name@version when several are installed
 ```
 
-- Installing from a file prints the summary (features with labels, parts,
-  the engine requirement, files, size, `sha256-…`, a warning when the
-  package needs a newer engine or another SDK version, and "A package's
+- A download is verified before anything is installed: its files must hash
+  to the hub's listed integrity, and to the project's pin when there is
+  one. Then the summary (features with labels, parts, the engine
+  requirement, files, size, `sha256-…`, the hub's notes and a warning when
+  the package needs a newer engine or another SDK version, and "A package's
   code runs in the FluidCAD engine with your permissions. Install only
-  packages you trust.") and asks
-  y/N; without a terminal it needs `--yes`.
+  packages you trust.") and y/N; without a terminal it needs `--yes`.
+- A name alone asks the hub for its latest version first and uses the
+  library's copy when its files are the hub's; with the hub unreachable it
+  uses the newest version the library holds, with a note. A name without
+  the scope is refused: "Name the publisher: `fluidcad install
+  @<handle>/mounting-hardware`."
+- **A `.fluidpkg` file (or any path) is refused**, before anything is read:
+  "Packages install from the hub: `fluidcad install @<handle>/<name>`. A
+  .fluidpkg file is what `fluidcad pack` makes for `fluidcad publish`; it
+  isn't installed." There is no offline install: a machine without the hub
+  uses its library, or a project's `packages/` copy (Copy into project
+  carries packages with a project).
 - The same version with the same contents is a no-op. The same version with
   other contents is refused ("… is already in your library with different
   contents. An installed version never changes; replace it explicitly, or
   install it under a new version.") unless `--replace`.
 - Installed files are read-only on disk.
 - `remove` deletes files only and never unpins: a project still pinning it
-  says so on its next render. `install` with no arguments lists missing pins
-  and exits 1 (downloading from the hub comes later).
-- In the UI: Settings → Packages (**Install package…**, **Remove**), the
-  top bar's **Packages** dialog, or a `.fluidpkg` dropped on the window, each
-  through a consent dialog with **My library** / **This project**.
+  says so on its next render.
+- In the UI: Settings → Packages (the library, **Remove**) and the top bar's
+  **Packages** dialog (Copy into project, Use from library). The app has no
+  install button until the hub's panel; the missing-package banner and the
+  Packages dialog name the command.
 
 ## Pins: `dependencies` in `fluidcad.json`
 
@@ -276,8 +303,8 @@ npx fluidcad remove @acme/mounting-hardware [--project]            # @scope/name
 - One entry per package the project uses: the exact version (never a range)
   and `integrity`, a sha256 tree hash of the installed folder. No lock file.
 - **Written for you** the first time a feature or part from a library
-  package is used (Custom dropdown, Insert), by `fluidcad install` in a
-  project, and by an install whose target is the project. Using a library
+  package is used (Custom dropdown, Insert), and by `fluidcad install` in a
+  project. Using a library
   package copies no files into the project.
 - Re-read before every render, like the rest of `fluidcad.json`: editing it
   re-renders with no restart.
@@ -285,7 +312,7 @@ npx fluidcad remove @acme/mounting-hardware [--project]            # @scope/name
 
 ## Using a package in a model
 
-**Features** are imported by the package's bare name into any model and
+**Features** are imported by the package's name into any model and
 called like the workspace's own (the Custom dropdown writes the import):
 
 ```js
@@ -341,13 +368,13 @@ Installed packages never change:
 
 ## Errors when a package can't load
 
-The render fails (a compile error in the model) with one of these, and the UI
-offers **Install from file…** for the missing case:
+The render fails (a compile error in the model) with one of these; the
+missing case names the command that downloads the package:
 
 | cause | sentence |
 |---|---|
 | the import's name has no pin | `` `@acme/gears` is not a dependency of this project — install it or add it from your library. `` |
-| pinned, installed in neither place | `` This project uses `@acme/gears` 1.2.0, which isn't installed. `` |
+| pinned, installed in neither place | `` This project uses `@acme/gears` 1.2.0, which isn't installed: `fluidcad install @acme/gears@1.2.0` downloads it from the hub. `` |
 | installed copy's hash differs from the pin | `` The installed `@acme/gears` 1.2.0 differs from the one this project was built with. `` |
 | `minEngine` above the running engine | `` `@acme/gears` 1.2.0 needs FluidCAD 0.0.50 or newer; this engine is 0.0.46. `` |
 | built against another feature SDK | `` `@acme/gears` 1.2.0 was built against feature SDK version 2; this engine has version 1. `` |

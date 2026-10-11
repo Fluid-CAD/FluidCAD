@@ -6524,7 +6524,7 @@ export type PackageManifest = {
 };
 
 /** Something the consent dialog says before an install. */
-export type PackageWarning = { code: 'uses-occt' | 'min-engine' | 'sdk-version' | string; message: string };
+export type PackageWarning = { code: 'min-engine' | 'sdk-version' | string; message: string };
 
 /** `POST /api/packages/inspect`: the archive checked and extracted, waiting for its install. */
 export type PackageInspection = {

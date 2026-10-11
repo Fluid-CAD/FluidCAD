@@ -32,9 +32,9 @@ const WARNING = 'flex items-start gap-2 rounded-md px-3 py-2 text-xs leading-snu
  * It shows what is about to run: the package's name, version and
  * description, the public name it installs under (`installsAs`: the
  * archive holds only its author's bare name), its features (with their icons, served from the inspected
- * archive) and parts, the engine it needs, a warning for every feature that
- * reaches raw OpenCascade, and the plain statement that a package's code
- * runs in the engine with the user's permissions. The user picks where it
+ * archive) and parts, the engine it needs, the engine's warnings (a newer
+ * engine or another SDK version), and the plain statement that a package's
+ * code runs in the engine with the user's permissions. The user picks where it
  * goes (the user library, or the open project's `packages/` folder) and
  * confirms. A refusal shows the engine's sentence; the same version with
  * other contents already installed offers Replace, which inspects the file
@@ -269,14 +269,6 @@ export class PackageConsentDialog {
     id.className = 'text-[11px] text-base-content/45 font-mono truncate';
     id.textContent = feature.id;
     row.append(icon, label, id);
-    if (feature.usesOcct) {
-      const occt = document.createElement('span');
-      occt.dataset.ref = 'occt';
-      occt.className = 'ml-auto badge badge-xs badge-warning shrink-0';
-      occt.textContent = 'raw OpenCascade';
-      occt.title = 'This feature calls the OpenCascade kernel directly, which can crash the engine.';
-      row.appendChild(occt);
-    }
     return row;
   }
 

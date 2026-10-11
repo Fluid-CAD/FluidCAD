@@ -56,11 +56,14 @@ describe('PackageConsentDialog', () => {
     expect(features.map((row) => row.dataset.featureId)).toEqual(['standoff', 'twist']);
     expect(features[0].querySelector('img')!.getAttribute('src')).toBe('icon/token-1/standoff');
     expect(features[1].querySelector('img')!.getAttribute('src')).toContain('icons/solid.png');
-    expect(features[0].querySelector('[data-ref="occt"]')).toBeNull();
-    expect(features[1].querySelector('[data-ref="occt"]')!.textContent).toBe('raw OpenCascade');
+    // twist reaches raw OpenCascade (usesOcct): the dialog says nothing about it.
+    expect(features[1].textContent).toBe('Twisttwist');
+    expect(h.overlay.querySelector('[data-ref="occt"]')).toBeNull();
+    expect(h.overlay.textContent).not.toMatch(/OpenCascade/i);
     expect(h.ref('parts').textContent).toContain('Spacer');
     expect(h.ref('engine').textContent).toBe('Needs FluidCAD 0.0.45 or newer (packed on 0.0.46). 6 files, 48.6 kB.');
-    expect(h.overlay.querySelector('[data-warning="uses-occt"]')!.textContent!.trim()).toBe('twist calls raw OpenCascade.');
+    expect(h.overlay.querySelector('[data-warning="sdk-version"]')!.textContent!.trim()).toBe('Built against a newer feature SDK (version 2); this engine has version 1.');
+    expect(h.overlay.querySelector('[data-warning="uses-occt"]')).toBeNull();
     expect(h.ref('trust').textContent).toBe("A package's code runs in the FluidCAD engine with your permissions. Install only packages you trust.");
     const targets = [...h.overlay.querySelectorAll<HTMLInputElement>('input[name="package-target"]')];
     expect(targets.map((input) => [input.value, input.checked, input.disabled])).toEqual([['library', true, false], ['project', false, false]]);

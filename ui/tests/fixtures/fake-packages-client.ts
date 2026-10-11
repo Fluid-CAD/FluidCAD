@@ -66,7 +66,7 @@ export class FakePackagesClient implements PackagesClient {
       token: 'token-1',
       manifest: FakePackagesClient.manifest(),
       integrity: 'sha256-x',
-      warnings: [{ code: 'uses-occt', message: 'twist calls raw OpenCascade.' }],
+      warnings: [{ code: 'sdk-version', message: 'Built against a newer feature SDK (version 2); this engine has version 1.' }],
       bytes: 48_600,
       defaultTarget: 'library',
       installsAs: '@acme/kit',

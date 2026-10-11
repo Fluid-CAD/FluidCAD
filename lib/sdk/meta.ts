@@ -3,6 +3,9 @@ import type { ParamDefinition, SelectOption } from "../param-registry.js";
 import { Feature, type FeatureClass } from "./feature.js";
 import type { FeatureScalar, FeatureValues } from "./feature-inputs.js";
 import { FeatureCall, type CallShape, type FeatureOperation } from "./call-shape.js";
+import { FeatureKey } from "./feature-key.js";
+import { FeatureNamespaces } from "./feature-namespaces.js";
+import { SceneTypes } from "../common/scene-types.js";
 import { Axis, isStandardAxis } from "../math/axis.js";
 import { Plane, isPlaneLike } from "../math/plane.js";
 import { AxisObject } from "../features/axis.js";
@@ -572,20 +575,25 @@ class FeatureMetaValidator {
     if (featureClass === Feature || !(featureClass.prototype instanceof Feature)) {
       this.fail(`'class' must extend Feature from 'fluidcad/sdk'${featureClass === Feature ? ', not be Feature itself' : ''}`);
     }
+    // Claimed while its module evaluates: a class an installed package
+    // defines is keyed by the package. The engine's own never are.
+    if (!this.builtIn) {
+      FeatureNamespaces.claim(featureClass);
+    }
     let id: string;
     try {
-      id = Feature.idOf(featureClass as typeof Feature);
+      id = Feature.plainIdOf(featureClass as typeof Feature);
     } catch (error) {
       this.fail((error as Error).message);
     }
     const segments = id.split('.');
     if (!segments.every(segment => FeatureMetaValidator.ID_SEGMENT.test(segment))) {
-      this.fail(`the id '${id}' is not well formed — dot-separated names of letters, digits, '-' and '_', each starting with a letter, such as 'acme.standoff'`);
+      this.fail(`the id '${id}' is not well formed — dot-separated names of letters, digits, '-' and '_', each starting with a letter, such as 'standoff'`);
     }
-    if (segments.length < 2 && !this.builtIn) {
-      this.fail(`the id '${id}' needs a namespace, such as 'acme.${id}' — plain ids are the engine's own`);
+    if (!this.builtIn && SceneTypes.isEngineType(id)) {
+      this.fail(`'${id}' is one of the engine's own types: give the feature another id`);
     }
-    return id;
+    return Feature.idOf(featureClass as typeof Feature);
   }
 
   /** A tool leaves `build()` to the base and implements `buildTool()`; a modifier overrides `build()`. */
@@ -1326,8 +1334,10 @@ export class FeatureMetas {
 
   /**
    * Check `meta` and resolve it, refusing it with a message naming the
-   * feature and the field. Plain ids (`draft`) are the engine's own:
-   * `builtIn` admits them.
+   * feature and the field. The resolved `id` is the class's catalog key
+   * (`Feature.idOf`): its plain id, keyed by the package when an installed
+   * package defines it. `builtIn` admits the engine's own types (`draft`)
+   * and never keys them.
    */
   static resolve(meta: unknown, builtIn = false): ResolvedFeatureMeta {
     const known = meta !== null && typeof meta === 'object' ? FeatureMetas.resolvedByMeta.get(meta) : undefined;
@@ -1712,9 +1722,9 @@ export class FeatureMetas {
     });
   }
 
-  /** What messages call a feature's builder: its id's last segment (`acme.standoff` → `standoff`). */
+  /** What messages call a feature's builder: its plain id's last segment (`@acme/kit:standoff` → `standoff`, see `FeatureKey.calleeOf`). */
   static calleeOf(id: string): string {
-    return id.split('.').pop()!;
+    return FeatureKey.calleeOf(id);
   }
 
   private static scalarValue(callee: string, name: string, spec: ScalarParamSpec, value: unknown): FeatureValues[string] {

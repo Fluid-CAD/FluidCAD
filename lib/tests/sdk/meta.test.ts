@@ -116,12 +116,20 @@ describe("feature metadata refusals", () => {
   const refuses = (meta: unknown, message: string | RegExp, options: Record<string, unknown> = {}) =>
     expect(() => register(meta, options)).toThrow(message);
 
-  it("refuse an id that is missing, malformed or without a namespace", () => {
+  it("refuse an id that is missing, malformed or one of the engine's own types", () => {
     refuses(bossMeta({ class: toolClass(null) }), /feature metadata: .* needs a static id/);
-    for (const id of ['acme..boss', 'acme.', '.boss', '1acme.boss', 'acme boss.x', 'acme/boss.x', 'acme.bo+ss']) {
+    for (const id of ['acme..boss', 'acme.', '.boss', '1acme.boss', 'acme boss.x', 'acme/boss.x', 'acme.bo+ss', '@acme/kit:boss', 'kit:boss']) {
       refuses(bossMeta({ class: toolClass(id) }), `feature metadata: the id '${id}' is not well formed`);
     }
-    refuses(bossMeta({ class: toolClass('boss') }), "feature metadata: the id 'boss' needs a namespace, such as 'acme.boss' — plain ids are the engine's own");
+    for (const id of ['extrude', 'part', 'feature', 'fillet2d', 'distance', 'draft']) {
+      refuses(bossMeta({ class: toolClass(id) }), `feature metadata: '${id}' is one of the engine's own types: give the feature another id`);
+    }
+  });
+
+  it("accept a plain id, and a dotted one", () => {
+    expect(getFeatureMeta(register(bossMeta({ class: toolClass('boss') })))!.id).toBe('boss');
+    expect(getFeatureMeta(register(bossMeta({ class: toolClass('acme.boss') })))!.id).toBe('acme.boss');
+    expect(getFeatureMeta(register(bossMeta({ class: toolClass('acme.extrude') })))!.id).toBe('acme.extrude');
   });
 
   it("refuse a class that is not a Feature subclass", () => {

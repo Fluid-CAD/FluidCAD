@@ -147,7 +147,7 @@ export type RegisterBuilderOptions = {
    * scanning the module's exports.
    */
   feature?: FeatureMeta;
-  /** @internal The engine's own builders: their features keep plain ids (`draft`). */
+  /** @internal The engine's own builders: their features may take the engine's own types (`draft`) and are never keyed by a package. */
   builtIn?: boolean;
 };
 
@@ -244,6 +244,10 @@ export type {
   FeatureLayoutNote, FeatureLayoutImage, FeatureLayoutDivider, FeatureStaticItem, FeatureDialogWidth,
 } from './sdk/layout.js';
 export { FeatureCall, CallShapeMismatch } from './sdk/call-shape.js';
+export { FeatureKey } from './sdk/feature-key.js';
+export { FeatureNamespaces } from './sdk/feature-namespaces.js';
+export type { FeatureNamespaceSource } from './sdk/feature-namespaces.js';
+export { SceneTypes } from './common/scene-types.js';
 export type {
   CallShape, CallShapeSlot, CallArgument, CallChain, CallLayout, CallLayoutOptions, CallOperation, CallReader, ChainReading,
   FeatureOperation,

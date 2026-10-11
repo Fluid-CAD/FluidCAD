@@ -2,7 +2,7 @@
 export type KernelTrapReport = {
   /** The trap as the runtime reported it: "memory access out of bounds", "unreachable", … */
   message: string;
-  /** The type of the scene object whose build trapped (`acme.twist`, `extrude`); null outside a build. */
+  /** The type of the scene object whose build trapped (`@acme/kit:twist`, `twist`, `extrude`); null outside a build. */
   type: string | null;
   /** The row's name in the timeline (`Twist`); null outside a build. */
   name: string | null;

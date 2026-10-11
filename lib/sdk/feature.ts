@@ -27,6 +27,8 @@ import type { SceneParserContext } from "../index.js";
 import { FeatureInputs, type FeatureValues } from "./feature-inputs.js";
 import { FeatureCall, type FeatureOperation } from "./call-shape.js";
 import type { FeatureParams, ValuesOf } from "./feature-params.js";
+import { FeatureKey } from "./feature-key.js";
+import { FeatureNamespaces } from "./feature-namespaces.js";
 
 /** What `buildTool()` and a modifier's `build()` are handed: the scene as it stands before the feature. */
 export type FeatureBuildContext = BuildSceneObjectContext;
@@ -108,15 +110,16 @@ type EdgeArgs = (number | EdgeFilterBuilder)[];
  *   directly, the way `fillet()` and `draft()` do. A repeat's copy is
  *   rebuilt from copies of the references.
  *
- * Subclasses declare `static id` (`'acme.standoff'`): the timeline type and
- * the cache's unique type. They declare no constructor of their own — the
+ * Subclasses declare `static id` (`'standoff'`): the timeline type and the
+ * cache's unique type — keyed by the package when an installed package
+ * defines the class (`@acme/feature-tests:standoff`). They declare no constructor of their own — the
  * framework constructs features from values alone. A subclass declares its
  * values by extending {@link Feature.with}, which types `this.values` from
  * them, and `defineFeature()` turns it into the builder a model calls.
  */
 export abstract class Feature<V extends FeatureValues = FeatureValues> extends SceneObject {
 
-  /** The feature's type: namespaced for custom features (`'acme.standoff'`). */
+  /** The feature's plain id (`'standoff'`); never one of the engine's own types (`SceneTypes`). */
   static id: string;
 
   /** What each registered feature class's metadata says of it (see {@link Feature.register}). */
@@ -134,7 +137,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
    *   face: { picker: 'face', surface: 'planar' },
    *   height: { type: 'length', default: 10, min: 0 },
    * }) {
-   *   static id = 'acme.standoff';
+   *   static id = 'standoff';
    *   buildTool() {
    *     const { height } = this.values;   // a number
    *   }
@@ -199,11 +202,21 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
     }
   }
 
-  /** The `static id` of a feature class, refusing a class without one. */
+  /**
+   * The feature's type: its class's catalog key — the plain id it declares
+   * (`standoff`), or for a class an installed package defines, the package
+   * and that id (`@acme/feature-tests:standoff`, see `FeatureNamespaces`).
+   * Refuses a class without a `static id`.
+   */
   static idOf(featureClass: { id?: unknown; name?: string }): string {
+    return FeatureNamespaces.keyOf(featureClass, Feature.plainIdOf(featureClass));
+  }
+
+  /** The `static id` a feature class declares (`standoff`), refusing a class without one. */
+  static plainIdOf(featureClass: { id?: unknown; name?: string }): string {
     const id = featureClass.id;
     if (typeof id !== 'string' || id.trim() === '') {
-      throw new Error(`${featureClass.name || 'A Feature subclass'} needs a static id — the feature's type, such as 'acme.standoff'`);
+      throw new Error(`${featureClass.name || 'A Feature subclass'} needs a static id — the feature's type, such as 'standoff'`);
     }
     return id;
   }
@@ -495,7 +508,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
     if (!registration || chosen === null || registration.operations.length === 0 || registration.operations.includes(chosen)) {
       return null;
     }
-    const callee = this.getType().split('.').pop();
+    const callee = FeatureKey.calleeOf(this.getType());
     return `${callee}(): .${chosen}() is not an operation this feature offers — it offers ${FeatureCall.listed(registration.operations)}; `
       + `'${registration.defaultOperation}' is its default and needs no chain`;
   }
@@ -708,15 +721,15 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
 
   /**
    * The label its metadata gives the feature ("Bolt circle"), or for a
-   * feature no builder registered, its id's last segment capitalized:
-   * `acme.standoff` reads as Standoff.
+   * feature no builder registered, its plain id's last segment capitalized:
+   * `standoff` reads as Standoff.
    */
   override getDisplayType(): string {
     const label = Feature.registrations.get(this.constructor)?.label;
     if (label !== undefined) {
       return label;
     }
-    const name = this.getType().split('.').pop()!;
+    const name = FeatureKey.calleeOf(this.getType());
     return name.charAt(0).toUpperCase() + name.slice(1);
   }
 

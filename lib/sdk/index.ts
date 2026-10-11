@@ -10,7 +10,7 @@
  *   face: { picker: 'face', surface: 'planar' },
  *   height: { type: 'length', default: 10, min: 0 },
  * }) {
- *   static id = 'acme.standoff';
+ *   static id = 'standoff';
  *   buildTool() {
  *     const { height } = this.values;   // a number
  *     …

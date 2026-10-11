@@ -8,7 +8,7 @@
  * import { ShapeFactory } from 'fluidcad/sdk/kernel';
  *
  * class Twist extends Feature.with({ … }) {
- *   static id = 'acme.twist';
+ *   static id = 'twist';
  *   buildTool() {
  *     return this.occ(({ oc, track }) => {
  *       const loft = new oc.BRepOffsetAPI_ThruSections(true, false, 1e-6);   // freed when the scope ends

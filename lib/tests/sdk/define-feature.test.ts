@@ -87,7 +87,7 @@ describe("Feature.with()", () => {
         return [];
       }
     }
-    expect(() => new Unnamed({ height: 5 })).toThrow("Unnamed needs a static id — the feature's type, such as 'acme.standoff'");
+    expect(() => new Unnamed({ height: 5 })).toThrow("Unnamed needs a static id — the feature's type, such as 'standoff'");
   });
 });
 

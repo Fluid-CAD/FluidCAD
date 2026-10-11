@@ -29,7 +29,7 @@ export class PackageArchiveError extends Error {
   }
 }
 
-export type PackageWarningCode = 'uses-occt' | 'min-engine' | 'sdk-version';
+export type PackageWarningCode = 'min-engine' | 'sdk-version';
 
 /** Something the consent summary says before an install (research §3, "The install flow"). */
 export type PackageWarning = { code: PackageWarningCode; message: string };
@@ -325,13 +325,6 @@ export class PackageArchive {
 
   private static warnings(manifest: PackageManifest, engineVersion: string): PackageWarning[] {
     const warnings: PackageWarning[] = [];
-    const raw = manifest.features.filter((feature) => feature?.usesOcct === true).map((feature) => feature.id);
-    if (raw.length > 0) {
-      warnings.push({
-        code: 'uses-occt',
-        message: `Uses raw OpenCascade: ${raw.join(', ')}. A mistake there can crash the engine or corrupt its geometry kernel.`,
-      });
-    }
     const running = Semver.parse(engineVersion);
     const needed = Semver.parse(manifest.minEngine)!;
     if (running && Semver.compare(needed, running) > 0) {

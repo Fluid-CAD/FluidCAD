@@ -102,10 +102,6 @@ function printSummary(manifest, contents, outPath, bytes) {
   if (contents.models === 0) {
     console.log('  no parts or assemblies: it installs, but the hub needs at least one to publish');
   }
-  const raw = manifest.features.filter((f) => f.usesOcct).map((f) => f.id);
-  if (raw.length > 0) {
-    console.log(`  raw OpenCascade: ${raw.join(', ')} (installers warn about it)`);
-  }
   // The archive holds manifest.json beside the files it lists.
   console.log(`  ${count(manifest.files.length + 1, 'file')}, ${size(bytes)}, unit ${manifest.unit}`);
 }

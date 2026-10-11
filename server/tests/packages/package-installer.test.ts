@@ -125,7 +125,7 @@ describe('PackageArchive.inspect', () => {
     expect(fs.existsSync(path.join(library, '.tmp'))).toBe(false);
   });
 
-  it('warns about raw OpenCascade, a newer minEngine and another SDK version', async () => {
+  it('warns about a newer minEngine and another SDK version, never about raw OpenCascade', async () => {
     const inspection = await PackageArchive.inspect(await ArchiveFixture.zip({
       manifest: {
         minEngine: '0.1.0',
@@ -134,9 +134,10 @@ describe('PackageArchive.inspect', () => {
       },
     }), { root: library, engineVersion: '0.0.46' });
 
-    expect(inspection.warnings.map((w) => w.code)).toEqual(['uses-occt', 'min-engine', 'sdk-version']);
-    expect(inspection.warnings[0].message).toContain('acme.twist');
-    expect(inspection.warnings[1].message).toContain('Needs FluidCAD 0.1.0 or newer; this is 0.0.46');
+    // A raw OpenCascade feature (acme.twist) adds no warning: only the engine and SDK versions do.
+    expect(inspection.warnings.map((w) => w.code)).toEqual(['min-engine', 'sdk-version']);
+    expect(inspection.warnings.map((w) => w.message).join(' ')).not.toMatch(/OpenCascade/);
+    expect(inspection.warnings[0].message).toContain('Needs FluidCAD 0.1.0 or newer; this is 0.0.46');
     PackageArchive.discard(inspection.token);
   });
 

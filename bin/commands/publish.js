@@ -72,9 +72,6 @@ async function publish(publisher, workspace, opts) {
     // No confirmation was asked, so the summary comes now.
     PublishView.printSummary(summary);
   }
-  for (const warning of upload.warnings) {
-    console.log(`  warning: ${warning.message}`);
-  }
   if (upload.dryRun) {
     const next = upload.status === 'draft' ? 'a draft you finish in your browser' : 'submitted for review';
     console.log(`✓ Dry run: ${config(publisher)} accepts ${at} · ${upload.integrity} · it would be ${next}. Nothing was stored.`);
@@ -184,9 +181,6 @@ class PublishView {
     ];
     for (const [folder, counted] of rows) {
       console.log(`  ${folder.padEnd(12)}${counted}`);
-    }
-    if (summary.usesOcct.length > 0) {
-      console.log(`  raw OpenCascade: ${summary.usesOcct.join(', ')} (installers warn about it)`);
     }
     console.log(`  ${PublishView.count(summary.files, 'file')}, ${PublishView.size(summary.size)}`);
     console.log(`  integrity: ${summary.integrity}`);

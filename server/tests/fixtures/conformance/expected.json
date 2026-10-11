@@ -11,12 +11,7 @@
       "about": "packed by packPackage from conformance-workspace: three features (icons, option images, raw OpenCascade), a part with a parameter, a factory part, an assembly, README, CHANGELOG and LICENSE",
       "verdict": "ok",
       "integrity": "sha256-yUwGU9K1qMM8pSXQTY/tHsd0f3BRnRfO1hK0JJZb3KY=",
-      "warnings": [
-        {
-          "code": "uses-occt",
-          "message": "Uses raw OpenCascade: twist. A mistake there can crash the engine or corrupt its geometry kernel."
-        }
-      ],
+      "warnings": [],
       "hub": "ok"
     },
     "not-a-zip.fluidpkg": {
@@ -143,48 +138,28 @@
       "about": "features only: no part and no assembly",
       "verdict": "ok",
       "integrity": "sha256-h/Zty48iu28jS524z0ArGxiehbTIW4TTAIoM49xGcgg=",
-      "warnings": [
-        {
-          "code": "uses-occt",
-          "message": "Uses raw OpenCascade: twist. A mistake there can crash the engine or corrupt its geometry kernel."
-        }
-      ],
+      "warnings": [],
       "hub": "no-models"
     },
     "outside-layout.fluidpkg": {
       "about": "parts/helpers/sizes.js imports lib/units.js, a script at the root outside the three folders",
       "verdict": "ok",
       "integrity": "sha256-16SGVhNvXcokXLiIfs+qdICuBTlnSJ2LLrwX7QK9HV8=",
-      "warnings": [
-        {
-          "code": "uses-occt",
-          "message": "Uses raw OpenCascade: twist. A mistake there can crash the engine or corrupt its geometry kernel."
-        }
-      ],
+      "warnings": [],
       "hub": "outside-layout"
     },
     "wrong-folder.fluidpkg": {
       "about": "the washer part moved into features/ (features/washer.part.js)",
       "verdict": "ok",
       "integrity": "sha256-EGj4TMyTtb4Q3xT8Iv3rruwBrpUspgOFRdBhFbnlfLw=",
-      "warnings": [
-        {
-          "code": "uses-occt",
-          "message": "Uses raw OpenCascade: twist. A mistake there can crash the engine or corrupt its geometry kernel."
-        }
-      ],
+      "warnings": [],
       "hub": "wrong-folder"
     },
     "bad-params.fluidpkg": {
       "about": "the spacer part declares 101 parameters, one over the cap",
       "verdict": "ok",
       "integrity": "sha256-rxgvGsWqcJhmrBRoriemQuEOvxZReyxPW/vm0ihCzP4=",
-      "warnings": [
-        {
-          "code": "uses-occt",
-          "message": "Uses raw OpenCascade: twist. A mistake there can crash the engine or corrupt its geometry kernel."
-        }
-      ],
+      "warnings": [],
       "hub": "bad-params"
     },
     "pre-layout.fluidpkg": {

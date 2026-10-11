@@ -80,8 +80,6 @@ export type HubPublishSummary = {
   files: number;
   integrity: string;
   contents: PackageContents;
-  /** Feature ids that call raw OpenCascade. */
-  usesOcct: string[];
   /** `draft` for a package's first version (finished in the browser), else `in_review`. */
   becomes: 'draft' | 'in_review';
   /** A draft of this version is on the hub: the upload replaces its archive, and the wizard keeps its edits. */
@@ -178,7 +176,6 @@ export class HubPublisher {
         files: packed.manifest.files.length + 1,
         integrity: packed.integrity,
         contents: PackageLayout.contentsOf(packed.manifest),
-        usesOcct: packed.manifest.features.filter((f) => f.usesOcct).map((f) => f.id),
         becomes: status?.highestVersion ? 'in_review' : 'draft',
         replacesDraft,
         notes,

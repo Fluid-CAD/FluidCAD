@@ -160,7 +160,7 @@ Packed mounting-hardware 0.1.0 → …/mounting-hardware-0.1.0.fluidpkg
 A package with no part or assembly adds the line "no parts or assemblies:
 it installs, but the hub needs at least one to publish". `--json` prints
 `{ name, version, fileName, savedTo, bytes, files, unit, contents }`, where
-`contents` is `{ features: [{ id, exportName, module, usesOcct }], parts:
+`contents` is `{ features: [{ id, exportName, module }], parts:
 [{ exportName, name, module, params }], assemblies: […], models }` (`params`
 counts the `param()`s). The MCP tool `pack` does the same through the
 running engine (pass `saveAsPath`) and returns the same `contents`. The
@@ -172,7 +172,7 @@ archive, which is also the installed folder:
 | the images the features declare (icons, option pictures) | next to their modules |
 | `README.md`, `LICENSE*`, `CHANGELOG.md` | when present at the workspace root |
 | `index.js` | generated: `export { standoff } from "./features/standoff.feature.js";`, one named re-export per exported name |
-| `manifest.json` | generated: identity, `engine` packed on, `minEngine`, `sdkVersion`, `unit`, `fileUnits`, `contents`, each feature's metadata snapshot and `usesOcct`, each part's and assembly's name, `kind` and params, `files` |
+| `manifest.json` | generated: identity, `engine` packed on, `minEngine`, `sdkVersion`, `unit`, `fileUnits`, `contents`, each feature's metadata snapshot, each part's and assembly's name, `kind` and params, `files` |
 | `fluidcad.json` | generated: only `unit` (always explicit) and `materials` |
 
 Test models outside the folders, `init.js`, `jsconfig.json` and anything
@@ -242,9 +242,10 @@ npx fluidcad remove @acme/mounting-hardware [--project]            # @scope/name
 ```
 
 - Installing from a file prints the summary (features with labels, parts,
-  the engine requirement, files, size, `sha256-…`, a raw OpenCascade warning
-  for any `usesOcct` feature, and "A package's code runs in the FluidCAD
-  engine with your permissions. Install only packages you trust.") and asks
+  the engine requirement, files, size, `sha256-…`, a warning when the
+  package needs a newer engine or another SDK version, and "A package's
+  code runs in the FluidCAD engine with your permissions. Install only
+  packages you trust.") and asks
   y/N; without a terminal it needs `--yes`.
 - The same version with the same contents is a no-op. The same version with
   other contents is refused ("… is already in your library with different

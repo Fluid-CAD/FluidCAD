@@ -2,7 +2,7 @@ import os from 'os';
 import { readPackageVersion } from './workspace.js';
 
 /**
- * Shared by `login`, `logout`, `whoami`, `publish` and `install`: the compiled hub classes they
+ * Shared by `login`, `logout`, `whoami`, `publish`, `install`, `yank`, `unyank`, `deprecate` and `listing`: the compiled hub classes they
  * wrap, and how they talk to the terminal. The rules — which hub, which
  * token, the sign-in flow — live in the server's `server/src/hub/`, typed
  * and tested there; these commands are the terminal around them.
@@ -48,6 +48,20 @@ export class HubCli {
       packPackage: builder.packPackage,
       PackageBuildError: builder.PackageBuildError,
     };
+  }
+
+  /**
+   * {@link load}, plus what `yank`, `unyank`, `deprecate` and `listing`
+   * need (H12): `HubMaintainer` and its error. No packer: these commands
+   * never boot the engine.
+   */
+  static async loadMaintainer() {
+    const [hub, maintainer, maintainError] = await Promise.all([
+      HubCli.load(),
+      import('../../server/dist/hub/hub-maintainer.js'),
+      import('../../server/dist/hub/hub-maintain-error.js'),
+    ]);
+    return { ...hub, HubMaintainer: maintainer.HubMaintainer, HubMaintainError: maintainError.HubMaintainError };
   }
 
   /** How long `package init` waits for `GET /me` when the stored credential names no handle. */
@@ -119,7 +133,7 @@ export class HubCli {
 
   /** A refusal the hub classes word for the user: print it and exit 1. Anything else is rethrown. */
   static exitOnRefusal(err, mods) {
-    const refusals = [mods.HubConfigError, mods.HubLoginError, mods.HubRequestError, mods.HubPublishError].filter(Boolean);
+    const refusals = [mods.HubConfigError, mods.HubLoginError, mods.HubRequestError, mods.HubPublishError, mods.HubMaintainError].filter(Boolean);
     if (refusals.some((type) => err instanceof type)) {
       console.error(err.message);
       process.exit(1);

@@ -227,6 +227,17 @@ describe('fluidcad install <@scope/name> from the hub', () => {
     expect(fs.existsSync(installed(KIT, '0.2.0'))).toBe(false);
   });
 
+  it('prints the deprecation message beside the package it installs (H12)', async () => {
+    await publish(KIT, '0.1.0');
+    hub.packages.get(KIT)!.deprecatedMessage = 'Use @acme/other instead.';
+    const run = await cli(outside, ['install', KIT, '-y']);
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('! @acme/kit is deprecated: Use @acme/other instead.');
+    // Already in the library: the library copy is used, and the message is still said.
+    const again = await cli(outside, ['install', KIT, '-y']);
+    expect(again.stdout).toContain('@acme/kit is deprecated: Use @acme/other instead.');
+  });
+
   it('installs an unpublished version by exact version only with the owner\'s token', async () => {
     await publish(KIT, '0.1.0', { status: 'in_review', publishedAt: null });
     const anonymous = await cli(outside, ['install', `${KIT}@0.1.0`, '-y']);

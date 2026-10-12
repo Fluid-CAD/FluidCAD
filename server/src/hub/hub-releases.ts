@@ -11,7 +11,10 @@ import { HubTransport } from './hub-transport.ts';
  * engine (`compatibility.newestCompatible`: published, neither yanked nor
  * removed, runnable here). `ProjectPackages.updates` compares it with the
  * pin, so the Packages dialog's "x.y.z available" chip also shows a hub
- * release. Previewing and applying an upgrade remain Stage P10's.
+ * release. Previewing and applying an upgrade remain Stage P10's. The same
+ * read also says what the owner said (H12): the package's deprecation and
+ * its yanked versions, so the dialog marks a yanked pin with its reason
+ * (`ProjectPackages.withHubMarks`).
  *
  * Every answer is kept for {@link TTL_MS} (10 minutes), per hub and name;
  * a hub that couldn't be asked is asked again after {@link FAILURE_TTL_MS}.
@@ -35,7 +38,17 @@ export type HubReleasesOptions = {
   now?: () => number;
 };
 
-type Release = { version: string | null; at: number; ok: boolean };
+/** What the hub says about one package a project pins (H10, H12). */
+export type HubRelease = {
+  /** The version an install by name gets on this engine (`compatibility.newestCompatible`), or null. */
+  newest: string | null;
+  /** The package's deprecation message, or null. */
+  deprecated: string | null;
+  /** Its yanked versions: version → when and why. */
+  yanked: Record<string, { at: string; reason: string | null }>;
+};
+
+type Release = HubRelease & { at: number; ok: boolean };
 
 export class HubReleases {
   static readonly TTL_MS = 10 * 60 * 1000;
@@ -63,6 +76,21 @@ export class HubReleases {
    * isn't configured properly, or doesn't answer in time, gives none.
    */
   async newest(names: readonly string[]): Promise<Record<string, string>> {
+    const versions: Record<string, string> = {};
+    for (const [name, release] of Object.entries(await this.releases(names))) {
+      if (release.newest) {
+        versions[name] = release.newest;
+      }
+    }
+    return versions;
+  }
+
+  /**
+   * Name → what the hub says about it (the newest version for this engine,
+   * the deprecation, the yanked versions), for each of `names` it has
+   * answered for, under the same rules as {@link newest}.
+   */
+  async releases(names: readonly string[]): Promise<Record<string, HubRelease>> {
     let config: HubConfig;
     try {
       config = HubConfig.resolve({ env: this.options.env });
@@ -78,14 +106,14 @@ export class HubReleases {
     if (pending.length > 0) {
       await Promise.race([Promise.allSettled(pending), HubReleases.pause(this.options.waitMs ?? HubReleases.WAIT_MS)]);
     }
-    const versions: Record<string, string> = {};
+    const answers: Record<string, HubRelease> = {};
     for (const name of names) {
       const release = this.known.get(HubReleases.keyOf(config, name));
-      if (release?.version) {
-        versions[name] = release.version;
+      if (release?.ok) {
+        answers[name] = { newest: release.newest, deprecated: release.deprecated, yanked: release.yanked };
       }
     }
-    return versions;
+    return answers;
   }
 
   /** Forgets every answer (tests). */
@@ -122,12 +150,18 @@ export class HubReleases {
     const client = new HubClient(config, this.transport());
     try {
       const detail = await client.package(name, { engine: this.options.engineVersion, sdk: this.sdkVersion });
-      const version = detail ? (detail.compatibility ? detail.compatibility.newestCompatible : detail.latestVersion) : null;
-      return { version, at: this.now(), ok: true };
+      const newest = detail ? (detail.compatibility ? detail.compatibility.newestCompatible : detail.latestVersion) : null;
+      const yanked: HubRelease['yanked'] = {};
+      for (const version of detail?.versions ?? []) {
+        if (version.yanked) {
+          yanked[version.version] = { at: version.yanked.at, reason: version.yanked.reason };
+        }
+      }
+      return { newest, deprecated: detail?.deprecatedMessage ?? null, yanked, at: this.now(), ok: true };
     } catch (err) {
       if (err instanceof HubRequestError) {
         // A refusal the hub decided (a bad name, a rate limit) or no answer: ask again soon.
-        return { version: null, at: this.now(), ok: false };
+        return { newest: null, deprecated: null, yanked: {}, at: this.now(), ok: false };
       }
       throw err;
     }

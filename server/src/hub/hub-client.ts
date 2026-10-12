@@ -46,6 +46,20 @@ export type HubFileRequest = { signal?: AbortSignal };
 /** How an archive download is sent: its total limit, and an abort (a stall watchdog, a closed window). */
 export type HubArchiveRequest = { timeoutMs?: number; signal?: AbortSignal };
 export type HubUploadResult = Schemas['UploadResult'];
+/** `POST …/versions/{version}/yank` and `…/unyank` (H12): the version's yank and what installs by name get now. */
+export type HubYankResult = Schemas['YankResult'];
+/** The package's listing as its owner edits it: license, links, deprecation, screenshots. */
+export type HubPackageListing = Schemas['PackageListing'];
+/** `PATCH /packages/{scope}/{name}`: listing fields and the deprecation; null clears one. */
+export type HubPackageEdit = Schemas['EditPackageRequest'];
+/** `PATCH …/versions/{version}`: an open version's notes and license. */
+export type HubVersionEdit = Schemas['EditVersionRequest'];
+export type HubMedia = Schemas['Media'];
+export type HubMediaList = Schemas['MediaList'];
+/** `PATCH …/media/{id}`: a caption, a place in the order, or the card image. */
+export type HubMediaEdit = Schemas['EditMediaRequest'];
+/** A screenshot to add: its bytes, its type (the hub checks the bytes agree), and what the tile says. */
+export type HubMediaUpload = { bytes: Uint8Array; contentType: string; fileName?: string; caption?: string };
 type HubErrorBody = Schemas['ErrorBody'];
 
 /** What an upload sends beside the archive (the hub's `PublishRules`). */
@@ -239,6 +253,73 @@ export class HubClient {
   async withdraw(name: string, version: string): Promise<void> {
     this.requireToken('withdraw');
     await this.json<void>('DELETE', HubClient.versionRoute(name, version));
+  }
+
+  // The owner's lifecycle and listing edits (H12)
+
+  /** `POST …/versions/{version}/yank`: hides a published version from latest, search and installs by name. */
+  async yank(name: string, version: string, reason: string): Promise<HubYankResult> {
+    this.requireToken('yank');
+    const route = HubClient.route('/packages/{scope}/{name}/versions/{version}/yank', { ...HubClient.partsOf(name), version });
+    return this.json<HubYankResult>('POST', route, { reason });
+  }
+
+  /** `POST …/versions/{version}/unyank`: brings a yanked version back. */
+  async unyank(name: string, version: string): Promise<HubYankResult> {
+    this.requireToken('unyank');
+    const route = HubClient.route('/packages/{scope}/{name}/versions/{version}/unyank', { ...HubClient.partsOf(name), version });
+    return this.json<HubYankResult>('POST', route);
+  }
+
+  /** `PATCH /packages/{scope}/{name}`: the license, links and deprecation (null clears one); answers the listing. */
+  async editPackage(name: string, change: HubPackageEdit): Promise<HubPackageListing> {
+    this.requireToken('editPackage');
+    return this.json<HubPackageListing>('PATCH', HubClient.route('/packages/{scope}/{name}', HubClient.partsOf(name)), change);
+  }
+
+  /** `PATCH …/versions/{version}`: an open version's release notes and license. */
+  async editVersion(name: string, version: string, change: HubVersionEdit): Promise<HubVersionStatus> {
+    this.requireToken('editVersion');
+    return this.json<HubVersionStatus>('PATCH', HubClient.versionRoute(name, version), change);
+  }
+
+  /** `GET /packages/{scope}/{name}/media`: the screenshots in order (the owner sees an unpublished package's). */
+  async mediaList(name: string): Promise<HubMediaList> {
+    return this.json<HubMediaList>('GET', HubClient.route('/packages/{scope}/{name}/media', HubClient.partsOf(name)));
+  }
+
+  /**
+   * `POST /packages/{scope}/{name}/media`: adds a screenshot, the raw image
+   * with its `Content-Type` and an explicit `Content-Length` (the hub checks
+   * both, then the bytes, before it keeps anything).
+   */
+  async addMedia(name: string, upload: HubMediaUpload): Promise<HubMedia> {
+    this.requireToken('addMedia');
+    const query = new URLSearchParams();
+    if (upload.fileName) {
+      query.set('fileName', upload.fileName);
+    }
+    if (upload.caption) {
+      query.set('caption', upload.caption);
+    }
+    const route = HubClient.route('/packages/{scope}/{name}/media', HubClient.partsOf(name), query.size > 0 ? `?${query}` : '');
+    const body = new Blob([new Uint8Array(upload.bytes)]).stream() as ReadableStream<Uint8Array>;
+    return this.json<HubMedia>('POST', route, undefined, {
+      headers: { 'content-type': upload.contentType, 'content-length': String(upload.bytes.length) },
+      body,
+    });
+  }
+
+  /** `PATCH /packages/{scope}/{name}/media/{id}`. */
+  async editMedia(name: string, id: string, change: HubMediaEdit): Promise<HubMedia> {
+    this.requireToken('editMedia');
+    return this.json<HubMedia>('PATCH', HubClient.route('/packages/{scope}/{name}/media/{id}', { ...HubClient.partsOf(name), id }), change);
+  }
+
+  /** `DELETE /packages/{scope}/{name}/media/{id}`. */
+  async deleteMedia(name: string, id: string): Promise<void> {
+    this.requireToken('deleteMedia');
+    await this.json<void>('DELETE', HubClient.route('/packages/{scope}/{name}/media/{id}', { ...HubClient.partsOf(name), id }));
   }
 
   private static versionRoute(name: string, version: string, query = ''): FilledRoute {

@@ -180,6 +180,22 @@ describe('HubInstaller.resolve', () => {
     expect(exact.notes).toEqual(['@acme/kit@0.2.0 was yanked (breaks the standoff): it installs because you asked for this version, but an install by name never picks it.']);
   });
 
+  it('says a deprecated package is deprecated, first among the notes, by name and by exact version (H12)', async () => {
+    await publish('0.1.0');
+    const yanked = await publish('0.2.0', {}, { yanked: { at: '2026-10-10T00:00:00.000Z', reason: 'breaks the standoff' } });
+    hub.packages.get(NAME)!.deprecatedMessage = 'Use @acme/other instead.';
+    const byName = await installer().resolve({ name: NAME, version: null });
+    expect([byName.version, byName.deprecated, byName.notes]).toEqual(['0.1.0', 'Use @acme/other instead.', ['@acme/kit is deprecated: Use @acme/other instead.']]);
+    const exact = await installer().resolve({ name: NAME, version: '0.2.0' });
+    expect(exact.integrity).toBe(yanked.integrity);
+    expect(exact.notes).toEqual([
+      '@acme/kit is deprecated: Use @acme/other instead.',
+      '@acme/kit@0.2.0 was yanked (breaks the standoff): it installs because you asked for this version, but an install by name never picks it.',
+    ]);
+    hub.packages.get(NAME)!.deprecatedMessage = null;
+    expect((await installer().resolve({ name: NAME, version: null })).notes).toEqual([]);
+  });
+
   it('refuses a removed version with its reason, and an unknown one', async () => {
     await publish('0.1.0', {}, { removed: { at: '2026-10-10T00:00:00.000Z', reason: 'malware' } });
     await publish('0.2.0');

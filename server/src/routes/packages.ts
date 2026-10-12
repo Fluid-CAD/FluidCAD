@@ -43,7 +43,9 @@ export type PackagesRouterOptions = {
  *   { token }` drops an inspection the user declined.
  * - `GET /api/packages`: both roots and the project's pins, each with where
  *   it is installed (`availability`), and each pin's newer version from the
- *   library or the hub (`updates`, `updatesFrom`).
+ *   library or the hub (`updates`, `updatesFrom`), and what the hub's owner
+ *   said about a pin (`hubMarks`: a yanked pinned version, a deprecated
+ *   package; H12).
  * - `POST /api/packages/copy { name, version, to }`: Copy into project
  *   (`to: 'project'`) and Add to my library (`to: 'library'`).
  * - `DELETE /api/packages/@scope/name/<version>?target=library|project`
@@ -125,7 +127,14 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
       // folder the library just left still holds.
       let overview = ProjectPackages.overview(project);
       if (options.releases && overview.pins && overview.pins.length > 0) {
-        overview = ProjectPackages.withHubReleases(overview, await options.releases.newest(overview.pins.map((pin) => pin.name)));
+        const releases = await options.releases.releases(overview.pins.map((pin) => pin.name));
+        const newest: Record<string, string> = {};
+        for (const [name, release] of Object.entries(releases)) {
+          if (release.newest) {
+            newest[name] = release.newest;
+          }
+        }
+        overview = ProjectPackages.withHubMarks(ProjectPackages.withHubReleases(overview, newest), releases);
       }
       res.json({
         ...overview,

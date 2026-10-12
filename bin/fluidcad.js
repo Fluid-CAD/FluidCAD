@@ -20,6 +20,9 @@ import { registerLogoutCommand } from './commands/logout.js';
 import { registerWhoamiCommand } from './commands/whoami.js';
 import { registerPublishCommand } from './commands/publish.js';
 import { registerSearchCommand } from './commands/search.js';
+import { registerYankCommands } from './commands/yank.js';
+import { registerDeprecateCommand } from './commands/deprecate.js';
+import { registerListingCommand } from './commands/listing.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf8'));
@@ -45,5 +48,8 @@ registerLogoutCommand(program);
 registerWhoamiCommand(program);
 registerPublishCommand(program);
 registerSearchCommand(program);
+registerYankCommands(program);
+registerDeprecateCommand(program);
+registerListingCommand(program);
 
 program.parseAsync(process.argv);

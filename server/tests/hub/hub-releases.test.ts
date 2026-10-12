@@ -192,6 +192,26 @@ describe('GET /api/packages with the hub releases', () => {
     expect(newer.updatesFrom).toEqual({ [KIT]: 'library' });
   });
 
+  it("marks a pin whose version the hub lists as yanked, with its reason, and a deprecated package (H12)", async () => {
+    await LibrarySeed.install(await kit('0.1.0'), { project, pin: true });
+    await hub.addArchive(await kit('0.1.0'), { yanked: { at: '2026-10-12T08:00:00.000Z', reason: 'Wrong thread pitch.' } });
+    await hub.addArchive(await kit('0.2.0'));
+    hub.packages.get(KIT)!.deprecatedMessage = 'Use @acme/other.';
+    const base = await serve(releases());
+    const overview = await (await fetch(`${base}/packages`)).json();
+    expect(overview.hubMarks).toEqual({ [KIT]: { yanked: { at: '2026-10-12T08:00:00.000Z', reason: 'Wrong thread pitch.' }, deprecated: 'Use @acme/other.' } });
+    expect(overview.updates).toEqual({ [KIT]: '0.2.0' });
+  });
+
+  it('marks nothing for a pin the hub has nothing to say about', async () => {
+    await LibrarySeed.install(await kit('0.1.0'), { project, pin: true });
+    await hub.addArchive(await kit('0.1.0'));
+    await hub.addArchive(await kit('0.2.0'), { yanked: { at: '2026-10-12T08:00:00.000Z', reason: 'Not this one.' } });
+    const base = await serve(releases());
+    const overview = await (await fetch(`${base}/packages`)).json();
+    expect(overview.hubMarks).toEqual({});
+  });
+
   it('asks the hub nothing for a project with no pins', async () => {
     const base = await serve(releases());
     const overview = await (await fetch(`${base}/packages`)).json();

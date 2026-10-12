@@ -80,7 +80,9 @@ export type ResolvedHubPackage = {
   status: string;
   access: 'public' | 'owner' | 'admin';
   yanked: { at: string; reason: string | null } | null;
-  /** Sentences for the consent summary: a yanked or unpublished version, an older compatible one, a refused token. */
+  /** The package's deprecation message (H12), or null: it applies to every version. */
+  deprecated: string | null;
+  /** Sentences for the consent summary: a deprecated package, a yanked or unpublished version, an older compatible one, a refused token. */
   notes: string[];
 };
 
@@ -329,7 +331,8 @@ export class HubInstaller {
       const why = detail.status === 'rejected' ? 'was rejected, and its archive is gone' : 'is still being uploaded';
       throw HubInstallError.local('not-installable', `${at} ${why}: there is nothing to install.`, { status: detail.status });
     }
-    const notes: string[] = [];
+    const deprecated = detail.deprecatedMessage ?? null;
+    const notes: string[] = HubInstaller.deprecationNotes(name, deprecated);
     if (detail.status !== 'published') {
       const state = HubInstaller.STATE_WORDS[detail.status] ?? detail.status;
       notes.push(`${at} isn't published: it is ${state}, and you can install it as its ${detail.access === 'admin' ? 'reviewer' : 'owner'}.`);
@@ -346,8 +349,14 @@ export class HubInstaller {
       status: detail.status,
       access: detail.access,
       yanked: detail.yanked,
+      deprecated,
       notes,
     };
+  }
+
+  /** `@acme/kit is deprecated: <message>`, first among the notes, so `fluidcad install` and the app show it beside the package. */
+  static deprecationNotes(name: string, message: string | null): string[] {
+    return message ? [`${name} is deprecated: ${message}`] : [];
   }
 
   /** A name alone: the latest version, else the newest this engine runs (`compatibility.newestCompatible`). */
@@ -382,6 +391,7 @@ export class HubInstaller {
   }
 
   private resolvedFrom(detail: HubPackageDetail, version: string, integrity: string, size: number | null, notes: string[]): ResolvedHubPackage {
+    const deprecated = detail.deprecatedMessage ?? null;
     return {
       hub: this.config.origin,
       name: detail.name,
@@ -391,7 +401,8 @@ export class HubInstaller {
       status: 'published',
       access: detail.access,
       yanked: null,
-      notes,
+      deprecated,
+      notes: [...HubInstaller.deprecationNotes(detail.name, deprecated), ...notes],
     };
   }
 

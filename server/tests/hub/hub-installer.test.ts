@@ -196,6 +196,16 @@ describe('HubInstaller.resolve', () => {
     expect((await installer().resolve({ name: NAME, version: null })).notes).toEqual([]);
   });
 
+  it('a name alone whose every published version is yanked names one to install by its exact version (H12)', async () => {
+    await publish('0.1.0', {}, { yanked: { at: '2026-10-10T00:00:00.000Z', reason: 'superseded' } });
+    await publish('0.2.0', {}, { yanked: { at: '2026-10-11T00:00:00.000Z', reason: 'breaks the standoff' } });
+    const refused = await refusal(installer().resolve({ name: NAME, version: null }));
+    expect(refused.code).toBe('nothing-published');
+    expect(refused.message).toContain(
+      `Every published version of @acme/kit on ${hub.origin} is yanked, so an install by name has nothing to pick. One still installs by its exact version: \`fluidcad install @acme/kit@0.2.0\` (yanked: breaks the standoff).`,
+    );
+  });
+
   it('refuses a removed version with its reason, and an unknown one', async () => {
     await publish('0.1.0', {}, { removed: { at: '2026-10-10T00:00:00.000Z', reason: 'malware' } });
     await publish('0.2.0');

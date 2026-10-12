@@ -407,6 +407,7 @@ describe("the hub's refusals as messages", () => {
     ['rate-limited', 429, 'Too many uploads in a minute: wait a moment and try again.', 'wait a moment'],
     ['archive-too-large', 413, 'The archive is 30.0 MB; the hub takes at most 25.0 MB.', 'at most 25.0 MB'],
     ['sources-too-large', 422, "The package's scripts and JSON files come to 6,000,000 bytes; the package viewer takes at most 5,242,880 (5.0 MB).", HubPublishMessages.SOURCES_HINT],
+    ['unknown-license', 400, `manifest.json: license: ${FakeHub.licenseRefusal('WTFPL')}`, HubPublishMessages.LICENSE_HINT],
   ];
 
   it.each(cases)('%s keeps the hub sentence and adds its next step', async (code, status, message, expected) => {

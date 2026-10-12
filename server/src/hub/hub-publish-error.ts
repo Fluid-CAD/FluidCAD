@@ -52,6 +52,8 @@ export class HubPublishMessages {
   static readonly LOGIN_HINT = 'Run `fluidcad login`, then publish again.';
   /** The hub's own sentence for `sources-too-large` ends with it, so it is never said twice. */
   static readonly SOURCES_HINT = 'Move large data out of .js and .json files, or split the package.';
+  /** The hint for a package block whose `license` the hub doesn't offer (H12): the hub's sentence lists its licenses. */
+  static readonly LICENSE_HINT = 'Set "license" in the package block of fluidcad.json to one of them, or leave it out to use the license chosen on the hub; then publish again.';
   /** The hint for an archive whose name isn't the upload URL's (`scope-mismatch`, `name-mismatch`): hand-made uploads only. */
   static readonly NAME_HINT = 'Publish from the package\'s workspace with `fluidcad publish`: it uploads the archive under the "name" in its fluidcad.json, which must start with your handle.';
 
@@ -71,6 +73,7 @@ export class HubPublishMessages {
     'stalled': 'Nothing was stored: check the connection, then publish again.',
     'upload-expired': 'Nothing was stored: publish again.',
     'sources-too-large': HubPublishMessages.SOURCES_HINT,
+    'unknown-license': HubPublishMessages.LICENSE_HINT,
   };
 
   /** `message`, then the hint for `code` when it has one (and the message doesn't already end with it). */

@@ -367,8 +367,7 @@ export class HubInstaller {
     }
     const latest = detail.latest;
     if (!latest || !detail.latestVersion) {
-      const open = detail.openVersion ? ` Install ${detail.openVersion.version}, which isn't published yet, by its exact version: \`fluidcad install ${name}@${detail.openVersion.version}\`.` : '';
-      throw HubInstallError.local('nothing-published', `${name} has no published version on ${this.config.origin} yet.${open}`);
+      throw HubInstaller.nothingByName(detail, this.config.origin);
     }
     const compatibility = detail.compatibility;
     if (!compatibility || compatibility.latestCompatible) {
@@ -388,6 +387,28 @@ export class HubInstaller {
     }
     const note = `The latest ${name}, ${latest.version}, needs ${needs}; this FluidCAD is ${this.engineVersion}, so this installs ${chosen.version}, the newest version it runs.`;
     return this.resolvedFrom(detail, chosen.version, chosen.integrity, chosen.size, [note]);
+  }
+
+  /**
+   * Why a name alone installs nothing: every published version is yanked
+   * (H12; one still installs by its exact version, named with its reason),
+   * or none is published yet (the owner's open version installs by its
+   * exact version). The code is `nothing-published` either way.
+   */
+  static nothingByName(detail: HubPackageDetail, origin: string): HubInstallError {
+    const name = detail.name;
+    const yanked = detail.versions.find((v) => v.status === 'published' && !v.removed && v.yanked);
+    if (yanked) {
+      const why = yanked.yanked?.reason ? ` (yanked: ${yanked.yanked.reason})` : '';
+      return HubInstallError.local(
+        'nothing-published',
+        `Every published version of ${name} on ${origin} is yanked, so an install by name has nothing to pick. ` +
+          `One still installs by its exact version: \`fluidcad install ${name}@${yanked.version}\`${why}.`,
+        { yanked: yanked.version },
+      );
+    }
+    const open = detail.openVersion ? ` Install ${detail.openVersion.version}, which isn't published yet, by its exact version: \`fluidcad install ${name}@${detail.openVersion.version}\`.` : '';
+    return HubInstallError.local('nothing-published', `${name} has no published version on ${origin} yet.${open}`);
   }
 
   private resolvedFrom(detail: HubPackageDetail, version: string, integrity: string, size: number | null, notes: string[]): ResolvedHubPackage {

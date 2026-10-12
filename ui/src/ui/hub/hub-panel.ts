@@ -92,7 +92,7 @@ export class HubPanel {
     header.className = 'flex items-center gap-2 h-11 shrink-0 pl-3 pr-1.5 border-b border-base-content/10';
     header.appendChild(HubIcons.span(HubIcons.PACKAGES, '[&>svg]:size-4 text-base-content/60'));
     const title = document.createElement('span');
-    title.className = 'text-hub-lg font-medium text-base-content/90 shrink-0';
+    title.className = 'text-hub-md font-medium text-base-content/90 shrink-0';
     title.textContent = 'FluidCAD Hub';
     this.offlineDot = document.createElement('span');
     this.offlineDot.dataset.ref = 'offline-dot';

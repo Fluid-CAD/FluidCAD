@@ -2687,13 +2687,15 @@ export type paths = {
                     license?: components["schemas"]["LicenseId"][];
                     /** @description Results per page: 20 by default, at most 50 (a larger one is clamped). */
                     limit?: number;
+                    /** @description Which way the sort runs. Every sort's default is `desc`: the most installed or liked first, the latest publish first, the newest first; `asc` reverses it. `relevance` (Best match) has one direction, best first, so `order` is ignored for it (the echo says `desc`). */
+                    order?: components["schemas"]["SearchOrder"];
                     /** @description Counts from 1. A page that starts past the first 1,000 results is refused. */
                     page?: number;
                     /** @description Words every result must match (by name, feature, part or assembly name, keyword, description or publisher; the last word also as a prefix, and words of 3 or more characters also by similarity). `@handle` limits the results to that publisher; `@handle/name` does too and searches the name. */
                     q?: string;
                     /** @description The engine's feature SDK version (`SDK_VERSION`), a whole number. */
                     sdk?: string;
-                    /** @description `relevance` (Best match: the default with words), `installs` (Most installed: the default without words), `likes` (Most liked), `updated` (Recently updated: the latest version's publish), `newest` (Newest: the first publish). Ties break by full name. */
+                    /** @description `relevance` (Best match: the default with words), `installs` (Most installed: the default without words), `likes` (Most liked), `updated` (Recently updated: the latest version's publish), `newest` (Newest: the first publish). `order` sets the direction. Ties break by full name, A to Z, whichever the direction. */
                     sort?: components["schemas"]["SearchSort"];
                     /** @description Packages whose manifest `unit` is in any of these systems (repeat the key). */
                     units?: components["schemas"]["UnitSystem"][];
@@ -3389,6 +3391,11 @@ export type components = {
             id: string;
             label: string;
         };
+        /**
+         * @description Which way the sort runs. Every sort's default is `desc`: the most installed or liked first, the latest publish first, the newest first; `asc` reverses it. `relevance` (Best match) has one direction, best first, so `order` is ignored for it (the echo says `desc`).
+         * @enum {string}
+         */
+        SearchOrder: "asc" | "desc";
         SearchRequest: {
             compatible: boolean;
             contents: components["schemas"]["ContentsValue"][];
@@ -3396,6 +3403,7 @@ export type components = {
             keywords: string[];
             licenses: string[];
             limit: number;
+            order: components["schemas"]["SearchOrder"];
             page: number;
             /** @description The canonical text: scopes, then the words. */
             q: string;
@@ -3458,7 +3466,7 @@ export type components = {
             version: string;
         };
         /**
-         * @description `relevance` (Best match: the default with words), `installs` (Most installed: the default without words), `likes` (Most liked), `updated` (Recently updated: the latest version's publish), `newest` (Newest: the first publish). Ties break by full name.
+         * @description `relevance` (Best match: the default with words), `installs` (Most installed: the default without words), `likes` (Most liked), `updated` (Recently updated: the latest version's publish), `newest` (Newest: the first publish). `order` sets the direction. Ties break by full name, A to Z, whichever the direction.
          * @enum {string}
          */
         SearchSort: "relevance" | "installs" | "likes" | "updated" | "newest";

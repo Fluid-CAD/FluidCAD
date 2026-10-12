@@ -8,6 +8,8 @@ export type HubSearchViewDeps = {
   state: HubPanelState;
   /** Open a package's detail. */
   onOpen(name: string): void;
+  /** A row's `@scope` was clicked: list that publisher's packages. */
+  onPublisher?(handle: string): void;
   /** The hub's host for sentences (`hub.fluidcad.io`), once the status is known. */
   hubHost(): string | null;
   /** This FluidCAD's version and SDK, from the status, before an answer echoes them. */
@@ -19,9 +21,10 @@ type FilterMenu = { filter: HubFilter; label: string };
 
 /**
  * The Hub panel's search (hub-plan H11, the signed-off mock with the user's
- * decisions): the search field (`@handle` narrows to a publisher), the four
- * filters as dropdown buttons with the hub's facet counts (Contents,
- * Keywords, Units, License), the result count, the sort control (decision
+ * decisions): the search field (`@handle` narrows to a publisher), the three
+ * filters as dropdown buttons with the hub's facet counts (Contents, Units,
+ * License; no Keywords: *(2026-10-12, user: keywords only feed search
+ * matching)*), the result count, the sort control (decision
  * 1: the direction icon flips the order, disabled on Best match; the name
  * opens the five sorts, Best match only with words), the active filters as
  * removable chips, then the rows, the pager, or the loading, empty,
@@ -34,7 +37,6 @@ type FilterMenu = { filter: HubFilter; label: string };
 export class HubSearchView {
   static readonly FILTERS: readonly FilterMenu[] = [
     { filter: 'contents', label: 'Contents' },
-    { filter: 'keyword', label: 'Keywords' },
     { filter: 'units', label: 'Units' },
     { filter: 'license', label: 'License' },
   ];
@@ -51,6 +53,8 @@ export class HubSearchView {
   private readonly sortRow: HTMLDivElement;
   private readonly chipsRow: HTMLDivElement;
   private readonly body: HTMLDivElement;
+  /** What the field last said as the user typed: a query set any other way (a clicked handle) replaces it even while it has focus. */
+  private typed = '';
   private popover: HTMLDivElement | null = null;
   private openMenu: HubFilter | 'sort' | null = null;
   private snapshot: HubSearchSnapshot;
@@ -73,7 +77,10 @@ export class HubSearchView {
     this.input.className = 'grow';
     this.input.placeholder = 'Search packages, or @handle for a publisher';
     this.input.setAttribute('aria-label', 'Search the hub');
-    this.input.addEventListener('input', () => deps.state.setQuery(this.input.value));
+    this.input.addEventListener('input', () => {
+      this.typed = this.input.value;
+      deps.state.setQuery(this.input.value);
+    });
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -121,8 +128,10 @@ export class HubSearchView {
 
   private render(snapshot: HubSearchSnapshot): void {
     this.snapshot = snapshot;
-    if (document.activeElement !== this.input && this.input.value !== snapshot.params.q) {
+    const typing = document.activeElement === this.input && snapshot.params.q === this.typed;
+    if (!typing && this.input.value !== snapshot.params.q) {
       this.input.value = snapshot.params.q;
+      this.typed = snapshot.params.q;
     }
     this.spinner.classList.toggle('hidden', snapshot.mode !== 'loading');
     this.renderFilters();
@@ -218,9 +227,6 @@ export class HubSearchView {
     for (const value of params.contents) {
       add('contents', value, HubSearchView.labelOf(HubSearchView.CONTENTS, value));
     }
-    for (const value of params.keyword) {
-      add('keyword', value, value);
-    }
     for (const value of params.units) {
       add('units', value, HubSearchView.labelOf(HubSearchView.UNITS, value));
     }
@@ -255,7 +261,12 @@ export class HubSearchView {
     } else {
       const engine = this.engineOf(answer);
       content = [
-        ...answer.results.map((row) => HubResultRow.create(row, engine, (name) => this.deps.onOpen(name))),
+        ...answer.results.map((row) => HubResultRow.create(
+          row,
+          engine,
+          (name) => this.deps.onOpen(name),
+          this.deps.onPublisher ? (handle) => this.deps.onPublisher!(handle) : undefined,
+        )),
         this.footer(answer),
       ];
     }
@@ -378,7 +389,7 @@ export class HubSearchView {
 
   private empty(): HTMLDivElement {
     const { params } = this.snapshot;
-    const filters = params.contents.length + params.keyword.length + params.units.length + params.license.length;
+    const filters = params.contents.length + params.units.length + params.license.length;
     const box = HubSearchView.centered('empty');
     if (filters > 0) {
       box.appendChild(HubSearchView.line('text-sm font-medium text-base-content/85',
@@ -443,7 +454,7 @@ export class HubSearchView {
   }
 
   private static lastFilter(params: HubSearchSnapshot['params']): { filter: HubFilter; value: string; label: string } | null {
-    const order: [HubFilter, readonly [string, string][] | null][] = [['license', null], ['units', HubSearchView.UNITS], ['keyword', null], ['contents', HubSearchView.CONTENTS]];
+    const order: [HubFilter, readonly [string, string][] | null][] = [['license', null], ['units', HubSearchView.UNITS], ['contents', HubSearchView.CONTENTS]];
     for (const [filter, labels] of order) {
       const values = params[filter];
       if (values.length > 0) {
@@ -507,7 +518,7 @@ export class HubSearchView {
       }
     } else {
       const label = HubSearchView.FILTERS.find((f) => f.filter === menu)!.label;
-      title.textContent = menu === 'keyword' ? `${label} · the most used here` : label;
+      title.textContent = label;
       const values = this.menuValues(menu);
       if (values.length === 0) {
         popover.appendChild(HubSearchView.line('px-2 py-1 text-xs text-base-content/50', this.snapshot.answer ? 'None in these results.' : 'Waiting for the hub…'));
@@ -551,7 +562,7 @@ export class HubSearchView {
   }
 
   /** A filter's values with the hub's counts (each with every other filter applied), selected ones kept. */
-  private menuValues(filter: HubFilter): { value: string; label: string; count: number | null; mono?: boolean }[] {
+  private menuValues(filter: HubFilter): { value: string; label: string; count: number | null }[] {
     const facets = this.snapshot.answer?.facets ?? null;
     const selected = this.snapshot.params[filter] as readonly string[];
     if (filter === 'contents') {
@@ -559,15 +570,6 @@ export class HubSearchView {
     }
     if (filter === 'units') {
       return HubSearchView.UNITS.map(([value, label]) => ({ value, label, count: facets ? facets.units[value as keyof typeof facets.units] : null }));
-    }
-    if (filter === 'keyword') {
-      const listed = (facets?.keywords ?? []).map((k) => ({ value: k.value, label: k.value, count: k.count as number | null, mono: true }));
-      for (const value of selected) {
-        if (!listed.some((k) => k.value === value)) {
-          listed.push({ value, label: value, count: facets ? 0 : null, mono: true });
-        }
-      }
-      return listed;
     }
     const licenses = (facets?.licenses ?? []).map((l) => ({ value: l.value, label: l.label, count: l.count as number | null }));
     for (const value of selected) {
@@ -578,7 +580,7 @@ export class HubSearchView {
     return licenses;
   }
 
-  private check(filter: HubFilter, entry: { value: string; label: string; count: number | null; mono?: boolean }): HTMLLabelElement {
+  private check(filter: HubFilter, entry: { value: string; label: string; count: number | null }): HTMLLabelElement {
     const checked = (this.snapshot.params[filter] as readonly string[]).includes(entry.value);
     const row = document.createElement('label');
     row.dataset.value = entry.value;
@@ -589,7 +591,7 @@ export class HubSearchView {
     input.checked = checked;
     input.addEventListener('change', () => this.deps.state.toggle(filter, entry.value));
     const label = document.createElement('span');
-    label.className = `truncate${entry.mono ? ' font-mono text-[11px]' : ''}`;
+    label.className = 'truncate';
     label.textContent = entry.label;
     const count = document.createElement('span');
     count.dataset.ref = 'count';

@@ -1,4 +1,5 @@
 import type { HubClient, HubStatus, PackagesClient, PackageTarget } from '../../api';
+import { HubAccount } from './hub-account';
 import { HubIcons } from './hub-icons';
 import { HubInstallTarget, type HubInstalled, type HubTargetMemory } from './hub-install-control';
 import { HubPackageView } from './hub-package-view';
@@ -28,7 +29,7 @@ export type HubPanelDeps = {
   /** Just before the panel takes the slot: whatever holds it (the code editor) closes. */
   onTakeSlot?(): void;
   onOpenChange?(open: boolean): void;
-  /** Timers for the search debounce (tests). */
+  /** Timers for the search debounce and for following a sign-in (tests). */
   timers?: ConstructorParameters<typeof HubPanelState>[1];
 };
 
@@ -49,17 +50,19 @@ const MOBILE_BREAKPOINT = 640;
  * window it covers the scene, as the editor does. Hosts without the
  * in-app editor (VS Code, Neovim) dock it the same way.
  *
- * The header names the hub and who is signed in (read from the engine's
- * credentials: signing in stays the CLI's `fluidcad login`). Below it, the
- * search ({@link HubSearchView}) or a package ({@link HubPackageView}),
- * whose Results control comes back to the search where it was.
+ * The header says "FluidCAD Hub" (the address is in Settings → Packages)
+ * and who is signed in, with Sign in when nobody is ({@link HubAccount}:
+ * `fluidcad login`'s flow, run by the engine). Below it, the search
+ * ({@link HubSearchView}) or a package ({@link HubPackageView}), whose
+ * Results control comes back to the search where it was. Every publisher
+ * handle (a result's `@scope`, a package's byline, the signed-in account)
+ * lists that publisher's packages ({@link showPublisher}).
  */
 export class HubPanel {
   readonly el: HTMLElement;
   readonly state: HubPanelState;
-  private readonly hostEl: HTMLSpanElement;
   private readonly offlineDot: HTMLSpanElement;
-  private readonly accountEl: HTMLSpanElement;
+  private readonly account: HubAccount;
   private readonly search: HubSearchView;
   private readonly detail: HubPackageView;
   private readonly target: HubInstallTarget;
@@ -90,18 +93,20 @@ export class HubPanel {
     const title = document.createElement('span');
     title.className = 'text-sm font-medium text-base-content/90 shrink-0';
     title.textContent = 'FluidCAD Hub';
-    this.hostEl = document.createElement('span');
-    this.hostEl.dataset.ref = 'hub-host';
-    this.hostEl.className = 'text-[11px] text-base-content/45 font-mono truncate min-w-0';
     this.offlineDot = document.createElement('span');
     this.offlineDot.dataset.ref = 'offline-dot';
     this.offlineDot.className = 'size-1.5 rounded-full bg-error shrink-0 hidden';
     this.offlineDot.title = 'The hub doesn’t answer';
     const spacer = document.createElement('span');
     spacer.className = 'ml-auto';
-    this.accountEl = document.createElement('span');
-    this.accountEl.dataset.ref = 'account';
-    this.accountEl.className = 'inline-flex items-center gap-1 text-[11px] text-base-content/45 shrink-0';
+    this.account = new HubAccount({
+      hub: deps.hub,
+      openExternal: (url) => deps.openExternal(url),
+      onPublisher: (handle) => this.showPublisher(handle),
+      onSignedIn: () => this.signedIn(),
+      hubHost: () => this.host(),
+      timers: deps.timers,
+    });
     const close = document.createElement('button');
     close.type = 'button';
     close.dataset.ref = 'close';
@@ -110,11 +115,12 @@ export class HubPanel {
     close.setAttribute('aria-label', 'Close the Hub panel');
     close.appendChild(HubIcons.span(HubIcons.CLOSE, '[&>svg]:size-4'));
     close.addEventListener('click', () => this.close());
-    header.append(title, this.hostEl, this.offlineDot, spacer, this.accountEl, close);
+    header.append(title, this.offlineDot, spacer, this.account.el, close);
 
     this.search = new HubSearchView({
       state: this.state,
       onOpen: (name) => void this.openPackage(name),
+      onPublisher: (handle) => this.showPublisher(handle),
       hubHost: () => this.host(),
       engine: () => this.engine(),
     });
@@ -127,6 +133,7 @@ export class HubPanel {
       projectOpen: () => deps.projectOpen(),
       openExternal: (url) => deps.openExternal(url),
       onBack: () => this.showSearch(),
+      onPublisher: (handle) => this.showPublisher(handle),
       onInstalled: (installed) => {
         this.searchStale = true;
         deps.onPackagesChanged(installed);
@@ -137,7 +144,7 @@ export class HubPanel {
       this.offlineDot.classList.toggle('hidden', snapshot.mode !== 'offline');
     });
 
-    this.el.append(header, this.search.el, this.detail.el, this.resizeHandle());
+    this.el.append(header, this.account.strip, this.search.el, this.detail.el, this.resizeHandle());
     deps.container.appendChild(this.el);
     this.renderAccount();
     window.addEventListener('resize', this.onResize);
@@ -166,6 +173,7 @@ export class HubPanel {
       this.deps.onOpenChange?.(true);
     }
     void this.refreshStatus();
+    void this.account.resume();
     if (!this.state.started) {
       this.state.search();
     } else if (this.searchStale && this.view === 'search') {
@@ -224,6 +232,26 @@ export class HubPanel {
     }
   }
 
+  /**
+   * A publisher's packages (a clicked handle): the search for `@handle`,
+   * every filter cleared, page 1, the sort kept; from a package's detail
+   * too, which goes back to the results for it.
+   */
+  showPublisher(handle: string): void {
+    this.searchScroll = 0;
+    this.searchStale = false;
+    if (this.view === 'package') {
+      this.view = 'search';
+      this.detail.el.classList.add('hidden');
+      this.search.el.classList.remove('hidden');
+    }
+    this.state.showPublisher(handle);
+    const results = this.search.el.querySelector<HTMLElement>('[data-ref="results"]');
+    if (results) {
+      results.scrollTop = 0;
+    }
+  }
+
   /** The library or the project changed elsewhere (an install from the banner, a removal): the marks are read again. */
   packagesChanged(): void {
     if (this.view === 'search') {
@@ -244,6 +272,7 @@ export class HubPanel {
 
   destroy(): void {
     window.removeEventListener('resize', this.onResize);
+    this.account.destroy();
     this.state.dispose();
     this.search.destroy();
     this.detail.destroy();
@@ -262,24 +291,15 @@ export class HubPanel {
   }
 
   private renderAccount(): void {
-    const host = this.host();
-    this.hostEl.textContent = host ?? '';
-    this.hostEl.title = this.status?.hubUrl ?? '';
     this.offlineDot.classList.toggle('hidden', this.status?.reachable !== false && this.state.snapshot.mode !== 'offline');
-    const signedIn = this.status?.signedIn ?? null;
-    this.accountEl.replaceChildren();
-    if (!this.status) {
-      return;
-    }
-    if (signedIn) {
-      this.accountEl.classList.replace('text-base-content/45', 'text-base-content/65');
-      this.accountEl.appendChild(HubIcons.span(HubIcons.USER, '[&>svg]:size-3.5'));
-      this.accountEl.append(signedIn.handle ? `@${signedIn.handle}` : 'Signed in');
-      this.accountEl.title = `Signed in to ${host ?? 'the hub'}${signedIn.handle ? ` as @${signedIn.handle}` : ''}`;
-    } else {
-      this.accountEl.classList.replace('text-base-content/65', 'text-base-content/45');
-      this.accountEl.append('Not signed in');
-      this.accountEl.title = 'Run fluidcad login in a terminal to sign in. Search and installs work signed out.';
+    this.account.setStatus(this.status);
+  }
+
+  /** A sign-in from the header finished: the status names the handle; an open package is read again (an owner sees more). */
+  private signedIn(): void {
+    void this.refreshStatus();
+    if (this.view === 'package') {
+      void this.detail.reload();
     }
   }
 

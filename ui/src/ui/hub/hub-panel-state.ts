@@ -4,7 +4,7 @@ import type { HubClient, HubContents, HubOrder, HubSearchAnswer, HubSearchParams
 export type HubSearchMode = 'idle' | 'loading' | 'results' | 'offline' | 'error';
 
 /** A filter the panel toggles, by the hub's parameter name. */
-export type HubFilter = 'contents' | 'keyword' | 'units' | 'license';
+export type HubFilter = 'contents' | 'units' | 'license';
 
 export type HubSearchSnapshot = {
   params: Readonly<HubSearchParams>;
@@ -23,13 +23,14 @@ export type HubTimers = {
 
 /**
  * The Hub panel's search (hub-plan H11): the request in the hub's
- * canonical fields (`q`, `contents`, `keyword`, `units`, `license`, `sort`,
+ * canonical fields (`q`, `contents`, `units`, `license`, `sort`,
  * `order`, `page`), the answer, and what the results area shows.
  *
  * - Typing is debounced ({@link DEBOUNCE_MS}); a filter, the sort, its
  *   direction or a page searches at once.
  * - A new search aborts the one in flight, and an answer that arrives
  *   after a newer search started is dropped.
+ * - A clicked handle lists that publisher's packages ({@link showPublisher}).
  * - Changing anything but the page goes back to page 1; picking a sort
  *   takes its own direction (`order` null), and the direction is flipped
  *   against the one the hub answered with.
@@ -42,7 +43,6 @@ export class HubPanelState {
   static readonly EMPTY: Readonly<HubSearchParams> = Object.freeze({
     q: '',
     contents: [],
-    keyword: [],
     units: [],
     license: [],
     sort: null,
@@ -106,9 +106,22 @@ export class HubPanelState {
     this.search();
   }
 
+  /**
+   * A publisher's packages (a clicked handle): the search for `@handle`
+   * alone, every filter cleared and page 1, searched at once. The sort and
+   * its direction stay as chosen.
+   */
+  showPublisher(handle: string): void {
+    this.params.q = `@${handle}`;
+    this.params.contents = [];
+    this.params.units = [];
+    this.params.license = [];
+    this.params.page = 1;
+    this.search();
+  }
+
   clearFilters(): void {
     this.params.contents = [];
-    this.params.keyword = [];
     this.params.units = [];
     this.params.license = [];
     this.params.page = 1;
@@ -261,7 +274,6 @@ export class HubPanelState {
     return {
       ...params,
       contents: [...params.contents] as HubContents[],
-      keyword: [...params.keyword],
       units: [...params.units] as HubUnits[],
       license: [...params.license],
     };

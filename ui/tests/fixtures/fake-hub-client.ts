@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 import type {
   HubClient,
   HubInspection,
+  HubLoginState,
   HubPackage,
   HubResult,
   HubSearchAnswer,
@@ -29,6 +30,13 @@ export class FakeHubClient implements HubClient {
   versions = new Map<string, HubVersion>();
   texts = new Map<string, string>();
   inspectRefusal: { status: number; error: string; code?: string } | null = null;
+  /** The engine's sign-in, as `GET api/hub/login` answers it; tests move it on with {@link endLogin}. */
+  loginValue: HubLoginState | null = null;
+  /** A refusal the next `login()` answers (`hub-unreachable`). */
+  loginRefusal: { status: number; error: string; code?: string } | null = null;
+  /** Whether a cancel finds the browser already back (the engine keeps it pending). */
+  cancelTooLate = false;
+  private logins = 0;
   /** Searches wait for {@link releaseSearches} while set. */
   holdSearches = false;
   private held: (() => void)[] = [];
@@ -80,6 +88,49 @@ export class FakeHubClient implements HubClient {
       },
     };
   });
+
+  login = vi.fn(async (): Promise<HubResult<{ login: HubLoginState; resumed: boolean }>> => {
+    if (this.loginRefusal) {
+      return { ok: false, ...this.loginRefusal };
+    }
+    if (this.loginValue?.status === 'pending') {
+      return { ok: true, login: { ...this.loginValue }, resumed: true };
+    }
+    this.loginValue = FakeHubClient.loginState({ id: `login-${++this.logins}` });
+    return { ok: true, login: { ...this.loginValue }, resumed: false };
+  });
+
+  loginState = vi.fn(async (): Promise<HubResult<{ login: HubLoginState | null }>> => ({
+    ok: true,
+    login: this.loginValue ? { ...this.loginValue } : null,
+  }));
+
+  cancelLogin = vi.fn(async (): Promise<HubResult<{ login: HubLoginState | null }>> => {
+    if (this.loginValue?.status === 'pending' && !this.cancelTooLate) {
+      this.endLogin({ status: 'cancelled', error: 'Sign-in cancelled. Nothing was saved.' });
+    }
+    return { ok: true, login: this.loginValue ? { ...this.loginValue } : null };
+  });
+
+  /** The engine's sign-in ends as `outcome` says (the browser came back, the time ran out…). */
+  endLogin(outcome: Partial<HubLoginState>): void {
+    this.loginValue = { ...this.loginValue!, authorizeUrl: null, ...outcome };
+  }
+
+  static loginState(extra: Partial<HubLoginState> = {}): HubLoginState {
+    return {
+      id: 'login-1',
+      hub: 'http://localhost:8787',
+      status: 'pending',
+      authorizeUrl: 'http://localhost:8787/cli/authorize?response_type=code&client_id=fluidcad-cli&redirect_uri=http%3A%2F%2F127.0.0.1%3A50123%2Fcallback',
+      startedAt: '2026-10-12T12:00:00.000Z',
+      expiresAt: '2026-10-12T12:05:00.000Z',
+      handle: null,
+      code: null,
+      error: null,
+      ...extra,
+    };
+  }
 
   /** Let every held search answer, in order. */
   releaseSearches(): void {
@@ -136,7 +187,6 @@ export class FakeHubClient implements HubClient {
       results,
       facets: {
         contents: { features: 9, parts: 7, assemblies: 3 },
-        keywords: [{ value: 'fasteners', count: 4 }, { value: 'pcb', count: 3 }],
         units: { metric: 10, imperial: 4 },
         licenses: [{ value: 'MIT', count: 8, label: 'MIT License' }, { value: 'Apache-2.0', count: 4, label: 'Apache License 2.0' }],
         compatible: { count: 11 },

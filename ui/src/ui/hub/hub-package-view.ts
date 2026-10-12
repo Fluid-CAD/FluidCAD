@@ -1,5 +1,6 @@
 import type { HubCatalogFeature, HubCatalogModel, HubClient, HubMedia, HubPackage, HubResult, HubVersion, HubVersionSummary, PackagesClient } from '../../api';
 import { FeatureParamTable } from './feature-param-table';
+import { HubHandle } from './hub-handle';
 import { HubIcons, HubImage } from './hub-icons';
 import { HubInstallControl, type HubInstalled, type HubInstallTarget } from './hub-install-control';
 import { HubMarkdown } from './hub-markdown';
@@ -21,14 +22,17 @@ export type HubPackageViewDeps = {
   openExternal(url: string): void;
   onBack(): void;
   onInstalled(installed: HubInstalled): void;
+  /** The byline's `@publisher` was clicked: list that publisher's packages. */
+  onPublisher?(handle: string): void;
   now?(): number;
 };
 
 /**
  * One package in the Hub panel (hub-plan H11, the signed-off mock with the
- * user's decisions): the header (name, latest version, publisher, marks,
- * a deprecated or incompatible notice, the screenshot strip, the Install
- * control, the facts with the integrity), then four tabs:
+ * user's decisions): the header (name, latest version, the publisher,
+ * whose handle lists their packages, marks, a deprecated or incompatible
+ * notice, the screenshot strip, the Install control, the facts), then four
+ * tabs:
  * - **Features:** each feature with its icon and description; opening one
  *   shows its parameter table (decision 4), read from the version's
  *   manifest through the engine;
@@ -205,9 +209,16 @@ export class HubPackageView {
       title.append(version, badge);
     }
     const byline = document.createElement('div');
+    byline.dataset.ref = 'byline';
     byline.className = 'text-[11px] text-base-content/50';
     const published = latest?.publishedAt ? `published ${HubText.ago(latest.publishedAt, this.now())}` : null;
-    byline.textContent = [pkg.publisher ? `@${pkg.publisher}` : null, published, HubText.plural(pkg.counts.installs, 'install')].filter(Boolean).join(' · ');
+    const rest = [published, HubText.plural(pkg.counts.installs, 'install')].filter(Boolean).join(' · ');
+    const onPublisher = this.deps.onPublisher;
+    if (pkg.publisher && onPublisher && HubHandle.isHandle(pkg.publisher)) {
+      byline.append(HubHandle.button(pkg.publisher, onPublisher), rest ? ` · ${rest}` : '');
+    } else {
+      byline.textContent = [pkg.publisher ? `@${pkg.publisher}` : null, rest].filter(Boolean).join(' · ');
+    }
     titleBlock.append(title, byline);
     head.appendChild(titleBlock);
 
@@ -382,7 +393,6 @@ export class HubPackageView {
       ['Unit', latest.unit, true],
       ['License', HubText.license(license), false],
       ['Size', HubPackageView.bytes(latest.size), false],
-      ['Keywords', pkg.keywords.length > 0 ? pkg.keywords.join(', ') : 'none', true],
     ];
     for (const [term, value, mono] of items) {
       const dt = document.createElement('dt');
@@ -394,29 +404,6 @@ export class HubPackageView {
       dd.textContent = value;
       list.append(dt, dd);
     }
-    const dt = document.createElement('dt');
-    dt.className = 'text-base-content/50 whitespace-nowrap';
-    dt.textContent = 'Integrity';
-    const dd = document.createElement('dd');
-    dd.className = 'col-span-3 flex items-center gap-1 min-w-0';
-    const hash = document.createElement('span');
-    hash.dataset.ref = 'integrity';
-    hash.className = 'font-mono text-base-content/85 truncate';
-    hash.title = 'The tree hash every download is checked against';
-    hash.textContent = latest.integrity;
-    const copy = document.createElement('button');
-    copy.type = 'button';
-    copy.className = 'btn btn-ghost btn-square btn-xs h-5 w-5 min-h-0 text-base-content/50 shrink-0';
-    copy.title = 'Copy';
-    copy.setAttribute('aria-label', 'Copy the integrity');
-    copy.appendChild(HubIcons.span(HubIcons.COPY, '[&>svg]:size-3.5'));
-    copy.addEventListener('click', () => {
-      void navigator.clipboard?.writeText(latest.integrity).then(() => {
-        copy.title = 'Copied';
-      }, () => undefined);
-    });
-    dd.append(hash, copy);
-    list.append(dt, dd);
     return list;
   }
 

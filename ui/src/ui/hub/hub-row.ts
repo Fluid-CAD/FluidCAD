@@ -1,4 +1,5 @@
 import type { HubLocalMarks, HubSearchRow } from '../../api';
+import { HubHandle } from './hub-handle';
 import { HubIcons, HubImage } from './hub-icons';
 import { HubText } from './hub-text';
 
@@ -67,16 +68,31 @@ export class HubBadges {
  * One package in the results (the mock's row): the card thumb (through the
  * engine's media proxy), the mono name and version, the marks, two lines
  * of description, up to three feature chips and `+N` with the contents,
- * likes, installs, license and when it was last updated. The whole row
- * opens the package.
+ * likes, installs, license and when it was last updated.
+ *
+ * The whole row opens the package; its keyboard face is a button laid over
+ * the row ("Open @acme/kit"). The name's `@scope` is a control of its own
+ * above it ({@link HubHandle}): it lists that publisher's packages and
+ * doesn't open this one.
  */
 export class HubResultRow {
-  static create(row: HubSearchRow, engine: HubEngine, onOpen: (name: string) => void, now: number = Date.now()): HTMLButtonElement {
-    const el = document.createElement('button');
-    el.type = 'button';
+  static create(
+    row: HubSearchRow,
+    engine: HubEngine,
+    onOpen: (name: string) => void,
+    onPublisher?: (handle: string) => void,
+    now: number = Date.now(),
+  ): HTMLDivElement {
+    const el = document.createElement('div');
     el.dataset.package = row.fullName;
-    el.className = 'group w-full text-left flex gap-3 px-3 py-3 border-b border-base-content/[0.07] hover:bg-base-content/[0.04] focus-visible:bg-base-content/[0.06] outline-none';
+    el.className = 'group relative w-full text-left flex gap-3 px-3 py-3 border-b border-base-content/[0.07] hover:bg-base-content/[0.04] cursor-pointer';
     el.addEventListener('click', () => onOpen(row.fullName));
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.dataset.ref = 'open';
+    open.className = 'absolute inset-0 w-full h-full outline-none focus-visible:bg-base-content/[0.05] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40';
+    open.setAttribute('aria-label', `Open ${row.fullName}`);
+    el.appendChild(open);
 
     const thumb = document.createElement('span');
     thumb.dataset.ref = 'thumb';
@@ -89,7 +105,7 @@ export class HubResultRow {
 
     const head = document.createElement('span');
     head.className = 'flex items-baseline gap-1.5 min-w-0';
-    head.appendChild(HubResultRow.name(row.fullName, 'text-[13px]'));
+    head.appendChild(HubResultRow.name(row.fullName, 'text-[13px]', onPublisher));
     const version = document.createElement('span');
     version.dataset.ref = 'version';
     version.className = 'font-mono text-[11px] text-base-content/45 tabular-nums shrink-0';
@@ -157,15 +173,25 @@ export class HubResultRow {
     return el;
   }
 
-  /** `@acme/feature-tests`, the scope dimmed. */
-  static name(fullName: string, size: 'text-[13px]' | 'text-[15px]'): HTMLSpanElement {
+  /**
+   * `@acme/feature-tests`, the scope dimmed; with `onPublisher`, the scope
+   * is a {@link HubHandle} that lists the publisher's packages.
+   */
+  static name(fullName: string, size: 'text-[13px]' | 'text-[15px]', onPublisher?: (handle: string) => void): HTMLSpanElement {
     const slash = fullName.indexOf('/');
     const name = document.createElement('span');
     name.dataset.ref = 'name';
     name.className = `font-mono ${size} font-medium text-base-content/90 truncate min-w-0`;
     const scope = document.createElement('span');
     scope.className = 'text-base-content/45';
-    scope.textContent = slash > 0 ? fullName.slice(0, slash + 1) : '';
+    const handle = onPublisher ? HubHandle.scopeOf(fullName) : null;
+    if (handle && onPublisher) {
+      // Above the row's own button, so the scope takes its own clicks.
+      scope.classList.add('relative', 'z-[1]');
+      scope.append(HubHandle.button(handle, onPublisher), '/');
+    } else {
+      scope.textContent = slash > 0 ? fullName.slice(0, slash + 1) : '';
+    }
     name.append(scope, document.createTextNode(slash > 0 ? fullName.slice(slash + 1) : fullName));
     return name;
   }

@@ -6763,9 +6763,9 @@ export type HubSearchEcho = {
   limit: number;
 };
 
+/** The hub's facets the panel shows (the hub also counts keywords, which the panel doesn't filter by). */
 export type HubFacets = {
   contents: { features: number; parts: number; assemblies: number };
-  keywords: { value: string; count: number }[];
   units: { metric: number; imperial: number };
   licenses: { value: string; count: number; label: string }[];
   compatible: { count: number } | null;
@@ -6782,11 +6782,14 @@ export type HubSearchAnswer = {
   facets: HubFacets;
 };
 
-/** What the panel asks: the hub's own names; null leaves a value to the hub. */
+/**
+ * What the panel asks: the hub's own names; null leaves a value to the hub.
+ * No keyword filter: keywords only feed the hub's matching of `q` (the
+ * user, 2026-10-12).
+ */
 export type HubSearchParams = {
   q: string;
   contents: HubContents[];
-  keyword: string[];
   units: HubUnits[];
   license: string[];
   sort: HubSort | null;
@@ -6906,6 +6909,24 @@ export type HubInspection = PackageInspection & {
 export type HubResult<T> = PackageResult<T>;
 
 /**
+ * `GET`/`POST`/`DELETE api/hub/login` (H11 follow-up 2): one sign-in from
+ * the app, run by the engine as `fluidcad login` runs it. `pending` waits
+ * for the browser (`authorizeUrl` is the page to open); the others have
+ * ended, `error` saying how for all but `signed-in`.
+ */
+export type HubLoginState = {
+  id: string;
+  hub: string;
+  status: 'pending' | 'signed-in' | 'denied' | 'expired' | 'cancelled' | 'failed';
+  authorizeUrl: string | null;
+  startedAt: string;
+  expiresAt: string;
+  handle: string | null;
+  code: string | null;
+  error: string | null;
+};
+
+/**
  * The bridge's routes as one object the Hub panel is handed (tests give it
  * a fake, `ui/tests/fixtures/fake-hub-client.ts`). Like the packages client,
  * every call answers a result rather than throwing; an aborted search
@@ -6919,6 +6940,12 @@ export interface HubClient {
   /** A README (or any text file) through the engine's file proxy. */
   text(url: string): Promise<HubResult<{ text: string }>>;
   inspect(request: { name: string; version: string | null; target: PackageTarget }, signal?: AbortSignal): Promise<HubResult<{ inspection: HubInspection }>>;
+  /** Start signing in (or answer the sign-in already waiting); refused with `hub-unreachable` when the hub doesn't answer. */
+  login(): Promise<HubResult<{ login: HubLoginState; resumed: boolean }>>;
+  /** The sign-in waiting or last ended in the engine; null when there was none. */
+  loginState(): Promise<HubResult<{ login: HubLoginState | null }>>;
+  /** Stop the waiting sign-in. */
+  cancelLogin(): Promise<HubResult<{ login: HubLoginState | null }>>;
 }
 
 /** {@link HubClient} over the engine's `/api/hub/*` routes. */
@@ -6992,13 +7019,32 @@ export class HttpHubClient implements HubClient {
     return answer.ok === false ? answer : { ok: true, inspection: answer.body as HubInspection };
   }
 
+  async login(): Promise<HubResult<{ login: HubLoginState; resumed: boolean }>> {
+    const answer = await HttpHubClient.send('api/hub/login', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+    if (answer.ok === false) {
+      return answer;
+    }
+    const body = answer.body as { login: HubLoginState; resumed: boolean };
+    return { ok: true, login: body.login, resumed: body.resumed };
+  }
+
+  async loginState(): Promise<HubResult<{ login: HubLoginState | null }>> {
+    const answer = await HttpHubClient.send('api/hub/login', {});
+    return answer.ok === false ? answer : { ok: true, login: (answer.body as { login: HubLoginState | null }).login };
+  }
+
+  async cancelLogin(): Promise<HubResult<{ login: HubLoginState | null }>> {
+    const answer = await HttpHubClient.send('api/hub/login', { method: 'DELETE' });
+    return answer.ok === false ? answer : { ok: true, login: (answer.body as { login: HubLoginState | null }).login };
+  }
+
   /** The panel's parameters as the bridge reads them: repeated keys for the lists, defaults left out. */
   static searchQuery(params: HubSearchParams): string {
     const query = new URLSearchParams();
     if (params.q.trim() !== '') {
       query.set('q', params.q.trim());
     }
-    for (const key of ['contents', 'keyword', 'units', 'license'] as const) {
+    for (const key of ['contents', 'units', 'license'] as const) {
       for (const value of params[key]) {
         query.append(key, value);
       }

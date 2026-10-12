@@ -8,12 +8,17 @@ import { FakeHubClient } from './fixtures/fake-hub-client';
 import { FakePackagesClient, settle } from './fixtures/fake-packages-client';
 
 // The Hub panel as the page mounts it (hub-plan H11): one slot with the
-// code editor (decision 5), the header naming the hub and who is signed in,
-// the search → package → Results round trip, the marks read again after an
-// install; then the missing-package banner's Install from the hub (consent,
-// never the panel) and links leaving through the host.
+// code editor (decision 5), the header ("FluidCAD Hub" and who is signed
+// in, with Sign in when nobody is: H11 follow-up 2), the search → package →
+// Results round trip, the marks read again after an install, every
+// publisher handle listing that publisher's packages; then the
+// missing-package banner's Install from the hub (consent, never the panel)
+// and links leaving through the host.
 
 const panels: HubPanel[] = [];
+
+/** An element's words, the icons' markup whitespace folded away. */
+const words = (el: Element) => el.textContent!.replace(/\s+/g, ' ').trim();
 
 afterEach(() => {
   for (const panel of panels.splice(0)) {
@@ -25,6 +30,25 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
+/** Timers the test fires by hand: the search debounce and the sign-in's polling. */
+class ManualTimers {
+  pending: { callback: () => void; ms: number }[] = [];
+  set = (callback: () => void, ms: number): unknown => {
+    const entry = { callback, ms };
+    this.pending.push(entry);
+    return entry;
+  };
+  clear = (handle: unknown): void => {
+    this.pending = this.pending.filter((entry) => entry !== handle);
+  };
+  async fire(): Promise<void> {
+    for (const entry of this.pending.splice(0)) {
+      entry.callback();
+    }
+    await settle();
+  }
+}
+
 function mount(hub = new FakeHubClient()) {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -32,23 +56,28 @@ function mount(hub = new FakeHubClient()) {
   const events: string[] = [];
   const onPackagesChanged = vi.fn();
   const onWidthChange = vi.fn();
+  const openExternal = vi.fn();
+  const timers = new ManualTimers();
   const panel = new HubPanel({
     container,
     hub,
     packages: new FakePackagesClient(),
     installSetting: () => 'library',
     projectOpen: () => true,
-    openExternal: vi.fn(),
+    openExternal,
     onPackagesChanged,
     width: () => 500,
     onWidthChange,
     onTakeSlot: () => events.push('editor closed'),
     onOpenChange: (open) => events.push(open ? 'hub open' : 'hub closed'),
-    timers: { set: () => null, clear: () => undefined },
+    timers,
   });
   panels.push(panel);
   const width = () => document.documentElement.style.getPropertyValue('--fluidcad-editor-width');
-  return { hub, panel, container, events, width, onPackagesChanged, onWidthChange };
+  const $ = <T extends Element = HTMLElement>(selector: string) => panel.el.querySelector<T>(selector);
+  const account = () => $('[data-ref="account"]')!;
+  const strip = () => $('[data-ref="sign-in"]')!;
+  return { hub, panel, container, events, width, onPackagesChanged, onWidthChange, openExternal, timers, $, account, strip };
 }
 
 describe('the Hub panel', () => {
@@ -82,14 +111,18 @@ describe('the Hub panel', () => {
     expect(h.panel.el.style.width).toBe('calc(100% - var(--fluidcad-rail-width, 0px))');
   });
 
-  it('names the hub and who is signed in, and searches on its first open only', async () => {
+  it('says "FluidCAD Hub" with no address, who is signed in, and searches on its first open only', async () => {
     const hub = new FakeHubClient();
     hub.statusValue = FakeHubClient.status({ signedIn: { handle: 'acme' } });
     const h = mount(hub);
     h.panel.show();
     await settle();
-    expect(h.panel.el.querySelector('[data-ref="hub-host"]')!.textContent).toBe('localhost:8787');
-    expect(h.panel.el.querySelector('[data-ref="account"]')!.textContent!.trim()).toBe('@acme');
+    const header = h.$('[data-ref="close"]')!.parentElement!;
+    expect(words(header)).toBe('FluidCAD Hub @acme');
+    expect(header.textContent).not.toContain('localhost');
+    expect(h.$('[data-ref="hub-host"]')).toBeNull();
+    expect(h.account().dataset.state).toBe('signed-in');
+    expect(words(h.account())).toBe('@acme');
     expect(hub.search).toHaveBeenCalledTimes(1);
     h.panel.close();
     h.panel.show();
@@ -100,7 +133,9 @@ describe('the Hub panel', () => {
     h.panel.close();
     h.panel.show();
     await settle();
-    expect(h.panel.el.querySelector('[data-ref="account"]')!.textContent).toBe('Not signed in');
+    expect(h.account().dataset.state).toBe('signed-out');
+    expect(words(h.account())).toBe('Sign in');
+    expect(h.strip().classList.contains('hidden')).toBe(true);
   });
 
   it('opens a package from its row, and Results comes back to the search, read again after an install', async () => {
@@ -131,6 +166,196 @@ describe('the Hub panel', () => {
     await settle();
     expect(h.panel.el.querySelector('[data-ref="offline-dot"]')!.classList.contains('hidden')).toBe(false);
     expect(h.panel.el.querySelector('[data-state="offline"]')).not.toBeNull();
+  });
+});
+
+describe('signing in from the header (H11 follow-up 2)', () => {
+  it('Sign in → the authorize page opens through the host → waiting → the handle', async () => {
+    const h = mount();
+    h.panel.show();
+    await settle();
+    h.$<HTMLButtonElement>('[data-ref="sign-in-button"]')!.click();
+    await settle();
+    expect(h.hub.login).toHaveBeenCalledTimes(1);
+    expect(h.openExternal).toHaveBeenCalledWith(FakeHubClient.loginState().authorizeUrl);
+    // Waiting: "Signing in…" in the header, the wait below it, no Sign in.
+    expect(h.account().dataset.state).toBe('waiting');
+    expect(words(h.account())).toBe('Signing in…');
+    expect(h.$('[data-ref="sign-in-button"]')).toBeNull();
+    expect(h.strip().dataset.state).toBe('waiting');
+    expect(h.strip().classList.contains('hidden')).toBe(false);
+    expect(h.$('[data-ref="sign-in-lead"]')!.textContent).toBe('Finish signing in in your browser.');
+    // Open the page again (the browser didn't open, or its tab was closed).
+    h.$<HTMLButtonElement>('[data-ref="sign-in-open"]')!.click();
+    expect(h.openExternal).toHaveBeenCalledTimes(2);
+    expect(h.openExternal).toHaveBeenLastCalledWith(FakeHubClient.loginState().authorizeUrl);
+
+    // Still waiting at the next look.
+    await h.timers.fire();
+    expect(h.hub.loginState).toHaveBeenCalled();
+    expect(h.account().dataset.state).toBe('waiting');
+
+    // The user authorizes in the browser; the engine saved the credentials.
+    h.hub.endLogin({ status: 'signed-in', handle: 'acme' });
+    h.hub.statusValue = FakeHubClient.status({ signedIn: { handle: 'acme' } });
+    const statusReads = h.hub.status.mock.calls.length;
+    await h.timers.fire();
+    expect(h.hub.status.mock.calls.length).toBe(statusReads + 1);
+    expect(h.account().dataset.state).toBe('signed-in');
+    expect(h.$('[data-ref="account"] [data-ref="publisher"]')!.textContent).toBe('@acme');
+    expect(h.strip().classList.contains('hidden')).toBe(true);
+    // Nothing more to follow.
+    expect(h.timers.pending).toHaveLength(0);
+  });
+
+  it('a second press while one waits starts nothing more, and a reload follows the waiting one', async () => {
+    const h = mount();
+    h.panel.show();
+    await settle();
+    // A double click: the button's second press lands before the first answer.
+    const button = h.$<HTMLButtonElement>('[data-ref="sign-in-button"]')!;
+    button.click();
+    button.click();
+    await settle();
+    expect(h.$('[data-ref="sign-in-button"]')).toBeNull();
+    expect(h.hub.login).toHaveBeenCalledTimes(1);
+    expect(h.openExternal).toHaveBeenCalledTimes(1);
+
+    // A second page on the same engine (or this one after a reload) shows the same wait.
+    const other = mount(h.hub);
+    other.panel.show();
+    await settle();
+    expect(other.account().dataset.state).toBe('waiting');
+    expect(other.$('[data-ref="sign-in-lead"]')).not.toBeNull();
+    expect(h.hub.login).toHaveBeenCalledTimes(1);
+    expect(other.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('denial and expiry leave the sentence with Try again; a dismissed one goes back to Sign in', async () => {
+    for (const [status, error, tone] of [
+      ['denied', 'The sign-in was denied in the browser. Nothing was saved.', 'text-warning'],
+      ['expired', 'The sign-in wasn’t finished within 5 minutes, the time the hub gives it. Nothing was saved.', 'text-warning'],
+      ['failed', 'Couldn’t reach localhost:8787 to finish signing in. Nothing was saved.', 'text-error'],
+    ] as const) {
+      const h = mount();
+      h.panel.show();
+      await settle();
+      h.$<HTMLButtonElement>('[data-ref="sign-in-button"]')!.click();
+      await settle();
+      h.hub.endLogin({ status, error, code: status === 'failed' ? 'hub-unreachable' : null });
+      await h.timers.fire();
+      expect(h.account().dataset.state).toBe('signed-out');
+      expect(h.strip().dataset.state).toBe('ended');
+      expect(h.$('[data-ref="sign-in-notice"]')!.textContent).toBe(error);
+      expect(h.strip().querySelector(`.${tone}`)).not.toBeNull();
+      expect(h.timers.pending).toHaveLength(0);
+      // Try again starts a new sign-in.
+      h.$<HTMLButtonElement>('[data-ref="sign-in-retry"]')!.click();
+      await settle();
+      expect(h.hub.login).toHaveBeenCalledTimes(2);
+      expect(h.account().dataset.state).toBe('waiting');
+      h.hub.endLogin({ status, error });
+      await h.timers.fire();
+      h.$<HTMLButtonElement>('[data-ref="sign-in-dismiss"]')!.click();
+      expect(h.strip().classList.contains('hidden')).toBe(true);
+      expect(words(h.account())).toBe('Sign in');
+    }
+  });
+
+  it('Cancel stops the wait and goes back to Sign in; a cancel too late waits for the outcome', async () => {
+    const h = mount();
+    h.panel.show();
+    await settle();
+    h.$<HTMLButtonElement>('[data-ref="sign-in-button"]')!.click();
+    await settle();
+    h.$<HTMLButtonElement>('[data-ref="sign-in-cancel"]')!.click();
+    await settle();
+    expect(h.hub.cancelLogin).toHaveBeenCalledTimes(1);
+    expect(words(h.account())).toBe('Sign in');
+    expect(h.strip().classList.contains('hidden')).toBe(true);
+    expect(h.timers.pending).toHaveLength(0);
+
+    // The browser came back before the cancel: the engine finishes, and the handle shows.
+    h.hub.cancelTooLate = true;
+    h.$<HTMLButtonElement>('[data-ref="sign-in-button"]')!.click();
+    await settle();
+    h.$<HTMLButtonElement>('[data-ref="sign-in-cancel"]')!.click();
+    await settle();
+    expect(h.account().dataset.state).toBe('waiting');
+    h.hub.endLogin({ status: 'signed-in', handle: 'acme' });
+    h.hub.statusValue = FakeHubClient.status({ signedIn: { handle: 'acme' } });
+    await h.timers.fire();
+    expect(h.account().dataset.state).toBe('signed-in');
+  });
+
+  it("a hub that doesn't answer starts nothing and says so", async () => {
+    const hub = new FakeHubClient();
+    hub.loginRefusal = { status: 503, error: 'connect ECONNREFUSED', code: 'hub-unreachable' };
+    const h = mount(hub);
+    h.panel.show();
+    await settle();
+    h.$<HTMLButtonElement>('[data-ref="sign-in-button"]')!.click();
+    await settle();
+    expect(h.openExternal).not.toHaveBeenCalled();
+    expect(words(h.account())).toBe('Sign in');
+    expect(h.$('[data-ref="sign-in-notice"]')!.textContent).toBe('Couldn’t reach localhost:8787, so the sign-in didn’t start. Check the connection, then try again.');
+    expect(h.timers.pending).toHaveLength(0);
+  });
+});
+
+describe('publisher handles list their packages (H11 follow-up 2)', () => {
+  async function filtered() {
+    const hub = new FakeHubClient();
+    hub.statusValue = FakeHubClient.status({ signedIn: { handle: 'bea-tools' } });
+    hub.answer = FakeHubClient.answer([FakeHubClient.row(), FakeHubClient.row({ fullName: '@bea-tools/kit' })]);
+    const h = mount(hub);
+    h.panel.show();
+    await settle();
+    h.panel.state.setSort('newest');
+    h.panel.state.flipOrder();
+    h.panel.state.toggle('license', 'MIT');
+    h.panel.state.toggle('units', 'metric');
+    h.panel.state.setPage(2);
+    await settle();
+    return h;
+  }
+
+  function expectPublisherSearch(h: ReturnType<typeof mount>, handle: string) {
+    expect(h.panel.currentView).toBe('search');
+    expect(h.hub.search.mock.calls.at(-1)![0]).toEqual({
+      q: `@${handle}`, contents: [], units: [], license: [], sort: 'newest', order: 'asc', page: 1,
+    });
+    expect(h.$<HTMLInputElement>('[data-ref="query"]')!.value).toBe(`@${handle}`);
+  }
+
+  it("a result's @scope searches for the publisher, resets the filters and the page, keeps the sort, and doesn't open the package", async () => {
+    const h = await filtered();
+    const scope = h.$('[data-package="@bea-tools/kit"] [data-ref="publisher"]') as HTMLButtonElement;
+    expect(scope.tagName).toBe('BUTTON');
+    expect(scope.textContent).toBe('@bea-tools');
+    expect(scope.getAttribute('aria-label')).toBe('Show @bea-tools’s packages');
+    scope.click();
+    await settle();
+    expectPublisherSearch(h, 'bea-tools');
+    expect(h.hub.package).not.toHaveBeenCalled();
+  });
+
+  it("the detail's byline handle goes back to the results for that publisher", async () => {
+    const h = await filtered();
+    await h.panel.openPackage('@acme/feature-tests');
+    await settle();
+    expect(h.panel.currentView).toBe('package');
+    h.$<HTMLButtonElement>('[data-role="hub-package"] [data-ref="byline"] [data-ref="publisher"]')!.click();
+    await settle();
+    expectPublisherSearch(h, 'acme');
+    expect(h.$('[data-role="hub-package"]')!.classList.contains('hidden')).toBe(true);
+  });
+
+  it("the signed-in handle in the header lists the account's own packages", async () => {
+    const h = await filtered();
+    h.$<HTMLButtonElement>('[data-ref="account"] [data-ref="publisher"]')!.click();
+    await settle();
+    expectPublisherSearch(h, 'bea-tools');
   });
 });
 

@@ -32,6 +32,7 @@ async function mount(pkg: HubPackage = FakeHubClient.pkg(), options: { projectOp
   const openExternal = vi.fn();
   const onInstalled = vi.fn();
   const onBack = vi.fn();
+  const onPublisher = vi.fn();
   const projectOpen = options.projectOpen ?? true;
   const target = new HubInstallTarget(() => options.setting ?? 'library', () => projectOpen);
   const view = new HubPackageView({
@@ -44,6 +45,7 @@ async function mount(pkg: HubPackage = FakeHubClient.pkg(), options: { projectOp
     openExternal,
     onBack,
     onInstalled,
+    onPublisher,
     now: () => Date.parse('2026-10-12T12:00:00Z'),
   });
   views.push(view);
@@ -57,11 +59,11 @@ async function mount(pkg: HubPackage = FakeHubClient.pkg(), options: { projectOp
     await settle();
   };
   const install = () => $<HTMLButtonElement>('[data-ref="install"]')!;
-  return { hub, packages, view, target, openExternal, onInstalled, onBack, $, $$, tab, install };
+  return { hub, packages, view, target, openExternal, onInstalled, onBack, onPublisher, $, $$, tab, install };
 }
 
 describe('the header', () => {
-  it('names the package, its latest version, publisher, marks, screenshots and facts with the integrity', async () => {
+  it('names the package, its latest version, publisher, marks, screenshots and facts', async () => {
     const h = await mount(FakeHubClient.pkg({ local: { installed: ['0.1.0'], pinned: '0.1.0', updateAvailable: '0.1.1' } }));
     expect(h.$('[data-ref="name"]')!.textContent).toBe('@acme/feature-tests');
     expect(h.$('[data-ref="latest"]')!.textContent).toBe('0.1.1');
@@ -71,7 +73,25 @@ describe('the header', () => {
     h.$('[data-media="shot-2"]')!.click();
     expect(h.$<HTMLImageElement>('[data-ref="media"] figure img')!.getAttribute('src')).toBe('api/hub/media/@acme/feature-tests/shot-2');
     expect(h.$('[data-ref="facts"]')!.textContent).toContain('≥ 0.0.45');
-    expect(h.$('[data-ref="integrity"]')!.textContent).toBe('sha256-OxEErIDdT');
+  });
+
+  it('shows no integrity and no keywords (the user, 2026-10-12): Engine, Feature SDK, Unit, License and Size', async () => {
+    const h = await mount();
+    expect(h.$$('[data-ref="facts"] dt').map((dt) => dt.textContent)).toEqual(['Engine', 'Feature SDK', 'Unit', 'License', 'Size']);
+    expect(h.$('[data-ref="integrity"]')).toBeNull();
+    expect(h.view.el.textContent).not.toContain('sha256-');
+    expect(h.view.el.textContent).not.toContain('e2e-search');
+    expect(h.$('[aria-label="Copy the integrity"]')).toBeNull();
+  });
+
+  it("the byline's @publisher lists that publisher's packages, as a button", async () => {
+    const h = await mount();
+    const handle = h.$<HTMLButtonElement>('[data-ref="byline"] [data-ref="publisher"]')!;
+    expect(handle.tagName).toBe('BUTTON');
+    expect(handle.textContent).toBe('@acme');
+    expect(h.$('[data-ref="byline"]')!.textContent).toBe('@acme · published 1 day ago · 2 installs');
+    handle.click();
+    expect(h.onPublisher).toHaveBeenCalledWith('acme');
   });
 
   it('opens the package page on the hub through the host', async () => {

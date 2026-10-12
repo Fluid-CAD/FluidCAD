@@ -44,7 +44,8 @@ function mount(client = new FakeHubClient(), engine = { engine: '0.0.46', sdk: 1
   const timers = new ManualTimers();
   const state = new HubPanelState(client, timers);
   const onOpen = vi.fn();
-  const view = new HubSearchView({ state, onOpen, hubHost: () => 'localhost:8787', engine: () => engine });
+  const onPublisher = vi.fn();
+  const view = new HubSearchView({ state, onOpen, onPublisher, hubHost: () => 'localhost:8787', engine: () => engine });
   views.push(view);
   document.body.appendChild(view.el);
   const $ = <T extends Element = HTMLElement>(selector: string) => view.el.querySelector<T>(selector);
@@ -52,7 +53,7 @@ function mount(client = new FakeHubClient(), engine = { engine: '0.0.46', sdk: 1
   const row = (name: string) => $(`[data-package="${name}"]`)!;
   const marks = (name: string) => [...row(name).querySelectorAll<HTMLElement>('[data-mark]')].map((m) => m.textContent);
   const lastParams = () => client.search.mock.calls.at(-1)![0];
-  return { client, timers, state, view, onOpen, $, $$, row, marks, lastParams };
+  return { client, timers, state, view, onOpen, onPublisher, $, $$, row, marks, lastParams };
 }
 
 describe('the search request', () => {
@@ -72,7 +73,7 @@ describe('the search request', () => {
     h.timers.fire();
     await settle();
     expect(h.client.search).toHaveBeenCalledTimes(2);
-    expect(h.lastParams()).toEqual({ q: 'standoff', contents: [], keyword: [], units: [], license: [], sort: null, order: null, page: 1 });
+    expect(h.lastParams()).toEqual({ q: 'standoff', contents: [], units: [], license: [], sort: null, order: null, page: 1 });
     input.value = 'standoff hole';
     input.dispatchEvent(new Event('input'));
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
@@ -80,8 +81,8 @@ describe('the search request', () => {
     expect(h.timers.pending).toHaveLength(0);
     expect(h.lastParams().q).toBe('standoff hole');
     // The bridge's query string: repeated keys, defaults left out, and never compatible.
-    expect(HttpHubClient.searchQuery({ q: ' @acme  gear ', contents: ['features', 'parts'], keyword: ['pcb'], units: [], license: ['MIT'], sort: 'installs', order: 'asc', page: 2 }))
-      .toBe('q=%40acme++gear&contents=features&contents=parts&keyword=pcb&license=MIT&sort=installs&order=asc&page=2');
+    expect(HttpHubClient.searchQuery({ q: ' @acme  gear ', contents: ['features', 'parts'], units: [], license: ['MIT'], sort: 'installs', order: 'asc', page: 2 }))
+      .toBe('q=%40acme++gear&contents=features&contents=parts&license=MIT&sort=installs&order=asc&page=2');
     expect(HttpHubClient.searchQuery(HubPanelState.EMPTY)).toBe('');
   });
 
@@ -114,24 +115,27 @@ describe('the search request', () => {
     menu.querySelector<HTMLInputElement>('[data-value="assemblies"] input')!.dispatchEvent(new Event('change'));
     await settle();
     expect(h.lastParams()).toMatchObject({ contents: ['assemblies'], page: 1 });
-    for (const [filter, value] of [['keyword', 'pcb'], ['units', 'metric'], ['license', 'MIT']] as const) {
+    // Contents, Units and License only: keywords feed the matching of the words, never a filter (2026-10-12).
+    expect(h.$$('[data-filter]').map((b) => b.dataset.filter)).toEqual(['contents', 'units', 'license']);
+    expect(h.view.el.textContent).not.toContain('Keywords');
+    for (const [filter, value] of [['units', 'metric'], ['license', 'MIT']] as const) {
       h.$(`[data-filter="${filter}"]`)!.click();
       h.$(`[data-menu="${filter}"] [data-value="${value}"] input`)!.dispatchEvent(new Event('change'));
       await settle();
     }
-    expect(h.lastParams()).toMatchObject({ contents: ['assemblies'], keyword: ['pcb'], units: ['metric'], license: ['MIT'] });
+    expect(h.lastParams()).toMatchObject({ contents: ['assemblies'], units: ['metric'], license: ['MIT'] });
     // The license dropdown (still open: a value doesn't close it) names each with the picker's label.
     expect(h.$('[data-menu="license"] [data-value="Apache-2.0"]')!.textContent).toContain('Apache License 2.0');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(h.$('[data-menu]')).toBeNull();
     // The chips name the filters and take one off; Clear filters takes them all.
-    expect(h.$$('[data-chip]').map((c) => c.dataset.chip)).toEqual(['contents:assemblies', 'keyword:pcb', 'units:metric', 'license:MIT']);
+    expect(h.$$('[data-chip]').map((c) => c.dataset.chip)).toEqual(['contents:assemblies', 'units:metric', 'license:MIT']);
     h.$('[data-chip="units:metric"] button')!.click();
     await settle();
     expect(h.lastParams().units).toEqual([]);
     h.$('[data-ref="clear-filters"]')!.click();
     await settle();
-    expect(h.lastParams()).toMatchObject({ contents: [], keyword: [], units: [], license: [] });
+    expect(h.lastParams()).toMatchObject({ contents: [], units: [], license: [] });
     // No compatibility toggle and no Creates/Modifies chips (decision 2; H9's design).
     expect(h.view.el.textContent).not.toMatch(/Works with my FluidCAD|Creates|Modifies/);
   });
@@ -202,6 +206,45 @@ describe('the rows', () => {
     expect(row.querySelector('[data-ref="license"]')!.textContent).toBe('MIT');
     row.click();
     expect(h.onOpen).toHaveBeenCalledWith('@acme/feature-tests');
+  });
+
+  it("opens from its button for the keyboard, and its @scope is a button of its own that lists the publisher and doesn't open the package", async () => {
+    const h = mount();
+    h.state.search();
+    await settle();
+    const row = h.row('@acme/feature-tests');
+    const open = row.querySelector<HTMLButtonElement>('[data-ref="open"]')!;
+    expect(open.getAttribute('aria-label')).toBe('Open @acme/feature-tests');
+    open.click();
+    expect(h.onOpen).toHaveBeenCalledTimes(1);
+    const scope = row.querySelector<HTMLButtonElement>('[data-ref="name"] [data-ref="publisher"]')!;
+    expect(scope.tagName).toBe('BUTTON');
+    expect(scope.textContent).toBe('@acme');
+    expect(row.querySelector('[data-ref="name"]')!.textContent).toBe('@acme/feature-tests');
+    scope.click();
+    expect(h.onPublisher).toHaveBeenCalledWith('acme');
+    expect(h.onOpen).toHaveBeenCalledTimes(1);
+    // Keyboard: Enter on the focused scope is the button's own click.
+    scope.focus();
+    expect(document.activeElement).toBe(scope);
+  });
+
+  it('showPublisher: the search for @handle, every filter cleared, page 1, the sort and its direction kept', async () => {
+    const h = mount();
+    h.state.setQuery('gear');
+    h.state.setSort('updated');
+    h.state.flipOrder();
+    h.state.toggle('contents', 'parts');
+    h.state.toggle('license', 'MIT');
+    h.state.setPage(3);
+    await settle();
+    h.state.showPublisher('bea-tools');
+    await settle();
+    expect(h.lastParams()).toEqual({ q: '@bea-tools', contents: [], units: [], license: [], sort: 'updated', order: 'asc', page: 1 });
+    expect(h.$<HTMLInputElement>('[data-ref="query"]')!.value).toBe('@bea-tools');
+    expect(h.$$('[data-chip]')).toHaveLength(0);
+    // No debounce: it searched at once.
+    expect(h.timers.pending).toHaveLength(0);
   });
 
   it('marks installed, pinned, update available, Deprecated with its message, and why an incompatible one cannot run (decision 3)', async () => {

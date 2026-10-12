@@ -16,3 +16,19 @@
  * engine releases that leave the SDK alone never strand a package.
  */
 export const SDK_VERSION = 1;
+
+/**
+ * The first FluidCAD version whose engine speaks {@link SDK_VERSION}: the
+ * lowest `minEngine` a package packed against this SDK may declare.
+ * `fluidcad pack` refuses an older one, so a package's `minEngine` alone
+ * says which FluidCAD it needs (hub-plan H11 decision 3: the SDK ships
+ * with the engine, so "Requires FluidCAD X+" is the one message an
+ * incompatible package needs).
+ *
+ * Set it to the new engine's version whenever `SDK_VERSION` is bumped. For
+ * SDK 1 it is 0.0.45: the branch's engines reported 0.0.45 when the
+ * `fluidcad/sdk` surface (the `Feature` base, `registerBuilder` metadata)
+ * first appeared on 2026-10-03, before `SDK_VERSION` named it on
+ * 2026-10-09, and every package packed since declares 0.0.45 or later.
+ */
+export const SDK_SINCE = '0.0.45';

@@ -3419,7 +3419,7 @@ export type components = {
         SearchResult: {
             /** @description The card image (a screenshot the publisher chose), or null. */
             cardImageUrl: string | null;
-            /** @description Whether the engine the request named can run the latest version (HD13); null when the request named none. Show "needs FluidCAD minEngine+" only when false. */
+            /** @description Whether the engine the request named can run the latest version (HD13); null when the request named none. When false, say why: "needs FluidCAD minEngine+" when `minEngine` is above the engine, else "needs feature SDK sdkVersion" when `sdkVersion` differs from the engine's. */
             compatible: boolean | null;
             counts: {
                 assemblies: number;
@@ -3450,6 +3450,8 @@ export type components = {
             };
             /** @description The publisher's handle. */
             scope: string;
+            /** @description The feature SDK the latest version was built for: an engine runs it only with this SDK (HD13). */
+            sdkVersion: number;
             /** @description When the latest version was published. */
             updatedAt: string;
             /** @description The latest version (HD11): what an install by name gets. */

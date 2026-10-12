@@ -27,14 +27,13 @@ function answer(results: HubBridgeSearchResult[], options: Parameters<typeof Sea
 }
 
 describe('HubSearchQuery', () => {
-  it("reads the panel's query in the hub's names, the lists as repeated keys, and ignores the engine fields it sends", () => {
+  it("reads the panel's query in the hub's names, the lists as repeated keys, and ignores the engine fields and any keyword it sends", () => {
     const query = HubSearchQuery.fromParams(new URLSearchParams(
       'q=+gear+box+&contents=features&contents=parts&contents=features&keyword=pcb&units=metric&license=MIT&sort=updated&order=asc&page=3&limit=10&engine=1.0.0&sdk=9&compatible=true&includeIncompatible=0&other=x',
     ));
     expect(query.fields).toEqual({
       q: 'gear box',
       contents: ['features', 'parts'],
-      keyword: ['pcb'],
       units: ['metric'],
       license: ['MIT'],
       sort: 'updated',
@@ -45,8 +44,10 @@ describe('HubSearchQuery', () => {
   });
 
   it('sends this engine, every package (no compatible filter), no sort or order unless asked, in a fixed order', () => {
-    const params = HubSearchQuery.from({ q: '@acme standoff', keyword: ['a', 'b'], license: ['MIT', 'Apache-2.0'] }).hubParams('0.0.46', 1);
-    expect(params.toString()).toBe('q=%40acme+standoff&keyword=a&keyword=b&license=MIT&license=Apache-2.0&engine=0.0.46&sdk=1');
+    const params = HubSearchQuery.from({ q: '@acme standoff', contents: ['parts'], license: ['MIT', 'Apache-2.0'] }).hubParams('0.0.46', 1);
+    expect(params.toString()).toBe('q=%40acme+standoff&contents=parts&license=MIT&license=Apache-2.0&engine=0.0.46&sdk=1');
+    // Keywords only feed the hub's matching of the words (2026-10-12): no keyword filter is ever sent.
+    expect(HubSearchQuery.fromParams(new URLSearchParams('q=gear&keyword=pcb')).hubParams('0.0.46', 1).toString()).toBe('q=gear&engine=0.0.46&sdk=1');
     expect(HubSearchQuery.from().hubParams('0.0.46', 1).toString()).toBe('engine=0.0.46&sdk=1');
     // A panel that still sends the old toggle, or compatible itself, changes nothing.
     for (const extra of ['includeIncompatible=1', 'includeIncompatible=0', 'compatible=true']) {

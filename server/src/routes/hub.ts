@@ -31,7 +31,7 @@ export type HubRouterOptions = {
  * itself. `HubBridge` holds the rules; these routes are its HTTP face.
  *
  * - `GET /api/hub/status` → `{ hubUrl, reachable, signedIn: { handle } | null, engine, sdk }`.
- * - `GET /api/hub/search?q=&contents=&keyword=&units=&license=&sort=&order=&page=&limit=`:
+ * - `GET /api/hub/search?q=&contents=&units=&license=&sort=&order=&page=&limit=`:
  *   the hub's `SearchResponse` for this engine (every package; one this
  *   FluidCAD can't run comes `compatible: false`), each row with `local`
  *   marks, its images on the proxy paths and no avatar.

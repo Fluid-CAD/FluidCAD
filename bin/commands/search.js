@@ -13,6 +13,8 @@ import { loadPackages } from '../lib/packages.js';
  * (`requires FluidCAD X+`). No sort or direction is sent unless asked for:
  * the hub picks (best match with terms, most installed without, each in
  * its own direction). `@handle` among the terms keeps to one publisher.
+ * Keywords only feed the hub's matching of the terms (the user,
+ * 2026-10-12): there is no keyword filter.
  */
 class SearchCli {
   static async load() {
@@ -46,7 +48,6 @@ class SearchCli {
     const query = mods.HubSearchQuery.from({
       q: terms.join(' '),
       contents: SearchCli.commaList(opts.contents),
-      keyword: opts.keyword ?? [],
       units: opts.units ? [opts.units] : [],
       license: opts.license ?? [],
       sort: opts.sort ?? null,
@@ -74,7 +75,7 @@ class SearchCli {
     return (value ?? '').split(',').map((part) => part.trim()).filter((part) => part !== '');
   }
 
-  /** `--keyword` and `--license` repeat. */
+  /** `--license` repeats. */
   static collect(value, previous) {
     return [...(previous ?? []), value];
   }
@@ -99,7 +100,6 @@ export function registerSearchCommand(program) {
     .description("Search the FluidCAD hub for packages; ones this FluidCAD can't run are marked with why")
     .argument('[terms...]', 'Words to match (name, features, parts, keywords, description); @handle keeps to one publisher')
     .option('--contents <list>', 'Packages holding any of: features, parts, assemblies (comma list)')
-    .option('--keyword <word>', 'Packages with this keyword (repeat for any of several)', SearchCli.collect)
     .option('--units <system>', 'metric or imperial')
     .option('--license <spdx>', 'Packages under this license, such as MIT or Apache-2.0 (repeat for any of several)', SearchCli.collect)
     .option('--sort <sort>', 'relevance, installs, likes, updated or newest (default: the hub picks)')

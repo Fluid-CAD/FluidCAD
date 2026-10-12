@@ -193,7 +193,7 @@ describe('GET /api/hub/status', () => {
 });
 
 describe('GET /api/hub/search', () => {
-  it("forwards the panel's parameters as the hub names them, as repeated keys, with this engine and every package", async () => {
+  it("forwards the panel's parameters as the hub names them, as repeated keys, with this engine and every package, and no keyword filter", async () => {
     const base = await serve();
     const query = 'q=%40acme+standoff&contents=features&contents=parts&keyword=pcb&keyword=fasteners&units=metric&license=MIT&license=Apache-2.0&page=2&limit=5'
       + '&engine=9.9.9&sdk=7&compatible=true&includeIncompatible=0&avatar=1';
@@ -202,7 +202,8 @@ describe('GET /api/hub/search', () => {
     const sent = hub.searchQueries()[0];
     expect(sent.get('q')).toBe('@acme standoff');
     expect(sent.getAll('contents')).toEqual(['features', 'parts']);
-    expect(sent.getAll('keyword')).toEqual(['pcb', 'fasteners']);
+    // Keywords only feed the hub's matching (2026-10-12): a keyword the page sends is dropped.
+    expect(sent.has('keyword')).toBe(false);
     expect(sent.getAll('units')).toEqual(['metric']);
     expect(sent.getAll('license')).toEqual(['MIT', 'Apache-2.0']);
     expect(sent.get('page')).toBe('2');

@@ -125,7 +125,6 @@ describe('fluidcad search', () => {
     const run = await cli(tmp, [
       '@acme', 'standoff',
       '--contents', 'features,parts',
-      '--keyword', 'pcb', '--keyword', 'fasteners',
       '--units', 'metric',
       '--license', 'MIT', '--license', 'Apache-2.0',
       '--page', '2', '--limit', '5',
@@ -135,7 +134,7 @@ describe('fluidcad search', () => {
     const sent = hub.searchQueries()[0];
     expect(sent.get('q')).toBe('@acme standoff');
     expect(sent.getAll('contents')).toEqual(['features', 'parts']);
-    expect(sent.getAll('keyword')).toEqual(['pcb', 'fasteners']);
+    expect(sent.has('keyword')).toBe(false);
     expect(sent.getAll('units')).toEqual(['metric']);
     expect(sent.getAll('license')).toEqual(['MIT', 'Apache-2.0']);
     expect(sent.get('page')).toBe('2');
@@ -160,6 +159,17 @@ describe('fluidcad search', () => {
     const refused = await cli(tmp, ['--include-incompatible']);
     expect(refused.status).not.toBe(0);
     expect(refused.stderr).toContain("unknown option '--include-incompatible'");
+  });
+
+  it('has no --keyword (2026-10-12: keywords only feed the matching of the terms), in use or in --help', async () => {
+    const refused = await cli(tmp, ['gear', '--keyword', 'pcb']);
+    expect(refused.status).not.toBe(0);
+    expect(refused.stderr).toContain("unknown option '--keyword'");
+    expect(hub.searchQueries()).toHaveLength(0);
+    const help = await cli(tmp, ['--help']);
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain('--contents <list>');
+    expect(help.stdout).not.toContain('--keyword');
   });
 
   it('lists every package with its marks, why it is incompatible only when it is (requires FluidCAD X+, made for an older FluidCAD), deprecated, and the capped footer', async () => {

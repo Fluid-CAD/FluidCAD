@@ -5,9 +5,16 @@
  * `GET /api/v1/search` parameters it becomes.
  *
  * The fields are the hub's own names: `q`, then the repeated `contents`,
- * `keyword`, `units` and `license`, then `sort`, `order`, `page` and
- * `limit`. The bridge validates none of their values: the hub does, and its
- * 400 comes back with its sentence. What the bridge adds is the engine:
+ * `units` and `license`, then `sort`, `order`, `page` and `limit`. The
+ * bridge validates none of their values: the hub does, and its 400 comes
+ * back with its sentence.
+ *
+ * *(2026-10-12, user: keywords only feed search matching)* No `keyword`
+ * filter is sent, whoever asks for one: a package's keywords count only
+ * where the hub matches the typed words against them. The hub keeps its
+ * `keyword` parameter and facet, which FluidCAD doesn't use.
+ *
+ * What the bridge adds is the engine:
  * - `engine` (this FluidCAD's version) and `sdk` (its `SDK_VERSION`) are
  *   always sent, so every row says whether this FluidCAD runs it;
  * - **every package is listed** (H11 decision 2): no `compatible` filter is
@@ -18,13 +25,12 @@
  *   H13; each sort in its own direction, and Best match in its only one).
  */
 
-export type HubSearchList = 'contents' | 'keyword' | 'units' | 'license';
+export type HubSearchList = 'contents' | 'units' | 'license';
 
 export type HubSearchFields = {
   /** The words, with `@handle` for a publisher (`@acme standoff`); empty for none. */
   q: string;
   contents: string[];
-  keyword: string[];
   units: string[];
   license: string[];
   /** `relevance`, `installs`, `likes`, `updated` or `newest`; null leaves it to the hub. */
@@ -39,7 +45,7 @@ export type HubSearchFields = {
 
 export class HubSearchQuery {
   /** The repeated parameters, in the order they are sent. */
-  static readonly LISTS: readonly HubSearchList[] = ['contents', 'keyword', 'units', 'license'];
+  static readonly LISTS: readonly HubSearchList[] = ['contents', 'units', 'license'];
   /** The single-valued parameters, in the order they are sent. */
   static readonly SINGLES = ['sort', 'order', 'page', 'limit'] as const;
 
@@ -54,7 +60,6 @@ export class HubSearchQuery {
     return new HubSearchQuery({
       q: (fields.q ?? '').trim(),
       contents: HubSearchQuery.values(fields.contents),
-      keyword: HubSearchQuery.values(fields.keyword),
       units: HubSearchQuery.values(fields.units),
       license: HubSearchQuery.values(fields.license),
       sort: HubSearchQuery.single(fields.sort),
@@ -66,15 +71,14 @@ export class HubSearchQuery {
 
   /**
    * From the bridge's query string (`GET /api/hub/search?…`): the hub's
-   * names, the lists as repeated keys. Any other parameter (`engine`, `sdk`
-   * and `compatible` included) is ignored: the engine sends its own, and
-   * lists every package.
+   * names, the lists as repeated keys. Any other parameter (`engine`, `sdk`,
+   * `compatible` and `keyword` included) is ignored: the engine sends its
+   * own, lists every package and filters by no keyword.
    */
   static fromParams(params: URLSearchParams): HubSearchQuery {
     return HubSearchQuery.from({
       q: params.get('q') ?? '',
       contents: params.getAll('contents'),
-      keyword: params.getAll('keyword'),
       units: params.getAll('units'),
       license: params.getAll('license'),
       sort: params.get('sort'),

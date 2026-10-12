@@ -153,6 +153,21 @@ export class HubPackageView {
     this.body.scrollTop = scroll;
   }
 
+  /**
+   * The account the engine signs in with changed (a sign-in or a sign-out
+   * from the header): what the hub answered for the old one (an owner's
+   * open versions, each version read for the Features tab) is forgotten,
+   * and the package is read again when it is `showing`; a hidden one is
+   * read when it opens again.
+   */
+  accountChanged(showing: boolean): void {
+    this.versions.clear();
+    this.readmes.clear();
+    if (showing && this.name) {
+      void this.reload();
+    }
+  }
+
   /** `<hub>/@scope/name`, the package's page on the hub. */
   pageUrl(model?: string): string | null {
     const hub = this.deps.hubUrl();

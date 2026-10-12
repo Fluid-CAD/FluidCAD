@@ -49,7 +49,8 @@ const NOTE_BOX = 'border border-base-content/10 rounded-md px-3 py-2.5 text-xs l
  * - **Hub** (H11) shows which hub the engine talks to and who is signed
  *   in, read only: the address comes from `FLUIDCAD_HUB_URL` or the
  *   default, and signing in is the Hub panel's Sign in or `fluidcad login`
- *   in a terminal.
+ *   in a terminal (signing out, the Hub panel's account menu or
+ *   `fluidcad logout`).
  * - **Installed in my library** lists each package with its version,
  *   contents and size, with Remove (behind a confirmation: projects that use
  *   it will ask for it again). Packages install only from the hub (HD31):
@@ -287,7 +288,7 @@ export class PackagesTab implements SettingsTab {
         return span;
       };
       if (status?.signedIn) {
-        hint.append('From your credentials for this hub. ', mono('fluidcad logout'), ' in a terminal signs you out.');
+        hint.append('From your credentials for this hub. Sign out from your handle in the Hub panel, or with ', mono('fluidcad logout'), ' in a terminal.');
       } else {
         hint.append('Sign in from the Hub panel, or with ', mono('fluidcad login'), ' in a terminal. Searching and installing work without it.');
       }

@@ -8,6 +8,7 @@ import iconCloudOff from '@tabler/icons/outline/cloud-off.svg?raw';
 import iconRefresh from '@tabler/icons/outline/refresh.svg?raw';
 import iconUser from '@tabler/icons/outline/user.svg?raw';
 import iconLogin from '@tabler/icons/outline/login-2.svg?raw';
+import iconLogout from '@tabler/icons/outline/logout-2.svg?raw';
 import iconSortAscending from '@tabler/icons/outline/sort-ascending.svg?raw';
 import iconSortDescending from '@tabler/icons/outline/sort-descending.svg?raw';
 import iconBox from '@tabler/icons/outline/box.svg?raw';
@@ -35,6 +36,7 @@ export class HubIcons {
   static readonly REFRESH = iconRefresh;
   static readonly USER = iconUser;
   static readonly SIGN_IN = iconLogin;
+  static readonly SIGN_OUT = iconLogout;
   static readonly SORT_ASC = iconSortAscending;
   static readonly SORT_DESC = iconSortDescending;
   static readonly BOX = iconBox;

@@ -196,7 +196,7 @@ describe('Settings → Packages: the hub (H11)', () => {
     await settle();
     expect(h.ref('hub-url').textContent).toBe('https://hub.fluidcad.io');
     expect(h.ref('hub-account').textContent!.trim()).toBe('Signed in as @acme');
-    expect(h.ref('hub-hint').textContent).toContain('fluidcad logout');
+    expect(h.ref('hub-hint').textContent).toContain('Sign out from your handle in the Hub panel, or with fluidcad logout in a terminal.');
     expect(h.ref('hub').querySelector('input, select, textarea')).toBeNull();
   });
 

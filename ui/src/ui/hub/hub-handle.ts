@@ -1,8 +1,9 @@
 /**
  * A publisher's handle as a control (H11 follow-up 2, the user's request of
- * 2026-10-12): `@acme` wherever the Hub panel shows a handle (a result's
- * scope, a package's byline, the signed-in account) lists that publisher's
- * packages, which is the search for `@acme`.
+ * 2026-10-12): `@acme` where the Hub panel shows a publisher (a result's
+ * scope, a package's byline) lists that publisher's packages, which is the
+ * search for `@acme`. Your own handle in the header is not one: it opens
+ * the account's menu (H11 follow-up 3).
  *
  * It is a real button, so Tab reaches it and Enter or Space presses it, and
  * its click stops at it: a result row around it doesn't open its package

@@ -3,6 +3,7 @@ import type {
   HubClient,
   HubInspection,
   HubLoginState,
+  HubLogoutResult,
   HubPackage,
   HubResult,
   HubSearchAnswer,
@@ -36,6 +37,12 @@ export class FakeHubClient implements HubClient {
   loginRefusal: { status: number; error: string; code?: string } | null = null;
   /** Whether a cancel finds the browser already back (the engine keeps it pending). */
   cancelTooLate = false;
+  /** What the next `logout()` answers beyond the defaults (the outcome, `envToken`…). */
+  logoutResult: Partial<HubLogoutResult> = {};
+  /** A refusal the next `logout()` answers (the engine didn't sign out). */
+  logoutRefusal: { status: number; error: string; code?: string } | null = null;
+  /** While set, `logout()` waits for it: the test sees "Signing out…". */
+  logoutGate: Promise<void> | null = null;
   private logins = 0;
   /** Searches wait for {@link releaseSearches} while set. */
   holdSearches = false;
@@ -110,6 +117,31 @@ export class FakeHubClient implements HubClient {
       this.endLogin({ status: 'cancelled', error: 'Sign-in cancelled. Nothing was saved.' });
     }
     return { ok: true, login: this.loginValue ? { ...this.loginValue } : null };
+  });
+
+  /** The engine signs out as `fluidcad logout` does: the status is signed out after, unless FLUIDCAD_HUB_TOKEN still signs in. */
+  logout = vi.fn(async (): Promise<HubResult<{ logout: HubLogoutResult }>> => {
+    if (this.logoutGate) {
+      await this.logoutGate;
+    }
+    if (this.logoutRefusal) {
+      return { ok: false, ...this.logoutRefusal };
+    }
+    const signedIn = this.statusValue.signedIn;
+    const logout: HubLogoutResult = {
+      hub: this.statusValue.hubUrl,
+      outcome: signedIn ? 'revoked' : 'not-signed-in',
+      handle: signedIn?.handle ?? null,
+      email: null,
+      reason: null,
+      unreachable: false,
+      envToken: false,
+      ...this.logoutResult,
+    };
+    if (!logout.envToken) {
+      this.statusValue = { ...this.statusValue, signedIn: null };
+    }
+    return { ok: true, logout };
   });
 
   /** The engine's sign-in ends as `outcome` says (the browser came back, the time ran out…). */

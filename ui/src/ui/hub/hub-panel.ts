@@ -52,11 +52,12 @@ const MOBILE_BREAKPOINT = 640;
  *
  * The header says "FluidCAD Hub" (the address is in Settings → Packages)
  * and who is signed in, with Sign in when nobody is ({@link HubAccount}:
- * `fluidcad login`'s flow, run by the engine). Below it, the search
- * ({@link HubSearchView}) or a package ({@link HubPackageView}), whose
- * Results control comes back to the search where it was. Every publisher
- * handle (a result's `@scope`, a package's byline, the signed-in account)
- * lists that publisher's packages ({@link showPublisher}).
+ * `fluidcad login`'s flow, run by the engine); your own handle there opens
+ * the account's menu with Sign out (`fluidcad logout`'s). Below it, the
+ * search ({@link HubSearchView}) or a package ({@link HubPackageView}),
+ * whose Results control comes back to the search where it was. A
+ * publisher's handle in a result (`@scope`) or a package's byline lists
+ * that publisher's packages ({@link showPublisher}).
  */
 export class HubPanel {
   readonly el: HTMLElement;
@@ -102,8 +103,8 @@ export class HubPanel {
     this.account = new HubAccount({
       hub: deps.hub,
       openExternal: (url) => deps.openExternal(url),
-      onPublisher: (handle) => this.showPublisher(handle),
       onSignedIn: () => this.signedIn(),
+      onSignedOut: () => this.signedOut(),
       hubHost: () => this.host(),
       timers: deps.timers,
     });
@@ -298,9 +299,22 @@ export class HubPanel {
   /** A sign-in from the header finished: the status names the handle; an open package is read again (an owner sees more). */
   private signedIn(): void {
     void this.refreshStatus();
-    if (this.view === 'package') {
-      void this.detail.reload();
-    }
+    this.accountChanged();
+  }
+
+  /** Signed out from the header: the status says so; an open package is read again (an owner saw more). */
+  private async signedOut(): Promise<void> {
+    this.accountChanged();
+    await this.refreshStatus();
+  }
+
+  /**
+   * The engine signs the hub's requests as someone else now. The results
+   * are anonymous (the bridge searches without the token), so only a
+   * package's detail and its versions are read again.
+   */
+  private accountChanged(): void {
+    this.detail.accountChanged(this.view === 'package');
   }
 
   private host(): string | null {

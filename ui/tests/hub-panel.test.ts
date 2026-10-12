@@ -9,11 +9,12 @@ import { FakePackagesClient, settle } from './fixtures/fake-packages-client';
 
 // The Hub panel as the page mounts it (hub-plan H11): one slot with the
 // code editor (decision 5), the header ("FluidCAD Hub" and who is signed
-// in, with Sign in when nobody is: H11 follow-up 2), the search → package →
-// Results round trip, the marks read again after an install, every
-// publisher handle listing that publisher's packages; then the
-// missing-package banner's Install from the hub (consent, never the panel)
-// and links leaving through the host.
+// in, with Sign in when nobody is: H11 follow-up 2; your handle opening the
+// account's menu with Sign out: H11 follow-up 3), the search → package →
+// Results round trip, the marks read again after an install, a publisher's
+// handle in a result or a byline listing that publisher's packages; then
+// the missing-package banner's Install from the hub (consent, never the
+// panel) and links leaving through the host.
 
 const panels: HubPanel[] = [];
 
@@ -202,7 +203,7 @@ describe('signing in from the header (H11 follow-up 2)', () => {
     await h.timers.fire();
     expect(h.hub.status.mock.calls.length).toBe(statusReads + 1);
     expect(h.account().dataset.state).toBe('signed-in');
-    expect(h.$('[data-ref="account"] [data-ref="publisher"]')!.textContent).toBe('@acme');
+    expect(h.$('[data-ref="account-button"] [data-ref="account-handle"]')!.textContent).toBe('@acme');
     expect(h.strip().classList.contains('hidden')).toBe(true);
     // Nothing more to follow.
     expect(h.timers.pending).toHaveLength(0);
@@ -351,11 +352,251 @@ describe('publisher handles list their packages (H11 follow-up 2)', () => {
     expect(h.$('[data-role="hub-package"]')!.classList.contains('hidden')).toBe(true);
   });
 
-  it("the signed-in handle in the header lists the account's own packages", async () => {
+  it("the header's own handle is not one of them: it lists nothing", async () => {
     const h = await filtered();
-    h.$<HTMLButtonElement>('[data-ref="account"] [data-ref="publisher"]')!.click();
+    const searches = h.hub.search.mock.calls.length;
+    expect(h.$('[data-ref="account"] [data-ref="publisher"]')).toBeNull();
+    h.$<HTMLButtonElement>('[data-ref="account-button"]')!.click();
     await settle();
-    expectPublisherSearch(h, 'bea-tools');
+    expect(h.hub.search.mock.calls.length).toBe(searches);
+    expect(h.$<HTMLInputElement>('[data-ref="query"]')!.value).toBe('');
+    h.panel.destroy();
+  });
+});
+
+describe('your handle opens the account menu, with Sign out (H11 follow-up 3)', () => {
+  async function signedIn(handle = 'acme') {
+    const hub = new FakeHubClient();
+    hub.statusValue = FakeHubClient.status({ signedIn: { handle } });
+    const h = mount(hub);
+    h.panel.show();
+    await settle();
+    const button = () => h.$<HTMLButtonElement>('[data-ref="account-button"]')!;
+    const menu = () => h.$('[data-ref="account-menu"]');
+    const signOut = () => h.$<HTMLButtonElement>('[data-ref="account-menu"] [data-ref="sign-out"]')!;
+    return { ...h, button, menu, signOut };
+  }
+
+  function key(target: EventTarget, key: string): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  it('the handle is a menu button: a click opens Sign out with the focus on it, a second click closes it', async () => {
+    const h = await signedIn();
+    const button = h.button();
+    expect(words(button)).toBe('@acme');
+    expect(button.getAttribute('aria-haspopup')).toBe('menu');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(button.title).toBe('Signed in to localhost:8787 as @acme');
+    expect(h.menu()).toBeNull();
+
+    button.click();
+    expect(h.menu()!.getAttribute('role')).toBe('menu');
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    const items = h.menu()!.querySelectorAll('[role="menuitem"]');
+    expect([...items].map((item) => words(item))).toEqual(['Sign out']);
+    expect(document.activeElement).toBe(h.signOut());
+    expect(h.signOut().title).toBe('Revokes this computer’s token on localhost:8787 and forgets it');
+
+    button.click();
+    expect(h.menu()).toBeNull();
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(h.hub.logout).not.toHaveBeenCalled();
+  });
+
+  it('Escape closes it, hands the focus back to the handle and goes no further; a press outside closes it too', async () => {
+    const h = await signedIn();
+    const beyond = vi.fn();
+    document.addEventListener('keydown', beyond);
+    try {
+      h.button().click();
+      const escape = key(h.signOut(), 'Escape');
+      expect(escape.defaultPrevented).toBe(true);
+      expect(beyond).not.toHaveBeenCalled();
+      expect(h.menu()).toBeNull();
+      expect(document.activeElement).toBe(h.button());
+      expect(h.button().getAttribute('aria-expanded')).toBe('false');
+
+      // Closed, Escape is the page's again.
+      key(h.button(), 'Escape');
+      expect(beyond).toHaveBeenCalledTimes(1);
+    } finally {
+      document.removeEventListener('keydown', beyond);
+    }
+
+    h.button().click();
+    h.$('[data-ref="query"]')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(h.menu()).toBeNull();
+    expect(h.hub.logout).not.toHaveBeenCalled();
+  });
+
+  it('the keyboard: ArrowDown on the handle opens it, the arrows stay on its rows, Tab closes it', async () => {
+    const h = await signedIn();
+    h.button().focus();
+    expect(key(h.button(), 'ArrowDown').defaultPrevented).toBe(true);
+    expect(h.menu()).not.toBeNull();
+    expect(document.activeElement).toBe(h.signOut());
+    for (const name of ['ArrowDown', 'ArrowUp', 'End', 'Home']) {
+      expect(key(h.signOut(), name).defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(h.signOut());
+    }
+    key(h.signOut(), 'Tab');
+    expect(h.menu()).toBeNull();
+    expect(h.hub.logout).not.toHaveBeenCalled();
+  });
+
+  it('a status read landing while it shows keeps it open under the new button, the focus where it was', async () => {
+    const h = await signedIn();
+    // Opened again: the last status shows at once, the new one is still on its way.
+    h.panel.close();
+    let release!: () => void;
+    h.hub.status.mockImplementationOnce(() => new Promise((resolve) => {
+      release = () => resolve({ ok: true, status: h.hub.statusValue });
+    }));
+    h.panel.show();
+    const before = h.button();
+    before.click();
+    expect(document.activeElement).toBe(h.signOut());
+    release();
+    await settle();
+    expect(h.button()).not.toBe(before);
+    expect(h.menu()!.parentElement).toBe(h.account());
+    expect(h.button().getAttribute('aria-expanded')).toBe('true');
+    expect(document.activeElement).toBe(h.signOut());
+  });
+
+  it('the focus leaving it closes it, and the search field keeps its keys', async () => {
+    const h = await signedIn();
+    h.button().click();
+    const query = h.$<HTMLInputElement>('[data-ref="query"]')!;
+    query.focus();
+    expect(h.menu()).toBeNull();
+    h.button().click();
+    // A redrawn header drops the focus to nowhere: still open.
+    h.signOut().blur();
+    expect(h.menu()).not.toBeNull();
+    // The rows' keys are the rows' only: the search field keeps Home and End.
+    for (const name of ['Home', 'End', 'ArrowDown']) {
+      expect(key(query, name).defaultPrevented).toBe(false);
+    }
+    expect(h.menu()).not.toBeNull();
+    h.button().click();
+    expect(h.menu()).toBeNull();
+  });
+
+  it('Sign out: "Signing out…", then Sign in, and an open package is read again for nobody', async () => {
+    const h = await signedIn();
+    h.hub.versions.set('@acme/feature-tests@0.1.1', FakeHubClient.version());
+    await h.panel.openPackage('@acme/feature-tests');
+    await settle();
+    // A feature's parameters, read with the account's token.
+    h.$<HTMLButtonElement>('[data-feature="fastener"] button')!.click();
+    await settle();
+    expect(h.hub.version).toHaveBeenCalledTimes(1);
+    const packageReads = h.hub.package.mock.calls.length;
+    let release!: () => void;
+    h.hub.logoutGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    h.button().click();
+    h.signOut().click();
+    await settle();
+    expect(h.menu()).toBeNull();
+    expect(h.hub.logout).toHaveBeenCalledTimes(1);
+    expect(h.account().dataset.state).toBe('signing-out');
+    expect(words(h.account())).toBe('Signing out…');
+    expect(h.$('[data-ref="account-button"]')).toBeNull();
+
+    const statusReads = h.hub.status.mock.calls.length;
+    release();
+    await settle();
+    expect(h.hub.status.mock.calls.length).toBe(statusReads + 1);
+    expect(h.account().dataset.state).toBe('signed-out');
+    expect(words(h.account())).toBe('Sign in');
+    expect(h.strip().classList.contains('hidden')).toBe(true);
+    expect(h.hub.package.mock.calls.length).toBe(packageReads + 1);
+    expect(h.panel.currentView).toBe('package');
+    // The open feature's version is read again, not answered from what the account saw.
+    expect(h.hub.version).toHaveBeenCalledTimes(2);
+    expect(h.$('[data-feature="fastener"] [data-param]')).not.toBeNull();
+    // Nothing was searched for the account.
+    expect(h.hub.search.mock.calls.every(([params]) => params.q === '')).toBe(true);
+  });
+
+  it("a token the hub couldn't revoke is said, with no Try again", async () => {
+    for (const [result, text] of [
+      [
+        { outcome: 'not-revoked', unreachable: true, reason: 'Couldn’t reach http://localhost:8787: connect ECONNREFUSED.' },
+        'Signed out on this computer, but localhost:8787 didn’t answer, so the token wasn’t revoked. It stays valid on the hub until it’s revoked there or goes unused for a year.',
+      ],
+      [
+        { outcome: 'not-revoked', unreachable: false, reason: 'http://localhost:8787 answered with HTTP 403.' },
+        'Signed out on this computer, but localhost:8787 didn’t revoke the token: http://localhost:8787 answered with HTTP 403. It stays valid on the hub until it’s revoked there or goes unused for a year.',
+      ],
+    ] as const) {
+      const h = await signedIn();
+      h.hub.logoutResult = result;
+      h.button().click();
+      h.signOut().click();
+      await settle();
+      expect(words(h.account())).toBe('Sign in');
+      expect(h.strip().dataset.state).toBe('ended');
+      expect(h.$('[data-ref="sign-in-notice"]')!.textContent).toBe(text);
+      expect(h.strip().querySelector('.text-warning')).not.toBeNull();
+      expect(h.$('[data-ref="sign-in-retry"]')).toBeNull();
+      h.$<HTMLButtonElement>('[data-ref="sign-in-dismiss"]')!.click();
+      expect(h.strip().classList.contains('hidden')).toBe(true);
+    }
+  });
+
+  it('FLUIDCAD_HUB_TOKEN still signing in is said, and the header still shows who', async () => {
+    const h = await signedIn();
+    h.hub.logoutResult = { envToken: true };
+    h.button().click();
+    h.signOut().click();
+    await settle();
+    expect(h.account().dataset.state).toBe('signed-in');
+    expect(h.$('[data-ref="sign-in-notice"]')!.textContent).toBe(
+      'FLUIDCAD_HUB_TOKEN is still set where FluidCAD runs, so it still signs in with that token. Unset it and restart FluidCAD to stop.',
+    );
+    expect(h.$('[data-ref="sign-in-retry"]')).toBeNull();
+  });
+
+  it("an engine that didn't sign out leaves you signed in, and says so", async () => {
+    const h = await signedIn();
+    h.hub.logoutRefusal = { status: 0, error: 'The engine didn’t answer: Failed to fetch' };
+    const statusReads = h.hub.status.mock.calls.length;
+    h.button().click();
+    h.signOut().click();
+    await settle();
+    expect(h.account().dataset.state).toBe('signed-in');
+    expect(words(h.button())).toBe('@acme');
+    expect(h.hub.status.mock.calls.length).toBe(statusReads);
+    expect(h.$('[data-ref="sign-in-notice"]')!.textContent).toBe('Couldn’t sign out: The engine didn’t answer: Failed to fetch');
+    expect(h.strip().querySelector('.text-error')).not.toBeNull();
+    expect(h.$('[data-ref="sign-in-retry"]')).toBeNull();
+  });
+
+  it('an account without a handle yet still gets the menu', async () => {
+    const hub = new FakeHubClient();
+    hub.statusValue = FakeHubClient.status({ signedIn: { handle: null } });
+    const h = mount(hub);
+    h.panel.show();
+    await settle();
+    const button = h.$<HTMLButtonElement>('[data-ref="account-button"]')!;
+    expect(words(button)).toBe('Signed in');
+    button.click();
+    expect(h.$('[data-ref="account-menu"] [data-ref="sign-out"]')).not.toBeNull();
+    h.panel.destroy();
+    // Destroyed with the menu open: it leaves no listener behind.
+    const beyond = vi.fn();
+    document.addEventListener('keydown', beyond);
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    document.removeEventListener('keydown', beyond);
+    expect(beyond).toHaveBeenCalledTimes(1);
   });
 });
 

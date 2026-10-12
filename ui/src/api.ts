@@ -6927,6 +6927,23 @@ export type HubLoginState = {
 };
 
 /**
+ * `POST api/hub/logout` (H11 follow-up 3): signing out from the app, run by
+ * the engine as `fluidcad logout` runs it. The saved credentials are gone
+ * whatever the outcome; `not-revoked` says the hub couldn't revoke the
+ * token (`reason`; `unreachable` when it didn't answer rather than
+ * refused), and `envToken` that `FLUIDCAD_HUB_TOKEN` still signs requests.
+ */
+export type HubLogoutResult = {
+  hub: string;
+  outcome: 'revoked' | 'already-revoked' | 'not-revoked' | 'not-signed-in';
+  handle: string | null;
+  email: string | null;
+  reason: string | null;
+  unreachable: boolean;
+  envToken: boolean;
+};
+
+/**
  * The bridge's routes as one object the Hub panel is handed (tests give it
  * a fake, `ui/tests/fixtures/fake-hub-client.ts`). Like the packages client,
  * every call answers a result rather than throwing; an aborted search
@@ -6946,6 +6963,8 @@ export interface HubClient {
   loginState(): Promise<HubResult<{ login: HubLoginState | null }>>;
   /** Stop the waiting sign-in. */
   cancelLogin(): Promise<HubResult<{ login: HubLoginState | null }>>;
+  /** Sign this computer out of the hub: the saved token revoked there, then forgotten. */
+  logout(): Promise<HubResult<{ logout: HubLogoutResult }>>;
 }
 
 /** {@link HubClient} over the engine's `/api/hub/*` routes. */
@@ -7036,6 +7055,11 @@ export class HttpHubClient implements HubClient {
   async cancelLogin(): Promise<HubResult<{ login: HubLoginState | null }>> {
     const answer = await HttpHubClient.send('api/hub/login', { method: 'DELETE' });
     return answer.ok === false ? answer : { ok: true, login: (answer.body as { login: HubLoginState | null }).login };
+  }
+
+  async logout(): Promise<HubResult<{ logout: HubLogoutResult }>> {
+    const answer = await HttpHubClient.send('api/hub/logout', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+    return answer.ok === false ? answer : { ok: true, logout: (answer.body as { logout: HubLogoutResult }).logout };
   }
 
   /** The panel's parameters as the bridge reads them: repeated keys for the lists, defaults left out. */

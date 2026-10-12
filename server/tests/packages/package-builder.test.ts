@@ -13,6 +13,7 @@ import { PackageLayout } from '../../src/packages/package-manifest.ts';
 import { PackageName } from '../../src/packages/package-name.ts';
 import { PackageAuthoring } from '../../src/packages/package-authoring.ts';
 import { TreeHash } from '../../src/packages/tree-hash.ts';
+import { SDK_SINCE } from '../../../lib/dist/sdk/version.js';
 
 // `fluidcad pack` (research §2) over a package workspace in the package
 // layout (HD20): a copy of fixtures/package-workspace — two feature modules
@@ -322,10 +323,11 @@ describe('packing a package workspace', () => {
   });
 
   it('takes minEngine from the block over the engine pin, and the packing engine when neither is set', async () => {
+    // SDK_SINCE itself is the lowest a package for this SDK may declare.
     editPackage((block) => {
-      block.minEngine = '0.0.40';
+      block.minEngine = SDK_SINCE;
     });
-    expect((await pack()).manifest.minEngine).toBe('0.0.40');
+    expect((await pack()).manifest.minEngine).toBe(SDK_SINCE);
 
     const config = readConfig();
     delete config.engine;
@@ -442,6 +444,28 @@ describe('the package layout: the folders decide the exports (HD20)', () => {
 });
 
 describe('what pack refuses', () => {
+  it('a minEngine older than the first FluidCAD of the SDK it is packed against (SDK_SINCE), from the block or the engine pin, before evaluating anything', async () => {
+    expect(SDK_SINCE).toBe('0.0.45');
+    editPackage((block) => {
+      block.minEngine = '0.0.40';
+    });
+    const fromBlock = await refusal();
+    expect(fromBlock).toBe(
+      '@acme/kit can\'t declare its "minEngine" 0.0.40 (fluidcad.json\'s package block): it is packed against feature SDK 1, ' +
+        'which FluidCAD 0.0.45 introduced, so no older FluidCAD can load it. Set "minEngine" in the package block to 0.0.45 or later, then pack again.',
+    );
+
+    const config = readConfig();
+    delete config.package.minEngine;
+    config.engine = '0.0.44';
+    write('fluidcad.json', JSON.stringify(config, null, 2));
+    const scans = vi.fn();
+    const fromPin = await refusal({ engine: { describeMissingEngine: () => null, scanFeaturesInFile: scans, scanPartsInFile: scans } });
+    expect(fromPin).toContain('its minEngine 0.0.44 (taken from fluidcad.json\'s "engine" pin, as the package block sets none)');
+    expect(fromPin).toContain('Set "minEngine" in the package block to 0.0.45 or later');
+    expect(scans).not.toHaveBeenCalled();
+  });
+
   it('a workspace with no package block', async () => {
     const config = readConfig();
     delete config.package;

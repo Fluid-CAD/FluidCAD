@@ -168,6 +168,18 @@ describe('fluidcad pack', () => {
     );
   });
 
+  it('refuses a minEngine older than the first FluidCAD of its feature SDK, naming both, and writes nothing', () => {
+    const config = JSON.parse(fs.readFileSync(path.join(workspace, 'fluidcad.json'), 'utf8'));
+    config.package.minEngine = '0.0.40';
+    fs.writeFileSync(path.join(workspace, 'fluidcad.json'), JSON.stringify(config));
+    const before = listing();
+    const run = cli(['pack']);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('"minEngine" 0.0.40');
+    expect(run.stderr).toContain('feature SDK 1, which FluidCAD 0.0.45 introduced');
+    expect(listing()).toEqual(before);
+  });
+
   it('--json prints the archive and its contents by folder', () => {
     const run = cli(['pack', '--json', '-o', scratch]);
 

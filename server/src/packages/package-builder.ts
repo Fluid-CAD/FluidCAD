@@ -15,7 +15,7 @@ import { FeatureModules } from '../feature-catalog/walk.ts';
 import type { FeatureScanResult } from '../feature-catalog/scan.ts';
 import type { PartScanResult } from '../part-catalog/scan.ts';
 import { listFeatureAssets } from '../../../lib/dist/index.js';
-import { SDK_VERSION } from '../../../lib/dist/sdk/version.js';
+import { SDK_SINCE, SDK_VERSION } from '../../../lib/dist/sdk/version.js';
 import { EsbuildPlugins } from './esbuild-plugins.ts';
 import { InProcessEngine } from './in-process-engine.ts';
 import { ModuleClosure } from './module-closure.ts';
@@ -101,9 +101,10 @@ export async function packPackage(inputs: PackPackageInputs): Promise<PackPackag
  * `fluidcad.json` (`unit`, `materials`) and `manifest.json`.
  *
  * Every check is a refusal ({@link PackageBuildError}) naming the file:
- * 1. the `package` block is valid; no module sits in the wrong folder for
- *    its suffix (`wrong-folder`), and the folders hold something to export
- *    (`no-exports`);
+ * 1. the `package` block is valid, and its `minEngine` is no older than
+ *    the first FluidCAD of the SDK it is packed against (`SDK_SINCE`); no
+ *    module sits in the wrong folder for its suffix (`wrong-folder`), and
+ *    the folders hold something to export (`no-exports`);
  * 2. every export module evaluates in the engine;
  * 3. no name is exported twice, and no feature id is declared twice (ids are plain, keyed by the package at load);
  * 4. every exported part and assembly builds with its defaults, no object in error;
@@ -161,6 +162,7 @@ export class PackageBuilder {
   }
 
   private async build(): Promise<PackPackageResult> {
+    this.checkMinEngine();
     const exports = this.exports();
     const closure = await this.closure(exports);
     this.checkLiveBuffers(closure);
@@ -179,8 +181,48 @@ export class PackageBuilder {
   }
 
   // ---------------------------------------------------------------------------
-  // Check 1: the layout and the exports
+  // Check 1: the block's engine floor, the layout and the exports
   // ---------------------------------------------------------------------------
+
+  /**
+   * The lowest engine the package supports, and where that came from: the
+   * block's `minEngine`, else the workspace's engine pin, else the packing
+   * engine.
+   */
+  private minEngine(): { version: string; from: 'block' | 'pin' | 'engine' } {
+    if (this.info.minEngine !== undefined) {
+      return { version: this.info.minEngine, from: 'block' };
+    }
+    if (Semver.isValid(this.config.engine)) {
+      return { version: this.config.engine, from: 'pin' };
+    }
+    return { version: this.inputs.fluidcadVersion, from: 'engine' };
+  }
+
+  /**
+   * A package packed against feature SDK N runs on no FluidCAD older than
+   * SDK N's first one (`SDK_SINCE`), so a `minEngine` below it would claim
+   * engines that can't load it, and an incompatible package would read
+   * "Requires FluidCAD 0.0.40+" on a FluidCAD it can't run on either
+   * (hub-plan H11 decision 3). Refused before anything is evaluated.
+   */
+  private checkMinEngine(): void {
+    const { version, from } = this.minEngine();
+    const floor = Semver.parse(SDK_SINCE);
+    const declared = Semver.parse(version);
+    if (!floor || !declared || Semver.compare(declared, floor) >= 0) {
+      return;
+    }
+    const where = from === 'block'
+      ? `its "minEngine" ${version} (fluidcad.json's package block)`
+      : from === 'pin'
+        ? `its minEngine ${version} (taken from fluidcad.json's "engine" pin, as the package block sets none)`
+        : `its minEngine ${version} (this FluidCAD's version)`;
+    throw new PackageBuildError(
+      `${this.info.name} can't declare ${where}: it is packed against feature SDK ${SDK_VERSION}, which FluidCAD ${SDK_SINCE} ` +
+        `introduced, so no older FluidCAD can load it. Set "minEngine" in the package block to ${SDK_SINCE} or later, then pack again.`,
+    );
+  }
 
   /** What the three folders export, refused when a module sits in the wrong one or none holds anything. */
   private exports(): string[] {
@@ -547,8 +589,7 @@ export class PackageBuilder {
       version: info.version,
       ...optional,
       engine: this.inputs.fluidcadVersion,
-      minEngine: info.minEngine
-        ?? (Semver.isValid(this.config.engine) ? this.config.engine : this.inputs.fluidcadVersion),
+      minEngine: this.minEngine().version,
       sdkVersion: SDK_VERSION,
       unit: this.config.unit ?? 'mm',
       fileUnits: await PackageBuilder.fileUnits(files),

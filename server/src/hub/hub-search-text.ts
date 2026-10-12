@@ -1,7 +1,7 @@
 import { Semver } from '../packages/semver.ts';
 import type { HubBridgeSearchResponse, HubBridgeSearchResult } from './hub-bridge.ts';
 
-/** The engine a search asked about (the answer's echoed `request`). */
+/** The engine a search asked about (the answer's echoed `request`: this engine's version and `SDK_VERSION`). */
 type AskedEngine = Pick<HubBridgeSearchResponse['request'], 'engine' | 'sdk'>;
 
 /**
@@ -16,13 +16,12 @@ type AskedEngine = Pick<HubBridgeSearchResponse['request'], 'engine' | 'sdk'>;
  *
  * The marks: `installed` (the row's version is here; other versions are
  * named), `pinned` (with the version when it isn't the row's) and `update
- * available` from the engine's local marks; `needs FluidCAD X+` only when
- * the hub says this FluidCAD can't run it (`compatible === false`); and
- * `deprecated: <message>`. A row this FluidCAD can't run although its
- * `minEngine` isn't above this engine was made for another feature SDK
- * (HD13's other rule), and says so instead: `needs another feature SDK
- * (this FluidCAD has 1)`, since the row doesn't carry the SDK it needs. The footer pages: `1–20 of 134 · --page 2 for
- * more`, with `1,000+` when the hub capped the count.
+ * available` from the engine's local marks; why this FluidCAD can't run it,
+ * only when the hub says so (`compatible === false`): `needs FluidCAD X+`,
+ * or `needs feature SDK N (this FluidCAD has M)` (see
+ * {@link incompatible}); and `deprecated: <message>`. The footer pages:
+ * `1–20 of 134 · --page 2 for more`, with `1,000+` when the hub capped the
+ * count.
  */
 export class HubSearchText {
   /** A description longer than this is cut, with an ellipsis. */
@@ -39,8 +38,8 @@ export class HubSearchText {
     return lines;
   }
 
-  /** One row's three lines (two when it has no description). */
-  static row(row: HubBridgeSearchResult, asked: AskedEngine | null = null): string[] {
+  /** One row's three lines (two when it has no description); `asked` is the engine the search named. */
+  static row(row: HubBridgeSearchResult, asked: AskedEngine): string[] {
     const head = [`${row.fullName} ${row.version}`, ...HubSearchText.marks(row, asked)].join(' · ');
     const lines = [head];
     const description = HubSearchText.oneLine(row.description);
@@ -58,8 +57,8 @@ export class HubSearchText {
     return lines;
   }
 
-  /** The marks after the name and version, in order. */
-  static marks(row: HubBridgeSearchResult, asked: AskedEngine | null = null): string[] {
+  /** The marks after the name and version, in order; `asked` is the engine the search named. */
+  static marks(row: HubBridgeSearchResult, asked: AskedEngine): string[] {
     const marks: string[] = [];
     const { installed, pinned, updateAvailable } = row.local;
     if (installed.length > 0) {
@@ -99,14 +98,24 @@ export class HubSearchText {
     return last < answer.total ? `${range} · --page ${answer.page + 1} for more` : range;
   }
 
-  /** `needs FluidCAD 0.0.99+`; for a row whose `minEngine` this engine meets, the SDK is what differs. */
-  private static incompatible(row: HubBridgeSearchResult, asked: AskedEngine | null): string {
+  /**
+   * Why the engine that asked can't run a row, by HD13's two rules in
+   * order: `needs FluidCAD 0.0.99+` when the row's `minEngine` is above that
+   * engine; else `needs feature SDK 2 (this FluidCAD has 1)` when the row's
+   * `sdkVersion` isn't that engine's SDK. When neither explains it (the
+   * echo lacks what the hub compared, or the row's `minEngine` isn't a
+   * version), the mark names no reason: `not compatible with this FluidCAD`.
+   */
+  private static incompatible(row: HubBridgeSearchResult, asked: AskedEngine): string {
     const needed = Semver.parse(row.minEngine);
-    const engine = Semver.parse(asked?.engine);
-    if (needed && engine && Semver.compare(needed, engine) <= 0) {
-      return asked?.sdk === null || asked?.sdk === undefined ? 'needs another feature SDK' : `needs another feature SDK (this FluidCAD has ${asked.sdk})`;
+    const engine = Semver.parse(asked.engine);
+    if (needed && engine && Semver.compare(needed, engine) > 0) {
+      return `needs FluidCAD ${row.minEngine}+`;
     }
-    return `needs FluidCAD ${row.minEngine}+`;
+    if (asked.sdk !== null && row.sdkVersion !== asked.sdk) {
+      return `needs feature SDK ${row.sdkVersion} (this FluidCAD has ${asked.sdk})`;
+    }
+    return 'not compatible with this FluidCAD';
   }
 
   /** Up to three feature labels, then `+N` for the rest; null without features. */

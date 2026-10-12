@@ -229,7 +229,7 @@ describe('GET /api/hub/search', () => {
     const card = hub.addMedia(KIT, PNG);
     const answer = SearchFixture.answer([
       SearchFixture.row({ origin: hub.origin, cardId: card, chips: ['Standoff', 'Boss'], moreFeatures: 2 }),
-      { ...SearchFixture.row({ origin: hub.origin, fullName: '@bea/other' }), cardImageUrl: 'https://elsewhere.example.com/x.png' },
+      { ...SearchFixture.row({ origin: hub.origin, fullName: '@bea/other', compatible: false, sdkVersion: 2 }), cardImageUrl: 'https://elsewhere.example.com/x.png' },
     ], { total: 1234, capped: true });
     hub.searchAnswer = answer;
     const base = await serve();
@@ -242,7 +242,9 @@ describe('GET /api/hub/search', () => {
     expect(JSON.stringify(res.body)).not.toContain('avatar');
     expect(other.cardImageUrl).toBeNull();
     expect(res.body).toMatchObject({ request: answer.request, total: 1234, capped: true, page: 1, limit: 20, facets: answer.facets });
-    expect(kit).toMatchObject({ fullName: KIT, version: '0.2.0', moreFeatures: 2, likes: 0, license: 'MIT', compatible: true });
+    expect(kit).toMatchObject({ fullName: KIT, version: '0.2.0', moreFeatures: 2, likes: 0, license: 'MIT', minEngine: '0.0.46', sdkVersion: 1, compatible: true });
+    // The row's feature SDK passes through, so the UI can say why it is incompatible.
+    expect(other).toMatchObject({ minEngine: '0.0.46', sdkVersion: 2, compatible: false });
   });
 
   it("marks what the project's copy and the library hold, the pin, and an update above the pin", async () => {

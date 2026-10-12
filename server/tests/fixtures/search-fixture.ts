@@ -20,6 +20,8 @@ export type SearchRowOptions = {
   license?: string | null;
   deprecated?: string | null;
   minEngine?: string;
+  /** The feature SDK the row's version was built for (1 by default). */
+  sdkVersion?: number;
   compatible?: boolean | null;
   /** A screenshot id for the card image; null for none. */
   cardId?: string | null;
@@ -54,6 +56,7 @@ export class SearchFixture {
       license: options.license === undefined ? 'MIT' : options.license,
       deprecated: options.deprecated ?? null,
       minEngine: options.minEngine ?? '0.0.46',
+      sdkVersion: options.sdkVersion ?? 1,
       compatible: options.compatible === undefined ? true : options.compatible,
     };
   }

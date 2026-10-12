@@ -157,14 +157,15 @@ describe('fluidcad search', () => {
     expect(sent.get('sdk')).toBe('1');
   });
 
-  it('prints each row with its marks, "needs FluidCAD X+" only when incompatible, deprecated, and the capped footer', async () => {
+  it('prints each row with its marks, why it is incompatible only when it is (a newer FluidCAD or another feature SDK), deprecated, and the capped footer', async () => {
     await LibrarySeed.install(await kit('0.1.0'), { project, pin: true });
     hub.searchAnswer = SearchFixture.answer([
       SearchFixture.row({ origin: hub.origin, version: '0.2.0', chips: ['Standoff', 'Bolt circle', 'Boss'], moreFeatures: 2, counts: { features: 5, parts: 5, assemblies: 1 }, likes: 3, installs: 1200 }),
       SearchFixture.row({ origin: hub.origin, fullName: '@crank/flywheel', version: '1.0.0', compatible: false, minEngine: '0.0.99', chips: ['Flywheel'], counts: { features: 1, parts: 1, assemblies: 0 }, license: 'Apache-2.0' }),
+      SearchFixture.row({ origin: hub.origin, fullName: '@pivot/hinges', version: '1.0.0', compatible: false, minEngine: '0.0.46', sdkVersion: 2, chips: ['Hinge'] }),
       SearchFixture.row({ origin: hub.origin, fullName: '@amberlight/lantern', version: '2.0.0', description: 'Lantern\nshades.', deprecated: 'Use @amberlight/lumen instead.', minEngine: '0.0.99', compatible: true }),
-    ], { total: 1000, capped: true, limit: 3 });
-    const run = await cli(project, ['--include-incompatible', '--limit', '3']);
+    ], { total: 1000, capped: true, limit: 4 });
+    const run = await cli(project, ['--include-incompatible', '--limit', '4']);
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
     expect(run.stdout).toBe([
@@ -176,25 +177,34 @@ describe('fluidcad search', () => {
       '  A test kit',
       '  Flywheel · 1 feature, 1 part · 0 likes · 0 installs · Apache-2.0',
       '',
+      '@pivot/hinges 1.0.0 · needs feature SDK 2 (this FluidCAD has 1)',
+      '  A test kit',
+      '  Hinge · 1 feature · 0 likes · 0 installs · MIT',
+      '',
       '@amberlight/lantern 2.0.0 · deprecated: Use @amberlight/lumen instead.',
       '  Lantern shades.',
       '  Standoff · 1 feature · 0 likes · 0 installs · MIT',
       '',
-      '1–3 of 1,000+ · --page 2 for more',
+      '1–4 of 1,000+ · --page 2 for more',
       '',
     ].join('\n'));
   });
 
-  it("--json prints the engine's annotated answer: proxy paths, no avatars, the local marks", async () => {
+  it("--json prints the engine's annotated answer: proxy paths, no avatars, the local marks, each row's minEngine and sdkVersion", async () => {
     await LibrarySeed.install(await kit('0.2.0'));
     const card = hub.addMedia('@acme/kit', Buffer.from('png'));
-    hub.searchAnswer = SearchFixture.answer([SearchFixture.row({ origin: hub.origin, version: '0.2.0', cardId: card })]);
+    hub.searchAnswer = SearchFixture.answer([
+      SearchFixture.row({ origin: hub.origin, version: '0.2.0', cardId: card }),
+      SearchFixture.row({ origin: hub.origin, fullName: '@pivot/hinges', version: '1.0.0', compatible: false, minEngine: '0.0.46', sdkVersion: 2 }),
+    ]);
     const run = await cli(tmp, ['standoff', '--json']);
     expect(run.status).toBe(0);
     const answer = JSON.parse(run.stdout);
-    expect(answer.total).toBe(1);
+    expect(answer.total).toBe(2);
     expect(answer.facets).toEqual((hub.searchAnswer as any).facets);
-    const [kitRow] = answer.results;
+    const [kitRow, hingesRow] = answer.results;
+    expect([kitRow.minEngine, kitRow.sdkVersion, kitRow.compatible]).toEqual(['0.0.46', 1, true]);
+    expect([hingesRow.minEngine, hingesRow.sdkVersion, hingesRow.compatible]).toEqual(['0.0.46', 2, false]);
     expect(kitRow.cardImageUrl).toBe(`api/hub/media/@acme/kit/${card}`);
     expect(kitRow.features[0].iconUrl).toBe('api/hub/files/@acme/kit/0.2.0/standoff.svg');
     expect(kitRow.publisher).toEqual({ handle: 'acme' });

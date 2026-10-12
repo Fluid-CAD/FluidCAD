@@ -14,6 +14,8 @@ import { SearchFixture } from '../fixtures/search-fixture.ts';
  */
 
 const HUB = 'http://127.0.0.1:8787';
+/** The engine a search named, as the answer echoes it: FluidCAD 0.0.46 with feature SDK 1. */
+const ASKED = { engine: '0.0.46', sdk: 1 };
 
 function row(options: Partial<Parameters<typeof SearchFixture.row>[0]> = {}, local: Partial<HubBridgeSearchResult['local']> = {}): HubBridgeSearchResult {
   const { publisher, ...rest } = SearchFixture.row({ origin: HUB, ...options }) as any;
@@ -93,7 +95,7 @@ describe('HubSearchText', () => {
       likes: 1,
       installs: 4000,
       license: 'Apache-2.0',
-    }));
+    }), ASKED);
     expect(lines).toEqual([
       '@mira/mounting 1.1.0',
       '  PCB mounting hardware: standoffs, bolt circles.',
@@ -102,28 +104,41 @@ describe('HubSearchText', () => {
   });
 
   it('marks installed, pinned and update available from the local state', () => {
-    expect(HubSearchText.marks(row({ version: '0.2.0' }, { installed: ['0.2.0'], pinned: '0.2.0' }))).toEqual(['installed', 'pinned']);
-    expect(HubSearchText.marks(row({ version: '0.2.0' }, { installed: ['0.1.0'], pinned: '0.1.0', updateAvailable: '0.2.0' }))).toEqual(['installed 0.1.0', 'pinned 0.1.0', 'update available']);
-    expect(HubSearchText.marks(row({ version: '0.2.0' }, { installed: ['0.1.0', '0.2.0'] }))).toEqual(['installed 0.1.0, 0.2.0']);
+    expect(HubSearchText.marks(row({ version: '0.2.0' }, { installed: ['0.2.0'], pinned: '0.2.0' }), ASKED)).toEqual(['installed', 'pinned']);
+    expect(HubSearchText.marks(row({ version: '0.2.0' }, { installed: ['0.1.0'], pinned: '0.1.0', updateAvailable: '0.2.0' }), ASKED)).toEqual(['installed 0.1.0', 'pinned 0.1.0', 'update available']);
+    expect(HubSearchText.marks(row({ version: '0.2.0' }, { installed: ['0.1.0', '0.2.0'] }), ASKED)).toEqual(['installed 0.1.0, 0.2.0']);
   });
 
-  it('says "needs FluidCAD X+" only when the hub says this FluidCAD cannot run it, and "deprecated" when set', () => {
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.99' }))).toEqual(['needs FluidCAD 0.0.99+']);
-    expect(HubSearchText.marks(row({ compatible: true, minEngine: '0.0.99' }))).toEqual([]);
-    expect(HubSearchText.marks(row({ compatible: null, minEngine: '0.0.99' }))).toEqual([]);
-    expect(HubSearchText.marks(row({ deprecated: 'Use @acme/kit2 instead.' }))).toEqual(['deprecated: Use @acme/kit2 instead.']);
-    expect(HubSearchText.row(row({ compatible: false, minEngine: '0.1.0', deprecated: 'Old.' }))[0]).toBe('@acme/kit 0.2.0 · needs FluidCAD 0.1.0+ · deprecated: Old.');
+  it('says why only when the hub says this FluidCAD cannot run it, and "deprecated" when set', () => {
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.99' }), ASKED)).toEqual(['needs FluidCAD 0.0.99+']);
+    expect(HubSearchText.marks(row({ compatible: true, minEngine: '0.0.99', sdkVersion: 2 }), ASKED)).toEqual([]);
+    expect(HubSearchText.marks(row({ compatible: null, minEngine: '0.0.99', sdkVersion: 2 }), ASKED)).toEqual([]);
+    expect(HubSearchText.marks(row({ deprecated: 'Use @acme/kit2 instead.' }), ASKED)).toEqual(['deprecated: Use @acme/kit2 instead.']);
+    expect(HubSearchText.row(row({ compatible: false, minEngine: '0.1.0', deprecated: 'Old.' }), ASKED)[0]).toBe('@acme/kit 0.2.0 · needs FluidCAD 0.1.0+ · deprecated: Old.');
   });
 
-  it('says the feature SDK differs when the row needs no newer FluidCAD than the one that asked', () => {
-    const asked = { engine: '0.0.46', sdk: 1 };
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.46' }), asked)).toEqual(['needs another feature SDK (this FluidCAD has 1)']);
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.47' }), asked)).toEqual(['needs FluidCAD 0.0.47+']);
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.1.0-beta.1' }), asked)).toEqual(['needs FluidCAD 0.1.0-beta.1+']);
+  it("names the reason from the row's minEngine and sdkVersion: a newer FluidCAD first, else the feature SDK", () => {
+    // minEngine above the engine that asked (prereleases by semver precedence), the SDK the same.
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.47', sdkVersion: 1 }), ASKED)).toEqual(['needs FluidCAD 0.0.47+']);
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.1.0-beta.1', sdkVersion: 1 }), ASKED)).toEqual(['needs FluidCAD 0.1.0-beta.1+']);
+    // minEngine met, another SDK: newer or older than this engine's.
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.46', sdkVersion: 2 }), ASKED)).toEqual(['needs feature SDK 2 (this FluidCAD has 1)']);
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.40', sdkVersion: 1 }), { engine: '0.1.0', sdk: 2 })).toEqual(['needs feature SDK 1 (this FluidCAD has 2)']);
+    // Both differ: the newer FluidCAD, as the plan's mark says.
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.99', sdkVersion: 2 }), ASKED)).toEqual(['needs FluidCAD 0.0.99+']);
+    // The SDK alone was asked about.
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.99', sdkVersion: 2 }), { engine: null, sdk: 1 })).toEqual(['needs feature SDK 2 (this FluidCAD has 1)']);
+  });
+
+  it('names no reason when neither rule explains it, rather than guessing', () => {
+    // minEngine met and the same SDK: the hub's rule changed, or the echo lacks what it compared.
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.46', sdkVersion: 1 }), ASKED)).toEqual(['not compatible with this FluidCAD']);
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.46', sdkVersion: 2 }), { engine: '0.0.46', sdk: null })).toEqual(['not compatible with this FluidCAD']);
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: 'soon', sdkVersion: 1 }), ASKED)).toEqual(['not compatible with this FluidCAD']);
   });
 
   it('cuts a long description, and prints "no license" and no chips when there are none', () => {
-    const lines = HubSearchText.row(row({ description: 'word '.repeat(60), chips: [], counts: { features: 0, parts: 2, assemblies: 1 }, license: null }));
+    const lines = HubSearchText.row(row({ description: 'word '.repeat(60), chips: [], counts: { features: 0, parts: 2, assemblies: 1 }, license: null }), ASKED);
     expect(lines[1].length).toBe(2 + HubSearchText.DESCRIPTION_CHARS);
     expect(lines[1].endsWith('…')).toBe(true);
     expect(lines[2]).toBe('  2 parts, 1 assembly · 0 likes · 0 installs · no license');

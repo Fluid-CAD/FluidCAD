@@ -1,4 +1,4 @@
-import type { PackagesOverview, PinnedPackage } from '../../api';
+import type { HubPinMarks, PackagesOverview, PinnedPackage } from '../../api';
 import { ICON_ALERT_TRIANGLE, ICON_CLOSE } from '../icons';
 import { HubIcons } from '../hub/hub-icons';
 import { PackageText, type PackagesState } from './packages-state';
@@ -36,6 +36,10 @@ const CHIP = 'badge badge-xs shrink-0 whitespace-nowrap';
  * - "Find packages in the Hub panel" opens the Hub panel (H11).
  * - An **update available** chip names a newer version the library holds;
  *   moving to it is Stage P10's previewed upgrade.
+ * - What the hub's owner said about a pin (H12, `hubMarks`, kept by the
+ *   engine for 10 minutes): a **yanked** pinned version, with "Yanked:
+ *   <reason>" (the project keeps installing it by its exact version), and
+ *   a **deprecated** package, with "Deprecated: <message>".
  *
  * Project-level, so not in Settings (whose tabs are the user's own
  * preferences): it is a project action beside Import, Export and Share.
@@ -161,7 +165,7 @@ export class ProjectPackagesDialog {
     }
     for (const pin of pins) {
       const version = overview.updates?.[pin.name];
-      this.list.appendChild(this.row(pin, version ? { version, from: overview.updatesFrom?.[pin.name] ?? 'library' } : null));
+      this.list.appendChild(this.row(pin, version ? { version, from: overview.updatesFrom?.[pin.name] ?? 'library' } : null, overview.hubMarks?.[pin.name] ?? null));
     }
   }
 
@@ -202,7 +206,7 @@ export class ProjectPackagesDialog {
     }
   }
 
-  private row(pin: PinnedPackage, update: { version: string; from: 'library' | 'hub' } | null): HTMLDivElement {
+  private row(pin: PinnedPackage, update: { version: string; from: 'library' | 'hub' } | null, marks: HubPinMarks | null): HTMLDivElement {
     const row = document.createElement('div');
     row.className = ROW;
     row.dataset.pin = pin.name;
@@ -228,6 +232,20 @@ export class ProjectPackagesDialog {
       chip.title = `${where} Moving this project to it, with a preview of what changes, comes in a later version.`;
       title.appendChild(chip);
     }
+    if (marks?.yanked) {
+      const chip = document.createElement('span');
+      chip.dataset.ref = 'yanked';
+      chip.className = `${CHIP} badge-error badge-soft`;
+      chip.textContent = 'yanked';
+      title.appendChild(chip);
+    }
+    if (marks?.deprecated) {
+      const chip = document.createElement('span');
+      chip.dataset.ref = 'deprecated';
+      chip.className = `${CHIP} badge-warning badge-soft`;
+      chip.textContent = 'deprecated';
+      title.appendChild(chip);
+    }
     const where = document.createElement('div');
     where.dataset.ref = 'where';
     where.className = 'text-[11px] text-base-content/50 truncate';
@@ -236,6 +254,9 @@ export class ProjectPackagesDialog {
       where.title = pin.directory;
     }
     text.append(title, where);
+    for (const line of ProjectPackagesDialog.markLines(pin, marks)) {
+      text.appendChild(line);
+    }
     row.appendChild(text);
 
     const action = this.actionFor(pin);
@@ -243,6 +264,31 @@ export class ProjectPackagesDialog {
       row.appendChild(action);
     }
     return row;
+  }
+
+  /**
+   * "Yanked: <reason>" and "Deprecated: <message>", each set as text: what
+   * the hub's owner said about the pin. A yanked pin still installs by its
+   * exact version, which the hover says.
+   */
+  static markLines(pin: Pick<PinnedPackage, 'name' | 'version'>, marks: HubPinMarks | null): HTMLDivElement[] {
+    const lines: HTMLDivElement[] = [];
+    if (marks?.yanked) {
+      const line = document.createElement('div');
+      line.dataset.ref = 'yank-reason';
+      line.className = 'text-[11px] leading-snug text-base-content/70';
+      line.textContent = marks.yanked.reason ? `Yanked: ${marks.yanked.reason}` : 'Yanked by its publisher';
+      line.title = `${PackageText.label(pin.name, pin.version)} is yanked on the hub: installs by name skip it, and this project keeps installing it by its exact version.`;
+      lines.push(line);
+    }
+    if (marks?.deprecated) {
+      const line = document.createElement('div');
+      line.dataset.ref = 'deprecation';
+      line.className = 'text-[11px] leading-snug text-base-content/70';
+      line.textContent = `Deprecated: ${marks.deprecated}`;
+      lines.push(line);
+    }
+    return lines;
   }
 
   /** The command that downloads a missing pin: `fluidcad install @acme/kit@0.1.0`. */

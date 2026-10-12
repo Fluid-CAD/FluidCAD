@@ -67,6 +67,28 @@ describe('the project\'s Packages', () => {
     expect(fromHub.title).toMatch(/ is on the hub\. Moving this project to it/);
   });
 
+  it('marks a pin the hub lists as yanked with its reason, and a deprecated package with its message (H12)', async () => {
+    const h = await mount({
+      ...PINS,
+      hubMarks: {
+        '@acme/feature-tests': { yanked: { at: '2026-10-12T08:00:00.000Z', reason: 'Breaks the <b>bolt</b> circle.' }, deprecated: null },
+        '@acme/kit': { yanked: null, deprecated: 'Use @acme/other.' },
+      },
+    });
+    const yanked = h.pin('@acme/feature-tests');
+    expect(yanked.querySelector('[data-ref="yanked"]')!.textContent).toBe('yanked');
+    const reason = yanked.querySelector<HTMLElement>('[data-ref="yank-reason"]')!;
+    expect(reason.textContent).toBe('Yanked: Breaks the <b>bolt</b> circle.');
+    expect(reason.querySelector('b')).toBeNull();
+    expect(reason.title).toContain('this project keeps installing it by its exact version');
+    expect(yanked.querySelector('[data-ref="deprecation"]')).toBeNull();
+    const deprecated = h.pin('@acme/kit');
+    expect(deprecated.querySelector('[data-ref="deprecated"]')!.textContent).toBe('deprecated');
+    expect(deprecated.querySelector('[data-ref="deprecation"]')!.textContent).toBe('Deprecated: Use @acme/other.');
+    expect(deprecated.querySelector('[data-ref="yank-reason"]')).toBeNull();
+    expect(h.pin('@beta/gears').querySelector('[data-ref="yanked"], [data-ref="deprecated"]')).toBeNull();
+  });
+
   it('leads with the missing-package banner, which names the command that downloads the pin and offers no button (HD31)', async () => {
     const h = await mount();
     const banner = h.overlay.querySelector<HTMLElement>('[data-missing="@beta/gears"]')!;

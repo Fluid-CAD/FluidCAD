@@ -6561,6 +6561,12 @@ export type PinnedPackage = {
   directory: string | null;
 };
 
+/** A pinned package's marks from the hub (H12): its pinned version's yank with the reason, and the package's deprecation. */
+export type HubPinMarks = {
+  yanked: { at: string; reason: string | null } | null;
+  deprecated: string | null;
+};
+
 /** A package the project can't load (`code: 'missing'` for a pin installed nowhere). */
 export type PackageProblem = { code: string; name: string; version: string | null; message: string };
 
@@ -6574,6 +6580,8 @@ export type PackagesOverview = {
   updates?: Record<string, string>;
   /** Where each of `updates` is: `library` when the library holds it, else `hub`. */
   updatesFrom?: Record<string, 'library' | 'hub'>;
+  /** Pinned name → what the hub's owner said about it (H12): the pinned version yanked, the package deprecated. Only pins with something to say. */
+  hubMarks?: Record<string, HubPinMarks>;
   problems: PackageProblem[];
   defaultTarget: PackageTarget;
   /** What the folder the library just left still holds. */

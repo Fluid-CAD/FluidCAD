@@ -193,10 +193,10 @@ describe('GET /api/hub/status', () => {
 });
 
 describe('GET /api/hub/search', () => {
-  it("forwards the panel's parameters as the hub names them, as repeated keys, with this engine and compatible-only", async () => {
+  it("forwards the panel's parameters as the hub names them, as repeated keys, with this engine and every package", async () => {
     const base = await serve();
     const query = 'q=%40acme+standoff&contents=features&contents=parts&keyword=pcb&keyword=fasteners&units=metric&license=MIT&license=Apache-2.0&page=2&limit=5'
-      + '&engine=9.9.9&sdk=7&compatible=false&avatar=1';
+      + '&engine=9.9.9&sdk=7&compatible=true&includeIncompatible=0&avatar=1';
     const res = await call(`${base}/hub/search?${query}`);
     expect(res.status).toBe(200);
     const sent = hub.searchQueries()[0];
@@ -207,20 +207,23 @@ describe('GET /api/hub/search', () => {
     expect(sent.getAll('license')).toEqual(['MIT', 'Apache-2.0']);
     expect(sent.get('page')).toBe('2');
     expect(sent.get('limit')).toBe('5');
-    // The engine's own, whatever the page sent; and no sort: the hub picks.
+    // The engine's own, whatever the page sent; every package (H11 decision 2); no sort or order: the hub picks.
     expect(sent.getAll('engine')).toEqual([ENGINE]);
     expect(sent.getAll('sdk')).toEqual(['1']);
-    expect(sent.getAll('compatible')).toEqual(['true']);
+    expect(sent.has('compatible')).toBe(false);
+    expect(sent.has('includeIncompatible')).toBe(false);
     expect(sent.has('sort')).toBe(false);
+    expect(sent.has('order')).toBe(false);
     expect(sent.has('avatar')).toBe(false);
   });
 
-  it('sends no compatible filter with includeIncompatible=1, and the sort when one is asked for', async () => {
+  it('sends the sort and its direction when they are asked for', async () => {
     const base = await serve();
-    await call(`${base}/hub/search?includeIncompatible=1&sort=newest`);
+    await call(`${base}/hub/search?sort=newest&order=asc`);
     const sent = hub.searchQueries()[0];
     expect(sent.has('compatible')).toBe(false);
     expect(sent.get('sort')).toBe('newest');
+    expect(sent.get('order')).toBe('asc');
     expect(sent.get('engine')).toBe(ENGINE);
     expect(sent.get('sdk')).toBe('1');
   });
@@ -265,7 +268,7 @@ describe('GET /api/hub/search', () => {
     await LibrarySeed.install(await kitArchive('0.1.5'));
     hub.searchAnswer = SearchFixture.answer([SearchFixture.row({ origin: hub.origin, version: '0.3.0', compatible: false, minEngine: '0.0.99' })]);
     const inProject = await serve();
-    expect((await call(`${inProject}/hub/search?includeIncompatible=1`)).body.results[0].local).toEqual({ installed: ['0.1.0', '0.1.5'], pinned: null, updateAvailable: null });
+    expect((await call(`${inProject}/hub/search`)).body.results[0].local).toEqual({ installed: ['0.1.0', '0.1.5'], pinned: null, updateAvailable: null });
 
     hub.searchAnswer = SearchFixture.answer([SearchFixture.row({ origin: hub.origin, version: '0.3.0' })]);
     const outside = await serve({ workspacePath: '' });
@@ -342,6 +345,70 @@ describe('GET /api/hub/packages/@scope/name', () => {
     expect((await call(`${base}/hub/packages/acme/kit`)).status).toBe(400);
     const offline = await serve({ hubUrl: await closedPort() });
     expect((await call(`${offline}/hub/packages/@acme/kit`)).body.code).toBe('hub-unreachable');
+  });
+});
+
+describe('GET /api/hub/packages/@scope/name/versions/<version>', () => {
+  /** `@acme/kit` with a feature whose metadata declares every kind of image, and a README. */
+  async function richArchive(version: string, extra: Record<string, string> = {}): Promise<Buffer> {
+    const meta = {
+      id: 'fastener',
+      label: 'Fastener hole',
+      icon: './fastener/icon.svg',
+      params: {
+        size: { type: 'select', label: 'Screw', options: [{ label: 'M3', value: 'm3', image: './fastener/m3.svg' }, { label: 'M4', value: 'm4', image: '../escape.svg' }] },
+        depth: { type: 'length', label: 'Depth', default: 10, aside: [{ image: './fastener/depth.svg' }] },
+      },
+      layout: [{ tabs: [{ label: 'Hole', items: ['size', { row: ['depth', { image: './fastener/row.svg' }] }] }] }],
+      aside: [{ note: 'Clearance per ISO 273.' }, { image: 'https://elsewhere.example.com/x.svg' }, { divider: true }],
+    };
+    return ArchiveFixture.zip({
+      version,
+      files: { ...ArchiveFixture.defaultFiles(), 'features/fastener.feature.js': 'export const fastener = () => null;\n', 'features/fastener/icon.svg': ICON, ...extra },
+      manifest: {
+        features: [{ id: 'fastener', exportName: 'fastener', module: 'features/fastener.feature.js', meta }],
+        parts: [{ exportName: 'plate', module: 'parts/plate.part.js', name: 'Plate', kind: 'part', exportKind: 'value', params: [] }],
+      },
+    });
+  }
+
+  it("answers the version's manifest with every image its features declare on the file proxy, the notes and the README's path", async () => {
+    await hub.addArchive(await richArchive('0.2.0', { 'README.md': '# Kit\n' }), { notes: 'Adds the fastener.' });
+    const base = await serve();
+    const res = await call(`${base}/hub/packages/@acme/kit/versions/0.2.0`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.body).toMatchObject({ name: KIT, version: '0.2.0', status: 'published', access: 'public', notes: 'Adds the fastener.', isLatest: true, sdkVersion: 1 });
+    expect(res.body.readmeUrl).toBe('api/hub/files/@acme/kit/0.2.0/README.md');
+    const [feature] = res.body.manifest.features;
+    expect(feature).toMatchObject({ id: 'fastener', exportName: 'fastener', module: 'features/fastener.feature.js' });
+    const file = (rel: string) => `api/hub/files/@acme/kit/0.2.0/${rel}`;
+    expect(feature.meta.icon).toBe(file('features/fastener/icon.svg'));
+    expect(feature.meta.params.size.options[0].image).toBe(file('features/fastener/m3.svg'));
+    // A path out of the module's directory is dropped, not rewritten.
+    expect(feature.meta.params.size.options[1]).toEqual({ label: 'M4', value: 'm4' });
+    expect(feature.meta.params.depth.aside[0].image).toBe(file('features/fastener/depth.svg'));
+    expect(feature.meta.layout[0].tabs[0].items[1].row[1].image).toBe(file('features/fastener/row.svg'));
+    // Another origin is no path inside the package either; notes and dividers pass unchanged.
+    expect(feature.meta.aside).toEqual([{ note: 'Clearance per ISO 273.' }, {}, { divider: true }]);
+    expect(res.body.manifest.parts).toEqual([expect.objectContaining({ exportName: 'plate', kind: 'part', exportKind: 'value' })]);
+    // The proxied icon is served from the archive.
+    const icon = await fetch(`${base.replace(/\/api$/, '')}/${feature.meta.icon.replace(/^api\//, 'api/')}`);
+    expect(icon.status).toBe(200);
+  });
+
+  it('answers readmeUrl null without a README, and refuses an unknown version (404), a non-version (400) and an offline hub (503)', async () => {
+    await hub.addArchive(await richArchive('0.2.0'));
+    const base = await serve();
+    expect((await call(`${base}/hub/packages/@acme/kit/versions/0.2.0`)).body.readmeUrl).toBeNull();
+    const missing = await call(`${base}/hub/packages/@acme/kit/versions/9.9.9`);
+    expect(missing.status).toBe(404);
+    expect(missing.body.code).toBe('not-found');
+    expect((await call(`${base}/hub/packages/@acme/kit/versions/latest`)).status).toBe(400);
+    const offline = await serve({ hubUrl: await closedPort() });
+    const unreachable = await call(`${offline}/hub/packages/@acme/kit/versions/0.2.0`);
+    expect(unreachable.status).toBe(503);
+    expect(unreachable.body.code).toBe('hub-unreachable');
   });
 });
 
@@ -495,6 +562,32 @@ describe('POST /api/hub/inspect → POST /api/packages/install', () => {
     expect(refused.status).toBe(409);
     expect(refused.body.code).toBe('integrity-mismatch');
     expect(hub.downloads).toHaveLength(0);
+  });
+
+  it("moves the project's pin up with upgrade (the panel's Upgrade to X), never without it, and never down", async () => {
+    const older = await publish('0.1.0');
+    const newer = await publish('0.2.0');
+    await LibrarySeed.install(await kitArchive('0.1.0'), { project, pin: true });
+    const base = await serve();
+    const first = await postJson(`${base}/hub/inspect`, { name: KIT, version: '0.2.0', target: 'library' });
+    const refused = await postJson(`${base}/packages/install`, { token: first.body.token, target: 'library', pin: true });
+    expect(refused.status).toBe(409);
+    expect(refused.body.code).toBe('version-change');
+    expect(readProjectConfig(project).dependencies?.[KIT]?.version).toBe('0.1.0');
+    expect(fs.existsSync(path.join(library, '@acme', 'kit', '0.2.0'))).toBe(false);
+
+    const again = await postJson(`${base}/hub/inspect`, { name: KIT, version: '0.2.0', target: 'library' });
+    const upgraded = await postJson(`${base}/packages/install`, { token: again.body.token, target: 'library', pin: true, upgrade: true });
+    expect(upgraded.status).toBe(200);
+    expect(upgraded.body).toMatchObject({ version: '0.2.0', status: 'installed', pin: 'pinned' });
+    expect(readProjectConfig(project).dependencies).toEqual({ [KIT]: { version: '0.2.0', integrity: newer.integrity } });
+
+    const down = await postJson(`${base}/hub/inspect`, { name: KIT, version: '0.1.0', target: 'library' });
+    const downgrade = await postJson(`${base}/packages/install`, { token: down.body.token, target: 'library', pin: true, upgrade: true });
+    expect(downgrade.status).toBe(409);
+    expect(downgrade.body.code).toBe('version-change');
+    expect(readProjectConfig(project).dependencies?.[KIT]).toEqual({ version: '0.2.0', integrity: newer.integrity });
+    expect(older.integrity).not.toBe(newer.integrity);
   });
 
   it('refuses an unknown package (404), a project target without a project (400), a bad body (400), and an offline hub (503)', async () => {

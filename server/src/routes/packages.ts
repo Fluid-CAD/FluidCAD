@@ -33,10 +33,11 @@ export type PackagesRouterOptions = {
  * answers is what `install`, `discard` and `inspected-icon` take: H10's
  * `POST /api/hub/inspect` (`routes/hub.ts`) hands it to the page.
  *
- * - `POST /api/packages/install { token, target, replace?, pin? }`: renames
- *   an inspected archive into the user library or the project copy under
- *   its manifest's name, and pins it into the open project when the target
- *   is `project` or `pin` is true.
+ * - `POST /api/packages/install { token, target, replace?, pin?, upgrade? }`:
+ *   renames an inspected archive into the user library or the project copy
+ *   under its manifest's name, and pins it into the open project when the
+ *   target is `project` or `pin` is true; `upgrade` lets that pin move up
+ *   from an older version (the Hub panel's "Upgrade to X", H11).
  * - `GET /api/packages/inspected-icon?token=&id=`: a feature's icon from an
  *   inspected archive, for the consent dialog; `POST /api/packages/discard
  *   { token }` drops an inspection the user declined.
@@ -62,7 +63,7 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
   const project = options.workspacePath || null;
 
   router.post('/packages/install', async (req, res) => {
-    const { token, target, replace, pin } = req.body ?? {};
+    const { token, target, replace, pin, upgrade } = req.body ?? {};
     if (typeof token !== 'string' || !PackageRoots.isTarget(target)) {
       res.status(400).json({ error: 'Expected { token, target: "library" | "project" }.' });
       return;
@@ -72,7 +73,7 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
       return;
     }
     try {
-      res.json(await ProjectPackages.installInspected({ token, target, project, replace: replace === true, pin: pin === true }));
+      res.json(await ProjectPackages.installInspected({ token, target, project, replace: replace === true, pin: pin === true, upgrade: upgrade === true }));
     } catch (err) {
       PackageRefusal.send(res, err);
     }

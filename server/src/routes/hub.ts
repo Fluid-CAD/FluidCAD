@@ -31,13 +31,16 @@ export type HubRouterOptions = {
  * itself. `HubBridge` holds the rules; these routes are its HTTP face.
  *
  * - `GET /api/hub/status` → `{ hubUrl, reachable, signedIn: { handle } | null, engine, sdk }`.
- * - `GET /api/hub/search?q=&contents=&keyword=&units=&license=&sort=&page=&limit=[&includeIncompatible=1]`:
- *   the hub's `SearchResponse` for this engine (compatible-only unless
- *   `includeIncompatible`), each row with `local` marks, its images on the
- *   proxy paths and no avatar. `Cache-Control: no-store`: the marks change
- *   with every install.
+ * - `GET /api/hub/search?q=&contents=&keyword=&units=&license=&sort=&order=&page=&limit=`:
+ *   the hub's `SearchResponse` for this engine (every package; one this
+ *   FluidCAD can't run comes `compatible: false`), each row with `local`
+ *   marks, its images on the proxy paths and no avatar.
+ *   `Cache-Control: no-store`: the marks change with every install.
  * - `GET /api/hub/packages/@scope/name`: the detail, with `local` and the
  *   proxy paths.
+ * - `GET /api/hub/packages/@scope/name/versions/<version>`: one version's
+ *   manifest (its features' metadata with every image on the file proxy),
+ *   notes and README path, for the Hub panel's Features and Readme tabs.
  * - `GET /api/hub/files/@scope/name/<version>/<path…>` and
  *   `GET /api/hub/media/@scope/name/<id>`: a version's file and a
  *   screenshot, through the disk cache (`$FLUIDCAD_HOME/cache/hub`), with
@@ -88,6 +91,16 @@ export function createHubRouter(options: HubRouterOptions): Router {
   router.get('/hub/packages/:scope/:name', async (req, res) => {
     try {
       const answer = await bridge.package(`${req.params.scope}/${req.params.name}`);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(answer);
+    } catch (err) {
+      HubRefusal.send(res, err, bridge);
+    }
+  });
+
+  router.get('/hub/packages/:scope/:name/versions/:version', async (req, res) => {
+    try {
+      const answer = await bridge.version(`${req.params.scope}/${req.params.name}`, req.params.version);
       res.setHeader('Cache-Control', 'no-store');
       res.json(answer);
     } catch (err) {

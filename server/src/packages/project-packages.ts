@@ -19,6 +19,12 @@ export type InstallInspectedRequest = {
   /** Pin into the project even when installing into the library. A project target always pins. */
   pin?: boolean;
   replace?: boolean;
+  /**
+   * Move the project's pin of an older version to this one (hub-plan H11
+   * decision 7: the Hub panel's "Upgrade to X", until P10's previewed
+   * upgrade). Without it a pin of another version is refused.
+   */
+  upgrade?: boolean;
 };
 
 /** An install, and what it did to the project's pin: null when it pinned nothing. */
@@ -86,10 +92,10 @@ export class ProjectPackages {
       if (!project) {
         throw new PackagePinError('not-a-project', `There is no open project to pin ${name} ${version} into.`);
       }
-      PackagePins.check(project, name, version, inspection.integrity);
+      PackagePins.check(project, name, version, inspection.integrity, { upgrade: request.upgrade });
     }
     const result = await PackageInstaller.install(request.token, request.target, { project, replace: request.replace });
-    const pin = pinning ? PackagePins.pin(project!, name, version, result.integrity) : null;
+    const pin = pinning ? PackagePins.pin(project!, name, version, result.integrity, { upgrade: request.upgrade }) : null;
     return { ...result, pin };
   }
 

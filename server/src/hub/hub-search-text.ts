@@ -4,6 +4,9 @@ import type { HubBridgeSearchResponse, HubBridgeSearchResult } from './hub-bridg
 /** The engine a search asked about (the answer's echoed `request`: this engine's version and `SDK_VERSION`). */
 type AskedEngine = Pick<HubBridgeSearchResponse['request'], 'engine' | 'sdk'>;
 
+/** Why this FluidCAD can't run a row (see {@link HubSearchText.incompatibility}). */
+export type HubIncompatibility = { kind: 'engine'; minEngine: string } | { kind: 'older-sdk' } | { kind: 'unknown' };
+
 /**
  * `fluidcad search`'s terminal output (hub-plan H10, from the user's search
  * design of 2026-10-11). Each row:
@@ -17,9 +20,9 @@ type AskedEngine = Pick<HubBridgeSearchResponse['request'], 'engine' | 'sdk'>;
  * The marks: `installed` (the row's version is here; other versions are
  * named), `pinned` (with the version when it isn't the row's) and `update
  * available` from the engine's local marks; why this FluidCAD can't run it,
- * only when the hub says so (`compatible === false`): `needs FluidCAD X+`,
- * or `needs feature SDK N (this FluidCAD has M)` (see
- * {@link incompatible}); and `deprecated: <message>`. The footer pages:
+ * only when the hub says so (`compatible === false`): `requires FluidCAD
+ * X+`, `made for an older FluidCAD` or `not compatible with this FluidCAD`
+ * (see {@link incompatibility}); and `deprecated: <message>`. The footer pages:
  * `1–20 of 134 · --page 2 for more`, with `1,000+` when the hub capped the
  * count.
  */
@@ -99,22 +102,40 @@ export class HubSearchText {
   }
 
   /**
-   * Why the engine that asked can't run a row, by HD13's two rules in
-   * order: `needs FluidCAD 0.0.99+` when the row's `minEngine` is above that
-   * engine; else `needs feature SDK 2 (this FluidCAD has 1)` when the row's
-   * `sdkVersion` isn't that engine's SDK. When neither explains it (the
-   * echo lacks what the hub compared, the row's `minEngine` isn't a
-   * version, or a hub older than the H10 follow-up sent no `sdkVersion`),
-   * the mark names no reason: `not compatible with this FluidCAD`.
+   * Why the engine that asked can't run a row (H11 decision 3: one
+   * message, since the feature SDK ships with the engine), by HD13's rules
+   * in order:
+   * - `engine`: the row's `minEngine` is above that engine →
+   *   `requires FluidCAD X+` (X = `minEngine`). `fluidcad pack` keeps a
+   *   package's `minEngine` at or above the first engine of its SDK
+   *   (`SDK_SINCE`), so a package for a newer SDK always lands here;
+   * - `older-sdk`: the row's `sdkVersion` is below that engine's SDK (only
+   *   after a future breaking SDK bump) → `made for an older FluidCAD`;
+   * - `unknown`: anything else (the echo lacks what the hub compared, the
+   *   row's `minEngine` isn't a version, a hub that sent no `sdkVersion`, or
+   *   a newer SDK with a `minEngine` that is met) → `not compatible with
+   *   this FluidCAD`, never a guess.
    */
-  private static incompatible(row: HubBridgeSearchResult, asked: AskedEngine): string {
+  static incompatibility(row: Pick<HubBridgeSearchResult, 'minEngine' | 'sdkVersion'>, asked: AskedEngine): HubIncompatibility {
     const needed = Semver.parse(row.minEngine);
     const engine = Semver.parse(asked.engine);
     if (needed && engine && Semver.compare(needed, engine) > 0) {
-      return `needs FluidCAD ${row.minEngine}+`;
+      return { kind: 'engine', minEngine: row.minEngine };
     }
-    if (asked.sdk !== null && typeof row.sdkVersion === 'number' && row.sdkVersion !== asked.sdk) {
-      return `needs feature SDK ${row.sdkVersion} (this FluidCAD has ${asked.sdk})`;
+    if (asked.sdk !== null && typeof row.sdkVersion === 'number' && row.sdkVersion < asked.sdk) {
+      return { kind: 'older-sdk' };
+    }
+    return { kind: 'unknown' };
+  }
+
+  /** The terminal's lower-case mark for {@link incompatibility}. */
+  private static incompatible(row: HubBridgeSearchResult, asked: AskedEngine): string {
+    const reason = HubSearchText.incompatibility(row, asked);
+    if (reason.kind === 'engine') {
+      return `requires FluidCAD ${reason.minEngine}+`;
+    }
+    if (reason.kind === 'older-sdk') {
+      return 'made for an older FluidCAD';
     }
     return 'not compatible with this FluidCAD';
   }

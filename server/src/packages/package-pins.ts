@@ -9,6 +9,7 @@ import {
 } from '../project-config.ts';
 import type { PackageProblem } from '../ws-protocol.ts';
 import { PackageRoots, type PackageTarget } from './package-roots.ts';
+import { Semver } from './semver.ts';
 
 export type PackagePinErrorCode = 'not-a-project' | 'unreadable-config' | 'broken-dependencies' | 'version-change' | 'integrity-mismatch';
 
@@ -19,6 +20,9 @@ export class PackagePinError extends Error {
     this.name = 'PackagePinError';
   }
 }
+
+/** How a pin may be written: `upgrade` lets an existing pin move to a newer version (the Hub panel's "Upgrade to X"). */
+export type PinOptions = { upgrade?: boolean };
 
 /** Where a pinned package is found for its project, if anywhere. */
 export type PackageAvailability = PackageTarget | 'missing';
@@ -40,6 +44,11 @@ export type PinnedPackage = {
  * another version is Stage P10's previewed upgrade, and a pin to the same
  * version with another hash means the files aren't the ones the project
  * was built with.
+ *
+ * The one asked-for move (hub-plan H11 decision 7, until P10): the Hub
+ * panel's "Upgrade to X" passes `{ upgrade: true }`, which lets a pin move
+ * to a newer version, never an older one, and never to other contents of
+ * the same version.
  */
 export class PackagePins {
   /** A directory holding `fluidcad.json` or `init.js`: what the CLI pins into when it runs there. */
@@ -62,7 +71,7 @@ export class PackagePins {
    * installed, so a refusal leaves the library, the project copy and
    * `fluidcad.json` as they were.
    */
-  static check(project: string, name: string, version: string, integrity: string): 'pin' | 'unchanged' {
+  static check(project: string, name: string, version: string, integrity: string, options: PinOptions = {}): 'pin' | 'unchanged' {
     if (!PackagePins.isProject(project)) {
       throw new PackagePinError('not-a-project', `${project} is not a FluidCAD project (no fluidcad.json or init.js), so nothing can be pinned there.`);
     }
@@ -72,6 +81,9 @@ export class PackagePins {
     }
     const existing = PackagePins.of(project)[name];
     if (!existing) {
+      return 'pin';
+    }
+    if (existing.version !== version && options.upgrade === true && PackagePins.isNewer(version, existing.version)) {
       return 'pin';
     }
     if (existing.version !== version) {
@@ -88,12 +100,19 @@ export class PackagePins {
   }
 
   /** Write the pin after {@link check}; a pin already there writes nothing. */
-  static pin(project: string, name: string, version: string, integrity: string): 'pinned' | 'unchanged' {
-    if (PackagePins.check(project, name, version, integrity) === 'unchanged') {
+  static pin(project: string, name: string, version: string, integrity: string, options: PinOptions = {}): 'pinned' | 'unchanged' {
+    if (PackagePins.check(project, name, version, integrity, options) === 'unchanged') {
       return 'unchanged';
     }
     writeDependency(project, name, { version, integrity });
     return 'pinned';
+  }
+
+  /** Whether `version` is above `than` by semver precedence (false when either isn't a version). */
+  private static isNewer(version: string, than: string): boolean {
+    const next = Semver.parse(version);
+    const now = Semver.parse(than);
+    return next !== null && now !== null && Semver.compare(next, now) > 0;
   }
 
   /** Every pin of the project and where it is installed: the project copy first, then the library. */

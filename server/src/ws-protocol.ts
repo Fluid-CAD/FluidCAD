@@ -454,6 +454,15 @@ export type RedoMessage = {
   editId: string;
 };
 
+/**
+ * Ask the editor host to open an `http(s)` page in the user's browser (the
+ * Hub panel's "Open on the hub" and part Previews, from a page framed in an
+ * editor that can't open one itself). Not an edit: nothing is acked.
+ */
+export type OpenExternalMessage = {
+  type: 'open-external';
+  url: string;
+};
 
 export type ServerToExtensionMessage =
   | ReadyMessage
@@ -475,7 +484,8 @@ export type ServerToExtensionMessage =
   | UpdateDimensionMessage
   | UpdateDimensionExpressionMessage
   | UndoMessage
-  | RedoMessage;
+  | RedoMessage
+  | OpenExternalMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: Server → UI messages

@@ -8,10 +8,11 @@ import { loadPackages } from '../lib/packages.js';
  * (the engine's `/api/hub/search` answers the same), the output in
  * `HubSearchText`; this is the terminal around them.
  *
- * It always sends this FluidCAD's version and feature SDK, and lists only
- * packages this FluidCAD can run unless `--include-incompatible`. No sort
- * is sent unless asked for: the hub picks (best match with terms, most
- * installed without). `@handle` among the terms keeps to one publisher.
+ * It always sends this FluidCAD's version and feature SDK, and lists every
+ * package (H11 decision 2): one this FluidCAD can't run is marked with why
+ * (`requires FluidCAD X+`). No sort or direction is sent unless asked for:
+ * the hub picks (best match with terms, most installed without, each in
+ * its own direction). `@handle` among the terms keeps to one publisher.
  */
 class SearchCli {
   static async load() {
@@ -49,9 +50,9 @@ class SearchCli {
       units: opts.units ? [opts.units] : [],
       license: opts.license ?? [],
       sort: opts.sort ?? null,
+      order: opts.order ?? null,
       page: opts.page ?? null,
       limit: opts.limit ?? null,
-      includeIncompatible: opts.includeIncompatible === true,
     });
     let answer;
     try {
@@ -95,14 +96,14 @@ class SearchCli {
 export function registerSearchCommand(program) {
   program
     .command('search')
-    .description('Search the FluidCAD hub for packages; only ones this FluidCAD runs unless --include-incompatible')
+    .description("Search the FluidCAD hub for packages; ones this FluidCAD can't run are marked with why")
     .argument('[terms...]', 'Words to match (name, features, parts, keywords, description); @handle keeps to one publisher')
     .option('--contents <list>', 'Packages holding any of: features, parts, assemblies (comma list)')
     .option('--keyword <word>', 'Packages with this keyword (repeat for any of several)', SearchCli.collect)
     .option('--units <system>', 'metric or imperial')
     .option('--license <spdx>', 'Packages under this license, such as MIT or Apache-2.0 (repeat for any of several)', SearchCli.collect)
-    .option('--include-incompatible', "Also list packages this FluidCAD can't run, marked")
-    .option('--sort <order>', 'relevance, installs, likes, updated or newest (default: the hub picks)')
+    .option('--sort <sort>', 'relevance, installs, likes, updated or newest (default: the hub picks)')
+    .option('--order <direction>', "asc or desc (default: the sort's own; relevance has only one)")
     .option('--page <n>', 'Page number, from 1')
     .option('--limit <n>', 'Results per page (at most 50)')
     .option('--hub <url>', 'Hub URL (default: $FLUIDCAD_HUB_URL or https://hub.fluidcad.io)')

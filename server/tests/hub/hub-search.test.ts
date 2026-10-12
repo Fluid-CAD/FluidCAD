@@ -29,7 +29,7 @@ function answer(results: HubBridgeSearchResult[], options: Parameters<typeof Sea
 describe('HubSearchQuery', () => {
   it("reads the panel's query in the hub's names, the lists as repeated keys, and ignores the engine fields it sends", () => {
     const query = HubSearchQuery.fromParams(new URLSearchParams(
-      'q=+gear+box+&contents=features&contents=parts&contents=features&keyword=pcb&units=metric&license=MIT&sort=updated&page=3&limit=10&engine=1.0.0&sdk=9&compatible=false&other=x',
+      'q=+gear+box+&contents=features&contents=parts&contents=features&keyword=pcb&units=metric&license=MIT&sort=updated&order=asc&page=3&limit=10&engine=1.0.0&sdk=9&compatible=true&includeIncompatible=0&other=x',
     ));
     expect(query.fields).toEqual({
       q: 'gear box',
@@ -38,26 +38,27 @@ describe('HubSearchQuery', () => {
       units: ['metric'],
       license: ['MIT'],
       sort: 'updated',
+      order: 'asc',
       page: '3',
       limit: '10',
-      includeIncompatible: false,
     });
   });
 
-  it('sends this engine, compatible-only by default, no sort unless asked, in a fixed order', () => {
+  it('sends this engine, every package (no compatible filter), no sort or order unless asked, in a fixed order', () => {
     const params = HubSearchQuery.from({ q: '@acme standoff', keyword: ['a', 'b'], license: ['MIT', 'Apache-2.0'] }).hubParams('0.0.46', 1);
-    expect(params.toString()).toBe('q=%40acme+standoff&keyword=a&keyword=b&license=MIT&license=Apache-2.0&engine=0.0.46&sdk=1&compatible=true');
-    expect(HubSearchQuery.from().hubParams('0.0.46', 1).toString()).toBe('engine=0.0.46&sdk=1&compatible=true');
+    expect(params.toString()).toBe('q=%40acme+standoff&keyword=a&keyword=b&license=MIT&license=Apache-2.0&engine=0.0.46&sdk=1');
+    expect(HubSearchQuery.from().hubParams('0.0.46', 1).toString()).toBe('engine=0.0.46&sdk=1');
+    // A panel that still sends the old toggle, or compatible itself, changes nothing.
+    for (const extra of ['includeIncompatible=1', 'includeIncompatible=0', 'compatible=true']) {
+      expect(HubSearchQuery.fromParams(new URLSearchParams(extra)).hubParams('0.0.46', 1).has('compatible')).toBe(false);
+    }
   });
 
-  it('drops compatible with includeIncompatible (1, true or yes), and keeps engine and sdk', () => {
-    for (const value of ['1', 'true', 'YES']) {
-      const params = HubSearchQuery.fromParams(new URLSearchParams(`includeIncompatible=${value}`)).hubParams('0.0.46', 1);
-      expect(params.has('compatible')).toBe(false);
-      expect(params.get('engine')).toBe('0.0.46');
-      expect(params.get('sdk')).toBe('1');
-    }
-    expect(HubSearchQuery.fromParams(new URLSearchParams('includeIncompatible=0')).hubParams('0.0.46', 1).get('compatible')).toBe('true');
+  it('sends the sort and its direction as asked, the direction after the sort', () => {
+    expect(HubSearchQuery.from({ sort: 'installs', order: 'asc', page: '2' }).hubParams('0.0.46', 1).toString())
+      .toBe('sort=installs&order=asc&page=2&engine=0.0.46&sdk=1');
+    expect(HubSearchQuery.fromParams(new URLSearchParams('order=desc')).hubParams('0.0.46', 1).toString()).toBe('order=desc&engine=0.0.46&sdk=1');
+    expect(HubSearchQuery.fromParams(new URLSearchParams('order=%20')).fields.order).toBeNull();
   });
 });
 
@@ -110,35 +111,36 @@ describe('HubSearchText', () => {
   });
 
   it('says why only when the hub says this FluidCAD cannot run it, and "deprecated" when set', () => {
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.99' }), ASKED)).toEqual(['needs FluidCAD 0.0.99+']);
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.99' }), ASKED)).toEqual(['requires FluidCAD 0.0.99+']);
     expect(HubSearchText.marks(row({ compatible: true, minEngine: '0.0.99', sdkVersion: 2 }), ASKED)).toEqual([]);
     expect(HubSearchText.marks(row({ compatible: null, minEngine: '0.0.99', sdkVersion: 2 }), ASKED)).toEqual([]);
     expect(HubSearchText.marks(row({ deprecated: 'Use @acme/kit2 instead.' }), ASKED)).toEqual(['deprecated: Use @acme/kit2 instead.']);
-    expect(HubSearchText.row(row({ compatible: false, minEngine: '0.1.0', deprecated: 'Old.' }), ASKED)[0]).toBe('@acme/kit 0.2.0 · needs FluidCAD 0.1.0+ · deprecated: Old.');
+    expect(HubSearchText.row(row({ compatible: false, minEngine: '0.1.0', deprecated: 'Old.' }), ASKED)[0]).toBe('@acme/kit 0.2.0 · requires FluidCAD 0.1.0+ · deprecated: Old.');
   });
 
-  it("names the reason from the row's minEngine and sdkVersion: a newer FluidCAD first, else the feature SDK", () => {
-    // minEngine above the engine that asked (prereleases by semver precedence), the SDK the same.
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.47', sdkVersion: 1 }), ASKED)).toEqual(['needs FluidCAD 0.0.47+']);
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.1.0-beta.1', sdkVersion: 1 }), ASKED)).toEqual(['needs FluidCAD 0.1.0-beta.1+']);
-    // minEngine met, another SDK: newer or older than this engine's.
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.46', sdkVersion: 2 }), ASKED)).toEqual(['needs feature SDK 2 (this FluidCAD has 1)']);
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.40', sdkVersion: 1 }), { engine: '0.1.0', sdk: 2 })).toEqual(['needs feature SDK 1 (this FluidCAD has 2)']);
-    // Both differ: the newer FluidCAD, as the plan's mark says.
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.99', sdkVersion: 2 }), ASKED)).toEqual(['needs FluidCAD 0.0.99+']);
-    // The SDK alone was asked about.
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.99', sdkVersion: 2 }), { engine: null, sdk: 1 })).toEqual(['needs feature SDK 2 (this FluidCAD has 1)']);
+  it("names one reason from the row's minEngine and sdkVersion: a newer FluidCAD, else made for an older one (H11 decision 3)", () => {
+    // minEngine above the engine that asked (prereleases by semver precedence), whatever the SDK.
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.47', sdkVersion: 1 }), ASKED)).toEqual(['requires FluidCAD 0.0.47+']);
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.1.0-beta.1', sdkVersion: 1 }), ASKED)).toEqual(['requires FluidCAD 0.1.0-beta.1+']);
+    // A newer SDK: pack keeps its minEngine at or above that SDK's first FluidCAD, so the engine says it.
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.1.0', sdkVersion: 2 }), ASKED)).toEqual(['requires FluidCAD 0.1.0+']);
+    // minEngine met, packed for an older SDK than this engine's (after a breaking SDK bump).
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.40', sdkVersion: 1 }), { engine: '0.1.0', sdk: 2 })).toEqual(['made for an older FluidCAD']);
+    expect(HubSearchText.incompatibility({ minEngine: '0.0.99', sdkVersion: 1 }, ASKED)).toEqual({ kind: 'engine', minEngine: '0.0.99' });
+    expect(HubSearchText.incompatibility({ minEngine: '0.0.40', sdkVersion: 1 }, { engine: '0.1.0', sdk: 2 })).toEqual({ kind: 'older-sdk' });
   });
 
   it('names no reason when neither rule explains it, rather than guessing', () => {
     // minEngine met and the same SDK: the hub's rule changed, or the echo lacks what it compared.
     expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.46', sdkVersion: 1 }), ASKED)).toEqual(['not compatible with this FluidCAD']);
-    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.46', sdkVersion: 2 }), { engine: '0.0.46', sdk: null })).toEqual(['not compatible with this FluidCAD']);
+    // A newer SDK whose minEngine is met breaks pack's rule: no guess.
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.46', sdkVersion: 2 }), ASKED)).toEqual(['not compatible with this FluidCAD']);
+    expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.40', sdkVersion: 1 }), { engine: '0.0.46', sdk: null })).toEqual(['not compatible with this FluidCAD']);
     expect(HubSearchText.marks(row({ compatible: false, minEngine: 'soon', sdkVersion: 1 }), ASKED)).toEqual(['not compatible with this FluidCAD']);
     // A hub from before the rows named their SDK.
     const { sdkVersion, ...older } = row({ compatible: false, minEngine: '0.0.46' });
     expect(HubSearchText.marks(older as HubBridgeSearchResult, ASKED)).toEqual(['not compatible with this FluidCAD']);
-    expect(HubSearchText.marks({ ...older, minEngine: '0.0.99' } as HubBridgeSearchResult, ASKED)).toEqual(['needs FluidCAD 0.0.99+']);
+    expect(HubSearchText.marks({ ...older, minEngine: '0.0.99' } as HubBridgeSearchResult, ASKED)).toEqual(['requires FluidCAD 0.0.99+']);
   });
 
   it('cuts a long description, and prints "no license" and no chips when there are none', () => {

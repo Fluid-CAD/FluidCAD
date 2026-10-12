@@ -121,7 +121,7 @@ afterEach(() => {
 });
 
 describe('fluidcad search', () => {
-  it("maps every flag to the hub's parameter, as repeated keys, with this engine and SDK, compatible-only and no sort", async () => {
+  it("maps every flag to the hub's parameter, as repeated keys, with this engine and SDK, every package and no sort or order", async () => {
     const run = await cli(tmp, [
       '@acme', 'standoff',
       '--contents', 'features,parts',
@@ -142,30 +142,36 @@ describe('fluidcad search', () => {
     expect(sent.get('limit')).toBe('5');
     expect(sent.get('engine')).toBe(ArchiveFixture.ENGINE);
     expect(sent.get('sdk')).toBe('1');
-    expect(sent.get('compatible')).toBe('true');
+    expect(sent.has('compatible')).toBe(false);
     expect(sent.has('sort')).toBe(false);
+    expect(sent.has('order')).toBe(false);
     expect(hub.searchQueries()[0].toString()).not.toContain('includeIncompatible');
     expect(run.stdout).toBe('No packages match.\n');
   });
 
-  it('sends no compatible filter with --include-incompatible, and the sort with --sort', async () => {
-    await cli(tmp, ['--include-incompatible', '--sort', 'newest']);
+  it('sends the sort with --sort and its direction with --order, and has no --include-incompatible any more', async () => {
+    await cli(tmp, ['--sort', 'newest', '--order', 'asc']);
     const sent = hub.searchQueries()[0];
     expect(sent.has('compatible')).toBe(false);
     expect(sent.get('sort')).toBe('newest');
+    expect(sent.get('order')).toBe('asc');
     expect(sent.get('engine')).toBe(ArchiveFixture.ENGINE);
     expect(sent.get('sdk')).toBe('1');
+    const refused = await cli(tmp, ['--include-incompatible']);
+    expect(refused.status).not.toBe(0);
+    expect(refused.stderr).toContain("unknown option '--include-incompatible'");
   });
 
-  it('prints each row with its marks, why it is incompatible only when it is (a newer FluidCAD or another feature SDK), deprecated, and the capped footer', async () => {
+  it('lists every package with its marks, why it is incompatible only when it is (requires FluidCAD X+, made for an older FluidCAD), deprecated, and the capped footer', async () => {
     await LibrarySeed.install(await kit('0.1.0'), { project, pin: true });
     hub.searchAnswer = SearchFixture.answer([
       SearchFixture.row({ origin: hub.origin, version: '0.2.0', chips: ['Standoff', 'Bolt circle', 'Boss'], moreFeatures: 2, counts: { features: 5, parts: 5, assemblies: 1 }, likes: 3, installs: 1200 }),
       SearchFixture.row({ origin: hub.origin, fullName: '@crank/flywheel', version: '1.0.0', compatible: false, minEngine: '0.0.99', chips: ['Flywheel'], counts: { features: 1, parts: 1, assemblies: 0 }, license: 'Apache-2.0' }),
-      SearchFixture.row({ origin: hub.origin, fullName: '@pivot/hinges', version: '1.0.0', compatible: false, minEngine: '0.0.46', sdkVersion: 2, chips: ['Hinge'] }),
+      SearchFixture.row({ origin: hub.origin, fullName: '@pivot/hinges', version: '1.0.0', compatible: false, minEngine: '0.1.0', sdkVersion: 2, chips: ['Hinge'] }),
+      SearchFixture.row({ origin: hub.origin, fullName: '@old/brackets', version: '1.0.0', compatible: false, minEngine: '0.0.45', sdkVersion: 0, chips: ['Bracket'] }),
       SearchFixture.row({ origin: hub.origin, fullName: '@amberlight/lantern', version: '2.0.0', description: 'Lantern\nshades.', deprecated: 'Use @amberlight/lumen instead.', minEngine: '0.0.99', compatible: true }),
-    ], { total: 1000, capped: true, limit: 4 });
-    const run = await cli(project, ['--include-incompatible', '--limit', '4']);
+    ], { total: 1000, capped: true, limit: 5 });
+    const run = await cli(project, ['--limit', '5']);
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
     expect(run.stdout).toBe([
@@ -173,19 +179,23 @@ describe('fluidcad search', () => {
       '  A test kit',
       '  Standoff, Bolt circle, Boss +2 · 5 features, 5 parts, 1 assembly · 3 likes · 1,200 installs · MIT',
       '',
-      '@crank/flywheel 1.0.0 · needs FluidCAD 0.0.99+',
+      '@crank/flywheel 1.0.0 · requires FluidCAD 0.0.99+',
       '  A test kit',
       '  Flywheel · 1 feature, 1 part · 0 likes · 0 installs · Apache-2.0',
       '',
-      '@pivot/hinges 1.0.0 · needs feature SDK 2 (this FluidCAD has 1)',
+      '@pivot/hinges 1.0.0 · requires FluidCAD 0.1.0+',
       '  A test kit',
       '  Hinge · 1 feature · 0 likes · 0 installs · MIT',
+      '',
+      '@old/brackets 1.0.0 · made for an older FluidCAD',
+      '  A test kit',
+      '  Bracket · 1 feature · 0 likes · 0 installs · MIT',
       '',
       '@amberlight/lantern 2.0.0 · deprecated: Use @amberlight/lumen instead.',
       '  Lantern shades.',
       '  Standoff · 1 feature · 0 likes · 0 installs · MIT',
       '',
-      '1–4 of 1,000+ · --page 2 for more',
+      '1–5 of 1,000+ · --page 2 for more',
       '',
     ].join('\n'));
   });
@@ -195,7 +205,7 @@ describe('fluidcad search', () => {
     const card = hub.addMedia('@acme/kit', Buffer.from('png'));
     hub.searchAnswer = SearchFixture.answer([
       SearchFixture.row({ origin: hub.origin, version: '0.2.0', cardId: card }),
-      SearchFixture.row({ origin: hub.origin, fullName: '@pivot/hinges', version: '1.0.0', compatible: false, minEngine: '0.0.46', sdkVersion: 2 }),
+      SearchFixture.row({ origin: hub.origin, fullName: '@pivot/hinges', version: '1.0.0', compatible: false, minEngine: '0.1.0', sdkVersion: 2 }),
     ]);
     const run = await cli(tmp, ['standoff', '--json']);
     expect(run.status).toBe(0);
@@ -204,7 +214,7 @@ describe('fluidcad search', () => {
     expect(answer.facets).toEqual((hub.searchAnswer as any).facets);
     const [kitRow, hingesRow] = answer.results;
     expect([kitRow.minEngine, kitRow.sdkVersion, kitRow.compatible]).toEqual(['0.0.46', 1, true]);
-    expect([hingesRow.minEngine, hingesRow.sdkVersion, hingesRow.compatible]).toEqual(['0.0.46', 2, false]);
+    expect([hingesRow.minEngine, hingesRow.sdkVersion, hingesRow.compatible]).toEqual(['0.1.0', 2, false]);
     expect(kitRow.cardImageUrl).toBe(`api/hub/media/@acme/kit/${card}`);
     expect(kitRow.features[0].iconUrl).toBe('api/hub/files/@acme/kit/0.2.0/standoff.svg');
     expect(kitRow.publisher).toEqual({ handle: 'acme' });

@@ -4,12 +4,13 @@ import { PackageName } from '../packages/package-name.ts';
 import { PackagePinError, PackagePins } from '../packages/package-pins.ts';
 import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
 import { Semver } from '../packages/semver.ts';
-import { HubClient, type HubPackageDetail, type HubSearchResponse, type HubSearchResult } from './hub-client.ts';
+import { HubClient, type HubPackageDetail, type HubSearchResponse, type HubSearchResult, type HubVersionDetail } from './hub-client.ts';
 import { HubConfig } from './hub-config.ts';
 import { HubCredentials } from './hub-credentials.ts';
 import { HubFileCache, type HubCachedFile } from './hub-file-cache.ts';
 import { HubInstaller } from './hub-installer.ts';
 import { HubLocalState, type HubLocalMarks } from './hub-local-state.ts';
+import { HubMetaPaths } from './hub-meta-paths.ts';
 import { HubProxyPaths } from './hub-proxy-paths.ts';
 import { HubRequestError } from './hub-request-error.ts';
 import type { HubSearchQuery } from './hub-search-query.ts';
@@ -25,10 +26,14 @@ import { HubTransport, type HubClientKind } from './hub-transport.ts';
  *   signed in as (credentials are only read: signing in from the app is
  *   Later).
  * - {@link search}: `GET /api/v1/search` with this engine's version and SDK,
- *   compatible-only unless asked otherwise (`HubSearchQuery`), each row
- *   with the local marks (`HubLocalState`), its images on the engine's
- *   proxy paths (`HubProxyPaths`) and no publisher avatar.
+ *   every package listed (`HubSearchQuery`; a row this FluidCAD can't run
+ *   comes `compatible: false`), each row with the local marks
+ *   (`HubLocalState`), its images on the engine's proxy paths
+ *   (`HubProxyPaths`) and no publisher avatar.
  * - {@link package}: the detail, with the same marks and proxy paths.
+ * - {@link version}: one version's manifest (its features' metadata with
+ *   every image on the file proxy, `HubMetaPaths`), notes and README path,
+ *   for the Hub panel's parameter tables and Readme tab (H11).
  * - {@link file}, {@link media}: a version's file and a package's
  *   screenshot through the disk cache (`HubFileCache`), which keeps what
  *   the hub calls immutable.
@@ -89,6 +94,40 @@ export type HubBridgeSearchResponse = Omit<HubSearchResponse, 'results'> & { res
 
 /** `GET /api/hub/packages/@s/n`: the hub's detail with its images on proxy paths, plus the local marks. */
 export type HubBridgePackage = HubPackageDetail & { local: HubLocalMarks };
+
+/** One feature of a version, its metadata's images on the engine's file proxy. */
+export type HubBridgeVersionFeature = { id: string; exportName: string; module: string; meta: Record<string, unknown> };
+
+/** One part or assembly of a version, with its parameters as the manifest declares them. */
+export type HubBridgeVersionPart = NonNullable<HubVersionDetail['manifest']>['parts'][number];
+
+/**
+ * `GET /api/hub/packages/@s/n/versions/<v>`: what the Hub panel reads of one
+ * version beyond the detail: its features' full metadata (for the parameter
+ * table), its parts' parameters, its release notes and where its README is.
+ */
+export type HubBridgeVersion = {
+  name: string;
+  version: string;
+  status: HubVersionDetail['status'];
+  /** Who the hub answered for: an owner also sees their open version. */
+  access: HubVersionDetail['access'];
+  integrity: string | null;
+  engine: string | null;
+  minEngine: string | null;
+  sdkVersion: number | null;
+  unit: string | null;
+  size: number | null;
+  notes: string;
+  publishedAt: string | null;
+  yanked: HubVersionDetail['yanked'];
+  isLatest: boolean;
+  /** The archive's root `README.md` on the file proxy, or null when it has none. */
+  readmeUrl: string | null;
+  /** Null only while the version is still uploading. */
+  manifest: { features: HubBridgeVersionFeature[]; parts: HubBridgeVersionPart[] } | null;
+  local: HubLocalMarks;
+};
 
 /** A file or screenshot the bridge serves, and whether the disk cache answered it (`hit`), kept it (`miss`) or may not keep it (`none`). */
 export type HubProxiedFile = HubCachedFile & { cache: 'hit' | 'miss' | 'none' };
@@ -199,6 +238,55 @@ export class HubBridge {
         : null,
       listing: { ...detail.listing, media: HubBridge.proxiedMedia(detail.listing.media, config.origin) },
       local: HubLocalState.read(this.project).marks(name, offered),
+    };
+  }
+
+  /**
+   * One version as the Hub panel reads it: the hub's `VersionDetail`
+   * (with the signed-in token, so a publisher sees their open version),
+   * its features' metadata with every image on the file proxy, and the
+   * README's proxy path. Not kept on disk: a version's `yanked` can change,
+   * while its images go through {@link file}'s cache.
+   */
+  async version(name: string, version: string): Promise<HubBridgeVersion> {
+    HubBridge.checkName(name);
+    if (!Semver.isValid(version)) {
+      throw new HubBridgeError(400, 'bad-request', `${JSON.stringify(version)} is not a version, as in 1.2.0.`);
+    }
+    const config = this.config();
+    const detail = await this.read(config, (client) => client.version(name, version));
+    if (!detail) {
+      throw new HubBridgeError(404, 'not-found', `${name} ${version} isn't on ${config.origin}.`);
+    }
+    const readme = detail.entries.find((entry) => /^readme\.md$/i.test(entry.path)) ?? null;
+    return {
+      name,
+      version: detail.version,
+      status: detail.status,
+      access: detail.access,
+      integrity: detail.integrity,
+      engine: detail.engine,
+      minEngine: detail.minEngine,
+      sdkVersion: detail.sdkVersion,
+      unit: detail.unit,
+      size: detail.size,
+      notes: detail.notes,
+      publishedAt: detail.publishedAt,
+      yanked: detail.yanked,
+      isLatest: detail.isLatest,
+      readmeUrl: readme ? HubMetaPaths.fileUrl(name, detail.version, readme.path) : null,
+      manifest: detail.manifest
+        ? {
+          features: detail.manifest.features.map((feature) => ({
+            id: feature.id,
+            exportName: feature.exportName,
+            module: feature.module,
+            meta: HubMetaPaths.rewrite(feature.meta, feature.module, name, detail.version) ?? {},
+          })),
+          parts: detail.manifest.parts,
+        }
+        : null,
+      local: HubLocalState.read(this.project).marks(name, null),
     };
   }
 

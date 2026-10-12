@@ -85,6 +85,8 @@ export type FakeHubVersion = {
   archive?: Buffer | null;
   /** The archive's `manifest.json`, parsed. */
   manifest?: Record<string, unknown> | null;
+  /** The archive's files with their sizes, sorted: `VersionDetail.entries`. */
+  entries?: { path: string; size: number }[];
   engine?: string;
   minEngine?: string;
   sdkVersion?: number;
@@ -262,6 +264,7 @@ export class FakeHub {
       publishedAt: '2026-10-10T00:00:00.000Z',
       archive,
       manifest,
+      entries: Object.entries(files).map(([path, bytes]) => ({ path, size: bytes.length })).sort((a, b) => (a.path < b.path ? -1 : 1)),
       engine: String(manifest.engine),
       minEngine: String(manifest.minEngine),
       sdkVersion: Number(manifest.sdkVersion),
@@ -810,7 +813,7 @@ export class FakeHub {
       sdkVersion: row.sdkVersion ?? null,
       unit: 'mm',
       manifest: row.manifest ?? null,
-      entries: [],
+      entries: row.entries ?? [],
       yanked: row.yanked ?? null,
       isLatest: row === latest,
       archiveUrl: row.archive && row.status !== 'rejected' && row.status !== 'uploading' ? this.archiveUrl(name, row.version) : null,

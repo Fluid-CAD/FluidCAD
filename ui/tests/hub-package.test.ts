@@ -220,6 +220,71 @@ describe('Install (decisions 6 and 7)', () => {
     expect(alone.$<HTMLButtonElement>('[data-target="project"]')!.disabled).toBe(true);
   });
 
+  it('each project remembers its last target: restored at start, saved on a choice, never without a project (H12)', async () => {
+    const saved: PackageTarget[] = [];
+    const memory = (remembered: PackageTarget | null) => ({ load: vi.fn(async () => remembered), save: vi.fn((target: PackageTarget) => void saved.push(target)) });
+
+    const remembered = memory('project');
+    const target = new HubInstallTarget(() => 'library', () => true, remembered);
+    expect(target.current).toBe('library');
+    await target.restore();
+    expect(target.current).toBe('project');
+    target.set('library');
+    expect(target.current).toBe('library');
+    expect(saved).toEqual(['library']);
+
+    // Nothing remembered: the setting, which is My library unless changed.
+    const fresh = new HubInstallTarget(() => 'library', () => true, memory(null));
+    await fresh.restore();
+    expect(fresh.current).toBe('library');
+
+    // A choice made before the project's answer arrives wins.
+    const slow = memory('library');
+    const racing = new HubInstallTarget(() => 'library', () => true, slow);
+    const restoring = racing.restore();
+    racing.set('project');
+    await restoring;
+    expect(racing.current).toBe('project');
+
+    // No project: the library, nothing read, nothing saved.
+    saved.length = 0;
+    const none = memory('project');
+    const alone = new HubInstallTarget(() => 'library', () => false, none);
+    await alone.restore();
+    alone.set('project');
+    expect(alone.current).toBe('library');
+    expect(none.load).not.toHaveBeenCalled();
+    expect(saved).toEqual([]);
+  });
+
+  it('the dropdown’s choice reaches the project’s memory', async () => {
+    const h = await mount(FakeHubClient.pkg());
+    const save = vi.fn();
+    const remembering = new HubInstallTarget(() => 'library', () => true, { load: async () => null, save });
+    views.splice(0).forEach((v) => v.destroy());
+    const view = new HubPackageView({
+      hub: h.hub,
+      packages: h.packages,
+      target: remembering,
+      engine: () => ({ engine: '0.0.46', sdk: 1 }),
+      hubUrl: () => 'http://localhost:8787',
+      projectOpen: () => true,
+      openExternal: vi.fn(),
+      onBack: vi.fn(),
+      onInstalled: vi.fn(),
+      now: () => Date.parse('2026-10-12T12:00:00Z'),
+    });
+    views.push(view);
+    document.body.appendChild(view.el);
+    await view.show('@acme/feature-tests');
+    await settle();
+    view.el.querySelector<HTMLElement>('[data-ref="target-menu"]')!.click();
+    view.el.querySelector<HTMLButtonElement>('[data-target="project"]')!.click();
+    await settle();
+    expect(save).toHaveBeenCalledWith('project');
+    expect(view.el.querySelector('[data-ref="target"]')!.textContent).toBe('into this project');
+  });
+
   it('starts at the "New packages go to" setting', async () => {
     const h = await mount(FakeHubClient.pkg(), { setting: 'project' });
     expect(h.$('[data-ref="target"]')!.textContent).toBe('into this project');

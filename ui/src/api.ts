@@ -6922,6 +6922,36 @@ export interface HubClient {
 }
 
 /** {@link HubClient} over the engine's `/api/hub/*` routes. */
+/**
+ * Per-project UI choices the engine keeps in the project's
+ * `.fluidcad/ui-state.json` (H12: `GET`/`PATCH api/workspace/ui-state`):
+ * what a surface remembers for this project across reloads and restarts,
+ * in every host (the desktop shell, a browser tab, VS Code's webview and
+ * Neovim's page all talk to the same engine). Failures read as nothing
+ * remembered and are never thrown: a forgotten choice is a papercut.
+ */
+export type ProjectUiState = { hubInstallTarget: PackageTarget | null };
+
+export class ProjectUiStateClient {
+  async load(): Promise<ProjectUiState | null> {
+    try {
+      const res = await fetch('api/workspace/ui-state');
+      return res.ok ? ((await res.json()) as ProjectUiState) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async save(patch: Partial<ProjectUiState>): Promise<boolean> {
+    try {
+      const res = await fetch('api/workspace/ui-state', { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify(patch) });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
 export class HttpHubClient implements HubClient {
   async status(): Promise<HubResult<{ status: HubStatus }>> {
     const answer = await HttpHubClient.send('api/hub/status', {});

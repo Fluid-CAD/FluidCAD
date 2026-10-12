@@ -84,11 +84,12 @@ import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
 import { applyEnginePreferences } from './ui/settings/engine-settings';
 import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials';
 import { applyPackagePreferences, packageSettings } from './ui/settings/package-settings';
-import { HttpHubClient, HttpPackagesClient, recompute } from './api';
+import { HttpHubClient, HttpPackagesClient, ProjectUiStateClient, recompute } from './api';
 import { PackagesState } from './ui/packages/packages-state';
 import { ProjectPackagesDialog } from './ui/packages/project-packages-dialog';
 import { PackageConsentDialog } from './ui/packages/package-consent-dialog';
 import { HubPanel } from './ui/hub/hub-panel';
+import { HubTargetMemories } from './ui/hub/hub-install-control';
 import { HubMissingInstall } from './ui/hub/hub-missing-install';
 import { ExternalLinks } from './ui/external-links';
 import { sceneUnit } from './units/scene-unit';
@@ -1012,6 +1013,7 @@ const hubPanel = new HubPanel({
   packages: packagesClient,
   installSetting: () => packageSettings.current.installTarget,
   projectOpen,
+  targetMemory: HubTargetMemories.project(new ProjectUiStateClient()),
   openExternal: (url) => void ExternalLinks.open(url),
   onPackagesChanged: () => packagesChanged({ fromHubPanel: true }),
   width: () => editorSurface?.pane.getWidth() ?? editorPreferences.width,

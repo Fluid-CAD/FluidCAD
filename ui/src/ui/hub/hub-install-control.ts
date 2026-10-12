@@ -1,28 +1,67 @@
-import type { HubClient, HubLocalMarks, PackageInstallOutcome, PackageRefusal, PackagesClient, PackageTarget } from '../../api';
+import type { HubClient, HubLocalMarks, PackageInstallOutcome, PackageRefusal, PackagesClient, PackageTarget, ProjectUiStateClient } from '../../api';
 import { HubIcons } from './hub-icons';
 import { HubText } from './hub-text';
+
+/** Where a project's last install target is kept: the engine's per-project UI state (`ProjectUiStateClient`). */
+export type HubTargetMemory = {
+  load(): Promise<PackageTarget | null>;
+  save(target: PackageTarget): void;
+};
+
+/** The memories a {@link HubInstallTarget} can keep its choice in. */
+export class HubTargetMemories {
+  /** The project's `.fluidcad/ui-state.json`, through the engine (every host talks to the same engine). */
+  static project(client: ProjectUiStateClient): HubTargetMemory {
+    return {
+      load: async () => (await client.load())?.hubInstallTarget ?? null,
+      save: (target) => void client.save({ hubInstallTarget: target }),
+    };
+  }
+}
 
 /**
  * Where the panel's installs go (hub-plan H11 decision 6, as corrected by
  * the user on 2026-10-12): the Install button's dropdown selects it, and
- * Install and "Upgrade to X" both install there. It starts at Settings →
- * Packages' "New packages go to" (My library unless changed) and stays as
- * chosen while the page is open, across packages; it isn't saved (the
- * setting stays the lasting choice). Without an open project it is the
- * library.
+ * Install and "Upgrade to X" both install there.
+ *
+ * **Each project remembers its own last choice** (the user, 2026-10-12,
+ * H12): a choice made with a project open is saved through `memory` (the
+ * project's `.fluidcad/ui-state.json`) and read back when the panel starts
+ * ({@link restore}), across reloads and restarts. Until a project has a
+ * choice, it starts at Settings → Packages' "New packages go to", which is
+ * My library unless changed. Without an open project it is the library,
+ * and nothing is saved.
  */
 export class HubInstallTarget {
   private chosen: PackageTarget | null = null;
 
-  constructor(private readonly setting: () => PackageTarget, private readonly projectOpen: () => boolean) {}
+  constructor(
+    private readonly setting: () => PackageTarget,
+    private readonly projectOpen: () => boolean,
+    private readonly memory: HubTargetMemory | null = null,
+  ) {}
 
   get current(): PackageTarget {
     const target = this.chosen ?? this.setting();
     return target === 'project' && this.projectOpen() ? 'project' : 'library';
   }
 
+  /** Reads this project's remembered choice; a choice made before it answers wins. */
+  async restore(): Promise<void> {
+    if (!this.memory || !this.projectOpen()) {
+      return;
+    }
+    const remembered = await this.memory.load();
+    if (remembered && this.chosen === null) {
+      this.chosen = remembered;
+    }
+  }
+
   set(target: PackageTarget): void {
     this.chosen = target;
+    if (this.memory && this.projectOpen()) {
+      this.memory.save(target);
+    }
   }
 }
 

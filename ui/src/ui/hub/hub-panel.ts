@@ -1,6 +1,6 @@
 import type { HubClient, HubStatus, PackagesClient, PackageTarget } from '../../api';
 import { HubIcons } from './hub-icons';
-import { HubInstallTarget, type HubInstalled } from './hub-install-control';
+import { HubInstallTarget, type HubInstalled, type HubTargetMemory } from './hub-install-control';
 import { HubPackageView } from './hub-package-view';
 import { HubPanelState } from './hub-panel-state';
 import type { HubEngine } from './hub-row';
@@ -15,6 +15,8 @@ export type HubPanelDeps = {
   installSetting(): PackageTarget;
   /** Whether a project is open (pins, the project target). */
   projectOpen(): boolean;
+  /** Where each project keeps its last install target (H12); absent, the choice lasts while the page is open. */
+  targetMemory?: HubTargetMemory;
   /** Open a web page in the user's browser, through the host. */
   openExternal(url: string): void;
   /** A package was installed or upgraded: the catalogs, the scene and the Packages overview catch up. */
@@ -71,7 +73,8 @@ export class HubPanel {
   constructor(private readonly deps: HubPanelDeps) {
     this.width = HubPanel.clampWidth(deps.width());
     this.state = new HubPanelState(deps.hub, deps.timers);
-    this.target = new HubInstallTarget(() => deps.installSetting(), () => deps.projectOpen());
+    this.target = new HubInstallTarget(() => deps.installSetting(), () => deps.projectOpen(), deps.targetMemory ?? null);
+    void this.target.restore();
 
     this.el = document.createElement('aside');
     this.el.dataset.role = 'hub-panel';

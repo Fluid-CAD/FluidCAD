@@ -28,6 +28,8 @@ import { createRenderRouter, type RenderOutcome } from './routes/render.ts';
 import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
 import { createPackagesRouter } from './routes/packages.ts';
+import { createHubRouter } from './routes/hub.ts';
+import { HubReleases } from './hub/hub-releases.ts';
 import { PackageInstaller } from './packages/package-installer.ts';
 import { PackageEditGuard } from './packages/package-edit-guard.ts';
 import { PackagePins } from './packages/package-pins.ts';
@@ -243,7 +245,8 @@ app.use('/api', createUnitRouter({
   broadcastToUI,
 }));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
-app.use('/api', createPackagesRouter({ workspacePath: WORKSPACE_PATH }));
+app.use('/api', createPackagesRouter({ workspacePath: WORKSPACE_PATH, releases: new HubReleases({ engineVersion: PACKAGE_VERSION }) }));
+app.use('/api', createHubRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION }));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createFeatureCatalogRouter(featureCatalog, WORKSPACE_PATH));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));

@@ -12,10 +12,17 @@ import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
 import { ProjectPackages } from '../packages/project-packages.ts';
 import { PackageTypeLibs } from '../packages/package-editor-types.ts';
 import { Semver } from '../packages/semver.ts';
+import type { HubReleases } from '../hub/hub-releases.ts';
 
 export type PackagesRouterOptions = {
   /** The open project; empty when the server runs without one (no project target, no pins). */
   workspacePath: string;
+  /**
+   * The hub's releases of the pinned packages (hub-plan H10, feeding P10),
+   * counted in `GET /api/packages`' `updates`; without it only the library
+   * is (the tests that never reach a hub).
+   */
+  releases?: HubReleases;
 };
 
 /**
@@ -23,8 +30,8 @@ export type PackagesRouterOptions = {
  * and Settings → Packages. Packages install only from the hub (HD31): no
  * route takes an archive from the page. The hub download inspects the
  * archive inside the engine (`PackageArchive.inspect`), and the token it
- * answers is what `install`, `discard` and `inspected-icon` take — H10's
- * `POST /api/hub/inspect` hands it to the page; until then no route does.
+ * answers is what `install`, `discard` and `inspected-icon` take: H10's
+ * `POST /api/hub/inspect` (`routes/hub.ts`) hands it to the page.
  *
  * - `POST /api/packages/install { token, target, replace?, pin? }`: renames
  *   an inspected archive into the user library or the project copy under
@@ -34,7 +41,8 @@ export type PackagesRouterOptions = {
  *   inspected archive, for the consent dialog; `POST /api/packages/discard
  *   { token }` drops an inspection the user declined.
  * - `GET /api/packages`: both roots and the project's pins, each with where
- *   it is installed (`availability`).
+ *   it is installed (`availability`), and each pin's newer version from the
+ *   library or the hub (`updates`, `updatesFrom`).
  * - `POST /api/packages/copy { name, version, to }`: Copy into project
  *   (`to: 'project'`) and Add to my library (`to: 'library'`).
  * - `DELETE /api/packages/@scope/name/<version>?target=library|project`
@@ -114,8 +122,12 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
       // `problems`: the pins installed in neither root, structured for an
       // Install action (empty without a project). `libraryOffer`: what the
       // folder the library just left still holds.
+      let overview = ProjectPackages.overview(project);
+      if (options.releases && overview.pins && overview.pins.length > 0) {
+        overview = ProjectPackages.withHubReleases(overview, await options.releases.newest(overview.pins.map((pin) => pin.name)));
+      }
       res.json({
-        ...ProjectPackages.overview(project),
+        ...overview,
         problems: PackagePins.problems(project),
         defaultTarget: await preferredTarget(),
         libraryOffer: LibraryMove.offer(),

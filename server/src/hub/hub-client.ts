@@ -32,6 +32,17 @@ export type HubVersionSummary = Schemas['VersionSummary'];
 /** `?engine=&sdk=`: the engine a version would run on, so the hub says which versions it can run. */
 export type HubEngineOffer = { engine?: string | null; sdk?: number | null };
 
+/**
+ * `GET /search`: one page of listed packages with the facets, the same for
+ * every caller (the hub reads no token there). Install marks are the
+ * engine's to add (`HubBridge`), never the hub's.
+ */
+export type HubSearchResponse = Schemas['SearchResponse'];
+export type HubSearchResult = Schemas['SearchResult'];
+
+/** How a file or screenshot read is sent: the caller's abort (a closed page). */
+export type HubFileRequest = { signal?: AbortSignal };
+
 /** How an archive download is sent: its total limit, and an abort (a stall watchdog, a closed window). */
 export type HubArchiveRequest = { timeoutMs?: number; signal?: AbortSignal };
 export type HubUploadResult = Schemas['UploadResult'];
@@ -161,6 +172,46 @@ export class HubClient {
   }
 
   /**
+   * `GET /search?…`: `query` as the hub names its parameters (repeated keys
+   * for the lists). Always anonymous: the answer depends on nothing but the
+   * query, so a token would only travel for nothing.
+   */
+  async search(query: URLSearchParams, request: HubFileRequest = {}): Promise<HubSearchResponse> {
+    const search = query.size > 0 ? `?${query}` : '';
+    return this.anonymous().json<HubSearchResponse>('GET', HubClient.route('/search', {}, search), undefined, { signal: request.signal });
+  }
+
+  /**
+   * `GET …/versions/{version}/files/{path}`: one file from inside a
+   * version's archive, as the hub serves it (its safe type, its
+   * `Cache-Control`: immutable for a published version, `private, no-store`
+   * for the owner's unpublished one). `path` may hold `/`; each segment is
+   * encoded on its own. A refusal is thrown before any body is read.
+   */
+  async file(name: string, version: string, path: string, request: HubFileRequest = {}): Promise<Response> {
+    return this.raw(HubClient.fileRoute(name, version, path), request);
+  }
+
+  /**
+   * `GET /packages/{scope}/{name}/media/{id}`: a screenshot (a search row's
+   * card image), immutable once the package is public. A refusal is thrown
+   * before any body is read.
+   */
+  async media(name: string, id: string, request: HubFileRequest = {}): Promise<Response> {
+    return this.raw(HubClient.mediaRoute(name, id), request);
+  }
+
+  /** The route {@link file} reads (without `/api/v1`): what a cache keys it by, with the hub's `api()`. */
+  static fileRoute(name: string, version: string, path: string): string {
+    return HubClient.route('/packages/{scope}/{name}/versions/{version}/files/{path}', { ...HubClient.partsOf(name), version, path });
+  }
+
+  /** The route {@link media} reads (without `/api/v1`). */
+  static mediaRoute(name: string, id: string): string {
+    return HubClient.route('/packages/{scope}/{name}/media/{id}', { ...HubClient.partsOf(name), id });
+  }
+
+  /**
    * `PUT …/versions/{version}`: uploads the archive in one streamed request
    * (`duplex: 'half'`), with an explicit `Content-Length`, a 10-minute total
    * limit and the transport's stall watchdog. Never retried.
@@ -203,16 +254,52 @@ export class HubClient {
     return { scope: name.slice(0, slash), name: name.slice(slash + 1) };
   }
 
-  /** A route of the generated `paths` with its `{param}`s filled in, each one encoded (the scope keeps its `@`), then `query`. */
+  /**
+   * A route of the generated `paths` with its `{param}`s filled in, each one
+   * encoded (the scope keeps its `@`), then `query`. `{path}` (a file inside
+   * an archive) keeps its `/`s: each of its segments is encoded alone, and
+   * an empty, `.` or `..` segment is refused, so a file path can never climb
+   * to another route.
+   */
   private static route(template: ApiPath, params: Record<string, string>, query = ''): FilledRoute {
     const filled = template.replace(/\{([a-z]+)\}/gi, (_match, key: string) => {
       const value = params[key];
       if (value === undefined) {
         throw new Error(`HubClient: no value for {${key}} in ${template}.`);
       }
+      if (key === 'path') {
+        return HubClient.segments(value);
+      }
       return encodeURIComponent(value).replace(/^%40/, '@');
     });
     return (filled + query) as FilledRoute;
+  }
+
+  /** `features/standoff.svg` → each segment encoded, the `/`s kept; a segment that is empty, `.` or `..` is refused. */
+  private static segments(path: string): string {
+    const parts = path.split('/');
+    if (parts.some((part) => part === '' || part === '.' || part === '..' || part.includes('\\'))) {
+      throw new Error(`HubClient: ${JSON.stringify(path)} is not a file path inside an archive.`);
+    }
+    return parts.map((part) => encodeURIComponent(part)).join('/');
+  }
+
+  /** The same hub and transport, sending no token. */
+  private anonymous(): HubClient {
+    return this.token ? this.withToken(null) : this;
+  }
+
+  /** A GET whose body the caller reads (a file, an image); a refusal is thrown before any body is read. */
+  private async raw(route: string, request: HubFileRequest): Promise<Response> {
+    const response = await this.transport.send(this.config.api(route), {
+      method: 'GET',
+      headers: { ...this.authorization(), accept: '*/*' },
+      signal: request.signal,
+    });
+    if (response.ok) {
+      return response;
+    }
+    throw this.errorOf(response, HubClient.parse(await response.text()));
   }
 
   /** The hub's 404 `not-found` as null; any other refusal is thrown. */

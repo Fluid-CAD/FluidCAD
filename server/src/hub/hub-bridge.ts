@@ -1,0 +1,424 @@
+import { SDK_VERSION } from '../../../lib/dist/sdk/version.js';
+import type { PackageInspection } from '../packages/package-archive.ts';
+import { PackageName } from '../packages/package-name.ts';
+import { PackagePinError, PackagePins } from '../packages/package-pins.ts';
+import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
+import { Semver } from '../packages/semver.ts';
+import { HubClient, type HubPackageDetail, type HubSearchResponse, type HubSearchResult } from './hub-client.ts';
+import { HubConfig } from './hub-config.ts';
+import { HubCredentials } from './hub-credentials.ts';
+import { HubFileCache, type HubCachedFile } from './hub-file-cache.ts';
+import { HubInstaller } from './hub-installer.ts';
+import { HubLocalState, type HubLocalMarks } from './hub-local-state.ts';
+import { HubProxyPaths } from './hub-proxy-paths.ts';
+import { HubRequestError } from './hub-request-error.ts';
+import type { HubSearchQuery } from './hub-search-query.ts';
+import { HubTransport, type HubClientKind } from './hub-transport.ts';
+
+/**
+ * The hub as the engine's UI and `fluidcad search` see it (hub-plan H10,
+ * HD15): the UI never calls the hub, it calls the engine's `/api/hub/*`
+ * routes, which this class answers; the CLI's `search` prints the same
+ * answer.
+ *
+ * - {@link status}: which hub, whether it answers, and who this machine is
+ *   signed in as (credentials are only read: signing in from the app is
+ *   Later).
+ * - {@link search}: `GET /api/v1/search` with this engine's version and SDK,
+ *   compatible-only unless asked otherwise (`HubSearchQuery`), each row
+ *   with the local marks (`HubLocalState`), its images on the engine's
+ *   proxy paths (`HubProxyPaths`) and no publisher avatar.
+ * - {@link package}: the detail, with the same marks and proxy paths.
+ * - {@link file}, {@link media}: a version's file and a package's
+ *   screenshot through the disk cache (`HubFileCache`), which keeps what
+ *   the hub calls immutable.
+ * - {@link inspect}: the download, verified and inspected
+ *   (`HubInstaller.resolve` then `fetch`), answered as the `PackageInspection`
+ *   the consent dialog shows and whose token `POST /api/packages/install`
+ *   takes.
+ *
+ * Reads carry the signed-in token where an owner or reviewer sees more
+ * (the detail, files, screenshots, the download), never for search. A
+ * token the hub refuses (401) is dropped and the read goes again
+ * anonymously, as `HubInstaller` does.
+ *
+ * Refusals: the hub's own as {@link HubRequestError} (no answer at all is
+ * status 0), the installer's as `HubInstallError`, the bridge's own (a bad
+ * name, a project target with no project) as {@link HubBridgeError}.
+ */
+
+export type HubBridgeOptions = {
+  /** `--hub <url>`; else `FLUIDCAD_HUB_URL`, else the default (`HubConfig`). */
+  hub?: string | null;
+  /** Where the hub URL and the token are read; defaults to `process.env`. */
+  env?: NodeJS.ProcessEnv;
+  /** The open project: the pins and its `packages/` copy for the local marks; null outside one. */
+  project: string | null;
+  /** This engine's FluidCAD version, sent as `engine`. */
+  engineVersion: string;
+  /** Defaults to the lib's `SDK_VERSION`, sent as `sdk`. */
+  sdkVersion?: number;
+  /** Which FluidCAD is asking, for the user agent. */
+  client: HubClientKind;
+  /** Defaults to a transport for `client`. */
+  transport?: HubTransport;
+  /** Defaults to `$FLUIDCAD_HOME/cache/hub`. */
+  cache?: HubFileCache;
+};
+
+/** `GET /api/hub/status`. */
+export type HubStatus = {
+  hubUrl: string;
+  /** `GET /api/v1` answered. */
+  reachable: boolean;
+  /** Who the stored (or `FLUIDCAD_HUB_TOKEN`) credential is; `handle` null when the hub couldn't say. Null when signed out. */
+  signedIn: { handle: string | null } | null;
+  /** What every search sends: this engine's version and feature SDK. */
+  engine: string;
+  sdk: number;
+};
+
+/** A search row as the engine hands it on: proxy paths, no avatar, the local marks. */
+export type HubBridgeSearchResult = Omit<HubSearchResult, 'publisher'> & {
+  publisher: { handle: string };
+  local: HubLocalMarks;
+};
+
+/** `GET /api/hub/search`: the hub's `SearchResponse`, changed only in its rows. */
+export type HubBridgeSearchResponse = Omit<HubSearchResponse, 'results'> & { results: HubBridgeSearchResult[] };
+
+/** `GET /api/hub/packages/@s/n`: the hub's detail with its images on proxy paths, plus the local marks. */
+export type HubBridgePackage = HubPackageDetail & { local: HubLocalMarks };
+
+/** A file or screenshot the bridge serves, and whether the disk cache answered it (`hit`), kept it (`miss`) or may not keep it (`none`). */
+export type HubProxiedFile = HubCachedFile & { cache: 'hit' | 'miss' | 'none' };
+
+/** `POST /api/hub/inspect`'s body. */
+export type HubInspectRequest = {
+  name: string;
+  /** Null: the version an install by name gets (the latest this engine runs). */
+  version: string | null;
+  /** The root the download is inspected under, and where the dialog proposes to install it. */
+  target: PackageTarget;
+};
+
+/**
+ * `POST /api/hub/inspect`: the `PackageInspection` the consent dialog shows
+ * (its `token` goes to `POST /api/packages/install`), plus what the hub's
+ * resolution has to say beside the warnings.
+ */
+export type HubBridgeInspection = PackageInspection & {
+  /** The target asked for: the dialog's preselected choice. */
+  defaultTarget: PackageTarget;
+  /** The resolution's sentences: a yanked or unpublished version, an older one picked for this engine, a refused token. */
+  notes: string[];
+  /** Which hub it came from, and the version's state there. */
+  source: { hub: string; status: string; access: 'public' | 'owner' | 'admin' };
+};
+
+/** A refusal decided by the bridge itself, with the HTTP status the route answers. */
+export class HubBridgeError extends Error {
+  constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {
+    super(message);
+    this.name = 'HubBridgeError';
+  }
+}
+
+export class HubBridge {
+  /** `GET /api/hub/status` waits at most this long for the hub. */
+  static readonly STATUS_TIMEOUT_MS = 5_000;
+  /** The largest file or screenshot the bridge passes on. */
+  static readonly MAX_FILE_BYTES = 64 * 1024 * 1024;
+  private static readonly MEDIA_ID = /^[A-Za-z0-9-]{1,64}$/;
+
+  readonly project: string | null;
+  readonly engineVersion: string;
+  readonly sdkVersion: number;
+  readonly cache: HubFileCache;
+  private readonly options: HubBridgeOptions;
+  private readonly transport: HubTransport;
+  /** A file or screenshot being fetched, by its hub URL: a second ask waits for the first. */
+  private readonly inflight = new Map<string, Promise<HubProxiedFile>>();
+
+  constructor(options: HubBridgeOptions) {
+    this.options = options;
+    this.project = options.project || null;
+    this.engineVersion = options.engineVersion;
+    this.sdkVersion = options.sdkVersion ?? SDK_VERSION;
+    this.transport = options.transport ?? new HubTransport({ version: options.engineVersion, client: options.client });
+    this.cache = options.cache ?? new HubFileCache();
+  }
+
+  /** Which hub (`--hub`, `FLUIDCAD_HUB_URL`, the default), resolved at each ask; a bad URL throws `HubConfigError`. */
+  config(): HubConfig {
+    return HubConfig.resolve({ hub: this.options.hub, env: this.options.env });
+  }
+
+  async status(): Promise<HubStatus> {
+    const config = this.config();
+    const quick = new HubTransport({ version: this.engineVersion, client: this.options.client, timeoutMs: HubBridge.STATUS_TIMEOUT_MS });
+    const client = new HubClient(config, this.options.transport ?? quick);
+    let reachable = true;
+    try {
+      await client.meta();
+    } catch (err) {
+      if (!(err instanceof HubRequestError)) {
+        throw err;
+      }
+      reachable = false;
+    }
+    return {
+      hubUrl: config.origin,
+      reachable,
+      signedIn: await this.signedIn(config, client, reachable),
+      engine: this.engineVersion,
+      sdk: this.sdkVersion,
+    };
+  }
+
+  async search(query: HubSearchQuery, request: { signal?: AbortSignal } = {}): Promise<HubBridgeSearchResponse> {
+    const config = this.config();
+    // Anonymous: the hub's answer depends on the query alone.
+    const answer = await new HubClient(config, this.transport).search(query.hubParams(this.engineVersion, this.sdkVersion), request);
+    const local = HubLocalState.read(this.project);
+    return { ...answer, results: answer.results.map((row) => HubBridge.row(row, config.origin, local)) };
+  }
+
+  async package(name: string): Promise<HubBridgePackage> {
+    HubBridge.checkName(name);
+    const config = this.config();
+    const detail = await this.read(config, (client) => client.package(name, { engine: this.engineVersion, sdk: this.sdkVersion }));
+    if (!detail) {
+      throw new HubBridgeError(404, 'not-found', `${name} isn't on ${config.origin}.`);
+    }
+    const offered = detail.compatibility ? detail.compatibility.newestCompatible : detail.latestVersion;
+    return {
+      ...detail,
+      latest: detail.latest
+        ? { ...detail.latest, features: detail.latest.features.map((f) => ({ ...f, iconUrl: HubProxyPaths.rewrite(f.iconUrl, config.origin) })) }
+        : null,
+      listing: { ...detail.listing, media: HubBridge.proxiedMedia(detail.listing.media, config.origin) },
+      local: HubLocalState.read(this.project).marks(name, offered),
+    };
+  }
+
+  /** A file inside `name@version`'s archive (`path` as the archive holds it), through the disk cache. */
+  async file(name: string, version: string, path: string): Promise<HubProxiedFile> {
+    HubBridge.checkName(name);
+    if (!Semver.isValid(version)) {
+      throw new HubBridgeError(400, 'bad-request', `${JSON.stringify(version)} is not a version, as in 1.2.0.`);
+    }
+    const parts = path.split('/');
+    if (parts.some((part) => part === '' || part === '.' || part === '..' || part.includes('\\'))) {
+      throw new HubBridgeError(400, 'bad-request', `${JSON.stringify(path)} is not a file path inside a package.`);
+    }
+    const config = this.config();
+    return this.proxied(config.api(HubClient.fileRoute(name, version, path)), config, (client) => client.file(name, version, path));
+  }
+
+  /** A screenshot of `name` (a row's card image), through the disk cache. */
+  async media(name: string, id: string): Promise<HubProxiedFile> {
+    HubBridge.checkName(name);
+    if (!HubBridge.MEDIA_ID.test(id)) {
+      throw new HubBridgeError(400, 'bad-request', `${JSON.stringify(id)} is not a screenshot id.`);
+    }
+    const config = this.config();
+    return this.proxied(config.api(HubClient.mediaRoute(name, id)), config, (client) => client.media(name, id));
+  }
+
+  /**
+   * Downloads, verifies and inspects `name` (at `version`, else the latest
+   * this engine runs) into `target`'s scratch, checked against the open
+   * project's pin of that version when there is one. Nothing is installed:
+   * the answer's token waits for `POST /api/packages/install` (or
+   * `discard`).
+   */
+  async inspect(request: HubInspectRequest, options: { signal?: AbortSignal } = {}): Promise<HubBridgeInspection> {
+    HubBridge.checkName(request.name);
+    if (request.version !== null && !Semver.isValid(request.version)) {
+      throw new HubBridgeError(400, 'bad-request', `${JSON.stringify(request.version)} is not a version, as in ${request.name}@1.2.0.`);
+    }
+    if (request.target === 'project' && !this.project) {
+      throw new HubBridgeError(400, 'no-project', 'There is no open project to install into.');
+    }
+    const config = this.config();
+    const installer = new HubInstaller({
+      config,
+      token: HubCredentials.read(config.origin, this.options.env)?.token ?? null,
+      engineVersion: this.engineVersion,
+      sdkVersion: this.sdkVersion,
+      transport: this.transport,
+    });
+    const resolved = await installer.resolve({ name: request.name, version: request.version });
+    const fetched = await installer.fetch(resolved, {
+      root: PackageRoots.rootFor(request.target, this.project),
+      pin: this.pinOf(resolved.name, resolved.version),
+      signal: options.signal,
+    });
+    return {
+      ...fetched.inspection,
+      defaultTarget: request.target,
+      notes: resolved.notes,
+      source: { hub: resolved.hub, status: resolved.status, access: resolved.access },
+    };
+  }
+
+  // Shaping
+
+  private static row(row: HubSearchResult, origin: string, local: HubLocalState): HubBridgeSearchResult {
+    const { publisher, ...rest } = row;
+    return {
+      ...rest,
+      cardImageUrl: HubProxyPaths.rewrite(row.cardImageUrl, origin),
+      features: row.features.map((chip) => ({ ...chip, iconUrl: HubProxyPaths.rewrite(chip.iconUrl, origin) })),
+      publisher: { handle: publisher.handle },
+      // A version this engine can't run is no update.
+      local: local.marks(row.fullName, row.compatible === false ? null : row.version),
+    };
+  }
+
+  /** The screenshots on their proxy paths; one served from anywhere but the hub is left out (the UI never loads a third-party image). */
+  private static proxiedMedia(media: HubPackageDetail['listing']['media'], origin: string): HubPackageDetail['listing']['media'] {
+    const proxied: HubPackageDetail['listing']['media'] = [];
+    for (const shot of media) {
+      const url = HubProxyPaths.rewrite(shot.url, origin);
+      if (url) {
+        proxied.push({ ...shot, url });
+      }
+    }
+    return proxied;
+  }
+
+  /** The open project's pinned integrity for `name@version`, when it pins exactly that version. */
+  private pinOf(name: string, version: string): string | null {
+    if (!this.project || !PackagePins.isProject(this.project)) {
+      return null;
+    }
+    try {
+      const pin = PackagePins.of(this.project)[name];
+      return pin && pin.version === version ? pin.integrity : null;
+    } catch (err) {
+      if (err instanceof PackagePinError) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  private static checkName(name: string): void {
+    if (!PackageName.isValid(name)) {
+      throw new HubBridgeError(400, 'bad-request', `${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
+    }
+  }
+
+  // Requests
+
+  /** Signed in as: the stored handle with no request; a token without one asks `GET /me` (a refused token is signed out). */
+  private async signedIn(config: HubConfig, client: HubClient, reachable: boolean): Promise<{ handle: string | null } | null> {
+    const credential = HubCredentials.read(config.origin, this.options.env);
+    if (!credential) {
+      return null;
+    }
+    if (credential.handle || !reachable) {
+      return { handle: credential.handle };
+    }
+    try {
+      const me = await client.withToken(credential.token).me();
+      return { handle: me.account.handle };
+    } catch (err) {
+      if (err instanceof HubRequestError && err.unauthorized) {
+        return null;
+      }
+      if (err instanceof HubRequestError) {
+        return { handle: null };
+      }
+      throw err;
+    }
+  }
+
+  /** A client for `config`, sending the signed-in token. */
+  private client(config: HubConfig): HubClient {
+    return new HubClient(config, this.transport, HubCredentials.read(config.origin, this.options.env)?.token ?? null);
+  }
+
+  /** A read with the token; when the hub refuses the token, the same read again without it. */
+  private async read<T>(config: HubConfig, request: (client: HubClient) => Promise<T>): Promise<T> {
+    const client = this.client(config);
+    try {
+      return await request(client);
+    } catch (err) {
+      if (err instanceof HubRequestError && err.unauthorized && client.hasToken) {
+        return request(client.withToken(null));
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * `url` from the disk cache, else from the hub (kept when the hub calls
+   * it immutable). The hub unreachable and nothing cached: the hub's error.
+   */
+  private async proxied(url: string, config: HubConfig, request: (client: HubClient) => Promise<Response>): Promise<HubProxiedFile> {
+    const cached = await this.cache.read(url);
+    if (cached) {
+      return { ...cached, cache: 'hit' };
+    }
+    const running = this.inflight.get(url);
+    if (running) {
+      return running;
+    }
+    const fetching = this.fetchFile(url, config, request).finally(() => this.inflight.delete(url));
+    this.inflight.set(url, fetching);
+    return fetching;
+  }
+
+  private async fetchFile(url: string, config: HubConfig, request: (client: HubClient) => Promise<Response>): Promise<HubProxiedFile> {
+    const response = await this.read(config, request);
+    const body = await HubBridge.readCapped(response, config.origin);
+    const headers: Record<string, string> = {};
+    for (const name of HubBridge.PASSED_HEADERS) {
+      const value = response.headers.get(name);
+      if (value) {
+        headers[name] = value;
+      }
+    }
+    const file: HubCachedFile = { body, contentType: response.headers.get('content-type') ?? 'application/octet-stream', headers };
+    if (!HubFileCache.isImmutable(response.headers.get('cache-control'))) {
+      return { ...file, cache: 'none' };
+    }
+    await this.cache.write(url, file);
+    return { ...file, cache: 'miss' };
+  }
+
+  /** The hub's headers a proxied file keeps. */
+  private static readonly PASSED_HEADERS = ['content-security-policy', 'content-disposition'];
+
+  /** The whole body, refused past {@link MAX_FILE_BYTES}. */
+  private static async readCapped(response: Response, origin: string): Promise<Buffer> {
+    const tooLarge = () => new HubBridgeError(502, 'too-large', `${origin} answered with a file over ${HubBridge.MAX_FILE_BYTES / (1024 * 1024)} MB.`);
+    const length = Number(response.headers.get('content-length'));
+    if (Number.isFinite(length) && length > HubBridge.MAX_FILE_BYTES) {
+      await response.body?.cancel();
+      throw tooLarge();
+    }
+    if (!response.body) {
+      return Buffer.alloc(0);
+    }
+    const chunks: Buffer[] = [];
+    let total = 0;
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      total += value.byteLength;
+      if (total > HubBridge.MAX_FILE_BYTES) {
+        await reader.cancel();
+        throw tooLarge();
+      }
+      chunks.push(Buffer.from(value));
+    }
+    return Buffer.concat(chunks);
+  }
+}

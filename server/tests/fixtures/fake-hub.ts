@@ -39,6 +39,15 @@ import { TreeHash } from '../../src/packages/tree-hash.ts';
  *   and admins see every state. A removed version answers 410
  *   `version-removed`. {@link FakeHub.nextDownload} makes the next download
  *   lie about its integrity or length, fail, or stall mid-body.
+ * - the bridge's routes (H10): `GET /api/v1/search` answers
+ *   {@link FakeHub.searchAnswer} (a fixture `SearchResponse`: no search
+ *   logic of its own) and records the query; `GET …/versions/v/files/<path>`
+ *   serves a file out of an added archive with the hub's safe type, its
+ *   CSP and `Cache-Control` (immutable for a published version, `private,
+ *   no-store` otherwise); `GET /api/v1/packages/@s/n/media/<id>` serves a
+ *   screenshot added with {@link FakeHub.addMedia} (immutable once the
+ *   package has a published version). The detail lists the screenshots and
+ *   the latest version's features with their icon URLs.
  *
  * Tell it what to do next with {@link FakeHub.mode}: `approve` (default),
  * `deny`, `expire` (approves, then refuses the exchange as expired), `fail`
@@ -129,6 +138,9 @@ type Authorization = {
 
 export type FakeHubRequest = { method: string; path: string; query: string; headers: http.IncomingHttpHeaders; body: string; bytes: Buffer };
 
+/** A screenshot {@link FakeHub.addMedia} holds. */
+export type FakeHubMedia = { id: string; name: string; bytes: Buffer; contentType: string; isCard: boolean };
+
 export class FakeHub {
   static readonly CLIENT_ID = 'fluidcad-cli';
   static readonly DEFAULT_USER: FakeHubUser = {
@@ -142,6 +154,8 @@ export class FakeHub {
   mode: FakeHubMode = 'approve';
   /** How long `POST /cli/token` takes to answer. */
   exchangeDelayMs = 0;
+  /** How long `GET /api/v1/packages/@s/n` takes to answer (a slow hub). */
+  packageReadDelayMs = 0;
   user: FakeHubUser = { ...FakeHub.DEFAULT_USER };
   /** Limits `GET /api/v1` answers instead of the hub's own (`HubLimits`). */
   limits: Record<string, number> = {};
@@ -159,6 +173,12 @@ export class FakeHub {
   nextDownload: FakeHubDownloadPlan | null = null;
   /** Every request, in order. */
   readonly requests: FakeHubRequest[] = [];
+  /** What `GET /api/v1/search` answers (any query); the empty shape until a test sets one. */
+  searchAnswer: Record<string, unknown> = FakeHub.emptySearch();
+  /** A refusal the next search answers instead; used once. */
+  nextSearch: { status: number; code: string; message: string; details?: unknown } | null = null;
+  /** The screenshots, by id. */
+  readonly media = new Map<string, FakeHubMedia>();
   /** The `request` of every `/cli/done` visit. */
   readonly doneVisits: string[] = [];
   readonly authorizations = new Map<string, Authorization>();
@@ -253,6 +273,31 @@ export class FakeHub {
     return version;
   }
 
+  /** Holds a screenshot of `name` (a PNG unless told otherwise); answers its id. */
+  addMedia(name: string, bytes: Buffer, options: { contentType?: string; isCard?: boolean } = {}): string {
+    const id = crypto.randomUUID();
+    this.media.set(id, { id, name, bytes, contentType: options.contentType ?? 'image/png', isCard: options.isCard ?? true });
+    return id;
+  }
+
+  /** The query of every search, in order. */
+  searchQueries(): URLSearchParams[] {
+    return this.requestsTo('/api/v1/search').map((request) => new URLSearchParams(request.query));
+  }
+
+  /** The `SearchResponse` with nothing in it, as the hub answers `q=zzzz`. */
+  static emptySearch(): Record<string, unknown> {
+    return {
+      request: { q: '', words: [], scopes: [], contents: [], keywords: [], units: [], licenses: [], engine: null, sdk: null, compatible: false, sort: 'installs', page: 1, limit: 20 },
+      total: 0,
+      capped: false,
+      page: 1,
+      limit: 20,
+      results: [],
+      facets: { contents: { features: 0, parts: 0, assemblies: 0 }, keywords: [], units: { metric: 0, imperial: 0 }, licenses: [], compatible: null },
+    };
+  }
+
   /** The archive downloads of `name@version` asked for. */
   downloadsOf(name: string, version: string): FakeHubDownload[] {
     return this.downloads.filter((download) => download.name === name && download.version === version);
@@ -265,9 +310,13 @@ export class FakeHub {
     this.uploads.length = 0;
     this.downloads.length = 0;
     this.packages.clear();
+    this.media.clear();
+    this.searchAnswer = FakeHub.emptySearch();
+    this.nextSearch = null;
     this.nextUpload = null;
     this.nextDownload = null;
     this.minCliVersion = null;
+    this.packageReadDelayMs = 0;
     this.limits = {};
     this.mode = 'approve';
     this.user = { ...FakeHub.DEFAULT_USER };
@@ -300,6 +349,8 @@ export class FakeHub {
         return FakeHub.json(res, 200, this.meta());
       case 'GET /api/v1/me':
         return this.me(req, res);
+      case 'GET /api/v1/search':
+        return this.search(res);
       case 'POST /api/v1/cli/token':
         if (this.exchangeDelayMs > 0) {
           await new Promise((resolve) => setTimeout(resolve, this.exchangeDelayMs));
@@ -315,6 +366,16 @@ export class FakeHub {
         res.end('<!doctype html><title>Signed in</title><p>Done.</p>');
         return;
       default: {
+        const file = req.method === 'GET' ? FakeHub.FILE_ROUTE.exec(url.pathname) : null;
+        if (file) {
+          const name = `${decodeURIComponent(file[1])}/${decodeURIComponent(file[2])}`;
+          const filePath = file[4].split('/').map((part) => decodeURIComponent(part)).join('/');
+          return this.fileRoute(req, res, name, decodeURIComponent(file[3]), filePath);
+        }
+        const media = req.method === 'GET' ? FakeHub.MEDIA_ROUTE.exec(url.pathname) : null;
+        if (media) {
+          return this.mediaRoute(res, `${decodeURIComponent(media[1])}/${decodeURIComponent(media[2])}`, decodeURIComponent(media[3]));
+        }
         const publish = FakeHub.PUBLISH_ROUTE.exec(url.pathname);
         if (publish) {
           const name = `${decodeURIComponent(publish[1])}/${decodeURIComponent(publish[2])}`;
@@ -329,6 +390,79 @@ export class FakeHub {
     }
   }
 
+  private static readonly FILE_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)\/versions\/([^/]+)\/files\/(.+)$/;
+  private static readonly MEDIA_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)\/media\/([^/]+)$/;
+  /** The hub's safe types (`ArchiveFiles`): images by extension, text as plain text, anything else as bytes. */
+  private static readonly FILE_TYPES: Record<string, string> = {
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.js': 'text/plain; charset=utf-8',
+    '.json': 'text/plain; charset=utf-8',
+    '.md': 'text/plain; charset=utf-8',
+  };
+  static readonly IMMUTABLE = 'public, max-age=31536000, immutable';
+  static readonly PRIVATE = 'private, no-store';
+
+  private search(res: http.ServerResponse): void {
+    const plan = this.nextSearch;
+    this.nextSearch = null;
+    if (plan) {
+      const { status, code, message, details } = plan;
+      return FakeHub.json(res, status, { error: { code, message, ...(details === undefined ? {} : { details }) } });
+    }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'public, max-age=30, stale-while-revalidate=60' });
+    res.end(JSON.stringify(this.searchAnswer));
+  }
+
+  /** `GET …/versions/v/files/<path>`: one file out of the version's archive, as this reader may see it. */
+  private async fileRoute(req: http.IncomingMessage, res: http.ServerResponse, name: string, version: string, filePath: string): Promise<void> {
+    const access = this.accessOf(req, name);
+    if (access === null) {
+      return FakeHub.error(res, 401, 'unauthorized', 'This API token is not valid. Sign in again with `fluidcad login`.');
+    }
+    const row = this.visibleRow(res, name, version, this.packages.get(name), access);
+    if (!row) {
+      return;
+    }
+    const entry = row.archive ? (await JSZip.loadAsync(row.archive)).file(filePath) : null;
+    if (!entry) {
+      return FakeHub.error(res, 404, 'not-found', `${name}@${version} has no file ${filePath}.`);
+    }
+    const bytes = await entry.async('nodebuffer');
+    const dot = filePath.lastIndexOf('.');
+    const type = FakeHub.FILE_TYPES[dot === -1 ? '' : filePath.slice(dot).toLowerCase()] ?? 'application/octet-stream';
+    res.writeHead(200, {
+      'content-type': type,
+      'content-length': String(bytes.length),
+      'cache-control': row.status === 'published' ? FakeHub.IMMUTABLE : FakeHub.PRIVATE,
+      'content-security-policy': type === 'image/svg+xml' ? "default-src 'none'; style-src 'unsafe-inline'; sandbox" : "default-src 'none'; sandbox",
+      'content-disposition': 'inline',
+      'x-content-type-options': 'nosniff',
+    });
+    res.end(bytes);
+  }
+
+  /** `GET /packages/@s/n/media/<id>`: a screenshot, immutable once the package has a published version. */
+  private mediaRoute(res: http.ServerResponse, name: string, id: string): void {
+    const shot = this.media.get(id);
+    if (!shot || shot.name !== name) {
+      return FakeHub.error(res, 404, 'not-found', 'No such screenshot.');
+    }
+    const published = this.packages.get(name)?.versions.some((v) => v.status === 'published') ?? false;
+    res.writeHead(200, {
+      'content-type': shot.contentType,
+      'content-length': String(shot.bytes.length),
+      'cache-control': published ? FakeHub.IMMUTABLE : FakeHub.PRIVATE,
+      'content-security-policy': "default-src 'none'; sandbox",
+      'content-disposition': 'inline',
+      'x-content-type-options': 'nosniff',
+    });
+    res.end(shot.bytes);
+  }
+
   private static readonly PUBLISH_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)(?:\/versions\/([^/]+)(\/archive)?)?$/;
 
   private async publishRoute(req: http.IncomingMessage, res: http.ServerResponse, url: URL, bytes: Buffer, name: string, version: string | null): Promise<void> {
@@ -340,6 +474,9 @@ export class FakeHub {
         return FakeHub.error(res, 401, 'unauthorized', 'This API token is not valid. Sign in again with `fluidcad login`.');
       }
       if (route === 'GET package') {
+        if (this.packageReadDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, this.packageReadDelayMs));
+        }
         return this.packageRead(res, url, name, pkg, access);
       }
       const row = this.visibleRow(res, name, version!, pkg, access);
@@ -569,7 +706,7 @@ export class FakeHub {
       openVersion: owner && open ? this.versionStatus(name, open) : null,
       rejectedVersion: owner && rejected ? this.versionStatus(name, rejected) : null,
       createdAt: '2026-10-10T00:00:00.000Z',
-      listing: { license: null, homepageUrl: null, repositoryUrl: null, media: [] },
+      listing: { license: null, homepageUrl: null, repositoryUrl: null, media: this.mediaOf(name) },
       access,
       publisher: name.slice(1, name.indexOf('/')),
       description: null,
@@ -597,10 +734,51 @@ export class FakeHub {
       notes: row.notes ?? '',
       license: null,
       publishedAt: row.publishedAt ?? null,
-      features: [],
+      features: this.featuresOf(name, row),
       models: [],
       archiveUrl: this.archiveUrl(name, row.version),
     };
+  }
+
+  /** The detail's screenshots, in the order they were added. */
+  private mediaOf(name: string): Record<string, unknown>[] {
+    return [...this.media.values()]
+      .filter((shot) => shot.name === name)
+      .map((shot, position): Record<string, unknown> => ({
+        id: shot.id,
+        url: `${this.origin}/api/v1/packages/${name}/media/${shot.id}`,
+        contentType: shot.contentType,
+        width: 800,
+        height: 600,
+        bytes: shot.bytes.length,
+        caption: '',
+        fileName: null,
+        position,
+        isCard: shot.isCard,
+        modelModule: null,
+        createdAt: '2026-10-10T00:00:00.000Z',
+      }));
+  }
+
+  /** The latest version's features as the hub's `CatalogFeature`s: the icon's path in the archive and where it is served. */
+  private featuresOf(name: string, row: FakeHubVersion): Record<string, unknown>[] {
+    const features = (row.manifest?.features ?? []) as { id: string; exportName: string; module: string; meta?: { label?: string; icon?: string } }[];
+    return features.map((feature): Record<string, unknown> => {
+      const folder = feature.module.includes('/') ? feature.module.slice(0, feature.module.lastIndexOf('/') + 1) : '';
+      const icon = feature.meta?.icon ? `${folder}${feature.meta.icon.replace(/^\.\//, '')}` : null;
+      return {
+        id: feature.id,
+        exportName: feature.exportName,
+        label: feature.meta?.label ?? feature.id,
+        description: null,
+        module: feature.module,
+        group: null,
+        kind: null,
+        icon,
+        iconUrl: icon ? `${this.origin}/api/v1/packages/${name}/versions/${row.version}/files/${icon}` : null,
+        paramCount: 0,
+      };
+    });
   }
 
   private versionSummary(row: FakeHubVersion, latest: FakeHubVersion | null): Record<string, unknown> {

@@ -34,6 +34,31 @@ export class HubRequestError extends Error {
     this.details = options.details;
   }
 
+  /**
+   * The hub's sentence, followed by what its validation refusal names
+   * (`details.issues`, each `{ path, message }`): "The request is not
+   * valid: license: Use one of the hub's licenses: MIT, …". Just the
+   * sentence when there are no issues.
+   */
+  get sentence(): string {
+    const issues = (this.details as { issues?: unknown } | null | undefined)?.issues;
+    if (!Array.isArray(issues) || issues.length === 0) {
+      return this.message;
+    }
+    const named: string[] = [];
+    for (const issue of issues as { path?: unknown; message?: unknown }[]) {
+      if (typeof issue?.message !== 'string') {
+        continue;
+      }
+      const path = Array.isArray(issue.path) ? issue.path.filter((part) => typeof part === 'string').join('.') : '';
+      named.push(path ? `${path}: ${issue.message}` : issue.message);
+    }
+    if (named.length === 0) {
+      return this.message;
+    }
+    return `${this.message.replace(/\.$/, '')}: ${named.join('; ')}`;
+  }
+
   /** True when the hub refused the token: revoked, expired or unknown. */
   get unauthorized(): boolean {
     return this.status === 401;

@@ -50,12 +50,21 @@ export type PackagesOverview = {
   /** Why the pins couldn't be read (a broken `dependencies` map). */
   pinsProblem?: string;
   /**
-   * Each pinned package the library holds a newer version of, with the
-   * newest one: the "update available" chip (the previewed upgrade is
-   * Stage P10's). Empty outside a project.
+   * Each pinned package with a newer version the library holds or the hub
+   * offers this engine (`HubReleases`, hub-plan H10), with the newest one:
+   * the "update available" chip (the previewed upgrade is Stage P10's).
+   * Empty outside a project.
    */
   updates: Record<string, string>;
+  /** Where each of {@link updates} is: `library` when the library holds that version, else `hub`. */
+  updatesFrom: Record<string, UpdateSource>;
 };
+
+/** Where a newer version of a pinned package is. */
+export type UpdateSource = 'library' | 'hub';
+
+/** The newer versions of a project's pins, and where each one is. */
+export type PinUpdates = { updates: Record<string, string>; updatesFrom: Record<string, UpdateSource> };
 
 /**
  * The install flows a project sees, shared by the CLI and the routes:
@@ -135,12 +144,13 @@ export class ProjectPackages {
       project: null,
       pins: null,
       updates: {},
+      updatesFrom: {},
     };
     if (project) {
       overview.project = { path: PackageRoots.projectCopyPath(project), packages: PackageInstaller.list('project', project) };
       try {
         overview.pins = PackagePins.availability(project);
-        overview.updates = ProjectPackages.updates(overview.pins, overview.library.packages);
+        Object.assign(overview, ProjectPackages.updates(overview.pins, overview.library.packages));
       } catch (err) {
         if (!(err instanceof PackagePinError)) {
           throw err;
@@ -152,26 +162,47 @@ export class ProjectPackages {
     return overview;
   }
 
-  /** The newest library version above each pin, for the pins that have one. */
-  static updates(pins: readonly PinnedPackage[], library: readonly PackageLocation[]): Record<string, string> {
-    const updates: Record<string, string> = {};
+  /**
+   * For each pin with one, the newest version above it: from the library,
+   * or from `hub` (name → the version the hub offers this engine,
+   * `HubReleases.newest`). The library wins a tie, since that version is
+   * already here.
+   */
+  static updates(pins: readonly PinnedPackage[], library: readonly PackageLocation[], hub: Readonly<Record<string, string>> = {}): PinUpdates {
+    const result: PinUpdates = { updates: {}, updatesFrom: {} };
     for (const pin of pins) {
       const pinned = Semver.parse(pin.version);
       if (!pinned) {
         continue;
       }
-      let newest: Semver | null = null;
+      let newest: { version: Semver; from: UpdateSource } | null = null;
       for (const installed of library) {
         const version = installed.name === pin.name ? Semver.parse(installed.version) : null;
-        if (version && Semver.compare(version, pinned) > 0 && (!newest || Semver.compare(version, newest) > 0)) {
-          newest = version;
+        if (version && Semver.compare(version, pinned) > 0 && (!newest || Semver.compare(version, newest.version) > 0)) {
+          newest = { version, from: 'library' };
         }
       }
+      const offered = Semver.parse(hub[pin.name]);
+      if (offered && Semver.compare(offered, pinned) > 0 && (!newest || Semver.compare(offered, newest.version) > 0)) {
+        newest = { version: offered, from: 'hub' };
+      }
       if (newest) {
-        updates[pin.name] = newest.toString();
+        result.updates[pin.name] = newest.version.toString();
+        result.updatesFrom[pin.name] = newest.from;
       }
     }
-    return updates;
+    return result;
+  }
+
+  /**
+   * `overview` with the hub's releases (`HubReleases.newest`) counted in
+   * its updates. Nothing changes outside a project or for a broken pin map.
+   */
+  static withHubReleases(overview: PackagesOverview, hub: Readonly<Record<string, string>>): PackagesOverview {
+    if (!overview.pins || overview.pinsProblem) {
+      return overview;
+    }
+    return { ...overview, ...ProjectPackages.updates(overview.pins, overview.library.packages, hub) };
   }
 
   /**

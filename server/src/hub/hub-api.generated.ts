@@ -835,6 +835,422 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/comments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete your comment
+         * @description Soft: you can restore it for 30 days (the Undo). Deleting a thread's first comment hides the thread; restoring it brings the replies back.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A comment's id (base 36), as comments carry it. */
+                    id: components["schemas"]["CommentIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted, and until when it can be restored */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DeletedComment"];
+                    };
+                };
+                /** @description A body that is not valid (`bad-request`), or not a version (`bad-version`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not a browser session, a suspended account, a cookie write from another site, or not your comment (`forbidden`); no handle (`handle-required`); your own comment (`own-comment`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such public package, published version or visible comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many this minute (`rate-limited`), or today (`comment-daily-limit`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Edit your comment
+         * @description Sets `editedAt` ("edited").
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A comment's id (base 36), as comments carry it. */
+                    id: components["schemas"]["CommentIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EditCommentRequest"];
+                };
+            };
+            responses: {
+                /** @description The comment */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"];
+                    };
+                };
+                /** @description A body that is not valid (`bad-request`), or not a version (`bad-version`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not a browser session, a suspended account, a cookie write from another site, or not your comment (`forbidden`); no handle (`handle-required`); your own comment (`own-comment`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such public package, published version or visible comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many this minute (`rate-limited`), or today (`comment-daily-limit`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/comments/{id}/helpful": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Mark a comment helpful
+         * @description Idempotent. Never on your own comment (`own-comment`).
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A comment's id (base 36), as comments carry it. */
+                    id: components["schemas"]["CommentIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Marked */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HelpfulState"];
+                    };
+                };
+                /** @description A body that is not valid (`bad-request`), or not a version (`bad-version`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not a browser session, a suspended account, a cookie write from another site, or not your comment (`forbidden`); no handle (`handle-required`); your own comment (`own-comment`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such public package, published version or visible comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many this minute (`rate-limited`), or today (`comment-daily-limit`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        /**
+         * Take back a Helpful mark
+         * @description Idempotent.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A comment's id (base 36), as comments carry it. */
+                    id: components["schemas"]["CommentIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Not marked */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["HelpfulState"];
+                    };
+                };
+                /** @description A body that is not valid (`bad-request`), or not a version (`bad-version`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not a browser session, a suspended account, a cookie write from another site, or not your comment (`forbidden`); no handle (`handle-required`); your own comment (`own-comment`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such public package, published version or visible comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many this minute (`rate-limited`), or today (`comment-daily-limit`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/comments/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore your deleted comment
+         * @description Within 30 days of the delete. Restoring a comment that isn't deleted answers it as it is.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A comment's id (base 36), as comments carry it. */
+                    id: components["schemas"]["CommentIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The comment */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"];
+                    };
+                };
+                /** @description A body that is not valid (`bad-request`), or not a version (`bad-version`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not a browser session, a suspended account, a cookie write from another site, or not your comment (`forbidden`); no handle (`handle-required`); your own comment (`own-comment`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such public package, published version or visible comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Deleted too long ago (`restore-expired`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many this minute (`rate-limited`), or today (`comment-daily-limit`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/handles/{handle}": {
         parameters: {
             query?: never;
@@ -999,6 +1415,542 @@ export type paths = {
         };
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your lists, private ones too
+         * @description The latest updated first. `Cache-Control: private, no-store`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Your lists */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MyLists"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description You have no list with that slug, or no such public package (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Create a list
+         * @description Private unless `isPublic`. The slug comes from the title (`Try later` → `try-later`; a taken one gets `-2`, `-3`…) and stays when the list is renamed. At most 100 lists; needs a handle.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateListRequest"];
+                };
+            };
+            responses: {
+                /** @description The new list */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListSummary"];
+                    };
+                };
+                /** @description A body that is not valid (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description You have no list with that slug, or no such public package (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description As many lists as the hub allows (`too-many-lists`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many changes this minute (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/lists/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One of your lists, with its packages
+         * @description Private or public. `Cache-Control: private, no-store`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A list's slug, made from its title and kept when it is renamed. */
+                    slug: components["schemas"]["ListSlugParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The list */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListDetail"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description You have no list with that slug, or no such public package (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Delete a list */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A list's slug, made from its title and kept when it is renamed. */
+                    slug: components["schemas"]["ListSlugParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description A body that is not valid (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description You have no list with that slug, or no such public package (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many changes this minute (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Rename, describe, or make a list public or private
+         * @description The slug stays when the title changes, so links keep working.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A list's slug, made from its title and kept when it is renamed. */
+                    slug: components["schemas"]["ListSlugParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EditListRequest"];
+                };
+            };
+            responses: {
+                /** @description The list */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListSummary"];
+                    };
+                };
+                /** @description A body that is not valid (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description You have no list with that slug, or no such public package (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many changes this minute (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/me/lists/{slug}/items/{scope}/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Add a package to a list, or move it
+         * @description A new package goes last, or at `position`; one already there moves to `position` (or stays put without one). The package must be public. At most 200 packages.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                    /** @description A list's slug, made from its title and kept when it is renamed. */
+                    slug: components["schemas"]["ListSlugParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ListItemRequest"];
+                };
+            };
+            responses: {
+                /** @description Where it is now */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListItemResult"];
+                    };
+                };
+                /** @description A body that is not valid (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description You have no list with that slug, or no such public package (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description The list is full (`list-full`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many changes this minute (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        /**
+         * Remove a package from a list
+         * @description Idempotent; works for a package that isn't public any more.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                    /** @description A list's slug, made from its title and kept when it is renamed. */
+                    slug: components["schemas"]["ListSlugParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Removed */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListItemResult"];
+                    };
+                };
+                /** @description A body that is not valid (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description You have no list with that slug, or no such public package (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many changes this minute (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -1391,6 +2343,383 @@ export type paths = {
                 };
             };
         };
+        trace?: never;
+    };
+    "/api/v1/packages/{scope}/{name}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A package's comments, a page of threads
+         * @description Threads newest first (`sort=newest`, the default) or by helpful marks across the thread (`sort=helpful`), replies oldest first. Deleted comments and their threads are left out. The same for every caller: `Cache-Control: public, no-cache`, a weak `ETag`, no `Vary`; the comments you marked helpful are in `GET /packages/{scope}/{name}/me`.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Per page: 20 by default, at most 50. */
+                    limit?: number;
+                    /** @description Counts from 1. */
+                    page?: number;
+                    /** @description `newest` (the newest thread first, the default) or `helpful` (the most helpful marks across a thread first, then the newest). */
+                    sort?: components["schemas"]["CommentSort"];
+                };
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page of threads */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CommentPage"];
+                    };
+                };
+                /** @description Not modified (`If-None-Match`) */
+                304: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description A query that is not valid (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such public package (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Comment on a package, or reply
+         * @description About the latest version unless `version` names another published one. With `replyTo`, a reply: threads are one level deep, so a reply to a reply joins the root's thread and takes its version. At most 4000 characters, 50 comments a day (UTC). The publisher is notified (later, by mail). `Cache-Control: private, no-store`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateCommentRequest"];
+                };
+            };
+            responses: {
+                /** @description The comment */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Comment"];
+                    };
+                };
+                /** @description A body that is not valid (`bad-request`), or not a version (`bad-version`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not a browser session, a suspended account, a cookie write from another site, or not your comment (`forbidden`); no handle (`handle-required`); your own comment (`own-comment`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such public package, published version or visible comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description The version was removed by the hub's admins (`version-removed`) */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many this minute (`rate-limited`), or today (`comment-daily-limit`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/{scope}/{name}/like": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Like a package
+         * @description Idempotent: liking a package you like changes nothing. The count moves in the same transaction; search reads it live and picks it up within its cache's minute. `Cache-Control: private, no-store`.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description You like it */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LikeState"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such public package (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many changes this minute (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        /**
+         * Stop liking a package
+         * @description Idempotent, like the like.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description You don't like it */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LikeState"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such public package (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many changes this minute (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/{scope}/{name}/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your state on a package: liked, your lists, your Helpful marks
+         * @description What only you see about a package, never part of a public answer: whether you like it, your lists with whether each holds it, and its comments you marked helpful. `Cache-Control: private, no-store`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Your state */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PackageSocialState"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token without the `account` scope, or a suspended account (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such public package (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/packages/{scope}/{name}/media": {
@@ -2868,6 +4197,103 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report a package, a version, a comment or a user
+         * @description One open report per reporter and target. Only the hub's admins read reports. `Cache-Control: private, no-store`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateReportRequest"];
+                };
+            };
+            responses: {
+                /** @description Filed */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Report"];
+                    };
+                };
+                /** @description A body that is not valid (`bad-request`), or not a version (`bad-version`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not a browser session, a suspended account, or a cookie write from another site (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Nothing public to report by that name (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description You already have an open report about it (`already-reported`, `details.reportId`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many reports this minute (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search": {
         parameters: {
             query?: never;
@@ -2902,7 +4328,7 @@ export type paths = {
                     q?: string;
                     /** @description The engine's feature SDK version (`SDK_VERSION`), a whole number. */
                     sdk?: string;
-                    /** @description `relevance` (Best match: the default with words), `installs` (Most installed: the default without words), `likes` (Most liked), `updated` (Recently updated: the latest version's publish), `newest` (Newest: the first publish). `order` sets the direction. Ties break by full name, A to Z, whichever the direction. */
+                    /** @description `relevance` (Best match: the default with words), `installs` (Most installed), `likes` (Most liked: the default without words), `updated` (Recently updated: the latest version's publish), `newest` (Newest: the first publish). `order` sets the direction. Ties break by full name, A to Z, whichever the direction. */
                     sort?: components["schemas"]["SearchSort"];
                     /** @description Packages whose manifest `unit` is in any of these systems (repeat the key). */
                     units?: components["schemas"]["UnitSystem"][];
@@ -2940,6 +4366,196 @@ export type paths = {
                 };
                 /** @description Too many searches from this address (`rate-limited`) */
                 429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{handle}/likes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The packages someone likes
+         * @description Public (a profile's Liked tab): listed packages only, the latest like first, as search rows (`compatible` null). The same for every caller: `Cache-Control: public, no-cache`, a weak `ETag`, no `Vary`.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Per page: 20 by default, at most 50. */
+                    limit?: number;
+                    /** @description Counts from 1. */
+                    page?: number;
+                };
+                header?: never;
+                path: {
+                    /** @description A handle as typed; the hub lowercases and trims it. */
+                    handle: components["schemas"]["HandleParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page of liked packages */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UserLikes"];
+                    };
+                };
+                /** @description Not modified (`If-None-Match`) */
+                304: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description A query that is not valid (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No user with that handle (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{handle}/lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Someone's public lists
+         * @description The latest updated first. The same for every caller: `Cache-Control: public, no-cache`, a weak `ETag`, no `Vary`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A handle as typed; the hub lowercases and trims it. */
+                    handle: components["schemas"]["HandleParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Their public lists */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UserLists"];
+                    };
+                };
+                /** @description Not modified (`If-None-Match`) */
+                304: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No user with that handle (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{handle}/lists/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A public list, with its packages
+         * @description A private list is 404 here, to everyone (its owner reads it at `/me/lists/{slug}`). Listed packages only, in the owner's order. The same for every caller: `Cache-Control: public, no-cache`, a weak `ETag`, no `Vary`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A handle as typed; the hub lowercases and trims it. */
+                    handle: components["schemas"]["HandleParam"];
+                    /** @description A list's slug, made from its title and kept when it is renamed. */
+                    slug: components["schemas"]["ListSlugParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The list */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ListDetail"];
+                    };
+                };
+                /** @description Not modified (`If-None-Match`) */
+                304: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No such user, or no public list with that slug (`not-found`) */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -3102,6 +4718,69 @@ export type components = {
                 name: string;
             };
         };
+        Comment: {
+            author: components["schemas"]["Person"];
+            body: string;
+            /** @description Written by the package's publisher. */
+            byPublisher: boolean;
+            createdAt: string;
+            /** @description When it was last edited ("edited"), or null. */
+            editedAt: string | null;
+            /** @description Helpful marks. */
+            helpful: number;
+            /**
+             * @description Base 36; the permalink is `#c<id>`.
+             * @example 1a
+             */
+            id: string;
+            /** @description The thread's root, for a reply. */
+            replyTo: string | null;
+            /** @description The version it is about. */
+            version: string;
+        };
+        /**
+         * @description A comment's id (base 36), as comments carry it.
+         * @example 1a
+         */
+        CommentIdParam: string;
+        CommentPage: {
+            limit: number;
+            package: string;
+            page: number;
+            results: components["schemas"]["CommentThread"][];
+            sort: components["schemas"]["CommentSort"];
+            /** @description Threads in all. */
+            threads: number;
+            /** @description Comments in all, replies included: the package's comment count. */
+            total: number;
+        };
+        /**
+         * @description `newest` (the newest thread first, the default) or `helpful` (the most helpful marks across a thread first, then the newest).
+         * @enum {string}
+         */
+        CommentSort: "newest" | "helpful";
+        CommentThread: {
+            author: components["schemas"]["Person"];
+            body: string;
+            /** @description Written by the package's publisher. */
+            byPublisher: boolean;
+            createdAt: string;
+            /** @description When it was last edited ("edited"), or null. */
+            editedAt: string | null;
+            /** @description Helpful marks. */
+            helpful: number;
+            /**
+             * @description Base 36; the permalink is `#c<id>`.
+             * @example 1a
+             */
+            id: string;
+            /** @description Oldest first. */
+            replies: components["schemas"]["Comment"][];
+            /** @description The thread's root, for a reply. */
+            replyTo: string | null;
+            /** @description The version it is about. */
+            version: string;
+        };
         ContentsFeature: {
             description: string | null;
             /** @description The icon's path inside the archive; the file route serves it, shown with `<img>`, never inlined. */
@@ -3147,16 +4826,64 @@ export type components = {
             responseType: string;
             state: string;
         };
+        CreateCommentRequest: {
+            /** @description At most 4000 characters, stored as written: a Markdown subset clients render (`code`, fenced blocks, @scope/name), never HTML. */
+            body: string;
+            /** @description The comment it answers. Threads are one level deep: a reply to a reply joins the root's thread. */
+            replyTo?: string;
+            /**
+             * @description The published version it is about; the latest by default. A reply takes its thread's.
+             * @example 0.1.0
+             */
+            version?: string;
+        };
         CreatedApiToken: {
             record: components["schemas"]["ApiToken"];
             /** @description Shown once; the hub keeps only its hash. */
             token: string;
+        };
+        CreateListRequest: {
+            /** @description At most 280 characters; empty for none. */
+            description?: string;
+            /** @description False by default: only you see a new list until you make it public. */
+            isPublic?: boolean;
+            /**
+             * @description At most 60 characters.
+             * @example Print bed fixtures
+             */
+            title: string;
+        };
+        CreateReportRequest: {
+            /** @description What is wrong, at most 1000 characters. */
+            details?: string;
+            reason: components["schemas"]["ReportReason"];
+            target: components["schemas"]["ReportTarget"];
+        };
+        DeletedComment: {
+            deletedAt: string;
+            id: string;
+            /** @description 30 days after the deletion; purged after. */
+            restoreUntil: string;
         };
         DiffFile: {
             path: string;
             /** @description The size in the previous version, for a changed file. */
             previousSize: number | null;
             size: number;
+        };
+        EditCommentRequest: {
+            /** @description At most 4000 characters, stored as written: a Markdown subset clients render (`code`, fenced blocks, @scope/name), never HTML. */
+            body: string;
+        };
+        EditListRequest: {
+            /** @description At most 280 characters; empty for none. */
+            description?: string;
+            isPublic?: boolean;
+            /**
+             * @description At most 60 characters.
+             * @example Print bed fixtures
+             */
+            title?: string;
         };
         EditMediaRequest: {
             /** @description At most 140 characters; empty for none. */
@@ -3185,7 +4912,7 @@ export type components = {
         ErrorBody: {
             error: {
                 /** @enum {string} */
-                code: "bad-request" | "unauthorized" | "forbidden" | "not-found" | "rate-limited" | "internal" | "handle-invalid" | "handle-taken" | "handle-locked" | "cli-request-invalid" | "cli-request-closed" | "invalid-grant" | "not-a-zip" | "unsafe-path" | "too-large" | "no-manifest" | "model-archive" | "newer-manifest" | "bad-manifest" | "files-mismatch" | "blocked-import" | "archive-too-large" | "unpacked-too-large" | "too-many-entries" | "scope-mismatch" | "name-mismatch" | "version-mismatch" | "reserved-name" | "bad-script" | "bad-reference" | "bad-icon" | "bad-params" | "no-models" | "outside-layout" | "wrong-folder" | "email-unverified" | "publishing-closed" | "bad-version" | "length-required" | "unsupported-media-type" | "package-unavailable" | "version-not-greater" | "version-exists" | "open-version-exists" | "in-review" | "integrity-mismatch" | "publish-daily-limit" | "upload-expired" | "version-not-open" | "not-a-draft" | "incomplete" | "image-too-large" | "image-type-mismatch" | "image-dimensions" | "too-many-screenshots" | "unknown-model" | "not-in-review" | "version-removed" | "sources-too-large" | "unknown-license" | "not-published" | "not-yanked";
+                code: "bad-request" | "unauthorized" | "forbidden" | "not-found" | "rate-limited" | "internal" | "handle-invalid" | "handle-taken" | "handle-locked" | "cli-request-invalid" | "cli-request-closed" | "invalid-grant" | "not-a-zip" | "unsafe-path" | "too-large" | "no-manifest" | "model-archive" | "newer-manifest" | "bad-manifest" | "files-mismatch" | "blocked-import" | "archive-too-large" | "unpacked-too-large" | "too-many-entries" | "scope-mismatch" | "name-mismatch" | "version-mismatch" | "reserved-name" | "bad-script" | "bad-reference" | "bad-icon" | "bad-params" | "no-models" | "outside-layout" | "wrong-folder" | "email-unverified" | "publishing-closed" | "bad-version" | "length-required" | "unsupported-media-type" | "package-unavailable" | "version-not-greater" | "version-exists" | "open-version-exists" | "in-review" | "integrity-mismatch" | "publish-daily-limit" | "upload-expired" | "version-not-open" | "not-a-draft" | "incomplete" | "image-too-large" | "image-type-mismatch" | "image-dimensions" | "too-many-screenshots" | "unknown-model" | "not-in-review" | "version-removed" | "sources-too-large" | "unknown-license" | "not-published" | "not-yanked" | "handle-required" | "own-comment" | "comment-daily-limit" | "restore-expired" | "too-many-lists" | "list-full" | "already-reported";
                 details?: unknown;
                 message: string;
             };
@@ -3212,13 +4939,25 @@ export type components = {
          * @example acme
          */
         HandleParam: string;
+        HelpfulState: {
+            /** @description The comment's helpful count after the change. */
+            helpful: number;
+            id: string;
+            /** @description Whether you mark it helpful now. */
+            marked: boolean;
+        };
         /** @description Sizes in bytes, lengths in characters. */
         HubLimits: {
             archiveBytes: number;
             commentChars: number;
+            commentRestoreDays: number;
+            commentsPerUserPerDay: number;
             draftDays: number;
             entries: number;
             entryBytes: number;
+            itemsPerList: number;
+            listDescriptionChars: number;
+            listsPerUser: number;
             listTitleChars: number;
             manifestBytes: number;
             modelsPerVersion: number;
@@ -3226,6 +4965,7 @@ export type components = {
             paramsPerModel: number;
             readmeBytes: number;
             releaseNotesChars: number;
+            reportDetailsChars: number;
             screenshotBytes: number;
             screenshotCaptionChars: number;
             screenshotMaxSidePx: number;
@@ -3240,11 +4980,66 @@ export type components = {
          * @example MIT
          */
         LicenseId: string;
+        LikeState: {
+            /** @description Whether you like it now. */
+            liked: boolean;
+            /** @description The package's like count after the change. */
+            likes: number;
+            /** @example @acme/feature-tests */
+            package: string;
+        };
+        ListDetail: {
+            createdAt: string;
+            description: string;
+            isPublic: boolean;
+            /** @description Packages in the list that are listed now. */
+            items: number;
+            /** @description The card images of up to three of its first packages that have one. */
+            mosaic: string[];
+            owner: components["schemas"]["Person"];
+            /** @description Listed packages only (a yanked-only, hidden or removed one is left out until it is listed again). */
+            packages: components["schemas"]["SearchResult"][];
+            slug: string;
+            title: string;
+            /** @description When it was last renamed, described, or had a package added, moved or removed. */
+            updatedAt: string;
+        };
         /**
          * Format: uri
          * @example https://github.com/acme/feature-tests
          */
         ListingUrl: string | null;
+        ListItemRequest: {
+            /** @description Where it goes, from 1; past the end means last. Without it, a new package goes last and one already in the list stays where it is. */
+            position?: number;
+        };
+        ListItemResult: {
+            /** @description Packages in the list that are listed now (as `ListSummary.items` counts them). */
+            items: number;
+            /** @description The list's slug. */
+            list: string;
+            package: string;
+            /** @description Where it is now, from 1; null after a removal. */
+            position: number | null;
+        };
+        /**
+         * @description A list's slug, made from its title and kept when it is renamed.
+         * @example print-bed-fixtures
+         */
+        ListSlugParam: string;
+        ListSummary: {
+            createdAt: string;
+            description: string;
+            isPublic: boolean;
+            /** @description Packages in the list that are listed now. */
+            items: number;
+            /** @description The card images of up to three of its first packages that have one. */
+            mosaic: string[];
+            slug: string;
+            title: string;
+            /** @description When it was last renamed, described, or had a package added, moved or removed. */
+            updatedAt: string;
+        };
         Me: {
             account: components["schemas"]["Account"];
             /** @description The calling token (`via: token`), readable with any scope; null for a browser session. */
@@ -3302,6 +5097,9 @@ export type components = {
             /** @enum {string} */
             name: "FluidCAD Hub";
             openapi: string;
+        };
+        MyLists: {
+            lists: components["schemas"]["ListSummary"][];
         };
         PackageDetail: {
             /**
@@ -3456,6 +5254,21 @@ export type components = {
          * @example @acme
          */
         PackageScopeParam: string;
+        PackageSocialState: {
+            /** @description The package's comments you marked helpful. */
+            helpful: string[];
+            liked: boolean;
+            /** @description All your lists, the latest updated first: the Add to list popover. */
+            lists: {
+                /** @description Whether this list holds the package. */
+                contains: boolean;
+                isPublic: boolean;
+                items: number;
+                slug: string;
+                title: string;
+            }[];
+            package: string;
+        };
         PackageSources: {
             /** @description The files' total size; at most the `sourcesBytes` limit. */
             bytes: number;
@@ -3473,6 +5286,13 @@ export type components = {
             unit: string;
             version: string;
         };
+        Person: {
+            /** @description Their avatar (https only), or null. */
+            avatarUrl: string | null;
+            /** @description Null for an account that has none (or no longer exists). */
+            handle: string | null;
+            name: string;
+        };
         PublisherFlag: {
             canPublish: boolean;
             handle: string;
@@ -3480,6 +5300,40 @@ export type components = {
         RejectRequest: {
             /** @description What the owner should change, at most 2000 characters. They read it on the status page, in `fluidcad publish --status` and in the email. */
             reason: string;
+        };
+        Report: {
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            reason: components["schemas"]["ReportReason"];
+            /** @enum {string} */
+            status: "open" | "resolved" | "dismissed";
+            target: components["schemas"]["ReportTarget"];
+        };
+        /**
+         * @description `spam` (Spam or advertising), `abuse` (Harassment or abuse), `malware` (Harmful or malicious code), `copyright` (Copyright or license violation), `impersonation` (Impersonation or a misleading name), `other` (Something else)
+         * @enum {string}
+         */
+        ReportReason: "spam" | "abuse" | "malware" | "copyright" | "impersonation" | "other";
+        ReportTarget: {
+            /** @example @acme/feature-tests */
+            package: string;
+            /** @enum {string} */
+            type: "package";
+        } | {
+            package: string;
+            /** @enum {string} */
+            type: "version";
+            version: components["schemas"]["VersionParam"];
+        } | {
+            /** @description The comment's id. */
+            comment: string;
+            /** @enum {string} */
+            type: "comment";
+        } | {
+            handle: string;
+            /** @enum {string} */
+            type: "user";
         };
         ReviewDecision: {
             /** @description The package's latest after the decision (HD11's rules). */
@@ -3679,7 +5533,7 @@ export type components = {
             version: string;
         };
         /**
-         * @description `relevance` (Best match: the default with words), `installs` (Most installed: the default without words), `likes` (Most liked), `updated` (Recently updated: the latest version's publish), `newest` (Newest: the first publish). `order` sets the direction. Ties break by full name, A to Z, whichever the direction.
+         * @description `relevance` (Best match: the default with words), `installs` (Most installed), `likes` (Most liked: the default without words), `updated` (Recently updated: the latest version's publish), `newest` (Newest: the first publish). `order` sets the direction. Ties break by full name, A to Z, whichever the direction.
          * @enum {string}
          */
         SearchSort: "relevance" | "installs" | "likes" | "updated" | "newest";
@@ -3712,6 +5566,18 @@ export type components = {
             version: string;
             /** @description The first-publish wizard, for a `draft`. */
             wizardUrl: string | null;
+        };
+        UserLikes: {
+            handle: string;
+            limit: number;
+            page: number;
+            results: components["schemas"]["SearchResult"][];
+            /** @description Liked packages that are listed now (a yanked-only, hidden or removed package is left out). */
+            total: number;
+        };
+        UserLists: {
+            handle: string;
+            lists: components["schemas"]["ListSummary"][];
         };
         VersionContents: {
             description: string | null;

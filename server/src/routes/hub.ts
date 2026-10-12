@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { loadPreferences } from '../preferences.ts';
 import { PackageArchiveError } from '../packages/package-archive.ts';
 import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
+import { HubAppLogin } from '../hub/hub-app-login.ts';
 import { HubBridge, HubBridgeError, type HubProxiedFile } from '../hub/hub-bridge.ts';
 import { HubConfigError } from '../hub/hub-config.ts';
 import type { HubFileCache } from '../hub/hub-file-cache.ts';
@@ -23,6 +24,10 @@ export type HubRouterOptions = {
   transport?: HubTransport;
   /** Defaults to `$FLUIDCAD_HOME/cache/hub`. */
   cache?: HubFileCache;
+  /** Tests: how long a sign-in waits for the browser (defaults to the hub request's five minutes). */
+  loginTimeoutMs?: number;
+  /** Tests: the sign-in the routes drive, to stop one left waiting. */
+  onLogin?: (login: HubAppLogin) => void;
 };
 
 /**
@@ -49,6 +54,15 @@ export type HubRouterOptions = {
  *   and inspect; answers the `PackageInspection` the consent dialog shows
  *   (plus `notes` and `source`), whose token `POST /api/packages/install`
  *   takes. `target` defaults to the "New packages go to" setting.
+ * - `POST /api/hub/login` (a JSON body, `{}`), `GET /api/hub/login`,
+ *   `DELETE /api/hub/login`: signing in from the app (`HubAppLogin`). The
+ *   POST answers `{ login, resumed }` with the page to open in the browser
+ *   (the one already waiting when there is one); the GET answers
+ *   `{ login }`, the sign-in waiting or last ended (null for none), which
+ *   the page follows until it is `signed-in`, `denied`, `expired`,
+ *   `cancelled` or `failed`; the DELETE cancels the waiting one. The
+ *   credentials go where `fluidcad login` writes them, and
+ *   `GET /api/hub/status` reads them.
  *
  * Refusals answer `{ error: <sentence>, code, details? }`: the hub can't be
  * reached (or fails on its side) → 503 `hub-unreachable`; the hub's own
@@ -66,6 +80,13 @@ export function createHubRouter(options: HubRouterOptions): Router {
     transport: options.transport,
     cache: options.cache,
   });
+  const login = new HubAppLogin({
+    config: () => bridge.config(),
+    version: options.engineVersion,
+    transport: options.transport,
+    timeoutMs: options.loginTimeoutMs,
+  });
+  options.onLogin?.(login);
 
   router.get('/hub/status', async (_req, res) => {
     try {
@@ -138,6 +159,31 @@ export function createHubRouter(options: HubRouterOptions): Router {
     } catch (err) {
       HubRefusal.send(res, err, bridge);
     }
+  });
+
+  router.post('/hub/login', async (req, res) => {
+    // A JSON body: a page on another site can't start a sign-in without CORS letting it.
+    if (!req.is('application/json')) {
+      res.status(415).json({ error: 'Send a JSON body ({}).', code: 'bad-request' });
+      return;
+    }
+    try {
+      const started = await login.start();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(started);
+    } catch (err) {
+      HubRefusal.send(res, err, bridge);
+    }
+  });
+
+  router.get('/hub/login', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ login: login.current() });
+  });
+
+  router.delete('/hub/login', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ login: login.cancel() });
   });
 
   return router;

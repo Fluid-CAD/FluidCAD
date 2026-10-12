@@ -23,8 +23,8 @@ import { HubTransport, type HubClientKind } from './hub-transport.ts';
  * answer.
  *
  * - {@link status}: which hub, whether it answers, and who this machine is
- *   signed in as (credentials are only read: signing in from the app is
- *   Later).
+ *   signed in as (the credentials `fluidcad login` and the app's Sign in,
+ *   `HubAppLogin`, write).
  * - {@link search}: `GET /api/v1/search` with this engine's version and SDK,
  *   every package listed (`HubSearchQuery`; a row this FluidCAD can't run
  *   comes `compatible: false`), each row with the local marks

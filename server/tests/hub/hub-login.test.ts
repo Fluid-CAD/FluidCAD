@@ -243,6 +243,41 @@ describe('HubLogin', () => {
     expect(hub.requestsTo('/api/v1/cli/token')).toHaveLength(1);
   });
 
+  it('begin: answers the URL once the loopback listens; cancel ends the wait and closes it', async () => {
+    const session = await HubLogin.begin({ config: HubConfig.resolve({ hub: hub.origin, env: {} }), version: '0.0.46', surface: 'app', holdProcess: false });
+    expect(new URL(session.authorizeUrl).pathname).toBe('/cli/authorize');
+    expect(session.expiresAt.getTime() - Date.now()).toBeGreaterThan(HubLogin.TIMEOUT_MS - 2000);
+    expect(lines).toEqual([]);
+    expect(session.cancel()).toBe(true);
+    const err = await session.result.catch((e) => e);
+    expect(err).toBeInstanceOf(HubLoginError);
+    expect(err.code).toBe('cancelled');
+    expect(session.cancel()).toBe(false);
+    const callback = new URL(session.authorizeUrl).searchParams.get('redirect_uri')!;
+    await expect(fetch(`${callback}?code=x&state=y`)).rejects.toThrow();
+  });
+
+  it('once the browser is back, neither the timeout nor a cancel cuts the exchange short', async () => {
+    hub.exchangeDelayMs = 250;
+    const session = await HubLogin.begin({ config: HubConfig.resolve({ hub: hub.origin, env: {} }), version: '0.0.46', timeoutMs: 120 });
+    const visiting = FakeBrowser.visit(session.authorizeUrl);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(session.cancel()).toBe(false);
+    // The timeout passes while the hub is still exchanging.
+    const result = await session.result;
+    expect(result.handle).toBe('acme');
+    expect((await visiting).chain.at(-1)).toContain('/cli/done?request=');
+    expect(HubCredentials.stored(hub.origin)).toMatchObject({ handle: 'acme' });
+  });
+
+  it("the app's loopback words point back to FluidCAD, not a terminal", async () => {
+    hub.mode = 'tamper-state';
+    const session = await HubLogin.begin({ config: HubConfig.resolve({ hub: hub.origin, env: {} }), version: '0.0.46', surface: 'app' });
+    const res = await fetch((await fetch(session.authorizeUrl, { redirect: 'manual' })).headers.get('location')!);
+    expect(await res.text()).toBe('This sign-in link does not belong to the sign-in FluidCAD is waiting for. Nothing was saved.\n');
+    expect((await session.result.catch((e) => e)).code).toBe('state-mismatch');
+  });
+
   it('answers 404 for anything but GET /callback', async () => {
     let authorizeUrl = '';
     const pending = login((url) => {

@@ -8,6 +8,7 @@ import {
 } from '../../server/dist/project-config.js';
 import { preferredNewProjectUnit } from '../../server/dist/preferences.js';
 import { ProjectJsconfig } from '../../server/dist/project-jsconfig.js';
+import { ProjectGitignore } from '../../server/dist/project-gitignore.js';
 import { readPackageVersion } from '../lib/workspace.js';
 
 const INIT_JS = `import { init } from 'fluidcad'\n\nexport default await init()\n`;
@@ -55,6 +56,11 @@ async function runInit(options) {
     writeFileSync(jsconfigPath, ProjectJsconfig.text());
   }
 
+  // `.fluidcad/` is this machine's state for the project (the running
+  // engine, the editor's tabs, the panels' choices): kept out of git. A
+  // .gitignore is written, or gains the one line; nothing else in it changes.
+  ProjectGitignore.ensure(cwd);
+
   // Pin the engine this project is being authored against. Left alone if it
   // already exists — an existing pin is a deliberate choice about which
   // kernel this model's geometry came from, not a stale default to refresh.
@@ -76,7 +82,7 @@ async function runInit(options) {
 export function registerInitCommand(program) {
   program
     .command('init')
-    .description('Scaffold init.js, an empty part1.part.js, jsconfig.json, and fluidcad.json in the current directory')
+    .description('Scaffold init.js, an empty part1.part.js, jsconfig.json, and fluidcad.json in the current directory, and keep .fluidcad/ out of git (.gitignore)')
     .option('--unit <unit>', `project document unit written to fluidcad.json: ${LENGTH_UNITS.join(', ')} (default: the Settings dialog's unit for new projects, mm unless changed)`)
     .action(runInit);
 }

@@ -12,7 +12,7 @@ import { INSTANCE_DIR_NAME } from '../instance-file.ts';
  * are the same whichever project is loaded).
  *
  * `.fluidcad/` already exists for instance discovery and is gitignored by
- * `fluidcad init`.
+ * `fluidcad init` (`ProjectGitignore`).
  */
 
 const STATE_FILE_NAME = 'editor-state.json';

@@ -135,6 +135,10 @@ describe('HubSearchText', () => {
     expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.46', sdkVersion: 1 }), ASKED)).toEqual(['not compatible with this FluidCAD']);
     expect(HubSearchText.marks(row({ compatible: false, minEngine: '0.0.46', sdkVersion: 2 }), { engine: '0.0.46', sdk: null })).toEqual(['not compatible with this FluidCAD']);
     expect(HubSearchText.marks(row({ compatible: false, minEngine: 'soon', sdkVersion: 1 }), ASKED)).toEqual(['not compatible with this FluidCAD']);
+    // A hub from before the rows named their SDK.
+    const { sdkVersion, ...older } = row({ compatible: false, minEngine: '0.0.46' });
+    expect(HubSearchText.marks(older as HubBridgeSearchResult, ASKED)).toEqual(['not compatible with this FluidCAD']);
+    expect(HubSearchText.marks({ ...older, minEngine: '0.0.99' } as HubBridgeSearchResult, ASKED)).toEqual(['needs FluidCAD 0.0.99+']);
   });
 
   it('cuts a long description, and prints "no license" and no chips when there are none', () => {

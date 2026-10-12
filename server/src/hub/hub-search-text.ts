@@ -103,8 +103,9 @@ export class HubSearchText {
    * order: `needs FluidCAD 0.0.99+` when the row's `minEngine` is above that
    * engine; else `needs feature SDK 2 (this FluidCAD has 1)` when the row's
    * `sdkVersion` isn't that engine's SDK. When neither explains it (the
-   * echo lacks what the hub compared, or the row's `minEngine` isn't a
-   * version), the mark names no reason: `not compatible with this FluidCAD`.
+   * echo lacks what the hub compared, the row's `minEngine` isn't a
+   * version, or a hub older than the H10 follow-up sent no `sdkVersion`),
+   * the mark names no reason: `not compatible with this FluidCAD`.
    */
   private static incompatible(row: HubBridgeSearchResult, asked: AskedEngine): string {
     const needed = Semver.parse(row.minEngine);
@@ -112,7 +113,7 @@ export class HubSearchText {
     if (needed && engine && Semver.compare(needed, engine) > 0) {
       return `needs FluidCAD ${row.minEngine}+`;
     }
-    if (asked.sdk !== null && row.sdkVersion !== asked.sdk) {
+    if (asked.sdk !== null && typeof row.sdkVersion === 'number' && row.sdkVersion !== asked.sdk) {
       return `needs feature SDK ${row.sdkVersion} (this FluidCAD has ${asked.sdk})`;
     }
     return 'not compatible with this FluidCAD';

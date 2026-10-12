@@ -1322,7 +1322,10 @@ export type paths = {
         delete?: never;
         options?: never;
         head?: never;
-        /** Set the package's license, homepage and repository (the owner) */
+        /**
+         * Set the package's license, homepage and repository, or deprecate it (the owner)
+         * @description Null clears a field. `deprecatedMessage` deprecates the package (H12): it stays listed and installable, and every place it is shown carries the message; null clears it. A license must be one the hub offers (`SpdxLicenses`).
+         */
         patch: {
             parameters: {
                 query?: never;
@@ -1350,7 +1353,7 @@ export type paths = {
                         "application/json": components["schemas"]["PackageListing"];
                     };
                 };
-                /** @description A license the hub doesn't offer, a link that isn't https (`bad-request`) */
+                /** @description A license the hub doesn't offer, a link that isn't https, an empty or over-long deprecation message (`bad-request`) */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -1368,7 +1371,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                /** @description No `publish` scope, or not the owner of a public package (`forbidden`), or the package is hidden (`package-unavailable`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1377,7 +1380,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                /** @description No such package, version or screenshot, or an unpublished one that isn't yours (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -1500,7 +1503,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                /** @description No `publish` scope, or not the owner of a public package (`forbidden`), or the package is hidden (`package-unavailable`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1509,7 +1512,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                /** @description No such package, version or screenshot, or an unpublished one that isn't yours (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -1658,7 +1661,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                /** @description No `publish` scope, or not the owner of a public package (`forbidden`), or the package is hidden (`package-unavailable`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1667,7 +1670,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                /** @description No such package, version or screenshot, or an unpublished one that isn't yours (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -1728,7 +1731,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                /** @description No `publish` scope, or not the owner of a public package (`forbidden`), or the package is hidden (`package-unavailable`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1737,7 +1740,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                /** @description No such package, version or screenshot, or an unpublished one that isn't yours (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -1963,7 +1966,7 @@ export type paths = {
                         "application/json": components["schemas"]["UploadResult"];
                     };
                 };
-                /** @description Not valid: the archive codes, `bad-version`, `reserved-name`, `integrity-mismatch`, `bad-request` */
+                /** @description Not valid: the archive codes, `bad-version`, `reserved-name`, `integrity-mismatch`, a license the hub doesn't offer (`unknown-license`), `bad-request` */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -2174,7 +2177,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                /** @description No `publish` scope, or not the owner of a public package (`forbidden`), or the package is hidden (`package-unavailable`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -2183,7 +2186,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                /** @description No such package, version or screenshot, or an unpublished one that isn't yours (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -2626,7 +2629,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                /** @description No `publish` scope, or not the owner of a public package (`forbidden`), or the package is hidden (`package-unavailable`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -2635,7 +2638,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such package, version or screenshot, or not yours (`not-found`) */
+                /** @description No such package, version or screenshot, or an unpublished one that isn't yours (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -2646,6 +2649,210 @@ export type paths = {
                 };
                 /** @description Not a draft (`not-a-draft`), or something missing (`incomplete`, `details.missing`) */
                 409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/{scope}/{name}/versions/{version}/unyank": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unyank a version (the owner)
+         * @description Brings a yanked version back: latest, search and installs by name see it again.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                    /** @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease. */
+                    version: components["schemas"]["VersionParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The version, no longer yanked; `Cache-Control: private, no-store` */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["YankResult"];
+                    };
+                };
+                /** @description Not a version (`bad-version`), or a reason missing or over 280 characters (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package or version, or an unpublished package that isn't yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not published (`not-published`), or not yanked (`not-yanked`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin removed the version (`version-removed`) */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/packages/{scope}/{name}/versions/{version}/yank": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Yank a published version (the owner)
+         * @description Hides the version from latest, search and installs by name; installing it by its exact version keeps working, and its bytes never change. Latest moves to the next version by the latest rules; with none left, the package leaves search. Yanking a yanked version replaces its reason.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                    /** @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease. */
+                    version: components["schemas"]["VersionParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["YankRequest"];
+                };
+            };
+            responses: {
+                /** @description The version, yanked; `Cache-Control: private, no-store` */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["YankResult"];
+                    };
+                };
+                /** @description Not a version (`bad-version`), or a reason missing or over 280 characters (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such package or version, or an unpublished package that isn't yours (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not published: a draft, in review, rejected or uploading (`not-published`, `details.status`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin removed the version (`version-removed`) */
+                410: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2963,6 +3170,8 @@ export type components = {
             position?: number;
         };
         EditPackageRequest: {
+            /** @description At most 280 characters; shown as "Deprecated: <message>" beside the package. */
+            deprecatedMessage?: string | null;
             homepageUrl?: components["schemas"]["ListingUrl"];
             license?: components["schemas"]["LicenseId"] & (string | null);
             repositoryUrl?: components["schemas"]["ListingUrl"];
@@ -2976,7 +3185,7 @@ export type components = {
         ErrorBody: {
             error: {
                 /** @enum {string} */
-                code: "bad-request" | "unauthorized" | "forbidden" | "not-found" | "rate-limited" | "internal" | "handle-invalid" | "handle-taken" | "handle-locked" | "cli-request-invalid" | "cli-request-closed" | "invalid-grant" | "not-a-zip" | "unsafe-path" | "too-large" | "no-manifest" | "model-archive" | "newer-manifest" | "bad-manifest" | "files-mismatch" | "blocked-import" | "archive-too-large" | "unpacked-too-large" | "too-many-entries" | "scope-mismatch" | "name-mismatch" | "version-mismatch" | "reserved-name" | "bad-script" | "bad-reference" | "bad-icon" | "bad-params" | "no-models" | "outside-layout" | "wrong-folder" | "email-unverified" | "publishing-closed" | "bad-version" | "length-required" | "unsupported-media-type" | "package-unavailable" | "version-not-greater" | "version-exists" | "open-version-exists" | "in-review" | "integrity-mismatch" | "publish-daily-limit" | "upload-expired" | "version-not-open" | "not-a-draft" | "incomplete" | "image-too-large" | "image-type-mismatch" | "image-dimensions" | "too-many-screenshots" | "unknown-model" | "not-in-review" | "version-removed" | "sources-too-large";
+                code: "bad-request" | "unauthorized" | "forbidden" | "not-found" | "rate-limited" | "internal" | "handle-invalid" | "handle-taken" | "handle-locked" | "cli-request-invalid" | "cli-request-closed" | "invalid-grant" | "not-a-zip" | "unsafe-path" | "too-large" | "no-manifest" | "model-archive" | "newer-manifest" | "bad-manifest" | "files-mismatch" | "blocked-import" | "archive-too-large" | "unpacked-too-large" | "too-many-entries" | "scope-mismatch" | "name-mismatch" | "version-mismatch" | "reserved-name" | "bad-script" | "bad-reference" | "bad-icon" | "bad-params" | "no-models" | "outside-layout" | "wrong-folder" | "email-unverified" | "publishing-closed" | "bad-version" | "length-required" | "unsupported-media-type" | "package-unavailable" | "version-not-greater" | "version-exists" | "open-version-exists" | "in-review" | "integrity-mismatch" | "publish-daily-limit" | "upload-expired" | "version-not-open" | "not-a-draft" | "incomplete" | "image-too-large" | "image-type-mismatch" | "image-dimensions" | "too-many-screenshots" | "unknown-model" | "not-in-review" | "version-removed" | "sources-too-large" | "unknown-license" | "not-published" | "not-yanked";
                 details?: unknown;
                 message: string;
             };
@@ -3145,6 +3354,8 @@ export type components = {
             latestVersion: string | null;
             /** @description The package's license, links and screenshots (HD28). */
             listing: {
+                /** @description The deprecation message, or null when the package is not deprecated. */
+                deprecatedMessage: string | null;
                 homepageUrl: string | null;
                 /** @description The package's license; a version is approved under its own. */
                 license: string | null;
@@ -3226,6 +3437,8 @@ export type components = {
             versions: components["schemas"]["VersionSummary"][];
         };
         PackageListing: {
+            /** @description The deprecation message, or null when the package is not deprecated. */
+            deprecatedMessage: string | null;
             homepageUrl: string | null;
             /** @description The package's license; a version is approved under its own. */
             license: string | null;
@@ -3529,6 +3742,8 @@ export type components = {
             /** @description Null when the archive is gone (a rejected version) or still uploading. */
             archiveUrl: string | null;
             createdAt: string;
+            /** @description The package's deprecation message (it applies to every version), or null. */
+            deprecatedMessage: string | null;
             /** @description For a draft: when it may be deleted if nothing changes (`updatedAt` + `draftDays`). */
             draftExpiresAt: string | null;
             engine: string | null;
@@ -3716,6 +3931,22 @@ export type components = {
             at: string;
             reason: string | null;
         } | null;
+        YankRequest: {
+            /** @description Why, at most 280 characters; shown as "Yanked: <reason>" beside the version. */
+            reason: string;
+        };
+        YankResult: {
+            isLatest: boolean;
+            /** @description What installs by name get now; null when every published version is yanked. */
+            latestVersion: string | null;
+            name: string;
+            version: string;
+            /** @description Null after an unyank. */
+            yanked: {
+                at: string;
+                reason: string | null;
+            } | null;
+        };
     };
     responses: never;
     parameters: never;

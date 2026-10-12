@@ -18,7 +18,8 @@ import { FakeHub } from '../fixtures/fake-hub.ts';
  * denying) user would. The tests play the browser the page would open:
  * they GET the answered `authorizeUrl` and follow each redirect. The
  * credentials land in a temp FLUIDCAD_HOME, where `fluidcad login` writes
- * them.
+ * them. Then signing out from the app (H11 follow-up 3):
+ * `POST /api/hub/logout`, `fluidcad logout`'s `HubLogout`.
  */
 
 const ENGINE = '0.0.46';
@@ -30,14 +31,14 @@ let tmp: string;
 let servers: http.Server[];
 let logins: HubAppLogin[];
 
-async function serve(options: { hubUrl?: string; loginTimeoutMs?: number } = {}): Promise<string> {
+async function serve(options: { hubUrl?: string; loginTimeoutMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<string> {
   const app = express();
   app.use(express.json());
   app.use('/api', createHubRouter({
     workspacePath: '',
     engineVersion: ENGINE,
     sdkVersion: 1,
-    env: { FLUIDCAD_HUB_URL: options.hubUrl ?? hub.origin },
+    env: { FLUIDCAD_HUB_URL: options.hubUrl ?? hub.origin, ...options.env },
     transport: new HubTransport({ version: ENGINE, client: 'app', retryDelayMs: 1 }),
     loginTimeoutMs: options.loginTimeoutMs,
     onLogin: (login) => logins.push(login),
@@ -55,6 +56,10 @@ async function call(url: string, init: RequestInit = {}): Promise<{ status: numb
 
 function start(api: string) {
   return call(`${api}/hub/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+}
+
+function signOut(api: string) {
+  return call(`${api}/hub/logout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
 }
 
 /** The browser the page opens: GET the URL and follow each redirect by hand, keeping the chain. */
@@ -290,5 +295,91 @@ describe('POST /api/hub/login → the browser → GET /api/hub/login', () => {
     expect(refused.status).toBe(415);
     expect(refused.body.code).toBe('bad-request');
     expect((await call(`${api}/hub/login`)).body).toEqual({ login: null });
+  });
+});
+
+describe('POST /api/hub/logout (H11 follow-up 3)', () => {
+  it("signs out what the app's Sign in saved: the token revoked on the hub, the credentials forgotten, the status signed out", async () => {
+    const api = await serve();
+    const login = (await start(api)).body.login as HubAppLoginState;
+    await browse(login.authorizeUrl!);
+    expect(await ended(api)).toMatchObject({ status: 'signed-in', handle: 'acme' });
+    const token = HubCredentials.stored(hub.origin)!.token;
+    HubCredentials.write('https://hub.fluidcad.io', { token: 'fch_other', tokenId: null, handle: 'acme', email: null });
+
+    const answer = await signOut(api);
+    expect(answer.status).toBe(200);
+    expect(answer.headers.get('cache-control')).toBe('no-store');
+    expect(answer.body).toEqual({
+      logout: { hub: hub.origin, outcome: 'revoked', handle: 'acme', email: 'acme@example.com', reason: null, unreachable: false, envToken: false },
+    });
+    expect(hub.tokenOf(token)?.revoked).toBe(true);
+    expect(HubCredentials.stored(hub.origin)).toBeNull();
+    expect(HubCredentials.stored('https://hub.fluidcad.io')?.token).toBe('fch_other');
+    expect((await call(`${api}/hub/status`)).body.signedIn).toBeNull();
+
+    // Again: nothing saved, nothing asked of the hub.
+    const requests = hub.requests.length;
+    expect((await signOut(api)).body.logout).toMatchObject({ outcome: 'not-signed-in', handle: null });
+    expect(hub.requests).toHaveLength(requests);
+  });
+
+  it('a token the hub already revoked is forgotten as signed out', async () => {
+    const issued = hub.issueToken({ kind: 'cli', scopes: ['publish'] });
+    issued.revoked = true;
+    HubCredentials.write(hub.origin, { token: issued.token, tokenId: issued.id, handle: 'acme', email: null });
+    const api = await serve();
+    expect((await signOut(api)).body.logout).toMatchObject({ outcome: 'already-revoked', handle: 'acme', reason: null });
+    expect(HubCredentials.stored(hub.origin)).toBeNull();
+  });
+
+  it("forgets the credentials when the hub can't be reached, and says the token wasn't revoked", async () => {
+    const offline = await closedPort();
+    HubCredentials.write(offline, { token: 'fch_offline', tokenId: null, handle: 'acme', email: null });
+    const api = await serve({ hubUrl: offline });
+    const answer = await signOut(api);
+    expect(answer.status).toBe(200);
+    expect(answer.body.logout).toMatchObject({ hub: offline, outcome: 'not-revoked', handle: 'acme', unreachable: true });
+    expect(answer.body.logout.reason).toContain(`Couldn't reach ${offline}`);
+    expect(HubCredentials.stored(offline)).toBeNull();
+  });
+
+  it('forgets the credentials when the hub refuses to revoke the token, and says it refused', async () => {
+    const issued = hub.issueToken({ kind: 'cli', scopes: ['publish'] });
+    HubCredentials.write(hub.origin, { token: issued.token, tokenId: issued.id, handle: 'acme', email: null });
+    hub.failNext('/api/v1/me/tokens/current', 403);
+    const api = await serve();
+    expect((await signOut(api)).body.logout).toMatchObject({
+      outcome: 'not-revoked',
+      reason: `${hub.origin} answered with HTTP 403.`,
+      unreachable: false,
+    });
+    expect(issued.revoked).toBe(false);
+    expect(HubCredentials.stored(hub.origin)).toBeNull();
+  });
+
+  it('says when FLUIDCAD_HUB_TOKEN still signs the requests, and never revokes it', async () => {
+    const personal = hub.issueToken();
+    const issued = hub.issueToken({ kind: 'cli', scopes: ['publish'] });
+    HubCredentials.write(hub.origin, { token: issued.token, tokenId: issued.id, handle: 'acme', email: null });
+    const api = await serve({ env: { FLUIDCAD_HUB_TOKEN: personal.token } });
+    expect((await signOut(api)).body.logout).toMatchObject({ outcome: 'revoked', envToken: true });
+    expect(issued.revoked).toBe(true);
+    expect(personal.revoked).toBe(false);
+    // The environment's token still answers for this engine.
+    expect((await call(`${api}/hub/status`)).body.signedIn).toEqual({ handle: 'acme' });
+  });
+
+  it('takes a JSON body only, so another site cannot sign this machine out without CORS', async () => {
+    const issued = hub.issueToken({ kind: 'cli', scopes: ['publish'] });
+    HubCredentials.write(hub.origin, { token: issued.token, tokenId: issued.id, handle: 'acme', email: null });
+    const api = await serve();
+    for (const init of [{ method: 'POST' }, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{}' }]) {
+      const refused = await call(`${api}/hub/logout`, init);
+      expect(refused.status).toBe(415);
+      expect(refused.body.code).toBe('bad-request');
+    }
+    expect(hub.requestsTo('/api/v1/me/tokens/current')).toHaveLength(0);
+    expect(HubCredentials.stored(hub.origin)?.token).toBe(issued.token);
   });
 });

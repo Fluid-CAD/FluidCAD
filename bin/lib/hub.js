@@ -10,12 +10,13 @@ import { readPackageVersion } from './workspace.js';
 export class HubCli {
   /** The server's hub classes, imported lazily: the rest of the CLI doesn't need them at startup. */
   static async load() {
-    const [config, credentials, client, transport, login, error] = await Promise.all([
+    const [config, credentials, client, transport, login, logout, error] = await Promise.all([
       import('../../server/dist/hub/hub-config.js'),
       import('../../server/dist/hub/hub-credentials.js'),
       import('../../server/dist/hub/hub-client.js'),
       import('../../server/dist/hub/hub-transport.js'),
       import('../../server/dist/hub/hub-login.js'),
+      import('../../server/dist/hub/hub-logout.js'),
       import('../../server/dist/hub/hub-request-error.js'),
     ]);
     return {
@@ -26,6 +27,7 @@ export class HubCli {
       HubTransport: transport.HubTransport,
       HubLogin: login.HubLogin,
       HubLoginError: login.HubLoginError,
+      HubLogout: logout.HubLogout,
       HubRequestError: error.HubRequestError,
     };
   }

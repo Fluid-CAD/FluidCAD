@@ -4,12 +4,14 @@ import { PackageArchiveError } from '../packages/package-archive.ts';
 import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
 import { HubAppLogin } from '../hub/hub-app-login.ts';
 import { HubBridge, HubBridgeError, type HubProxiedFile } from '../hub/hub-bridge.ts';
+import { HubClient } from '../hub/hub-client.ts';
 import { HubConfigError } from '../hub/hub-config.ts';
 import type { HubFileCache } from '../hub/hub-file-cache.ts';
 import { HubInstallError } from '../hub/hub-install-error.ts';
+import { HubLogout } from '../hub/hub-logout.ts';
 import { HubRequestError } from '../hub/hub-request-error.ts';
 import { HubSearchQuery } from '../hub/hub-search-query.ts';
-import type { HubTransport } from '../hub/hub-transport.ts';
+import { HubTransport } from '../hub/hub-transport.ts';
 
 export type HubRouterOptions = {
   /** The open project; empty when the server runs without one (no project marks, no project target). */
@@ -63,6 +65,12 @@ export type HubRouterOptions = {
  *   `cancelled` or `failed`; the DELETE cancels the waiting one. The
  *   credentials go where `fluidcad login` writes them, and
  *   `GET /api/hub/status` reads them.
+ * - `POST /api/hub/logout` (a JSON body, `{}`): signing out from the app,
+ *   `fluidcad logout`'s own `HubLogout`: the saved token is revoked on the
+ *   hub, then forgotten. Answers `{ logout }` (`HubLogoutResult`) whatever
+ *   the hub said: `revoked`, `already-revoked`, `not-revoked` (forgotten
+ *   here, but the hub couldn't be reached or refused, with why) or
+ *   `not-signed-in`, and whether `FLUIDCAD_HUB_TOKEN` still signs requests.
  *
  * Refusals answer `{ error: <sentence>, code, details? }`: the hub can't be
  * reached (or fails on its side) → 503 `hub-unreachable`; the hub's own
@@ -184,6 +192,23 @@ export function createHubRouter(options: HubRouterOptions): Router {
   router.delete('/hub/login', (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.json({ login: login.cancel() });
+  });
+
+  router.post('/hub/logout', async (req, res) => {
+    // A JSON body, as for signing in: another site can't sign this machine out without CORS letting it.
+    if (!req.is('application/json')) {
+      res.status(415).json({ error: 'Send a JSON body ({}).', code: 'bad-request' });
+      return;
+    }
+    try {
+      const config = bridge.config();
+      const transport = options.transport ?? new HubTransport({ version: options.engineVersion, client: 'app' });
+      const logout = await HubLogout.run({ config, client: new HubClient(config, transport), env: options.env });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ logout });
+    } catch (err) {
+      HubRefusal.send(res, err, bridge);
+    }
   });
 
   return router;

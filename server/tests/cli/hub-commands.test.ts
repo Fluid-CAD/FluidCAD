@@ -296,6 +296,21 @@ describe('fluidcad logout', () => {
     expect(credentials().hubs).toEqual({});
   });
 
+  it('forgets the token but exits 1 when the hub refuses to revoke it (HubLogout, shared with the app)', async () => {
+    await loginInBrowser();
+    const token = credentials().hubs[hub.origin].token;
+    hub.failNext('/api/v1/me/tokens/current', 403);
+    const run = await cli(['logout']);
+    expect(run.status).toBe(1);
+    expect(run.stdout).toBe('');
+    expect(run.stderr).toBe(
+      `Signed @acme (acme@example.com) out on this machine, but ${hub.origin} couldn't revoke the token: ${hub.origin} answered with HTTP 403.\n`
+      + 'The token stays valid on the hub until it is revoked there or goes unused for a year.\n',
+    );
+    expect(hub.tokenOf(token)?.revoked).toBe(false);
+    expect(credentials().hubs).toEqual({});
+  });
+
   it('says so when not signed in, and never revokes FLUIDCAD_HUB_TOKEN', async () => {
     const personal = hub.issueToken();
     const run = await cli(['logout'], { env: { FLUIDCAD_HUB_TOKEN: personal.token } });

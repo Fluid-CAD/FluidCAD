@@ -12,10 +12,10 @@ import { createHostActionsRouter } from '../../src/routes/host-actions.ts';
 
 let servers: http.Server[] = [];
 
-async function serve(send: (msg: any) => boolean): Promise<string> {
+async function serve(send: (msg: any) => boolean, hasHost = true): Promise<string> {
   const app = express();
   app.use(express.json());
-  app.use('/api', createHostActionsRouter(send));
+  app.use('/api', createHostActionsRouter({ send, hasHost: () => hasHost }));
   const server = http.createServer(app);
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
@@ -45,6 +45,16 @@ describe('POST /api/host/open-external', () => {
 
     const nobody = await serve(() => false);
     expect((await post(nobody, { url: 'https://hub.fluidcad.io/@acme/kit' })).body).toEqual({ delivered: false });
+  });
+
+  it('sends nothing and says so when no editor host announced itself (a bare `fluidcad serve` IPC channel opens nothing)', async () => {
+    const sent: any[] = [];
+    const base = await serve((msg) => {
+      sent.push(msg);
+      return true;
+    }, false);
+    expect((await post(base, { url: 'https://hub.fluidcad.io/@acme/kit' })).body).toEqual({ delivered: false });
+    expect(sent).toEqual([]);
   });
 
   it('refuses anything but an http(s) URL, and sends nothing', async () => {

@@ -12,9 +12,19 @@ import type { HostSend } from '../host-registry.ts';
  *   webview allows no popups), so it asks here, and the host opens it:
  *   VS Code with `vscode.env.openExternal`, Neovim with the system's opener,
  *   the in-page host with `window.open`. Answers `{ delivered }`: false when
- *   no host took the message, so the page falls back to opening it itself.
+ *   no editor host has announced itself (`editor-hello`) or none took the
+ *   message, so the page falls back to opening it itself. (The host
+ *   registry's last resort, the bare IPC channel `fluidcad serve` forks the
+ *   engine with, is no editor: nothing there would open the page.)
  */
-export function createHostActionsRouter(sendToHost: HostSend): Router {
+export type HostActionsDeps = {
+  /** The host send (`HostRegistry.send`, behind the package edit guard). */
+  send: HostSend;
+  /** Whether an editor host announced itself, so a message has someone to act on it. */
+  hasHost(): boolean;
+};
+
+export function createHostActionsRouter(deps: HostActionsDeps): Router {
   const router = Router();
 
   router.post('/host/open-external', (req, res) => {
@@ -23,7 +33,7 @@ export function createHostActionsRouter(sendToHost: HostSend): Router {
       res.status(400).json({ error: 'Expected { url: "https://…" }: only web pages open in the browser.', code: 'bad-request' });
       return;
     }
-    res.json({ delivered: sendToHost({ type: 'open-external', url }) === true });
+    res.json({ delivered: deps.hasHost() && deps.send({ type: 'open-external', url }) === true });
   });
 
   return router;

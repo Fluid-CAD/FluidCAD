@@ -248,7 +248,7 @@ app.use('/api', createUnitRouter({
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
 app.use('/api', createPackagesRouter({ workspacePath: WORKSPACE_PATH, releases: new HubReleases({ engineVersion: PACKAGE_VERSION }) }));
 app.use('/api', createHubRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION }));
-app.use('/api', createHostActionsRouter(sendToHost));
+app.use('/api', createHostActionsRouter({ send: sendToHost, hasHost: () => hosts.effectiveCapabilities() !== null }));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createFeatureCatalogRouter(featureCatalog, WORKSPACE_PATH));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));

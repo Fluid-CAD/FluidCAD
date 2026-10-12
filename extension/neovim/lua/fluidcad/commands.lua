@@ -41,15 +41,7 @@ function M.setup(_config)
       vim.notify('[fluidcad] Server not ready yet', vim.log.levels.WARN)
       return
     end
-    local cmd
-    if vim.fn.has('mac') == 1 then
-      cmd = { 'open', url }
-    elseif vim.fn.has('wsl') == 1 then
-      cmd = { 'cmd.exe', '/c', 'start', url }
-    else
-      cmd = { 'xdg-open', url }
-    end
-    vim.fn.jobstart(cmd, { detach = true })
+    bridge.open_in_browser(url)
   end, { desc = 'Open FluidCAD URL in default browser' })
 
   vim.api.nvim_create_user_command('FluidCadProcessFile', function()

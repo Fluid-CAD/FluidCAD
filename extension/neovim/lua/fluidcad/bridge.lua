@@ -166,16 +166,7 @@ function M.handle_message(msg)
         -- Neovim *is* the editor here, so the page renders viewport-only: no
         -- code pane, no tabs, no in-page host competing with this bridge for
         -- the same buffer.
-        local viewer_url = M.viewer_url()
-        local cmd
-        if vim.fn.has('mac') == 1 then
-          cmd = { 'open', viewer_url }
-        elseif vim.fn.has('wsl') == 1 then
-          cmd = { 'cmd.exe', '/c', 'start', viewer_url }
-        else
-          cmd = { 'xdg-open', viewer_url }
-        end
-        vim.fn.jobstart(cmd, { detach = true })
+        M.open_in_browser(M.viewer_url())
       end
     elseif msg.type == 'init-complete' then
       if msg.success then
@@ -311,8 +302,27 @@ function M.handle_message(msg)
       end
     elseif msg.type == 'undo' or msg.type == 'redo' then
       M.handle_undo_redo(msg)
+    elseif msg.type == 'open-external' then
+      -- The Hub panel's "Open on the hub" and part Previews, when the page
+      -- can't open a window itself: the system's browser.
+      if type(msg.url) == 'string' and msg.url:match('^https?://') then
+        M.open_in_browser(msg.url)
+      end
     end
   end)
+end
+
+-- Open `url` in the system's default browser.
+function M.open_in_browser(url)
+  local cmd
+  if vim.fn.has('mac') == 1 then
+    cmd = { 'open', url }
+  elseif vim.fn.has('wsl') == 1 then
+    cmd = { 'cmd.exe', '/c', 'start', url }
+  else
+    cmd = { 'xdg-open', url }
+  end
+  vim.fn.jobstart(cmd, { detach = true })
 end
 
 local function find_buffer_for_path(file_path)

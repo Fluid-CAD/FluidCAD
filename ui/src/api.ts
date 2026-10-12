@@ -6156,8 +6156,35 @@ export type FeatureScalarValue = number | string | boolean;
 /** What a select of several (`multiple`) holds: the chosen options' values, in the options' order. */
 export type FeatureListValue = (string | number)[];
 
-/** When a value's row shows: every named value equals the given one, or one of the listed ones. */
-export type FeatureVisibleWhen = Record<string, FeatureScalarValue | FeatureScalarValue[]>;
+/** What a picked face is, as a custom feature's `visibleWhen` tells picks apart (mirror of the engine's `PickedSurface`). */
+export type FeaturePickedSurface = 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'other';
+
+/**
+ * A condition on a picked value (mirror of the engine's `PickCondition`):
+ * every field given holds — `picked`, whether it holds anything; `surface`,
+ * it holds picks and each is a face of this surface (or one of these);
+ * `not`, the condition given does not hold.
+ */
+export type FeaturePickCondition = {
+  picked?: boolean;
+  surface?: FeaturePickedSurface | FeaturePickedSurface[];
+  not?: FeaturePickCondition;
+};
+
+/**
+ * When a value's row shows: every named typed-in value equals the given one,
+ * or one of the listed ones, and every named picked value meets its condition.
+ */
+export type FeatureVisibleWhen = Record<string, FeatureScalarValue | FeatureScalarValue[] | FeaturePickCondition>;
+
+/** When an option is offered: every named typed-in value equals the given one, or one of the listed ones. */
+export type FeatureOptionWhen = Record<string, FeatureScalarValue | FeatureScalarValue[]>;
+
+/**
+ * What a picked value holds, as a `visibleWhen` reads it: each pick's
+ * surface — null for a pick that is not a face, or not told apart yet.
+ */
+export type FeaturePickState = { picks: (FeaturePickedSurface | null)[] };
 
 /** What every value of a custom feature declares (mirror of the engine's snapshot). */
 type FeatureParamCommon = {
@@ -6181,8 +6208,8 @@ type FeatureParamCommon = {
 export type FeatureChoiceOption = {
   label: string;
   value: string | number;
-  /** When the dialog offers the option: the clauses of a `visibleWhen`. Always, without one. */
-  when?: FeatureVisibleWhen;
+  /** When the dialog offers the option: typed-in values to match. Always, without one. */
+  when?: FeatureOptionWhen;
   /** A picture of the choice: a file next to the module, served as the icon is. */
   image?: string;
   /** A line under the label. */

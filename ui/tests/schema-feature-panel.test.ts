@@ -86,6 +86,34 @@ describe('the schema dialog', () => {
     expect(panel.fields.get('style')!.dirty).toBe(true);
   });
 
+  it('hides a row while a picked value meets its condition, and shows it again once the pick goes', () => {
+    const meta: BareFeatureMeta = {
+      ...VENT,
+      id: 'acme.prop',
+      params: {
+        at: { picker: ['face', 'axis'], label: 'At', optional: true },
+        hub: { type: 'length', label: 'Hub', default: 20, visibleWhen: { at: { not: { surface: 'cylinder' } } } },
+        blades: { type: 'integer', label: 'Blades', default: 3 },
+      },
+    };
+    const { root, panel } = mount(meta);
+    const surfaces: Record<number, 'cylinder' | 'planar'> = { 0: 'cylinder', 1: 'planar' };
+    panel.faceSurface = face => surfaces[face.index];
+    expect(shown(root.querySelector('[data-param="hub"]'))).toBe(true);
+    const at = panel.pickers.get('at')!;
+    expect(at.takeClick('shaft-solid', { type: 'face', index: 0 })).toBe('taken');
+    panel.syncVisibility();
+    expect(shown(root.querySelector('[data-param="hub"]'))).toBe(false);
+    expect(shown(root.querySelector('[data-param="blades"]'))).toBe(true);
+    at.reset();
+    panel.syncVisibility();
+    expect(shown(root.querySelector('[data-param="hub"]'))).toBe(true);
+    at.takeClick('shaft-solid', { type: 'face', index: 1 });
+    panel.syncVisibility();
+    expect(shown(root.querySelector('[data-param="hub"]'))).toBe(true);
+    expect(panel.pickStates().at.picks).toEqual(['planar']);
+  });
+
   it('arms one pick slot at a time, never one on a pane out of view', () => {
     const { root, panel } = mount();
     expect(panel.armedSlot).toBe('face');

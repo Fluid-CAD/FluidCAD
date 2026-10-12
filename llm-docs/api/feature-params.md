@@ -3,7 +3,7 @@ id: api/feature-params
 title: "ParamSpec — a custom feature's values: typed-in values and pickers"
 summary: "Each value a custom feature declares in Feature.with({ … }) is typed in (type: 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'radio' | 'text'; a select with multiple: true is a list) or picked (picker: 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor', or a union of kinds). How a row looks is separate from what the value is: display (slider, stepper, checkbox, grid, buttons, cards), suffix, hint, an option's image and description, and when on an option, which narrows what the dialog offers by another value. One table gives what an untouched row shows, what the builder gets for a value left out, and whether an empty row blocks Apply."
 tags: [api, sdk, custom-feature, type]
-symbols: [ParamSpec, ScalarParamSpec, NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, TextParamSpec, ChoiceOption, PickerParamSpec, PickerKind, VisibleWhen]
+symbols: [ParamSpec, ScalarParamSpec, NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, TextParamSpec, ChoiceOption, PickerParamSpec, PickerKind, VisibleWhen, PickCondition, PickedSurface, OptionWhen]
 seeAlso: [api/feature, api/define-feature, api/feature-layout, concepts/custom-features, api/connector, api/axis, api/face-filter, api/edge-filter]
 ---
 
@@ -56,8 +56,42 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
 | `description` | The row's tooltip. |
 | `group` | A heading over the rows that share it; a grouped row joins its group where the group first appears. The short form of a `section` in a [layout](feature-layout.md): refused when the feature declares a `layout`, which places the rows itself. |
 | `tab` | The dialog tab the row sits on. Rows without a tab sit above the tabs; tabs appear in first-appearance order. The short form of `tabs` in a [layout](feature-layout.md): refused when the feature declares a `layout`. |
-| `visibleWhen` | When the row shows: every named value must equal the given one, or one of a listed set — `{ through: false }`, `{ size: ['m3', 'm4'] }`. It names typed-in values only. A hidden row writes nothing in a create. |
+| `visibleWhen` | When the row shows: every named typed-in value must equal the given one, or one of a listed set — `{ through: false }`, `{ size: ['m3', 'm4'] }` — and every named picked value must meet its condition (below). A hidden row writes nothing in a create. |
 | `optional` | The call may leave the value out. Without a `default` it then reaches the feature as `undefined` — except a boolean, which is always `false` or `true`. |
+
+### Rows that follow a pick: a picked value in `visibleWhen`
+
+A `visibleWhen` (a value's, or a [layout](feature-layout.md) item's) may name
+a picked value with a condition on what it holds — every field given must
+hold:
+
+| Field | Holds when |
+|---|---|
+| `picked: true` / `false` | the value holds a pick / nothing |
+| `surface: 'cylinder'` (or a list) | the value holds picks and each is a face of that surface: `'planar'`, `'cylinder'`, `'cone'`, `'sphere'`, `'torus'` or `'other'`. Only for a value that takes faces. |
+| `not: { … }` | the condition given does not hold |
+
+```js
+at: { picker: ['face', 'axis'], optional: true },
+// The hub's rows go while a shaft (a cylindrical face) is picked: nothing
+// picked, an axis or a planar face keep them.
+hubDiameter: { type: 'length', default: 20, visibleWhen: { at: { not: { surface: 'cylinder' } } } },
+```
+
+- The dialog classifies a picked face when it is picked, and the rows follow
+  each pick, its removal, and an edit's kept selection once it resolves. A
+  face not classified yet meets no `surface`, so a row hidden on one shows
+  for a moment until it is.
+- An edge, an axis, a statement or a connector is a pick but no face: it
+  counts for `picked`, never for `surface`.
+- Only `visibleWhen` reads picks: an option's `when` names typed-in values
+  only. Like any `visibleWhen`, it hides rows and writes nothing for them in
+  a create; it doesn't change what a call written by hand passes, so a
+  feature still reads its picks in `buildTool()` (a hub's values reach it
+  whatever was picked).
+- Refused by name: a condition that isn't an object (`{ at: 'shaft' }` —
+  "give it a condition such as { picked: true } or { surface: 'cylinder' }"),
+  a `surface` on a value that picks no faces, an unknown surface or field.
 
 ## Typed-in values
 
@@ -173,8 +207,8 @@ size: {
 ```
 
 - A clause names another typed-in value that holds one thing (not a picked
-  value, not a `multiple: true` select, not the value itself) and lists values
-  it can take. Options may not wait on each other in a circle (`a` on `b`,
+  value — only a row's `visibleWhen` reads picks — not a `multiple: true`
+  select, not the value itself) and lists values it can take. Options may not wait on each other in a circle (`a` on `b`,
   `b` on `a`, or a longer chain): the declaration is refused, naming the chain.
 - **The default must be offered at rest**, that is while every other value is
   at its own default. A declared `default` that is not offered there is

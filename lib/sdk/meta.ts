@@ -36,11 +36,42 @@ export type ScalarParamType = 'number' | 'integer' | 'length' | 'angle' | 'boole
 /** A value the dialog picks in the viewport or the timeline. */
 export type PickerKind = 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor';
 
+/** What a picked face is, as a `visibleWhen` tells picked faces apart: a face picker's `surface` names and a few more. */
+export type PickedSurface = 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'other';
+
+/** The surfaces a {@link PickCondition} may name. */
+export const PICKED_SURFACES: readonly PickedSurface[] = ['planar', 'cylinder', 'cone', 'sphere', 'torus', 'other'];
+
 /**
- * When a value's row shows: every named value must equal the given one, or
- * one of the listed ones — `{ style: ['counterbore', 'countersink'], thin: true }`.
+ * A condition on a picked value, for a `visibleWhen` that names it — every
+ * field given must hold:
+ * - `picked`: whether the value holds anything;
+ * - `surface`: the value holds picks, and each is a face of this surface (or
+ *   of one of these);
+ * - `not`: the condition given does not hold.
+ *
+ * `{ at: { not: { surface: 'cylinder' } } }` shows a row until a cylindrical
+ * face is picked for `at`; `{ at: { picked: false } }` while nothing is.
  */
-export type VisibleWhen = { readonly [param: string]: FeatureScalar | readonly FeatureScalar[] };
+export type PickCondition = {
+  readonly picked?: boolean;
+  readonly surface?: PickedSurface | readonly PickedSurface[];
+  readonly not?: PickCondition;
+};
+
+/**
+ * When an option is offered: every named typed-in value must equal the
+ * given one, or one of the listed ones — `{ style: ['counterbore', 'countersink'], thin: true }`.
+ */
+export type OptionWhen = { readonly [param: string]: FeatureScalar | readonly FeatureScalar[] };
+
+/**
+ * When a value's row (or a layout item) shows: every named typed-in value
+ * must equal the given one, or one of the listed ones, and every named picked
+ * value must meet its {@link PickCondition} —
+ * `{ style: ['counterbore', 'countersink'], at: { not: { surface: 'cylinder' } } }`.
+ */
+export type VisibleWhen = { readonly [param: string]: FeatureScalar | readonly FeatureScalar[] | PickCondition };
 
 /** What every value declares, in the part parameters' own words where they have them. */
 type ParamCommon = Partial<Pick<ParamDefinition, 'label' | 'description' | 'group'>> & {
@@ -110,9 +141,9 @@ export type ChoiceOption = SelectOption & {
    * by hand may pass any declared option whatever the other values are, and
    * the builder gets it. The default must be offered while every other value
    * is at its own default; left out, the default is the first option offered
-   * there.
+   * there. It names typed-in values only.
    */
-  when?: VisibleWhen;
+  when?: OptionWhen;
 };
 
 export type SelectParamSpec = ParamCommon & {
@@ -561,7 +592,7 @@ class FeatureMetaValidator {
     return {
       params,
       fail: message => this.fail(message),
-      clauses: (where, value) => this.clauses(where, '', value, params),
+      clauses: (where, value) => this.clauses(where, '', value, params, true),
       image: (value, where) => this.image(value, 'image', where),
       describe: value => FeatureMetaValidator.describe(value),
     };
@@ -671,11 +702,11 @@ class FeatureMetaValidator {
     }
     for (const [name, spec] of Object.entries(out)) {
       if (spec.visibleWhen !== undefined) {
-        this.clauses(`param '${name}': 'visibleWhen'`, name, spec.visibleWhen, out);
+        this.clauses(`param '${name}': 'visibleWhen'`, name, spec.visibleWhen, out, true);
       }
       for (const option of FeatureMetaValidator.optionsOf(spec)) {
         if (option.when !== undefined) {
-          this.clauses(`param '${name}': option ${JSON.stringify(option.value)}: 'when'`, name, option.when, out);
+          this.clauses(`param '${name}': option ${JSON.stringify(option.value)}: 'when'`, name, option.when, out, false);
         }
       }
     }
@@ -1116,9 +1147,10 @@ class FeatureMetaValidator {
 
   /**
    * The clauses of a `visibleWhen` or of an option's `when`: each names
-   * another typed-in value, compared with values of its own type.
+   * another typed-in value, compared with values of its own type — or, in a
+   * `visibleWhen` (`picks`), a picked value with a {@link PickCondition}.
    */
-  private clauses(where: string, name: string, value: unknown, params: Record<string, ParamSpec>): void {
+  private clauses(where: string, name: string, value: unknown, params: Record<string, ParamSpec>, picks: boolean): void {
     if (!FeatureCall.isPlainObject(value) || Object.keys(value).length === 0) {
       this.fail(`${where} must be an object of values to match, such as { style: 'counterbore' }`);
     }
@@ -1131,7 +1163,11 @@ class FeatureMetaValidator {
         this.fail(`${where} names '${other}', which is not one of the feature's values`);
       }
       if (!('type' in target)) {
-        this.fail(`${where} names '${other}', a picked value — it can only name a typed-in one`);
+        if (!picks) {
+          this.fail(`${where} names '${other}', a picked value — it can only name a typed-in one`);
+        }
+        this.pickCondition(`${where}: '${other}'`, other, target, expected);
+        continue;
       }
       if (FeatureMetas.isChoices(target)) {
         this.fail(`${where} names '${other}', a select with 'multiple: true' — it can only name a value that holds one thing`);
@@ -1144,6 +1180,41 @@ class FeatureMetaValidator {
         if (!FeatureMetaValidator.fits(target, candidate)) {
           this.fail(`${where}: ${JSON.stringify(candidate)} is not a value '${other}' can take`);
         }
+      }
+    }
+  }
+
+  /**
+   * A picked value's condition: an object of `picked`, `surface` and `not`,
+   * a `surface` only for a value that takes faces.
+   */
+  private pickCondition(where: string, name: string, target: PickerParamSpec, value: unknown): void {
+    if (!FeatureCall.isPlainObject(value) || Object.keys(value).length === 0) {
+      this.fail(`${where} is a picked value: give it a condition such as { picked: true } or { surface: 'cylinder' }, got ${FeatureMetaValidator.describe(value)}`);
+    }
+    for (const [field, given] of Object.entries(value as Record<string, unknown>)) {
+      if (field === 'picked') {
+        if (typeof given !== 'boolean') {
+          this.fail(`${where}: 'picked' must be true or false, got ${FeatureMetaValidator.describe(given)}`);
+        }
+      } else if (field === 'surface') {
+        const kinds = typeof target.picker === 'string' ? [target.picker] : target.picker;
+        if (!kinds.includes('face')) {
+          this.fail(`${where}: 'surface' tells picked faces apart, and '${name}' picks no faces`);
+        }
+        const surfaces = Array.isArray(given) ? given : [given];
+        if (surfaces.length === 0) {
+          this.fail(`${where}: the surfaces listed are empty`);
+        }
+        for (const surface of surfaces) {
+          if (!(PICKED_SURFACES as readonly unknown[]).includes(surface)) {
+            this.fail(`${where}: 'surface' takes ${PICKED_SURFACES.map(v => `'${v}'`).join(', ')}, got ${FeatureMetaValidator.describe(surface)}`);
+          }
+        }
+      } else if (field === 'not') {
+        this.pickCondition(`${where}: 'not'`, name, target, given);
+      } else {
+        this.fail(`${where}: unknown field '${field}' — a picked value's condition takes 'picked', 'surface' and 'not'`);
       }
     }
   }
@@ -1650,11 +1721,29 @@ export class FeatureMetas {
    * `values` by name. A value that is not there holds no clause; no clauses
    * always hold.
    */
-  static holds(when: VisibleWhen | undefined, values: Readonly<Record<string, unknown>>): boolean {
+  static holds(when: OptionWhen | undefined, values: Readonly<Record<string, unknown>>): boolean {
     return Object.entries(when ?? {}).every(([name, expected]) => {
       const value = values[name];
       return value !== undefined && (Array.isArray(expected) ? expected.includes(value) : expected === value);
     });
+  }
+
+  /**
+   * Whether a picked value meets its condition, given what it holds: how
+   * many picks, and the surface of each (`null` for a pick that is not a
+   * face, or not yet told apart).
+   */
+  static pickHolds(condition: PickCondition, picks: readonly (PickedSurface | null)[]): boolean {
+    if (condition.picked !== undefined && condition.picked !== picks.length > 0) {
+      return false;
+    }
+    if (condition.surface !== undefined) {
+      const wanted: readonly PickedSurface[] = typeof condition.surface === 'string' ? [condition.surface] : condition.surface;
+      if (picks.length === 0 || !picks.every(surface => surface !== null && wanted.includes(surface))) {
+        return false;
+      }
+    }
+    return condition.not === undefined || !FeatureMetas.pickHolds(condition.not, picks);
   }
 
   /** `spec` with its resolved default ({@link defaultOf}) written in, when it resolves to one. */

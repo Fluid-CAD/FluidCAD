@@ -1,6 +1,6 @@
 import {
   applyCustomFeature, applyCustomFeatureEdit, featureGhostScope, fetchConnectorAnchors, fetchFeatureGhostResult, fetchFeatureSources,
-  type CustomFeatureApplyOptions, type CustomFeatureEditOptions, type CustomGhostRequest, type CustomPickInput,
+  getFaceProperties, type CustomFeatureApplyOptions, type FaceProperties, type FeaturePickedSurface, type CustomFeatureEditOptions, type CustomGhostRequest, type CustomPickInput,
   type FeatureEditTarget, type FeatureListValue, type FeatureScalarValue, type GhostCustomRef, type GhostSolid, type NewVariable,
   type ParsedFeatureStatement, type ScopeTargetRef, type ValueExpr,
 } from '../../../api';
@@ -109,6 +109,8 @@ export class SchemaFeatureService implements FeatureDialogService {
   private readonly connectorGhost: ConnectorGhostOverlay | null;
   /** "Which connector?" when several gizmos sit under the cursor — for a feature with a connector value. */
   private readonly pickMenu: ConnectorPickMenu | null;
+  /** Picked faces' surfaces as the engine classified them, by shape id and face index — null while asked. */
+  private readonly faceSurfaces = new Map<string, FeaturePickedSurface | null>();
 
   constructor(
     container: HTMLElement,
@@ -191,10 +193,12 @@ export class SchemaFeatureService implements FeatureDialogService {
     for (const picker of this.panel.pickers.values()) {
       picker.onChange = () => {
         this.panel.setMessage(null);
+        this.panel.syncVisibility();
         this.refreshHighlight();
         this.runner.schedulePreview();
       };
     }
+    this.panel.faceSurface = face => this.faceSurface(face);
 
     const pickers = [...this.panel.pickers.values()];
     this.pickMenu = pickers.some(p => p.takesConnectors) ? new ConnectorPickMenu(container) : null;
@@ -663,8 +667,46 @@ export class SchemaFeatureService implements FeatureDialogService {
     if (!picker.isList && !picker.isEmpty) {
       this.panel.advanceFrom(picker.name);
     }
+    this.panel.syncVisibility();
     this.refreshHighlight();
     this.runner.schedulePreview();
+  }
+
+  /**
+   * A picked face's surface, for a `visibleWhen` that names a picked value:
+   * known once the engine has answered — until then undefined, and the rows
+   * sync again when it does.
+   */
+  private faceSurface(face: { shapeId: string; index: number }): FeaturePickedSurface | undefined {
+    const key = `${face.shapeId}#${face.index}`;
+    const known = this.faceSurfaces.get(key);
+    if (known !== undefined) {
+      return known ?? undefined;
+    }
+    this.faceSurfaces.set(key, null);
+    void getFaceProperties(face.shapeId, face.index)
+      .then(props => SchemaFeatureService.pickedSurface(props), () => 'other' as const)
+      .then(surface => {
+        this.faceSurfaces.set(key, surface);
+        this.panel.syncVisibility();
+      });
+    return undefined;
+  }
+
+  /** The engine's face classification in a `visibleWhen`'s words: a plane (round or not) is planar. */
+  private static pickedSurface(props: FaceProperties | null): FeaturePickedSurface {
+    switch (props?.surfaceType) {
+      case 'plane':
+      case 'circle':
+        return 'planar';
+      case 'cylinder':
+      case 'cone':
+      case 'sphere':
+      case 'torus':
+        return props.surfaceType;
+      default:
+        return 'other';
+    }
   }
 
   private scopeChanged(): void {
@@ -936,6 +978,9 @@ export class SchemaFeatureService implements FeatureDialogService {
       dropped = picker.setScene(scene, opts) || dropped;
     }
     this.scope.setScene(objects, partLoc, { resolveKeeps: this.editTarget !== null });
+    if (dropped) {
+      this.panel.syncVisibility();
+    }
     return dropped;
   }
 
@@ -954,6 +999,8 @@ export class SchemaFeatureService implements FeatureDialogService {
       for (const picker of this.panel.pickers.values()) {
         picker.setSources(result.slots[picker.name]);
       }
+      // A kept selection's faces are known now: a `visibleWhen` may read them.
+      this.panel.syncVisibility();
     }
     this.refreshHighlight();
     // The kept picks' ghost refs read these sources, which land after

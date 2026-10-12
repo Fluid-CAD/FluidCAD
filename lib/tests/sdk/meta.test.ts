@@ -261,9 +261,34 @@ describe("feature metadata refusals", () => {
     refuses(params({ style: 'fluted' }), `feature 'acme.boss': param 'ribs': 'visibleWhen': "fluted" is not a value 'style' can take`);
     refuses(params({ shape: 'x' }), "feature 'acme.boss': param 'ribs': 'visibleWhen' names 'shape', which is not one of the feature's values");
     refuses(params({ ribs: 3 }), "feature 'acme.boss': param 'ribs': 'visibleWhen' names the value itself");
-    refuses(params({ face: 'top' }), "feature 'acme.boss': param 'ribs': 'visibleWhen' names 'face', a picked value — it can only name a typed-in one");
+    // A picked value takes a condition: picked or not, its faces' surface, or the opposite of one.
+    expect(() => register(params({ face: { picked: true } }))).not.toThrow();
+    expect(() => register(params({ face: { surface: ['planar', 'cone'] } }))).not.toThrow();
+    expect(() => register(params({ face: { not: { surface: 'cylinder' } }, style: 'ribbed' }))).not.toThrow();
+    refuses(params({ face: 'top' }), "feature 'acme.boss': param 'ribs': 'visibleWhen': 'face' is a picked value: give it a condition such as { picked: true } or { surface: 'cylinder' }, got 'top'");
+    refuses(params({ face: { picked: 'yes' } }), "feature 'acme.boss': param 'ribs': 'visibleWhen': 'face': 'picked' must be true or false, got 'yes'");
+    refuses(params({ face: { surface: 'cube' } }), /'face': 'surface' takes 'planar', 'cylinder', 'cone', 'sphere', 'torus', 'other', got 'cube'/);
+    refuses(params({ face: { not: { surface: [] } } }), "feature 'acme.boss': param 'ribs': 'visibleWhen': 'face': 'not': the surfaces listed are empty");
+    refuses(params({ face: { kind: 'face' } }), "feature 'acme.boss': param 'ribs': 'visibleWhen': 'face': unknown field 'kind' — a picked value's condition takes 'picked', 'surface' and 'not'");
     refuses(params({ style: [] }), /the values listed for 'style' are empty/);
     refuses(params({}), /'visibleWhen' must be an object of values to match/);
+  });
+
+  it("tell picked values apart by what they hold", () => {
+    expect(FeatureMetas.pickHolds({ picked: true }, [])).toBe(false);
+    expect(FeatureMetas.pickHolds({ picked: false }, [])).toBe(true);
+    expect(FeatureMetas.pickHolds({ picked: true }, [null])).toBe(true);
+    // Every pick must be a face of the surface; nothing picked is no surface.
+    expect(FeatureMetas.pickHolds({ surface: 'cylinder' }, ['cylinder', 'cylinder'])).toBe(true);
+    expect(FeatureMetas.pickHolds({ surface: 'cylinder' }, ['cylinder', 'planar'])).toBe(false);
+    expect(FeatureMetas.pickHolds({ surface: ['cylinder', 'cone'] }, ['cone'])).toBe(true);
+    expect(FeatureMetas.pickHolds({ surface: 'cylinder' }, [])).toBe(false);
+    expect(FeatureMetas.pickHolds({ surface: 'cylinder' }, [null])).toBe(false);
+    // `not` holds while nothing is picked, an axis is, or another surface is.
+    for (const picks of [[], [null], ['planar']] as const) {
+      expect(FeatureMetas.pickHolds({ not: { surface: 'cylinder' } }, picks)).toBe(true);
+    }
+    expect(FeatureMetas.pickHolds({ not: { surface: 'cylinder' } }, ['cylinder'])).toBe(false);
   });
 
   it("refuse a call shape that names a missing value or leaves one out", () => {

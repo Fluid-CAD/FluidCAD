@@ -2,9 +2,16 @@ import type {
   FeatureLayoutItem, FeatureLayoutSection,
   FeatureMetaSnapshot, FeatureOpKind, FeatureParam, FeaturePickerKind, FeaturePickerParam, FeatureScalarParam,
   FeatureListValue,
+  FeatureOptionWhen,
+  FeaturePickCondition,
+  FeaturePickedSurface,
+  FeaturePickState,
   FeatureScalarValue,
   FeatureVisibleWhen,
 } from '../../../api';
+
+/** The values a `visibleWhen` reads: typed-in values by name, and each picked value's {@link FeaturePickState}. */
+export type DialogValues = Readonly<Record<string, FeatureScalarValue | FeaturePickState | undefined>>;
 
 const OPERATION_LABELS: Record<FeatureOpKind, { label: string; title: string }> = {
   add: { label: 'Add', title: 'Join the result to the solids it touches' },
@@ -138,7 +145,7 @@ export class FeatureSchema {
   }
 
   /** Whether an item's own `visibleWhen` holds; an item that takes none always shows. */
-  static itemShows(item: FeatureLayoutItem, scalars: Readonly<Record<string, FeatureScalarValue | undefined>>): boolean {
+  static itemShows(item: FeatureLayoutItem, scalars: DialogValues): boolean {
     if (typeof item === 'string' || 'divider' in item || 'tabs' in item) {
       return true;
     }
@@ -151,22 +158,48 @@ export class FeatureSchema {
   }
 
   /**
-   * Whether a row shows for the typed-in values `scalars`: every value its
-   * `visibleWhen` names must equal the one given, or one of a list.
+   * Whether a row shows for the values the dialog holds now: every typed-in
+   * value its `visibleWhen` names must equal the one given, or one of a
+   * list, and every picked value it names must meet its condition.
    */
-  isVisible(name: string, scalars: Readonly<Record<string, FeatureScalarValue | undefined>>): boolean {
+  isVisible(name: string, scalars: DialogValues): boolean {
     return FeatureSchema.holds(this.param(name).visibleWhen, scalars);
   }
 
   /**
    * Whether every clause of a value's `visibleWhen` or of an option's `when`
-   * holds for the typed-in values the dialog shows now. No clauses always hold.
+   * holds for the values the dialog shows now: a typed-in value by equality,
+   * a picked value (its {@link FeaturePickState}; none, nothing picked) by
+   * its condition. No clauses always hold.
    */
-  static holds(when: FeatureVisibleWhen | undefined, scalars: Readonly<Record<string, FeatureScalarValue | undefined>>): boolean {
+  static holds(when: FeatureVisibleWhen | FeatureOptionWhen | undefined, scalars: DialogValues): boolean {
     return Object.entries(when ?? {}).every(([other, expected]) => {
       const current = scalars[other];
+      if (FeatureSchema.isPickCondition(expected)) {
+        const state = typeof current === 'object' ? current : undefined;
+        return FeatureSchema.pickHolds(expected, state?.picks ?? []);
+      }
       return Array.isArray(expected) ? expected.some(e => e === current) : expected === current;
     });
+  }
+
+  /** Whether a clause's expected value is a picked value's condition (an object), not values to match. */
+  static isPickCondition(expected: unknown): expected is FeaturePickCondition {
+    return typeof expected === 'object' && expected !== null && !Array.isArray(expected);
+  }
+
+  /** Whether a picked value holding `picks` (each pick's surface, null for no face) meets `condition`. */
+  static pickHolds(condition: FeaturePickCondition, picks: readonly (FeaturePickedSurface | null)[]): boolean {
+    if (condition.picked !== undefined && condition.picked !== picks.length > 0) {
+      return false;
+    }
+    if (condition.surface !== undefined) {
+      const wanted = Array.isArray(condition.surface) ? condition.surface : [condition.surface];
+      if (picks.length === 0 || !picks.every(surface => surface !== null && wanted.includes(surface))) {
+        return false;
+      }
+    }
+    return condition.not === undefined || !FeatureSchema.pickHolds(condition.not, picks);
   }
 
   /**

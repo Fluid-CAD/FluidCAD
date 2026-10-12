@@ -47,9 +47,10 @@ takes. `note`, `image` and `divider` are the static items: they show no value.
   refused** beside it: "param 'size': leave 'group' out — the layout places it".
 - **`visibleWhen` on an item** reads like a value's (see
   [feature-params](feature-params.md)): an object of typed-in values to
-  match, each a value or a list of values. It may not name a picked value or
-  a select with `multiple: true`. A value's own `visibleWhen` still hides its
-  row wherever the layout puts it.
+  match, each a value or a list of values, and picked values with a condition
+  (`{ at: { not: { surface: 'cylinder' } } }` hides a Hub section while a
+  shaft is picked). It may not name a select with `multiple: true`. A value's
+  own `visibleWhen` still hides its row wherever the layout puts it.
 - **`aside`** is a non-empty list of static items only, with or without a
   `layout`. A value may declare an `aside` of its own (below).
 - **`width`** is `'wide'` or `'wider'`.

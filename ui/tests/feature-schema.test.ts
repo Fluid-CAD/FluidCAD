@@ -120,6 +120,21 @@ describe('FeatureSchema', () => {
     expect(FeatureSchema.folds({ section: 'S', items: ['a'], collapsed: true })).toBe(true);
   });
 
+  it("holds a picked value's condition against what it holds — picked or not, its faces' surface, or not", () => {
+    const hub = { not: { surface: 'cylinder' } } as const;
+    expect(FeatureSchema.holds({ at: hub }, {})).toBe(true);
+    expect(FeatureSchema.holds({ at: hub }, { at: { picks: [] } })).toBe(true);
+    expect(FeatureSchema.holds({ at: hub }, { at: { picks: [null] } })).toBe(true);
+    expect(FeatureSchema.holds({ at: hub }, { at: { picks: ['planar'] } })).toBe(true);
+    expect(FeatureSchema.holds({ at: hub }, { at: { picks: ['cylinder'] } })).toBe(false);
+    expect(FeatureSchema.holds({ at: { picked: true } }, { at: { picks: [] } })).toBe(false);
+    expect(FeatureSchema.holds({ at: { surface: ['cylinder', 'cone'] } }, { at: { picks: ['cone', 'cylinder'] } })).toBe(true);
+    // A face not told apart yet is no surface: the row waits as it was.
+    expect(FeatureSchema.holds({ at: { surface: 'cylinder' } }, { at: { picks: [null] } })).toBe(false);
+    // Mixed with a typed-in clause, both must hold.
+    expect(FeatureSchema.holds({ at: hub, style: 'slot' }, { at: { picks: [] }, style: 'hole' })).toBe(false);
+  });
+
   it('shows a row while every value its visibleWhen names matches — one value, or any of a list', () => {
     const schema = new FeatureSchema(VENT);
     expect(schema.isVisible('width', { style: 'slot' })).toBe(true);

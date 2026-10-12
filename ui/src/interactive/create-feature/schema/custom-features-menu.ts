@@ -1,5 +1,6 @@
 import type { PackageRef } from '../../../api';
 import { ICON_CHEVRON_DOWN } from '../../../ui/icons';
+import { HubIcons } from '../../../ui/hub/hub-icons';
 import { iconUrl } from '../../../ui/icon-url';
 import type { Navbar } from '../../../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../../../ui/object-icons';
@@ -156,8 +157,11 @@ export class CustomFeatureCell implements FeatureLauncher {
  * reason as the tooltip. The engine's built-ins that describe themselves
  * the same way (Draft) keep their regular buttons.
  *
- * The button shows only while there is a feature to list, leaves the bar
- * with the create buttons while a sketch is up (Finish Sketch hands it
+ * The button shows while there is a feature to list, or, once the page
+ * gives it somewhere to send the user ({@link setEmptyAction}: the Hub
+ * panel, H11), with none: the dropdown then says no custom features are
+ * installed and opens the Hub panel. It leaves the bar with the create
+ * buttons while a sketch is up (Finish Sketch hands it
  * {@link setSketchHidden}), and reads as armed while one of its features'
  * dialogs is open. The dropdown closes on a cell's click, Escape, a press
  * or a wheel anywhere else, and whenever a dialog opens; cells come and go
@@ -173,6 +177,8 @@ export class CustomFeaturesMenu implements SketchHideable {
   private readonly cells: CustomFeatureCell[] = [];
   private sketchHidden = false;
   private opened = false;
+  /** What the empty dropdown's button does (open the Hub panel); null hides the button with nothing to list. */
+  private emptyAction: (() => void) | null = null;
   /** The dialogs open when the dropdown opened — one more closes it. */
   private dialogsAtOpen: ReadonlySet<string> = new Set();
 
@@ -235,9 +241,19 @@ export class CustomFeaturesMenu implements SketchHideable {
     return this.opened;
   }
 
-  /** Whether the button is on the bar: a feature to list, and no sketch up. */
+  /** Whether the button is on the bar: a feature to list (or the empty state's way to the hub), and no sketch up. */
   get isVisible(): boolean {
-    return this.cells.length > 0 && !this.sketchHidden;
+    return (this.cells.length > 0 || this.emptyAction !== null) && !this.sketchHidden;
+  }
+
+  /**
+   * Keep the button with no custom features, its dropdown saying so with a
+   * button that runs `action` (the page opens the Hub panel); null goes back
+   * to hiding it.
+   */
+  setEmptyAction(action: (() => void) | null): void {
+    this.emptyAction = action;
+    this.layout();
   }
 
   /** Armed: one of its features' dialogs is open. */
@@ -310,6 +326,15 @@ export class CustomFeaturesMenu implements SketchHideable {
    * package by name, a library one marked as not in this project yet.
    */
   private layout(): void {
+    if (this.cells.length === 0 && this.emptyAction) {
+      this.panel.replaceChildren(this.emptyState());
+      this.syncActive();
+      this.syncVisible();
+      if (this.isOpen) {
+        this.position();
+      }
+      return;
+    }
     this.cells.sort(CustomFeaturesMenu.compare);
     const groups = CustomFeaturesMenu.groupsOf(this.cells);
     const headed = groups.some(group => group.pkg !== null);
@@ -330,6 +355,27 @@ export class CustomFeaturesMenu implements SketchHideable {
     if (this.isOpen) {
       this.position();
     }
+  }
+
+  /** No custom features: what that means, and the way to the Hub panel. */
+  private emptyState(): HTMLDivElement {
+    const box = document.createElement('div');
+    box.dataset.ref = 'empty';
+    box.className = 'w-64 p-1.5 flex flex-col gap-2.5';
+    const text = document.createElement('p');
+    text.className = 'text-xs text-base-content/75 leading-snug';
+    text.textContent = 'No custom features installed. Check FluidCAD Hub for packages of features and parts.';
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.dataset.ref = 'open-hub';
+    open.className = 'btn btn-sm btn-primary gap-1.5 self-start';
+    open.append(HubIcons.span(HubIcons.PACKAGES, '[&>svg]:size-4'), 'Open FluidCAD Hub');
+    open.addEventListener('click', () => {
+      this.close();
+      this.emptyAction?.();
+    });
+    box.append(text, open);
+    return box;
   }
 
   /** The cells by source, in menu order: the workspace's, then each package by name and version. */

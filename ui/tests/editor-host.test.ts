@@ -300,3 +300,21 @@ describe('in-page editor host — goto-source reveal', () => {
     expect(reveals.map((r) => r.revealPane)).toEqual([true, true]);
   });
 });
+
+describe('in-page editor host — open-external', () => {
+  it('opens an http(s) page in a new window, touches no buffer, posts nothing, and ignores anything else', async () => {
+    const asm = entry(ASSEMBLY, '// assembly');
+    const { host, requests } = install({ loaded: [asm], current: ASSEMBLY });
+    const opened = vi.spyOn(window, 'open').mockReturnValue(null);
+    try {
+      await host.handle({ type: 'open-external', url: 'http://localhost:8787/@acme/feature-tests' });
+      await host.handle({ type: 'open-external', url: 'javascript:alert(1)' });
+      await host.handle({ type: 'open-external' });
+      expect(opened.mock.calls).toEqual([['http://localhost:8787/@acme/feature-tests', '_blank', 'noopener,noreferrer']]);
+      expect(requests).toEqual([]);
+      expect(asm.text).toBe('// assembly');
+    } finally {
+      opened.mockRestore();
+    }
+  });
+});

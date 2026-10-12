@@ -145,12 +145,40 @@ describe('the render\'s missing-package banner', () => {
       packageProblems: [{ code: 'missing', name: '@acme/feature-tests', version: '0.1.0', message: '…' }],
     });
     expect(button.classList.contains('hidden')).toBe(false);
+    expect(button.textContent).toBe('Install from the hub');
     button.click();
     expect(install).toHaveBeenCalledWith({ name: '@acme/feature-tests', version: '0.1.0' });
+    // While the download runs, the button waits and says so.
+    banner.setInstallBusy(true);
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toBe('Downloading…');
+    banner.setInstallBusy(false);
+    expect(button.textContent).toBe('Install from the hub');
 
     banner.update([], { message: 'SyntaxError: Unexpected token' });
     expect(button.classList.contains('hidden')).toBe(true);
     banner.update([], { message: 'integrity', packageProblems: [{ code: 'integrity', name: '@acme/x', version: '1.0.0', message: '…' }] });
     expect(button.classList.contains('hidden')).toBe(true);
+  });
+});
+
+describe("the project's Packages: the hub (H11)", () => {
+  it('offers Install from the hub on a missing pin and Find packages in the Hub panel, each closing the dialog first', async () => {
+    const client = new FakePackagesClient(PINS);
+    const state = new PackagesState(client);
+    const onInstallMissing = vi.fn();
+    const onFindPackages = vi.fn();
+    const dialog = new ProjectPackagesDialog(document.body, { state, onChanged: vi.fn(), onInstallMissing, onFindPackages });
+    opened.push(dialog);
+    dialog.show();
+    await settle();
+    const overlay = document.body.querySelector<HTMLElement>('[data-role="project-packages"]')!;
+    overlay.querySelector<HTMLButtonElement>('[data-missing="@beta/gears"] [data-ref="install-missing"]')!.click();
+    expect(onInstallMissing).toHaveBeenCalledWith({ name: '@beta/gears', version: '1.2.0' });
+    expect(dialog.isOpen()).toBe(false);
+    dialog.show();
+    overlay.querySelector<HTMLButtonElement>('[data-ref="find-packages"]')!.click();
+    expect(onFindPackages).toHaveBeenCalledTimes(1);
+    expect(dialog.isOpen()).toBe(false);
   });
 });

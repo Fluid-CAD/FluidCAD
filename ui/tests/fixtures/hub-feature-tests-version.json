@@ -1,0 +1,684 @@
+{
+  "name": "@acme/feature-tests",
+  "version": "0.1.1",
+  "status": "published",
+  "access": "public",
+  "integrity": "sha256-OxEErIDdT+1+0VubfFC6PYsmYhAa2QCNRRuBB8ltHBQ=",
+  "engine": "0.0.46",
+  "minEngine": "0.0.45",
+  "sdkVersion": 1,
+  "unit": "mm",
+  "size": 24679,
+  "notes": "H9 E2E: a keyword to search for.",
+  "publishedAt": "2026-10-11T20:31:31.154Z",
+  "yanked": null,
+  "isLatest": true,
+  "readmeUrl": null,
+  "manifest": {
+    "features": [
+      {
+        "id": "boltCircle",
+        "exportName": "boltCircle",
+        "module": "features/bolt-circle.feature.js",
+        "meta": {
+          "id": "boltCircle",
+          "call": [
+            "around",
+            {
+              "size": "size",
+              "count": "count",
+              "depth": "depth",
+              "start": "start",
+              "circle": "circle",
+              "through": "through",
+              "diameter": "diameter"
+            }
+          ],
+          "icon": "api/hub/files/@acme/feature-tests/0.1.1/features/bolt-circle.svg",
+          "kind": "tool",
+          "ghost": true,
+          "group": "create",
+          "label": "Bolt circle",
+          "width": "wide",
+          "layout": [
+            "around",
+            {
+              "tabs": [
+                {
+                  "items": [
+                    {
+                      "row": [
+                        "count",
+                        "start"
+                      ]
+                    },
+                    "circle"
+                  ],
+                  "label": "Pattern"
+                },
+                {
+                  "items": [
+                    {
+                      "items": [
+                        "size",
+                        "diameter"
+                      ],
+                      "section": "Size"
+                    },
+                    {
+                      "items": [
+                        "through",
+                        "depth"
+                      ],
+                      "section": "Depth",
+                      "collapsed": true
+                    }
+                  ],
+                  "label": "Hole"
+                }
+              ]
+            },
+            {
+              "note": "The holes cut through everything on the axis.",
+              "visibleWhen": {
+                "through": true
+              }
+            }
+          ],
+          "params": {
+            "size": {
+              "type": "select",
+              "label": "Screw",
+              "columns": 2,
+              "default": "m3",
+              "display": "grid",
+              "options": [
+                {
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/bolt-circle/m3.svg",
+                  "label": "M3 (3.4 mm)",
+                  "value": "m3"
+                },
+                {
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/bolt-circle/m4.svg",
+                  "label": "M4 (4.5 mm)",
+                  "value": "m4"
+                },
+                {
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/bolt-circle/m5.svg",
+                  "label": "M5 (5.5 mm)",
+                  "value": "m5"
+                },
+                {
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/bolt-circle/custom.svg",
+                  "label": "Custom",
+                  "value": "custom"
+                }
+              ]
+            },
+            "count": {
+              "max": 36,
+              "min": 1,
+              "type": "integer",
+              "label": "Holes",
+              "default": 4
+            },
+            "depth": {
+              "min": 0,
+              "type": "length",
+              "label": "Depth",
+              "default": 3,
+              "visibleWhen": {
+                "through": false
+              }
+            },
+            "start": {
+              "type": "angle",
+              "label": "Start angle",
+              "default": 45
+            },
+            "around": {
+              "label": "Around axis",
+              "picker": "axis"
+            },
+            "circle": {
+              "min": 0,
+              "type": "length",
+              "label": "Circle diameter",
+              "default": 32
+            },
+            "through": {
+              "type": "boolean",
+              "label": "Through all",
+              "default": true
+            },
+            "diameter": {
+              "min": 0,
+              "type": "length",
+              "label": "Hole diameter",
+              "default": 3,
+              "visibleWhen": {
+                "size": "custom"
+              }
+            }
+          },
+          "contexts": [
+            "part"
+          ],
+          "operations": [
+            "remove"
+          ],
+          "description": "A ring of clearance holes around an axis",
+          "defaultOperation": "remove"
+        }
+      },
+      {
+        "id": "boss",
+        "exportName": "boss",
+        "module": "features/boss.feature.js",
+        "meta": {
+          "id": "boss",
+          "call": [
+            "at",
+            {
+              "hole": "hole",
+              "height": "height",
+              "diameter": "diameter"
+            }
+          ],
+          "icon": "api/hub/files/@acme/feature-tests/0.1.1/features/boss.svg",
+          "kind": "tool",
+          "ghost": true,
+          "group": "create",
+          "label": "Boss",
+          "layout": [
+            "at",
+            "diameter",
+            "height",
+            "hole"
+          ],
+          "params": {
+            "at": {
+              "label": "At",
+              "picker": [
+                "connector",
+                "point",
+                "anchor"
+              ],
+              "anchors": [
+                "center"
+              ],
+              "multiple": true
+            },
+            "hole": {
+              "min": 0,
+              "type": "length",
+              "label": "Hole diameter",
+              "default": 3
+            },
+            "height": {
+              "min": 0,
+              "type": "length",
+              "label": "Height",
+              "default": 6
+            },
+            "diameter": {
+              "min": 0,
+              "type": "length",
+              "label": "Boss diameter",
+              "default": 8
+            }
+          },
+          "contexts": [
+            "part"
+          ],
+          "operations": [
+            "add",
+            "new"
+          ],
+          "description": "Bosses with a bore, standing at connectors, points and face centres",
+          "defaultOperation": "add"
+        }
+      },
+      {
+        "id": "fastener",
+        "exportName": "fastener",
+        "module": "features/fastener.feature.js",
+        "meta": {
+          "id": "fastener",
+          "call": [
+            "at",
+            {
+              "head": "head",
+              "size": "size",
+              "depth": "depth",
+              "marking": "marking",
+              "finishes": "finishes",
+              "standard": "standard"
+            }
+          ],
+          "icon": "api/hub/files/@acme/feature-tests/0.1.1/features/fastener.svg",
+          "kind": "tool",
+          "aside": [
+            {
+              "alt": "A section through the hole",
+              "image": "api/hub/files/@acme/feature-tests/0.1.1/features/fastener/section.svg"
+            }
+          ],
+          "ghost": true,
+          "group": "create",
+          "label": "Fastener hole",
+          "layout": [
+            "at",
+            "standard",
+            "size",
+            "head",
+            {
+              "note": "The recess is sized for the head of the screw.",
+              "visibleWhen": {
+                "head": [
+                  "counterbore",
+                  "countersink"
+                ]
+              }
+            },
+            "depth",
+            {
+              "alt": "The depth, measured from the surface",
+              "image": "api/hub/files/@acme/feature-tests/0.1.1/features/fastener/depth.svg",
+              "height": 64
+            },
+            {
+              "items": [
+                {
+                  "row": [
+                    "marking",
+                    "finishes"
+                  ]
+                }
+              ],
+              "section": "Finish",
+              "collapsed": true
+            }
+          ],
+          "params": {
+            "at": {
+              "label": "At",
+              "picker": [
+                "connector",
+                "point",
+                "anchor"
+              ],
+              "anchors": [
+                "center"
+              ]
+            },
+            "head": {
+              "type": "radio",
+              "label": "Head",
+              "columns": 3,
+              "default": "plain",
+              "display": "cards",
+              "options": [
+                {
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/fastener/plain.svg",
+                  "label": "Plain",
+                  "value": "plain",
+                  "description": "A through hole, nothing for the head"
+                },
+                {
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/fastener/counterbore.svg",
+                  "label": "Counterbore",
+                  "value": "counterbore",
+                  "description": "A flat recess the head sinks into"
+                },
+                {
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/fastener/countersink.svg",
+                  "label": "Countersink",
+                  "value": "countersink",
+                  "description": "A shallow recess for a flat head"
+                }
+              ]
+            },
+            "size": {
+              "type": "select",
+              "label": "Screw",
+              "columns": 3,
+              "default": "m3",
+              "display": "grid",
+              "options": [
+                {
+                  "when": {
+                    "standard": "iso"
+                  },
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/fastener/m3.svg",
+                  "label": "M3",
+                  "value": "m3",
+                  "keywords": [
+                    "iso"
+                  ],
+                  "description": "3.4 mm clearance"
+                },
+                {
+                  "when": {
+                    "standard": "iso"
+                  },
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/fastener/m4.svg",
+                  "label": "M4",
+                  "value": "m4",
+                  "keywords": [
+                    "iso"
+                  ],
+                  "description": "4.5 mm clearance"
+                },
+                {
+                  "when": {
+                    "standard": "iso"
+                  },
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/fastener/m5.svg",
+                  "label": "M5",
+                  "value": "m5",
+                  "keywords": [
+                    "iso"
+                  ],
+                  "description": "5.5 mm clearance"
+                },
+                {
+                  "when": {
+                    "standard": "unc"
+                  },
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/fastener/n4.svg",
+                  "label": "#4",
+                  "value": "n4",
+                  "keywords": [
+                    "unc",
+                    "inch"
+                  ],
+                  "description": "3.3 mm clearance"
+                },
+                {
+                  "when": {
+                    "standard": "unc"
+                  },
+                  "image": "api/hub/files/@acme/feature-tests/0.1.1/features/fastener/n6.svg",
+                  "label": "#6",
+                  "value": "n6",
+                  "keywords": [
+                    "unc",
+                    "inch"
+                  ],
+                  "description": "3.9 mm clearance"
+                }
+              ]
+            },
+            "depth": {
+              "max": 50,
+              "min": 1,
+              "hint": "Measured from the surface",
+              "type": "length",
+              "label": "Depth",
+              "suffix": "mm",
+              "default": 10,
+              "display": "slider"
+            },
+            "marking": {
+              "hint": "Letters, digits and dashes",
+              "type": "text",
+              "label": "Marking",
+              "pattern": "[A-Za-z0-9-]*",
+              "optional": true,
+              "maxLength": 12,
+              "placeholder": "A2-70"
+            },
+            "finishes": {
+              "max": 2,
+              "type": "select",
+              "label": "Finishes",
+              "default": [
+                "deburr"
+              ],
+              "options": [
+                {
+                  "label": "Deburr",
+                  "value": "deburr"
+                },
+                {
+                  "label": "Chamfer",
+                  "value": "chamfer"
+                },
+                {
+                  "label": "Polish",
+                  "value": "polish"
+                }
+              ],
+              "multiple": true
+            },
+            "standard": {
+              "type": "radio",
+              "label": "Standard",
+              "default": "iso",
+              "display": "buttons",
+              "options": [
+                {
+                  "label": "Metric",
+                  "value": "iso"
+                },
+                {
+                  "label": "Imperial",
+                  "value": "unc"
+                }
+              ]
+            }
+          },
+          "contexts": [
+            "part"
+          ],
+          "operations": [
+            "remove",
+            "new"
+          ],
+          "description": "A screw clearance hole with a plain, counterbored or countersunk head",
+          "defaultOperation": "remove"
+        }
+      },
+      {
+        "id": "standoff",
+        "exportName": "standoff",
+        "module": "features/standoff.feature.js",
+        "meta": {
+          "id": "standoff",
+          "call": [
+            "face",
+            {
+              "hole": "hole",
+              "outer": "outer",
+              "height": "height"
+            }
+          ],
+          "icon": "api/hub/files/@acme/feature-tests/0.1.1/features/standoff.svg",
+          "kind": "tool",
+          "ghost": true,
+          "group": "create",
+          "label": "Standoff",
+          "layout": [
+            "face",
+            "height",
+            "outer",
+            "hole"
+          ],
+          "params": {
+            "face": {
+              "label": "On face",
+              "picker": "face",
+              "surface": "planar"
+            },
+            "hole": {
+              "min": 0,
+              "type": "length",
+              "label": "Hole diameter",
+              "default": 3
+            },
+            "outer": {
+              "min": 0,
+              "type": "length",
+              "label": "Boss diameter",
+              "default": 6
+            },
+            "height": {
+              "min": 0,
+              "type": "length",
+              "label": "Height",
+              "default": 10
+            }
+          },
+          "contexts": [
+            "part"
+          ],
+          "operations": [
+            "add",
+            "new"
+          ],
+          "description": "A boss with a bore through it, standing on a planar face",
+          "defaultOperation": "add"
+        }
+      },
+      {
+        "id": "twist",
+        "exportName": "twist",
+        "module": "features/twist.feature.js",
+        "meta": {
+          "id": "twist",
+          "call": [
+            "face",
+            {
+              "bore": "bore",
+              "angle": "angle",
+              "height": "height",
+              "sections": "sections"
+            }
+          ],
+          "icon": "api/hub/files/@acme/feature-tests/0.1.1/features/twist.svg",
+          "kind": "tool",
+          "ghost": true,
+          "group": "create",
+          "label": "Twist",
+          "layout": [
+            "face",
+            "height",
+            "angle",
+            "sections",
+            "bore"
+          ],
+          "params": {
+            "bore": {
+              "min": 0,
+              "type": "length",
+              "label": "Bore diameter",
+              "default": 0
+            },
+            "face": {
+              "label": "Profile face",
+              "picker": "face",
+              "surface": "planar"
+            },
+            "angle": {
+              "type": "angle",
+              "label": "Twist",
+              "default": 90
+            },
+            "height": {
+              "min": 0,
+              "type": "length",
+              "label": "Height",
+              "default": 20
+            },
+            "sections": {
+              "max": 64,
+              "min": 2,
+              "type": "integer",
+              "label": "Sections",
+              "default": 8
+            }
+          },
+          "contexts": [
+            "part"
+          ],
+          "operations": [
+            "add",
+            "new"
+          ],
+          "description": "A twisted extrusion of a planar face, with an optional bore \u2014 built with raw OpenCascade",
+          "defaultOperation": "add"
+        }
+      }
+    ],
+    "parts": [
+      {
+        "kind": "assembly",
+        "name": "Plate stack",
+        "module": "assemblies/plate-stack.assembly.js",
+        "params": [
+          {
+            "label": "spacing",
+            "controlType": "number",
+            "currentValue": 100,
+            "defaultValue": 100
+          }
+        ],
+        "exportKind": "value",
+        "exportName": "plateStack"
+      },
+      {
+        "kind": "part",
+        "name": "Hub flange",
+        "module": "parts/hub-flange.part.js",
+        "params": [
+          {
+            "label": "numberOfHoles",
+            "controlType": "number",
+            "currentValue": 6,
+            "defaultValue": 6
+          }
+        ],
+        "exportKind": "value",
+        "exportName": "hubFlange"
+      },
+      {
+        "kind": "part",
+        "name": "Mold insert",
+        "module": "parts/mold-insert.part.js",
+        "params": [],
+        "exportKind": "value",
+        "exportName": "moldInsert"
+      },
+      {
+        "kind": "part",
+        "name": "Mounting plate",
+        "module": "parts/mounting-plate.part.js",
+        "params": [],
+        "exportKind": "value",
+        "exportName": "mountingPlate"
+      },
+      {
+        "kind": "part",
+        "name": "PCB plate",
+        "module": "parts/pcb-plate.part.js",
+        "params": [],
+        "exportKind": "value",
+        "exportName": "pcbPlate"
+      },
+      {
+        "kind": "part",
+        "name": "Pen holder",
+        "module": "parts/pen-holder.part.js",
+        "params": [],
+        "exportKind": "value",
+        "exportName": "penHolder"
+      }
+    ]
+  },
+  "local": {
+    "installed": [],
+    "pinned": null,
+    "updateAvailable": null
+  }
+}

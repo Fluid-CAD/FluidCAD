@@ -1,6 +1,7 @@
-import type { InstalledPackage, PackagesOverview, PackageTarget } from '../../api';
+import type { HubStatus, InstalledPackage, PackagesOverview, PackageTarget } from '../../api';
 import { desktop } from '../../desktop';
 import { ICON_FOLDER, ICON_TRASH } from '../icons';
+import { HubIcons } from '../hub/hub-icons';
 import { PackageText, type PackagesState } from '../packages/packages-state';
 import { packageSettings } from './package-settings';
 import {
@@ -19,6 +20,15 @@ export type PackagesTabDeps = {
   state: PackagesState;
   /** The library changed under the page (a new folder, a removal, a copy): the catalogs and the scene catch up. */
   onLibraryChanged(): void;
+  /**
+   * The hub (H11): the read-only Hub row (its address and who is signed in,
+   * from the engine's `GET /api/hub/status`) and the way to the Hub panel,
+   * where packages install from. Absent, neither shows.
+   */
+  hub?: {
+    status(): Promise<HubStatus | null>;
+    onFindPackages(): void;
+  };
 };
 
 const ERROR_BOX = 'bg-error text-error-content rounded-md px-3 py-2 text-xs leading-snug';
@@ -36,10 +46,13 @@ const NOTE_BOX = 'border border-base-content/10 rounded-md px-3 py-2.5 text-xs l
  *   `FLUIDCAD_PACKAGES`, when set, outranks the setting, and the tab says so.
  * - **New packages go to** is where an install puts a package unless it is
  *   told otherwise (`fluidcad install`, and from H11 the Hub panel).
+ * - **Hub** (H11) shows which hub the engine talks to and who is signed
+ *   in, read only: the address comes from `FLUIDCAD_HUB_URL` or the
+ *   default, and signing in is `fluidcad login` in a terminal.
  * - **Installed in my library** lists each package with its version,
  *   contents and size, with Remove (behind a confirmation: projects that use
- *   it will ask for it again). There is no install button: packages install
- *   only from the hub (HD31), and the Hub panel (H11) brings one.
+ *   it will ask for it again). Packages install only from the hub (HD31):
+ *   "Find packages in the Hub panel" opens it.
  *
  * The two settings are drafts saved by the dialog's Save, like every tab;
  * Remove and the copy act at once, like Advanced's reset.
@@ -55,6 +68,7 @@ export class PackagesTab implements SettingsTab {
   private listEl!: HTMLDivElement;
   private listStatus!: HTMLParagraphElement;
   private offerEl!: HTMLDivElement;
+  private hubRow: HTMLDivElement | null = null;
   private draftPath = packageSettings.current.libraryPath;
   private draftTarget: PackageTarget = packageSettings.current.installTarget;
   /** A library-folder save waiting for the engine's verdict. */
@@ -72,6 +86,10 @@ export class PackagesTab implements SettingsTab {
     intro.textContent = 'Packages bring custom features and parts. A package installs once into your library and every '
       + 'project can use it; a project records only the version it uses.';
     root.appendChild(intro);
+
+    if (this.deps?.hub) {
+      root.appendChild(this.buildHubRow());
+    }
 
     // Library folder: the path, Browse… in the desktop app, the folder in
     // use, and the engine's refusal of a path it can't use.
@@ -143,6 +161,15 @@ export class PackagesTab implements SettingsTab {
     heading.className = FIELD_LABEL;
     heading.textContent = 'Installed in my library';
     header.appendChild(heading);
+    if (this.deps?.hub) {
+      const find = document.createElement('button');
+      find.type = 'button';
+      find.dataset.ref = 'find-packages';
+      find.className = 'btn btn-xs btn-ghost gap-1 font-normal text-primary';
+      find.append(HubIcons.span(HubIcons.PACKAGES, '[&>svg]:size-3.5'), 'Find packages in the Hub panel');
+      find.addEventListener('click', () => this.deps?.hub?.onFindPackages());
+      header.appendChild(find);
+    }
     root.appendChild(header);
     this.listEl = document.createElement('div');
     this.listEl.dataset.ref = 'library-list';
@@ -158,6 +185,7 @@ export class PackagesTab implements SettingsTab {
   }
 
   sync(): void {
+    void this.refreshHubRow();
     this.draftPath = packageSettings.current.libraryPath;
     this.draftTarget = packageSettings.current.installTarget;
     this.pathInput.value = this.draftPath;
@@ -194,6 +222,79 @@ export class PackagesTab implements SettingsTab {
 
   destroy(): void {
     this.unsubscribe?.();
+  }
+
+  // ---------------------------------------------------------------------------
+  // The Hub row: read only
+  // ---------------------------------------------------------------------------
+
+  private buildHubRow(): HTMLDivElement {
+    const field = document.createElement('div');
+    field.className = FIELD;
+    field.dataset.ref = 'hub';
+    const label = document.createElement('label');
+    label.className = FIELD_LABEL;
+    label.textContent = 'Hub';
+    this.hubRow = document.createElement('div');
+    this.hubRow.dataset.ref = 'hub-row';
+    this.hubRow.className = 'flex items-center gap-2 rounded border border-base-content/10 bg-base-200/60 px-3 py-2 min-w-0';
+    const hint = document.createElement('p');
+    hint.dataset.ref = 'hub-hint';
+    hint.className = FIELD_HINT;
+    field.append(label, this.hubRow, hint);
+    this.renderHubRow(null, 'loading');
+    return field;
+  }
+
+  private async refreshHubRow(): Promise<void> {
+    if (!this.hubRow || !this.deps?.hub) {
+      return;
+    }
+    const status = await this.deps.hub.status();
+    this.renderHubRow(status, status ? 'ready' : 'unknown');
+  }
+
+  private renderHubRow(status: HubStatus | null, phase: 'loading' | 'ready' | 'unknown'): void {
+    if (!this.hubRow) {
+      return;
+    }
+    const url = document.createElement('span');
+    url.dataset.ref = 'hub-url';
+    url.className = 'font-mono text-xs text-base-content/85 truncate';
+    url.textContent = status?.hubUrl ?? (phase === 'loading' ? 'Asking the engine…' : 'Unknown: the engine didn\'t answer');
+    const who = document.createElement('span');
+    who.dataset.ref = 'hub-account';
+    who.className = `ml-auto text-xs shrink-0 inline-flex items-center gap-1 ${status?.signedIn ? 'text-base-content/80' : 'text-base-content/50'}`;
+    if (status?.signedIn) {
+      who.appendChild(HubIcons.span(HubIcons.USER, '[&>svg]:size-3.5'));
+      who.append('Signed in as ');
+      const handle = document.createElement('span');
+      handle.className = 'font-mono';
+      handle.textContent = status.signedIn.handle ? `@${status.signedIn.handle}` : 'an unknown handle';
+      who.appendChild(handle);
+    } else if (status) {
+      who.textContent = 'Not signed in';
+    }
+    this.hubRow.replaceChildren(url, who);
+    const hint = this.hubRow.parentElement?.querySelector<HTMLParagraphElement>('[data-ref="hub-hint"]');
+    if (hint) {
+      hint.replaceChildren();
+      const mono = (text: string) => {
+        const span = document.createElement('span');
+        span.className = 'font-mono';
+        span.textContent = text;
+        return span;
+      };
+      if (status?.signedIn) {
+        hint.append('From your credentials for this hub. ', mono('fluidcad logout'), ' in a terminal signs you out.');
+      } else {
+        hint.append(mono('fluidcad login'), ' in a terminal signs you in. Searching and installing work without it.');
+      }
+      hint.append(' The address comes from ', mono('FLUIDCAD_HUB_URL'), ' when it is set.');
+      if (status && !status.reachable) {
+        hint.append(' The hub doesn\'t answer right now.');
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------

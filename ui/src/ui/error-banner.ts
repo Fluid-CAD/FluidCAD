@@ -21,8 +21,9 @@ export class ErrorBanner {
   private missing: MissingPackage | null = null;
   /**
    * The missing-package banner's install action (H11: Install from the
-   * hub); absent, as it is until then, the banner offers no button and its
-   * sentence names the command that downloads the package.
+   * hub, which downloads the pinned version, asks for consent and installs
+   * it, never opening the Hub panel); absent, the banner offers no button
+   * and its sentence names the command that downloads the package.
    */
   private onInstallMissing: ((pkg: MissingPackage) => void) | null = null;
 
@@ -38,7 +39,7 @@ export class ErrorBanner {
         <div class="flex items-start gap-3 px-5 py-2.5 text-sm select-none">
           <span class="text-error shrink-0 mt-0.5 [&>svg]:size-5">${ICON_ALERT_TRIANGLE}</span>
           <span data-ref="message" class="text-base-content/90 whitespace-pre-line break-words cursor-pointer hover:underline grow min-w-0"></span>
-          <button data-ref="install-missing" type="button" class="btn btn-xs btn-primary shrink-0 hidden">Install</button>
+          <button data-ref="install-missing" type="button" class="btn btn-xs btn-primary shrink-0 gap-1 hidden">Install from the hub</button>
           <span data-ref="count" class="text-base-content/40 tabular-nums shrink-0 hidden mt-0.5"></span>
           <button data-ref="toggle" class="text-base-content/40 hover:text-base-content/70 shrink-0 hidden cursor-pointer transition-transform mt-0.5" aria-label="Toggle error list">
             ${ICON_CHEVRON_DOWN}
@@ -91,10 +92,22 @@ export class ErrorBanner {
    * Offer an install on a compile error that says a pinned package isn't
    * installed (`packageProblems` with `code: 'missing'`): the
    * missing-package banner. The handler gets the package the project pins.
-   * Nothing sets one until H11 (packages install only from the hub, HD31).
    */
   setInstallMissingHandler(handler: ((pkg: MissingPackage) => void) | null): void {
     this.onInstallMissing = handler;
+  }
+
+  /** The download behind Install from the hub is running: the button waits and says so. */
+  setInstallBusy(busy: boolean): void {
+    this.installEl.disabled = busy;
+    this.installEl.replaceChildren();
+    if (busy) {
+      const spinner = document.createElement('span');
+      spinner.className = 'loading loading-spinner loading-xs';
+      this.installEl.append(spinner, 'Downloading…');
+    } else {
+      this.installEl.append('Install from the hub');
+    }
   }
 
   update(sceneObjects: SceneObjectRender[], compileError: CompileError | null): void {

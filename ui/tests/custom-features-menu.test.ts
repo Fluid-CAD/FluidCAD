@@ -350,3 +350,31 @@ describe('features from packages', () => {
     expect(h.cellButton('acme.boss')).not.toBeNull();
   });
 });
+
+describe('the Custom button with no custom features (H11)', () => {
+  it('stays on the bar, says none are installed, and opens the Hub panel from its button', () => {
+    const { host, menu, button, panel } = mount();
+    const openHub = vi.fn();
+    menu.setEmptyAction(openHub);
+    expect(hidden(host)).toBe(false);
+    expect(menu.isVisible).toBe(true);
+    button.click();
+    expect(panel()!.querySelector('[data-ref="empty"]')!.textContent).toContain('No custom features installed. Check FluidCAD Hub');
+    panel()!.querySelector<HTMLButtonElement>('[data-ref="open-hub"]')!.click();
+    expect(openHub).toHaveBeenCalledTimes(1);
+    expect(menu.isOpen).toBe(false);
+  });
+
+  it('still leaves the bar during a sketch, and lists features again once one arrives', () => {
+    const { host, menu, button, panel } = mount();
+    menu.setEmptyAction(() => undefined);
+    menu.setSketchHidden(true);
+    expect(hidden(host)).toBe(true);
+    menu.setSketchHidden(false);
+    expect(hidden(host)).toBe(false);
+    menu.add(spec('acme.standoff', 'Standoff'));
+    button.click();
+    expect(panel()!.querySelector('[data-ref="empty"]')).toBeNull();
+    expect(panel()!.querySelector('[data-tool="feature:acme.standoff"]')).not.toBeNull();
+  });
+});

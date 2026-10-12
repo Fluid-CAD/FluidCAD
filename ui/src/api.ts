@@ -6580,8 +6580,12 @@ export type PackagesOverview = {
   libraryOffer?: { path: string; packages: { name: string; version: string }[] } | null;
 };
 
-/** `POST /api/packages/install`: the package installs under its manifest's name. */
-export type PackageInstallRequest = { token: string; target: PackageTarget; replace?: boolean; pin?: boolean };
+/**
+ * `POST /api/packages/install`: the package installs under its manifest's
+ * name. `upgrade` lets a pin of an older version move to this one (the Hub
+ * panel's "Upgrade to X", H11 decision 7).
+ */
+export type PackageInstallRequest = { token: string; target: PackageTarget; replace?: boolean; pin?: boolean; upgrade?: boolean };
 
 /** `POST /api/packages/install`. */
 export type PackageInstallOutcome = {
@@ -6678,6 +6682,318 @@ export class HttpPackagesClient implements PackagesClient {
       }
       return { ok: true, body };
     } catch (err: any) {
+      return { ok: false, status: 0, error: `The engine didn't answer: ${err?.message ?? String(err)}` };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The hub, through the engine (H10's bridge; the UI never calls the hub)
+// ---------------------------------------------------------------------------
+
+/** What this machine has of a hub package: every installed version (oldest first), the project's pin, and a newer version the hub offers. */
+export type HubLocalMarks = { installed: string[]; pinned: string | null; updateAvailable: string | null };
+
+/** `GET /api/hub/status`. */
+export type HubStatus = {
+  hubUrl: string;
+  reachable: boolean;
+  /** Who the stored credential is; `handle` null when the hub couldn't say. Null when signed out. */
+  signedIn: { handle: string | null } | null;
+  /** This engine's FluidCAD version and feature SDK. */
+  engine: string;
+  sdk: number;
+};
+
+export type HubSort = 'relevance' | 'installs' | 'likes' | 'updated' | 'newest';
+export type HubOrder = 'asc' | 'desc';
+export type HubContents = 'features' | 'parts' | 'assemblies';
+export type HubUnits = 'metric' | 'imperial';
+
+/** One package in the search results, as the engine hands it on. */
+export type HubSearchRow = {
+  fullName: string;
+  scope: string;
+  name: string;
+  version: string;
+  description: string | null;
+  /** The card image on the engine's proxy path, or null. */
+  cardImageUrl: string | null;
+  features: { id: string; label: string; iconUrl: string | null }[];
+  moreFeatures: number;
+  counts: { features: number; parts: number; assemblies: number };
+  likes: number;
+  installs: number;
+  publisher: { handle: string };
+  updatedAt: string;
+  license: string | null;
+  deprecated: string | null;
+  minEngine: string;
+  /** Absent from a hub older than the H10 follow-up. */
+  sdkVersion?: number;
+  /** Whether this FluidCAD runs it; null when the search named no engine. */
+  compatible: boolean | null;
+  local: HubLocalMarks;
+};
+
+/** The canonical request a search answer echoes. */
+export type HubSearchEcho = {
+  q: string;
+  words: string[];
+  scopes: string[];
+  contents: HubContents[];
+  keywords: string[];
+  units: HubUnits[];
+  licenses: string[];
+  engine: string | null;
+  sdk: number | null;
+  compatible: boolean;
+  sort: HubSort;
+  /** Absent from a hub older than H11. */
+  order?: HubOrder;
+  page: number;
+  limit: number;
+};
+
+export type HubFacets = {
+  contents: { features: number; parts: number; assemblies: number };
+  keywords: { value: string; count: number }[];
+  units: { metric: number; imperial: number };
+  licenses: { value: string; count: number; label: string }[];
+  compatible: { count: number } | null;
+};
+
+/** `GET /api/hub/search`. */
+export type HubSearchAnswer = {
+  request: HubSearchEcho;
+  total: number;
+  capped: boolean;
+  page: number;
+  limit: number;
+  results: HubSearchRow[];
+  facets: HubFacets;
+};
+
+/** What the panel asks: the hub's own names; null leaves a value to the hub. */
+export type HubSearchParams = {
+  q: string;
+  contents: HubContents[];
+  keyword: string[];
+  units: HubUnits[];
+  license: string[];
+  sort: HubSort | null;
+  order: HubOrder | null;
+  page: number;
+};
+
+export type HubCatalogFeature = {
+  id: string;
+  exportName: string;
+  label: string;
+  description: string | null;
+  module: string;
+  group: string | null;
+  kind: string | null;
+  icon: string | null;
+  iconUrl: string | null;
+  paramCount: number;
+};
+
+export type HubCatalogModel = {
+  exportName: string;
+  name: string;
+  module: string;
+  folder: 'parts' | 'assemblies';
+  kind: 'part' | 'assembly';
+  exportKind: 'value' | 'factory';
+  paramCount: number;
+};
+
+export type HubVersionSummary = {
+  version: string;
+  status: 'uploading' | 'draft' | 'in_review' | 'rejected' | 'published';
+  prerelease: boolean;
+  integrity: string | null;
+  size: number | null;
+  engine: string | null;
+  minEngine: string | null;
+  sdkVersion: number | null;
+  notes: string;
+  publishedAt: string | null;
+  yanked: { at: string; reason: string | null } | null;
+  removed: { at: string; reason: string | null } | null;
+  isLatest: boolean;
+};
+
+export type HubMedia = { id: string; url: string; caption: string; isCard: boolean; modelModule: string | null; width: number; height: number; position: number };
+
+/** `GET /api/hub/packages/@s/n`: what the panel reads of the hub's detail. */
+export type HubPackage = {
+  name: string;
+  access: 'public' | 'owner' | 'admin';
+  publisher: string | null;
+  description: string | null;
+  keywords: string[];
+  homepage: string | null;
+  deprecatedMessage: string | null;
+  counts: { installs: number; likes: number; comments: number };
+  latestVersion: string | null;
+  latest: {
+    version: string;
+    integrity: string;
+    size: number;
+    unpackedSize: number;
+    engine: string;
+    minEngine: string;
+    sdkVersion: number;
+    unit: string;
+    notes: string;
+    license: string | null;
+    publishedAt: string | null;
+    features: HubCatalogFeature[];
+    models: HubCatalogModel[];
+  } | null;
+  versions: HubVersionSummary[];
+  compatibility: { engine: string | null; sdk: number | null; latestCompatible: boolean; newestCompatible: string | null } | null;
+  listing: { license: string | null; homepageUrl: string | null; repositoryUrl: string | null; media: HubMedia[] };
+  updatedAt: string;
+  local: HubLocalMarks;
+};
+
+/** One value of a feature, as its manifest declares it (the parameter table reads it as data). */
+export type HubParamSpec = Record<string, unknown> & { label?: string };
+
+/** `GET /api/hub/packages/@s/n/versions/<v>`: one version's manifest, notes and README path. */
+export type HubVersion = {
+  name: string;
+  version: string;
+  status: HubVersionSummary['status'];
+  access: 'public' | 'owner' | 'admin';
+  integrity: string | null;
+  engine: string | null;
+  minEngine: string | null;
+  sdkVersion: number | null;
+  unit: string | null;
+  size: number | null;
+  notes: string;
+  publishedAt: string | null;
+  yanked: { at: string; reason: string | null } | null;
+  isLatest: boolean;
+  /** The README on the engine's file proxy, or null. */
+  readmeUrl: string | null;
+  manifest: {
+    features: { id: string; exportName: string; module: string; meta: Record<string, unknown> & { params?: Record<string, HubParamSpec>; label?: string } }[];
+    parts: { exportName: string; module: string; name: string; kind: 'part' | 'assembly'; exportKind: 'value' | 'factory'; params: { name: string; label?: string; type?: string; defaultValue?: unknown }[] }[];
+  } | null;
+  local: HubLocalMarks;
+};
+
+/** `POST /api/hub/inspect`: the inspection the install route's token belongs to, with the hub's sentences. */
+export type HubInspection = PackageInspection & {
+  notes: string[];
+  source: { hub: string; status: string; access: 'public' | 'owner' | 'admin' };
+};
+
+/** A refusal from the bridge carries its code: `hub-unreachable` is the offline state. */
+export type HubResult<T> = PackageResult<T>;
+
+/**
+ * The bridge's routes as one object the Hub panel is handed (tests give it
+ * a fake, `ui/tests/fixtures/fake-hub-client.ts`). Like the packages client,
+ * every call answers a result rather than throwing; an aborted search
+ * answers a refusal with status 0 and code `aborted`.
+ */
+export interface HubClient {
+  status(): Promise<HubResult<{ status: HubStatus }>>;
+  search(params: HubSearchParams, signal?: AbortSignal): Promise<HubResult<{ answer: HubSearchAnswer }>>;
+  package(name: string): Promise<HubResult<{ pkg: HubPackage }>>;
+  version(name: string, version: string): Promise<HubResult<{ version: HubVersion }>>;
+  /** A README (or any text file) through the engine's file proxy. */
+  text(url: string): Promise<HubResult<{ text: string }>>;
+  inspect(request: { name: string; version: string | null; target: PackageTarget }, signal?: AbortSignal): Promise<HubResult<{ inspection: HubInspection }>>;
+}
+
+/** {@link HubClient} over the engine's `/api/hub/*` routes. */
+export class HttpHubClient implements HubClient {
+  async status(): Promise<HubResult<{ status: HubStatus }>> {
+    const answer = await HttpHubClient.send('api/hub/status', {});
+    return answer.ok === false ? answer : { ok: true, status: answer.body as HubStatus };
+  }
+
+  async search(params: HubSearchParams, signal?: AbortSignal): Promise<HubResult<{ answer: HubSearchAnswer }>> {
+    const query = HttpHubClient.searchQuery(params);
+    const answer = await HttpHubClient.send(`api/hub/search${query ? `?${query}` : ''}`, { signal });
+    return answer.ok === false ? answer : { ok: true, answer: answer.body as HubSearchAnswer };
+  }
+
+  async package(name: string): Promise<HubResult<{ pkg: HubPackage }>> {
+    const answer = await HttpHubClient.send(`api/hub/packages/${HttpHubClient.namePath(name)}`, {});
+    return answer.ok === false ? answer : { ok: true, pkg: answer.body as HubPackage };
+  }
+
+  async version(name: string, version: string): Promise<HubResult<{ version: HubVersion }>> {
+    const answer = await HttpHubClient.send(`api/hub/packages/${HttpHubClient.namePath(name)}/versions/${encodeURIComponent(version)}`, {});
+    return answer.ok === false ? answer : { ok: true, version: answer.body as HubVersion };
+  }
+
+  async text(url: string): Promise<HubResult<{ text: string }>> {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string; code?: string } | null;
+        return { ok: false, status: res.status, error: body?.error ?? `The engine answered ${res.status}.`, ...(body?.code ? { code: body.code } : {}) };
+      }
+      return { ok: true, text: await res.text() };
+    } catch (err: any) {
+      return { ok: false, status: 0, error: `The engine didn't answer: ${err?.message ?? String(err)}` };
+    }
+  }
+
+  async inspect(request: { name: string; version: string | null; target: PackageTarget }, signal?: AbortSignal): Promise<HubResult<{ inspection: HubInspection }>> {
+    const answer = await HttpHubClient.send('api/hub/inspect', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(request), signal });
+    return answer.ok === false ? answer : { ok: true, inspection: answer.body as HubInspection };
+  }
+
+  /** The panel's parameters as the bridge reads them: repeated keys for the lists, defaults left out. */
+  static searchQuery(params: HubSearchParams): string {
+    const query = new URLSearchParams();
+    if (params.q.trim() !== '') {
+      query.set('q', params.q.trim());
+    }
+    for (const key of ['contents', 'keyword', 'units', 'license'] as const) {
+      for (const value of params[key]) {
+        query.append(key, value);
+      }
+    }
+    if (params.sort) {
+      query.set('sort', params.sort);
+    }
+    if (params.order) {
+      query.set('order', params.order);
+    }
+    if (params.page > 1) {
+      query.set('page', String(params.page));
+    }
+    return query.toString();
+  }
+
+  /** `@acme/kit` → `@acme/kit` with each part encoded (the scope keeps its `@`). */
+  private static namePath(name: string): string {
+    return name.split('/').map((part) => encodeURIComponent(part).replace(/^%40/, '@')).join('/');
+  }
+
+  private static async send(url: string, init: RequestInit): Promise<{ ok: true; body: unknown } | PackageRefusal> {
+    try {
+      const res = await fetch(url, init);
+      const body = await res.json().catch(() => null) as { error?: string; code?: string } | null;
+      if (!res.ok) {
+        return { ok: false, status: res.status, error: body?.error ?? `The engine answered ${res.status}.`, ...(body?.code ? { code: body.code } : {}) };
+      }
+      return { ok: true, body };
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        return { ok: false, status: 0, error: 'Cancelled.', code: 'aborted' };
+      }
       return { ok: false, status: 0, error: `The engine didn't answer: ${err?.message ?? String(err)}` };
     }
   }

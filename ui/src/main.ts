@@ -83,10 +83,14 @@ import { SettingsModal } from './ui/settings';
 import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
 import { applyEnginePreferences } from './ui/settings/engine-settings';
 import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials';
-import { applyPackagePreferences } from './ui/settings/package-settings';
-import { HttpPackagesClient, recompute } from './api';
+import { applyPackagePreferences, packageSettings } from './ui/settings/package-settings';
+import { HttpHubClient, HttpPackagesClient, recompute } from './api';
 import { PackagesState } from './ui/packages/packages-state';
 import { ProjectPackagesDialog } from './ui/packages/project-packages-dialog';
+import { PackageConsentDialog } from './ui/packages/package-consent-dialog';
+import { HubPanel } from './ui/hub/hub-panel';
+import { HubMissingInstall } from './ui/hub/hub-missing-install';
+import { ExternalLinks } from './ui/external-links';
 import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
@@ -152,7 +156,13 @@ function startEditorSurface(): void {
       initialWidth: editorPreferences.width,
       // Whether the pane opens at startup is a Settings choice, not the last
       // state the pane was left in — so nothing is saved here.
-      onOpenChange: () => {
+      onOpenChange: (open) => {
+        // The editor and the Hub panel share one slot (H11 decision 5): the
+        // editor opening, however it was opened, sends the panel away and
+        // keeps the width it just took.
+        if (open) {
+          hubPanel.yieldSlot();
+        }
         // Ctrl+B, the desktop menu and the restored preference all land here,
         // so the rail's latch follows the pane however it was opened.
         panelRail.sync();
@@ -855,21 +865,46 @@ currentRail = initialRail;
 // Top application bar (logo, workspace, file tabs) and the secondary tool bar
 // below it (host for conditionally-visible tool groups).
 // Packages: one copy of what the library and the project hold, and the
-// project's Packages dialog. Packages install only from the hub (HD31): the
-// page has no install entry point until the Hub panel (H11). Nothing
-// broadcasts after a copy or a removal, so each one refetches here: the
-// overview, the feature catalog (library entries come and go, a copy moves
-// a module) and the scene (a pin that now resolves elsewhere, or at all).
+// project's Packages dialog. Packages install only from the hub (HD31),
+// through the Hub panel (H11) and the missing-package banner. Nothing
+// broadcasts after an install, a copy or a removal, so each one refetches
+// here: the overview, the feature catalog (library entries come and go, a
+// copy moves a module), the scene (a pin that now resolves elsewhere, or at
+// all) and the Hub panel's marks.
 const packagesClient = new HttpPackagesClient();
 const packagesState = new PackagesState(packagesClient);
-function packagesChanged(): void {
+const hubClient = new HttpHubClient();
+function packagesChanged(options: { fromHubPanel?: boolean } = {}): void {
   void packagesState.refresh();
   void featureCatalog.refresh();
   recompute();
+  if (!options.fromHubPanel && hubPanel.isOpen()) {
+    hubPanel.packagesChanged();
+  }
 }
+/** Whether this page shows a project (pins, the project install target); assumed until the first overview says. */
+function projectOpen(): boolean {
+  const overview = packagesState.current;
+  return overview ? overview.project !== null : true;
+}
+// The consent dialog, for the missing-package banner's Install from the hub
+// (it keeps its consent, the user's decision of 2026-10-10); the Hub panel's
+// own Install has none (H11 decision 6).
+const packageConsentDialog = new PackageConsentDialog(container, packagesClient);
+const missingPackageInstall = new HubMissingInstall({
+  hub: hubClient,
+  consent: packageConsentDialog,
+  installSetting: () => packageSettings.current.installTarget,
+  projectOpen,
+  onBusy: (busy) => errorBanner.setInstallBusy(busy),
+  onError: (message) => showToast(message),
+  onInstalled: () => packagesChanged(),
+});
 const projectPackagesDialog = new ProjectPackagesDialog(container, {
   state: packagesState,
   onChanged: () => packagesChanged(),
+  onFindPackages: () => hubPanel.show(),
+  onInstallMissing: (pin) => void missingPackageInstall.run(pin),
 });
 
 // The global Settings dialog — part of the page in every host; only a
@@ -879,7 +914,20 @@ const settingsModal = new SettingsModal(container, {
   resetPreferences,
   applyPreferences: applyLoadedPreferences,
   loadMaterials: () => engineClient.getMaterials(),
-  packages: { state: packagesState, onLibraryChanged: () => packagesChanged() },
+  packages: {
+    state: packagesState,
+    onLibraryChanged: () => packagesChanged(),
+    hub: {
+      status: async () => {
+        const answer = await hubClient.status();
+        return answer.ok ? answer.status : null;
+      },
+      onFindPackages: () => {
+        settingsModal.hide();
+        hubPanel.show();
+      },
+    },
+  },
 });
 
 const topBar = new TopBar(container, {
@@ -952,10 +1000,40 @@ packagesState.subscribe(() => {
   packagesButton.title = missing ? 'Packages in this project — one is not installed' : 'Packages in this project';
 });
 
+// The Hub panel (H11): searching, reading and installing packages, from the
+// rail's Hub button. It shares the editor pane's slot and width (decision
+// 5): opening it closes the editor, and the editor opening closes it
+// (`yieldSlot`, from the editor's onOpenChange). Every host has it — VS Code
+// and Neovim too, where its button sits under the tree's — and links leave
+// through the host (ExternalLinks).
+const hubPanel = new HubPanel({
+  container,
+  hub: hubClient,
+  packages: packagesClient,
+  installSetting: () => packageSettings.current.installTarget,
+  projectOpen,
+  openExternal: (url) => void ExternalLinks.open(url),
+  onPackagesChanged: () => packagesChanged({ fromHubPanel: true }),
+  width: () => editorSurface?.pane.getWidth() ?? editorPreferences.width,
+  onWidthChange: (width) => {
+    editorPreferences.width = width;
+    if (editorSurface) {
+      editorSurface.pane.setWidth(width);
+    } else {
+      savePreference('editorWidth', width);
+    }
+  },
+  onTakeSlot: () => {
+    editorPaneOpenOnArrival = false;
+    editorSurface?.setOpen(false);
+  },
+  onOpenChange: () => panelRail.sync(),
+});
+
 // The panel rail on the window's left edge: one latch button per surface it
 // opens. Its tree button covers whichever rail the scene kind mounted — the
-// part-design timeline or the assembly parts/joints column — and the editor
-// button is absent on a viewport-only host.
+// part-design timeline or the assembly parts/joints column — the editor
+// button is absent on a viewport-only host, and the Hub button is in all.
 const panelRail = new PanelRail(container, {
   onToggleTree: () => {
     if (currentRail?.kind === 'part') {
@@ -970,6 +1048,8 @@ const panelRail = new PanelRail(container, {
   treeLabel: () => currentRail?.kind === 'assembly' ? 'Parts' : 'Feature tree',
   onToggleEditor: editorSurfaceEnabled ? () => toggleEditorPane() : undefined,
   isEditorOpen: editorSurfaceEnabled ? () => editorSurface?.isOpen() === true : undefined,
+  onToggleHub: () => hubPanel.toggle(),
+  isHubOpen: () => hubPanel.isOpen(),
 });
 
 const navbar = new Navbar(container);
@@ -2062,6 +2142,9 @@ const featureCatalog = new FeatureCatalogDialogs(featureDialogs, navbar, (schema
     onSuspendSketchUI: suspendSketchForFeature,
     onResumeSketchUI: resumeSketchForFeature,
   }, launcher));
+// With no custom features the Custom dropdown stays on the bar (H11): it says
+// none are installed and opens the Hub panel.
+featureCatalog.menu.setEmptyAction(() => hubPanel.show());
 
 // While a sketch is active, a green "Finish Sketch" button heads the create
 // group and the create-feature buttons leave the bar. It marks the sketch
@@ -2112,8 +2195,10 @@ const errorBanner = new ErrorBanner(container, (loc) => {
   gotoSource(loc);
 });
 // The missing-package banner: a render that stopped because a pinned
-// package is installed nowhere names the command that downloads it. No
-// install handler until H11's Install from the hub (HD31).
+// package is installed nowhere names the command that downloads it, and
+// Install from the hub downloads it, asks for consent and installs it
+// (never through the Hub panel).
+errorBanner.setInstallMissingHandler((pkg) => void missingPackageInstall.run(pkg));
 // The engine's kernel trapped: its memory may be damaged until it restarts.
 // The desktop shell restarts its own engine; elsewhere the engine ends
 // itself and its host starts a fresh one, or the banner says how.

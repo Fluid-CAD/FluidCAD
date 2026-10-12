@@ -175,3 +175,38 @@ describe('Settings → Packages', () => {
     expect(h.dot()).toBe(true);
   });
 });
+
+describe('Settings → Packages: the hub (H11)', () => {
+  function mountWithHub(status: import('../src/api').HubStatus | null) {
+    const state = new PackagesState(new FakePackagesClient());
+    const onFindPackages = vi.fn();
+    const modal = new SettingsModal(document.body, {
+      savePreference: vi.fn(),
+      resetPreferences: vi.fn(async (): Promise<UserPreferences | null> => null),
+      applyPreferences: vi.fn(),
+      packages: { state, onLibraryChanged: vi.fn(), hub: { status: async () => status, onFindPackages } },
+    });
+    modal.show('packages');
+    const tab = document.body.querySelector<HTMLElement>('[data-panel="packages"]')!;
+    return { tab, onFindPackages, ref: (name: string) => tab.querySelector<HTMLElement>(`[data-ref="${name}"]`)! };
+  }
+
+  it('shows the hub address and who is signed in, read only', async () => {
+    const h = mountWithHub({ hubUrl: 'https://hub.fluidcad.io', reachable: true, signedIn: { handle: 'acme' }, engine: '0.0.46', sdk: 1 });
+    await settle();
+    expect(h.ref('hub-url').textContent).toBe('https://hub.fluidcad.io');
+    expect(h.ref('hub-account').textContent!.trim()).toBe('Signed in as @acme');
+    expect(h.ref('hub-hint').textContent).toContain('fluidcad logout');
+    expect(h.ref('hub').querySelector('input, select, textarea')).toBeNull();
+  });
+
+  it('says so when signed out, and Find packages opens the Hub panel', async () => {
+    const h = mountWithHub({ hubUrl: 'http://localhost:8787', reachable: false, signedIn: null, engine: '0.0.46', sdk: 1 });
+    await settle();
+    expect(h.ref('hub-account').textContent).toBe('Not signed in');
+    expect(h.ref('hub-hint').textContent).toContain('fluidcad login');
+    expect(h.ref('hub-hint').textContent).toContain("The hub doesn't answer right now.");
+    h.ref('find-packages').click();
+    expect(h.onFindPackages).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,11 +1,16 @@
 import type { PackagesOverview, PinnedPackage } from '../../api';
 import { ICON_ALERT_TRIANGLE, ICON_CLOSE } from '../icons';
+import { HubIcons } from '../hub/hub-icons';
 import { PackageText, type PackagesState } from './packages-state';
 
 export type ProjectPackagesDialogDeps = {
   state: PackagesState;
   /** Where the project loads a package from changed (a copy in, a copy removed): the scene and the catalogs catch up. */
   onChanged(): void;
+  /** Open the Hub panel (H11): the dialog's way to new packages. Absent, no button. */
+  onFindPackages?(): void;
+  /** Install a missing pin from the hub, through the consent dialog (H11, as the error banner does). Absent, only the command shows. */
+  onInstallMissing?(pin: { name: string; version: string }): void;
 };
 
 const ROW = 'flex items-center gap-2 px-3 py-2 border-b border-base-content/[0.07] last:border-b-0';
@@ -26,8 +31,9 @@ const CHIP = 'badge badge-xs shrink-0 whitespace-nowrap';
  *   and the copy stays.
  * - A pin installed nowhere leads the dialog as the missing-package
  *   banner, naming the command that downloads it,
- *   `fluidcad install @acme/kit@0.1.0`. Packages install only from the hub
- *   (HD31); H11 adds Install from the hub here.
+ *   `fluidcad install @acme/kit@0.1.0`, with Install from the hub (H11:
+ *   the download, then the consent dialog, as the error banner does).
+ * - "Find packages in the Hub panel" opens the Hub panel (H11).
  * - An **update available** chip names a newer version the library holds;
  *   moving to it is Stage P10's previewed upgrade.
  *
@@ -67,7 +73,7 @@ export class ProjectPackagesDialog {
         <div data-ref="banner" class="hidden flex-col gap-2 mb-3 shrink-0"></div>
         <div data-ref="list" class="overflow-y-auto min-h-0 border border-base-content/10 rounded-md"></div>
         <div data-ref="status" class="text-xs min-h-4 mt-2 shrink-0"></div>
-        <div class="flex items-center justify-end gap-2 pt-2 shrink-0">
+        <div data-ref="footer" class="flex items-center justify-end gap-2 pt-2 shrink-0">
           <button data-ref="done" type="button" class="btn btn-sm">Close</button>
         </div>
       </div>
@@ -84,6 +90,18 @@ export class ProjectPackagesDialog {
       }
     });
     document.addEventListener('keydown', this.onKeyDown, true);
+    if (deps.onFindPackages) {
+      const find = document.createElement('button');
+      find.type = 'button';
+      find.dataset.ref = 'find-packages';
+      find.className = 'btn btn-ghost btn-sm gap-1.5 font-normal text-primary mr-auto';
+      find.append(HubIcons.span(HubIcons.PACKAGES, '[&>svg]:size-4'), 'Find packages in the Hub panel');
+      find.addEventListener('click', () => {
+        this.hide();
+        deps.onFindPackages?.();
+      });
+      this.overlay.querySelector('[data-ref="footer"]')!.prepend(find);
+    }
     this.unsubscribe = deps.state.subscribe((overview) => this.render(overview));
   }
 
@@ -168,6 +186,18 @@ export class ProjectPackagesDialog {
       command.textContent = ProjectPackagesDialog.installCommand(pin);
       text.append(command, ' downloads it from the hub.');
       box.append(icon, text);
+      if (this.deps.onInstallMissing) {
+        const install = document.createElement('button');
+        install.type = 'button';
+        install.dataset.ref = 'install-missing';
+        install.className = 'btn btn-xs btn-primary shrink-0';
+        install.textContent = 'Install from the hub';
+        install.addEventListener('click', () => {
+          this.hide();
+          this.deps.onInstallMissing?.({ name: pin.name, version: pin.version });
+        });
+        box.appendChild(install);
+      }
       this.banner.appendChild(box);
     }
   }

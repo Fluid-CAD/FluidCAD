@@ -152,3 +152,26 @@ describe('panel rail', () => {
     expect(h.button('Code editor').className).toContain('panel-bg');
   });
 });
+
+describe('the Hub button (H11)', () => {
+  it('sits below the editor button, says "FluidCAD Hub", toggles the panel and latches', () => {
+    let open = false;
+    const onToggleHub = vi.fn(() => { open = !open; });
+    const h = mount({ onToggleHub, isHubOpen: () => open });
+    expect(h.buttons().map((b) => b.getAttribute('aria-label'))).toEqual(['Feature tree', 'Code editor', 'FluidCAD Hub']);
+    const hub = h.button('FluidCAD Hub');
+    expect(hub.parentElement!.dataset.tip).toBe('FluidCAD Hub');
+    hub.click();
+    expect(onToggleHub).toHaveBeenCalledTimes(1);
+    expect(hub.getAttribute('aria-pressed')).toBe('true');
+    // Closed from elsewhere (its own close button, the editor taking the slot): sync follows.
+    open = false;
+    h.rail.sync();
+    expect(hub.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('sits below the tree button on a host without the in-app editor (VS Code, Neovim)', () => {
+    const h = mount({ onToggleEditor: undefined, isEditorOpen: undefined, onToggleHub: () => undefined, isHubOpen: () => false });
+    expect(h.buttons().map((b) => b.getAttribute('aria-label'))).toEqual(['Feature tree', 'FluidCAD Hub']);
+  });
+});

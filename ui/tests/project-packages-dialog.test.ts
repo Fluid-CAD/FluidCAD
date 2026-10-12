@@ -51,10 +51,20 @@ describe('the project\'s Packages', () => {
     expect(h.pin('@acme/kit').querySelector('[data-ref="where"]')!.textContent).toBe("Copied into this project's packages/ folder");
     expect(h.pin('@beta/gears').querySelector('[data-ref="where"]')!.textContent).toBe('Not installed');
     expect(h.pin('@acme/feature-tests').querySelector('[data-ref="update"]')!.textContent).toBe('0.2.0 available');
+    expect(h.pin('@acme/feature-tests').querySelector<HTMLElement>('[data-ref="update"]')!.title).toMatch(/^Your library holds /);
     expect(h.pin('@acme/kit').querySelector('[data-ref="update"]')).toBeNull();
     expect(h.pin('@acme/feature-tests').querySelector('[data-action="copy-into-project"]')).not.toBeNull();
     expect(h.pin('@acme/kit').querySelector('[data-action="use-from-library"]')).not.toBeNull();
     expect(h.pin('@beta/gears').querySelector('button')).toBeNull();
+  });
+
+  it("says where an update is: the library's, or the hub's (H10)", async () => {
+    const h = await mount({ ...PINS, updates: { '@acme/feature-tests': '0.2.0', '@acme/kit': '0.3.0' }, updatesFrom: { '@acme/feature-tests': 'library', '@acme/kit': 'hub' } });
+    const library = h.pin('@acme/feature-tests').querySelector<HTMLElement>('[data-ref="update"]')!;
+    const fromHub = h.pin('@acme/kit').querySelector<HTMLElement>('[data-ref="update"]')!;
+    expect(fromHub.textContent).toBe('0.3.0 available');
+    expect(library.title).toMatch(/^Your library holds /);
+    expect(fromHub.title).toMatch(/ is on the hub\. Moving this project to it/);
   });
 
   it('leads with the missing-package banner, which names the command that downloads the pin and offers no button (HD31)', async () => {

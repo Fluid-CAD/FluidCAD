@@ -6570,8 +6570,10 @@ export type PackagesOverview = {
   project: { path: string; packages: InstalledPackage[] } | null;
   pins: PinnedPackage[] | null;
   pinsProblem?: string;
-  /** Pinned name → the newest library version above the pin. */
+  /** Pinned name → the newest version above the pin, from the library or the hub (H10). */
   updates?: Record<string, string>;
+  /** Where each of `updates` is: `library` when the library holds it, else `hub`. */
+  updatesFrom?: Record<string, 'library' | 'hub'>;
   problems: PackageProblem[];
   defaultTarget: PackageTarget;
   /** What the folder the library just left still holds. */

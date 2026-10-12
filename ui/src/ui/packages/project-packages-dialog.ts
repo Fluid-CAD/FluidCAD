@@ -142,7 +142,8 @@ export class ProjectPackagesDialog {
       return;
     }
     for (const pin of pins) {
-      this.list.appendChild(this.row(pin, overview.updates?.[pin.name] ?? null));
+      const version = overview.updates?.[pin.name];
+      this.list.appendChild(this.row(pin, version ? { version, from: overview.updatesFrom?.[pin.name] ?? 'library' } : null));
     }
   }
 
@@ -171,7 +172,7 @@ export class ProjectPackagesDialog {
     }
   }
 
-  private row(pin: PinnedPackage, update: string | null): HTMLDivElement {
+  private row(pin: PinnedPackage, update: { version: string; from: 'library' | 'hub' } | null): HTMLDivElement {
     const row = document.createElement('div');
     row.className = ROW;
     row.dataset.pin = pin.name;
@@ -190,8 +191,11 @@ export class ProjectPackagesDialog {
       const chip = document.createElement('span');
       chip.dataset.ref = 'update';
       chip.className = `${CHIP} badge-info badge-soft`;
-      chip.textContent = `${update} available`;
-      chip.title = `Your library holds ${PackageText.label(pin.name, update)}. Moving this project to it, with a preview of what changes, comes in a later version.`;
+      chip.textContent = `${update.version} available`;
+      const where = update.from === 'hub'
+        ? `${PackageText.label(pin.name, update.version)} is on the hub.`
+        : `Your library holds ${PackageText.label(pin.name, update.version)}.`;
+      chip.title = `${where} Moving this project to it, with a preview of what changes, comes in a later version.`;
       title.appendChild(chip);
     }
     const where = document.createElement('div');

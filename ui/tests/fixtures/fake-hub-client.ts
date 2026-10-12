@@ -210,7 +210,7 @@ export class FakeHubClient implements HubClient {
     return {
       request: {
         q: '', words: [], scopes: [], contents: [], keywords: [], units: [], licenses: [],
-        engine: '0.0.46', sdk: 1, compatible: false, sort: 'installs', order: 'desc', page: 1, limit: 20,
+        engine: '0.0.46', sdk: 1, compatible: false, sort: 'likes', order: 'desc', page: 1, limit: 20,
       },
       total: results.length,
       capped: false,

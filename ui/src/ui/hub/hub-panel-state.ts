@@ -174,7 +174,7 @@ export class HubPanelState {
   /**
    * The sort the results run by: the hub's echo when the answer is for this
    * request, else the asked sort, else the hub's default (Best match with
-   * words, Most installed without).
+   * words, Most liked without: the hub's default since H13).
    */
   effectiveSort(): HubSort {
     if (this.answer && this.answerIsCurrent()) {
@@ -184,7 +184,7 @@ export class HubPanelState {
     if (this.params.sort && !(this.params.sort === 'relevance' && !words)) {
       return this.params.sort;
     }
-    return words ? 'relevance' : 'installs';
+    return words ? 'relevance' : 'likes';
   }
 
   /** The direction the results run: Best match's only one, else the asked one or the sort's own (`desc`). */

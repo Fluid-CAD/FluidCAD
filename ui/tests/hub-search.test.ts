@@ -146,18 +146,18 @@ describe('the sort control (decision 1)', () => {
     const h = mount();
     h.state.search();
     await settle();
-    expect(h.$('[data-ref="sort-name"]')!.textContent!.trim()).toBe('Most installed');
+    expect(h.$('[data-ref="sort-name"]')!.textContent!.trim()).toBe('Most liked');
     const order = () => h.$<HTMLButtonElement>('[data-ref="order"]')!;
     expect(order().disabled).toBe(false);
     expect(order().dataset.order).toBe('desc');
     order().click();
     await settle();
-    expect(h.lastParams()).toMatchObject({ sort: 'installs', order: 'asc' });
+    expect(h.lastParams()).toMatchObject({ sort: 'likes', order: 'asc' });
     h.client.answer = { ...h.client.answer, request: { ...h.client.answer.request, order: 'asc' } };
     h.state.search();
     await settle();
     expect(order().dataset.order).toBe('asc');
-    expect(order().title).toMatch(/^Least installed first/);
+    expect(order().title).toMatch(/^Least liked first/);
     // Picking a sort takes its own direction.
     h.$('[data-ref="sort-name"]')!.click();
     expect(h.$$('[data-menu="sort"] [data-sort]').map((o) => o.dataset.sort)).toEqual(['installs', 'likes', 'updated', 'newest']);
@@ -181,12 +181,12 @@ describe('the sort control (decision 1)', () => {
     expect(h.client.search.mock.calls.length).toBe(calls);
   });
 
-  it('follows the hub: Best match only with words, else Most installed', () => {
+  it('follows the hub: Best match only with words, else Most liked (the hub\'s default since H13)', () => {
     expect(HubPanelState.hasWords('@acme')).toBe(false);
     expect(HubPanelState.hasWords('@acme standoff')).toBe(true);
     expect(HubPanelState.hasWords('@mira/gears')).toBe(true);
     const state = new HubPanelState(new FakeHubClient(), new ManualTimers());
-    expect(state.effectiveSort()).toBe('installs');
+    expect(state.effectiveSort()).toBe('likes');
     state.setQuery('gear');
     expect(state.effectiveSort()).toBe('relevance');
     expect(state.effectiveOrder()).toBe('desc');

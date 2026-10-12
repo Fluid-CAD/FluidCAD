@@ -223,6 +223,17 @@ export class Client {
         });
         break;
       }
+      case 'open-external': {
+        // The page in the webview can't open a window (no popups there): the
+        // Hub panel's "Open on the hub" and part Previews come here instead.
+        const url = typeof msg.url === 'string' ? msg.url : '';
+        if (/^https?:\/\//i.test(url)) {
+          vscode.env.openExternal(vscode.Uri.parse(url, true)).then(undefined, (err) => {
+            this.logger.appendLine(`[open-external] error: ${err?.stack || err}`);
+          });
+        }
+        break;
+      }
       case 'export-complete': {
         if (msg.success && msg.data && this.pendingExportUri) {
           const buffer = Buffer.from(msg.data, 'base64');

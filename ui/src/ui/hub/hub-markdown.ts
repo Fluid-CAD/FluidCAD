@@ -16,12 +16,12 @@ export class HubMarkdown {
   static render(text: string, openLink: (url: string) => void): HTMLDivElement {
     const root = document.createElement('div');
     root.dataset.role = 'readme';
-    root.className = 'flex flex-col gap-3 text-xs leading-relaxed text-base-content/85 min-w-0 break-words';
+    root.className = 'flex flex-col gap-3 text-hub-sm leading-relaxed text-base-content/85 min-w-0 break-words';
     const source = text.length > HubMarkdown.MAX_CHARS ? text.slice(0, HubMarkdown.MAX_CHARS) : text;
     new HubMarkdown(openLink).blocks(source.replace(/\r\n?/g, '\n').split('\n'), root);
     if (text.length > HubMarkdown.MAX_CHARS) {
       const cut = document.createElement('p');
-      cut.className = 'text-[11px] text-base-content/50';
+      cut.className = 'text-hub-xs text-base-content/50';
       cut.textContent = 'The rest of the README is on the hub.';
       root.appendChild(cut);
     }
@@ -135,7 +135,7 @@ export class HubMarkdown {
 
   private heading(level: number, text: string): HTMLElement {
     const el = document.createElement(`h${Math.min(level + 2, 6)}`);
-    el.className = level <= 1 ? 'text-sm font-medium text-base-content/90 mt-1' : 'text-[13px] font-medium text-base-content/90';
+    el.className = level <= 1 ? 'text-hub-lg font-medium text-base-content/90 mt-1' : 'text-hub-md font-medium text-base-content/90';
     this.inline(text, el);
     return el;
   }
@@ -145,7 +145,7 @@ export class HubMarkdown {
     const wrap = document.createElement('div');
     wrap.className = 'overflow-x-auto';
     const table = document.createElement('table');
-    table.className = 'w-full text-[11px] border border-base-content/10 rounded';
+    table.className = 'w-full text-hub-xs border border-base-content/10 rounded';
     const head = document.createElement('thead');
     head.className = 'bg-base-200 text-base-content/55';
     const headRow = document.createElement('tr');
@@ -175,7 +175,7 @@ export class HubMarkdown {
 
   private static codeBlock(code: string): HTMLPreElement {
     const pre = document.createElement('pre');
-    pre.className = 'font-mono text-[11px] leading-relaxed bg-base-200 rounded-md px-3 py-2 overflow-x-auto whitespace-pre';
+    pre.className = 'font-mono text-hub-xs leading-relaxed bg-base-200 rounded-md px-3 py-2 overflow-x-auto whitespace-pre';
     const el = document.createElement('code');
     el.textContent = code;
     pre.appendChild(el);
@@ -230,7 +230,7 @@ export class HubMarkdown {
   private token(match: RegExpExecArray): Node {
     if (match[1] !== undefined) {
       const code = document.createElement('code');
-      code.className = 'font-mono text-[11px] px-1 rounded bg-base-200';
+      code.className = 'font-mono text-hub-xs px-1 rounded bg-base-200';
       code.textContent = match[2];
       return code;
     }

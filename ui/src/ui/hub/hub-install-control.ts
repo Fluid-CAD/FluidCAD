@@ -211,11 +211,11 @@ export class HubInstallControl {
     main.type = 'button';
     main.dataset.ref = 'install';
     main.dataset.action = action.kind;
-    main.className = 'btn btn-sm btn-primary join-item gap-1.5';
+    main.className = 'btn btn-sm text-hub-sm btn-primary join-item gap-1.5';
     const chevron = document.createElement('button');
     chevron.type = 'button';
     chevron.dataset.ref = 'target-menu';
-    chevron.className = 'btn btn-sm btn-primary join-item px-1.5 border-l border-l-primary-content/25';
+    chevron.className = 'btn btn-sm text-hub-sm btn-primary join-item px-1.5 border-l border-l-primary-content/25';
     chevron.setAttribute('aria-label', 'Install into…');
     chevron.setAttribute('aria-haspopup', 'true');
     chevron.setAttribute('aria-expanded', String(this.menuOpen));
@@ -250,7 +250,7 @@ export class HubInstallControl {
     }
     const where = document.createElement('span');
     where.dataset.ref = 'target';
-    where.className = 'text-[11px] text-base-content/50';
+    where.className = 'text-hub-xs text-base-content/50';
     where.textContent = target === 'project' ? 'into this project' : 'into my library';
     row.append(join, where);
 
@@ -287,7 +287,7 @@ export class HubInstallControl {
       const replace = document.createElement('button');
       replace.type = 'button';
       replace.dataset.ref = 'replace';
-      replace.className = 'btn btn-xs btn-warning self-start';
+      replace.className = 'btn btn-xs text-hub-xs btn-warning self-start';
       replace.textContent = 'Replace';
       replace.addEventListener('click', () => void this.run(phase.version, phase.upgrade, true));
       return [box, replace];
@@ -298,7 +298,7 @@ export class HubInstallControl {
   private targetMenu(projectOpen: boolean): HTMLDivElement {
     const menu = document.createElement('div');
     menu.dataset.role = 'install-targets';
-    menu.className = 'absolute left-0 top-[calc(100%+4px)] z-20 w-64 p-1 bg-base-100 border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] flex flex-col text-xs';
+    menu.className = 'absolute left-0 top-[calc(100%+4px)] z-20 w-64 p-1 bg-base-100 border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] flex flex-col text-hub-sm';
     const option = (value: PackageTarget, title: string, hint: string, enabled: boolean) => {
       const selected = this.deps.target.current === value;
       const button = document.createElement('button');
@@ -314,7 +314,7 @@ export class HubInstallControl {
       const name = document.createElement('span');
       name.textContent = title;
       const sub = document.createElement('span');
-      sub.className = 'text-[11px] text-base-content/50';
+      sub.className = 'text-hub-xs text-base-content/50';
       sub.textContent = hint;
       text.append(name, sub);
       button.appendChild(text);
@@ -447,7 +447,7 @@ export class HubInstallControl {
   private static caption(text: string, mark = 'caption'): HTMLParagraphElement {
     const p = document.createElement('p');
     p.dataset.ref = mark;
-    p.className = 'text-[11px] text-base-content/55 leading-snug';
+    p.className = 'text-hub-xs text-base-content/55 leading-snug';
     p.textContent = text;
     return p;
   }
@@ -456,7 +456,7 @@ export class HubInstallControl {
     const box = document.createElement('div');
     const look = { success: 'bg-success/10', error: 'bg-error/10 border border-error/30', warning: 'bg-warning/15' }[tone];
     const icon = { success: 'text-success', error: 'text-error', warning: 'text-warning' }[tone];
-    box.className = `flex items-start gap-2 rounded-md px-3 py-2 text-xs leading-snug text-base-content/90 ${look}`;
+    box.className = `flex items-start gap-2 rounded-md px-3 py-2 text-hub-sm leading-snug text-base-content/90 ${look}`;
     box.appendChild(HubIcons.span(tone === 'success' ? HubIcons.DONE : HubIcons.WARNING, `[&>svg]:size-4 mt-px ${icon}`));
     const span = document.createElement('span');
     span.textContent = text;

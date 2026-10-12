@@ -72,13 +72,13 @@ export class HubPackageView {
     const back = document.createElement('button');
     back.type = 'button';
     back.dataset.ref = 'back';
-    back.className = 'btn btn-ghost btn-xs gap-1 font-normal text-base-content/75';
+    back.className = 'btn btn-ghost btn-xs text-hub-xs gap-1 font-normal text-base-content/75';
     back.append(HubIcons.span(HubIcons.BACK, '[&>svg]:size-3.5'), 'Results');
     back.addEventListener('click', () => deps.onBack());
     this.openLink = document.createElement('button');
     this.openLink.type = 'button';
     this.openLink.dataset.ref = 'open-on-hub';
-    this.openLink.className = 'btn btn-ghost btn-xs gap-1 font-normal text-base-content/70 ml-auto';
+    this.openLink.className = 'btn btn-ghost btn-xs text-hub-xs gap-1 font-normal text-base-content/70 ml-auto';
     this.openLink.append('Open on the hub', HubIcons.span(HubIcons.EXTERNAL, '[&>svg]:size-3.5'));
     this.openLink.addEventListener('click', () => {
       const url = this.pageUrl();
@@ -210,22 +210,26 @@ export class HubPackageView {
 
     const titleBlock = document.createElement('div');
     titleBlock.className = 'flex flex-col gap-0.5';
+    // The version and its badge go under the name when the panel is too narrow for both, rather than cutting the name short.
     const title = document.createElement('div');
-    title.className = 'flex items-baseline gap-1.5 min-w-0';
-    title.appendChild(HubResultRow.name(pkg.name, 'text-[15px]'));
+    title.className = 'flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 min-w-0';
+    title.appendChild(HubResultRow.name(pkg.name, 'text-hub-xl'));
     if (latest) {
       const version = document.createElement('span');
       version.dataset.ref = 'latest';
-      version.className = 'font-mono text-xs text-base-content/50 tabular-nums';
+      version.className = 'font-mono text-hub-sm text-base-content/50 tabular-nums';
       version.textContent = latest.version;
       const badge = document.createElement('span');
-      badge.className = 'badge badge-xs badge-outline text-base-content/55 ml-0.5';
+      badge.className = 'badge badge-xs text-hub-2xs badge-outline text-base-content/55 ml-0.5';
       badge.textContent = 'Latest';
-      title.append(version, badge);
+      const group = document.createElement('span');
+      group.className = 'inline-flex items-baseline gap-1.5 whitespace-nowrap';
+      group.append(version, badge);
+      title.appendChild(group);
     }
     const byline = document.createElement('div');
     byline.dataset.ref = 'byline';
-    byline.className = 'text-[11px] text-base-content/50';
+    byline.className = 'text-hub-xs text-base-content/50';
     const published = latest?.publishedAt ? `published ${HubText.ago(latest.publishedAt, this.now())}` : null;
     const rest = [published, HubText.plural(pkg.counts.installs, 'install')].filter(Boolean).join(' · ');
     const onPublisher = this.deps.onPublisher;
@@ -240,7 +244,7 @@ export class HubPackageView {
     if (pkg.description) {
       const description = document.createElement('p');
       description.dataset.ref = 'description';
-      description.className = 'text-xs text-base-content/75 leading-snug';
+      description.className = 'text-hub-sm text-base-content/75 leading-snug';
       description.textContent = pkg.description;
       head.appendChild(description);
     }
@@ -325,7 +329,7 @@ export class HubPackageView {
     const box = document.createElement('div');
     box.dataset.ref = 'notice';
     box.dataset.tone = tone;
-    box.className = `flex items-start gap-2 rounded-md px-3 py-2 text-xs leading-snug ${tone === 'warning' ? 'bg-warning/15' : 'bg-error/10 border border-error/30'}`;
+    box.className = `flex items-start gap-2 rounded-md px-3 py-2 text-hub-sm leading-snug ${tone === 'warning' ? 'bg-warning/15' : 'bg-error/10 border border-error/30'}`;
     box.appendChild(HubIcons.span(HubIcons.WARNING, `[&>svg]:size-4 mt-px ${tone === 'warning' ? 'text-warning' : 'text-error'}`));
     const words = document.createElement('span');
     words.className = 'flex flex-col gap-0.5';
@@ -346,7 +350,7 @@ export class HubPackageView {
     if (shots.length === 0) {
       const none = document.createElement('div');
       none.dataset.ref = 'no-media';
-      none.className = 'rounded-md bg-base-200 border border-base-content/[0.06] h-16 grid place-items-center text-[11px] text-base-content/45';
+      none.className = 'rounded-md bg-base-200 border border-base-content/[0.06] h-16 grid place-items-center text-hub-xs text-base-content/45';
       none.textContent = 'No screenshots yet';
       return none;
     }
@@ -364,7 +368,7 @@ export class HubPackageView {
     const label = current.caption || (current.modelModule ? current.modelModule.split('/').pop()! : '');
     if (label) {
       const caption = document.createElement('figcaption');
-      caption.className = 'absolute left-1.5 bottom-1.5 px-1.5 py-0.5 rounded bg-base-100/85 text-[10px] font-mono text-base-content/70 max-w-[90%] truncate';
+      caption.className = 'absolute left-1.5 bottom-1.5 px-1.5 py-0.5 rounded bg-base-100/85 text-hub-2xs font-mono text-base-content/70 max-w-[90%] truncate';
       caption.textContent = label;
       figure.appendChild(caption);
     }
@@ -400,7 +404,7 @@ export class HubPackageView {
     const latest = pkg.latest!;
     const list = document.createElement('dl');
     list.dataset.ref = 'facts';
-    list.className = 'grid grid-cols-[auto_1fr_auto_1fr] gap-x-3 gap-y-1 text-[11px] items-baseline';
+    list.className = 'grid grid-cols-[auto_1fr_auto_1fr] gap-x-3 gap-y-1 text-hub-xs items-baseline';
     const license = pkg.listing.license ?? latest.license;
     const items: [string, string, boolean][] = [
       ['Engine', `≥ ${latest.minEngine}`, true],
@@ -442,12 +446,12 @@ export class HubPackageView {
       button.dataset.tab = key;
       button.setAttribute('role', 'tab');
       button.setAttribute('aria-selected', String(key === this.tab));
-      button.className = `btn btn-sm join-item flex-1 gap-1 px-1 ${key === this.tab ? 'btn-soft btn-primary' : 'font-normal'}`;
+      button.className = `btn btn-sm text-hub-sm join-item flex-1 gap-1 px-1 ${key === this.tab ? 'btn-soft btn-primary' : 'font-normal'}`;
       button.append(labels[key]);
       const count = counts[key];
       if (count !== null) {
         const n = document.createElement('span');
-        n.className = 'tabular-nums opacity-60 text-[11px]';
+        n.className = 'tabular-nums opacity-60 text-hub-xs';
         n.textContent = String(count);
         button.appendChild(n);
       }
@@ -512,21 +516,21 @@ export class HubPackageView {
     const head = document.createElement('span');
     head.className = 'flex items-baseline gap-1.5 min-w-0';
     const label = document.createElement('span');
-    label.className = 'text-[13px] font-medium text-base-content/90';
+    label.className = 'text-hub-md font-medium text-base-content/90';
     label.textContent = feature.label;
     const id = document.createElement('span');
-    id.className = 'font-mono text-[11px] text-base-content/45 truncate';
+    id.className = 'font-mono text-hub-xs text-base-content/45 truncate';
     id.textContent = feature.id;
     head.append(label, id);
     text.appendChild(head);
     if (feature.description) {
       const description = document.createElement('span');
-      description.className = 'text-xs text-base-content/65 leading-snug';
+      description.className = 'text-hub-sm text-base-content/65 leading-snug';
       description.textContent = feature.description;
       text.appendChild(description);
     }
     const meta = document.createElement('span');
-    meta.className = 'text-[11px] text-base-content/45';
+    meta.className = 'text-hub-xs text-base-content/45';
     meta.textContent = [feature.group === 'modify' ? 'Changes geometry' : 'Creates geometry', HubText.plural(feature.paramCount, 'parameter')].join(' · ');
     text.appendChild(meta);
     const chevron = HubIcons.span(HubIcons.CHEVRON_DOWN, `[&>svg]:size-4 mt-1 text-base-content/40 transition-transform${open ? ' rotate-180' : ''}`);
@@ -567,7 +571,7 @@ export class HubPackageView {
         return;
       }
       const caption = document.createElement('p');
-      caption.className = 'text-[11px] text-base-content/50 mt-2 leading-snug';
+      caption.className = 'text-hub-xs text-base-content/50 mt-2 leading-snug';
       caption.textContent = 'Read from the package manifest. Installed, this feature opens a dialog with these parameters under Custom in the toolbar.';
       wrap.replaceChildren(FeatureParamTable.create(entry.meta, answer.version.unit), caption);
     });
@@ -601,7 +605,7 @@ export class HubPackageView {
         continue;
       }
       const heading = document.createElement('div');
-      heading.className = 'px-3 pt-3 pb-1.5 text-[10px] uppercase tracking-wide text-base-content/45 border-b border-base-content/[0.07]';
+      heading.className = 'px-3 pt-3 pb-1.5 text-hub-2xs uppercase tracking-wide text-base-content/45 border-b border-base-content/[0.07]';
       heading.textContent = title;
       into.appendChild(heading);
       for (const model of list) {
@@ -625,14 +629,14 @@ export class HubPackageView {
     const text = document.createElement('span');
     text.className = 'flex-1 min-w-0 flex flex-col';
     const name = document.createElement('span');
-    name.className = 'text-[13px] text-base-content/90 truncate';
+    name.className = 'text-hub-md text-base-content/90 truncate';
     name.textContent = model.name;
     const where = document.createElement('span');
-    where.className = 'font-mono text-[11px] text-base-content/45 truncate';
+    where.className = 'font-mono text-hub-xs text-base-content/45 truncate';
     where.title = model.module;
     where.textContent = `${model.exportName} · ${model.module}`;
     const params = document.createElement('span');
-    params.className = 'text-[11px] text-base-content/50';
+    params.className = 'text-hub-xs text-base-content/50';
     params.textContent = model.exportKind === 'factory'
       ? 'built by a function'
       : model.paramCount === 0 ? 'no parameters' : HubText.plural(model.paramCount, 'parameter');
@@ -642,7 +646,7 @@ export class HubPackageView {
       const preview = document.createElement('button');
       preview.type = 'button';
       preview.dataset.ref = 'preview';
-      preview.className = 'btn btn-ghost btn-xs gap-1 font-normal shrink-0';
+      preview.className = 'btn btn-ghost btn-xs text-hub-xs gap-1 font-normal shrink-0';
       const url = this.pageUrl(model.module);
       preview.title = url ? `Opens ${url} in your browser` : 'Preview';
       preview.append('Preview', HubIcons.span(HubIcons.EXTERNAL, '[&>svg]:size-3.5'));
@@ -656,7 +660,7 @@ export class HubPackageView {
     } else {
       const none = document.createElement('span');
       none.dataset.ref = 'no-preview';
-      none.className = 'text-[11px] text-base-content/45 shrink-0';
+      none.className = 'text-hub-xs text-base-content/45 shrink-0';
       none.textContent = 'no preview';
       row.appendChild(none);
     }
@@ -683,12 +687,12 @@ export class HubPackageView {
     const head = document.createElement('div');
     head.className = 'flex items-center gap-1.5 flex-wrap';
     const number = document.createElement('span');
-    number.className = 'font-mono text-[13px] font-medium text-base-content/90';
+    number.className = 'font-mono text-hub-md font-medium text-base-content/90';
     number.textContent = v.version;
     head.appendChild(number);
     const badge = (label: string, look: string) => {
       const el = document.createElement('span');
-      el.className = `badge badge-xs ${look}`;
+      el.className = `badge badge-xs text-hub-2xs ${look}`;
       el.textContent = label;
       head.appendChild(el);
     };
@@ -713,7 +717,7 @@ export class HubPackageView {
     }
     text.appendChild(head);
     const meta = document.createElement('div');
-    meta.className = 'text-[11px] text-base-content/50';
+    meta.className = 'text-hub-xs text-base-content/50';
     const when = v.status === 'published'
       ? `Published ${HubText.ago(v.publishedAt, this.now())}`
       : 'Only you see this version until an admin approves it';
@@ -723,14 +727,14 @@ export class HubPackageView {
     if (v.yanked) {
       const yanked = document.createElement('p');
       yanked.dataset.ref = 'yank-reason';
-      yanked.className = 'text-[11px] text-base-content/75 leading-snug';
+      yanked.className = 'text-hub-xs text-base-content/75 leading-snug';
       yanked.textContent = v.yanked.reason ? `Yanked: ${v.yanked.reason}` : 'Yanked by its publisher';
       yanked.title = 'Installs by name skip a yanked version; a project that pins it keeps installing it by its exact version.';
       text.appendChild(yanked);
     }
     if (v.notes) {
       const notes = document.createElement('p');
-      notes.className = 'text-xs text-base-content/75 leading-snug';
+      notes.className = 'text-hub-sm text-base-content/75 leading-snug';
       notes.textContent = v.notes;
       text.appendChild(notes);
     }
@@ -738,7 +742,7 @@ export class HubPackageView {
     if (status) {
       const said = document.createElement('p');
       said.dataset.ref = 'version-status';
-      said.className = 'text-[11px] text-base-content/60 leading-snug';
+      said.className = 'text-hub-xs text-base-content/60 leading-snug';
       said.textContent = status;
       text.appendChild(said);
     }
@@ -750,7 +754,7 @@ export class HubPackageView {
       const install = document.createElement('button');
       install.type = 'button';
       install.dataset.ref = 'install-version';
-      install.className = 'btn btn-ghost btn-xs font-normal shrink-0';
+      install.className = 'btn btn-ghost btn-xs text-hub-xs font-normal shrink-0';
       install.textContent = 'Install';
       install.title = 'Installs this version into your library';
       install.addEventListener('click', () => void this.installVersion(pkg, v.version, install));
@@ -799,10 +803,10 @@ export class HubPackageView {
       notes.dataset.ref = 'notes';
       notes.className = 'rounded-md bg-base-200 px-3 py-2';
       const title = document.createElement('div');
-      title.className = 'text-[11px] text-base-content/50';
+      title.className = 'text-hub-xs text-base-content/50';
       title.textContent = `Notes for ${latest.version}`;
       const text = document.createElement('p');
-      text.className = 'text-xs text-base-content/85';
+      text.className = 'text-hub-sm text-base-content/85';
       text.textContent = latest.notes;
       notes.append(title, text);
       wrap.appendChild(notes);
@@ -848,19 +852,19 @@ export class HubPackageView {
       box.appendChild(HubIcons.span(HubIcons.OFFLINE, '[&>svg]:size-8 text-base-content/35'));
     }
     const title = document.createElement('p');
-    title.className = 'text-sm font-medium text-base-content/85';
+    title.className = 'text-hub-lg font-medium text-base-content/85';
     title.textContent = error.code === 'hub-unreachable'
       ? `Couldn’t reach ${this.host() ?? 'the hub'}`
       : error.code === 'not-found' ? `${this.name} isn’t on the hub` : 'The hub refused this package';
     const text = document.createElement('p');
-    text.className = 'text-xs text-base-content/60 leading-snug';
+    text.className = 'text-hub-sm text-base-content/60 leading-snug';
     text.textContent = error.code === 'hub-unreachable'
       ? 'Check the connection and try again. The packages in your library and in this project keep working.'
       : error.code === 'not-found' ? 'It may have been removed, or it isn’t published yet.' : error.error;
     const retry = document.createElement('button');
     retry.type = 'button';
     retry.dataset.ref = 'retry';
-    retry.className = 'btn btn-sm mt-2 gap-1.5';
+    retry.className = 'btn btn-sm text-hub-sm mt-2 gap-1.5';
     retry.append(HubIcons.span(HubIcons.REFRESH, '[&>svg]:size-3.5'), 'Try again');
     retry.addEventListener('click', () => {
       if (this.name) {
@@ -886,7 +890,7 @@ export class HubPackageView {
 
   private static note(text: string, flush = false): HTMLParagraphElement {
     const p = document.createElement('p');
-    p.className = `${flush ? '' : 'px-3 py-3 '}text-[11px] text-base-content/55 leading-snug`;
+    p.className = `${flush ? '' : 'px-3 py-3 '}text-hub-xs text-base-content/55 leading-snug`;
     p.textContent = text;
     return p;
   }

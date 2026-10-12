@@ -138,6 +138,29 @@
   --color-property: #2dd4bf;
 }
 
+/* The Hub panel's type scale (the user, 2026-10-12: "increase the font
+   size a little bit in the hub panel"): every text in the panel takes one
+   of these (`text-hub-*`), so its sizes move together and keep their order.
+   2xs: badges and image captions; xs: meta lines, counts, chips, small
+   buttons; sm: body text (descriptions, fields, menus, notices); md: names
+   (a result's, a feature's, a part's), level with the History and Shapes
+   rows (text-sm), which the body stays a step under; lg: headings; xl: a
+   package's title. One step above the sizes the panel had before. */
+@theme {
+  --text-hub-2xs: 11px;
+  --text-hub-2xs--line-height: 1.4;
+  --text-hub-xs: 12px;
+  --text-hub-xs--line-height: 1.4;
+  --text-hub-sm: 13px;
+  --text-hub-sm--line-height: 1.4;
+  --text-hub-md: 14px;
+  --text-hub-md--line-height: 1.4;
+  --text-hub-lg: 15px;
+  --text-hub-lg--line-height: 1.4;
+  --text-hub-xl: 16px;
+  --text-hub-xl--line-height: 1.4;
+}
+
 /* App-shell UI: overlay offsets (top-[106px] constraint bar, top-[116px]
    timeline, top-[196px] dialogs, the 104px scene inset below) are absolute
    pixels, while the bars they stack under are rem-sized (h-12 + h-14). Pin

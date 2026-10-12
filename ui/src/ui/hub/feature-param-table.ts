@@ -115,13 +115,13 @@ export class FeatureParamTable {
     const rows = FeatureParamTable.rows(meta, unit);
     if (rows.length === 0) {
       const none = document.createElement('p');
-      none.className = 'px-2 py-2 text-[11px] text-base-content/55';
+      none.className = 'px-2 py-2 text-hub-xs text-base-content/55';
       none.textContent = 'This feature takes no values: it builds from where it is placed.';
       wrap.appendChild(none);
       return wrap;
     }
     const table = document.createElement('table');
-    table.className = 'w-full text-[11px]';
+    table.className = 'w-full text-hub-xs';
     const head = document.createElement('thead');
     head.className = 'bg-base-200 text-base-content/55';
     const headRow = document.createElement('tr');

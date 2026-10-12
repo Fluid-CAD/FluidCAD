@@ -73,7 +73,7 @@ export class HubAccount {
     this.timers = deps.timers ?? { set: (callback, ms) => setTimeout(callback, ms), clear: (handle) => clearTimeout(handle as number) };
     this.el = document.createElement('span');
     this.el.dataset.ref = 'account';
-    this.el.className = 'relative inline-flex items-center gap-1 text-[11px] text-base-content/45 shrink-0 min-w-0';
+    this.el.className = 'relative inline-flex items-center gap-1 text-hub-xs text-base-content/45 shrink-0 min-w-0';
     this.menu = new HubAccountMenu(this.el, () => [{
       ref: 'sign-out',
       icon: HubIcons.SIGN_OUT,
@@ -84,7 +84,7 @@ export class HubAccount {
     this.strip = document.createElement('div');
     this.strip.dataset.ref = 'sign-in';
     this.strip.setAttribute('role', 'status');
-    this.strip.className = 'hidden shrink-0 flex flex-col gap-1.5 px-3 py-2 border-b border-base-content/10 bg-base-200/60 text-xs';
+    this.strip.className = 'hidden shrink-0 flex flex-col gap-1.5 px-3 py-2 border-b border-base-content/10 bg-base-200/60 text-hub-sm';
     this.render();
   }
 
@@ -325,7 +325,7 @@ export class HubAccount {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.ref = 'sign-in-button';
-    button.className = 'btn btn-ghost btn-xs gap-1 font-normal text-base-content/75';
+    button.className = 'btn btn-ghost btn-xs text-hub-xs gap-1 font-normal text-base-content/75';
     button.title = `Sign in to ${host} in your browser. Searching and installing work without it.`;
     button.append(HubIcons.span(HubIcons.SIGN_IN, '[&>svg]:size-3.5'), 'Sign in');
     button.addEventListener('click', () => void this.signIn());
@@ -337,7 +337,7 @@ export class HubAccount {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.ref = 'account-button';
-    button.className = 'btn btn-ghost btn-xs gap-1 font-normal text-base-content/75 min-w-0 max-w-44';
+    button.className = 'btn btn-ghost btn-xs text-hub-xs gap-1 font-normal text-base-content/75 min-w-0 max-w-44';
     button.title = `Signed in to ${host}${handle ? ` as @${handle}` : ''}`;
     const label = document.createElement('span');
     label.dataset.ref = 'account-handle';
@@ -377,7 +377,7 @@ export class HubAccount {
       const cancel = document.createElement('button');
       cancel.type = 'button';
       cancel.dataset.ref = 'sign-in-cancel';
-      cancel.className = 'btn btn-ghost btn-xs font-normal ml-auto';
+      cancel.className = 'btn btn-ghost btn-xs text-hub-xs font-normal ml-auto';
       cancel.textContent = 'Cancel';
       cancel.addEventListener('click', () => void this.cancel());
       actions.append(again, cancel);
@@ -411,7 +411,7 @@ export class HubAccount {
         const retry = document.createElement('button');
         retry.type = 'button';
         retry.dataset.ref = 'sign-in-retry';
-        retry.className = 'btn btn-ghost btn-xs font-normal self-start text-base-content/75';
+        retry.className = 'btn btn-ghost btn-xs text-hub-xs font-normal self-start text-base-content/75';
         retry.textContent = 'Try again';
         retry.addEventListener('click', () => void this.signIn());
         this.strip.appendChild(retry);

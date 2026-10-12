@@ -85,14 +85,14 @@ export class HubPanel {
     this.el.setAttribute('aria-label', 'FluidCAD Hub');
     this.el.className =
       'absolute left-[var(--fluidcad-rail-width,0px)] top-[var(--fluidcad-chrome-top,104px)] bottom-0 z-[115] '
-      + 'flex flex-col bg-base-100 text-base-content border-r border-base-content/10 text-sm hidden';
+      + 'flex flex-col bg-base-100 text-base-content border-r border-base-content/10 text-hub-md hidden';
     this.el.style.width = `${this.width}px`;
 
     const header = document.createElement('div');
     header.className = 'flex items-center gap-2 h-11 shrink-0 pl-3 pr-1.5 border-b border-base-content/10';
     header.appendChild(HubIcons.span(HubIcons.PACKAGES, '[&>svg]:size-4 text-base-content/60'));
     const title = document.createElement('span');
-    title.className = 'text-sm font-medium text-base-content/90 shrink-0';
+    title.className = 'text-hub-lg font-medium text-base-content/90 shrink-0';
     title.textContent = 'FluidCAD Hub';
     this.offlineDot = document.createElement('span');
     this.offlineDot.dataset.ref = 'offline-dot';

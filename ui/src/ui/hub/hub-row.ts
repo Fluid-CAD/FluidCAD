@@ -47,7 +47,7 @@ export class HubBadges {
 
   private static badge(text: string, look: string, mark: string): HTMLSpanElement {
     const badge = document.createElement('span');
-    badge.className = `badge badge-xs ${look} whitespace-nowrap`;
+    badge.className = `badge badge-xs text-hub-2xs ${look} whitespace-nowrap`;
     badge.dataset.mark = mark;
     badge.textContent = text;
     return badge;
@@ -105,10 +105,10 @@ export class HubResultRow {
 
     const head = document.createElement('span');
     head.className = 'flex items-baseline gap-1.5 min-w-0';
-    head.appendChild(HubResultRow.name(row.fullName, 'text-[13px]', onPublisher));
+    head.appendChild(HubResultRow.name(row.fullName, 'text-hub-md', onPublisher));
     const version = document.createElement('span');
     version.dataset.ref = 'version';
-    version.className = 'font-mono text-[11px] text-base-content/45 tabular-nums shrink-0';
+    version.className = 'font-mono text-hub-xs text-base-content/45 tabular-nums shrink-0';
     version.textContent = row.version;
     head.appendChild(version);
     body.appendChild(head);
@@ -125,7 +125,7 @@ export class HubResultRow {
     if (row.description) {
       const description = document.createElement('span');
       description.dataset.ref = 'description';
-      description.className = 'text-xs text-base-content/70 leading-snug line-clamp-2';
+      description.className = 'text-hub-sm text-base-content/70 leading-snug line-clamp-2';
       description.textContent = row.description;
       body.appendChild(description);
     }
@@ -140,21 +140,22 @@ export class HubResultRow {
       if (row.moreFeatures > 0) {
         const more = document.createElement('span');
         more.dataset.ref = 'more';
-        more.className = 'text-[11px] text-base-content/50 tabular-nums';
+        more.className = 'text-hub-xs text-base-content/50 tabular-nums';
         more.textContent = `+${row.moreFeatures}`;
         line.appendChild(more);
       }
       if (contents) {
         const counts = document.createElement('span');
-        counts.className = `text-[11px] text-base-content/50${row.features.length > 0 ? ' ml-1' : ''}`;
+        counts.className = `text-hub-xs text-base-content/50 whitespace-nowrap${row.features.length > 0 ? ' ml-1' : ''}`;
         counts.textContent = contents;
         line.appendChild(counts);
       }
       body.appendChild(line);
     }
 
+    // Each fact stays whole: in a narrow panel the last ones move to a line of their own rather than breaking.
     const facts = document.createElement('span');
-    facts.className = 'flex items-center gap-2.5 text-[11px] text-base-content/50';
+    facts.className = 'flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-hub-xs text-base-content/50 [&>*]:whitespace-nowrap';
     facts.append(
       HubResultRow.stat(HubIcons.HEART, row.likes, 'Likes'),
       HubResultRow.stat(HubIcons.DOWNLOAD, row.installs, 'Installs'),
@@ -177,7 +178,7 @@ export class HubResultRow {
    * `@acme/feature-tests`, the scope dimmed; with `onPublisher`, the scope
    * is a {@link HubHandle} that lists the publisher's packages.
    */
-  static name(fullName: string, size: 'text-[13px]' | 'text-[15px]', onPublisher?: (handle: string) => void): HTMLSpanElement {
+  static name(fullName: string, size: 'text-hub-md' | 'text-hub-xl', onPublisher?: (handle: string) => void): HTMLSpanElement {
     const slash = fullName.indexOf('/');
     const name = document.createElement('span');
     name.dataset.ref = 'name';
@@ -199,7 +200,7 @@ export class HubResultRow {
   private static chip(label: string, iconUrl: string | null): HTMLSpanElement {
     const chip = document.createElement('span');
     chip.dataset.ref = 'chip';
-    chip.className = 'inline-flex items-center gap-1 h-5 pl-1 pr-1.5 rounded bg-base-200 text-[11px] text-base-content/75 max-w-[9rem]';
+    chip.className = 'inline-flex items-center gap-1 h-5 pl-1 pr-1.5 rounded bg-base-200 text-hub-xs text-base-content/75 max-w-[9rem]';
     if (iconUrl) {
       chip.appendChild(HubImage.create(iconUrl, 'size-3.5 object-contain shrink-0'));
     }

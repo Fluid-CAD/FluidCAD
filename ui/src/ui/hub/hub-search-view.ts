@@ -69,7 +69,7 @@ export class HubSearchView {
     this.head.className = 'flex flex-col gap-2 px-3 pt-3 pb-2.5 border-b border-base-content/10 shrink-0 relative';
 
     const field = document.createElement('label');
-    field.className = 'input input-sm w-full gap-2 text-xs';
+    field.className = 'input input-sm w-full gap-2 text-hub-sm';
     field.appendChild(HubIcons.span(HubIcons.SEARCH, '[&>svg]:size-4 text-base-content/45'));
     this.input = document.createElement('input');
     this.input.type = 'search';
@@ -149,7 +149,7 @@ export class HubSearchView {
       const button = document.createElement('button');
       button.type = 'button';
       button.dataset.filter = filter;
-      button.className = `btn btn-xs gap-1 font-normal ${selected > 0 ? 'btn-soft btn-primary' : 'btn-ghost border border-base-content/15'}${this.openMenu === filter ? ' ring-1 ring-primary/40' : ''}`;
+      button.className = `btn btn-xs text-hub-xs gap-1 font-normal ${selected > 0 ? 'btn-soft btn-primary' : 'btn-ghost border border-base-content/15'}${this.openMenu === filter ? ' ring-1 ring-primary/40' : ''}`;
       button.setAttribute('aria-haspopup', 'true');
       button.setAttribute('aria-expanded', String(this.openMenu === filter));
       button.append(label);
@@ -170,7 +170,7 @@ export class HubSearchView {
     const { answer, mode } = this.snapshot;
     const total = document.createElement('span');
     total.dataset.ref = 'total';
-    total.className = 'text-[11px] text-base-content/50 truncate';
+    total.className = 'text-hub-xs text-base-content/50 truncate';
     if (answer && mode === 'results') {
       const count = document.createElement('span');
       count.className = 'tabular-nums text-base-content/75';
@@ -196,7 +196,7 @@ export class HubSearchView {
     const name = document.createElement('button');
     name.type = 'button';
     name.dataset.ref = 'sort-name';
-    name.className = `btn btn-ghost btn-xs gap-1 font-normal text-xs text-base-content/80 px-1.5${this.openMenu === 'sort' ? ' ring-1 ring-primary/40' : ''}`;
+    name.className = `btn btn-ghost btn-xs gap-1 font-normal text-hub-sm text-base-content/80 px-1.5${this.openMenu === 'sort' ? ' ring-1 ring-primary/40' : ''}`;
     name.setAttribute('aria-haspopup', 'true');
     name.setAttribute('aria-expanded', String(this.openMenu === 'sort'));
     name.title = 'Sort by';
@@ -213,7 +213,7 @@ export class HubSearchView {
     const add = (filter: HubFilter, value: string, label: string) => {
       const chip = document.createElement('span');
       chip.dataset.chip = `${filter}:${value}`;
-      chip.className = 'badge badge-sm badge-soft badge-primary gap-0.5 pr-1';
+      chip.className = 'badge badge-sm text-hub-sm badge-soft badge-primary gap-0.5 pr-1';
       chip.append(label);
       const remove = document.createElement('button');
       remove.type = 'button';
@@ -237,7 +237,7 @@ export class HubSearchView {
       const clear = document.createElement('button');
       clear.type = 'button';
       clear.dataset.ref = 'clear-filters';
-      clear.className = 'text-[11px] text-base-content/55 hover:text-base-content hover:underline ml-1';
+      clear.className = 'text-hub-xs text-base-content/55 hover:text-base-content hover:underline ml-1';
       clear.textContent = 'Clear filters';
       clear.addEventListener('click', () => this.deps.state.clearFilters());
       chips.push(clear);
@@ -291,7 +291,7 @@ export class HubSearchView {
     const range = first === last ? `${HubText.count(first)} of ${total}` : `${HubText.count(first)}–${HubText.count(last)} of ${total}`;
     const more = last < answer.total;
     if (answer.page === 1 && !more) {
-      footer.className = 'px-3 py-3 text-[11px] text-base-content/50 text-center tabular-nums';
+      footer.className = 'px-3 py-3 text-hub-xs text-base-content/50 text-center tabular-nums';
       footer.textContent = range;
       return footer;
     }
@@ -300,7 +300,7 @@ export class HubSearchView {
     bar.className = 'flex items-center gap-2 px-3 py-3';
     const text = document.createElement('span');
     text.dataset.ref = 'range';
-    text.className = 'text-[11px] text-base-content/55 tabular-nums';
+    text.className = 'text-hub-xs text-base-content/55 tabular-nums';
     text.textContent = range;
     const pager = document.createElement('div');
     pager.className = 'join ml-auto';
@@ -312,7 +312,7 @@ export class HubSearchView {
     if (answer.capped && !more) {
       const note = document.createElement('p');
       note.dataset.ref = 'capped-note';
-      note.className = 'px-3 pb-3 -mt-1 text-[11px] text-base-content/55 leading-snug';
+      note.className = 'px-3 pb-3 -mt-1 text-hub-xs text-base-content/55 leading-snug';
       note.textContent = `The hub lists the first ${HubText.count(answer.total)} matches. Add a word or a filter to see others.`;
       footer.appendChild(note);
     }
@@ -323,7 +323,7 @@ export class HubSearchView {
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.ref = label === 'Next' ? 'next' : 'previous';
-    button.className = 'btn btn-xs join-item gap-0.5 font-normal';
+    button.className = 'btn btn-xs text-hub-xs join-item gap-0.5 font-normal';
     button.disabled = !enabled;
     const glyph = HubIcons.span(icon, '[&>svg]:size-3');
     if (side === 'before') {
@@ -361,13 +361,13 @@ export class HubSearchView {
     const box = HubSearchView.centered('offline');
     box.appendChild(HubIcons.span(HubIcons.OFFLINE, '[&>svg]:size-8 text-base-content/35'));
     const host = this.deps.hubHost();
-    box.appendChild(HubSearchView.line('text-sm font-medium text-base-content/85', host ? `Couldn’t reach ${host}` : 'Couldn’t reach the hub'));
-    box.appendChild(HubSearchView.line('text-xs text-base-content/60 leading-snug',
+    box.appendChild(HubSearchView.line('text-hub-lg font-medium text-base-content/85', host ? `Couldn’t reach ${host}` : 'Couldn’t reach the hub'));
+    box.appendChild(HubSearchView.line('text-hub-sm text-base-content/60 leading-snug',
       'Nothing was searched. Check the connection and try again. The packages in your library and in this project keep working.'));
     const retry = document.createElement('button');
     retry.type = 'button';
     retry.dataset.ref = 'retry';
-    retry.className = 'btn btn-sm mt-2 gap-1.5';
+    retry.className = 'btn btn-sm text-hub-sm mt-2 gap-1.5';
     retry.append(HubIcons.span(HubIcons.REFRESH, '[&>svg]:size-3.5'), 'Try again');
     retry.addEventListener('click', () => this.deps.state.search());
     box.appendChild(retry);
@@ -376,11 +376,11 @@ export class HubSearchView {
 
   private failure(): HTMLDivElement {
     const box = HubSearchView.centered('error');
-    box.appendChild(HubSearchView.line('text-sm font-medium text-base-content/85', 'The hub refused this search'));
-    box.appendChild(HubSearchView.line('text-xs text-base-content/60 leading-snug', this.snapshot.error ?? ''));
+    box.appendChild(HubSearchView.line('text-hub-lg font-medium text-base-content/85', 'The hub refused this search'));
+    box.appendChild(HubSearchView.line('text-hub-sm text-base-content/60 leading-snug', this.snapshot.error ?? ''));
     const retry = document.createElement('button');
     retry.type = 'button';
-    retry.className = 'btn btn-sm mt-2';
+    retry.className = 'btn btn-sm text-hub-sm mt-2';
     retry.textContent = 'Clear filters';
     retry.addEventListener('click', () => this.deps.state.clearFilters());
     box.appendChild(retry);
@@ -392,9 +392,9 @@ export class HubSearchView {
     const filters = params.contents.length + params.units.length + params.license.length;
     const box = HubSearchView.centered('empty');
     if (filters > 0) {
-      box.appendChild(HubSearchView.line('text-sm font-medium text-base-content/85',
+      box.appendChild(HubSearchView.line('text-hub-lg font-medium text-base-content/85',
         params.q.trim() ? `No packages match “${params.q.trim()}” with these filters` : 'Nothing matches all of these filters'));
-      box.appendChild(HubSearchView.line('text-xs text-base-content/60 leading-snug max-w-72', 'Each filter keeps only the packages that pass it. Remove one to see more.'));
+      box.appendChild(HubSearchView.line('text-hub-sm text-base-content/60 leading-snug max-w-72', 'Each filter keeps only the packages that pass it. Remove one to see more.'));
       const actions = document.createElement('div');
       actions.className = 'flex gap-1.5 mt-1';
       const lastFilter = HubSearchView.lastFilter(params);
@@ -402,25 +402,25 @@ export class HubSearchView {
         const remove = document.createElement('button');
         remove.type = 'button';
         remove.dataset.ref = 'remove-last';
-        remove.className = 'btn btn-xs font-normal';
+        remove.className = 'btn btn-xs text-hub-xs font-normal';
         remove.textContent = `Remove ${lastFilter.label}`;
         remove.addEventListener('click', () => this.deps.state.toggle(lastFilter.filter, lastFilter.value));
         actions.appendChild(remove);
       }
       const clear = document.createElement('button');
       clear.type = 'button';
-      clear.className = 'btn btn-xs btn-ghost font-normal';
+      clear.className = 'btn btn-xs text-hub-xs btn-ghost font-normal';
       clear.textContent = 'Clear filters';
       clear.addEventListener('click', () => this.deps.state.clearFilters());
       actions.appendChild(clear);
       box.appendChild(actions);
       return box;
     }
-    box.appendChild(HubSearchView.line('text-sm font-medium text-base-content/85',
+    box.appendChild(HubSearchView.line('text-hub-lg font-medium text-base-content/85',
       params.q.trim() ? `No packages match “${params.q.trim()}”` : 'The hub has no packages yet'));
     if (params.q.trim()) {
       const help = document.createElement('p');
-      help.className = 'text-xs text-base-content/60 leading-snug max-w-72';
+      help.className = 'text-hub-sm text-base-content/60 leading-snug max-w-72';
       help.append('Search reads package names, feature and part names, keywords, descriptions and @handles. Try the shape you need rather than its name: ');
       HubSearchView.SUGGESTIONS.forEach((word, index) => {
         const link = document.createElement('button');
@@ -509,7 +509,7 @@ export class HubSearchView {
       ? this.sortRow.querySelector<HTMLElement>('[data-ref="sort-name"]')
       : this.filtersRow.querySelector<HTMLElement>(`[data-filter="${menu}"]`);
     const title = document.createElement('div');
-    title.className = 'px-2 pt-0.5 pb-1 text-[11px] text-base-content/55';
+    title.className = 'px-2 pt-0.5 pb-1 text-hub-xs text-base-content/55';
     popover.appendChild(title);
     if (menu === 'sort') {
       title.textContent = 'Sort by';
@@ -521,7 +521,7 @@ export class HubSearchView {
       title.textContent = label;
       const values = this.menuValues(menu);
       if (values.length === 0) {
-        popover.appendChild(HubSearchView.line('px-2 py-1 text-xs text-base-content/50', this.snapshot.answer ? 'None in these results.' : 'Waiting for the hub…'));
+        popover.appendChild(HubSearchView.line('px-2 py-1 text-hub-sm text-base-content/50', this.snapshot.answer ? 'None in these results.' : 'Waiting for the hub…'));
       }
       for (const value of values) {
         popover.appendChild(this.check(menu, value));
@@ -551,7 +551,7 @@ export class HubSearchView {
     const option = document.createElement('button');
     option.type = 'button';
     option.dataset.sort = sort;
-    option.className = `flex items-center gap-2 px-2 py-1 rounded text-xs text-left hover:bg-base-content/[0.06]${current ? ' text-primary font-medium' : ''}`;
+    option.className = `flex items-center gap-2 px-2 py-1 rounded text-hub-sm text-left hover:bg-base-content/[0.06]${current ? ' text-primary font-medium' : ''}`;
     const tick = HubIcons.span(HubIcons.CHECK, `[&>svg]:size-3.5${current ? '' : ' invisible'}`);
     option.append(tick, HubText.SORT_LABELS[sort]);
     option.addEventListener('click', () => {
@@ -584,7 +584,7 @@ export class HubSearchView {
     const checked = (this.snapshot.params[filter] as readonly string[]).includes(entry.value);
     const row = document.createElement('label');
     row.dataset.value = entry.value;
-    row.className = `flex items-center gap-2 px-2 py-1 rounded hover:bg-base-content/[0.06] text-xs cursor-pointer${entry.count === 0 && !checked ? ' opacity-50' : ''}`;
+    row.className = `flex items-center gap-2 px-2 py-1 rounded hover:bg-base-content/[0.06] text-hub-sm cursor-pointer${entry.count === 0 && !checked ? ' opacity-50' : ''}`;
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.className = 'checkbox checkbox-xs checkbox-primary rounded-[3px]';
@@ -595,7 +595,7 @@ export class HubSearchView {
     label.textContent = entry.label;
     const count = document.createElement('span');
     count.dataset.ref = 'count';
-    count.className = 'ml-auto tabular-nums text-base-content/45 text-[11px]';
+    count.className = 'ml-auto tabular-nums text-base-content/45 text-hub-xs';
     count.textContent = entry.count === null ? '' : HubText.count(entry.count);
     row.append(input, label, count);
     return row;

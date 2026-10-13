@@ -2710,6 +2710,42 @@ describe("feature ghost — rib", () => {
       expect(wall.minZ).toBeGreaterThanOrEqual(4 - 0.1);
     }
   });
+
+  /**
+   * The same edit, with the rib scoped to the box: the box's body was taken
+   * by the shell and the fillet before the rib, so the scope follows it there
+   * (as the build's `resolveFusionStock` does) and stops before the edited
+   * rib — the cavity body, not the box's long-gone original and not nothing.
+   */
+  it("edit mode: a scoped body is followed to where the features before the statement left it", () => {
+    sketch("top", () => {
+        testRect(100, 50, { at: [-50, -25] });
+      });
+    const box = extrude(30) as unknown as SceneObject;
+    box.setSourceLocation({ filePath: FILE, line: 5, column: 0 });
+    const sh = shell(-4, (box as any).endFaces());
+    fillet(2, (sh as any).internalEdges());
+    locatedSketch(15, () => {
+      line([-46, 20], [-46 + 20 * Math.cos(Math.PI / 4), 20 - 20 * Math.sin(Math.PI / 4)]);
+    }, 'xz');
+    const r = rib(5).parallel() as unknown as SceneObject;
+    r.setSourceLocation({ filePath: FILE, line: 20, column: 0 });
+    const scene = render();
+
+    const result = ribGhost(scene, 15, {
+      parallel: true,
+      scope: [{ filePath: FILE, line: 5 }],
+      exclude: { filePath: FILE, line: 20 },
+    });
+    expect(refusal(result)).toBe('');
+    if (result.ok) {
+      expect(result.solids).toHaveLength(1);
+      const wall = bounds(result);
+      expect(wall.maxY - wall.minY).toBeGreaterThan(4.9);
+      expect(wall.minX).toBeGreaterThanOrEqual(-46 - 0.1);
+      expect(wall.minZ).toBeGreaterThanOrEqual(4 - 0.1);
+    }
+  });
 });
 
 const OFFSET_BASE: Omit<OffsetGhostRequest, 'entities'> = {

@@ -2441,16 +2441,10 @@ function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
 }
 
 /**
- * The solids a through hole is sized against: the `.scope(…)` statements'
- * solids, or every solid in the scene. In edit mode the edited statement's
- * own cut is unwound (its removal scope drops it) so the stock reads as the
- * feature will see it.
- */
-/**
  * A fastened hole's `.scope(…)` solids, as the very solids the every-solid
- * read lists so the axis can tell them apart: the removal-scoped read in edit
- * mode, otherwise each statement's solids followed to wherever the scene
- * holds them now (see liveSolidsOf).
+ * read lists so the axis can tell them apart: each statement's solids
+ * followed to wherever the scene holds them now (see liveSolidsOf), read as
+ * of the edited statement in edit mode ({@link ghostStockSolids}).
  */
 function ghostScopedSolids(
   scene: Scene,
@@ -2471,15 +2465,22 @@ function ghostScopedSolids(
   return liveSolidsIn(targets).map(held => held.solid);
 }
 
+/**
+ * The solids a feature's boolean runs against, as the build resolves them
+ * (`resolveFusionStock`): the `.scope(…)` statements' bodies followed to
+ * wherever the features left them ({@link copyTargetSolids}), or every solid
+ * the scene holds. In edit mode `exclude` names the applied statement, and
+ * the stock reads as of just before it: a scoped body stops where the
+ * features before the statement left it, and the scene-wide read lists only
+ * the bodies built before it, with only those features' removals applied —
+ * the edited statement's own cut or fusion is unwound, and nothing after it
+ * is seen.
+ */
 function ghostStockSolids(
   scene: Scene,
   scope: { filePath: string; line: number }[],
   exclude: { filePath: string; line: number } | undefined,
 ): Shape[] | { reason: string } {
-  const excluded = exclude ? new Set(objectsAt(scene, exclude)) : null;
-  const removalScope = excluded && excluded.size > 0
-    ? new Set(allObjects(scene).filter(obj => !excluded.has(obj)))
-    : undefined;
   if (scope.length > 0) {
     const targets: SceneObject[] = [];
     for (const ref of scope) {
@@ -2489,14 +2490,14 @@ function ghostStockSolids(
       }
       targets.push(...objects);
     }
-    return removalScope
-      ? [...new Set(targets.flatMap(t => t.getShapes(undefined, 'solid', removalScope)))]
-      : copyTargetSolids(scene, targets, undefined);
+    return copyTargetSolids(scene, targets, exclude);
   }
-  if (removalScope) {
+  const blocked = builtFrom(scene, exclude);
+  if (blocked) {
+    const asOf = new Set(allObjects(scene).filter(obj => !blocked.has(obj)));
     return scene.getSceneObjects()
-      .filter(obj => !obj.isContainer() && !excluded!.has(obj))
-      .flatMap(obj => obj.getShapes(undefined, 'solid', removalScope));
+      .filter(obj => !obj.isContainer() && !blocked.has(obj))
+      .flatMap(obj => obj.getShapes(undefined, 'solid', asOf));
   }
   return sceneSolids(scene);
 }
@@ -2511,36 +2512,12 @@ function buildRibGhost(scene: Scene, request: RibGhostRequest): GhostBuild {
     return { reason: 'The spine has no plane.' };
   }
 
-  // Edit mode: the scene holds the applied rib itself, fused into the very
-  // solids the scope names. Read the scope as of just before that statement —
-  // a removal scope of every OTHER object applies the earlier features'
-  // consumption (box → shell → fillet) but unwinds the rib's own.
-  const excluded = request.exclude
-    ? new Set(objectsAt(scene, request.exclude))
-    : null;
-  const removalScope = excluded && excluded.size > 0
-    ? new Set(allObjects(scene).filter(obj => !excluded.has(obj)))
-    : undefined;
-
-  let scopeShapes: Shape[];
-  if (request.scope.length > 0) {
-    const targets: SceneObject[] = [];
-    for (const ref of request.scope) {
-      const objects = objectsAt(scene, ref).filter(obj => !obj.isContainer());
-      if (objects.length === 0) {
-        return { reason: 'That scope solid is not in the rendered scene.' };
-      }
-      targets.push(...objects);
-    }
-    scopeShapes = removalScope
-      ? [...new Set(targets.flatMap(t => t.getShapes(undefined, 'solid', removalScope)))]
-      : copyTargetSolids(scene, targets, undefined);
-  } else if (removalScope) {
-    scopeShapes = scene.getSceneObjects()
-      .filter(obj => !obj.isContainer() && !excluded!.has(obj))
-      .flatMap(obj => obj.getShapes(undefined, 'solid', removalScope));
-  } else {
-    scopeShapes = sceneSolids(scene);
+  // The solids the rib conforms to, as the build will see them — and in edit
+  // mode, where the scene holds the applied rib fused into the very solids
+  // the scope names, as of just before it (see ghostStockSolids).
+  const scopeShapes = ghostStockSolids(scene, request.scope, request.exclude);
+  if ('reason' in scopeShapes) {
+    return scopeShapes;
   }
   if (scopeShapes.length === 0) {
     return { reason: 'The rib has no solids to conform to.' };

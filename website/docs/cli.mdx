@@ -31,7 +31,7 @@ A global install (`npm install -g fluidcad`) is not supported — the engine and
 | [`fluidcad export png`](#fluidcad-export-png) | Capture a PNG of the viewport |
 | [`fluidcad package init`](#fluidcad-package-init) | Make this project a package: write the `package` block of `fluidcad.json` |
 | [`fluidcad version`](#fluidcad-version) | Raise the package's version |
-| [`fluidcad pack`](#fluidcad-pack) | Pack the package into a `.fluidpkg` file for `fluidcad publish` |
+| [`fluidcad pack`](#fluidcad-pack) | Pack the package into a `.fluidpkg` file to look at, without publishing it |
 | [`fluidcad install`](#fluidcad-install) | Install a package from the hub, or every package this project uses that isn't installed |
 | [`fluidcad remove`](#fluidcad-remove) | Remove an installed package from your library or from this project |
 | [`fluidcad packages`](#fluidcad-packages) | List your library, and in a project its copies and the packages it uses |
@@ -384,7 +384,7 @@ If a server is already attached and no browser is on it, the command fails immed
 
 ## Packages
 
-A [package](/docs/packages) is a project's custom features and parts, packed into one `.fluidpkg` file that `fluidcad publish` uploads to the hub, from which other projects install it. These commands make one, install one from the hub, and list what is installed. A `.fluidpkg` file itself never installs. Packages are installed into your library, the home directory's `~/.fluidcad/packages` unless **Settings ▸ Packages ▸ Library folder** names another folder (the `FLUIDCAD_PACKAGES` environment variable overrides both), or into a project's own `packages/` folder.
+A [package](/docs/packages) is a project's custom features and parts, which `fluidcad publish` packs into one `.fluidpkg` file and uploads to the hub, from which other projects install it. These commands make one, install one from the hub, and list what is installed. A `.fluidpkg` file itself never installs. Packages are installed into your library, the home directory's `~/.fluidcad/packages` unless **Settings ▸ Packages ▸ Library folder** names another folder (the `FLUIDCAD_PACKAGES` environment variable overrides both), or into a project's own `packages/` folder.
 
 ### `fluidcad package init`
 
@@ -401,7 +401,7 @@ Wrote the "package" block to …/mounting-hardware/fluidcad.json:
     "name": "@acme/mounting-hardware",
     "version": "0.1.0"
   }
-Pack exports what features/, parts/ and assemblies/ hold. Today: features/ 4 modules, parts/ 2 modules, assemblies/ none.
+The package exports what features/, parts/ and assemblies/ hold. Today: features/ 4 modules, parts/ 2 modules, assemblies/ none.
 ```
 
 | Flag | Description | Default |
@@ -429,7 +429,7 @@ npx fluidcad pack
 npx fluidcad pack -o dist/
 ```
 
-Packs the project's package into `<scope>-<name>-<version>.fluidpkg`, the file `fluidcad publish` uploads, written into the project unless `-o` says otherwise. Use it to inspect what will be published; it doesn't install anywhere. It lists what the package holds, folder by folder:
+Packs the project's package into `<scope>-<name>-<version>.fluidpkg`, written into the project unless `-o` says otherwise, so you can look at what would be published (its files and its `manifest.json`) without publishing. Publishing doesn't need it: `fluidcad publish` packs the project the same way, with the same checks, and uploads that. The file doesn't install anywhere. It lists what the package holds, folder by folder:
 
 ```
 Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidpkg
@@ -455,7 +455,7 @@ features/hub-flange.part.js is a part in features/, but parts belong in parts/: 
 
 The checks: the `package` block is valid (its name has your handle as its scope) and has no `exports` list; every file sits in the folder for its kind (`wrong-folder`) and the folders hold something (`no-exports`); nothing is imported from outside the three folders (`outside-layout`); no two files export the same name and no two features share an id; every part and assembly builds without an error; nothing is imported from `node_modules`, from outside the project, from `init.js`, from a blocked Node built-in or from another package; every picture a feature declares exists. A project without a `package` block is refused with "This workspace isn't a package — run `fluidcad package init` first."
 
-To release a new version: edit, `npx fluidcad version minor`, `npx fluidcad pack`.
+To release a new version: edit, `npx fluidcad version minor`, `npx fluidcad publish`.
 
 ### `fluidcad install`
 
@@ -485,7 +485,7 @@ Run inside a project, it records the package in the project's [`dependencies`](/
 
 **With no arguments**, in a project, it downloads every package the project records but this machine doesn't have, each at its recorded version and checked against its recorded hash, after one question. A package that can't be installed is listed and the command exits with status 1.
 
-A `.fluidpkg` file, or any other path, is refused: "Packages install from the hub: `fluidcad install @<handle>/<name>`. A .fluidpkg file is what `fluidcad pack` makes for `fluidcad publish`; it isn't installed."
+A `.fluidpkg` file, or any other path, is refused: "Packages install from the hub: `fluidcad install @<handle>/<name>`. A .fluidpkg file is an archive to look inside (`fluidcad pack` writes one); it isn't installed."
 
 | Flag | Description | Default |
 |------|-------------|---------|

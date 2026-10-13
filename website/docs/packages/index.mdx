@@ -37,7 +37,7 @@ A package's code runs in the FluidCAD engine with your permissions, as the insta
 
 Installing the same version again with the same contents changes nothing. The same version with different contents is refused unless you add `--replace`: an installed version never changes by itself.
 
-A `.fluidpkg` file doesn't install: it is what `fluidcad pack` makes for `fluidcad publish`. A machine that can't reach the hub uses the packages its library already holds, or a project's own copies (**Copy into project**, below). Installing from the app comes with the hub's panel in a later version.
+A `.fluidpkg` file doesn't install: it is the archive `fluidcad pack` writes so you can look inside a package. A machine that can't reach the hub uses the packages its library already holds, or a project's own copies (**Copy into project**, below). Installing from the app comes with the hub's panel in a later version.
 
 ## Using a package's features
 
@@ -104,7 +104,7 @@ Run it, `npx fluidcad install @acme/mounting-hardware@0.1.0`, or `npx fluidcad i
 
 ## Installed packages are read-only
 
-A package never changes once installed. Its files are read-only on disk, and FluidCAD refuses every edit aimed at them: a dialog, a breakpoint, a material or a connector on a package's part. A History row that comes from a package's file carries a package mark, and double-clicking it says the row is read-only. To change a package, change it in its own project, raise its version and pack it again (below).
+A package never changes once installed. Its files are read-only on disk, and FluidCAD refuses every edit aimed at them: a dialog, a breakpoint, a material or a connector on a package's part. A History row that comes from a package's file carries a package mark, and double-clicking it says the row is read-only. To change a package, change it in its own project, raise its version and publish it again (below).
 
 The code editors know a package that a project records: hovering `standoff(` shows its values, completion offers them, and in VS Code and Neovim go to definition opens the package's read-only file. For VS Code and Neovim, FluidCAD keeps a small types folder at `node_modules/@types/acme__mounting-hardware`; it is rewritten when the project's packages change, and is safe to delete. Never install a package into `node_modules/@acme/mounting-hardware` yourself: FluidCAD refuses a package it finds there.
 
@@ -154,24 +154,32 @@ mounting-hardware/
 
    It writes the block with the name and version `0.1.0`, and says what the folders hold. The part before the slash is your hub handle. Signed in to the hub (`npx fluidcad login`), `--name mounting-hardware` adds your handle and says so; signed out, a name without the handle is refused. See [Project configuration](/docs/project-configuration#package) for every key.
 
-2. Pack it:
+2. Publish it:
 
    ```bash
-   npx fluidcad pack
+   npx fluidcad publish
    ```
 
-   ```
-   Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidpkg
-     features/   4 features: boltCircle, boss, fastener, standoff
-     parts/      2 parts: hubFlange, pcbPlate
-     assemblies/ 1 assembly: plateStack
-     29 files, 18.2 kB, unit mm
-   ```
+   It packs the project and uploads the package under your handle, and an admin reviews it before it is public. The first version finishes in your browser, where you add screenshots, a license and release notes.
 
-   The package holds the three folders' files, the files they import and the pictures the features declare, as they are. The project's test models and `init.js` stay out. Before writing the file, FluidCAD builds every part and assembly and checks every feature; a problem stops the pack with a sentence naming the file. A part file inside `features/`, an assembly inside `parts/`, or an import of a file outside the three folders stops it too.
+   The package holds the three folders' files, the files they import and the pictures the features declare, as they are. The project's test models and `init.js` stay out. Before anything is uploaded, FluidCAD builds every part and assembly and checks every feature; a problem stops it with a sentence naming the file. A part file inside `features/`, an assembly inside `parts/`, or an import of a file outside the three folders stops it too.
 
-3. To release a new version, edit the files, raise the version with `npx fluidcad version minor` (or `patch`, `major`, or an exact `1.2.0`), and pack again.
+3. To release a new version, edit the files, raise the version with `npx fluidcad version minor` (or `patch`, `major`, or an exact `1.2.0`), and publish again. Later versions go straight to review.
 
-Feature ids are plain names (`standoff`); two features of one package can't share one. The same project packed twice gives the same file. The [CLI reference](/docs/cli#fluidcad-pack) has every command and flag.
+To look at what would be published without publishing anything, pack the project. Publishing never needs this: `npx fluidcad publish` packs on its own.
 
-A package reaches other projects only through the hub: `npx fluidcad publish` uploads it under your handle, and an admin reviews it before it is public. Until then, try the package in its own project, with the test models at its root and the parts and assemblies in its folders. There is no step that installs your own file into another project.
+```bash
+npx fluidcad pack
+```
+
+```
+Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidpkg
+  features/   4 features: boltCircle, boss, fastener, standoff
+  parts/      2 parts: hubFlange, pcbPlate
+  assemblies/ 1 assembly: plateStack
+  29 files, 18.2 kB, unit mm
+```
+
+It runs the same checks, then writes into the project the file `fluidcad publish` would upload. Feature ids are plain names (`standoff`); two features of one package can't share one. The same project packed twice gives the same file. The [CLI reference](/docs/cli#fluidcad-pack) has every command and flag.
+
+A package reaches other projects only through the hub. Until an admin approves it, try the package in its own project, with the test models at its root and the parts and assemblies in its folders. There is no step that installs your own file into another project.

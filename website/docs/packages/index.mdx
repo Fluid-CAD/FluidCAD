@@ -31,9 +31,15 @@ Packages install from the hub, from the terminal:
 npx fluidcad install @acme/mounting-hardware
 ```
 
-FluidCAD downloads the package, checks that its files are the ones the hub lists, and shows what it holds before anything is installed: its name and version, its description, the features with their ids, the parts, the FluidCAD version it needs, and its size. It installs into your library (`--project`: into the project's `packages/` folder, committed with it; the default is the **New packages go to** setting) and, in a project, records the package in `fluidcad.json`. In a project, `npx fluidcad install` alone downloads every package the project records but this machine doesn't have. The [CLI reference](/docs/cli#fluidcad-install) has every form and flag.
+FluidCAD downloads the package, checks that its files are the ones the hub lists, and installs it, printing one line with what the package holds:
 
-A package's code runs in the FluidCAD engine with your permissions, as the install says. Install only packages you trust.
+```
+✓ Installed @acme/mounting-hardware@0.1.0 into your library · 4 features, 2 parts · pinned in fluidcad.json
+```
+
+It installs into your library (`--project`: into the project's `packages/` folder, committed with it; the default is the **New packages go to** setting) and, in a project, records the package in `fluidcad.json`. In a project, `npx fluidcad install` alone downloads every package the project records but this machine doesn't have. The [CLI reference](/docs/cli#fluidcad-install) has every form and flag.
+
+A package's code runs in the FluidCAD engine with your permissions, and `fluidcad install` doesn't ask first. Install only packages you trust.
 
 Installing the same version again with the same contents changes nothing. The same version with different contents is refused unless you add `--replace`: an installed version never changes by itself.
 

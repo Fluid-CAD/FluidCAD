@@ -465,25 +465,19 @@ npx fluidcad install @acme/mounting-hardware@0.1.0    # an exact version
 npx fluidcad install                                  # every package this project uses that isn't installed
 ```
 
-Packages install from the hub. FluidCAD downloads the package, checks that its files hash to what the hub lists (and, in a project, to the project's recorded hash), shows what it holds and asks before installing:
+Packages install from the hub. FluidCAD downloads the package, checks that its files hash to what the hub lists (and, in a project, to the project's recorded hash), and installs it, without asking. Each package is one line: what happened, what the package holds and whether it was recorded in the project:
 
 ```
-Downloading @acme/mounting-hardware 0.1.0 (41.4 kB) from https://hub.fluidcad.io…
-Verified: its files hash to sha256-9gPApDnFu7GQz1+By40SoZnvxLgLSZDezAbqJSxF2Mw=, as https://hub.fluidcad.io says.
-@acme/mounting-hardware 0.1.0 — Standoffs, bosses, bolt circles and fastener holes, with a PCB plate and a hub flange
-  4 features: boltCircle (Bolt circle), boss (Boss), fastener (Fastener hole), standoff (Standoff)
-  2 parts: hubFlange, pcbPlate
-  needs FluidCAD 0.0.45 or newer (packed on 0.0.46)
-  28 files, 41.4 kB, sha256-9gPApDnFu7GQz1+By40SoZnvxLgLSZDezAbqJSxF2Mw=
-A package's code runs in the FluidCAD engine with your permissions. Install only packages you trust.
-Installing into your library (/Users/you/.fluidcad/packages), and pinning it in this project.
+✓ Installed @acme/mounting-hardware@0.1.0 into your library · 4 features, 2 parts · pinned in fluidcad.json
 ```
+
+A warning that matters gets a short line under it: a deprecated package, a yanked or unpublished version you asked for by its exact version, an older version because the latest needs a newer FluidCAD. A package that can't be installed (unknown, nothing published, a hash that doesn't match, removed by the hub's admins) prints why and the command exits with status 1. A package's code runs in the FluidCAD engine with your permissions: install only packages you trust.
 
 **A name alone** asks the hub for its latest version this FluidCAD runs, and uses your library's copy of that version when its files are the hub's. When the hub can't be reached, it uses the newest version your library holds, and says so. **A name with `@version`** takes your library's copy (or this project's) when there is one, else downloads it. A name without the scope (`npx fluidcad install mounting-hardware`) is refused with "Name the publisher: `fluidcad install @<handle>/mounting-hardware`."
 
 Run inside a project, it records the package in the project's [`dependencies`](/docs/project-configuration#dependencies) (with `--project`, it also copies a library package into the project's `packages/` folder); run elsewhere, it only installs. Installing the same version with the same contents again changes nothing. The same version with other contents is refused unless `--replace` is given, and in a project whose recorded hash differs, it is refused either way.
 
-**With no arguments**, in a project, it downloads every package the project records but this machine doesn't have, each at its recorded version and checked against its recorded hash, after one question. A package that can't be installed is listed and the command exits with status 1.
+**With no arguments**, in a project, it downloads every package the project records but this machine doesn't have, each at its recorded version and checked against its recorded hash, with a line per package. A package that can't be installed is listed and the command exits with status 1.
 
 A `.fluidpkg` file, or any other path, is refused: "Packages install from the hub: `fluidcad install @<handle>/<name>`. A .fluidpkg file is an archive to look inside (`fluidcad pack` writes one); it isn't installed."
 
@@ -491,7 +485,6 @@ A `.fluidpkg` file, or any other path, is refused: "Packages install from the hu
 |------|-------------|---------|
 | `--library` | Install into your library | _the **New packages go to** setting, the library unless changed_ |
 | `--project` | Install into this project's `packages/` folder; with a package already in your library, copy it there | _off_ |
-| `-y, --yes` | Install without asking. Without a terminal, an install needs it | _asks_ |
 | `--replace` | Replace an installed copy of the same version whose contents differ | _off_ |
 | `--hub <url>` | The hub to download from | _`FLUIDCAD_HUB_URL`, else `https://hub.fluidcad.io`_ |
 

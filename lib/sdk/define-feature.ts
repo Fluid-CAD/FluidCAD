@@ -23,6 +23,8 @@ export type DefineFeatureMeta<P extends FeatureParams = FeatureParams> =
     params?: never;
     /** Leave it out: it is read from the class — one that implements `buildTool()` is a tool, one that overrides `build()` a modifier. */
     kind?: never;
+    /** Leave them out: the class declares its buckets, with `Feature.with(params, { buckets })`. */
+    buckets?: never;
   };
 
 /**

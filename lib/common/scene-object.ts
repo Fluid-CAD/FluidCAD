@@ -10,6 +10,7 @@ import { Profiler } from "./profiler.js";
 import { DEFAULT_LENGTH_UNIT } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import { heldSolidsOf, liveSolidsIn, type HeldSolid } from "../helpers/live-solids.js";
+import { BucketDefs, type BucketDef, type SubShapeKind } from "./bucket-defs.js";
 
 export type SourceLocation = {
   filePath: string;
@@ -822,6 +823,19 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   getDisplayType(): string {
     const type = this.getType();
     return type.charAt(0).toUpperCase() + type.slice(1);
+  }
+
+  /**
+   * The buckets of `kind` the object can be addressed through, in the
+   * editor's preference order — the one question the selection index asks
+   * of a feature. By default, the standard buckets whose accessor the
+   * object has: one that records a cut's buckets with no accessor for them
+   * (a removing mirror) must not have its picks written as calls it cannot
+   * answer. A hole answers its `faces()`, a custom feature its declared
+   * buckets first.
+   */
+  bucketDefs(kind: SubShapeKind): BucketDef[] {
+    return BucketDefs.standardFor(this, kind);
   }
 
   hasCustomName(): boolean {

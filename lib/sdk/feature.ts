@@ -16,7 +16,7 @@ import { BuildScope } from "../common/build-scope.js";
 import { SceneDisposal } from "../rendering/scene-disposal.js";
 import { cutWithSceneObjects, fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import { ShapeHistory } from "../common/shape-history-tracker.js";
-import { ClassifiedBucketRemapper, ClassifiedBuckets } from "../features/classified-buckets.js";
+import { ClassifiedBucketRemapper, ClassifiedBuckets, type NamedBucket } from "../features/classified-buckets.js";
 import { LazySelectionSceneObject } from "../features/lazy-scene-object.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
@@ -29,6 +29,13 @@ import { FeatureCall, type FeatureOperation } from "./call-shape.js";
 import type { FeatureParams, ValuesOf } from "./feature-params.js";
 import { FeatureKey } from "./feature-key.js";
 import { FeatureNamespaces } from "./feature-namespaces.js";
+import {
+  FeatureBucketSet, type BucketAccessors, type EdgeBucketName, type FaceBucketName, type FeatureBucketBrand,
+  type FeatureBucketSpecs, type NamedBuckets,
+} from "./feature-buckets.js";
+import type { BucketDef, SubShapeKind } from "../common/bucket-defs.js";
+import { getOC } from "../oc/init.js";
+import type { TopAbs_ShapeEnum } from "ocjs-fluidcad";
 
 /** What `buildTool()` and a modifier's `build()` are handed: the scene as it stands before the feature. */
 export type FeatureBuildContext = BuildSceneObjectContext;
@@ -36,7 +43,8 @@ export type FeatureBuildContext = BuildSceneObjectContext;
 /**
  * The standard buckets a feature fills, by accessor name — what
  * `s.endFaces()`, `s.sideEdges(0)` and the editor's picks read back. Each is
- * optional; a bucket left out is empty.
+ * optional; a bucket left out is empty. A feature names its own buckets
+ * beside them once its class declares them (`Feature.with(params, { buckets })`).
  */
 export type FeatureBuckets = {
   startFaces?: Face[];
@@ -63,11 +71,31 @@ export type FeatureBuckets = {
 export type FeatureClass<V extends FeatureValues = FeatureValues> = (new (values: V) => Feature<V>) & { id: string };
 
 /**
- * What `Feature.with(params)` returns: an abstract `Feature` whose values
- * are typed by `params`, which it carries as `static params`.
+ * What `Feature.with(params, { buckets })` returns: an abstract `Feature`
+ * whose values are typed by `params`, which it carries as `static params`,
+ * with one accessor method per custom bucket it declares (`tipFaces()`),
+ * and `setBuckets()` taking those names too. It carries the declarations as
+ * `static buckets`.
  */
-export type FeatureWith<P extends FeatureParams> =
-  (abstract new (values: ValuesOf<P>) => Feature<ValuesOf<P>>) & { readonly params: P };
+export type FeatureWith<P extends FeatureParams, B extends FeatureBucketSpecs = {}> =
+  (abstract new (values: ValuesOf<P>) => Feature<ValuesOf<P>, keyof B & string> & BucketAccessors<B> & FeatureBucketBrand<B>)
+  & { readonly params: P; readonly buckets: B };
+
+/** What `Feature.with(params, options)` takes after the values. */
+export type FeatureWithOptions<B extends FeatureBucketSpecs = FeatureBucketSpecs> = {
+  /**
+   * The feature's named buckets, by accessor name — each ends in `Faces` or
+   * `Edges`, which says what it holds: `{ tipFaces: { description: 'The flat
+   * top land of every tooth' } }`. Each custom name becomes a method
+   * (`g.tipFaces()`), filled with `setBuckets()`; a declared `tipEdges` left
+   * out of `setBuckets()` is the edges of `tipFaces`. A standard name
+   * declared documents the bucket and makes no method.
+   */
+  buckets?: B;
+};
+
+/** What `setBuckets()` keeps while a build collects them: the standard buckets and the custom ones, by name. */
+type DeclaredBuckets = FeatureBuckets & { [name: string]: Shape[] | Plane | undefined };
 
 /**
  * @internal What a feature class's metadata tells the class itself, once a
@@ -80,8 +108,6 @@ export type FeatureRegistration = {
   defaultOperation: FeatureOperation | null;
 };
 
-type FaceBucketName = 'startFaces' | 'endFaces' | 'sideFaces' | 'internalFaces' | 'capFaces';
-type EdgeBucketName = 'startEdges' | 'endEdges' | 'sideEdges' | 'internalEdges' | 'capEdges';
 type FaceArgs = (number | FaceFilterBuilder)[];
 type EdgeArgs = (number | EdgeFilterBuilder)[];
 
@@ -117,7 +143,7 @@ type EdgeArgs = (number | EdgeFilterBuilder)[];
  * values by extending {@link Feature.with}, which types `this.values` from
  * them, and `defineFeature()` turns it into the builder a model calls.
  */
-export abstract class Feature<V extends FeatureValues = FeatureValues> extends SceneObject {
+export abstract class Feature<V extends FeatureValues = FeatureValues, N extends string = never> extends SceneObject {
 
   /** The feature's plain id (`'standoff'`); never one of the engine's own types (`SceneTypes`). */
   static id: string;
@@ -144,18 +170,52 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
    * }
    * ```
    *
+   * The second argument declares the feature's named buckets
+   * (see {@link FeatureWithOptions}): each custom name becomes an accessor
+   * method on the base, read like `endFaces()`, and a name `setBuckets()`
+   * fills. They are checked here, so a bad declaration fails where the
+   * module loads.
+   *
+   * ```js
+   * class Gear extends Feature.with({ … }, {
+   *   buckets: {
+   *     tipFaces: { description: 'The flat top land of every tooth' },
+   *     tipEdges: { description: 'The edges of the tip faces' },   // derived from tipFaces
+   *   },
+   * }) { … }
+   * ```
+   *
    * Every evaluation of the module makes a new base and a new class; the
    * cache compares features by id, never by class, so that costs nothing.
    */
-  static with<const P extends FeatureParams>(params: P): FeatureWith<P> {
+  static with<const P extends FeatureParams, const B extends FeatureBucketSpecs = {}>(params: P, options?: FeatureWithOptions<B>): FeatureWith<P, B> {
     if (!FeatureCall.isPlainObject(params)) {
       throw new Error("Feature.with() takes the feature's values by name, such as { height: { type: 'length', default: 10 } }");
     }
+    const buckets = Feature.bucketsOption(options);
     const frozen = Feature.frozenCopy(params);
     abstract class FeatureWithParams extends Feature {
       static readonly params = frozen;
+      static readonly buckets = buckets;
     }
-    return FeatureWithParams as unknown as FeatureWith<P>;
+    FeatureBucketSet.of(FeatureWithParams, 'Feature.with()');
+    return FeatureWithParams as unknown as FeatureWith<P, B>;
+  }
+
+  /** The buckets `Feature.with()`'s options declare, frozen — none when left out — refusing any other option. */
+  private static bucketsOption(options: unknown): FeatureBucketSpecs {
+    if (options === undefined) {
+      return Object.freeze({});
+    }
+    if (!FeatureCall.isPlainObject(options)) {
+      throw new Error("Feature.with(): the second argument holds the feature's options, such as { buckets: { tipFaces: { description: '…' } } }");
+    }
+    for (const option of Object.keys(options)) {
+      if (option !== 'buckets') {
+        throw new Error(`Feature.with(): unknown option '${option}' — the options are: buckets`);
+      }
+    }
+    return options.buckets === undefined ? Object.freeze({}) : Feature.frozenCopy(options.buckets) as FeatureBucketSpecs;
   }
 
   /**
@@ -163,26 +223,22 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
    * `registerBuilder` gives the class its label, which its timeline rows
    * read, and its operations — a statement without an operation chain
    * applies the default one, and one that chooses an operation the feature
-   * doesn't offer fails to build.
+   * doesn't offer fails to build. The class's bucket declarations are
+   * checked here too — a plain subclass declares them as `static buckets`.
    */
   static register(featureClass: Function, registration: FeatureRegistration): void {
+    FeatureBucketSet.of(featureClass);
     Feature.registrations.set(featureClass, Object.freeze({ ...registration, operations: Object.freeze([...registration.operations]) }));
   }
 
-  private static readonly FACE_KEYS: [FaceBucketName, string][] = [
-    ['startFaces', 'start-faces'], ['endFaces', 'end-faces'], ['sideFaces', 'side-faces'],
-    ['internalFaces', 'internal-faces'], ['capFaces', 'cap-faces'],
-  ];
+  private static readonly FACE_KEYS: readonly (readonly [FaceBucketName, string])[] = FeatureBucketSet.STANDARD_FACES;
 
-  private static readonly EDGE_KEYS: [EdgeBucketName, string][] = [
-    ['startEdges', 'start-edges'], ['endEdges', 'end-edges'], ['sideEdges', 'side-edges'],
-    ['internalEdges', 'internal-edges'], ['capEdges', 'cap-edges'],
-  ];
+  private static readonly EDGE_KEYS: readonly (readonly [EdgeBucketName, string])[] = FeatureBucketSet.STANDARD_EDGES;
 
   private readonly inputs: FeatureInputs;
 
   /** The buckets declared so far in this build — see {@link setBuckets}. */
-  private declared: FeatureBuckets = {};
+  private declared: DeclaredBuckets = {};
 
   /** True while `buildTool()` runs: declared buckets wait for the base to place them. */
   private collectingTool = false;
@@ -193,6 +249,9 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
   constructor(values: V) {
     super();
     this.inputs = FeatureInputs.from(Feature.idOf(this.constructor as typeof Feature), values);
+    // A class constructed without a builder (the plain-subclass style, a
+    // test) gets its bucket accessors here, its declarations checked.
+    FeatureBucketSet.of(this.constructor);
     // A statement without an operation chain applies the feature's default,
     // as hole() cuts without a .remove(). A class no builder registered adds.
     const operation = Feature.registrations.get(this.constructor)?.defaultOperation ?? null;
@@ -257,11 +316,17 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
       return null;
     }
     this.collectingTool = true;
+    let shapes: Shape[];
     try {
-      return this.buildTool(ctx);
+      shapes = this.buildTool(ctx);
     } finally {
       this.collectingTool = false;
     }
+    // The build's own refusal, so the dialog says what the row will.
+    if (Array.isArray(shapes) && shapes.length > 0) {
+      this.refuseStrayMembers(shapes);
+    }
+    return shapes;
   }
 
   /**
@@ -279,9 +344,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
       if (!Array.isArray(shapes)) {
         throw new Error(`${this.getType()}: ghost() returns the shapes to draw, or null for no preview`);
       }
-      const scratch = [...Feature.FACE_KEYS, ...Feature.EDGE_KEYS]
-        .flatMap(([name]) => (this.declared[name] ?? []) as Shape[]);
-      return { shapes, scratch };
+      return { shapes, scratch: this.declaredMembers() };
     } finally {
       this.declared = {};
     }
@@ -344,6 +407,11 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
    * with everything they depend on.
    */
   private heldShapes(): Set<Shape> {
+    return SceneDisposal.collectShapes(this.heldObjects());
+  }
+
+  /** The objects whose shapes {@link heldShapes} collects. */
+  private heldObjects(): SceneObject[] {
     const objects = new Set<SceneObject>(BuildScope.contextOf(this)?.getSceneObjects() ?? []);
     objects.add(this);
     const pending: SceneObject[] = [...this.inputs.references()];
@@ -354,7 +422,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
         pending.push(...ref.getDependencies());
       }
     }
-    return SceneDisposal.collectShapes([...objects]);
+    return [...objects];
   }
 
   /** Every shape a reference holds now (its solids, its selected faces or edges, its sketch's wires). */
@@ -431,17 +499,26 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
   }
 
   /**
-   * Name the feature's buckets. A tool names sub-shapes of the solids
-   * `buildTool()` returns; the base moves them with a repeat's copy and
-   * carries them across the fusion. A modifier names its final geometry.
-   * Edge buckets left out are derived from the faces. Calls accumulate.
+   * Name the feature's buckets: the standard ones, and those its class
+   * declares (`Feature.with(params, { buckets })`). A tool names sub-shapes
+   * of the solids `buildTool()` returns; the base moves them with a repeat's
+   * copy and carries them across the fusion — a custom bucket keeps what the
+   * final solid still carries of it. A modifier names its final geometry.
+   * Standard edge buckets left out are derived from the faces, and so is a
+   * declared `xEdges` left out, from `xFaces`. Calls accumulate.
+   *
+   * What it can't keep is refused as the feature's build error: a name that
+   * is no bucket of the feature, a value that is not a list, a member of the
+   * wrong kind, and — for a tool — a member that is no face or edge of the
+   * solids it returned.
    *
    * A remove keeps none of the tool's faces: the cut classifies what it
    * made — its rims as start, end or internal edges (see
    * {@link FeatureBuckets.startPlane}), its walls as internal faces — as
    * `cut()` does.
    */
-  protected setBuckets(buckets: FeatureBuckets): void {
+  protected setBuckets(buckets: FeatureBuckets & NamedBuckets<N>): void {
+    this.bucketSet().checkFilled(buckets, this.getType(), FeatureKey.calleeOf(this.getType()));
     this.declared = { ...this.declared, ...buckets };
     if (!this.collectingTool) {
       this.applyBuckets(this.declared);
@@ -465,11 +542,12 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
     if (!Array.isArray(tools) || tools.length === 0) {
       throw new Error(`${this.getType()}: buildTool() returned no shapes`);
     }
+    this.refuseStrayMembers(tools);
 
     let buckets = this.declared;
     const transform = context.getTransform();
     if (transform) {
-      ({ tools, buckets } = p.record('Move tool', () => Feature.moveTool(tools, buckets, transform)));
+      ({ tools, buckets } = p.record('Move tool', () => Feature.moveTool(tools, buckets, transform, this.bucketNames())));
     }
 
     this.consumeReferences();
@@ -543,7 +621,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
     }
   }
 
-  private fuseTool(tools: Shape[], buckets: FeatureBuckets, context: FeatureBuildContext): void {
+  private fuseTool(tools: Shape[], buckets: DeclaredBuckets, context: FeatureBuildContext): void {
     const stock = this.resolveFusionStock(context.getSceneObjects()).filter(held => held.holder !== this);
     if (stock.length === 0) {
       this.addShapes(tools);
@@ -569,16 +647,18 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
     this.carryBuckets(buckets, fusion.toolHistory, fusion.newShapes);
   }
 
-  private cutTool(tools: Shape[], buckets: FeatureBuckets, context: FeatureBuildContext): void {
+  private cutTool(tools: Shape[], buckets: DeclaredBuckets, context: FeatureBuildContext): void {
     const stock = this.resolveFusionStock(context.getSceneObjects()).filter(held => held.holder !== this);
     const plane = buckets.startPlane ?? null;
     // The cut classifies by the sign of its distance alone: a negative one
     // sweeps along the plane's normal, the way the tool grows.
     cutWithSceneObjects(stock, tools, plane, plane ? -1 : 0, this, { recordHistoryFor: this });
+    // CB-2 carries the custom buckets through the cut; until then a remove writes them empty.
+    ClassifiedBuckets.writeNamed(this, this.namedBuckets({}), null);
   }
 
   /** Write `buckets` to the state as they are, deriving the edge buckets they leave out. */
-  private applyBuckets(buckets: FeatureBuckets): void {
+  private applyBuckets(buckets: DeclaredBuckets): void {
     for (const [name, key] of Feature.FACE_KEYS) {
       this.setState(key, buckets[name] ?? []);
     }
@@ -588,17 +668,19 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
         this.setState(key, buckets[name]);
       }
     }
+    ClassifiedBuckets.writeNamed(this, this.namedBuckets(buckets), null);
   }
 
   /** Write the tool's `buckets` and carry them across the fusion `history` recorded. */
-  private carryBuckets(buckets: FeatureBuckets, history: ShapeHistory, finalShapes: Shape[]): void {
+  private carryBuckets(buckets: DeclaredBuckets, history: ShapeHistory, finalShapes: Shape[]): void {
     for (const [name, key] of Feature.FACE_KEYS) {
       this.setState(key, buckets[name] ?? []);
     }
     ClassifiedBuckets.remapAcrossFusion(this, history, finalShapes);
 
     const declaredEdges = Feature.EDGE_KEYS.filter(([name]) => buckets[name]);
-    if (declaredEdges.length === 0) {
+    const named = this.namedBuckets(buckets);
+    if (declaredEdges.length === 0 && named.length === 0) {
       return;
     }
     const remapper = new ClassifiedBucketRemapper(history, finalShapes);
@@ -606,17 +688,75 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
       for (const [name, key] of declaredEdges) {
         this.setState(key, remapper.remapEdges(buckets[name]!));
       }
+      ClassifiedBuckets.writeNamed(this, named, remapper);
     } finally {
       remapper.dispose();
     }
   }
 
+  /** This feature's declared buckets (see {@link FeatureBucketSet}). */
+  private bucketSet(): FeatureBucketSet {
+    return FeatureBucketSet.of(this.constructor);
+  }
+
+  /** Every bucket the feature may name, by accessor: the standard ones, then its class's custom ones. */
+  private bucketNames(): string[] {
+    return [...Feature.FACE_KEYS, ...Feature.EDGE_KEYS].map(([name]) => name as string).concat(this.bucketSet().customNames());
+  }
+
+  /** Every member the build named so far, in {@link bucketNames} order. */
+  private declaredMembers(): Shape[] {
+    return this.bucketNames().flatMap(name => (this.declared[name] ?? []) as Shape[]);
+  }
+
+  /** The class's custom buckets with what `buckets` names of them, as `ClassifiedBuckets.writeNamed` writes them. */
+  private namedBuckets(buckets: DeclaredBuckets): NamedBucket[] {
+    return this.bucketSet().defs().map(def => ({
+      key: def.key,
+      kind: def.kind,
+      members: buckets[def.accessor] as Shape[] | undefined,
+      deriveFrom: def.deriveFromFaceKey,
+    }));
+  }
+
+  /**
+   * Refuse a tool's member that is no face or edge of the solids
+   * `buildTool()` returned (CB6): the base moves and fuses those solids, and
+   * a member of any other shape would be lost on the way, silently. What the
+   * build made is freed first — never a shape the scene holds.
+   */
+  private refuseStrayMembers(tools: Shape[]): void {
+    const oc = getOC();
+    const held = new oc.TopTools_IndexedMapOfShape();
+    let refusal: string | null = null;
+    try {
+      for (const tool of tools) {
+        oc.TopExp.MapShapes(tool.getShape(), oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum, held);
+        oc.TopExp.MapShapes(tool.getShape(), oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, held);
+      }
+      for (const name of this.bucketNames()) {
+        const at = ((this.declared[name] ?? []) as Shape[]).findIndex(member => held.FindIndex(member.getShape()) === 0);
+        if (at >= 0) {
+          const kind = FeatureBucketSet.kindOf(name);
+          refusal = `${this.getType()}: setBuckets() ${name}[${at}] is not ${kind === 'face' ? 'a face' : 'an edge'} `
+            + `of the solids buildTool() returned — name ${kind}s of the shapes you return`;
+          break;
+        }
+      }
+    } finally {
+      held.delete();
+    }
+    if (refusal) {
+      SceneDisposal.releaseDetached([...tools, ...this.declaredMembers()], this.heldObjects());
+      throw new Error(refusal);
+    }
+  }
+
   /**
    * The tools moved by a repeat's clone transform, with every bucket member
-   * swapped for its image and the start plane moved along.
+   * — each of `names` — swapped for its image and the start plane moved along.
    */
-  private static moveTool(tools: Shape[], buckets: FeatureBuckets, matrix: Matrix4): { tools: Shape[]; buckets: FeatureBuckets } {
-    const names = [...Feature.FACE_KEYS, ...Feature.EDGE_KEYS].map(([name]) => name);
+  private static moveTool(tools: Shape[], buckets: DeclaredBuckets, matrix: Matrix4, names: string[]): { tools: Shape[]; buckets: DeclaredBuckets } {
     const members = names.flatMap(name => (buckets[name] ?? []) as Shape[]);
     const images = new Map<Shape, Shape>();
     const moved = tools.map(tool => {
@@ -629,7 +769,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
       return tracked.shape;
     });
 
-    const out: FeatureBuckets = {};
+    const out: DeclaredBuckets = {};
     for (const name of names) {
       const bucket = buckets[name] as Shape[] | undefined;
       if (bucket) {
@@ -735,6 +875,17 @@ export abstract class Feature<V extends FeatureValues = FeatureValues> extends S
 
   serialize() {
     return this.inputs.serialize();
+  }
+
+  /**
+   * The buckets the editor addresses the feature through: its class's custom
+   * buckets first, in declaration order — the author named them on purpose —
+   * then the standard ones in their usual order, a declared label on any.
+   */
+  override bucketDefs(kind: SubShapeKind): BucketDef[] {
+    const set = this.bucketSet();
+    const standard = super.bucketDefs(kind).map(def => (set.has(def.accessor) ? { ...def, label: set.labelOf(def.accessor) } : def));
+    return [...set.defs(kind), ...standard];
   }
 
   /** The faces the feature starts from — the ones on the face or plane it grows from. */

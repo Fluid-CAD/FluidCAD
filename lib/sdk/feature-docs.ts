@@ -12,13 +12,13 @@ export type DocGapReason = 'missing' | 'repeats-label' | 'too-long';
 
 /** One field without a useful description. */
 export type DocGap = {
-  /** The feature itself, one of its values, or a part's or assembly's parameter. */
-  kind: 'feature' | 'value' | 'param';
+  /** The feature itself, one of its values or declared buckets, or a part's or assembly's parameter. */
+  kind: 'feature' | 'value' | 'bucket' | 'param';
   /** What the field belongs to: the feature's id, or the part's or assembly's export name. */
   owner: string;
-  /** The feature's id, the value's name, or the parameter's label (its name and override key). */
+  /** The feature's id, the value's or the bucket's name, or the parameter's label (its name and override key). */
   name: string;
-  /** What the dialog or the Parameters panel calls it. */
+  /** What the dialog, the editor's menus or the Parameters panel call it. */
   label: string;
   reason: DocGapReason;
 };
@@ -65,7 +65,9 @@ export class FeatureDocs {
 
   /**
    * A feature's undocumented fields: the feature's own description first,
-   * then each value in declaration order. `owner` defaults to the feature's id.
+   * then each value in declaration order, then each bucket its class
+   * declares (`Feature.with(params, { buckets })`), in declaration order.
+   * `owner` defaults to the feature's id.
    */
   static missing(meta: FeatureMeta | ResolvedFeatureMeta | FeatureMetaSnapshot, owner?: string): DocGap[] {
     const id = FeatureDocs.idOf(meta);
@@ -80,6 +82,12 @@ export class FeatureDocs {
       const reason = FeatureDocs.reasonOf(spec.description, label, name);
       if (reason !== null) {
         gaps.push({ kind: 'value', owner: of, name, label, reason });
+      }
+    }
+    for (const bucket of FeatureMetas.bucketsOf(meta)) {
+      const reason = FeatureDocs.reasonOf(bucket.description, bucket.label, bucket.name);
+      if (reason !== null) {
+        gaps.push({ kind: 'bucket', owner: of, name: bucket.name, label: bucket.label, reason });
       }
     }
     return gaps;

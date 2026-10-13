@@ -1,7 +1,8 @@
 /**
  * `fluidcad/sdk` — what a custom feature is written with: the {@link Feature}
- * base class, whose `Feature.with()` declares the feature's values, and
- * `defineFeature` to turn the class into the builder a model calls.
+ * base class, whose `Feature.with()` declares the feature's values and its
+ * named buckets, and `defineFeature` to turn the class into the builder a
+ * model calls.
  *
  * ```js
  * import { Feature, defineFeature } from 'fluidcad/sdk';
@@ -40,7 +41,10 @@
 export { registerBuilder } from "../index.js";
 export type { RegisterBuilderOptions, SceneParserContext } from "../index.js";
 export { Feature } from "./feature.js";
-export type { FeatureBuckets, FeatureBuildContext, FeatureClass, FeatureWith } from "./feature.js";
+export type { FeatureBuckets, FeatureBuildContext, FeatureClass, FeatureWith, FeatureWithOptions } from "./feature.js";
+export type {
+  FeatureBucketSpec, FeatureBucketSpecs, FeatureBucketSnapshot, BucketAccessors, NamedBuckets, FeatureBucketBrand, BucketSpecsOf,
+} from "./feature-buckets.js";
 export { defineFeature } from "./define-feature.js";
 export type { DefinableFeatureClass, DefineFeatureMeta } from "./define-feature.js";
 export type { FeatureParams, ValuesOf, ValueOf, FeatureCallShape, FeatureArgs } from "./feature-params.js";

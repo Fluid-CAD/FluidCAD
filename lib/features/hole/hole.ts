@@ -1,4 +1,5 @@
 import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.js";
+import { BucketDefs, type BucketDef, type SubShapeKind } from "../../common/bucket-defs.js";
 import { Shape } from "../../common/shape.js";
 import { Face } from "../../common/face.js";
 import { Edge } from "../../common/edge.js";
@@ -73,6 +74,15 @@ export function placementFrame(placement: HolePlacement): Plane {
  * rims and walls classify like a `cut()`.
  */
 export class Hole extends SceneObject implements IHole {
+  /**
+   * A hole records a cut's buckets, but every wall it makes is internal: its
+   * `faces()` reads `internal-faces`, and it has no `internalFaces()`. Its edge
+   * buckets keep the cut's accessors.
+   */
+  private static readonly FACE_BUCKETS: readonly BucketDef[] = [
+    { key: 'internal-faces', accessor: 'faces', kind: 'face', label: 'Faces', deriveFromFaceKey: null },
+  ];
+
   private _fastener: HoleFastenerSpec | null = null;
   private _style: HoleStyleSpec | null = null;
   private _depth: number | null = null;
@@ -430,6 +440,11 @@ export class Hole extends SceneObject implements IHole {
       filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
     }
     return applyBucketFilters(shapes, filters, owner) as Face[];
+  }
+
+  /** Its walls through `faces()`; its edges through the cut's accessors. */
+  override bucketDefs(kind: SubShapeKind): BucketDef[] {
+    return kind === 'face' ? BucketDefs.answeredBy(this, Hole.FACE_BUCKETS) : super.bucketDefs(kind);
   }
 
   /** The walls the cut created — the cylinder, the counterbore step, the countersink cone, the drill point. */

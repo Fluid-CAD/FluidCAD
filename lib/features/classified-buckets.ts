@@ -79,6 +79,18 @@ export class ClassifiedBucketRemapper {
   }
 
   /**
+   * A custom bucket's faces as they exist in the final solid: each face
+   * follows its `Modified` images (an untouched one keeps its identity),
+   * then whatever the solid no longer carries is dropped — never re-homed
+   * onto the stock face it merged into, which is `startFaces`' rule —
+   * repeats removed, in order.
+   */
+  followFaces(faces: Face[]): Face[] {
+    const images = ShapeHistoryTracker.remapFaces(faces, this.history);
+    return ClassifiedBucketRemapper.distinct(images.filter(f => this.finalFaces.Contains(f.getShape())));
+  }
+
+  /**
    * The bucket's faces as they exist in the final solid. A face the fusion
    * removed is re-homed onto the final face that shares its surface and
    * carries one of `anchorEdges` (the bucket's already-remapped edges) —
@@ -155,6 +167,20 @@ export class ClassifiedBucketRemapper {
     return map;
   }
 }
+
+/**
+ * A custom bucket a feature declared, as {@link ClassifiedBuckets.writeNamed}
+ * writes it: where it lives, what it holds and what the feature named.
+ */
+export type NamedBucket = {
+  /** Its state key: `bucket:tipFaces`. */
+  key: string;
+  kind: 'face' | 'edge';
+  /** What the feature named, as built; undefined when it named nothing. */
+  members: Shape[] | undefined;
+  /** An edge bucket's face sibling's state key (`bucket:tipFaces`), whose edges it is when it names none; else null. */
+  deriveFrom: string | null;
+};
 
 /** What a fusion leaves of the start/end edge buckets; see {@link ClassifiedBuckets.classifyEdges}. */
 export type FusedEdgeBuckets = {
@@ -265,6 +291,44 @@ export class ClassifiedBuckets {
     target.setState('side-edges', sideEdges);
     target.setState('internal-edges', internalEdges);
     target.setState('cap-edges', capEdges);
+  }
+
+  /**
+   * Write a feature's custom buckets to its state — the buckets its class
+   * declared beside the standard ones — each face bucket first, then each
+   * edge bucket: the edges it named, or, when it named none, the edges of its
+   * face sibling as they ended up (`tipEdges` from `tipFaces`), so they take
+   * in the edges where a face now meets the stock. A bucket with neither is
+   * empty.
+   *
+   * With a `remapper`, the buckets are carried across the fusion it reads
+   * (see {@link ClassifiedBucketRemapper.followFaces}): every member follows
+   * the history and only what the final solid carries is kept. Unlike the
+   * side-face rule, nothing stale stays — a custom bucket has no index picks
+   * recorded against the old numbering, and a stale member would only fail
+   * the whole-bucket read downstream. Without one, the members are written
+   * as they are.
+   */
+  static writeNamed(target: SceneObject, buckets: NamedBucket[], remapper: ClassifiedBucketRemapper | null) {
+    for (const bucket of buckets) {
+      if (bucket.kind === 'face') {
+        const faces = (bucket.members ?? []) as Face[];
+        target.setState(bucket.key, remapper ? remapper.followFaces(faces) : faces);
+      }
+    }
+    for (const bucket of buckets) {
+      if (bucket.kind !== 'edge') {
+        continue;
+      }
+      if (bucket.members) {
+        const edges = bucket.members as Edge[];
+        target.setState(bucket.key, remapper ? remapper.remapEdges(edges) : edges);
+      } else if (bucket.deriveFrom) {
+        target.setState(bucket.key, ClassifiedBuckets.edgesOfFaces(target.getState(bucket.deriveFrom) as Face[] || []));
+      } else {
+        target.setState(bucket.key, []);
+      }
+    }
   }
 
   /**

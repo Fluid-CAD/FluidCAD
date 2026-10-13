@@ -179,7 +179,7 @@ describe('PackageArchive.inspect', () => {
     const bare = await expectRefusal(inspect({ manifest: { name: 'kit' } }), PackageArchiveError, 'bad-manifest');
     expect(bare.message).toBe(
       'This archive names kit, without a scope: it was packed by an earlier FluidCAD, whose package names had none. '
-        + 'Pack it again with this one, after naming the package "@<your-handle>/kit" in its fluidcad.json.',
+        + 'Publish it again with this one, after naming the package "@<your-handle>/kit" in its fluidcad.json.',
     );
     expect(bare.message).toBe(PackageArchive.unscopedNameSentence('kit'));
     for (const name of ['@acme/3d-kit', '@3dtools/kit', '@acme/a--b']) {

@@ -452,7 +452,7 @@ describe('what pack refuses', () => {
     const fromBlock = await refusal();
     expect(fromBlock).toBe(
       '@acme/kit can\'t declare its "minEngine" 0.0.40 (fluidcad.json\'s package block): it is packed against feature SDK 1, ' +
-        'which FluidCAD 0.0.45 introduced, so no older FluidCAD can load it. Set "minEngine" in the package block to 0.0.45 or later, then pack again.',
+        'which FluidCAD 0.0.45 introduced, so no older FluidCAD can load it. Set "minEngine" in the package block to 0.0.45 or later, then try again.',
     );
 
     const config = readConfig();
@@ -479,7 +479,7 @@ describe('what pack refuses', () => {
     });
     const message = await refusal();
     expect(message).toContain('without a "version"');
-    expect(message).toContain('Fix it, then pack again.');
+    expect(message).toContain('Fix it, then try again.');
   });
 
   it('a package block that still lists exports, naming the folders the workspace has', async () => {
@@ -490,7 +490,7 @@ describe('what pack refuses', () => {
     expect(err.code).toBe('refused');
     expect(err.message).toBe(
       'fluidcad.json has a "package" with an "exports" list, but a package exports its features/, parts/ and assemblies/ ' +
-        'folders: remove "exports" (this workspace has features/ and parts/). Fix it, then pack again.',
+        'folders: remove "exports" (this workspace has features/ and parts/). Fix it, then try again.',
     );
   });
 
@@ -526,7 +526,7 @@ describe('what pack refuses', () => {
     expect(err.code).toBe('no-exports');
     expect(err.message).toBe(
       '@acme/kit exports nothing: put its feature modules in features/, its parts in parts/ and its assemblies in ' +
-        'assemblies/. Pack exports what those folders hold.',
+        'assemblies/. A package exports what those folders hold.',
     );
   });
 
@@ -638,7 +638,7 @@ describe('what pack refuses', () => {
     write('index.js', 'export const SIZE = 1;\n');
     prependToHelper(`import { SIZE } from '../../index.js';`);
     expect(await refusal()).toBe(
-      'index.js would ship at the package root (parts/helpers/sizes.js imports it), where pack writes its own generated index.js. Rename or move it.',
+      'index.js would ship at the package root (parts/helpers/sizes.js imports it), where the archive has its own generated index.js. Rename or move it.',
     );
   });
 
@@ -648,7 +648,7 @@ describe('what pack refuses', () => {
     }
     prependToHelper(`import data from '../../${reserved}';`);
     expect(await refusal()).toBe(
-      `${reserved} would ship at the package root (parts/helpers/sizes.js imports it), where pack writes its own generated ${reserved}. Rename or move it.`,
+      `${reserved} would ship at the package root (parts/helpers/sizes.js imports it), where the archive has its own generated ${reserved}. Rename or move it.`,
     );
   });
 

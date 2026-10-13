@@ -147,7 +147,7 @@ export class PackageBuilder {
     const problems = config.problems ?? {};
     for (const key of ['file', 'package'] as const) {
       if (problems[key]) {
-        throw new PackageBuildError(`${problems[key]} Fix it, then pack again.`);
+        throw new PackageBuildError(`${problems[key]} Fix it, then try again.`);
       }
     }
     if (!config.package) {
@@ -155,7 +155,7 @@ export class PackageBuilder {
     }
     for (const key of ['engine', 'unit', 'materials'] as const) {
       if (problems[key]) {
-        throw new PackageBuildError(`${problems[key]} Fix it, then pack again.`);
+        throw new PackageBuildError(`${problems[key]} Fix it, then try again.`);
       }
     }
     return config.package;
@@ -220,7 +220,7 @@ export class PackageBuilder {
         : `its minEngine ${version} (this FluidCAD's version)`;
     throw new PackageBuildError(
       `${this.info.name} can't declare ${where}: it is packed against feature SDK ${SDK_VERSION}, which FluidCAD ${SDK_SINCE} ` +
-        `introduced, so no older FluidCAD can load it. Set "minEngine" in the package block to ${SDK_SINCE} or later, then pack again.`,
+        `introduced, so no older FluidCAD can load it. Set "minEngine" in the package block to ${SDK_SINCE} or later, then try again.`,
     );
   }
 
@@ -234,7 +234,7 @@ export class PackageBuilder {
     if (exports.length === 0) {
       throw new PackageBuildError(
         `${this.info.name} exports nothing: put its feature modules in features/, its parts in parts/ and ` +
-          'its assemblies in assemblies/. Pack exports what those folders hold.',
+          'its assemblies in assemblies/. A package exports what those folders hold.',
         'no-exports',
       );
     }
@@ -287,7 +287,7 @@ export class PackageBuilder {
   private checkNotReserved(rel: string, why: string): void {
     if (PackageLayout.isReserved(rel)) {
       throw new PackageBuildError(
-        `${rel} would ship at the package root (${why}), where pack writes its own generated ${rel}. Rename or move it.`,
+        `${rel} would ship at the package root (${why}), where the archive has its own generated ${rel}. Rename or move it.`,
       );
     }
   }

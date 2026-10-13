@@ -148,7 +148,7 @@ describe('fluidcad install <file or path> (HD31)', () => {
     expect(run.status).toBe(1);
     expect(run.stderr.trim()).toBe(HubInstallMessages.NO_FILE_INSTALLS);
     expect(run.stderr.trim()).toBe(
-      'Packages install from the hub: `fluidcad install @<handle>/<name>`. A .fluidpkg file is what `fluidcad pack` makes for `fluidcad publish`; it isn\'t installed.',
+      'Packages install from the hub: `fluidcad install @<handle>/<name>`. A .fluidpkg file is an archive to look inside (`fluidcad pack` writes one); it isn\'t installed.',
     );
     expect(run.stdout).toBe('');
     expect(fs.existsSync(library)).toBe(false);

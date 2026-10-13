@@ -89,7 +89,7 @@ export class PackageArchive {
   static readonly PENDING_TTL_MS = 30 * 60 * 1000;
 
   private static readonly MODEL_ARCHIVE =
-    'This is a model archive, not a package: it was made by `fluidcad publish`, and only `fluidcad pack` makes packages.';
+    'This is a model archive, not a package: an earlier FluidCAD made it, when `fluidcad publish` uploaded models.';
 
   private static readonly pending = new Map<string, { entry: PendingPackage; timer: NodeJS.Timeout }>();
 
@@ -249,7 +249,7 @@ export class PackageArchive {
    */
   static unscopedNameSentence(name: string): string {
     return `This archive names ${name}, without a scope: it was packed by an earlier FluidCAD, whose package names had none. `
-      + `Pack it again with this one, after naming the package "@<your-handle>/${name}" in its fluidcad.json.`;
+      + `Publish it again with this one, after naming the package "@<your-handle>/${name}" in its fluidcad.json.`;
   }
 
   private static readManifest(tree: string, files: string[]): PackageManifest {

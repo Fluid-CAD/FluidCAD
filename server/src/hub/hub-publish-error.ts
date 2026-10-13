@@ -67,7 +67,7 @@ export class HubPublishMessages {
     'unauthorized': HubPublishMessages.LOGIN_HINT,
     'scope-mismatch': HubPublishMessages.NAME_HINT,
     'name-mismatch': HubPublishMessages.NAME_HINT,
-    'reserved-name': 'Give the package another "name" in fluidcad.json (`fluidcad package init` names it the first time), pack it again, then publish.',
+    'reserved-name': 'Give the package another "name" in fluidcad.json (`fluidcad package init` names it the first time), then publish again.',
     'integrity-mismatch': 'Publish again; if it happens again, the archive is changing on its way to the hub.',
     'network': 'Nothing was stored: check the connection, then publish again.',
     'stalled': 'Nothing was stored: check the connection, then publish again.',

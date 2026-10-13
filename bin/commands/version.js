@@ -3,7 +3,7 @@ import { resolve } from 'path';
 /**
  * `fluidcad version <major|minor|patch|x.y.z>`: bump the workspace
  * package's `package.version`. Packing never bumps; releasing a new version
- * is this, then `fluidcad pack`.
+ * is this, then `fluidcad publish`.
  */
 async function runVersion(spec, opts) {
   const { PackageAuthoring, PackageAuthoringError } = await import('../../server/dist/packages/package-authoring.js');

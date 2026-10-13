@@ -124,7 +124,7 @@ describe('fluidcad package init', () => {
     expect(run.stdout).toContain('Wrote the "package" block to');
     expect(run.stdout).not.toContain('Named it');
     expect(run.stdout).toContain(JSON.stringify(block, null, 2).split('\n').map((l) => `  ${l}`).join('\n'));
-    expect(run.stdout).toContain('Pack exports what features/, parts/ and assemblies/ hold. Today: features/ 1 module, parts/ none, assemblies/ none.');
+    expect(run.stdout).toContain('The package exports what features/, parts/ and assemblies/ hold. Today: features/ 1 module, parts/ none, assemblies/ none.');
     expect(readConfig().package.exports).toBeUndefined();
     // Nothing is written next to the block, and no handle was looked up.
     expect(fs.existsSync(path.join(workspace, 'package.json'))).toBe(false);
@@ -138,7 +138,7 @@ describe('fluidcad package init', () => {
 
     expect(run.status).toBe(0);
     expect(run.stdout).toContain(
-      'Put the package\'s feature modules in features/, its parts in parts/ and its assemblies in assemblies/: pack exports what those folders hold.',
+      'Put the package\'s feature modules in features/, its parts in parts/ and its assemblies in assemblies/: the package exports what those folders hold.',
     );
   });
 

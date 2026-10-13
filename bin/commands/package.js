@@ -65,14 +65,14 @@ async function askName(handle) {
 }
 
 /**
- * What `fluidcad pack` will export: the folders decide it. Says how many
+ * What the package will export: the folders decide it. Says how many
  * modules each folder holds, or where to put them when none does.
  */
 function printLayout(PackageLayout, exports) {
   if (exports.length === 0) {
     console.log(
       'Put the package\'s feature modules in features/, its parts in parts/ and its assemblies in assemblies/: ' +
-        'pack exports what those folders hold.',
+        'the package exports what those folders hold.',
     );
     return;
   }
@@ -80,7 +80,7 @@ function printLayout(PackageLayout, exports) {
     const n = exports.filter((rel) => PackageLayout.folderOf(rel) === folder).length;
     return `${folder}/ ${n === 0 ? 'none' : `${n} module${n === 1 ? '' : 's'}`}`;
   });
-  console.log(`Pack exports what features/, parts/ and assemblies/ hold. Today: ${counts.join(', ')}.`);
+  console.log(`The package exports what features/, parts/ and assemblies/ hold. Today: ${counts.join(', ')}.`);
 }
 
 function indent(text) {

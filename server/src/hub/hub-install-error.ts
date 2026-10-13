@@ -67,7 +67,7 @@ export class HubInstallMessages {
    * hub). Said before anything is read.
    */
   static readonly NO_FILE_INSTALLS =
-    'Packages install from the hub: `fluidcad install @<handle>/<name>`. A .fluidpkg file is what `fluidcad pack` makes for `fluidcad publish`; it isn\'t installed.';
+    'Packages install from the hub: `fluidcad install @<handle>/<name>`. A .fluidpkg file is an archive to look inside (`fluidcad pack` writes one); it isn\'t installed.';
   static readonly UPDATE_HINT = 'Update FluidCAD, then install it again.';
 
   private static readonly HINTS: Record<string, string> = {

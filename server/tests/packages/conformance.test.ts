@@ -107,7 +107,7 @@ describe('package conformance fixtures', () => {
     expect(archives['pre-layout.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'outside-layout' });
   });
 
-  it('refuse an HD29 archive with the sentence saying to pack it again under a scoped name', async () => {
+  it('refuse an HD29 archive with the sentence saying to publish it again under a scoped name', async () => {
     const bytes = fs.readFileSync(path.join(out, 'archives', 'bare-name.fluidpkg'));
     const root = path.join(scratch, 'bare-name-root');
     fs.mkdirSync(root, { recursive: true });

@@ -1,4 +1,5 @@
 import iconAutoFit from '@tabler/icons/outline/arrow-autofit-content.svg?raw';
+import iconPhoto from '@tabler/icons/outline/photo.svg?raw';
 import iconOrthographic from '@tabler/icons/outline/perspective-off.svg?raw';
 import iconPerspective from '@tabler/icons/outline/perspective.svg?raw';
 import iconGrid from '@tabler/icons/outline/grid-4x4.svg?raw';
@@ -88,6 +89,7 @@ export const ICON_CENTER_ARC = iconArc3dCenterPoint;
 export const ICON_THREE_POINT_ARC = iconArc3d;
 export const ICON_RECT = iconRectangle;
 export const ICON_TEXT = iconTypography;
+export const ICON_IMAGE = iconPhoto;
 export const ICON_PENCIL = iconPencil;
 /** "Show in source" — jump from a panel row to the statement that made it. */
 export const ICON_CODE = iconCode;

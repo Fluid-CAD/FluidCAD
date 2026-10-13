@@ -297,6 +297,8 @@ export type CopyGhostRequest = {
   skip?: number[][];
   /** Pattern only: the `repeat()` the copies follow, by call site. */
   pattern?: { filePath: string; line: number };
+  /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -311,6 +313,8 @@ export type MirrorGhostRequest = {
   targets: { filePath: string; line: number }[];
   /** The plane to mirror across. */
   plane: GhostPlaneRef;
+  /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -325,6 +329,8 @@ export type RotateGhostRequest = {
   axis: GhostAxisRef;
   /** The rotation angle in degrees. */
   angle: number;
+  /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
+  exclude?: { filePath: string; line: number };
 };
 
 /**

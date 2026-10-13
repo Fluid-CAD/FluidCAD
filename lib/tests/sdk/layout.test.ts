@@ -187,7 +187,9 @@ describe("an author's layout", () => {
 
   it("checks an item's visibleWhen like a value's", () => {
     refuses([...rest('depth'), { section: 'Depth', items: ['depth'], visibleWhen: { thru: true } }], "layout: section 'Depth': 'visibleWhen' names 'thru', which is not one of the feature's values");
-    refuses([...rest('count', 'start'), { row: ['count', 'start'], visibleWhen: { around: 'x' } }], "layout: row [count, start]: 'visibleWhen' names 'around', a picked value — it can only name a typed-in one");
+    refuses([...rest('count', 'start'), { row: ['count', 'start'], visibleWhen: { around: { surface: 'cylinder' } } }], "layout: row [count, start]: 'visibleWhen': 'around': 'surface' tells picked faces apart, and 'around' picks no faces");
+    // An item may hide on a picked value: while nothing is picked for it, here.
+    expect(() => resolved({ layout: [...rest('count', 'start'), { row: ['count', 'start'], visibleWhen: { around: { picked: true } } }] })).not.toThrow();
     refuses([...rest(), { note: 'A long note that is cut short here', visibleWhen: { through: 'yes' } }], `layout: note 'A long note that is cut …': 'visibleWhen': "yes" is not a value 'through' can take`);
     refuses([...rest(), { image: './dims.svg', visibleWhen: {} }], "layout: image './dims.svg': 'visibleWhen' must be an object of values to match, such as { style: 'counterbore' }");
     refuses([...rest(), { note: 'Hi', visibleWhen: { finishes: 'm3' } }], "layout: note 'Hi': 'visibleWhen' names 'finishes', a select with 'multiple: true' — it can only name a value that holds one thing");

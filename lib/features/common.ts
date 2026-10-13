@@ -3,6 +3,7 @@ import { Shape } from "../common/shape.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { requireShapes } from "../common/operand-check.js";
+import { liveOperandShapes } from "../helpers/live-solids.js";
 
 export class Common extends SceneObject {
   private _sceneObjects: SceneObject[] = [];
@@ -39,10 +40,12 @@ export class Common extends SceneObject {
       sceneObjects = context.getSceneObjects();
     }
 
+    // Each operand's body as the features since left it, keyed to its holder
+    // (liveOperandShapes) — the holder is what loses it to the intersection.
     const objShapeMap = new Map<Shape, SceneObject>();
     for (const obj of sceneObjects) {
-      for (const shape of obj.getShapes({ excludeMeta: false }, 'solid')) {
-        objShapeMap.set(shape, obj);
+      for (const { holder, shape } of liveOperandShapes(obj, { excludeMeta: false }, 'solid')) {
+        objShapeMap.set(shape, holder);
       }
     }
 

@@ -3,6 +3,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { requireShapes } from "../common/operand-check.js";
+import { liveOperandShapes } from "../helpers/live-solids.js";
 import { PointResolver } from "./point-resolver.js";
 
 export class Translate extends SceneObject {
@@ -39,9 +40,10 @@ export class Translate extends SceneObject {
       objects = objects.filter(obj => !this._excludedObjects.includes(obj));
     }
 
+    // A named target's body is moved from wherever the features since left
+    // it (liveOperandShapes): the holder loses it, not the variable's object.
     for (const obj of objects) {
-      const shapes = obj.getShapes();
-      for (const shape of shapes) {
+      for (const { holder, shape } of liveOperandShapes(obj)) {
         if (!shape.isSolid()) {
           continue;
         }
@@ -53,7 +55,7 @@ export class Translate extends SceneObject {
         transformed.setMeshSource(shape, matrix);
         this.addShape(transformed);
         if (!this.copy) {
-          obj.removeShape(shape, this, [transformed])
+          holder.removeShape(shape, this, [transformed])
         }
       }
     }

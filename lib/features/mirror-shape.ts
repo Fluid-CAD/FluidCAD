@@ -6,6 +6,7 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import { requireShapes } from "../common/operand-check.js";
+import { liveOperandShapes } from "../helpers/live-solids.js";
 
 export class MirrorShape extends SceneObject {
   private _excludedObjects: SceneObject[] = [];
@@ -75,9 +76,10 @@ export class MirrorShape extends SceneObject {
 
     const transformedShapes: Shape[] = [];
 
+    // A named target's body is read wherever the features since left it
+    // (liveOperandShapes); the mirror never takes it, so no holder to update.
     for (const obj of targetObjects) {
-      const shapes = obj.getShapes({ excludeMeta: false }, 'solid');
-      for (const shape of shapes) {
+      for (const { shape } of liveOperandShapes(obj, { excludeMeta: false }, 'solid')) {
         const matrix = Matrix4.mirrorPlane(plane.normal, plane.origin);
         const transformed = ShapeOps.transform(shape, matrix);
         transformed.setMeshSource(shape, matrix);

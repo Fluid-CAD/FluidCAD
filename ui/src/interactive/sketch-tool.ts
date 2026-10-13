@@ -11,7 +11,7 @@ import { resolveExpressionValue, VariableInfo } from '../ui/expression-core';
 import { addDot, START_POINT_COLOR } from './tools/tool-preview-utils';
 import type { SolvedToolContext } from './tools/solved-emission';
 
-export type ToolId = 'line' | 'polyline' | 'circle' | 'ellipse' | 'polygon' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'fillet' | 'offset' | 'split' | 'trim' | 'copy' | 'mirror' | 'bezier' | 'text' | 'project' | 'intersect';
+export type ToolId = 'line' | 'polyline' | 'circle' | 'ellipse' | 'polygon' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'fillet' | 'offset' | 'split' | 'trim' | 'copy' | 'mirror' | 'bezier' | 'text' | 'image' | 'project' | 'intersect';
 
 export type ToolConfig = {
   id: ToolId;
@@ -38,6 +38,12 @@ export abstract class SketchTool {
   abstract readonly id: ToolId;
   abstract readonly label: string;
   abstract readonly icon: string;
+  /**
+   * True for a tool whose dialog takes the docked spot the sketch dialog
+   * uses: the toolbar service suspends the sketch dialog while the tool is
+   * active, the way it does for the 2D op dialogs.
+   */
+  readonly docksDialog: boolean = false;
 
   protected ctx: SceneContext;
   protected plane: PlaneData;

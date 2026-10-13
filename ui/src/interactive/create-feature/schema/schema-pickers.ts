@@ -743,6 +743,24 @@ export class SchemaPicker {
     return standard ? { kind: 'standard', name: standard } : null;
   }
 
+  /**
+   * The faces each element stands for, as a `visibleWhen` tells picks apart:
+   * a picked face, a kept selection's faces once its sources are known — or
+   * null for an element that is no face (an edge, an axis, a statement).
+   */
+  pickedFaces(): (readonly { shapeId: string; index: number }[] | null)[] {
+    return this.elements.map(element => {
+      if (element.kind === 'entity') {
+        return element.entity.sub.type === 'face' ? [{ shapeId: element.entity.shapeId, index: element.entity.sub.index }] : null;
+      }
+      if (element.kind === 'keep' && element.source?.kind === 'entities' && element.source.entities.length > 0
+        && element.source.entities.every(e => e.sub.type === 'face')) {
+        return element.source.entities.map(e => ({ shapeId: e.shapeId, index: e.sub.index }));
+      }
+      return null;
+    });
+  }
+
   /** Whether the request carries viewport geometry — an edit then needs its boundary. */
   get hasPickedGeometry(): boolean {
     return (!this.editing || this.touched) && this.elements.some(e => e.kind === 'entity' || e.kind === 'anchor');

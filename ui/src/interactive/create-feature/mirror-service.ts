@@ -653,6 +653,9 @@ export class MirrorFeatureService {
       op: this.panel.values().op,
       targets,
       plane,
+      exclude: this.editTarget
+        ? { filePath: this.editTarget.filePath, line: this.editTarget.line }
+        : undefined,
     };
     const result = await fetchFeatureGhostResult(request, featureGhostScope(this.editTarget), signal);
     // Only a limit the user can act on reaches the panel — never an ordinary

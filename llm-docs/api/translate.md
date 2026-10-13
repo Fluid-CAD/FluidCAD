@@ -23,6 +23,12 @@ Returns the translated `SceneObject`. With no explicit target it operates
 on the last object — the same implicit-context model as the rest of the
 API.
 
+A named target stands for the body it built wherever later features left
+it: after `const e = extrude(30); fillet(3, e.endEdges());` the call
+`translate([0, 0, 100], e)` moves the filleted body (see
+[[concepts/scene-graph]]). Only a body nothing stands for any more — one
+`remove()` took, or a cut consumed entirely — makes the move fail.
+
 The `copy: true` overload duplicates the source rather than moving it,
 producing a new independent object. Use it for one-off duplicates; for
 patterns use [[api/copy]] or [[api/repeat]].

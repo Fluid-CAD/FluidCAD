@@ -92,6 +92,26 @@ export function writeWorkspaceFile(path: string, content: string): Promise<Works
   return post('api/files/write', { path, content });
 }
 
+export type BinaryWriteResult = { path: string; absPath: string; size: number };
+
+/**
+ * Put a binary file (base64) on disk — a sketch's reference picture. With
+ * `ifExists: 'unique'` an existing file is kept and the new one lands
+ * beside it under a numbered name; the result says where it went.
+ */
+export function writeWorkspaceBinaryFile(
+  path: string,
+  data: string,
+  ifExists: 'replace' | 'unique' = 'replace',
+): Promise<BinaryWriteResult> {
+  return post('api/files/write-binary', { path, data, ifExists });
+}
+
+/** The URL that serves a workspace file's bytes (absolute or workspace-relative path). */
+export function rawWorkspaceFileUrl(path: string): string {
+  return `api/files/raw?path=${encodeURIComponent(path)}`;
+}
+
 /** Render this file as the current model — the scene follows. */
 export function openWorkspaceFile(path: string): Promise<{ success: boolean; absPath: string }> {
   return post('api/files/open', { path });

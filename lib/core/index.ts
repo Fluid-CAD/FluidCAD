@@ -5,6 +5,7 @@ export type {
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap,
   IRepeat, IRepeatInstance, IRegionTarget, IRegionSide, ISection,
 } from "./interfaces.js";
+export type { SketchImageOptions, SketchImageSpec } from "../features/2d/sketch-image.js";
 export { default as axis } from "./axis.js";
 export { default as plane } from "./plane.js";
 export { default as sketch } from "./sketch.js";

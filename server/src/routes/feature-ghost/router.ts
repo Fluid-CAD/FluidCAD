@@ -244,6 +244,16 @@ export function createFeatureGhostRouter(
       }
       repeat = parsed;
     }
+    // The transforms' edit mode: the edited statement's call site, so the
+    // kernel reads its targets as of just before it (see copyTargetSolids).
+    let transformExclude: { filePath: string; line: number } | undefined;
+    if ((isCopy || isMirror || isRotate) && body.exclude !== undefined && body.exclude !== null) {
+      if (typeof body.exclude.filePath !== 'string' || typeof body.exclude.line !== 'number') {
+        res.status(400).json({ success: false, reason: 'Invalid exclude reference' });
+        return;
+      }
+      transformExclude = { filePath: body.exclude.filePath, line: body.exclude.line };
+    }
     let copy: RawCopy | null = null;
     if (isCopy) {
       const parsed = parseCopy(body);
@@ -461,6 +471,7 @@ export function createFeatureGhostRouter(
         sweep: copy!.sweep ? { mode: copy!.sweep.mode, value: sweepValue! } : null,
         skip: copy!.skip,
         ...(copy!.pattern ? { pattern: copy!.pattern } : {}),
+        exclude: transformExclude,
       };
     } else if (isMirror) {
       request = {
@@ -468,6 +479,7 @@ export function createFeatureGhostRouter(
         op: body.op as 'add' | 'remove' | 'new',
         targets: mirror!.targets,
         plane: mirror!.plane,
+        exclude: transformExclude,
       };
     } else if (isRotate) {
       if (angle === null) {
@@ -479,6 +491,7 @@ export function createFeatureGhostRouter(
         targets: rotate!.targets,
         axis: rotate!.axis,
         angle,
+        exclude: transformExclude,
       };
     } else if (isMirror2D) {
       request = {

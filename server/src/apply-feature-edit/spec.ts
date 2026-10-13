@@ -1,5 +1,6 @@
 // The apply-feature-edit request and result contracts shared by every host and route.
 
+import type { SketchImageEdit } from '../code-editor/index.ts';
 import type { SketchConstraintEditSpec } from '../sketch-constraint-edit.ts';
 import type { SketchSplitSpec } from '../sketch-split.ts';
 import type { SketchTrimSpec } from '../sketch-trim.ts';
@@ -389,6 +390,12 @@ export type ApplyFeatureEditSpec = {
    * edit after it; every other spec field is ignored.
    */
   sketchClosed?: SketchClosedEditSpec;
+  /**
+   * The sketch Image tool's commit — write a new `image(…)` statement into
+   * a sketch body, or rewrite an existing one — alone on its round
+   * trip like `sketchClosed`; every other spec field is ignored.
+   */
+  sketchImage?: SketchImageEditSpec;
   /**
    * The part row menu's "Set material…" chain edit, alone on its round
    * trip like `sketchClosed`; every other spec field is ignored.
@@ -841,6 +848,23 @@ export type SketchClosedEditSpec = {
   sourceLine: number;
   closed: boolean;
 };
+
+/**
+ * The sketch Image tool's commit: a new picture in the sketch at
+ * `sketchLine` (see {@link insertSketchImage}), or the `image()` statement
+ * at `imageLine` rewritten (see {@link setSketchImage}).
+ */
+export type SketchImageEditSpec =
+  | {
+    /** The sketch statement's 1-based source line. */
+    sketchLine: number;
+    image: SketchImageEdit;
+  }
+  | {
+    /** The `image()` statement's 1-based source line. */
+    imageLine: number;
+    image: SketchImageEdit;
+  };
 
 /** The section arrow's offset commit: see {@link setSectionOptions}. */
 export type SectionOptionsEditSpec = {

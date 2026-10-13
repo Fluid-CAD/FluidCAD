@@ -808,6 +808,12 @@ export type CopyGhostRequest = {
   skip: number[][];
   /** Pattern only: the `repeat()` the copies follow, by call site. */
   pattern?: { filePath: string; line: number };
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -824,6 +830,12 @@ export type MirrorGhostRequest = {
   targets: { filePath: string; line: number }[];
   /** The plane to mirror across. */
   plane: GhostPlaneRef;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -840,6 +852,12 @@ export type RotateGhostRequest = {
   axis: GhostAxisRef;
   /** The rotation angle in degrees. */
   angle: ValueExpr;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -4824,6 +4842,40 @@ export function setSketchClosed(sourceLocation: SourceLocationParam, closed: boo
 }
 
 /**
+ * The `image()` record the sketch Image tool commits: the path relative to
+ * the model file and the options it holds (`width` and/or `height`
+ * required; a default-valued `at` / `angle` is left out of the written
+ * statement by the server).
+ */
+export type SketchImageEdit = {
+  src: string;
+  width?: number;
+  height?: number;
+  at?: [number, number];
+  angle?: number;
+  opacity?: number;
+};
+
+/**
+ * Write a new `image(…)` statement into the body of the sketch at
+ * `sketch` — the sketch toolbar's Image tool. Acked like
+ * {@link setSketchClosed}: resolves once the host applied the edit, so the
+ * tool closes on the re-render that shows the picture from code.
+ */
+export function addSketchImage(sketch: SourceLocationParam, image: SketchImageEdit): Promise<SetUnitResult> {
+  return postAcked('api/sketch-image', { sketch, image });
+}
+
+/**
+ * Rewrite the `image(…)` statement at `target` — the Image tool re-opened
+ * on a picture from its timeline row (the row's own Remove deletes it).
+ * Acked like {@link addSketchImage}.
+ */
+export function setSketchImage(target: SourceLocationParam, image: SketchImageEdit): Promise<SetUnitResult> {
+  return postAcked('api/sketch-image', { target, image });
+}
+
+/**
  * Set (or, with null, remove) the `.material('id')` chain on the `part(...)`
  * statement at `sourceLocation` — the timeline row menu's Set material….
  * Acked like {@link setSketchClosed}: resolves once the host applied the
@@ -6156,8 +6208,35 @@ export type FeatureScalarValue = number | string | boolean;
 /** What a select of several (`multiple`) holds: the chosen options' values, in the options' order. */
 export type FeatureListValue = (string | number)[];
 
-/** When a value's row shows: every named value equals the given one, or one of the listed ones. */
-export type FeatureVisibleWhen = Record<string, FeatureScalarValue | FeatureScalarValue[]>;
+/** What a picked face is, as a custom feature's `visibleWhen` tells picks apart (mirror of the engine's `PickedSurface`). */
+export type FeaturePickedSurface = 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'other';
+
+/**
+ * A condition on a picked value (mirror of the engine's `PickCondition`):
+ * every field given holds — `picked`, whether it holds anything; `surface`,
+ * it holds picks and each is a face of this surface (or one of these);
+ * `not`, the condition given does not hold.
+ */
+export type FeaturePickCondition = {
+  picked?: boolean;
+  surface?: FeaturePickedSurface | FeaturePickedSurface[];
+  not?: FeaturePickCondition;
+};
+
+/**
+ * When a value's row shows: every named typed-in value equals the given one,
+ * or one of the listed ones, and every named picked value meets its condition.
+ */
+export type FeatureVisibleWhen = Record<string, FeatureScalarValue | FeatureScalarValue[] | FeaturePickCondition>;
+
+/** When an option is offered: every named typed-in value equals the given one, or one of the listed ones. */
+export type FeatureOptionWhen = Record<string, FeatureScalarValue | FeatureScalarValue[]>;
+
+/**
+ * What a picked value holds, as a `visibleWhen` reads it: each pick's
+ * surface — null for a pick that is not a face, or not told apart yet.
+ */
+export type FeaturePickState = { picks: (FeaturePickedSurface | null)[] };
 
 /** What every value of a custom feature declares (mirror of the engine's snapshot). */
 type FeatureParamCommon = {
@@ -6181,8 +6260,8 @@ type FeatureParamCommon = {
 export type FeatureChoiceOption = {
   label: string;
   value: string | number;
-  /** When the dialog offers the option: the clauses of a `visibleWhen`. Always, without one. */
-  when?: FeatureVisibleWhen;
+  /** When the dialog offers the option: typed-in values to match. Always, without one. */
+  when?: FeatureOptionWhen;
   /** A picture of the choice: a file next to the module, served as the icon is. */
   image?: string;
   /** A line under the label. */

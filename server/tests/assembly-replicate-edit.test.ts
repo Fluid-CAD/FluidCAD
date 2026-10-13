@@ -140,6 +140,81 @@ describe('applyAssemblyReplicateEdit — create', () => {
     );
   });
 
+  // #83: a row cell on another statement's replica (or on anything inserted
+  // below the seed's mates) names a binding declared later than the seed's
+  // last mate — the statement must land below that declaration, not in its
+  // temporal dead zone.
+  const DRONE = `${HEADER_R}
+export const master = assembly('master', () => {
+  const frame1 = insert(frame).grounded();
+  const rotor1 = insert(rotor);
+  const blade1 = insert(blade);
+
+  mate('fastened', rotor1.connectors.bolt, frame1.connectors.base_4);
+  mate('revolute', blade1.connectors.hub, rotor1.connectors.shaft);
+
+  const rotor1Replicas = replicate(rotor1, [frame1.connectors.base_4], [
+    [frame1.connectors.base_1],
+    [frame1.connectors.base_2],
+  ]);
+});
+`;
+
+  function dronePayload(code: string) {
+    const rep = lineOf(code, 'replicate(rotor1');
+    return {
+      seed: { instanceLine: lineOf(code, 'const blade1') },
+      targets: [{ instanceLine: lineOf(code, 'const rotor1 '), connectorName: 'shaft' }],
+      rows: [
+        [{ instanceLine: rep, replicaRow: 1, connectorName: 'shaft' }],
+        [{ instanceLine: rep, replicaRow: 0, connectorName: 'shaft' }],
+      ],
+    };
+  }
+
+  it('lands below a later replicate whose replicas its rows address (#83)', async () => {
+    const result = await applyAssemblyReplicateEdit(DRONE, { create: dronePayload(DRONE) });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(DRONE.replace(
+      '    [frame1.connectors.base_2],\n  ]);\n',
+      '    [frame1.connectors.base_2],\n  ]);\n'
+      + '  replicate(blade1, [rotor1.connectors.shaft], [\n'
+      + '    [rotor1Replicas[1].connectors.shaft],\n'
+      + '    [rotor1Replicas[0].connectors.shaft],\n'
+      + '  ]);\n',
+    ));
+  });
+
+  it('hoists a later bare replicate\'s binding and still lands below it (#83)', async () => {
+    const bare = DRONE.replace('const rotor1Replicas = replicate', 'replicate');
+    const result = await applyAssemblyReplicateEdit(bare, { create: dronePayload(bare) });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(DRONE.replace(
+      '    [frame1.connectors.base_2],\n  ]);\n',
+      '    [frame1.connectors.base_2],\n  ]);\n'
+      + '  replicate(blade1, [rotor1.connectors.shaft], [\n'
+      + '    [rotor1Replicas[1].connectors.shaft],\n'
+      + '    [rotor1Replicas[0].connectors.shaft],\n'
+      + '  ]);\n',
+    ));
+  });
+
+  it('lands below an instance inserted after the seed\'s mates when a cell addresses it (#83)', async () => {
+    const code = `${ENGINE}const crank2 = insert(crankShaft);\n`;
+    const result = await applyAssemblyReplicateEdit(code, {
+      create: {
+        seed: { instanceLine: lineOf(code, 'const cyl1') },
+        targets: [{ instanceLine: lineOf(code, 'const crank '), connectorName: 'c2' }],
+        rows: [[{ instanceLine: lineOf(code, 'const crank2'), connectorName: 'c2' }]],
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(
+      `${ENGINE.replace(HEADER, HEADER_R)}const crank2 = insert(crankShaft);\n`
+      + `replicate(cyl1, [crank.connectors.c2], [\n  [crank2.connectors.c2],\n]);\n`,
+    );
+  });
+
   it('refuses a seed that has no mate yet', async () => {
     const code = `${HEADER}\nconst crank = insert(crankShaft);\nconst cyl1 = insert(pistonAssembly);\n`;
     const result = await applyAssemblyReplicateEdit(code, {
@@ -355,7 +430,8 @@ describe('removeReplicateRow', () => {
 
 describe('mate writer — replicas and ordering', () => {
   it('places a new mate touching the seed BEFORE its replicate statement', async () => {
-    const code = `${REPLICATED}const sensor = insert(sensorBracket);\n`;
+    const code = `${ENGINE}const sensor = insert(sensorBracket);\n`
+      + `replicate(cyl1, [bore1, crank.connectors.c2], [\n  [bore2, crank.connectors.c3],\n]);\n`;
     const result = await applyAssemblyMateEdit(code, {
       create: {
         type: 'fastened',
@@ -365,9 +441,39 @@ describe('mate writer — replicas and ordering', () => {
     });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe(
-      `${ENGINE}mate('fastened', sensor.connectors.foot, cyl1.parts.piston1.connectors.top);\n`
-      + `replicate(cyl1, [bore1, crank.connectors.c2], [\n  [bore2, crank.connectors.c3],\n]);\n`
-      + `const sensor = insert(sensorBracket);\n`,
+      `${ENGINE}const sensor = insert(sensorBracket);\n`
+      + `mate('fastened', sensor.connectors.foot, cyl1.parts.piston1.connectors.top);\n`
+      + `replicate(cyl1, [bore1, crank.connectors.c2], [\n  [bore2, crank.connectors.c3],\n]);\n`,
+    );
+  });
+
+  it('appends a mate between the seed and its own replica below the replicate, not before it (#83)', async () => {
+    const result = await applyAssemblyMateEdit(REPLICATED, {
+      create: {
+        type: 'planar',
+        connectorA: { instanceLine: lineOf(REPLICATED, 'const cyl1'), connectorName: 'top', viaParts: [['piston1']] },
+        connectorB: { instanceLine: lineOf(REPLICATED, 'replicate(cyl1'), replicaRow: 0, connectorName: 'top', viaParts: [['piston1']] },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(
+      `${ENGINE}const cyl1Replicas = replicate(cyl1, [bore1, crank.connectors.c2], [\n  [bore2, crank.connectors.c3],\n]);\n\n`
+      + `mate('planar', cyl1.parts.piston1.connectors.top, cyl1Replicas[0].parts.piston1.connectors.top);\n`,
+    );
+  });
+
+  it('appends a mate touching the seed below the replicate when its other side is inserted after it (#83)', async () => {
+    const code = `${REPLICATED}const sensor = insert(sensorBracket);\n`;
+    const result = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: lineOf(code, 'const cyl1'), connectorName: 'top', viaParts: [['piston1']] },
+        connectorB: { instanceLine: lineOf(code, 'const sensor'), connectorName: 'foot' },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(
+      `${code}\nmate('fastened', cyl1.parts.piston1.connectors.top, sensor.connectors.foot);\n`,
     );
   });
 

@@ -1,14 +1,14 @@
 import type {
   FeatureLayoutImage, FeatureLayoutItem, FeatureLayoutNote, FeatureLayoutRow, FeatureLayoutSection, FeatureLayoutTabs,
-  FeatureListValue, FeatureOpKind, FeaturePickerParam, FeatureScalarParam, FeatureScalarValue, FeatureStaticItem,
-  FeatureVisibleWhen,
+  FeatureListValue, FeatureOpKind, FeaturePickedSurface, FeaturePickerParam, FeaturePickState, FeatureScalarParam,
+  FeatureScalarValue, FeatureStaticItem, FeatureVisibleWhen,
 } from '../../../api';
 import { FoldingSection } from '../../../ui/controls';
 import type { VariableInfo } from '../../../ui/expression-core';
 import { FeaturePanel } from '../feature-panel';
 import { ChoiceTabs } from '../panel-controls';
 import { ScopeSlotControl } from '../scope-slot';
-import { FeatureSchema } from './feature-schema';
+import { FeatureSchema, type DialogValues } from './feature-schema';
 import { SchemaField } from './schema-fields';
 import { SchemaPicker } from './schema-pickers';
 
@@ -18,7 +18,7 @@ export type ArmedSlot = string | 'scope' | null;
 const GROUP_HEADING_CLASS = 'text-[10px] uppercase tracking-wide text-base-content/45';
 const COLUMN_CLASS = 'flex flex-col gap-3.5';
 
-type Scalars = Readonly<Record<string, FeatureScalarValue | undefined>>;
+type Scalars = DialogValues;
 
 /**
  * One rendered item of the layout, as visibility walks it: a value's row
@@ -216,6 +216,24 @@ export class SchemaFeaturePanel extends FeaturePanel {
     return values;
   }
 
+  /**
+   * What surface a picked face is, for a `visibleWhen` that names a picked
+   * value: undefined while it is not known yet (the service asks the engine
+   * and syncs the rows again once it is).
+   */
+  faceSurface?: (face: { shapeId: string; index: number }) => FeaturePickedSurface | undefined;
+
+  /** Each picked value's picks as a `visibleWhen` reads them: a surface per picked face, null for anything else. */
+  pickStates(): Record<string, FeaturePickState> {
+    const states: Record<string, FeaturePickState> = {};
+    for (const [name, picker] of this.pickers) {
+      states[name] = {
+        picks: picker.pickedFaces().flatMap(faces => faces === null ? [null] : faces.map(face => this.faceSurface?.(face) ?? null)),
+      };
+    }
+    return states;
+  }
+
   /** A fresh create: defaults in every row, empty picks, the default operation, nothing scoped. */
   show(): void {
     this.shell.setTitle(null);
@@ -352,7 +370,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
    * armed slot that just hid hands the armed state on.
    */
   syncVisibility(): void {
-    const scalars = this.settleOffered();
+    const scalars: DialogValues = { ...this.settleOffered(), ...this.pickStates() };
     for (const [name, field] of this.fields) {
       field.setVisible(this.rowShows(name, scalars));
     }

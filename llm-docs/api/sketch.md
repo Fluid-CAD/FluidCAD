@@ -4,7 +4,7 @@ title: sketch(plane | face, sketcher)
 summary: Opens a 2D sketching context on a plane or a face. Geometry is drawn at guess positions and solved against constraints. The active sketch is the implicit input to extrude/cut/revolve/sweep/loft.
 tags: [api, 2d, primitive]
 symbols: [sketch, origin, xAxis, yAxis]
-seeAlso: [api/extrude, api/constraints, concepts/last-selection, concepts/scene-graph]
+seeAlso: [api/extrude, api/constraints, api/image, concepts/last-selection, concepts/scene-graph]
 ---
 
 # sketch
@@ -103,6 +103,12 @@ extrude(-10, profile);  // the same sketch again
 With `region()` declarations the same sketch drives one feature per region
 (`extrude(20, s).region('ring')`, `extrude(50, s).region('disc')`).
 `remove(s)` drops a sketch for good once nothing else will use it.
+
+## Reference image
+
+To trace a drawing, a photo or a scan, write `image(src, { width })` first
+in the sketch callback — see `api/image`. It is an editor-only statement
+with its own timeline row; the sketch's geometry never reads it.
 
 ## Sketching on a face
 

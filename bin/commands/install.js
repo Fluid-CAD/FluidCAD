@@ -1,3 +1,4 @@
+import { Option } from 'commander';
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { HubInstallCli } from '../lib/hub-install.js';
@@ -14,10 +15,11 @@ import { exitOnRefusal, preferredTarget } from '../lib/packages.js';
  *   version when it has the hub's contents (the newest installed one when
  *   the hub can't be reached). An installed copy is pinned into this
  *   project (and with `--project` copied in); a download is verified,
- *   shown in the consent summary, installed, and pinned in a project;
+ *   installed, and pinned in a project;
  * - `install` alone downloads every package this project pins but has in
- *   neither root, each checked against its pin, after one consent summary;
- *   it exits 1 when any failed.
+ *   neither root, each checked against its pin; it exits 1 when any failed.
+ * Nothing asks first (the user, 2026-10-13): `-y`/`--yes` is still accepted,
+ * and does nothing, so scripts written for the question keep working.
  */
 async function runInstall(arg, opts) {
   const mods = await HubInstallCli.load();
@@ -104,7 +106,8 @@ export function registerInstallCommand(program) {
     .description('Install a package from the hub by name (a name alone: the hub\'s latest; name@version: your library, else the hub); with no arguments, download every package this project pins that is missing')
     .option('--library', 'Install into your package library (the default, unless Settings say otherwise)')
     .option('--project', "Install into this project's packages/ folder; with a package name in your library, copy it there")
-    .option('-y, --yes', 'Install without asking')
+    // Installs no longer ask; kept so scripts that pass it keep working.
+    .addOption(new Option('-y, --yes').hideHelp())
     .option('--replace', 'Replace an installed copy of the same version whose contents differ')
     .option('--hub <url>', 'The hub to download from (default: FLUIDCAD_HUB_URL, else https://hub.fluidcad.io)')
     .action((arg, opts) => {

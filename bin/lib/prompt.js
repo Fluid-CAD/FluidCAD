@@ -3,8 +3,7 @@ import { createInterface } from 'readline/promises';
 /**
  * Minimal interactive prompts for the CLI, built on Node's built-in
  * `readline` — no dependency (the CLI only ships `commander`). Used by
- * `install` to ask before a package's code is installed, and by `publish`
- * to ask before an upload or a withdrawal.
+ * `publish` to ask before an upload or a withdrawal.
  */
 
 /**

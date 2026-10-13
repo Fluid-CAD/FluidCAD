@@ -191,21 +191,22 @@ describe('fluidcad install <@scope/name>', () => {
     const pinned = cli(project, 'install', '@acme/kit@0.1.0');
     expect(pinned.stderr).toBe('');
     expect(pinned.status).toBe(0);
-    expect(pinned.stdout).toBe('Pinned @acme/kit 0.1.0 in this project\'s fluidcad.json (it loads from your library).\n');
+    expect(pinned.stdout).toBe('✓ Using @acme/kit@0.1.0 from your library · 1 feature · pinned in fluidcad.json\n');
     expect(fs.existsSync(path.join(project, 'packages'))).toBe(false);
 
     const copied = cli(project, 'install', '@acme/kit@0.1.0', '--project');
     expect(copied.status).toBe(0);
-    expect(copied.stdout).toContain("Installed @acme/kit 0.1.0 into this project's packages folder");
-    expect(copied.stdout).toContain('This project already pins @acme/kit 0.1.0.');
+    expect(copied.stdout).toBe("✓ Installed @acme/kit@0.1.0 into this project's packages folder · 1 feature · already pinned in fluidcad.json\n");
   });
 
   it('with the hub offline, a name alone pins the library\'s newest version with a note, and says clearly why the rest fails', async () => {
     await seed();
     const pinned = cli(project, 'install', '@acme/kit');
     expect(pinned.status).toBe(0);
-    expect(pinned.stdout).toContain(`Couldn't reach ${offlineHub}, so this uses @acme/kit 0.1.0 from your library, the newest version there; the hub may have a newer one.`);
-    expect(pinned.stdout).toContain('Pinned @acme/kit 0.1.0');
+    expect(pinned.stdout).toBe(
+      '✓ Using @acme/kit@0.1.0 from your library · 1 feature · pinned in fluidcad.json\n' +
+        `  ! Couldn't reach ${offlineHub}: this is the newest version in your library; the hub may have a newer one.\n`,
+    );
 
     const missing = cli(project, 'install', '@acme/gears');
     expect(missing.status).toBe(1);
@@ -216,7 +217,7 @@ describe('fluidcad install <@scope/name>', () => {
 
     const already = cli(outside, 'install', '@acme/kit@0.1.0');
     expect(already.status).toBe(0);
-    expect(already.stdout).toContain(`@acme/kit 0.1.0 is already in your library (${installedKit()}).`);
+    expect(already.stdout).toBe('✓ @acme/kit@0.1.0 is already in your library · 1 feature\n');
   });
 });
 

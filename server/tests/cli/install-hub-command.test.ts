@@ -28,6 +28,8 @@ const CLI = path.join(REPO, 'bin', 'fluidcad.js');
 const COMPILED = path.join(REPO, 'server', 'dist', 'hub', 'hub-installer.js');
 const PROXY_KEYS = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'NO_PROXY', 'no_proxy'];
 const KIT = '@acme/kit';
+/** The line each install prints, for `@acme/kit`'s one feature. */
+const KIT_LINE = (head: string, pin = '') => `✓ ${head} · 1 feature${pin ? ` · ${pin}` : ''}\n`;
 
 type Run = { status: number | null; stdout: string; stderr: string };
 
@@ -84,6 +86,11 @@ async function kitArchive(name: string, version: string, manifest: Record<string
 /** `name@version` already in the library, with the bytes {@link publish} uploads: what an earlier hub install left. */
 async function seedLibrary(name: string, version: string): Promise<void> {
   await LibrarySeed.install(await kitArchive(name, version));
+}
+
+/** A part or assembly entry of a manifest's `parts` list. */
+function model(exportName: string, kind: 'part' | 'assembly') {
+  return { exportName, module: 'index.js', name: exportName, kind, exportKind: 'value', params: [] };
 }
 
 /** A local port nothing listens on: an offline hub. */
@@ -157,20 +164,15 @@ afterEach(() => {
 });
 
 describe('fluidcad install <@scope/name> from the hub', () => {
-  it('downloads the latest into a fresh library, verified, after the consent summary, and pins it in the project', async () => {
+  it('downloads the latest into a fresh library, verified, without asking, and pins it in the project, on one line', async () => {
     await publish(KIT, '0.1.0');
     const latest = await publish(KIT, '0.2.0');
 
-    const run = await cli(project, ['install', KIT, '--yes']);
+    // No terminal and no --yes: nothing asks, and no progress line is drawn.
+    const run = await cli(project, ['install', KIT]);
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain(`Downloading @acme/kit 0.2.0 (${latest.size} B) from ${hub.origin}…`);
-    expect(run.stdout).toContain(`Verified: its files hash to ${latest.integrity}, as ${hub.origin} says.`);
-    expect(run.stdout).toContain('@acme/kit 0.2.0 — A test kit\n  1 feature: standoff (Standoff)\n');
-    expect(run.stdout).not.toContain('installs as');
-    expect(run.stdout).toContain("A package's code runs in the FluidCAD engine with your permissions.");
-    expect(run.stdout).toContain(`Installed @acme/kit 0.2.0 into your library (${installed(KIT, '0.2.0')}).`);
-    expect(run.stdout).toContain("Pinned @acme/kit 0.2.0 in this project's fluidcad.json.");
+    expect(run.stdout).toBe(KIT_LINE('Installed @acme/kit@0.2.0 into your library', 'pinned in fluidcad.json'));
     expect(config().dependencies[KIT]).toEqual({ version: '0.2.0', integrity: latest.integrity });
     expect(await TreeHash.ofDirectory(installed(KIT, '0.2.0'))).toBe(latest.integrity);
     expect(hub.downloadsOf(KIT, '0.2.0')[0].headers['user-agent']).toMatch(/^fluidcad\/\S+ \(\S+; \S+; cli\)$/);
@@ -180,7 +182,7 @@ describe('fluidcad install <@scope/name> from the hub', () => {
     hub.requests.length = 0;
     const again = await cli(project, ['install', KIT]);
     expect(again.status).toBe(0);
-    expect(again.stdout).toContain('This project already pins @acme/kit 0.2.0.');
+    expect(again.stdout).toBe(KIT_LINE('Using @acme/kit@0.2.0 from your library', 'already pinned in fluidcad.json'));
     expect(hub.requests).toHaveLength(0);
   });
 
@@ -189,27 +191,61 @@ describe('fluidcad install <@scope/name> from the hub', () => {
     await publish(KIT, '0.2.0');
     const run = await cli(outside, ['install', `${KIT}@0.1.0`, '-y']);
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain(`Installed @acme/kit 0.1.0 into your library (${installed(KIT, '0.1.0')}).`);
-    expect(run.stdout).not.toContain('Pinned');
+    expect(run.stdout).toBe(KIT_LINE('Installed @acme/kit@0.1.0 into your library'));
     expect(await TreeHash.ofDirectory(installed(KIT, '0.1.0'))).toBe(first.integrity);
     expect(fs.existsSync(installed(KIT, '0.2.0'))).toBe(false);
     expect(fs.existsSync(path.join(outside, 'fluidcad.json'))).toBe(false);
   });
 
-  it('installs into the project copy with --project, and refuses without a terminal or --yes, leaving nothing', async () => {
+  it('installs into the project copy with --project, still taking --yes and -y, which do nothing', async () => {
     await publish(KIT, '0.1.0');
-    const refused = await cli(project, ['install', KIT]);
-    expect(refused.status).toBe(1);
-    expect(refused.stderr).toContain('Pass --yes to install without being asked.');
-    expect(refused.stderr).toContain('Nothing was installed.');
-    expect(fs.existsSync(installed(KIT, '0.1.0'))).toBe(false);
-    expect(config().dependencies).toBeUndefined();
-    expect(scratchLeft()).toBe(false);
-
-    const copied = await cli(project, ['install', KIT, '--project', '-y']);
+    const copied = await cli(project, ['install', KIT, '--project', '--yes']);
+    expect(copied.stderr).toBe('');
     expect(copied.status).toBe(0);
-    expect(copied.stdout).toContain(`Installed @acme/kit 0.1.0 into this project's packages folder (${path.join(project, 'packages', '@acme', 'kit', '0.1.0')}).`);
+    expect(copied.stdout).toBe(KIT_LINE("Installed @acme/kit@0.1.0 into this project's packages folder", 'pinned in fluidcad.json'));
+    expect(fs.existsSync(path.join(project, 'packages', '@acme', 'kit', '0.1.0'))).toBe(true);
     expect(fs.existsSync(path.join(project, 'packages', '.tmp'))).toBe(false);
+    expect(fs.existsSync(installed(KIT, '0.1.0'))).toBe(false);
+
+    const again = await cli(project, ['install', KIT, '--project', '-y']);
+    expect(again.status).toBe(0);
+    expect(again.stdout).toBe(KIT_LINE("@acme/kit@0.1.0 is already in this project's packages folder", 'already pinned in fluidcad.json'));
+  });
+
+  it('counts the features, parts and assemblies, in the plural when there are several, leaving a zero out', async () => {
+    const parts = [model('plate', 'part'), model('riser', 'part'), model('stack', 'assembly')];
+    await publish('@acme/bench', '0.1.0', {}, {
+      features: [
+        { id: 'standoff', exportName: 'standoff', module: 'standoff.feature.js', meta: { label: 'Standoff' } },
+        { id: 'boss', exportName: 'boss', module: 'standoff.feature.js', meta: { label: 'Boss' } },
+      ],
+      parts,
+    });
+    await publish('@acme/models', '0.1.0', {}, { features: [], parts: [model('plate', 'part'), model('stack', 'assembly'), model('rack', 'assembly')] });
+
+    const bench = await cli(outside, ['install', '@acme/bench']);
+    expect(bench.status).toBe(0);
+    expect(bench.stdout).toBe('✓ Installed @acme/bench@0.1.0 into your library · 2 features, 2 parts, 1 assembly\n');
+    const models = await cli(outside, ['install', '@acme/models']);
+    expect(models.stdout).toBe('✓ Installed @acme/models@0.1.0 into your library · 1 part, 2 assemblies\n');
+  });
+
+  it('keeps --yes out of the help', async () => {
+    const help = await cli(outside, ['install', '--help']);
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain('--project');
+    expect(help.stdout).not.toContain('--yes');
+    expect(help.stdout).not.toContain('-y,');
+  });
+
+  it('says on one short line when the version it installs needs a newer FluidCAD', async () => {
+    await publish(KIT, '0.1.0', {}, { minEngine: '0.0.99' });
+    const run = await cli(outside, ['install', `${KIT}@0.1.0`]);
+    expect(run.status).toBe(0);
+    expect(run.stdout).toBe(
+      KIT_LINE('Installed @acme/kit@0.1.0 into your library') +
+        `  ! Needs FluidCAD 0.0.99 or newer; this is ${ArchiveFixture.ENGINE}, so it won't load until you upgrade.\n`,
+    );
   });
 
   it('a yanked exact version installs with its note; a removed one refuses with the reason', async () => {
@@ -217,12 +253,13 @@ describe('fluidcad install <@scope/name> from the hub', () => {
     await publish(KIT, '0.2.0', { removed: { at: '2026-10-10T00:00:00.000Z', reason: 'malware' } });
     await publish(KIT, '0.3.0');
 
-    const yanked = await cli(outside, ['install', `${KIT}@0.1.0`, '-y']);
+    const yanked = await cli(outside, ['install', `${KIT}@0.1.0`]);
     expect(yanked.status).toBe(0);
-    expect(yanked.stdout).toContain('! @acme/kit@0.1.0 was yanked (wrong thread pitch): it installs because you asked for this version');
+    expect(yanked.stdout).toBe(KIT_LINE('Installed @acme/kit@0.1.0 into your library') + '  ! Yanked (wrong thread pitch): installed because you asked for this version.\n');
 
-    const removed = await cli(outside, ['install', `${KIT}@0.2.0`, '-y']);
+    const removed = await cli(outside, ['install', `${KIT}@0.2.0`]);
     expect(removed.status).toBe(1);
+    expect(removed.stdout).toBe('');
     expect(removed.stderr).toContain(`@acme/kit@0.2.0 was removed from ${hub.origin} by its admins (malware), and can't be installed.`);
     expect(fs.existsSync(installed(KIT, '0.2.0'))).toBe(false);
   });
@@ -230,25 +267,25 @@ describe('fluidcad install <@scope/name> from the hub', () => {
   it('prints the deprecation message beside the package it installs (H12)', async () => {
     await publish(KIT, '0.1.0');
     hub.packages.get(KIT)!.deprecatedMessage = 'Use @acme/other instead.';
-    const run = await cli(outside, ['install', KIT, '-y']);
+    const run = await cli(outside, ['install', KIT]);
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain('! @acme/kit is deprecated: Use @acme/other instead.');
+    expect(run.stdout).toBe(KIT_LINE('Installed @acme/kit@0.1.0 into your library') + '  ! Deprecated: Use @acme/other instead.\n');
     // Already in the library: the library copy is used, and the message is still said.
-    const again = await cli(outside, ['install', KIT, '-y']);
-    expect(again.stdout).toContain('@acme/kit is deprecated: Use @acme/other instead.');
+    const again = await cli(outside, ['install', KIT]);
+    expect(again.stdout).toBe(KIT_LINE('@acme/kit@0.1.0 is already in your library') + '  ! Deprecated: Use @acme/other instead.\n');
   });
 
   it('installs an unpublished version by exact version only with the owner\'s token', async () => {
     await publish(KIT, '0.1.0', { status: 'in_review', publishedAt: null });
-    const anonymous = await cli(outside, ['install', `${KIT}@0.1.0`, '-y']);
+    const anonymous = await cli(outside, ['install', `${KIT}@0.1.0`]);
     expect(anonymous.status).toBe(1);
     expect(anonymous.stderr).toContain(`@acme/kit@0.1.0 isn't on ${hub.origin}.`);
     expect(anonymous.stderr).toContain('sign in with `fluidcad login` first');
 
     const token = hub.issueToken({ kind: 'cli', scopes: ['publish'] }).token;
-    const mine = await cli(outside, ['install', `${KIT}@0.1.0`, '-y'], { FLUIDCAD_HUB_TOKEN: token });
+    const mine = await cli(outside, ['install', `${KIT}@0.1.0`], { FLUIDCAD_HUB_TOKEN: token });
     expect(mine.status).toBe(0);
-    expect(mine.stdout).toContain("! @acme/kit@0.1.0 isn't published: it is in review, and you can install it as its owner.");
+    expect(mine.stdout).toBe(KIT_LINE('Installed @acme/kit@0.1.0 into your library') + '  ! Not published (in review): installed as its owner.\n');
     expect(hub.downloadsOf(KIT, '0.1.0').at(-1)!.headers.authorization).toBe(`Bearer ${token}`);
   });
 
@@ -256,9 +293,10 @@ describe('fluidcad install <@scope/name> from the hub', () => {
     await publish(KIT, '0.1.0');
     const offline = await closedPort();
 
-    const run = await cli(outside, ['install', KIT, '-y', '--hub', hub.origin], { FLUIDCAD_HUB_URL: offline });
+    const run = await cli(outside, ['install', KIT, '--hub', hub.origin], { FLUIDCAD_HUB_URL: offline });
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain(`from ${hub.origin}`);
+    expect(run.stdout).toBe(KIT_LINE('Installed @acme/kit@0.1.0 into your library'));
+    expect(hub.downloadsOf(KIT, '0.1.0')).toHaveLength(1);
   });
 });
 
@@ -268,11 +306,10 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
     const latest = await publish(KIT, '0.2.0');
     await seedLibrary(KIT, '0.1.0');
 
-    const run = await cli(project, ['install', KIT, '-y']);
+    const run = await cli(project, ['install', KIT]);
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain(`Downloading @acme/kit 0.2.0 (${latest.size} B) from ${hub.origin}…`);
-    expect(run.stdout).toContain("Pinned @acme/kit 0.2.0 in this project's fluidcad.json.");
+    expect(run.stdout).toBe(KIT_LINE('Installed @acme/kit@0.2.0 into your library', 'pinned in fluidcad.json'));
     expect(config().dependencies[KIT]).toEqual({ version: '0.2.0', integrity: latest.integrity });
     expect(hub.downloadsOf(KIT, '0.2.0')).toHaveLength(1);
   });
@@ -285,12 +322,12 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
     const pinned = await cli(project, ['install', KIT]);
     expect(pinned.stderr).toBe('');
     expect(pinned.status).toBe(0);
-    expect(pinned.stdout).toBe("Pinned @acme/kit 0.2.0 in this project's fluidcad.json (it loads from your library).\n");
+    expect(pinned.stdout).toBe(KIT_LINE('Using @acme/kit@0.2.0 from your library', 'pinned in fluidcad.json'));
     expect(config().dependencies[KIT]).toEqual({ version: '0.2.0', integrity: latest.integrity });
 
     const outsideRun = await cli(outside, ['install', KIT]);
     expect(outsideRun.status).toBe(0);
-    expect(outsideRun.stdout).toContain(`@acme/kit 0.2.0 is already in your library (${installed(KIT, '0.2.0')}), with the hub's contents: nothing changed.`);
+    expect(outsideRun.stdout).toBe(KIT_LINE('@acme/kit@0.2.0 is already in your library'));
     expect(hub.downloads).toHaveLength(0);
   });
 
@@ -298,11 +335,10 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
     const older = await publish(KIT, '0.1.0');
     await publish(KIT, '0.2.0', {}, { minEngine: '0.0.99' });
 
-    const run = await cli(project, ['install', KIT, '-y']);
+    const run = await cli(project, ['install', KIT]);
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain(`Downloading @acme/kit 0.1.0 (${older.size} B) from ${hub.origin}…`);
-    expect(run.stdout).toContain(`! The latest @acme/kit, 0.2.0, needs FluidCAD 0.0.99 or newer; this FluidCAD is ${ArchiveFixture.ENGINE}, so this installs 0.1.0, the newest version it runs.`);
-    expect(config().dependencies[KIT].version).toBe('0.1.0');
+    expect(run.stdout).toBe(KIT_LINE('Installed @acme/kit@0.1.0 into your library', 'pinned in fluidcad.json') + '  ! The latest, 0.2.0, needs FluidCAD 0.0.99 or newer.\n');
+    expect(config().dependencies[KIT]).toEqual({ version: '0.1.0', integrity: older.integrity });
   });
 
   it('with the hub offline, pins the library\'s newest version with a note, and fails when the library has none', async () => {
@@ -314,8 +350,8 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
     expect(run.stdout).toBe(
-      `Couldn't reach ${offline}, so this uses @acme/kit 0.3.0 from your library, the newest version there; the hub may have a newer one.\n` +
-        "Pinned @acme/kit 0.3.0 in this project's fluidcad.json (it loads from your library).\n",
+      KIT_LINE('Using @acme/kit@0.3.0 from your library', 'pinned in fluidcad.json') +
+        `  ! Couldn't reach ${offline}: this is the newest version in your library; the hub may have a newer one.\n`,
     );
     expect(config().dependencies[KIT].version).toBe('0.3.0');
 
@@ -328,7 +364,7 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
   it('refuses a package the hub doesn\'t know even with a library copy, naming the exact install, which then works offline', async () => {
     await seedLibrary(KIT, '0.1.0');
 
-    const refused = await cli(project, ['install', KIT, '-y']);
+    const refused = await cli(project, ['install', KIT]);
     expect(refused.status).toBe(1);
     expect(refused.stderr).toContain(`@acme/kit isn't on ${hub.origin}.`);
     expect(refused.stderr).toContain('Your library has a local copy, @acme/kit 0.1.0: `fluidcad install @acme/kit@0.1.0` installs it by its exact version, without the hub.');
@@ -336,7 +372,7 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
 
     const exact = await cli(project, ['install', `${KIT}@0.1.0`], { FLUIDCAD_HUB_URL: await closedPort() });
     expect(exact.status).toBe(0);
-    expect(exact.stdout).toBe("Pinned @acme/kit 0.1.0 in this project's fluidcad.json (it loads from your library).\n");
+    expect(exact.stdout).toBe(KIT_LINE('Using @acme/kit@0.1.0 from your library', 'pinned in fluidcad.json'));
   });
 
   it('an exact version in the library is still used without asking the hub, even when the hub has a newer one', async () => {
@@ -347,28 +383,29 @@ describe('fluidcad install <@scope/name> asks the hub first', () => {
 
     const run = await cli(project, ['install', `${KIT}@0.1.0`]);
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain("Pinned @acme/kit 0.1.0 in this project's fluidcad.json (it loads from your library).");
+    expect(run.stdout).toBe(KIT_LINE('Using @acme/kit@0.1.0 from your library', 'pinned in fluidcad.json'));
     expect(hub.requests).toHaveLength(0);
   });
 });
 
 describe('fluidcad install (no arguments) from the hub', () => {
-  it('downloads every missing pin, each against its pin, with one consent summary', async () => {
+  it('downloads every missing pin, each against its pin, without asking, a line per package', async () => {
     const kit = await publish(KIT, '0.1.0');
     await publish(KIT, '0.2.0');
     const gears = await publish('@acme/gears', '1.2.0');
     pin(KIT, '0.1.0', kit.integrity!);
     pin('@acme/gears', '1.2.0', gears.integrity!);
 
-    const run = await cli(project, ['install', '-y']);
+    const run = await cli(project, ['install']);
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
-    expect(run.stdout).toContain(`This project pins 2 packages that aren't installed; downloading from ${hub.origin}.`);
-    expect(run.stdout).toContain('@acme/gears 1.2.0 — A test kit\n');
-    expect(run.stdout).toContain('@acme/kit 0.1.0 — A test kit\n');
-    expect(run.stdout.match(/A package's code runs in the FluidCAD engine/g)).toHaveLength(2);
-    expect(run.stdout).toContain(`Installed @acme/gears 1.2.0 into your library (${installed('@acme/gears', '1.2.0')}).`);
-    expect(run.stdout).toContain(`Installed @acme/kit 0.1.0 into your library (${installed(KIT, '0.1.0')}).`);
+    const lines = run.stdout.trimEnd().split('\n');
+    expect(lines[0]).toBe(`This project pins 2 packages that aren't installed; downloading from ${hub.origin}.`);
+    expect(lines.slice(1).sort()).toEqual([
+      '✓ Installed @acme/gears@1.2.0 into your library · 1 feature',
+      '✓ Installed @acme/kit@0.1.0 into your library · 1 feature',
+    ]);
+    expect(await TreeHash.ofDirectory(installed('@acme/gears', '1.2.0'))).toBe(gears.integrity);
     expect(fs.existsSync(installed(KIT, '0.2.0'))).toBe(false);
     expect(config().dependencies[KIT]).toEqual({ version: '0.1.0', integrity: kit.integrity });
 
@@ -376,7 +413,7 @@ describe('fluidcad install (no arguments) from the hub', () => {
     expect(complete.stdout).toContain('Every package this project pins is installed (2).');
   });
 
-  it('asks once without --yes, and exits 1 with a line per failure while the rest install', async () => {
+  it('exits 1 with a line per failure while the rest install, without asking; --yes changes nothing', async () => {
     const kit = await publish(KIT, '0.1.0');
     pin(KIT, '0.1.0', kit.integrity!);
     const otherBytes = `sha256-${Buffer.alloc(32, 7).toString('base64')}`;
@@ -384,20 +421,36 @@ describe('fluidcad install (no arguments) from the hub', () => {
     await publish('@acme/bolts', '2.0.0');
     pin('@acme/bolts', '2.0.0', otherBytes);
 
-    const declined = await cli(project, ['install']);
-    expect(declined.status).toBe(1);
-    expect(declined.stderr).toContain('Pass --yes to install without being asked.');
-    expect(fs.existsSync(installed(KIT, '0.1.0'))).toBe(false);
-    expect(scratchLeft()).toBe(false);
-
-    const run = await cli(project, ['install', '--yes']);
+    const run = await cli(project, ['install']);
     expect(run.status).toBe(1);
-    expect(run.stdout).toContain(`Installed @acme/kit 0.1.0 into your library (${installed(KIT, '0.1.0')}).`);
+    expect(run.stdout).toContain('✓ Installed @acme/kit@0.1.0 into your library · 1 feature\n');
+    expect(fs.existsSync(installed(KIT, '0.1.0'))).toBe(true);
     expect(run.stderr).toContain("Couldn't install 2 packages:");
     expect(run.stderr).toContain('  @acme/bolts 2.0.0: ');
     expect(run.stderr).toContain(`but this project pins it as ${otherBytes}`);
     expect(run.stderr).toContain(`  @acme/gears 1.2.0: @acme/gears@1.2.0 isn't on ${hub.origin}.`);
     expect(hub.downloadsOf('@acme/bolts', '2.0.0')).toHaveLength(0);
     expect(scratchLeft()).toBe(false);
+
+    // Again with --yes: the kit is installed now, and the two still fail the same way.
+    const again = await cli(project, ['install', '--yes']);
+    expect(again.status).toBe(1);
+    expect(again.stdout).toBe(`This project pins 2 packages that aren't installed; downloading from ${hub.origin}.\n`);
+    expect(again.stderr).toContain("Couldn't install 2 packages:");
+    expect(again.stderr).toContain(`  @acme/gears 1.2.0: @acme/gears@1.2.0 isn't on ${hub.origin}.`);
+  });
+
+  it('says a refused saved token once, under the first package', async () => {
+    const kit = await publish(KIT, '0.1.0');
+    const gears = await publish('@acme/gears', '1.2.0');
+    pin(KIT, '0.1.0', kit.integrity!);
+    pin('@acme/gears', '1.2.0', gears.integrity!);
+    const issued = hub.issueToken({ kind: 'cli', scopes: ['publish'] });
+    hub.tokenOf(issued.token)!.revoked = true;
+
+    const run = await cli(project, ['install'], { FLUIDCAD_HUB_TOKEN: issued.token });
+    expect(run.status).toBe(0);
+    const said = run.stdout.split('\n').filter((line) => line.includes('refused your saved token'));
+    expect(said).toEqual([`  ! ${hub.origin} refused your saved token, so this ran signed out: run \`fluidcad login\` to sign in again.`]);
   });
 });

@@ -1,5 +1,3 @@
-import { confirm, isInteractive } from './prompt.js';
-
 /**
  * Shared by `install`, `remove` and `packages`: the compiled server classes
  * they wrap, and how a package is printed. The rules — roots, inspection,
@@ -9,9 +7,10 @@ import { confirm, isInteractive } from './prompt.js';
 
 /** The server's package classes, imported lazily: the rest of the CLI doesn't need them at startup. */
 export async function loadPackages() {
-  const [archive, installer, pins, roots, project, preferences, names] = await Promise.all([
+  const [archive, installer, manifests, pins, roots, project, preferences, names] = await Promise.all([
     import('../../server/dist/packages/package-archive.js'),
     import('../../server/dist/packages/package-installer.js'),
+    import('../../server/dist/packages/package-manifests.js'),
     import('../../server/dist/packages/package-pins.js'),
     import('../../server/dist/packages/package-roots.js'),
     import('../../server/dist/packages/project-packages.js'),
@@ -23,6 +22,7 @@ export async function loadPackages() {
     PackageArchiveError: archive.PackageArchiveError,
     PackageInstaller: installer.PackageInstaller,
     PackageInstallError: installer.PackageInstallError,
+    PackageManifests: manifests.PackageManifests,
     PackagePins: pins.PackagePins,
     PackagePinError: pins.PackagePinError,
     PackageRoots: roots.PackageRoots,
@@ -47,58 +47,56 @@ export function exitOnRefusal(err, mods) {
 }
 
 /**
- * The consent summary of a hub download (research §3, "The install flow"):
- * what the package is, what it needs, and what installing it means. `notes`
- * are what the hub's resolution has to say (a yanked or unpublished
- * version, an older version picked for this engine), shown with the
- * warnings.
+ * What `fluidcad install` prints for a package: one line, with what
+ * happened, what the package holds and what happened to the project's pin
+ * (`✓ Installed @acme/kit@0.2.0 into your library · 5 features, 5 parts,
+ * 1 assembly · pinned in fluidcad.json`), then a short line per warning.
  */
-export function printConsentSummary(inspection, notes = []) {
-  const { manifest, warnings, bytes, integrity } = inspection;
-  console.log(`${manifest.name} ${manifest.version}${manifest.description ? ` — ${manifest.description}` : ''}`);
-  const features = manifest.features.map((f) => (f.meta?.label ? `${f.id} (${f.meta.label})` : f.id));
-  const parts = manifest.parts.map((p) => (p.kind === 'assembly' ? `${p.exportName} (assembly)` : p.exportName));
-  console.log(`  ${count(features.length, 'feature')}${features.length ? `: ${features.join(', ')}` : ''}`);
-  console.log(`  ${count(parts.length, 'part')}${parts.length ? `: ${parts.join(', ')}` : ''}`);
-  console.log(`  needs FluidCAD ${manifest.minEngine} or newer (packed on ${manifest.engine})`);
-  console.log(`  ${count(manifest.files.length + 1, 'file')}, ${size(bytes)}, ${integrity}`);
-  for (const note of notes) {
-    console.log(`  ! ${note}`);
+export class InstallLine {
+  static print(head, manifest, pin, warnings = []) {
+    console.log(`✓ ${[head, InstallLine.contents(manifest), InstallLine.pinned(pin)].filter(Boolean).join(' · ')}`);
+    for (const warning of warnings) {
+      console.log(`  ! ${warning}`);
+    }
   }
-  for (const warning of warnings) {
-    console.log(`  ! ${warning.message}`);
-  }
-  console.log("A package's code runs in the FluidCAD engine with your permissions. Install only packages you trust.");
-}
 
-/** Asks before anything is installed; without a terminal, only `--yes` consents. */
-export async function consented(question = 'Install it?') {
-  if (!isInteractive()) {
-    console.error('Pass --yes to install without being asked.');
-    return false;
+  /** What an install did, as the head of its line; `where` is "your library" or "this project's packages folder". */
+  static head(result, where) {
+    const at = `${result.name}@${result.version}`;
+    switch (result.status) {
+      case 'unchanged':
+        return `${at} is already in ${where}`;
+      case 'replaced':
+        return `Replaced ${at} in ${where}`;
+      default:
+        return `Installed ${at} into ${where}`;
+    }
   }
-  return confirm(question);
-}
 
-/** What an install did, on one line. */
-export function installedLine(mods, result) {
-  const where = describeTarget(mods, result.target, result.directory);
-  switch (result.status) {
-    case 'unchanged':
-      return `${result.name} ${result.version} is already in ${where}, with the same contents: nothing changed.`;
-    case 'replaced':
-      return `Replaced ${result.name} ${result.version} in ${where}.`;
-    default:
-      return `Installed ${result.name} ${result.version} into ${where}.`;
+  /** `5 features, 5 parts, 1 assembly`, a count of zero left out; empty for a manifest that holds nothing or can't be read. */
+  static contents(manifest) {
+    if (!manifest) {
+      return '';
+    }
+    const parts = manifest.parts ?? [];
+    const assemblies = parts.filter((p) => p.kind === 'assembly').length;
+    const counts = [
+      [manifest.features?.length ?? 0, 'feature', 'features'],
+      [parts.length - assemblies, 'part', 'parts'],
+      [assemblies, 'assembly', 'assemblies'],
+    ];
+    return counts.filter(([n]) => n > 0).map(([n, noun, plural]) => count(n, noun, plural)).join(', ');
   }
-}
 
-/** What an install did to the project's pin. */
-export function printPin(pin, name, version, from = null) {
-  if (pin === 'pinned') {
-    console.log(`Pinned ${name} ${version} in this project's fluidcad.json${from === 'library' ? ' (it loads from your library)' : ''}.`);
-  } else if (pin === 'unchanged') {
-    console.log(`This project already pins ${name} ${version}.`);
+  /** What an install did to the project's pin; empty when it pinned nothing. */
+  static pinned(pin) {
+    if (pin === 'pinned') {
+      return 'pinned in fluidcad.json';
+    }
+    if (pin === 'unchanged') {
+      return 'already pinned in fluidcad.json';
+    }
+    return '';
   }
 }
 
@@ -123,8 +121,8 @@ export function describeTarget(mods, target, directory) {
   return `${mods.PackageInstaller.describe(target)} (${directory})`;
 }
 
-export function count(n, noun) {
-  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+export function count(n, noun, plural = `${noun}s`) {
+  return `${n} ${n === 1 ? noun : plural}`;
 }
 
 export function size(bytes) {

@@ -4,6 +4,7 @@ import { rad } from "../helpers/math-helpers.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
 import { requireShapes } from "../common/operand-check.js";
+import { liveOperandShapes } from "../helpers/live-solids.js";
 
 export class Rotate extends SceneObject {
   private _targetObjects: SceneObject[] | null = null;
@@ -65,14 +66,15 @@ export class Rotate extends SceneObject {
     const axis = this.axis.getAxis();
     const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(this.angle));
 
+    // A named target's body is turned from wherever the features since left
+    // it (liveOperandShapes): the holder loses it, not the variable's object.
     for (const obj of targetObjects) {
-      const shapes = obj.getShapes();
-      for (const shape of shapes) {
+      for (const { holder, shape } of liveOperandShapes(obj)) {
         const transformed = ShapeOps.transform(shape, matrix);
         transformed.setMeshSource(shape, matrix);
         this.addShape(transformed);
         if (!this.copy) {
-          obj.removeShape(shape, this, [transformed]);
+          holder.removeShape(shape, this, [transformed]);
         }
       }
     }

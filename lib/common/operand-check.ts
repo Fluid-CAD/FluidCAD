@@ -1,6 +1,7 @@
 import { SceneObject } from "./scene-object.js";
 import { Shape, ShapeFilter } from "./shape.js";
 import { BuildError } from "./build-error.js";
+import { liveOperandShapes } from "../helpers/live-solids.js";
 
 interface RequireShapesOpts {
   /** Require exactly this many shapes. */
@@ -15,10 +16,13 @@ interface RequireShapesOpts {
  * Validate that an operand SceneObject still owns shapes the consumer can use,
  * and produce a uniform diagnostic when it doesn't.
  *
- * The most common failure mode is a SceneObject whose geometry was consumed by
- * an earlier op (e.g. `translate(amount, target)` moves the shape from
- * `target` onto the translate object). `getRemovedShapes()` records who took
- * each shape, so we can name the consumer in the error.
+ * A solid an earlier op took from the operand counts as owned while that op
+ * made something of it: `translate(amount, target)` moves the body onto the
+ * translate object, a fillet rebuilds it, a boss fuses it — and a consumer
+ * reading the operand gets the body as those features left it (see
+ * `liveOperandShapes`). Only a body nothing stands for any more — cut away,
+ * or taken by `remove()` — fails here. `getRemovedShapes()` records who took
+ * each shape, so the error names that consumer.
  */
 export function requireShapes(
   obj: SceneObject,
@@ -33,7 +37,7 @@ export function requireShapes(
     return [];
   }
 
-  const shapes = obj.getShapes(opts?.filter);
+  const shapes = liveOperandShapes(obj, opts?.filter).map(entry => entry.shape);
 
   if (shapes.length === 0) {
     const removed = obj.getRemovedShapes();

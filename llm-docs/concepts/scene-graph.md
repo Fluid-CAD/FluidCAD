@@ -28,6 +28,21 @@ rules. The feature tree records both the consumer and what it consumed —
 so swapping a sketch's parameters in source code can be reused without
 re-running everything downstream.
 
+## A variable names a body, not a snapshot
+
+A modifying feature takes the solid it works on: `fillet(3, e.endEdges())`
+removes the extrude's body and holds the filleted one. The variable `e`
+still names that body wherever the features since left it — a later
+`mirror("xz", e)`, `translate(v, e)`, `rotate("x", 90, e)`, `fuse(e, g)`,
+`subtract(e, g)`, `common(e, g)`, `copy(…, e)` or `.scope(e)` reads it
+filleted, moved, or fused into its neighbour, as it is at that point in
+the tree. This is what makes inserting a feature in the middle of a
+script safe (paused at a breakpoint, say): the statements after it keep
+their references. Only a body nothing stands for any more fails: one
+`remove()` took, or a cut consumed entirely. Sub-shape accessors are
+different — `e.sideEdges()` names the edges as the extrude built them, so
+a feature that reshaped those edges leaves the accessor empty.
+
 ## What the agent gets
 
 `get_scene_summary` returns the feature tree projected to a JSON-safe

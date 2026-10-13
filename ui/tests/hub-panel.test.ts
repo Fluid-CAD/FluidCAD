@@ -341,12 +341,12 @@ describe('publisher handles list their packages (H11 follow-up 2)', () => {
     expect(h.hub.package).not.toHaveBeenCalled();
   });
 
-  it("the detail's byline handle goes back to the results for that publisher", async () => {
+  it("the detail's @scope goes back to the results for that publisher", async () => {
     const h = await filtered();
     await h.panel.openPackage('@acme/feature-tests');
     await settle();
     expect(h.panel.currentView).toBe('package');
-    h.$<HTMLButtonElement>('[data-role="hub-package"] [data-ref="byline"] [data-ref="publisher"]')!.click();
+    h.$<HTMLButtonElement>('[data-role="hub-package"] [data-ref="name"] [data-ref="publisher"]')!.click();
     await settle();
     expectPublisherSearch(h, 'acme');
     expect(h.$('[data-role="hub-package"]')!.classList.contains('hidden')).toBe(true);

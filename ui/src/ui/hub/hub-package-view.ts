@@ -1,6 +1,5 @@
 import type { HubCatalogFeature, HubCatalogModel, HubClient, HubMedia, HubPackage, HubResult, HubVersion, HubVersionSummary, PackagesClient } from '../../api';
 import { FeatureParamTable } from './feature-param-table';
-import { HubHandle } from './hub-handle';
 import { HubIcons, HubImage } from './hub-icons';
 import { HubInstallControl, type HubInstalled, type HubInstallTarget } from './hub-install-control';
 import { HubMarkdown } from './hub-markdown';
@@ -22,7 +21,7 @@ export type HubPackageViewDeps = {
   openExternal(url: string): void;
   onBack(): void;
   onInstalled(installed: HubInstalled): void;
-  /** The byline's `@publisher` was clicked: list that publisher's packages. */
+  /** The name's `@scope` (the publisher's handle) was clicked: list that publisher's packages. */
   onPublisher?(handle: string): void;
   now?(): number;
 };
@@ -213,7 +212,8 @@ export class HubPackageView {
     // The version and its badge go under the name when the panel is too narrow for both, rather than cutting the name short.
     const title = document.createElement('div');
     title.className = 'flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 min-w-0';
-    title.appendChild(HubResultRow.name(pkg.name, 'text-hub-xl'));
+    // The name's @scope is the publisher's handle, as a control: it lists their packages (the byline doesn't repeat it).
+    title.appendChild(HubResultRow.name(pkg.name, 'text-hub-xl', this.deps.onPublisher));
     if (latest) {
       const version = document.createElement('span');
       version.dataset.ref = 'latest';
@@ -231,13 +231,7 @@ export class HubPackageView {
     byline.dataset.ref = 'byline';
     byline.className = 'text-hub-xs text-base-content/50';
     const published = latest?.publishedAt ? `published ${HubText.ago(latest.publishedAt, this.now())}` : null;
-    const rest = [published, HubText.plural(pkg.counts.installs, 'install')].filter(Boolean).join(' · ');
-    const onPublisher = this.deps.onPublisher;
-    if (pkg.publisher && onPublisher && HubHandle.isHandle(pkg.publisher)) {
-      byline.append(HubHandle.button(pkg.publisher, onPublisher), rest ? ` · ${rest}` : '');
-    } else {
-      byline.textContent = [pkg.publisher ? `@${pkg.publisher}` : null, rest].filter(Boolean).join(' · ');
-    }
+    byline.textContent = [published, HubText.plural(pkg.counts.installs, 'install')].filter(Boolean).join(' · ');
     titleBlock.append(title, byline);
     head.appendChild(titleBlock);
 

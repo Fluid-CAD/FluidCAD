@@ -98,7 +98,8 @@ type Phase =
   | { kind: 'conflict'; text: string; version: string; upgrade: boolean };
 
 /** The action the button takes for a model and target. */
-type Action = { kind: 'install' | 'upgrade' | 'installed' | 'none'; label: string; caption: string; version: string | null };
+/** `caption`: a line under the button when it says something the button and its "into …" label don't; null otherwise. */
+type Action = { kind: 'install' | 'upgrade' | 'installed' | 'none'; label: string; caption: string | null; version: string | null };
 
 /**
  * The detail's Install control (H11 decisions 6 and 7): no consent dialog.
@@ -174,19 +175,18 @@ export class HubInstallControl {
     }
     if (!projectOpen) {
       if (local.installed.includes(offered)) {
-        return { kind: 'installed', label: 'Installed', caption: 'In your library. Every project can use it.', version: null };
+        return { kind: 'installed', label: 'Installed', caption: 'In your library.', version: null };
       }
-      return { kind: 'install', label: `Install ${offered}`, caption: 'Goes to your library. Every project can use it.', version: offered };
+      return { kind: 'install', label: `Install ${offered}`, caption: null, version: offered };
     }
     if (target === 'project') {
-      return { kind: 'install', label: `Install ${offered}`, caption: 'A copy goes into this project\'s packages/ folder, committed with it, and the project uses it.', version: offered };
+      return { kind: 'install', label: `Install ${offered}`, caption: null, version: offered };
     }
     return {
       kind: 'install',
       label: `Install ${offered}`,
-      caption: local.installed.includes(offered)
-        ? 'Already in your library: this adds it to this project.'
-        : 'Goes to your library, and this project uses it. Every project can use it.',
+      // Where it goes is the button's "into my library"; only an install that downloads nothing says more.
+      caption: local.installed.includes(offered) ? 'Already in your library: this adds it to this project.' : null,
       version: offered,
     };
   }
@@ -279,7 +279,7 @@ export class HubInstallControl {
     if (phase.kind === 'error') {
       const box = HubInstallControl.box('error', phase.text);
       box.dataset.ref = 'error';
-      return [box, HubInstallControl.caption(action.caption)];
+      return action.caption ? [box, HubInstallControl.caption(action.caption)] : [box];
     }
     if (phase.kind === 'conflict') {
       const box = HubInstallControl.box('warning', `${phase.text} Replace it with this download? Projects that pinned the old contents will ask about the change.`);
@@ -292,7 +292,7 @@ export class HubInstallControl {
       replace.addEventListener('click', () => void this.run(phase.version, phase.upgrade, true));
       return [box, replace];
     }
-    return [HubInstallControl.caption(action.caption)];
+    return action.caption ? [HubInstallControl.caption(action.caption)] : [];
   }
 
   private targetMenu(projectOpen: boolean): HTMLDivElement {

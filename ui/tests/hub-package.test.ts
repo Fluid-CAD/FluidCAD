@@ -67,7 +67,7 @@ describe('the header', () => {
     const h = await mount(FakeHubClient.pkg({ local: { installed: ['0.1.0'], pinned: '0.1.0', updateAvailable: '0.1.1' } }));
     expect(h.$('[data-ref="name"]')!.textContent).toBe('@acme/feature-tests');
     expect(h.$('[data-ref="latest"]')!.textContent).toBe('0.1.1');
-    expect(h.view.el.textContent).toContain('@acme · published 1 day ago · 2 installs');
+    expect(h.$('[data-ref="byline"]')!.textContent).toBe('published 1 day ago · 2 installs');
     expect(h.$$('[data-ref="marks"] [data-mark]').map((m) => m.textContent)).toEqual(['installed 0.1.0', 'pinned 0.1.0', 'update available']);
     expect(h.$<HTMLImageElement>('[data-ref="media"] figure img')!.getAttribute('src')).toBe('api/hub/media/@acme/feature-tests/card-1');
     h.$('[data-media="shot-2"]')!.click();
@@ -84,12 +84,14 @@ describe('the header', () => {
     expect(h.$('[aria-label="Copy the integrity"]')).toBeNull();
   });
 
-  it("the byline's @publisher lists that publisher's packages, as a button", async () => {
+  it("the name's @scope lists that publisher's packages, as a button, and the byline doesn't repeat the handle", async () => {
     const h = await mount();
-    const handle = h.$<HTMLButtonElement>('[data-ref="byline"] [data-ref="publisher"]')!;
+    const handle = h.$<HTMLButtonElement>('[data-ref="name"] [data-ref="publisher"]')!;
     expect(handle.tagName).toBe('BUTTON');
     expect(handle.textContent).toBe('@acme');
-    expect(h.$('[data-ref="byline"]')!.textContent).toBe('@acme · published 1 day ago · 2 installs');
+    expect(h.$('[data-ref="name"]')!.textContent).toBe('@acme/feature-tests');
+    expect(h.$('[data-ref="byline"] [data-ref="publisher"]')).toBeNull();
+    expect(h.$('[data-ref="byline"]')!.textContent).toBe('published 1 day ago · 2 installs');
     handle.click();
     expect(h.onPublisher).toHaveBeenCalledWith('acme');
   });
@@ -353,6 +355,11 @@ describe('Install (decisions 6 and 7)', () => {
     expect(HubInstallControl.action({ ...base, projectOpen: true, local: { installed: ['0.2.0'], pinned: null, updateAvailable: null } }, 'library').caption)
       .toBe('Already in your library: this adds it to this project.');
     expect(HubInstallControl.action({ ...base, projectOpen: true, local: { installed: ['0.3.0'], pinned: '0.3.0', updateAvailable: null } }, 'library').kind).toBe('installed');
+    // A plain install says nothing under the button: "into my library" / "into this project" already says where.
+    const fresh = { installed: [], pinned: null, updateAvailable: null };
+    expect(HubInstallControl.action({ ...base, projectOpen: true, local: fresh }, 'library').caption).toBeNull();
+    expect(HubInstallControl.action({ ...base, projectOpen: true, local: fresh }, 'project').caption).toBeNull();
+    expect(HubInstallControl.action({ ...base, local: fresh }, 'library').caption).toBeNull();
   });
 });
 

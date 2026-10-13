@@ -25,7 +25,6 @@ import { Feature, defineFeature, type FeatureBuildContext, type FeatureMeta, typ
 import { Primitives, ShapeOps } from "../../sdk/kernel.js";
 import { Matrix4, Point } from "../../math/index.js";
 import { defineGear, gear, GEAR_DEFAULTS, type GearFunction, type GearVariant } from "../fixtures/custom-features/gear.js";
-import { standoff } from "../fixtures/custom-features/standoff.js";
 
 /** A plate's top face sits at z = 10; the default gear stands 8 on it. */
 const PLATE_TOP = 10;
@@ -119,10 +118,10 @@ describe("declaring buckets", () => {
     ['a misspelt ending', { tip_face: {} }, "Feature.with(): 'tip_face' needs to end in Faces or Edges (tipFaces?)"],
     ['an ending alone', { Faces: {} }, "Feature.with(): 'Faces' needs a name before Faces, such as tipFaces"],
     ['a name that is too long', { [`${'a'.repeat(44)}Faces`]: {} }, `Feature.with(): the bucket name '${'a'.repeat(44)}Faces' is longer than 48 characters`],
-    ['a declaration that is not an object', { tipFaces: 'The tips' }, "Feature.with(): bucket 'tipFaces' is declared with an object — { description, label } — got 'The tips'"],
+    ['a declaration that is not an object', { tipFaces: 'The tips' }, "Feature.with(): bucket 'tipFaces' is declared with an object — {} or { label } — got 'The tips'"],
     ['a kind, which the ending gives', { tipFaces: { kind: 'face' } }, "Feature.with(): bucket 'tipFaces': leave 'kind' out — the name's ending gives it: a …Faces bucket holds faces, an …Edges bucket edges"],
-    ['an unknown field', { tipFaces: { note: 'x' } }, "Feature.with(): bucket 'tipFaces': unknown field 'note' — a bucket declares description and label"],
-    ['a description that is not text', { tipFaces: { description: 3 } }, "Feature.with(): bucket 'tipFaces': 'description' must be text, got 3"],
+    ['an unknown field', { tipFaces: { note: 'x' } }, "Feature.with(): bucket 'tipFaces': unknown field 'note' — a bucket declares only its label"],
+    ['a description, which the docs pages hold', { tipFaces: { description: 'The tips' } }, "Feature.with(): bucket 'tipFaces': leave 'description' out — describe what the feature's buckets hold in the package's docs/ pages"],
     ['an empty label', { tipFaces: { label: ' ' } }, "Feature.with(): bucket 'tipFaces': 'label' must be text that says something, got ' '"],
     ['a member every feature has', { getAddedFaces: {} }, "Feature.with(): 'getAddedFaces' is already a member of SceneObject — give the bucket another name"],
   ])("refuses %s", (_name, buckets, message) => {
@@ -163,8 +162,8 @@ describe("declaring buckets", () => {
     expect(() => new Plain({ n: 1 })).toThrow("feature 'acme.plain-shadow': Plain writes padFaces() itself");
   });
 
-  it("makes one accessor per custom bucket, and none for a standard name declared to document it", () => {
-    const Base = Feature.with(P, { buckets: { tipFaces: { description: 'The tips' }, tipEdges: {}, endFaces: { description: 'The top' } } });
+  it("makes one accessor per custom bucket, and none for a standard name declared to relabel it", () => {
+    const Base = Feature.with(P, { buckets: { tipFaces: {}, tipEdges: {}, endFaces: { label: 'Top Face' } } });
     const own = Object.getOwnPropertyNames(Base.prototype);
     expect(own).toContain('tipFaces');
     expect(own).toContain('tipEdges');
@@ -174,6 +173,16 @@ describe("declaring buckets", () => {
     expect(Object.keys(Base.prototype)).toEqual([]);
     expect(Base.prototype.tipFaces.name).toBe('tipFaces');
     expect(Object.isFrozen(Base.buckets)).toBe(true);
+  });
+
+  it("relabels a standard bucket declared with a label, and only that one", () => {
+    class Lid extends Feature.with(P, { buckets: { endFaces: { label: 'Top Face' }, startEdges: {} } }) {
+      static id = 'acme.lid';
+    }
+    const lid = new Lid({ n: 1 });
+    expect(lid.bucketDefs('face').find(d => d.accessor === 'endFaces')!.label).toBe('Top Face');
+    expect(lid.bucketDefs('edge').find(d => d.accessor === 'startEdges')!.label).toBe('Start Edges');
+    expect(lid.bucketDefs('face').find(d => d.accessor === 'startFaces')!.label).toBe('Start Faces');
   });
 
   it("gives two Feature.with() bases their own accessors, and Feature none", () => {
@@ -192,7 +201,7 @@ describe("declaring buckets", () => {
   it("gives a plain subclass declaring static buckets its accessors, constructed or registered", () => {
     class Constructed extends Feature<{ n: number }> {
       static id = 'acme.constructed';
-      static buckets = { padFaces: { description: 'The pads' } };
+      static buckets = { padFaces: {} };
     }
     expect('padFaces' in Constructed.prototype).toBe(false);
     const feature = new Constructed({ n: 1 }) as unknown as Record<string, unknown>;
@@ -200,7 +209,7 @@ describe("declaring buckets", () => {
 
     class Registered extends Feature<{ n: number }> {
       static id = 'acme.registered';
-      static buckets = { padFaces: { description: 'The pads' }, padEdges: { description: 'The pads\' rims' } };
+      static buckets = { padFaces: {}, padEdges: { label: 'Pad Rims' } };
       buildTool(): Shape[] {
         return [];
       }
@@ -532,8 +541,8 @@ class Raise extends Feature.with({
   height: { type: 'length', default: 3 },
 }, {
   buckets: {
-    raisedFaces: { description: 'The top face of each lifted solid' },
-    raisedEdges: { description: 'The rims of the lifted tops' },
+    raisedFaces: {},
+    raisedEdges: {},
   },
 }) {
   static id = 'acme.raise';
@@ -597,51 +606,10 @@ describe("a custom feature's preview with custom buckets", () => {
 describe("the metadata of a feature with buckets", () => {
   setupOC();
 
-  it("snapshots the declared buckets in order, with their label and whether each is standard", () => {
-    const snapshot = snapshotFeatureMeta(getFeatureMeta(gear)!);
-    expect(snapshot.buckets).toEqual([
-      { name: 'tipFaces', kind: 'face', label: 'Tip Faces', description: 'The top land of every tooth, one per tooth, in tooth order', standard: false },
-      { name: 'tipEdges', kind: 'edge', label: 'Tip Edges', description: 'The edges round the tip faces: where a fillet rounds the tooth tips', standard: false },
-      { name: 'flankFaces', kind: 'face', label: 'Flank Faces', description: 'The tooth flanks, two per tooth, in tooth order', standard: false },
-      { name: 'rootFaces', kind: 'face', label: 'Root Faces', description: 'The bottom land between neighbouring teeth', standard: false },
-      { name: 'boreFaces', kind: 'face', label: 'Bore Faces', description: 'The wall of the shaft hole', standard: false },
-      { name: 'boreEdges', kind: 'edge', label: 'Bore Rims', description: 'The rims of the shaft hole, top and bottom', standard: false },
-      { name: 'endFaces', kind: 'face', label: 'End Faces', description: 'The face of the gear opposite the face it stands on', standard: true },
-    ]);
-    expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot);
-  });
-
-  it("leaves buckets out of the snapshot of a feature that declares none", () => {
-    expect('buckets' in snapshotFeatureMeta(getFeatureMeta(standoff)!)).toBe(false);
-  });
-
-  it("lists a declared bucket without a useful description as a doc gap, after the values", () => {
-    class Hub extends Feature.with({ n: { type: 'number', default: 1, description: 'How many hubs stand on the face' } }, {
-      buckets: {
-        padFaces: {},
-        rimFaces: { description: 'Rim faces' },
-        spokeFaces: { description: 'The spokes between the hub and the rim' },
-        rimEdges: { label: 'Outer rims' },
-      },
-    }) {
-      static id = 'acme.hub';
-      buildTool(): Shape[] {
-        return [];
-      }
-    }
-    const hub = defineFeature(Hub, { label: 'Hub', description: 'A wheel hub with spokes', group: 'create', call: [{ n: 'n' }] });
-    const meta = getFeatureMeta(hub)!;
-    const gaps = [
-      { kind: 'bucket', owner: 'acme.hub', name: 'padFaces', label: 'Pad Faces', reason: 'missing' },
-      { kind: 'bucket', owner: 'acme.hub', name: 'rimFaces', label: 'Rim Faces', reason: 'repeats-label' },
-      { kind: 'bucket', owner: 'acme.hub', name: 'rimEdges', label: 'Outer rims', reason: 'missing' },
-    ];
-    expect(FeatureDocs.missing(meta)).toEqual(gaps);
-    expect(FeatureDocs.missing(snapshotFeatureMeta(meta))).toEqual(gaps);
-    expect(FeatureDocs.missing({ ...meta, class: Hub } as FeatureMeta)).toEqual(gaps);
-    expect(FeatureDocs.describe(FeatureDocs.missing(meta, 'hub'), 'hub.feature.js'))
-      .toBe('hub.feature.js: 3 fields without a description — hub: padFaces, rimFaces (repeats its label), rimEdges. Give each a `description`.');
-    expect(FeatureDocs.missing(getFeatureMeta(gear)!)).toEqual([]);
+  it("leaves the buckets out of the snapshot and the doc gaps: the editor reads them off the class", () => {
+    const meta = getFeatureMeta(gear)!;
+    expect('buckets' in snapshotFeatureMeta(meta)).toBe(false);
+    expect(FeatureDocs.missing(meta)).toEqual([]);
   });
 });
 
@@ -655,9 +623,9 @@ export class Gear extends Feature.with({
   teeth: { type: 'integer', default: 20 },
 }, {
   buckets: {
-    tipFaces: { description: 'The top land of every tooth' },
-    tipEdges: { description: 'The edges round the tip faces' },
-    endFaces: { description: 'The top of the gear' },
+    tipFaces: {},
+    tipEdges: {},
+    endFaces: { label: 'Top Face' },
   },
 }) {
   static id = 'acme.gear';

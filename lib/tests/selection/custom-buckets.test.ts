@@ -433,9 +433,9 @@ export class Gear extends Feature.with({
   teeth: { type: 'integer', default: 20 },
 }, {
   buckets: {
-    tipFaces: { description: 'The top land of every tooth' },
-    tipEdges: { description: 'The edges round the tip faces' },
-    endFaces: { description: 'The top of the gear' },
+    tipFaces: {},
+    tipEdges: {},
+    endFaces: { label: 'Top Face' },
   },
 }) {
   static id = 'acme.gear';

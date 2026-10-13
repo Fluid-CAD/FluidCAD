@@ -43,7 +43,7 @@ export type { RegisterBuilderOptions, SceneParserContext } from "../index.js";
 export { Feature } from "./feature.js";
 export type { FeatureBuckets, FeatureBuildContext, FeatureClass, FeatureWith, FeatureWithOptions } from "./feature.js";
 export type {
-  FeatureBucketSpec, FeatureBucketSpecs, FeatureBucketSnapshot, BucketAccessors, NamedBuckets, FeatureBucketBrand, BucketSpecsOf,
+  FeatureBucketSpec, FeatureBucketSpecs, BucketAccessors, NamedBuckets, FeatureBucketBrand, BucketSpecsOf,
 } from "./feature-buckets.js";
 export { defineFeature } from "./define-feature.js";
 export type { DefinableFeatureClass, DefineFeatureMeta } from "./define-feature.js";

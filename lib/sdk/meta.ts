@@ -15,7 +15,6 @@ import { PlaneObject } from "../features/plane.js";
 import { normalizeAxis, normalizePlane } from "../helpers/normalize.js";
 import { Locations, type LocationKind } from "../features/locations.js";
 import { AnchoredLazyVertex } from "../features/anchored-vertex.js";
-import { FeatureBucketSet, type FeatureBucketSnapshot } from "./feature-buckets.js";
 import { FeatureLayouts, type FeatureDialogWidth, type FeatureLayout, type FeatureLayoutChecks, type FeatureStaticItem } from "./layout.js";
 
 /** Where a feature's button sits: with the features that make solids, or those that change them. */
@@ -410,11 +409,6 @@ export type FeatureMetaSnapshot = {
   /** The operation a statement without an operation chain applies — the dialog's preselected one; null without operations. */
   defaultOperation: FeatureOperation | null;
   params: Record<string, ParamSpecSnapshot>;
-  /**
-   * The buckets the feature's class declares (`Feature.with(params, { buckets })`),
-   * in declaration order; left out when it declares none.
-   */
-  buckets?: FeatureBucketSnapshot[];
   call: CallShape;
   /** Whether the dialog draws a preview — the UI asks for none when false. */
   ghost: boolean;
@@ -1568,9 +1562,9 @@ export class FeatureMetas {
    * The metadata as plain JSON: the class left out (it becomes its id),
    * every default filled, each value's label filled from its name when it
    * declares none, the layout always there — the declared one as written,
-   * else the derived one, and the class's declared buckets when it declares
-   * any. Reads any metadata object, checked or not, and whichever kernel
-   * checked it.
+   * else the derived one. Reads any metadata object, checked or not, and
+   * whichever kernel checked it. A class's declared buckets stay on the
+   * class: the editor reads them off the built feature.
    */
   static snapshot(meta: FeatureMeta | ResolvedFeatureMeta): FeatureMetaSnapshot {
     const resolved = meta as Partial<ResolvedFeatureMeta>;
@@ -1579,7 +1573,6 @@ export class FeatureMetas {
       const copy = FeatureMetas.json(FeatureMetas.withDefault(spec)) as ParamSpecSnapshot;
       params[name] = { ...copy, label: FeatureMetas.labelOf(name, spec) };
     }
-    const buckets = FeatureMetas.bucketsOf(meta);
     return FeatureMetaValidator.defined({
       id: typeof resolved.id === 'string' ? resolved.id : Feature.idOf(meta.class),
       label: meta.label,
@@ -1590,7 +1583,6 @@ export class FeatureMetas {
       operations: [...(meta.operations ?? [])],
       defaultOperation: FeatureCall.defaultOperationOf(meta.operations ?? []),
       params,
-      buckets: buckets.length > 0 ? buckets : undefined,
       call: FeatureMetas.json(meta.call ?? []),
       ghost: FeatureMetas.ghostOf(meta),
       contexts: [...(meta.contexts ?? ['part'])],
@@ -1598,19 +1590,6 @@ export class FeatureMetas {
       width: meta.width,
       aside: meta.aside === undefined ? undefined : FeatureMetas.json(meta.aside),
     }) as FeatureMetaSnapshot;
-  }
-
-  /**
-   * The buckets a feature declares, in declaration order: a snapshot's own,
-   * else its class's (see `FeatureBucketSet`). Empty when it declares none.
-   */
-  static bucketsOf(meta: FeatureMeta | ResolvedFeatureMeta | FeatureMetaSnapshot): FeatureBucketSnapshot[] {
-    const own = (meta as FeatureMetaSnapshot).buckets;
-    if (Array.isArray(own)) {
-      return own;
-    }
-    const featureClass = (meta as FeatureMeta).class;
-    return typeof featureClass === 'function' ? FeatureBucketSet.of(featureClass).snapshot() : [];
   }
 
   /**

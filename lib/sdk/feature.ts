@@ -179,8 +179,8 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
    * ```js
    * class Gear extends Feature.with({ … }, {
    *   buckets: {
-   *     tipFaces: { description: 'The flat top land of every tooth' },
-   *     tipEdges: { description: 'The edges of the tip faces' },   // derived from tipFaces
+   *     tipFaces: {},
+   *     tipEdges: { label: 'Tooth Tips' },   // derived from tipFaces
    *   },
    * }) { … }
    * ```
@@ -208,7 +208,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
       return Object.freeze({});
     }
     if (!FeatureCall.isPlainObject(options)) {
-      throw new Error("Feature.with(): the second argument holds the feature's options, such as { buckets: { tipFaces: { description: '…' } } }");
+      throw new Error("Feature.with(): the second argument holds the feature's options, such as { buckets: { tipFaces: {} } }");
     }
     for (const option of Object.keys(options)) {
       if (option !== 'buckets') {

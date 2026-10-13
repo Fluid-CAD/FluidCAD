@@ -30,13 +30,12 @@ const GEAR_PARAMS = {
 
 /** What the gear names, in the order the editor tries them. */
 const GEAR_BUCKETS = {
-  tipFaces: { description: 'The top land of every tooth, one per tooth, in tooth order' },
-  tipEdges: { description: 'The edges round the tip faces: where a fillet rounds the tooth tips' },
-  flankFaces: { description: 'The tooth flanks, two per tooth, in tooth order' },
-  rootFaces: { description: 'The bottom land between neighbouring teeth' },
-  boreFaces: { description: 'The wall of the shaft hole' },
-  boreEdges: { label: 'Bore Rims', description: 'The rims of the shaft hole, top and bottom' },
-  endFaces: { description: 'The face of the gear opposite the face it stands on' },
+  tipFaces: {}, // the top land of every tooth, one per tooth, in tooth order
+  tipEdges: {}, // the edges round the tip faces: where a fillet rounds the tooth tips
+  flankFaces: {}, // the tooth flanks, two per tooth, in tooth order
+  rootFaces: {}, // the bottom land between neighbouring teeth
+  boreFaces: {}, // the wall of the shaft hole
+  boreEdges: { label: 'Bore Rims' }, // the rims of the shaft hole, top and bottom
 } as const;
 
 /** `gear(face, { teeth, module, thickness, bore })`. */

@@ -31,10 +31,10 @@ const POCKET_PARAMS = {
 
 /** What the pocket names, in the order the editor tries them. */
 const POCKET_BUCKETS = {
-  floorFaces: { description: 'The flat bottom of the pocket; none when the pocket goes right through' },
-  floorEdges: { description: 'The rim round the pocket floor: where a chamfer or a fillet breaks the floor edge' },
-  wallFaces: { description: 'The walls round the pocket, straight sides and rounded corners, in outline order' },
-  wallEdges: { description: 'The vertical edges between neighbouring walls, where the straight sides meet the corners' },
+  floorFaces: {}, // the flat bottom of the pocket; none when the pocket goes right through
+  floorEdges: {}, // the rim round the pocket floor: where a chamfer or a fillet breaks the floor edge
+  wallFaces: {}, // the walls round the pocket, straight sides and rounded corners, in outline order
+  wallEdges: {}, // the vertical edges between neighbouring walls, where the straight sides meet the corners
 } as const;
 
 /** `pocket(face, { length, width, radius, depth })`. */

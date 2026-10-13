@@ -23,8 +23,6 @@ export type EdgeBucketName = 'startEdges' | 'endEdges' | 'sideEdges' | 'internal
  * `tipEdges` edges.
  */
 export type FeatureBucketSpec = {
-  /** What the bucket holds, for the package docs and the LLM: `'The flat top land of every tooth'`. */
-  description?: string;
   /** What the editor's menus call it; left out, the name made readable (`tipEdges` → "Tip Edges"). */
   label?: string;
 };
@@ -32,20 +30,10 @@ export type FeatureBucketSpec = {
 /** A feature class's bucket declarations, by name. */
 export type FeatureBucketSpecs = Record<string, FeatureBucketSpec>;
 
-/** One declared bucket as the feature's metadata snapshot carries it, in declaration order. */
-export type FeatureBucketSnapshot = {
-  name: string;
-  kind: SubShapeKind;
-  label: string;
-  description?: string;
-  /** One of the standard buckets (`endFaces`), declared to document it: it makes no accessor of its own. */
-  standard: boolean;
-};
-
 /**
  * The accessor methods a declaration adds, one per custom bucket:
  * `tipFaces(...indicesOrFilters)` and `tipEdges(...)`, read like `endFaces()`.
- * Standard names declared to document them add nothing — they are methods
+ * Standard names declared to relabel them add nothing — they are methods
  * already.
  */
 export type BucketAccessors<B> = {
@@ -78,7 +66,7 @@ type DeclaredBucket = {
   /** Where the feature's state keeps it: a standard bucket's kebab key, `bucket:<name>` for a custom one. */
   key: string;
   label: string;
-  description?: string;
+  /** One of the standard buckets (`endFaces`), declared to relabel it: it makes no accessor of its own. */
   standard: boolean;
 };
 
@@ -90,8 +78,8 @@ type BucketReader = {
 
 /**
  * A feature class's declared buckets: the one place a declaration is checked
- * and turned into accessors, and what the feature, the editor's index and
- * the metadata snapshot ask about them.
+ * and turned into accessors, and what the feature and the editor's index
+ * ask about them.
  *
  * A class declares its buckets with `Feature.with(params, { buckets })` — or,
  * the plain-subclass way, `static buckets = { … }`. A name ends in `Faces`
@@ -100,7 +88,10 @@ type BucketReader = {
  * base's own selection paths, so indices, filters, a repeat's transform and
  * the cache's unique name behave exactly as `endFaces()` does. Custom
  * buckets live in the state at `bucket:<name>`, where no internal key can
- * clash with them. A standard name may be declared too, to document it.
+ * clash with them. A standard name may be declared too, to relabel it.
+ *
+ * A declaration holds no description: what a bucket holds is documented in
+ * the package's `docs/` pages.
  */
 export class FeatureBucketSet {
 
@@ -128,7 +119,7 @@ export class FeatureBucketSet {
   /** A set with no declarations: a class that declares no buckets. */
   static readonly EMPTY = new FeatureBucketSet([]);
 
-  private static readonly FIELDS = ['description', 'label'];
+  private static readonly FIELDS = ['label'];
 
   private static readonly STANDARD_KEYS = new Map<string, string>([
     ...FeatureBucketSet.STANDARD_FACES, ...FeatureBucketSet.STANDARD_EDGES,
@@ -224,12 +215,6 @@ export class FeatureBucketSet {
       }));
   }
 
-  /** Every declared bucket as plain JSON, in declaration order, for the metadata snapshot. */
-  snapshot(): FeatureBucketSnapshot[] {
-    return this.buckets.map(({ name, kind, label, description, standard }) =>
-      (description === undefined ? { name, kind, label, standard } : { name, kind, label, description, standard }));
-  }
-
   /**
    * Refuse what `setBuckets()` is handed that it would otherwise lose
    * silently: a name that is no bucket of the feature (the closest one
@@ -323,7 +308,7 @@ export class FeatureBucketSet {
     };
     const specs = (owner as { buckets?: unknown }).buckets;
     if (!FeatureCall.isPlainObject(specs)) {
-      fail(`'buckets' must be an object of the feature's buckets by name, such as { tipFaces: { description: 'The flat top of every tooth' } } — got ${FeatureBucketSet.describe(specs)}`);
+      fail(`'buckets' must be an object of the feature's buckets by name, such as { tipFaces: {}, boreEdges: { label: 'Bore Rims' } } — got ${FeatureBucketSet.describe(specs)}`);
     }
     const names = Object.keys(specs as object);
     if (names.length > FeatureBucketSet.MAX_BUCKETS) {
@@ -343,36 +328,32 @@ export class FeatureBucketSet {
       fail(refusal);
     }
     if (!FeatureCall.isPlainObject(spec)) {
-      fail(`bucket '${name}' is declared with an object — { description, label } — got ${FeatureBucketSet.describe(spec)}`);
+      fail(`bucket '${name}' is declared with an object — {} or { label } — got ${FeatureBucketSet.describe(spec)}`);
     }
     const declared = spec as Record<string, unknown>;
     for (const field of Object.keys(declared)) {
       if (field === 'kind') {
         fail(`bucket '${name}': leave 'kind' out — the name's ending gives it: a …Faces bucket holds faces, an …Edges bucket edges`);
       }
+      if (field === 'description') {
+        fail(`bucket '${name}': leave 'description' out — describe what the feature's buckets hold in the package's docs/ pages`);
+      }
       if (!FeatureBucketSet.FIELDS.includes(field)) {
-        fail(`bucket '${name}': unknown field '${field}' — a bucket declares ${FeatureBucketSet.FIELDS.join(' and ')}`);
+        fail(`bucket '${name}': unknown field '${field}' — a bucket declares only its ${FeatureBucketSet.FIELDS.join(' and ')}`);
       }
     }
-    const { description, label } = declared;
-    if (description !== undefined && typeof description !== 'string') {
-      fail(`bucket '${name}': 'description' must be text, got ${FeatureBucketSet.describe(description)}`);
-    }
+    const { label } = declared;
     if (label !== undefined && (typeof label !== 'string' || label.trim() === '')) {
       fail(`bucket '${name}': 'label' must be text that says something, got ${FeatureBucketSet.describe(label)}`);
     }
     const standard = FeatureBucketSet.isStandard(name);
-    const bucket: DeclaredBucket = {
+    return {
       name,
       kind: FeatureBucketSet.kindOf(name),
       key: standard ? FeatureBucketSet.STANDARD_KEYS.get(name)! : FeatureBucketSet.keyOf(name),
       label: (label as string | undefined) ?? BucketDefs.labelOf(name),
       standard,
     };
-    if (description !== undefined) {
-      bucket.description = description as string;
-    }
-    return bucket;
   }
 
   /** Why `name` can't name a bucket, with the name it may have meant, or null. */

@@ -250,6 +250,33 @@ part('plate', () => {
     expect(check.typeOf('trim.feature.js', 'slack')).toBe('number | undefined');
   });
 
+  it("takes an option's 'when' as a list of cases, any one holding — the value still every option's", () => {
+    const profile = (forty: string) => `
+import { Feature, defineFeature } from 'fluidcad/sdk';
+
+export class Profile extends Feature.with({
+  shape: { type: 'select', options: [{ label: 'Single', value: 'single' }, { label: 'Double', value: 'double' }, { label: 'Quad', value: 'quad' }] },
+  height: { type: 'select', options: [{ label: '20', value: 20 }, { label: '40', value: 40 }, { label: '80', value: 80 }] },
+  width: { type: 'select', options: [{ label: '20', value: 20 }, { label: '40', value: 40, when: ${forty} }] },
+}) {
+  static id = 'acme.profile';
+
+  buildTool() {
+    const { shape, height, width } = this.values;
+    return [];
+  }
+}
+
+export const profile = defineFeature(Profile, { label: 'Profile', group: 'create', call: [{ shape: 'shape', height: 'height', width: 'width' }] });
+`;
+    const check = CheckJs.check({ 'profile.feature.js': profile("[{ shape: 'single', height: 40 }, { shape: 'double', height: [20, 80] }, { shape: 'quad', height: 40 }]") });
+    expect(errorsOf(check)).toEqual([]);
+    expect(check.typeOf('profile.feature.js', 'width')).toBe('20 | 40');
+    expect(errorsOf(CheckJs.check({ 'profile.feature.js': profile("[{ shape: 'single' }, 'double']") }))).toEqual([
+      expect.stringMatching(/^profile\.feature\.js:7: /),
+    ]);
+  });
+
   it("marks a picker of several kinds that names a kind there isn't", () => {
     const check = CheckJs.check({
       'boss.feature.js': BOSS_MODULE.replace("picker: ['connector', 'point', 'anchor']", "picker: ['connector', 'pointy', 'anchor']"),

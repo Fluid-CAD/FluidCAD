@@ -3,7 +3,7 @@ id: api/feature-params
 title: "ParamSpec — a custom feature's values: typed-in values and pickers"
 summary: "Each value a custom feature declares in Feature.with({ … }) is typed in (type: 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'radio' | 'text'; a select with multiple: true is a list) or picked (picker: 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor', or a union of kinds). How a row looks is separate from what the value is: display (slider, stepper, checkbox, grid, buttons, cards), suffix, hint, an option's image and description, and when on an option, which narrows what the dialog offers by another value. One table gives what an untouched row shows, what the builder gets for a value left out, and whether an empty row blocks Apply."
 tags: [api, sdk, custom-feature, type]
-symbols: [ParamSpec, ScalarParamSpec, NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, TextParamSpec, ChoiceOption, PickerParamSpec, PickerKind, VisibleWhen, PickCondition, PickedSurface, OptionWhen]
+symbols: [ParamSpec, ScalarParamSpec, NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, TextParamSpec, ChoiceOption, PickerParamSpec, PickerKind, VisibleWhen, PickCondition, PickedSurface, OptionWhen, OptionCase]
 seeAlso: [api/feature, api/define-feature, api/feature-layout, concepts/custom-features, api/connector, api/axis, api/face-filter, api/edge-filter]
 ---
 
@@ -32,7 +32,8 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
   display?: 'list' | 'grid'; columns?: number; search?: boolean }   // a list; no default: []
 { type: 'text'; default?: string; multiline?: boolean; placeholder?: string; maxLength?: number; pattern?: string }
 // ChoiceOption — one option of a select or a radio; only `value` reaches the feature
-{ label: string; value: string | number; image?: string; description?: string; group?: string; keywords?: string[]; when?: { [otherValue: string]: scalar | scalar[] } }
+{ label: string; value: string | number; image?: string; description?: string; group?: string; keywords?: string[]; when?: OptionCase | OptionCase[] }
+// OptionCase — { [otherValue: string]: scalar | scalar[] }
 
 // Picked — no default; a list with multiple: true or max: n (n ≥ 2); ordered: true for a list whose order matters
 { picker: 'sketch'; implicitDefault?: boolean; hasGeometry?: boolean; wire?: boolean }
@@ -206,10 +207,31 @@ size: {
 },
 ```
 
+When one object can't say it — a size table, where the same option comes
+with different combinations — `when` is a list of such objects, and the
+option is offered while **any one** of them holds (each still needs every
+clause). Width 40 comes for a single at height 40, a double at 20 or 80, and
+a quad at 40 — not a single at 20:
+
+```js
+width: {
+  type: 'select',
+  options: [
+    { label: '20', value: 20, when: { shape: ['single', 'triple'] } },
+    { label: '40', value: 40, when: [{ shape: 'single', height: 40 }, { shape: 'double', height: [20, 80] }, { shape: 'quad', height: 40 }] },
+  ],
+},
+```
+
 - A clause names another typed-in value that holds one thing (not a picked
   value — only a row's `visibleWhen` reads picks — not a `multiple: true`
   select, not the value itself) and lists values it can take. Options may not wait on each other in a circle (`a` on `b`,
   `b` on `a`, or a longer chain): the declaration is refused, naming the chain.
+  Each object of a list is checked the same, and refused by its place
+  (`'when'[1] names 'shap', …`); an empty list, an empty object in one (it
+  would offer the option always — leave `when` off) and an entry that isn't
+  an object are refused. Only an option's `when` takes a list: a
+  `visibleWhen` is one object.
 - **The default must be offered at rest**, that is while every other value is
   at its own default. A declared `default` that is not offered there is
   refused. With no `default`, the value starts at the **first option offered

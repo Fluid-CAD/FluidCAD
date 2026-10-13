@@ -671,6 +671,51 @@ describe("dependent options in a schema dialog: an option's 'when'", () => {
   });
 });
 
+describe("dependent options in a schema dialog: an option's 'when' as a list of cases", () => {
+  // A size table: the widths an extrusion comes in, by its shape and its height.
+  const PROFILE: BareFeatureMeta = {
+    ...VENT,
+    id: 'acme.profile',
+    label: 'Profile',
+    params: {
+      shape: { type: 'select', label: 'Shape', default: 'single', options: ['single', 'double', 'triple', 'quad'].map(value => ({ label: value, value })) },
+      height: { type: 'select', label: 'Height', default: 40, options: [20, 40, 80].map(value => ({ label: String(value), value })) },
+      width: {
+        type: 'select', label: 'Width', default: 40,
+        options: [
+          { label: '20', value: 20, when: { shape: ['single', 'triple'] } },
+          { label: '40', value: 40, when: [{ shape: 'single', height: 40 }, { shape: 'double', height: [20, 80] }, { shape: 'quad', height: 40 }] },
+          { label: '60', value: 60 },
+        ],
+      },
+    },
+  };
+
+  it('offers an option while any one of its cases holds, and moves off it when none does', () => {
+    const { panel, root } = mount(PROFILE);
+    const control = (name: string) => root.querySelector<HTMLSelectElement>(`[data-role="value-${name}"]`)!;
+    const listed = (name: string) => [...control(name).options].map(option => option.textContent);
+    const pick = (name: string, label: string) => {
+      control(name).selectedIndex = listed(name).indexOf(label);
+      control(name).dispatchEvent(new Event('change'));
+    };
+    expect(listed('width')).toEqual(['20', '40', '60']);
+    expect(panel.fields.get('width')!.read()).toEqual({ value: 40 });
+    pick('height', '20');
+    expect(listed('width')).toEqual(['20', '60']);
+    expect(panel.fields.get('width')!.read()).toEqual({ value: 20 });
+    pick('shape', 'double');
+    expect(listed('width')).toEqual(['40', '60']);
+    pick('height', '80');
+    expect(listed('width')).toEqual(['40', '60']);
+    pick('shape', 'quad');
+    expect(listed('width')).toEqual(['60']);
+    pick('height', '40');
+    expect(listed('width')).toEqual(['40', '60']);
+    panel.destroy();
+  });
+});
+
 describe("the layout tree of a schema dialog", () => {
   const PLATE: BareFeatureMeta = {
     id: 'acme.plate', label: 'Plate', group: 'create', kind: 'tool', operations: ['remove'], defaultOperation: 'remove',

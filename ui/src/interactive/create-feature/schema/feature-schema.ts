@@ -170,9 +170,13 @@ export class FeatureSchema {
    * Whether every clause of a value's `visibleWhen` or of an option's `when`
    * holds for the values the dialog shows now: a typed-in value by equality,
    * a picked value (its {@link FeaturePickState}; none, nothing picked) by
-   * its condition. No clauses always hold.
+   * its condition. No clauses always hold; an option's `when` that is a list
+   * holds when any one of its cases does.
    */
   static holds(when: FeatureVisibleWhen | FeatureOptionWhen | undefined, scalars: DialogValues): boolean {
+    if (Array.isArray(when)) {
+      return when.some(each => FeatureSchema.holds(each, scalars));
+    }
     return Object.entries(when ?? {}).every(([other, expected]) => {
       const current = scalars[other];
       if (FeatureSchema.isPickCondition(expected)) {

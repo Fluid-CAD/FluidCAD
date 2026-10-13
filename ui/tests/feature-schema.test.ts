@@ -135,6 +135,16 @@ describe('FeatureSchema', () => {
     expect(FeatureSchema.holds({ at: hub, style: 'slot' }, { at: { picks: [] }, style: 'hole' })).toBe(false);
   });
 
+  it("holds an option's 'when' that is a list of cases when any one case holds, every clause of it", () => {
+    const forty = [{ shape: 'single', height: 40 }, { shape: 'double', height: [20, 80] }, { shape: 'quad', height: 40 }];
+    expect(FeatureSchema.holds(forty, { shape: 'single', height: 40 })).toBe(true);
+    expect(FeatureSchema.holds(forty, { shape: 'double', height: 80 })).toBe(true);
+    expect(FeatureSchema.holds(forty, { shape: 'quad', height: 40 })).toBe(true);
+    expect(FeatureSchema.holds(forty, { shape: 'single', height: 20 })).toBe(false);
+    expect(FeatureSchema.holds(forty, { shape: 'quad', height: undefined })).toBe(false);
+    expect(FeatureSchema.holds([], {})).toBe(false);
+  });
+
   it('shows a row while every value its visibleWhen names matches — one value, or any of a list', () => {
     const schema = new FeatureSchema(VENT);
     expect(schema.isVisible('width', { style: 'slot' })).toBe(true);

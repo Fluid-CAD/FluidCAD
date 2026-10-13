@@ -54,7 +54,7 @@ export type {
 export type {
   FeatureMeta, FeatureGroup, FeatureKind, FeatureContext, ParamSpec, ScalarParamSpec, ScalarParamType,
   NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, ChoiceOption, TextParamSpec, PickerParamSpec, PickerKind, VisibleWhen,
-  OptionWhen, PickCondition, PickedSurface,
+  OptionWhen, OptionCase, PickCondition, PickedSurface,
   SketchPickerSpec, FacePickerSpec, EdgePickerSpec, AxisPickerSpec, PlanePickerSpec, SolidPickerSpec, FeaturePickerSpec,
   ConnectorPickerSpec, PointPickerSpec, AnchorPickerSpec, UnionPickerSpec,
 } from "./meta.js";

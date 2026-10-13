@@ -6229,8 +6229,11 @@ export type FeaturePickCondition = {
  */
 export type FeatureVisibleWhen = Record<string, FeatureScalarValue | FeatureScalarValue[] | FeaturePickCondition>;
 
-/** When an option is offered: every named typed-in value equals the given one, or one of the listed ones. */
-export type FeatureOptionWhen = Record<string, FeatureScalarValue | FeatureScalarValue[]>;
+/** One case an option is offered in: every named typed-in value equals the given one, or one of the listed ones. */
+export type FeatureOptionCase = Record<string, FeatureScalarValue | FeatureScalarValue[]>;
+
+/** When an option is offered: one case, or a list of cases of which any one holds. */
+export type FeatureOptionWhen = FeatureOptionCase | FeatureOptionCase[];
 
 /**
  * What a picked value holds, as a `visibleWhen` reads it: each pick's
@@ -6260,7 +6263,7 @@ type FeatureParamCommon = {
 export type FeatureChoiceOption = {
   label: string;
   value: string | number;
-  /** When the dialog offers the option: typed-in values to match. Always, without one. */
+  /** When the dialog offers the option: typed-in values to match, or a list of such cases, any one matching. Always, without one. */
   when?: FeatureOptionWhen;
   /** A picture of the choice: a file next to the module, served as the icon is. */
   image?: string;

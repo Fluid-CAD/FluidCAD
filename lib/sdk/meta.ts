@@ -60,10 +60,16 @@ export type PickCondition = {
 };
 
 /**
- * When an option is offered: every named typed-in value must equal the
- * given one, or one of the listed ones — `{ style: ['counterbore', 'countersink'], thin: true }`.
+ * One case an option is offered in: every named typed-in value must equal
+ * the given one, or one of the listed ones — `{ style: ['counterbore', 'countersink'], thin: true }`.
  */
-export type OptionWhen = { readonly [param: string]: FeatureScalar | readonly FeatureScalar[] };
+export type OptionCase = { readonly [param: string]: FeatureScalar | readonly FeatureScalar[] };
+
+/**
+ * When an option is offered: one {@link OptionCase}, or a list of them of
+ * which any one holds — `[{ shape: 'single', height: 40 }, { shape: 'double', height: [20, 80] }]`.
+ */
+export type OptionWhen = OptionCase | readonly OptionCase[];
 
 /**
  * When a value's row (or a layout item) shows: every named typed-in value
@@ -136,10 +142,10 @@ export type ChoiceOption = SelectOption & {
   keywords?: readonly string[];
   /**
    * When the dialog offers the option: the grammar of a value's `visibleWhen`,
-   * `{ otherValue: scalar | scalar[] }`, every clause holding. An option
-   * without one is always offered. It narrows the dialog only: a call written
-   * by hand may pass any declared option whatever the other values are, and
-   * the builder gets it. The default must be offered while every other value
+   * `{ otherValue: scalar | scalar[] }`, every clause holding — or a list of
+   * such objects, any one of them holding. An option without one is always
+   * offered. It narrows the dialog only: a call written by hand may pass any
+   * declared option whatever the other values are, and the builder gets it. The default must be offered while every other value
    * is at its own default; left out, the default is the first option offered
    * there. It names typed-in values only.
    */
@@ -706,7 +712,7 @@ class FeatureMetaValidator {
       }
       for (const option of FeatureMetaValidator.optionsOf(spec)) {
         if (option.when !== undefined) {
-          this.clauses(`param '${name}': option ${JSON.stringify(option.value)}: 'when'`, name, option.when, out, false);
+          this.optionWhen(`param '${name}': option ${JSON.stringify(option.value)}: 'when'`, name, option.when, out);
         }
       }
     }
@@ -1099,7 +1105,7 @@ class FeatureMetaValidator {
       this.fail(`param '${name}': the 'when' of its options comes back round to it (${circle}) — options that wait on each other have no first one to offer`);
     }
     settled.set(name, false);
-    const named = new Set(FeatureMetaValidator.optionsOf(params[name]).flatMap(option => Object.keys(option.when ?? {})));
+    const named = new Set(FeatureMetaValidator.optionsOf(params[name]).flatMap(option => FeatureMetas.casesOf(option.when).flatMap(Object.keys)));
     for (const other of named) {
       this.settle(other, params, settled, [...chain, name], order);
     }
@@ -1143,6 +1149,30 @@ class FeatureMetaValidator {
   /** The options of a select or a radio; none for any other value. */
   private static optionsOf(spec: ParamSpec): readonly ChoiceOption[] {
     return 'type' in spec && (spec.type === 'select' || spec.type === 'radio') ? spec.options : [];
+  }
+
+  /**
+   * An option's `when`: one object of clauses, or a non-empty list of them,
+   * each checked as one is.
+   */
+  private optionWhen(where: string, name: string, value: unknown, params: Record<string, ParamSpec>): void {
+    if (!Array.isArray(value)) {
+      this.clauses(where, name, value, params, false);
+      return;
+    }
+    if (value.length === 0) {
+      this.fail(`${where}: the list is empty — list the cases the option is offered in, such as [{ shape: 'single' }, { shape: 'double', height: 20 }], or leave 'when' off to always offer it`);
+    }
+    value.forEach((each, index) => {
+      const at = `${where}[${index}]`;
+      if (!FeatureCall.isPlainObject(each)) {
+        this.fail(`${at} must be an object of values to match, such as { shape: 'single', height: 40 }, got ${FeatureMetaValidator.describe(each)}`);
+      }
+      if (Object.keys(each).length === 0) {
+        this.fail(`${at} is empty, which would offer the option whatever the other values are — name the values it waits on, or leave 'when' off to always offer it`);
+      }
+      this.clauses(at, name, each, params, false);
+    });
   }
 
   /**
@@ -1717,15 +1747,23 @@ export class FeatureMetas {
   }
 
   /**
-   * Whether every clause of a `visibleWhen` or an option's `when` holds for
-   * `values` by name. A value that is not there holds no clause; no clauses
-   * always hold.
+   * Whether an option's `when` holds for `values` by name: every clause of
+   * one object, or of any one of a list. A value that is not there holds no
+   * clause; no clauses always hold.
    */
   static holds(when: OptionWhen | undefined, values: Readonly<Record<string, unknown>>): boolean {
-    return Object.entries(when ?? {}).every(([name, expected]) => {
+    if (Array.isArray(when)) {
+      return FeatureMetas.casesOf(when).some(each => FeatureMetas.holds(each, values));
+    }
+    return Object.entries((when ?? {}) as OptionCase).every(([name, expected]) => {
       const value = values[name];
       return value !== undefined && (Array.isArray(expected) ? expected.includes(value) : expected === value);
     });
+  }
+
+  /** The cases of an option's `when`: the one object, each of a list, or none. */
+  static casesOf(when: OptionWhen | undefined): readonly OptionCase[] {
+    return when === undefined ? [] : Array.isArray(when) ? when as readonly OptionCase[] : [when as OptionCase];
   }
 
   /**

@@ -660,6 +660,67 @@ describe("dependent options: an option's 'when'", () => {
     expect(size.options).toEqual([{ label: 'M3', value: 'm3', when: { standard: 'iso' } }, { label: '#4', value: 'n4', when: { standard: 'unc' } }, { label: 'Custom', value: 'custom' }]);
     expect(size.default).toBe('m3');
   });
+
+  describe("a list of cases, any one holding — a size table", () => {
+    // An extrusion's width by its shape and its section's depth (the boss has a `height` of its own).
+    const SHAPE = { type: 'select', options: ['single', 'double', 'triple', 'quad'].map(value => ({ label: value, value })) };
+    const DEPTH = { type: 'select', options: [20, 40, 80].map(value => ({ label: String(value), value })) };
+    const FORTY = [{ shape: 'single', depth: 40 }, { shape: 'double', depth: [20, 80] }, { shape: 'quad', depth: 40 }];
+    const width = (forty: unknown = FORTY, patch: Record<string, unknown> = {}) => ({
+      type: 'select', options: [{ label: '40', value: 40, when: forty }, { label: '20', value: 20 }], ...patch,
+    });
+    const at = `param 'width': option 40: 'when'`;
+
+    it("holds when any one case holds, every clause of it; a single object keeps its meaning", () => {
+      expect(FeatureMetas.holds(FORTY, { shape: 'single', depth: 40 })).toBe(true);
+      expect(FeatureMetas.holds(FORTY, { shape: 'double', depth: 20 })).toBe(true);
+      expect(FeatureMetas.holds(FORTY, { shape: 'double', depth: 80 })).toBe(true);
+      expect(FeatureMetas.holds(FORTY, { shape: 'quad', depth: 40 })).toBe(true);
+      expect(FeatureMetas.holds(FORTY, { shape: 'single', depth: 20 })).toBe(false);
+      expect(FeatureMetas.holds(FORTY, { shape: 'triple', depth: 40 })).toBe(false);
+      expect(FeatureMetas.holds(FORTY, { shape: 'double' })).toBe(false);
+      expect(FeatureMetas.holds({ shape: 'double', depth: [20, 80] }, { shape: 'double', depth: 80 })).toBe(true);
+      expect(FeatureMetas.holds(undefined, {})).toBe(true);
+    });
+
+    it("takes the list, and refuses an empty one, an empty case, an entry that isn't an object, and a case's clause by its place", () => {
+      expect(() => register(meta({ shape: SHAPE, depth: DEPTH, width: width() }))).not.toThrow();
+      refuses({ shape: SHAPE, depth: DEPTH, width: width([]) },
+        `${at}: the list is empty — list the cases the option is offered in, such as [{ shape: 'single' }, { shape: 'double', height: 20 }], or leave 'when' off to always offer it`);
+      refuses({ shape: SHAPE, depth: DEPTH, width: width([{ shape: 'single' }, {}]) },
+        `${at}[1] is empty, which would offer the option whatever the other values are — name the values it waits on, or leave 'when' off to always offer it`);
+      refuses({ shape: SHAPE, depth: DEPTH, width: width([{ shape: 'single' }, 'double']) },
+        `${at}[1] must be an object of values to match, such as { shape: 'single', height: 40 }, got 'double'`);
+      refuses({ shape: SHAPE, depth: DEPTH, width: width([{ shape: 'single' }, [{ shape: 'double' }]]) }, `${at}[1] must be an object of values to match`);
+      refuses({ shape: SHAPE, depth: DEPTH, width: width([{ shape: 'single' }, { shap: 'double' }]) }, `${at}[1] names 'shap', which is not one of the feature's values`);
+      refuses({ shape: SHAPE, depth: DEPTH, width: width([{ shape: 'single' }, { width: 20 }]) }, `${at}[1] names the value itself`);
+      refuses({ shape: SHAPE, depth: DEPTH, width: width([{ depth: 30 }]) }, `${at}[0]: 30 is not a value 'depth' can take`);
+    });
+
+    it("refuses options that wait on each other through any case of a list", () => {
+      const onWidth = { ...DEPTH, options: DEPTH.options.map(option => option.value === 40 ? { ...option, when: [{ shape: 'quad' }, { width: 40 }] } : option) };
+      refuses({ shape: SHAPE, depth: onWidth, width: width() },
+        `param 'depth': the 'when' of its options comes back round to it (depth → width → depth) — options that wait on each other have no first one to offer`);
+    });
+
+    it("holds the default to the values at rest through the list, and takes the first option offered there", () => {
+      // At rest: single, 20 — no case offers 40.
+      expect(FeatureMetas.defaultOf(resolved({ shape: SHAPE, depth: DEPTH, width: width() }).params.width)).toBe(20);
+      refuses({ shape: SHAPE, depth: DEPTH, width: width(FORTY, { default: 40 }) },
+        `param 'width': the default 40 is not offered while the other values are at their defaults — an untouched dialog would show one thing and the builder get another`);
+      expect(FeatureMetas.defaultOf(resolved({ shape: SHAPE, depth: { ...DEPTH, default: 40 }, width: width() }).params.width)).toBe(40);
+      expect(FeatureMetas.defaultOf(resolved({ width: width(), shape: { ...SHAPE, default: 'double' }, depth: { ...DEPTH, default: 80 } }).params.width)).toBe(40);
+      expect(resolved({ shape: { ...SHAPE, default: 'quad' }, depth: { ...DEPTH, default: 40 }, width: width(FORTY, { default: 40 }) }).params.width)
+        .toMatchObject({ default: 40 });
+    });
+
+    it("narrows the dialog only, and carries the list into the snapshot verbatim", () => {
+      const table = resolved({ shape: SHAPE, depth: DEPTH, width: width() });
+      expect(parseCall(table, [undefined, { width: 40 }])).toMatchObject({ shape: 'single', depth: 20, width: 40 });
+      const { width: shown } = snapshotFeatureMeta(table).params as Record<string, Record<string, any>>;
+      expect(shown.options[0]).toEqual({ label: '40', value: 40, when: FORTY });
+    });
+  });
 });
 
 describe("choice values: select and radio", () => {

@@ -1,7 +1,7 @@
 ---
 id: concepts/packages
 title: Packages — sharing custom features and parts through the hub
-summary: "A package is a workspace whose fluidcad.json has a \"package\" block (name @<handle>/<name>, the author's own hub handle as its scope; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). That one name is the archive's, the hub's, the pin's, the library folder's and every import's. fluidcad pack (MCP pack) checks the layout and the code on the engine and writes <scope>-<name>-<version>.fluidpkg, the archive fluidcad publish uploads: the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json. Packages install only from the hub, never from a .fluidpkg file: fluidcad install @scope/name downloads, verifies and installs into the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
+summary: "A package is a workspace whose fluidcad.json has a \"package\" block (name @<handle>/<name>, the author's own hub handle as its scope; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). That one name is the archive's, the hub's, the pin's, the library folder's and every import's. fluidcad publish packs the workspace and uploads it in one command: it checks the layout and the code on the engine and builds <scope>-<name>-<version>.fluidpkg, the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json. fluidcad pack (MCP pack) runs the same checks and writes that archive to look at, without publishing; it is never a step before publishing. Packages install only from the hub, never from a .fluidpkg file: fluidcad install @scope/name downloads, verifies and installs into the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
 tags: [concept, package, custom-feature, sdk, project]
 seeAlso: [concepts/custom-features, concepts/assemblies, concepts/units, api/insert, api/part, api/define-feature]
 ---
@@ -10,9 +10,11 @@ seeAlso: [concepts/custom-features, concepts/assemblies, concepts/units, api/ins
 
 A package is how a project's custom features ([[concepts/custom-features]])
 and parts travel to other projects and other people, through the FluidCAD
-hub. `fluidcad pack` makes one file, `<scope>-<name>-<version>.fluidpkg`;
-`fluidcad publish` uploads it; other projects install it from the hub with
-`fluidcad install @scope/name`. The archive itself never installs. Installed,
+hub. `fluidcad publish` packs it into one file,
+`<scope>-<name>-<version>.fluidpkg`, and uploads it in one command
+(`fluidcad pack` writes the same file to look at, without publishing);
+other projects install it from the hub with `fluidcad install @scope/name`.
+The archive itself never installs. Installed,
 it is a read-only folder the engine loads from; a project that uses it
 records the exact version and a hash of its contents, and imports it by its
 name:
@@ -52,8 +54,8 @@ import { standoff } from '@acme/mounting-hardware';
 - An archive packed while package names had no scope (its manifest names
   `mounting-hardware`) is refused when it arrives from a hub, never
   converted: "This archive names mounting-hardware, without a scope: it was
-  packed by an earlier FluidCAD, whose package names had none. Pack it again
-  with this one, after naming the package "@<your-handle>/mounting-hardware"
+  packed by an earlier FluidCAD, whose package names had none. Publish it
+  again with this one, after naming the package "@<your-handle>/mounting-hardware"
   in its fluidcad.json." Trees already installed keep working: their folder
   names them.
 
@@ -157,6 +159,11 @@ by itself.
 
 ## Packing
 
+`fluidcad publish` packs the workspace itself, with the checks below, and
+uploads the result: publishing is one command. `fluidcad pack` is optional:
+it builds the same archive and writes it out, to look at what would be
+published (its files, `manifest.json`, the contents) without publishing.
+
 ```bash
 npx fluidcad pack                    # → acme-mounting-hardware-0.1.0.fluidpkg in the workspace
 npx fluidcad pack -o dist/           # -o takes a file or a directory
@@ -225,7 +232,7 @@ sentence naming the file (`pack-refused` from MCP, with `details.code`):
   in the closure (those three are generated);
 - a shipped file has unsaved editor changes (the route and MCP; save first).
 
-To release a new version: edit, `fluidcad version minor`, `fluidcad pack`.
+To release a new version: edit, `fluidcad version minor`, `fluidcad publish`.
 
 Archives packed before the folders existed (modules at the archive root)
 still install and load: the layout is checked when packing (and by the hub
@@ -270,8 +277,8 @@ npx fluidcad remove @acme/mounting-hardware [--project]  # @scope/name@version w
   @<handle>/mounting-hardware`."
 - **A `.fluidpkg` file (or any path) is refused**, before anything is read:
   "Packages install from the hub: `fluidcad install @<handle>/<name>`. A
-  .fluidpkg file is what `fluidcad pack` makes for `fluidcad publish`; it
-  isn't installed." There is no offline install: a machine without the hub
+  .fluidpkg file is an archive to look inside (`fluidcad pack` writes one);
+  it isn't installed." There is no offline install: a machine without the hub
   uses its library, or a project's `packages/` copy (Copy into project
   carries packages with a project).
 - The same version with the same contents is a no-op. The same version with
@@ -364,7 +371,7 @@ Installed packages never change:
   0.1.0 and is read-only.";
 - timeline rows that come from a package file carry a package mark and no
   edit, rename, remove or source jump;
-- to change a package, change its workspace, bump the version and pack again.
+- to change a package, change its workspace, bump the version and publish again.
 
 ## Errors when a package can't load
 

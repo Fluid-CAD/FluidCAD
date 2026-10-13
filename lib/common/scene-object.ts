@@ -440,6 +440,21 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this._cloneSource;
   }
 
+  /**
+   * The object whose buckets an accessor's index arguments count over when
+   * its selection resolves on a moved copy: the copy's root original — the
+   * feature a repeat or a mirror copied, which every copy rebuilds from,
+   * moved once by its transform (see cloneWithTransform) — else this
+   * object. An index names the root's member carried by the move; on a
+   * mirrored copy, the member nearest the root member's mirror image
+   * (`MirrorIndex`). So `e.sideFaces(2)` carried onto a copy and the copy's
+   * own `sideFaces(2)` — what `r.instance(1).sideFaces(2)` forwards to —
+   * name the same face.
+   */
+  bucketOrigin(): SceneObject {
+    return this._cloneSource ?? this;
+  }
+
   getTransformMatrix(): Matrix4 | null {
     return null;
   }

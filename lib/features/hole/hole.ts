@@ -373,7 +373,7 @@ export class Hole extends SceneObject implements IHole {
         const faces = parent.getState(key) as Face[] || [];
         const transform = parent.getTransform();
         const originalFaces = transform
-          ? (this.getState(key) as Face[] || [])
+          ? (this.bucketOrigin().getState(key) as Face[] || [])
           : null;
         return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
@@ -385,7 +385,7 @@ export class Hole extends SceneObject implements IHole {
         const edges = parent.getState(key) as Edge[] || [];
         const transform = parent.getTransform();
         const originalEdges = transform
-          ? (this.getState(key) as Edge[] || [])
+          ? (this.bucketOrigin().getState(key) as Edge[] || [])
           : null;
         return this.resolveEdges(edges, args, transform, originalEdges, parent);
       }, this, args);

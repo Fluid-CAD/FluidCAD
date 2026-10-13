@@ -962,7 +962,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
       (parent) => {
         const faces = parent.getState(key) as Face[] || [];
         const transform = parent.getTransform();
-        const originalFaces = transform ? (this.getState(key) as Face[] || []) : null;
+        const originalFaces = transform ? (this.bucketOrigin().getState(key) as Face[] || []) : null;
         return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
   }
@@ -972,7 +972,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
       (parent) => {
         const edges = parent.getState(key) as Edge[] || [];
         const transform = parent.getTransform();
-        const originalEdges = transform ? (this.getState(key) as Edge[] || []) : null;
+        const originalEdges = transform ? (this.bucketOrigin().getState(key) as Edge[] || []) : null;
         return this.resolveEdges(edges, args, transform, originalEdges, parent);
       }, this, args);
   }

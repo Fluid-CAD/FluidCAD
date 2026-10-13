@@ -7,7 +7,8 @@ import { FaceOps } from "../oc/face-ops.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
-import { SelectionIndex, BucketRecord } from "./selection-index.js";
+import { MirrorIndex } from "../filters/mirror-index.js";
+import { SelectionIndex, BucketRecord, SubShapeKind } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
 import { ParameterLink, FaceSource, InstanceSource } from "./atoms.js";
 import { PickRef, SelectionScene } from "./types.js";
@@ -125,11 +126,12 @@ export function synthesizeSelectors(
   }
 
   // Route free picks: bindable classified picks group by (producer, bucket);
-  // everything else pools into a per-kind global select() attempt.
+  // everything else pools into a per-kind global select() attempt. A
+  // feature's picks that exactly fill one of its buckets are named by it.
   const bucketGroups = new Map<BucketRecord, PickAttribution[]>();
   const globalPools: { edge: PickAttribution[]; face: PickAttribution[] } = { edge: [], face: [] };
 
-  for (const attr of attributions) {
+  for (const attr of ExactFill.apply(index, attributions)) {
     if (attr.producer && canBindProducer(index, attr.producer.bucket.feature, stmtBindable)) {
       const bucket = attr.producer.bucket;
       let list = bucketGroups.get(bucket);
@@ -385,12 +387,13 @@ function collectFaceSources(
  * through the repeat's variable and `instance(k)`, which forwards the clone's
  * bucket accessors. `producer` is what binds a variable; `accessorPrefix`
  * goes between the variable and the bucket accessor; `resolveAccessor`
- * evaluates an accessor exactly as the rendered code would.
+ * evaluates an accessor, called with `args`, exactly as the rendered code
+ * would.
  */
 export type ProducerBinding = {
   producer: SceneObject;
   accessorPrefix: string;
-  resolveAccessor: (accessor: string) => SceneObject;
+  resolveAccessor: (accessor: string, args?: unknown[]) => SceneObject;
 };
 
 /**
@@ -448,18 +451,183 @@ export function producerBinding(feature: SceneObject): ProducerBinding {
     return {
       producer: feature,
       accessorPrefix: '',
-      resolveAccessor: accessor => callAccessor(feature, accessor),
+      resolveAccessor: (accessor, args = []) => callAccessor(feature, accessor, args),
     };
   }
   return {
     producer: clone.repeat,
     accessorPrefix: `instance(${clone.slot}).`,
-    resolveAccessor: accessor => callAccessor(clone.repeat.instance(clone.slot), accessor),
+    resolveAccessor: (accessor, args = []) => callAccessor(clone.repeat.instance(clone.slot), accessor, args),
   };
 }
 
-function callAccessor(target: object, accessor: string): SceneObject {
-  return (target as unknown as Record<string, () => SceneObject>)[accessor]();
+function callAccessor(target: object, accessor: string, args: unknown[]): SceneObject {
+  return (target as unknown as Record<string, (...a: unknown[]) => SceneObject>)[accessor](...args);
+}
+
+/**
+ * The exact-fill rule: when one feature's picks of a kind are exactly the
+ * members of one of its buckets, that bucket names them — the first such
+ * bucket in the feature's preference order (a custom feature's declared
+ * buckets, then the standard ones) — whatever bucket each pick would take
+ * on its own. Picking every side face of a gear writes `g.sideFaces()`, not
+ * its flank, tip and root buckets one by one. Built-in and custom features
+ * alike.
+ */
+class ExactFill {
+
+  /** `attributions` with each exactly-filled feature's picks re-attributed to the bucket they fill. */
+  static apply(index: SelectionIndex, attributions: PickAttribution[]): PickAttribution[] {
+    const byFeature = new Map<SceneObject, Map<SubShapeKind, PickAttribution[]>>();
+    for (const attr of attributions) {
+      if (!attr.producer || attr.pickedKey === null || attr.ref.sub.type === 'vertex') {
+        continue;
+      }
+      const feature = attr.producer.bucket.feature;
+      let byKind = byFeature.get(feature);
+      if (!byKind) {
+        byKind = new Map();
+        byFeature.set(feature, byKind);
+      }
+      const list = byKind.get(attr.ref.sub.type) ?? [];
+      list.push(attr);
+      byKind.set(attr.ref.sub.type, list);
+    }
+
+    const filled = new Map<PickAttribution, PickAttribution>();
+    for (const [feature, byKind] of byFeature) {
+      for (const [kind, attrs] of byKind) {
+        const keys = new Set(attrs.map(attr => attr.pickedKey!));
+        // The index lists one feature's buckets in its preference order.
+        const bucket = index.buckets.find(b => b.feature === feature && b.def.kind === kind && ExactFill.fills(b, keys));
+        if (!bucket) {
+          continue;
+        }
+        for (const attr of attrs) {
+          if (attr.producer!.bucket !== bucket) {
+            filled.set(attr, { ...attr, producer: { bucket, index: bucket.memberKeys.indexOf(attr.pickedKey!) } });
+          }
+        }
+      }
+    }
+    return attributions.map(attr => filled.get(attr) ?? attr);
+  }
+
+  /** Whether `keys` are exactly the bucket's members, each once. */
+  private static fills(bucket: BucketRecord, keys: Set<number>): boolean {
+    return bucket.memberKeys.length === keys.size && bucket.memberKeys.every(key => keys.has(key));
+  }
+}
+
+/**
+ * The arguments emitted code passes a bucket accessor, and how a candidate
+ * over them is verified. A feature's own bucket reads its arguments over the
+ * bucket as it is, so induction's oracle — which runs over the members — is
+ * the accessor's. A repeat copy's bucket is reached through
+ * `r.instance(k).<accessor>(…)`, which forwards to the copy's own accessor:
+ * that reads indices and filters in the root original's frame and carries
+ * them by the copy's move (`SceneObject.bucketOrigin`) — on a mirrored copy,
+ * index `i` names the copy's member nearest the mirror image of the root's
+ * member `i` (`MirrorIndex`). So a copy's candidates are verified by calling
+ * that very accessor, and its index form writes, per pick, the index that
+ * names it there.
+ */
+export class BucketArguments {
+
+  private constructor(
+    private readonly index: SelectionIndex,
+    private readonly bucket: BucketRecord,
+  ) {}
+
+  static of(index: SelectionIndex, bucket: BucketRecord): BucketArguments {
+    return new BucketArguments(index, bucket);
+  }
+
+  /** The index emitted code writes for one classified pick: the one {@link indicesFor} finds, else its place in the bucket. */
+  static indexFor(index: SelectionIndex, attr: PickAttribution): number {
+    const producer = attr.producer!;
+    const written = BucketArguments.of(index, producer.bucket).indicesFor([attr], new Set([attr.pickedKey!]));
+    return written ? written[0] : producer.index;
+  }
+
+  /**
+   * Whether a filter induction verified over the members also holds as
+   * emitted: always on a feature's own bucket; on a copy's, when its
+   * accessor called with `builders` resolves to exactly `pickKeys`.
+   */
+  verifies(builders: unknown[], pickKeys: Set<number>): boolean {
+    return !this.isCopy() || this.resolves(builders, pickKeys);
+  }
+
+  /**
+   * The indices, sorted, that make the accessor resolve to exactly the
+   * picks: their own places in the bucket when those do — on a feature's own
+   * bucket, or a copy's under any move but a mirror, an order-keeping
+   * mirror, or an accessor that reads indices as they are — else, on a
+   * mirrored copy, the root's members the picks are the mirror images of.
+   * Null when neither does.
+   */
+  indicesFor(attrs: PickAttribution[], pickKeys: Set<number>): number[] | null {
+    const own = attrs.map(attr => attr.producer!.index).sort((a, b) => a - b);
+    if (!this.isCopy()) {
+      return this.picksOut(own, pickKeys) ? own : null;
+    }
+    if (this.resolves(own, pickKeys)) {
+      return own;
+    }
+    const mirrored = this.mirroredIndices(attrs);
+    if (mirrored && this.resolves(mirrored, pickKeys)) {
+      return mirrored;
+    }
+    return null;
+  }
+
+  private isCopy(): boolean {
+    return this.bucket.feature.getCloneSource() !== null;
+  }
+
+  /** Whether picking `indices` out of the bucket's members gives exactly `pickKeys`. */
+  private picksOut(indices: number[], pickKeys: Set<number>): boolean {
+    const members = this.bucket.members;
+    const builders = this.bucket.def.kind === 'edge'
+      ? indices.map(i => new EdgeFilterBuilder().atIndex(i, members as Edge[]))
+      : indices.map(i => new FaceFilterBuilder().atIndex(i, members as Face[]));
+    return resolvesExactly(this.index, new ShapeFilter(members, ...builders).apply(), pickKeys);
+  }
+
+  /**
+   * Whether the accessor, called with `args` as emitted code calls it,
+   * resolves to exactly `pickKeys`. One that fails to resolve at all names
+   * nothing, so it is no candidate either.
+   */
+  private resolves(args: unknown[], pickKeys: Set<number>): boolean {
+    try {
+      const selection = producerBinding(this.bucket.feature).resolveAccessor(this.bucket.def.accessor, args);
+      selection.build();
+      return resolvesExactly(this.index, selection.getShapes(), pickKeys);
+    } catch {
+      return false;
+    }
+  }
+
+  /** For each pick, the root's member whose mirror image it is — null when the copy is not mirrored or the root's bucket is unknown. */
+  private mirroredIndices(attrs: PickAttribution[]): number[] | null {
+    const transform = this.bucket.feature.getTransform();
+    if (!transform || !transform.isMirroring()) {
+      return null;
+    }
+    const origin = this.bucket.feature.bucketOrigin();
+    const root = this.index.buckets.find(b => b.feature === origin && b.def.key === this.bucket.def.key);
+    if (!root) {
+      return null;
+    }
+    const rule = MirrorIndex.of(this.bucket.def.kind);
+    const indices = attrs.map(attr => rule.preimage(this.bucket.members[attr.producer!.index], root.members, transform));
+    if (indices.some(i => i < 0)) {
+      return null;
+    }
+    return indices.sort((a, b) => a - b);
+  }
 }
 
 /**
@@ -559,6 +727,7 @@ function synthesizeBucketCandidates(
   const pickKeys = new Set(groupAttrs.map(a => a.pickedKey!));
   const { producer: feature, accessorPrefix } = producerBinding(bucket.feature);
   const accessor = `${accessorPrefix}${bucket.def.accessor}`;
+  const args = BucketArguments.of(index, bucket);
   const candidates: SelectorPart[] = [];
 
   const wholeBucket = bucket.memberKeys.length === pickKeys.size
@@ -573,6 +742,9 @@ function synthesizeBucketCandidates(
   // a geometry constant so the ranking below can place it against the index.
   if (!wholeBucket) {
     for (const induced of induceFilterCandidates(index, bucketContext(bucket, false, params), groupAttrs, pickKeys)) {
+      if (!args.verifies(induced.builders, pickKeys)) {
+        continue;
+      }
       const part: SelectorPart = {
         producer: feature,
         accessor,
@@ -585,18 +757,15 @@ function synthesizeBucketCandidates(
     }
   }
 
-  const indices = groupAttrs.map(a => a.producer!.index).sort((a, b) => a - b);
-  const builders = bucket.def.kind === 'edge'
-    ? indices.map(i => new EdgeFilterBuilder().atIndex(i, bucket.members as Edge[]))
-    : indices.map(i => new FaceFilterBuilder().atIndex(i, bucket.members as Face[]));
-  if (resolvesExactly(index, new ShapeFilter(bucket.members, ...builders).apply(), pickKeys)) {
+  const indices = args.indicesFor(groupAttrs, pickKeys);
+  if (indices) {
     candidates.push({
       producer: feature, accessor, indices, filterArgs: null, tier: 4,
     });
   }
 
   if (candidates.length === 0) {
-    const call = `${accessor}(${indices.join(', ')})`;
+    const call = `${accessor}(${groupAttrs.map(a => a.producer!.index).sort((a, b) => a - b).join(', ')})`;
     return {
       ok: false,
       reason: `synthesized selector ${call} did not resolve back to the picked ${bucket.def.kind}s — refusing to write it`,
@@ -691,6 +860,7 @@ function synthesizeChainCandidates(
     const candidates: SelectorPart[] = [];
     const { producer: feature, accessorPrefix } = producerBinding(bucket.feature);
     const accessor = `${accessorPrefix}${bucket.def.accessor}`;
+    const args = BucketArguments.of(index, bucket);
 
     const wholeBucket = bucket.memberKeys.length === memberKeys.size
       && bucket.memberKeys.every(k => memberKeys.has(k));
@@ -706,7 +876,7 @@ function synthesizeChainCandidates(
       for (const builder of seedInduced.builders) {
         builder.withTangents();
       }
-      if (resolvesExactly(index, ctx.evaluate(seedInduced.builders), memberKeys)) {
+      if (resolvesExactly(index, ctx.evaluate(seedInduced.builders), memberKeys) && args.verifies(seedInduced.builders, memberKeys)) {
         candidates.push({
           producer: feature,
           accessor,
@@ -719,7 +889,7 @@ function synthesizeChainCandidates(
 
     if (!wholeBucket) {
       const plain = induceFilterArgs(index, ctx, members, memberKeys);
-      if (plain) {
+      if (plain && args.verifies(plain.builders, memberKeys)) {
         candidates.push({
           producer: feature,
           accessor,
@@ -730,11 +900,8 @@ function synthesizeChainCandidates(
       }
     }
 
-    const indices = members.map(a => a.producer!.index).sort((a, b) => a - b);
-    const builders = bucket.def.kind === 'edge'
-      ? indices.map(i => new EdgeFilterBuilder().atIndex(i, bucket.members as Edge[]))
-      : indices.map(i => new FaceFilterBuilder().atIndex(i, bucket.members as Face[]));
-    if (resolvesExactly(index, new ShapeFilter(bucket.members, ...builders).apply(), memberKeys)) {
+    const indices = args.indicesFor(members, memberKeys);
+    if (indices) {
       candidates.push({
         producer: feature, accessor, indices, filterArgs: null, tier: 4,
       });

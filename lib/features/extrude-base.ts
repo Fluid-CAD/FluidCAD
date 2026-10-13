@@ -117,7 +117,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const faces = parent.getState('start-faces') as Face[] || [];
         const transform = parent.getTransform();
         const originalFaces = transform
-          ? (this.getState('start-faces') as Face[] || [])
+          ? (this.bucketOrigin().getState('start-faces') as Face[] || [])
           : null;
         return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
@@ -130,7 +130,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const faces = parent.getState('end-faces') as Face[] || [];
         const transform = parent.getTransform();
         const originalFaces = transform
-          ? (this.getState('end-faces') as Face[] || [])
+          ? (this.bucketOrigin().getState('end-faces') as Face[] || [])
           : null;
         return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
@@ -143,7 +143,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const edges = this.getClassifiedEdges(parent, 'start-edges', 'start-faces');
         const transform = parent.getTransform();
         const originalEdges = transform
-          ? this.getClassifiedEdges(this, 'start-edges', 'start-faces')
+          ? this.getClassifiedEdges(this.bucketOrigin(), 'start-edges', 'start-faces')
           : null;
         return this.resolveEdges(edges, args, transform, originalEdges, parent);
       }, this, args);
@@ -156,7 +156,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const edges = this.getClassifiedEdges(parent, 'end-edges', 'end-faces');
         const transform = parent.getTransform();
         const originalEdges = transform
-          ? this.getClassifiedEdges(this, 'end-edges', 'end-faces')
+          ? this.getClassifiedEdges(this.bucketOrigin(), 'end-edges', 'end-faces')
           : null;
         return this.resolveEdges(edges, args, transform, originalEdges, parent);
       }, this, args);
@@ -169,7 +169,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const faces = parent.getState('side-faces') as Face[] || [];
         const transform = parent.getTransform();
         const originalFaces = transform
-          ? (this.getState('side-faces') as Face[] || [])
+          ? (this.bucketOrigin().getState('side-faces') as Face[] || [])
           : null;
         return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
@@ -216,7 +216,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const faces = parent.getState('internal-faces') as Face[] || [];
         const transform = parent.getTransform();
         const originalFaces = transform
-          ? (this.getState('internal-faces') as Face[] || [])
+          ? (this.bucketOrigin().getState('internal-faces') as Face[] || [])
           : null;
         return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
@@ -238,7 +238,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
         const faces = parent.getState('cap-faces') as Face[] || [];
         const transform = parent.getTransform();
         const originalFaces = transform
-          ? (this.getState('cap-faces') as Face[] || [])
+          ? (this.bucketOrigin().getState('cap-faces') as Face[] || [])
           : null;
         return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);

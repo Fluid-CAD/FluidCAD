@@ -8,7 +8,7 @@ import { FaceQuery } from "../oc/face-query.js";
 import { BucketHit, BucketRecord, SelectionIndex } from "./selection-index.js";
 import { attributePick, inPartScope, pickPartScope, PickAttribution } from "./attribution.js";
 import {
-  canBindProducer, checkBindable, producerBinding, synthesizeSelectors, SelectorChain, SelectorPart,
+  BucketArguments, canBindProducer, checkBindable, producerBinding, synthesizeSelectors, SelectorChain, SelectorPart,
 } from "./synthesis.js";
 import {
   ApplyFeatureEditSpec,
@@ -834,19 +834,20 @@ function explainPick(scene: SelectionScene, index: SelectionIndex, ref: PickRef)
     const binding = producerBinding(feature);
     const bindable = !explanation.producer.sharedCallSite
       && (!explanation.producer.isClone || checkBindable(index, feature) === null);
+    // What the bucket is, in the menus' words: "end edges of Extrude", or a
+    // custom feature's own bucket, "tip edges of Gear".
+    const what = `${def.label.toLowerCase()} of ${feature.getDisplayType()}`;
     if (bindable) {
       const hint = nameHintFor(binding.producer.getType());
       const repeatLoc = binding.producer !== feature ? binding.producer.getSourceLocation() : null;
       const where = repeatLoc ? ` (instance of repeat @ line ${repeatLoc.line})` : at;
       explanation.expression =
-        `${hint}.${binding.accessorPrefix}${def.accessor}(${attr.producer.index}) — `
-        + `${def.key.replace('-', ' ')} of ${feature.getType()}()${where}`;
+        `${hint}.${binding.accessorPrefix}${def.accessor}(${BucketArguments.indexFor(index, attr)}) — ${what}${where}`;
     } else {
       // No variable can be bound to a clone or shared call site, so the
       // accessor form would be a lie — say what will actually be synthesized.
       const why = explanation.producer.isClone ? 'repeat instance' : 'shared call site';
-      explanation.expression =
-        `${def.key.replace('-', ' ')} of ${feature.getType()}()${at} (${why}) — a geometric select() will be synthesized`;
+      explanation.expression = `${what}${at} (${why}) — a geometric select() will be synthesized`;
     }
   } else {
     const creator = attr.lineage?.classified?.bucket.feature ?? attr.lineage?.creator ?? attr.creator;

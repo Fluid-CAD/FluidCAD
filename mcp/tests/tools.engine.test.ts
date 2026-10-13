@@ -379,8 +379,24 @@ describe('pack', () => {
     parts: [{ exportName: 'spacer', name: 'Spacer', module: 'parts/spacer.part.js', params: 1 }],
     assemblies: [],
     models: 1,
+    docs: ['docs/standoff.md'],
   };
-  const archiveReply = () => ({
+  const warnings = [
+    {
+      code: 'undocumented-fields',
+      file: 'features/standoff.feature.js',
+      message: 'features/standoff.feature.js: 1 field without a description — standoff: height. Give it a `description`.',
+      fields: [{ kind: 'value', owner: 'standoff', name: 'height', label: 'Height', reason: 'missing' }],
+    },
+    {
+      code: 'docs-link',
+      file: 'docs/standoff.md',
+      message: 'docs/standoff.md:3 links to ./gone.svg, which leads to no file the package ships.',
+      target: './gone.svg',
+      line: 3,
+    },
+  ];
+  const archiveReply = (extra: Record<string, unknown> = { warnings }) => ({
     status: 200,
     body: Buffer.from(JSON.stringify({
       packageName: '@acme/kit',
@@ -388,6 +404,7 @@ describe('pack', () => {
       fileName: 'acme-kit-0.1.0.fluidpkg',
       bytes: archive.length,
       contents,
+      ...extra,
       archive: archive.toString('base64'),
     })),
     headers: { 'content-type': 'application/json' },
@@ -410,6 +427,7 @@ describe('pack', () => {
         version: '0.1.0',
         fileName: 'acme-kit-0.1.0.fluidpkg',
         contents,
+        warnings,
       },
     });
     expect(fs.readFileSync(out).equals(archive)).toBe(true);
@@ -430,6 +448,16 @@ describe('pack', () => {
     expect(data.bytes).toBe(archive.length);
     expect(data.fileName).toBe('acme-kit-0.1.0.fluidpkg');
     expect(data.contents).toEqual(contents);
+  });
+
+  it('passes the pack\'s warnings through as they came, and an engine that sends none gives []', async () => {
+    packReply = archiveReply();
+    const result = await packPackage({});
+    expect(result.ok && (result.data as { warnings: unknown }).warnings).toEqual(warnings);
+
+    packReply = archiveReply({});
+    const older = await packPackage({});
+    expect(older.ok && (older.data as { warnings: unknown }).warnings).toEqual([]);
   });
 
   it('turns the packer\'s refusal into pack-refused, with its sentence and code, and writes nothing', async () => {

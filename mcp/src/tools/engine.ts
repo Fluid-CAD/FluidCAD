@@ -12,6 +12,7 @@ import { err, ok, type ToolResult } from '../types.ts';
 import type { ObjectBuildError, RenderChanges } from './source.ts';
 import type { PackageContents } from '../../../server/dist/packages/package-manifest.js';
 import type { PackJsonResponse } from '../../../server/dist/routes/pack.js';
+import type { PackWarning } from '../../../server/dist/packages/package-builder.js';
 
 /**
  * Shared shape of the scene-mutating routes: the render ran, but individual
@@ -205,11 +206,12 @@ export type PackInput = WorkspaceArg & {
 
 /**
  * The archive's identity, and what it holds by folder: the features in
- * `features/`, the parts in `parts/`, the assemblies in `assemblies/`, and
- * `models` (parts + assemblies). `contents` is what `fluidcad pack --json`
- * prints under the same key.
+ * `features/`, the parts in `parts/`, the assemblies in `assemblies/`,
+ * `models` (parts + assemblies) and the `docs/` pages. `contents` and
+ * `warnings` (undocumented fields, broken doc links; the package still
+ * packed) are what `fluidcad pack --json` prints under the same keys.
  */
-type PackIdentity = { packageName: string; version: string; fileName: string; contents: PackageContents };
+type PackIdentity = { packageName: string; version: string; fileName: string; contents: PackageContents; warnings: PackWarning[] };
 
 export type PackOutput =
   | ({ savedTo: string; bytesWritten: number } & PackIdentity)
@@ -219,8 +221,9 @@ export type PackOutput =
  * Pack the workspace's package (`POST /api/pack` in its JSON form, the
  * same packer as `fluidcad pack`). A refusal — not a package, a failed pack
  * check — comes back as `pack-refused` with the packer's sentence, and its
- * `code` (`wrong-folder`, `outside-layout`, `no-exports`, else `refused`)
- * in `details`.
+ * `code` (`wrong-folder`, `outside-layout`, `no-exports`, `docs-file`,
+ * `docs-too-large`, else `refused`) in `details`. The pack's warnings pass
+ * through as `warnings`.
  */
 export async function packPackage(input: PackInput): Promise<ToolResult<PackOutput>> {
   if (input.saveAsPath !== undefined && typeof input.saveAsPath !== 'string') {
@@ -263,6 +266,8 @@ export async function packPackage(input: PackInput): Promise<ToolResult<PackOutp
       version: packed.version,
       fileName: packed.fileName,
       contents: packed.contents,
+      // An engine from before the warnings sends none.
+      warnings: Array.isArray(packed.warnings) ? packed.warnings : [],
     };
     if (input.saveAsPath) {
       const absPath = path.resolve(input.saveAsPath);

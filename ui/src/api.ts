@@ -802,6 +802,12 @@ export type CopyGhostRequest = {
   skip: number[][];
   /** Pattern only: the `repeat()` the copies follow, by call site. */
   pattern?: { filePath: string; line: number };
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -818,6 +824,12 @@ export type MirrorGhostRequest = {
   targets: { filePath: string; line: number }[];
   /** The plane to mirror across. */
   plane: GhostPlaneRef;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -834,6 +846,12 @@ export type RotateGhostRequest = {
   axis: GhostAxisRef;
   /** The rotation angle in degrees. */
   angle: ValueExpr;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**

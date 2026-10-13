@@ -15,6 +15,8 @@ import repeat from "../core/repeat.js";
 import hole from "../core/hole.js";
 import color from "../core/color.js";
 import copy from "../core/copy.js";
+import translate from "../core/translate.js";
+import rotate from "../core/rotate.js";
 import shell from "../core/shell.js";
 import part from "../core/part.js";
 import connector from "../core/connector.js";
@@ -2009,18 +2011,20 @@ describe("feature ghost — copy", () => {
   });
 
   /**
-   * The edit dialog's own blind spot: a copy takes its targets' shapes over
-   * (`CopyBase.build`), so re-previewing the statement being edited finds
-   * them already consumed — by itself. Re-reading as if no removal applied
-   * brings the body back, and without it editing any copy would draw nothing.
+   * The edit dialog: a copy takes its targets' shapes over (`CopyBase.build`),
+   * so re-previewing the statement being edited finds them held by the copy
+   * itself — followed there, the ghost would stamp every clone. `exclude`
+   * names the statement, and the target reads as of just before it.
    */
   it("clones a target the copy being edited already took over", () => {
     const box = locatedBox(5);
-    copy("linear", "x", { count: 2, offset: 200 }, box as never);
+    const edited = copy("linear", "x", { count: 2, offset: 200 }, box as never) as unknown as SceneObject;
+    edited.setSourceLocation({ filePath: FILE, line: 7, column: 0 });
     const scene = render();
 
     const result = copyGhost(scene, [5], {
       directions: [{ count: 2, offset: 40, length: null }],
+      exclude: { filePath: FILE, line: 7 },
     });
 
     // The target's own body at its own place, not the copy's clone at x 200.
@@ -3449,6 +3453,46 @@ describe("feature ghost — mirror", () => {
     expect(box.maxZ).toBeCloseTo(0, 3);
   });
 
+  /**
+   * A named target stands for the body it built wherever later features
+   * left it (the build's `liveOperandShapes`), and creating lands the
+   * statement after everything — so a target a later move took is read
+   * where the move put it.
+   */
+  it("reflects a target as a later move left it", () => {
+    const box = locatedBox(5);
+    translate([0, 0, 100], box as never);
+    const scene = render();
+
+    const result = mirrorGhost(scene, [5]);
+
+    // The moved box stands z 100…110; its mirror across xy hangs −110…−100.
+    expect(solidsOf(result)).toHaveLength(1);
+    const b = bounds(result, 0);
+    expect(b.minZ).toBeCloseTo(-110, 3);
+    expect(b.maxZ).toBeCloseTo(-100, 3);
+  });
+
+  /**
+   * The edit dialog: the statement being re-authored sits in the scene with
+   * everything after it. `exclude` names it, and the targets read as of just
+   * before it — a later move never reaches the preview.
+   */
+  it("edit mode: reads a target as of before the edited statement via `exclude`", () => {
+    const box = locatedBox(5);
+    const moved = translate([0, 0, 100], box as never) as unknown as SceneObject;
+    moved.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+
+    const result = mirrorGhost(scene, [5], { exclude: { filePath: FILE, line: 9 } });
+
+    // The box as it stood before line 9: z 0…10, mirrored to −10…0.
+    expect(solidsOf(result)).toHaveLength(1);
+    const b = bounds(result, 0);
+    expect(b.minZ).toBeCloseTo(-10, 3);
+    expect(b.maxZ).toBeCloseTo(0, 3);
+  });
+
   it("stamps every target into the one reflected instance", () => {
     locatedBox(5);
     locatedBox(7, () => { testRect(20, 20, { at: [40, 0] }); });
@@ -3648,6 +3692,43 @@ describe("feature ghost — rotate", () => {
     expect(box.maxY).toBeCloseTo(20, 3);
     expect(box.minZ).toBeCloseTo(0, 3);
     expect(box.maxZ).toBeCloseTo(10, 3);
+  });
+
+  /**
+   * The edit dialog: the applied rotate has already turned its target's body,
+   * and following the body there would turn it a second time. `exclude`
+   * names the statement, so the target reads as it stood before it.
+   */
+  it("edit mode: reads a target as of before the edited rotate via `exclude`", () => {
+    const box = locatedBox(5);
+    const turned = rotate("z", 90, box as never) as unknown as SceneObject;
+    turned.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+
+    const result = rotateGhost(scene, [5], { exclude: { filePath: FILE, line: 9 } });
+
+    // The box as it stood before line 9 (x 0…20, y 0…20), turned once by the
+    // ghost's own quarter turn: x −20…0, y 0…20 — not turned twice.
+    expect(solidsOf(result)).toHaveLength(1);
+    const b = bounds(result, 0);
+    expect(b.minX).toBeCloseTo(-20, 3);
+    expect(b.maxX).toBeCloseTo(0, 3);
+    expect(b.minY).toBeCloseTo(0, 3);
+    expect(b.maxY).toBeCloseTo(20, 3);
+  });
+
+  it("turns a target as a later move left it", () => {
+    const box = locatedBox(5);
+    translate([100, 0, 0], box as never);
+    const scene = render();
+
+    const result = rotateGhost(scene, [5]);
+
+    // The moved box spans x 100…120, y 0…20; a quarter turn around z carries
+    // it to x −20…0, y 100…120.
+    const b = bounds(result, 0);
+    expect(b.minY).toBeCloseTo(100, 3);
+    expect(b.maxY).toBeCloseTo(120, 3);
   });
 
   it("stamps every target into the one turned instance", () => {

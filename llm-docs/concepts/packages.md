@@ -265,11 +265,15 @@ npx fluidcad remove @acme/mounting-hardware [--project]  # @scope/name@version w
 
 - A download is verified before anything is installed: its files must hash
   to the hub's listed integrity, and to the project's pin when there is
-  one. Then the summary (features with labels, parts, the engine
-  requirement, files, size, `sha256-…`, the hub's notes and a warning when
-  the package needs a newer engine or another SDK version, and "A package's
-  code runs in the FluidCAD engine with your permissions. Install only
-  packages you trust.") and y/N; without a terminal it needs `--yes`.
+  one. Then it installs without asking (`--yes` is accepted and does
+  nothing) and prints one line per package: `✓ Installed
+  @acme/mounting-hardware@0.1.0 into your library · 4 features, 2 parts ·
+  pinned in fluidcad.json` (a zero count left out), then a short `!` line
+  per warning: deprecated, a yanked or unpublished exact version, an older
+  version because the latest needs a newer engine, a package needing a
+  newer engine or another SDK version. A refusal prints its sentence and
+  exits 1. A package's code runs in the FluidCAD engine with the user's
+  permissions: install only packages the user trusts.
 - A name alone asks the hub for its latest version first and uses the
   library's copy when its files are the hub's; with the hub unreachable it
   uses the newest version the library holds, with a note. A name without

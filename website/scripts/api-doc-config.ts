@@ -89,6 +89,8 @@ export const features: FeatureEntry[] = [
   // 2D Sketching — Region declarations (what a 3D operation's .region() names)
   { name: 'region', displayName: 'region', category: '2d', sourceFile: 'core/2d/region.ts', interfaceName: 'RegionFunction', returnType: 'ISceneObject', relatedGuide: '/docs/3d-operations/extrude#region-picking', sidebarPosition: 13 },
   { name: 'far', displayName: 'far', category: '2d', sourceFile: 'core/2d/region.ts', interfaceName: null, functionName: 'far', returnType: 'IRegionSide', relatedGuide: '/docs/3d-operations/extrude#region-picking', sidebarPosition: 14 },
+  // 2D Sketching — Reference pictures (editor-only, no geometry)
+  { name: 'image', displayName: 'image', category: '2d', sourceFile: 'core/2d/image.ts', interfaceName: 'ImageFunction', returnType: 'ISceneObject', relatedGuide: '/docs/sketching/introduction#reference-image', sidebarPosition: 15 },
   // 2D Sketching — Advanced Operations
   { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IOffset', relatedGuide: '/docs/sketching/tools/offset', sidebarPosition: 23 },
 

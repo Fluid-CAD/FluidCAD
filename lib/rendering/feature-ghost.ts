@@ -406,6 +406,13 @@ export type CopyGhostRequest = {
    * kind carries one, and it carries no axes, directions, count or sweep.
    */
   pattern?: { filePath: string; line: number };
+  /**
+   * Edit mode: the edited statement's own call site. Its targets are read as
+   * of just before it — a body it (or anything after it) took from a target
+   * stays where it stood then — since the applied statement is in the scene
+   * mid-edit and would otherwise hand the ghost its own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -425,6 +432,13 @@ export type MirrorGhostRequest = {
   targets: { filePath: string; line: number }[];
   /** The plane to mirror across. */
   plane: GhostPlaneRef;
+  /**
+   * Edit mode: the edited statement's own call site. Its targets are read as
+   * of just before it — a body it (or anything after it) took from a target
+   * stays where it stood then — since the applied statement is in the scene
+   * mid-edit and would otherwise hand the ghost its own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -444,6 +458,13 @@ export type RotateGhostRequest = {
   axis: GhostAxisRef;
   /** The rotation angle in degrees. */
   angle: number;
+  /**
+   * Edit mode: the edited statement's own call site. Its targets are read as
+   * of just before it — a body it (or anything after it) took from a target
+   * stays where it stood then — since the applied statement is in the scene
+   * mid-edit and would otherwise hand the ghost its own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -1950,7 +1971,7 @@ function buildCopyGhost(
   // refuses anything else, so nothing else is ever stamped.
   const following = request.kind === 'pattern';
   const meshes = following ? [] : stampMeshes(
-    copyTargetSolids(targets.filter(target => !(target instanceof Connector))),
+    copyTargetSolids(scene, targets.filter(target => !(target instanceof Connector)), request.exclude),
     new MeshBuilder(meshConfig),
   );
   if (meshes.length === 0 && seeds.length === 0) {
@@ -2090,24 +2111,57 @@ function followedRepeatMatrices(
 }
 
 /**
- * The bodies a copy's targets hand it. `copy()` reads `getShapes()` at its own
- * point in the file, but the ghost reads the finished scene — where a feature
- * FURTHER DOWN may already have consumed the very body the copy would clone,
- * and in an edit dialog that consumer is often the copy itself. Re-reading with
- * an empty removal scope means "no removal applies" and brings those bodies
- * back, the same blind spot {@link profileEdges} works around for the swept
- * features. The Set dedupes a container target, which reports its children's
- * solids as its own.
+ * The bodies a copy's, mirror's or rotate's targets hand it — what the
+ * statement reads at its own point in the file. A named target stands for
+ * the body it built wherever the features since left it (`liveOperandShapes`
+ * in the build; `liveSolidsIn` here), so a target a later fillet or move
+ * took is read as that feature left it. The ghost reads the finished scene,
+ * though, so two cases need the statement's position:
+ * - creating, the statement lands at the end of its scope, after everything
+ *   — every removal is followed;
+ * - editing, the applied statement is in the scene already and would hand
+ *   the ghost its own result (a copy's clones, a rotate's turned body):
+ *   `exclude` names it, and no removal by it or by anything built after it
+ *   is followed — the targets read as of just before the statement.
+ * A body nothing stands for any more (one `remove()` took) falls back to an
+ * empty-removal read — "no removal applies" — so the ghost still draws
+ * something rather than nothing, the blind spot {@link profileEdges} works
+ * around for the swept features. The Set dedupes a container target, which
+ * reports its children's solids as its own.
  */
-function copyTargetSolids(targets: SceneObject[]): Shape[] {
+function copyTargetSolids(
+  scene: Scene,
+  targets: SceneObject[],
+  exclude: { filePath: string; line: number } | undefined,
+): Shape[] {
+  const blocked = builtFrom(scene, exclude);
+  const live = liveSolidsIn(targets, blocked ? { through: remover => !blocked.has(remover) } : {});
+  if (live.length > 0) {
+    return [...new Set(live.map(held => held.solid))];
+  }
   const solids: Shape[] = [];
   for (const target of targets) {
-    const live = target.getShapes(undefined, 'solid');
-    solids.push(...(live.length > 0
-      ? live
-      : target.getShapes(undefined, 'solid', new Set<SceneObject>())));
+    solids.push(...target.getShapes(undefined, 'solid', new Set<SceneObject>()));
   }
   return [...new Set(solids)];
+}
+
+/**
+ * The statement at `ref` and everything built after it, in the kernel's
+ * build order — the features a statement re-authored at `ref` has not seen
+ * yet. Null without a `ref`, or when the scene holds nothing at it.
+ */
+function builtFrom(scene: Scene, ref: { filePath: string; line: number } | undefined): Set<SceneObject> | null {
+  if (!ref) {
+    return null;
+  }
+  const objects = scene.getAllSceneObjects();
+  const at = objectsAt(scene, ref);
+  const first = Math.min(...at.map(obj => objects.indexOf(obj)).filter(index => index >= 0));
+  if (!Number.isFinite(first)) {
+    return null;
+  }
+  return new Set(objects.slice(first));
 }
 
 /**
@@ -2115,10 +2169,11 @@ function copyTargetSolids(targets: SceneObject[]): Shape[] {
  * `mirror()` clones the bodies its targets hold and reflects them
  * (mirror-shape.ts:78-86), so the stamp is the targets' own meshes through
  * `transformMeshes` — which flips the winding a negative-determinant matrix
- * inverts, exactly as the applied mirror's mesh path does. The empty-removal
- * fallback in {@link copyTargetSolids} is load-bearing here too: the default
- * op FUSES, so in the edit dialog the statement being edited has already
- * consumed the very bodies its ghost wants to draw.
+ * inverts, exactly as the applied mirror's mesh path does. The targets read
+ * through {@link copyTargetSolids}: a body a later feature took is read as
+ * that feature left it, and in the edit dialog `exclude` keeps the applied
+ * mirror — whose default op FUSES the very bodies its ghost draws — from
+ * handing the ghost its own result.
  *
  * Only the plane's face pick opens shapes; the target meshes are read off the
  * scene.
@@ -2138,7 +2193,7 @@ function buildMirrorGhost(
     if (targets.length === 0) {
       return { ok: false, reason: 'That solid is not in the rendered scene.' };
     }
-    const meshes = stampMeshes(copyTargetSolids(targets), new MeshBuilder(meshConfig));
+    const meshes = stampMeshes(copyTargetSolids(scene, targets, request.exclude), new MeshBuilder(meshConfig));
     if (meshes.length === 0) {
       return { ok: false, reason: 'That statement has no solid to mirror.' };
     }
@@ -2165,10 +2220,10 @@ function buildMirrorGhost(
  * (rotate.ts:63-78), so the stamp is the targets' own meshes through
  * `transformMeshes` — the exact `ghostRotation` matrix the repeat's rotate
  * kind stamps with, which is itself the apply's `Matrix4.fromRotationAroundAxis`.
- * The empty-removal fallback in {@link copyTargetSolids} is load-bearing here
- * too: a move CONSUMES its targets' bodies, so in the edit dialog the
- * statement being edited has already taken the very bodies its ghost wants to
- * draw. A full-turn angle stamps nothing — the bodies land exactly where they
+ * The targets read through {@link copyTargetSolids}: a body a later feature
+ * took is read as that feature left it, and in the edit dialog `exclude`
+ * keeps the applied rotate — a move CONSUMES its targets' bodies — from
+ * handing the ghost its own turned body. A full-turn angle stamps nothing — the bodies land exactly where they
  * already are, and the ghost would only z-fight the scene.
  *
  * Nothing here opens a shape: the axis resolves to plain values (a picked
@@ -2194,7 +2249,7 @@ function buildRotateGhost(
   if (targets.length === 0) {
     return { ok: false, reason: 'That solid is not in the rendered scene.' };
   }
-  const meshes = stampMeshes(copyTargetSolids(targets), new MeshBuilder(meshConfig));
+  const meshes = stampMeshes(copyTargetSolids(scene, targets, request.exclude), new MeshBuilder(meshConfig));
   if (meshes.length === 0) {
     return { ok: false, reason: 'That statement has no solid to rotate.' };
   }
@@ -2400,16 +2455,10 @@ function buildHoleGhost(scene: Scene, request: HoleGhostRequest): GhostBuild {
 }
 
 /**
- * The solids a through hole is sized against: the `.scope(…)` statements'
- * solids, or every solid in the scene. In edit mode the edited statement's
- * own cut is unwound (its removal scope drops it) so the stock reads as the
- * feature will see it.
- */
-/**
  * A fastened hole's `.scope(…)` solids, as the very solids the every-solid
- * read lists so the axis can tell them apart: the removal-scoped read in edit
- * mode, otherwise each statement's solids followed to wherever the scene
- * holds them now (see liveSolidsOf).
+ * read lists so the axis can tell them apart: each statement's solids
+ * followed to wherever the scene holds them now (see liveSolidsOf), read as
+ * of the edited statement in edit mode ({@link ghostStockSolids}).
  */
 function ghostScopedSolids(
   scene: Scene,
@@ -2430,15 +2479,22 @@ function ghostScopedSolids(
   return liveSolidsIn(targets).map(held => held.solid);
 }
 
+/**
+ * The solids a feature's boolean runs against, as the build resolves them
+ * (`resolveFusionStock`): the `.scope(…)` statements' bodies followed to
+ * wherever the features left them ({@link copyTargetSolids}), or every solid
+ * the scene holds. In edit mode `exclude` names the applied statement, and
+ * the stock reads as of just before it: a scoped body stops where the
+ * features before the statement left it, and the scene-wide read lists only
+ * the bodies built before it, with only those features' removals applied —
+ * the edited statement's own cut or fusion is unwound, and nothing after it
+ * is seen.
+ */
 function ghostStockSolids(
   scene: Scene,
   scope: { filePath: string; line: number }[],
   exclude: { filePath: string; line: number } | undefined,
 ): Shape[] | { reason: string } {
-  const excluded = exclude ? new Set(objectsAt(scene, exclude)) : null;
-  const removalScope = excluded && excluded.size > 0
-    ? new Set(allObjects(scene).filter(obj => !excluded.has(obj)))
-    : undefined;
   if (scope.length > 0) {
     const targets: SceneObject[] = [];
     for (const ref of scope) {
@@ -2448,14 +2504,14 @@ function ghostStockSolids(
       }
       targets.push(...objects);
     }
-    return removalScope
-      ? [...new Set(targets.flatMap(t => t.getShapes(undefined, 'solid', removalScope)))]
-      : copyTargetSolids(targets);
+    return copyTargetSolids(scene, targets, exclude);
   }
-  if (removalScope) {
+  const blocked = builtFrom(scene, exclude);
+  if (blocked) {
+    const asOf = new Set(allObjects(scene).filter(obj => !blocked.has(obj)));
     return scene.getSceneObjects()
-      .filter(obj => !obj.isContainer() && !excluded!.has(obj))
-      .flatMap(obj => obj.getShapes(undefined, 'solid', removalScope));
+      .filter(obj => !obj.isContainer() && !blocked.has(obj))
+      .flatMap(obj => obj.getShapes(undefined, 'solid', asOf));
   }
   return sceneSolids(scene);
 }
@@ -2470,36 +2526,12 @@ function buildRibGhost(scene: Scene, request: RibGhostRequest): GhostBuild {
     return { reason: 'The spine has no plane.' };
   }
 
-  // Edit mode: the scene holds the applied rib itself, fused into the very
-  // solids the scope names. Read the scope as of just before that statement —
-  // a removal scope of every OTHER object applies the earlier features'
-  // consumption (box → shell → fillet) but unwinds the rib's own.
-  const excluded = request.exclude
-    ? new Set(objectsAt(scene, request.exclude))
-    : null;
-  const removalScope = excluded && excluded.size > 0
-    ? new Set(allObjects(scene).filter(obj => !excluded.has(obj)))
-    : undefined;
-
-  let scopeShapes: Shape[];
-  if (request.scope.length > 0) {
-    const targets: SceneObject[] = [];
-    for (const ref of request.scope) {
-      const objects = objectsAt(scene, ref).filter(obj => !obj.isContainer());
-      if (objects.length === 0) {
-        return { reason: 'That scope solid is not in the rendered scene.' };
-      }
-      targets.push(...objects);
-    }
-    scopeShapes = removalScope
-      ? [...new Set(targets.flatMap(t => t.getShapes(undefined, 'solid', removalScope)))]
-      : copyTargetSolids(targets);
-  } else if (removalScope) {
-    scopeShapes = scene.getSceneObjects()
-      .filter(obj => !obj.isContainer() && !excluded!.has(obj))
-      .flatMap(obj => obj.getShapes(undefined, 'solid', removalScope));
-  } else {
-    scopeShapes = sceneSolids(scene);
+  // The solids the rib conforms to, as the build will see them — and in edit
+  // mode, where the scene holds the applied rib fused into the very solids
+  // the scope names, as of just before it (see ghostStockSolids).
+  const scopeShapes = ghostStockSolids(scene, request.scope, request.exclude);
+  if ('reason' in scopeShapes) {
+    return scopeShapes;
   }
   if (scopeShapes.length === 0) {
     return { reason: 'The rib has no solids to conform to.' };

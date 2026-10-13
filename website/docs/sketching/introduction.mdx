@@ -111,6 +111,27 @@ The sketch toolbar holds the drawing tools ([Line, Polyline, Bezier, Circle, Pol
 - <kbd>Esc</kbd> leaves the active tool. Typed coordinates clear first, then the tool.
 - **Dragging.** Geometry that still has freedom can be dragged; the solver re-solves live while you drag, honouring every constraint.
 
+## Reference image
+
+To trace a drawing, a photo or a scan, click **Image** on the sketch toolbar. The **Reference image** dialog puts a picture on the sketch plane, faded, under everything you draw, and the picture itself is placed by hand in the viewport:
+
+![The Reference image dialog](/img/docs/ui/reference-image-dialog.png)
+
+1. **Choose image…** picks a PNG, JPEG, WebP, GIF or BMP file. The picture appears in the viewport at once, half the view wide, with a frame around it.
+2. **Drag the picture** to move it. **Drag a corner** to resize it about the opposite corner; the proportions hold unless you hold <kbd>Shift</kbd>, which stretches. **Drag the knob** above the top edge to rotate; <kbd>Shift</kbd> snaps to 15°. The dialog reads out the size, centre and angle as you go.
+3. **Calibrate…** scales the picture from a dimension you know: click two points on it (a hole's edges, the ends of a dimension line) and type the real distance between them. The picture scales about its centre so the points sit that far apart.
+4. **Opacity** is how faded it draws — a reference should sit behind your lines, not compete with them.
+5. **Apply** writes the picture into the model: the file is copied to an `images/` folder beside the model, and an `image()` statement goes first in the sketch body:
+
+```js
+sketch("xy", () => {
+    image('images/side-view.png', { width: 120, at: [10, 0], angle: 15, opacity: 0.4 })
+    // …
+})
+```
+
+The picture is a feature of the sketch with its own **Image** row under the sketch in the timeline. It shows wherever the sketch is shown, in any editor, and hides with the sketch's lines once a feature consumes the sketch. **Double-click the Image row** to open the sketch with the picture's handles back on it; move, rescale or recalibrate it and **Apply**. To delete a picture, remove its row from the timeline. Clicking **Image** on the toolbar again adds another picture, such as a second view. <kbd>Esc</kbd> folds a calibration or a drag in progress first, then the tool. Sizes and the centre are in the document unit; the options are described on the [`image()` API page](/docs/api/features/2d/image).
+
 ## Keyboard shortcuts
 
 Every drawing tool and every constraint button has a letter shortcut, shown in its tooltip. Press the letters with nothing focused; a two-letter chord is typed one key after the other. A single letter that also starts a chord (<kbd>c</kbd> is Circle, <kbd>cc</kbd> Coincident) fires after a short pause or as soon as the next key rules the chord out.

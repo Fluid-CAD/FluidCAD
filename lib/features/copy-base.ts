@@ -8,6 +8,7 @@ import { ConnectorAxis } from "./connector-axis.js";
 import { ConnectorCopy, ConnectorCopyRules, ConnectorCopyScope, ConnectorFamily } from "./connector-copy.js";
 import { Part } from "./part.js";
 import type { CopySlot, CopySlotLayout } from "./copy-layout.js";
+import { liveOperandShapes } from "../helpers/live-solids.js";
 
 /**
  * An axis a copy can follow: a concrete Axis, a scene-resident axis object,
@@ -116,9 +117,18 @@ export abstract class CopyBase extends SceneObject {
   build(context: BuildSceneObjectContext) {
     const objects = this.shapeTargets(context);
 
-    const originalShapes = objects.flatMap(obj => obj.getShapes());
+    // A target's own shapes go through `removeShapes` — a datum is only
+    // hidden by it — and a body a later feature took from a named target is
+    // read where that feature left it (liveOperandShapes) and taken from there.
+    const held = objects.flatMap(obj => liveOperandShapes(obj));
+    const originalShapes = held.map(entry => entry.shape);
     for (const obj of objects) {
       obj.removeShapes(this);
+    }
+    for (const { holder, shape } of held) {
+      if (!objects.includes(holder)) {
+        holder.removeShape(shape, this);
+      }
     }
     for (const shape of originalShapes) {
       this.addShape(shape);

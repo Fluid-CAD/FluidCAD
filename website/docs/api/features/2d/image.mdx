@@ -1,0 +1,38 @@
+---
+sidebar_position: 15
+title: "image"
+description: "Places a reference picture on the sketch plane — a drawing, photo or scan to trace. The editor draws it faded, under the sketch's own lines, wherever the sketch is shown; nothing geometric reads it (no profile, no solve, no consumption). Write it inside the sketch callback. The sketch toolbar's Image tool writes this statement, and double-clicking its timeline row re-opens the picture's handles."
+---
+
+# image()
+
+Places a reference picture on the sketch plane — a drawing, photo or
+scan to trace. The editor draws it faded, under the sketch's own lines,
+wherever the sketch is shown; nothing geometric reads it (no profile,
+no solve, no consumption). Write it inside the sketch callback. The
+sketch toolbar's Image tool writes this statement, and double-clicking
+its timeline row re-opens the picture's handles.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/sketching/introduction#reference-image) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+image(src: string, options: SketchImageOptions): SceneObject
+```
+
+Places a reference picture on the sketch plane — a drawing, photo or
+scan to trace. The editor draws it faded, under the sketch's own lines,
+wherever the sketch is shown; nothing geometric reads it (no profile,
+no solve, no consumption). Write it inside the sketch callback. The
+sketch toolbar's Image tool writes this statement, and double-clicking
+its timeline row re-opens the picture's handles.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `src` | string | Image file path, relative to the model file (png, jpeg, webp, gif, bmp). |
+| `options` | SketchImageOptions | Size on the plane in document units (`width` and/or `height` — one is enough, the other follows the picture's aspect), the centre (`at`, default `[0, 0]`), the turn (`angle`, degrees, default 0) and how solid it draws (`opacity`, 0…1, default 0.5). |

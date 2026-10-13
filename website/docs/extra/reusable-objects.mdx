@@ -30,6 +30,21 @@ When one sketch holds several closed shapes, declare each one as a `region()` an
 
 The **Pick regions** link of the extrude, revolve, sweep and wrap dialogs writes these declarations for you — see [region picking](/docs/3d-operations/extrude#region-picking).
 
+## A solid follows its variable
+
+A modifying feature takes the solid it works on: `fillet(3, e.endEdges())` removes the extrude's body and holds the filleted one. The variable `e` keeps naming that body wherever later features left it, so a `mirror("xz", e)`, `translate([0, 0, 100], e)`, `rotate("x", 90, e)`, `fuse(e, g)`, `subtract(e, g)`, `copy(…, e)` or `.scope(e)` written further down reads the body filleted, moved or fused, as it is at that point in the timeline.
+
+```js
+sketch("xy", () => { /* a rectangle */ });
+const e = extrude(30);
+fillet(3, e.endEdges());      // takes e's body, holds the filleted one
+mirror("xz", e);              // reflects the filleted body
+```
+
+This is what keeps a script valid when you insert a feature in the middle of it — paused at a breakpoint, for example: the statements after the insertion keep their references. Only a body nothing stands for any more fails, with an error naming what took it: one `remove()` disposed of, or a cut consumed entirely.
+
+Sub-shape accessors do not follow: `e.sideEdges()` names the edges as the extrude built them, so a fillet that reshaped those edges leaves the accessor empty. Re-pick on the current model instead.
+
 ## Cleaning up with `remove()`
 
 A sketch, a plane or an axis stays within reach of every later feature until you explicitly dispose of it. To drop one for good — so no later feature can take it and it no longer comes back when the timeline is scrubbed — keep a reference and call `remove()`:

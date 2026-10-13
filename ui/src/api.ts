@@ -808,6 +808,12 @@ export type CopyGhostRequest = {
   skip: number[][];
   /** Pattern only: the `repeat()` the copies follow, by call site. */
   pattern?: { filePath: string; line: number };
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -824,6 +830,12 @@ export type MirrorGhostRequest = {
   targets: { filePath: string; line: number }[];
   /** The plane to mirror across. */
   plane: GhostPlaneRef;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -840,6 +852,12 @@ export type RotateGhostRequest = {
   axis: GhostAxisRef;
   /** The rotation angle in degrees. */
   angle: ValueExpr;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -4821,6 +4839,40 @@ export function renameFeature(sourceLocation: SourceLocationParam, name: string 
  */
 export function setSketchClosed(sourceLocation: SourceLocationParam, closed: boolean): Promise<SetUnitResult> {
   return postAcked('api/set-sketch-closed', { sourceLocation, closed });
+}
+
+/**
+ * The `image()` record the sketch Image tool commits: the path relative to
+ * the model file and the options it holds (`width` and/or `height`
+ * required; a default-valued `at` / `angle` is left out of the written
+ * statement by the server).
+ */
+export type SketchImageEdit = {
+  src: string;
+  width?: number;
+  height?: number;
+  at?: [number, number];
+  angle?: number;
+  opacity?: number;
+};
+
+/**
+ * Write a new `image(…)` statement into the body of the sketch at
+ * `sketch` — the sketch toolbar's Image tool. Acked like
+ * {@link setSketchClosed}: resolves once the host applied the edit, so the
+ * tool closes on the re-render that shows the picture from code.
+ */
+export function addSketchImage(sketch: SourceLocationParam, image: SketchImageEdit): Promise<SetUnitResult> {
+  return postAcked('api/sketch-image', { sketch, image });
+}
+
+/**
+ * Rewrite the `image(…)` statement at `target` — the Image tool re-opened
+ * on a picture from its timeline row (the row's own Remove deletes it).
+ * Acked like {@link addSketchImage}.
+ */
+export function setSketchImage(target: SourceLocationParam, image: SketchImageEdit): Promise<SetUnitResult> {
+  return postAcked('api/sketch-image', { target, image });
 }
 
 /**

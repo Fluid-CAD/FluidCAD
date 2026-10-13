@@ -3,6 +3,8 @@ import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import type { FitMode } from './scene/camera-fit';
 import { DialogViewOffset } from './scene/dialog-view-offset';
 import { SceneModeManager, sketchCameraDistance } from './scene/scene-mode';
+import { ReferenceImageController } from './scene/reference-image-controller';
+import { ReferenceImageLoader } from './scene/reference-image-loader';
 import { worldFromMm } from './units/scene-scale';
 import { sceneUnit } from './units/scene-unit';
 import { GridScaleBar } from './ui/grid-scale-bar';
@@ -171,6 +173,8 @@ const SKETCH_GHOST_EDGE_TINT_FACTOR = 0.3;
 export class Viewer {
   private ctx: SceneContext;
   private modeManager: SceneModeManager;
+  /** The sketches' reference pictures: loaded once per path, placed on every render, previewed by the Image tool. */
+  readonly referenceImage: ReferenceImageController;
   private settingsPanel: SettingsPanel;
   private gridScaleBar: GridScaleBar;
   private sceneObjects: SceneObjectRender[] = [];
@@ -420,6 +424,7 @@ export class Viewer {
     this.connectorPicker = new ConnectorGizmoPicker(() => this.ctx.camera, this.ctx.renderer.domElement);
     this.vertexPicking = new VertexPicking(this.ctx, () => this.standardPlanes.pickTargets);
     this.modeManager = new SceneModeManager(this.ctx);
+    this.referenceImage = new ReferenceImageController(this.ctx.scene, new ReferenceImageLoader(), () => this.ctx.requestRender());
     new DialogViewOffset(this.ctx);
     this.settingsPanel = new SettingsPanel(container, client, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
@@ -1516,6 +1521,7 @@ export class Viewer {
 
     const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, isRollback, this.shownIds());
     this.ctx.scene.add(mesh);
+    this.syncReferenceImages(sceneObjects);
     this.applyShapeOverridesAndPrune(sceneObjects);
     this.applyConnectorVisibility();
     this.applyConnectorScales();
@@ -1686,6 +1692,7 @@ export class Viewer {
 
     this.removeCompiledMesh();
     this.activeSketchId = null;
+    this.referenceImage.sync([]);
     this.modeManager.enterDefaultMode();
     this.settingsPanel.setProjectionLocked(false);
     this.settingsPanel.setFitButtonVisible(true);
@@ -2555,7 +2562,17 @@ export class Viewer {
 
   dispose(): void {
     this.vertexPicking?.dispose();
+    this.referenceImage.dispose();
     this.ctx.dispose();
+  }
+
+  /**
+   * Put the `image()` rows this render shows on screen — the sketch being
+   * edited's in sketch mode, every on-screen sketch's otherwise. Outside
+   * the compiled mesh, so ghosting and the section clip leave them alone.
+   */
+  private syncReferenceImages(sceneObjects: SceneObjectRender[]): void {
+    this.referenceImage.sync(ReferenceImageController.sourcesOf(sceneObjects, this.activeSketchId, this.shownIds()));
   }
 
   // ---------------------------------------------------------------------------
@@ -2705,6 +2722,7 @@ export class Viewer {
     this.removeCompiledMesh();
     const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, this.lastRenderIsRollback, this.shownIds());
     this.ctx.scene.add(mesh);
+    this.syncReferenceImages(this.sceneObjects);
     this.applyShapeOverridesAndPrune(this.sceneObjects);
     this.applyConnectorVisibility();
     this.applyConnectorScales();

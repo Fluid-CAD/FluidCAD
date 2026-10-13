@@ -11,6 +11,8 @@ import {
   removeStatement,
   setFeatureName,
   setSketchClosed,
+  insertSketchImage,
+  setSketchImage,
   setPartMaterial,
   setSectionOptions,
   insertGeometryCall,
@@ -884,6 +886,72 @@ describe('removeStatement', () => {
     const code = `const a = 1; extrude(10);\n`;
     const result = await removeStatement(code, 1);
     expect(result.newCode).toBe(`const a = 1; \n`);
+  });
+});
+
+describe('insertSketchImage', () => {
+  const sketchCode = `import { sketch, line } from 'fluidcad/core';\n\nconst s = sketch('xy', () => {\n  line([0, 0], [10, 0]);\n});\nextrude(5);\n`;
+
+  it('writes the statement first in the sketch body and imports image', async () => {
+    const result = await insertSketchImage(sketchCode, 3, { src: 'images/side.png', width: 120, opacity: 0.4 });
+    expect(result.newCode).toBe(`import { image, sketch, line } from 'fluidcad/core';\n\nconst s = sketch('xy', () => {\n  image('images/side.png', { width: 120, opacity: 0.4 });\n  line([0, 0], [10, 0]);\n});\nextrude(5);\n`);
+  });
+
+  it('writes every non-default option, rounding to three decimals, and leaves a default centre and angle out', async () => {
+    const code = `sketch('xy', () => {\n  line([0, 0], [1, 0]);\n});\n`;
+    const full = await insertSketchImage(code, 1, { src: 'scan.jpg', width: 80.12345, height: 50, at: [10.5, -5], angle: 15, opacity: 0.25 });
+    expect(full.newCode).toContain(`  image('scan.jpg', { width: 80.123, height: 50, at: [10.5, -5], angle: 15, opacity: 0.25 });\n  line(`);
+    const bare = await insertSketchImage(code, 1, { src: 'a.png', height: 30, at: [0, 0], angle: 0 });
+    expect(bare.newCode).toContain(`  image('a.png', { height: 30 });\n`);
+  });
+
+  it('goes after the pictures already at the top of the body', async () => {
+    const code = `sketch('xy', () => {\n  image('a.png', { width: 1 });\n  line([0, 0], [1, 0]);\n});\n`;
+    const result = await insertSketchImage(code, 1, { src: 'b.png', width: 2 });
+    expect(result.newCode).toContain(`  image('a.png', { width: 1 });\n  image('b.png', { width: 2 });\n  line(`);
+  });
+
+  it('fills an empty body and a body on a chained sketch', async () => {
+    const empty = await insertSketchImage(`sketch('xy', () => {\n});\n`, 1, { src: 'a.png', width: 1 });
+    expect(empty.newCode).toContain(`sketch('xy', () => {\n  image('a.png', { width: 1 });\n});`);
+    const chained = await insertSketchImage(`sketch('xy', () => {\n  line([0, 0], [1, 0]);\n}).name('Profile');\n`, 1, { src: 'a.png', width: 1 });
+    expect(chained.newCode).toContain(`  image('a.png', { width: 1 });\n  line(`);
+  });
+
+  it('escapes the path for a single-quoted literal', async () => {
+    const result = await insertSketchImage(`sketch('xy', () => {\n});\n`, 1, { src: "it's.png", width: 1 });
+    expect(result.newCode).toContain(`image('it\\'s.png', { width: 1 });`);
+  });
+
+  it('aliases the import when the file already binds image', async () => {
+    const code = `import { sketch } from 'fluidcad/core';\nconst image = 3;\nsketch('xy', () => {\n});\n`;
+    const result = await insertSketchImage(code, 3, { src: 'a.png', width: 1 });
+    expect(result.newCode).toContain(`import { image as image2, sketch } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(`  image2('a.png', { width: 1 });`);
+  });
+
+  it('refuses a line whose statement is not a sketch, and a line with no statement', async () => {
+    expect((await insertSketchImage(sketchCode, 6, { src: 'a.png', width: 1 })).newCode).toBe(sketchCode);
+    expect((await insertSketchImage(sketchCode, 2, { src: 'a.png', width: 1 })).newCode).toBe(sketchCode);
+  });
+});
+
+describe('setSketchImage', () => {
+  const code = `import { sketch, line, image } from 'fluidcad/core';\n\nsketch('xy', () => {\n  image('old.png', { width: 10, angle: 90 });\n  line([0, 0], [10, 0]);\n});\n`;
+
+  it('rewrites the statement\'s arguments wholesale', async () => {
+    const result = await setSketchImage(code, 4, { src: 'new.png', width: 20, opacity: 0.5 });
+    expect(result.newCode).toContain(`  image('new.png', { width: 20, opacity: 0.5 });\n  line(`);
+  });
+
+  it('refuses a line that is not an image() call', async () => {
+    expect((await setSketchImage(code, 5, { src: 'a.png', width: 1 })).newCode).toBe(code);
+    expect((await setSketchImage(code, 3, { src: 'a.png', width: 1 })).newCode).toBe(code);
+  });
+
+  it('refuses an image() whose path is not a string literal', async () => {
+    const computed = `sketch('xy', () => {\n  image(src, { width: 10 });\n});\n`;
+    expect((await setSketchImage(computed, 2, { src: 'a.png', width: 1 })).newCode).toBe(computed);
   });
 });
 

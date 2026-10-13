@@ -847,7 +847,7 @@ export type paths = {
         post?: never;
         /**
          * Delete your comment
-         * @description Soft: you can restore it for 30 days (the Undo). Deleting a thread's first comment hides the thread; restoring it brings the replies back.
+         * @description Soft: you can restore it for 30 days (the Undo). A thread's first comment that has replies stays as a placeholder (its id, time and place; its body, author and Helpful marks withheld) and the replies stay; without replies it leaves the page, and so does a deleted reply. `placeholder` says which.
          */
         delete: {
             parameters: {
@@ -897,7 +897,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such public package, published version or visible comment (`not-found`) */
+                /** @description No such public package, published version or visible comment; a placeholder is a deleted comment (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -975,7 +975,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such public package, published version or visible comment (`not-found`) */
+                /** @description No such public package, published version or visible comment; a placeholder is a deleted comment (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -1057,7 +1057,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such public package, published version or visible comment (`not-found`) */
+                /** @description No such public package, published version or visible comment; a placeholder is a deleted comment (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -1130,7 +1130,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such public package, published version or visible comment (`not-found`) */
+                /** @description No such public package, published version or visible comment; a placeholder is a deleted comment (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -1166,7 +1166,7 @@ export type paths = {
         put?: never;
         /**
          * Restore your deleted comment
-         * @description Within 30 days of the delete. Restoring a comment that isn't deleted answers it as it is.
+         * @description Within 30 days of the delete: it comes back whole, a placeholder with its body, author and Helpful marks. Restoring a comment that isn't deleted answers it as it is.
          */
         post: {
             parameters: {
@@ -1216,7 +1216,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such public package, published version or visible comment (`not-found`) */
+                /** @description No such public package, published version or visible comment; a placeholder is a deleted comment (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -1458,7 +1458,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                /** @description A token without the `social` scope (a sign-in older than it: `details.signInAgain`, sign in again), a suspended account, or a cookie write from another site (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1523,7 +1523,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                /** @description A token without the `social` scope (a sign-in older than it: `details.signInAgain`, sign in again), a suspended account, or a cookie write from another site (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1608,7 +1608,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                /** @description A token without the `social` scope (a sign-in older than it: `details.signInAgain`, sign in again), a suspended account, or a cookie write from another site (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1668,7 +1668,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                /** @description A token without the `social` scope (a sign-in older than it: `details.signInAgain`, sign in again), a suspended account, or a cookie write from another site (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1746,7 +1746,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                /** @description A token without the `social` scope (a sign-in older than it: `details.signInAgain`, sign in again), a suspended account, or a cookie write from another site (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1836,7 +1836,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                /** @description A token without the `social` scope (a sign-in older than it: `details.signInAgain`, sign in again), a suspended account, or a cookie write from another site (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1922,7 +1922,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                /** @description A token without the `social` scope (a sign-in older than it: `details.signInAgain`, sign in again), a suspended account, or a cookie write from another site (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -2354,7 +2354,7 @@ export type paths = {
         };
         /**
          * A package's comments, a page of threads
-         * @description Threads newest first (`sort=newest`, the default) or by helpful marks across the thread (`sort=helpful`), replies oldest first. Deleted comments and their threads are left out. The same for every caller: `Cache-Control: public, no-cache`, a weak `ETag`, no `Vary`; the comments you marked helpful are in `GET /packages/{scope}/{name}/me`.
+         * @description Threads newest first (`sort=newest`, the default) or by helpful marks across the thread (`sort=helpful`), replies oldest first. A thread whose first comment was deleted stays while it has replies, that comment a placeholder in its place (`deleted: true`: its id, time and version, no body, author or Helpful marks; its own marks don't count towards the thread's); a deleted comment without replies and a deleted reply are left out. `total` counts the comments anyone can read (a placeholder isn't one), `threads` every listed thread. The same for every caller: `Cache-Control: public, no-cache`, a weak `ETag`, no `Vary`; the comments you marked helpful are in `GET /packages/{scope}/{name}/me`.
          */
         get: {
             parameters: {
@@ -2416,7 +2416,7 @@ export type paths = {
         put?: never;
         /**
          * Comment on a package, or reply
-         * @description About the latest version unless `version` names another published one. With `replyTo`, a reply: threads are one level deep, so a reply to a reply joins the root's thread and takes its version. At most 4000 characters, 50 comments a day (UTC). The publisher is notified (later, by mail). `Cache-Control: private, no-store`.
+         * @description About the latest version unless `version` names another published one. With `replyTo`, a reply: threads are one level deep, so a reply to a reply joins the root's thread and takes its version (also when the root is a placeholder; a placeholder itself takes no replies). At most 4000 characters, 50 comments a day (UTC). The publisher is notified (later, by mail). `Cache-Control: private, no-store`.
          */
         post: {
             parameters: {
@@ -2472,7 +2472,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description No such public package, published version or visible comment (`not-found`) */
+                /** @description No such public package, published version or visible comment; a placeholder is a deleted comment (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -2551,7 +2551,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                /** @description A token without the `social` scope (a sign-in older than it: `details.signInAgain`, sign in again), a suspended account, or a cookie write from another site (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -2617,7 +2617,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description A token without the `account` scope, a suspended account, or a cookie write from another site (`forbidden`) */
+                /** @description A token without the `social` scope (a sign-in older than it: `details.signInAgain`, sign in again), a suspended account, or a cookie write from another site (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -2694,7 +2694,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description A token without the `account` scope, or a suspended account (`forbidden`) */
+                /** @description A token without the `social` scope (a sign-in older than it: `details.signInAgain`), or a suspended account (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -4724,6 +4724,11 @@ export type components = {
             /** @description Written by the package's publisher. */
             byPublisher: boolean;
             createdAt: string;
+            /**
+             * @description Always false here; a thread's deleted first comment that keeps its replies is a placeholder (`CommentThread`, `deleted: true`).
+             * @enum {boolean}
+             */
+            deleted: false;
             /** @description When it was last edited ("edited"), or null. */
             editedAt: string | null;
             /** @description Helpful marks. */
@@ -4749,9 +4754,9 @@ export type components = {
             page: number;
             results: components["schemas"]["CommentThread"][];
             sort: components["schemas"]["CommentSort"];
-            /** @description Threads in all. */
+            /** @description Threads in all, those whose first comment is a placeholder included. */
             threads: number;
-            /** @description Comments in all, replies included: the package's comment count. */
+            /** @description Comments anyone can read, replies included: the package's comment count. A placeholder isn't one. */
             total: number;
         };
         /**
@@ -4759,12 +4764,18 @@ export type components = {
          * @enum {string}
          */
         CommentSort: "newest" | "helpful";
+        /** @description A thread's first comment with its replies; `deleted: true` when that comment was deleted and stays as a placeholder. */
         CommentThread: {
             author: components["schemas"]["Person"];
             body: string;
             /** @description Written by the package's publisher. */
             byPublisher: boolean;
             createdAt: string;
+            /**
+             * @description Always false here; a thread's deleted first comment that keeps its replies is a placeholder (`CommentThread`, `deleted: true`).
+             * @enum {boolean}
+             */
+            deleted: false;
             /** @description When it was last edited ("edited"), or null. */
             editedAt: string | null;
             /** @description Helpful marks. */
@@ -4774,11 +4785,25 @@ export type components = {
              * @example 1a
              */
             id: string;
-            /** @description Oldest first. */
+            /** @description Oldest first; deleted replies are left out. */
             replies: components["schemas"]["Comment"][];
             /** @description The thread's root, for a reply. */
             replyTo: string | null;
             /** @description The version it is about. */
+            version: string;
+        } | {
+            /** @description When it was posted: the thread keeps its place. */
+            createdAt: string;
+            /** @enum {boolean} */
+            deleted: true;
+            /**
+             * @description Base 36, as when it was posted; the permalink is `#c<id>`.
+             * @example 1a
+             */
+            id: string;
+            /** @description Oldest first; deleted replies are left out. */
+            replies: components["schemas"]["Comment"][];
+            /** @description The version its thread is about. */
             version: string;
         };
         ContentsFeature: {
@@ -4862,6 +4887,8 @@ export type components = {
         DeletedComment: {
             deletedAt: string;
             id: string;
+            /** @description True when it stays in its thread as a placeholder (a thread's first comment with replies); false when it leaves the page. */
+            placeholder: boolean;
             /** @description 30 days after the deletion; purged after. */
             restoreUntil: string;
         };
@@ -5048,7 +5075,7 @@ export type components = {
                 id: string;
                 /** @enum {string} */
                 kind: "cli" | "personal";
-                scopes: ("account" | "publish")[];
+                scopes: components["schemas"]["TokenScope"][];
                 /** @description The last characters of the token, to tell tokens apart. */
                 suffix: string;
             } | null;
@@ -5539,8 +5566,11 @@ export type components = {
         SearchSort: "relevance" | "installs" | "likes" | "updated" | "newest";
         /** Format: uuid */
         TokenIdParam: string;
-        /** @enum {string} */
-        TokenScope: "account" | "publish";
+        /**
+         * @description `publish`: upload versions and manage your packages' listings. `social`: like packages and keep lists. `account`: manage the account and its tokens, and everything `social` allows. The CLI sign-in (`fluidcad login`, the app's Sign in) grants `publish` and `social`. Comments, Helpful marks and reports take a browser session, whatever a token holds.
+         * @enum {string}
+         */
+        TokenScope: "account" | "publish" | "social";
         /**
          * @description The package's manifest `unit`: `metric` (mm, cm, m) or `imperial` (in, ft).
          * @enum {string}

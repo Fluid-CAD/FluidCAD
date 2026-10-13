@@ -222,7 +222,7 @@ describe('fluidcad whoami', () => {
       [
         '@acme (acme@example.com)',
         `  hub:   ${hub.origin}`,
-        `  token: cli token …${token.slice(-4)} (publish), from ${path.join(home, 'credentials.json')}`,
+        `  token: cli token …${token.slice(-4)} (publish, social), from ${path.join(home, 'credentials.json')}`,
         '',
       ].join('\n'),
     );

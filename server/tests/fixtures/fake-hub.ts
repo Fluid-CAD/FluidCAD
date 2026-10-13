@@ -1238,7 +1238,8 @@ export class FakeHub {
       return FakeHub.error(res, 400, 'invalid-grant', "The code verifier doesn't match the code challenge.");
     }
     authorization.collected = true;
-    const issued = this.issueToken({ kind: 'cli', scopes: ['publish'] });
+    // The CLI sign-in's scopes, as the hub grants them (its `TokenRules.CLI_SCOPES`).
+    const issued = this.issueToken({ kind: 'cli', scopes: ['publish', 'social'] });
     FakeHub.json(res, 200, {
       token: issued.token,
       tokenId: issued.id,

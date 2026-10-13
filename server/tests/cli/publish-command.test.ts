@@ -141,11 +141,18 @@ describe('fluidcad publish', () => {
   }, 120_000);
 
   it('sends ?dryRun=1 for --dry-run and stores nothing', async () => {
+    fs.mkdirSync(path.join(workspace, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(workspace, 'docs', 'spacer.md'), '# Spacer\n\nSee [the washer](./washer.md).\n');
     const run = await cli(['publish', '--dry-run']);
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
     expect(hub.requestsTo(uploadPath())[0].query).toBe('?dryRun=1');
     expect(hub.packages.has(NAME)).toBe(false);
+    // Pack's warnings come under the summary, and never stop the upload.
+    expect(run.stdout).toContain('  docs/       1 page\n');
+    expect(run.stdout).toContain('  4 warnings (nothing is refused for them):\n');
+    expect(run.stdout).toContain('    ! parts/spacer.part.js: 1 field without a description — spacer: Length. Give it a `description`.\n');
+    expect(run.stdout).toContain('    ! docs/spacer.md:3 links to ./washer.md, which leads to no file the package ships.\n');
     expect(run.stdout).toMatch(new RegExp(`✓ Dry run: ${hub.origin.replace(/[.]/g, '\\.')} accepts @acme/kit@0\\.1\\.0 · sha256-\\S+ · it would be a draft you finish in your browser\\. Nothing was stored\\.`));
   }, 120_000);
 

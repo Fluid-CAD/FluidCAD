@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
-import { PackageBuildError, packPackage } from '../packages/package-builder.ts';
+import { PackageBuildError, packPackage, type PackWarning } from '../packages/package-builder.ts';
 import { PackageLayout, type PackageContents } from '../packages/package-manifest.ts';
 
 /** `POST /api/pack` with `{ "format": "json" }`: the archive and what it holds, in one JSON body. */
@@ -10,8 +10,10 @@ export type PackJsonResponse = {
   version: string;
   fileName: string;
   bytes: number;
-  /** The features, parts and assemblies by folder, as `fluidcad pack --json` lists them. */
+  /** The features, parts and assemblies by folder, and the doc pages, as `fluidcad pack --json` lists them. */
   contents: PackageContents;
+  /** What pack noticed but packed anyway (undocumented fields, broken doc links), as `fluidcad pack --json` lists them. */
+  warnings: PackWarning[];
   /** The `.fluidpkg`, base64. */
   archive: string;
 };
@@ -27,12 +29,13 @@ export type PackJsonResponse = {
  *
  * With `{ "format": "json" }` the answer is a {@link PackJsonResponse}
  * instead: the same archive in base64, beside the contents by folder (the
- * MCP `pack` tool's form, so it reports what `fluidcad pack --json` does).
+ * MCP `pack` tool's form, so it reports what `fluidcad pack --json` does),
+ * with the pack's warnings. The binary form leaves the warnings out.
  *
  * A refusal — not a package, or a pack check failing — is a 400 whose
  * `error` is the sentence the CLI prints and whose `code` is the
  * {@link PackageBuildError}'s (`wrong-folder`, `outside-layout`,
- * `no-exports`, else `refused`).
+ * `no-exports`, `docs-file`, `docs-too-large`, else `refused`).
  */
 export function createPackRouter(
   fluidCadServer: FluidCadServer,
@@ -44,7 +47,7 @@ export function createPackRouter(
   router.post('/pack', async (req, res) => {
     const asJson = req.body?.format === 'json';
     try {
-      const { manifest, zip } = await packPackage({ workspacePath, fluidcadVersion, engine: fluidCadServer });
+      const { manifest, zip, warnings } = await packPackage({ workspacePath, fluidcadVersion, engine: fluidCadServer });
       const fileName = PackageLayout.archiveName(manifest.name, manifest.version);
       if (asJson) {
         const body: PackJsonResponse = {
@@ -53,6 +56,7 @@ export function createPackRouter(
           fileName,
           bytes: zip.length,
           contents: PackageLayout.contentsOf(manifest),
+          warnings,
           archive: zip.toString('base64'),
         };
         res.json(body);

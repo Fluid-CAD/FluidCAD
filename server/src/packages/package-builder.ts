@@ -14,8 +14,9 @@ import { FluidCadServer } from '../fluidcad-server/index.ts';
 import { FeatureModules } from '../feature-catalog/walk.ts';
 import type { FeatureScanResult } from '../feature-catalog/scan.ts';
 import type { PartScanResult } from '../part-catalog/scan.ts';
-import { listFeatureAssets } from '../../../lib/dist/index.js';
+import { FeatureDocs, listFeatureAssets, type DocGap } from '../../../lib/dist/index.js';
 import { SDK_SINCE, SDK_VERSION } from '../../../lib/dist/sdk/version.js';
+import { DocLinks } from './doc-links.ts';
 import { EsbuildPlugins } from './esbuild-plugins.ts';
 import { InProcessEngine } from './in-process-engine.ts';
 import { ModuleClosure } from './module-closure.ts';
@@ -56,16 +57,45 @@ export type PackPackageResult = {
   zip: Buffer;
   /** Every file of the archive by its path, `manifest.json` included: the installed tree, byte for byte. */
   files: Record<string, Buffer>;
+  /** What the author should look at; never a refusal, and never in the archive ({@link PackWarning}). */
+  warnings: PackWarning[];
+};
+
+/**
+ * What kind of warning a {@link PackWarning} is (package-docs DOC5, DOC6):
+ * - `undocumented-fields`: a module's feature values, features, or part and
+ *   assembly parameters without a useful description (`FeatureDocs`), one
+ *   warning per module;
+ * - `docs-link`: a relative link or image in a doc page that leads to no
+ *   shipped file, or out of the package, one warning per link.
+ */
+export type PackWarningCode = 'undocumented-fields' | 'docs-link';
+
+/** Something pack noticed but packs anyway: the CLI prints it under the summary, `--json` and the MCP `pack` carry it. */
+export type PackWarning = {
+  code: PackWarningCode;
+  /** The file it is about: the module, or the page that holds the link. */
+  file: string;
+  /** One sentence naming the file, for the author. */
+  message: string;
+  /** `docs-link`: the link as written, and its 1-based line. */
+  target?: string;
+  line?: number;
+  /** `undocumented-fields`: the fields, in the module's order. */
+  fields?: DocGap[];
 };
 
 /**
  * What kind of refusal a {@link PackageBuildError} is. The layout's own
- * (HD20) have codes the hub shares; every other check is `refused`.
+ * (HD20, and `docs/`'s, DOC6) have codes the hub shares; every other check
+ * is `refused`.
  * - `no-exports`: nothing in `features/`, `parts/` or `assemblies/`;
  * - `wrong-folder`: a module whose suffix belongs in another of the three;
- * - `outside-layout`: a shipped module outside the three folders.
+ * - `outside-layout`: a shipped module outside the three folders, or a script in `docs/`;
+ * - `docs-file`: a file in `docs/` that is neither a markdown page nor an image;
+ * - `docs-too-large`: a doc page, a doc image or the whole of `docs/` over its cap.
  */
-export type PackageBuildErrorCode = 'refused' | 'no-exports' | 'wrong-folder' | 'outside-layout';
+export type PackageBuildErrorCode = 'refused' | 'no-exports' | 'wrong-folder' | 'outside-layout' | 'docs-file' | 'docs-too-large';
 
 /** A refusal to pack, worded for the author: one sentence that names the file. */
 export class PackageBuildError extends Error {
@@ -96,9 +126,11 @@ export async function packPackage(inputs: PackPackageInputs): Promise<PackPackag
  * exports are what the `features/`, `parts/` and `assemblies/` folders
  * hold ({@link PackageLayout.exportsOf}, HD20). The archive holds the
  * sources verbatim — the exports' closure, the images their features
- * declare, and the README, LICENSE and CHANGELOG — plus three generated
- * files at its root: `index.js` (named re-exports), a reduced
- * `fluidcad.json` (`unit`, `materials`) and `manifest.json`.
+ * declare, the README, LICENSE and CHANGELOG, and the `docs/` folder's pages
+ * and images — plus three generated files at its root: `index.js` (named
+ * re-exports), a reduced `fluidcad.json` (`unit`, `materials`) and
+ * `manifest.json`. A workspace without `docs/` packs exactly as it did
+ * before `docs/` shipped.
  *
  * Every check is a refusal ({@link PackageBuildError}) naming the file:
  * 1. the `package` block is valid, and its `minEngine` is no older than
@@ -111,7 +143,16 @@ export async function packPackage(inputs: PackPackageInputs): Promise<PackPackag
  * 5. the closure stays inside the workspace: no `node_modules`, `init.js`,
  *    blocked built-in or other package, nothing on a reserved root path,
  *    and nothing outside the three folders (`outside-layout`);
- * 6. every image a feature declares exists inside its module's directory.
+ * 6. every image a feature declares exists inside its module's directory;
+ * 7. `docs/` holds only markdown pages and the images they show (a script
+ *    is `outside-layout`, anything else `docs-file`), none of them leading
+ *    outside the workspace, a page at most 256 KB, an image at most 2 MB, and
+ *    the folder at most 4 MB and 200 files (`docs-too-large`).
+ *
+ * Nothing is refused for missing documentation (DOC4). Two things are
+ * warned about instead ({@link PackWarning}), and the package still packs:
+ * fields without a useful description (`undocumented-fields`, the
+ * `FeatureDocs` rule), and doc links that lead nowhere (`docs-link`).
  */
 export class PackageBuilder {
   /** Root files that ship when present, matched without regard to case. */
@@ -166,6 +207,7 @@ export class PackageBuilder {
     const exports = this.exports();
     const closure = await this.closure(exports);
     this.checkLiveBuffers(closure);
+    const docs = this.docs();
 
     const evaluated = this.inputs.engine
       ? await this.evaluate(this.inputs.engine, exports)
@@ -176,8 +218,9 @@ export class PackageBuilder {
     const features = evaluated.flatMap((m) => m.features);
     const assets = this.assets(features);
     const extras = await this.extras();
-    const shipped = [...new Set([...closure, ...assets, ...extras])].sort();
-    return this.archive(shipped, features, evaluated.flatMap((m) => m.parts));
+    const shipped = [...new Set([...closure, ...assets, ...extras, ...docs])].sort();
+    const result = await this.archive(shipped, features, evaluated.flatMap((m) => m.parts));
+    return { ...result, warnings: [...this.undocumented(evaluated), ...this.docLinks(result.files)] };
   }
 
   // ---------------------------------------------------------------------------
@@ -495,6 +538,89 @@ export class PackageBuilder {
   }
 
   // ---------------------------------------------------------------------------
+  // Check 7: docs/
+  // ---------------------------------------------------------------------------
+
+  /** Every file under `docs/`, workspace-relative and sorted: pages and images only, each within its cap, and the folder within its own. */
+  private docs(): string[] {
+    const files = PackageLayout.docsIn(this.workspace);
+    let realWorkspace: string;
+    try {
+      realWorkspace = realpathSync(this.workspace);
+    } catch {
+      realWorkspace = this.workspace;
+    }
+    let bytes = 0;
+    for (const rel of files) {
+      if (PackageLayout.isScript(rel)) {
+        throw new PackageBuildError(PackageLayout.describeOutsideLayout(rel), 'outside-layout');
+      }
+      if (!PackageLayout.isDocPage(rel) && !PackageLayout.isDocImage(rel)) {
+        throw new PackageBuildError(PackageLayout.describeDocsFile(rel), 'docs-file');
+      }
+      // A linked page or image ships its target's bytes: it must be the workspace's own.
+      const real = realpathSync(join(this.workspace, rel));
+      if (!real.startsWith(realWorkspace + sep)) {
+        throw new PackageBuildError(`${rel} links to a file outside the workspace: a package ships only its own files.`);
+      }
+      const size = statSync(real).size;
+      const cap = PackageLayout.isDocPage(rel) ? PackageLayout.DOCS_PAGE_BYTES : PackageLayout.DOCS_IMAGE_BYTES;
+      if (size > cap) {
+        throw new PackageBuildError(PackageLayout.describeDocsFileTooLarge(rel, size), 'docs-too-large');
+      }
+      bytes += size;
+    }
+    if (files.length > PackageLayout.DOCS_FILES || bytes > PackageLayout.DOCS_BYTES) {
+      throw new PackageBuildError(PackageLayout.describeDocsFolderTooLarge(files.length, bytes), 'docs-too-large');
+    }
+    return files;
+  }
+
+  // ---------------------------------------------------------------------------
+  // The warnings
+  // ---------------------------------------------------------------------------
+
+  /** Each module's fields without a useful description (`FeatureDocs`): one warning per module, in module order. */
+  private undocumented(modules: ModuleExports[]): PackWarning[] {
+    const out: PackWarning[] = [];
+    for (const module of modules) {
+      const fields = [
+        ...module.features.flatMap((f) => FeatureDocs.missing(f.meta, f.exportName)),
+        ...module.parts.flatMap((p) => FeatureDocs.missingParams(p.params ?? [], p.exportName)),
+      ];
+      if (fields.length > 0) {
+        out.push({ code: 'undocumented-fields', file: module.module, message: FeatureDocs.describe(fields, module.module), fields });
+      }
+    }
+    return out;
+  }
+
+  /** Each relative link or image in a doc page that leads to no file of the archive, or out of the package. */
+  private docLinks(files: Record<string, Buffer>): PackWarning[] {
+    const out: PackWarning[] = [];
+    for (const page of Object.keys(files).sort()) {
+      if (!PackageLayout.isDocPage(page)) {
+        continue;
+      }
+      for (const link of DocLinks.scan(files[page].toString('utf8'))) {
+        const target = DocLinks.resolve(page, link.target);
+        if (target === null || (target.kind === 'file' && files[target.path] !== undefined)) {
+          continue;
+        }
+        const where = target.kind === 'outside' ? 'which leads outside the package' : 'which leads to no file the package ships';
+        out.push({
+          code: 'docs-link',
+          file: page,
+          message: `${page}:${link.line} links to ${link.target}, ${where}.`,
+          target: link.target,
+          line: link.line,
+        });
+      }
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------------------
   // The generated files and the archive
   // ---------------------------------------------------------------------------
 
@@ -502,7 +628,7 @@ export class PackageBuilder {
     shipped: string[],
     features: PackageManifestFeature[],
     parts: PackageManifestPart[],
-  ): Promise<PackPackageResult> {
+  ): Promise<Omit<PackPackageResult, 'warnings'>> {
     const files: Record<string, Buffer> = {};
     for (const rel of shipped) {
       files[rel] = await readFile(join(this.workspace, rel));

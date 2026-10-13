@@ -15,9 +15,14 @@ import { readPackageVersion } from '../lib/workspace.js';
  * Nothing in the workspace is written but the archive.
  *
  * `--json` prints one JSON object instead of the summary: the archive's
- * identity and path, and its contents by folder (`PackageLayout.contentsOf`,
- * what the MCP `pack` tool returns as `contents`). A refusal prints
+ * identity and path, its contents by folder and its doc pages
+ * (`PackageLayout.contentsOf`, what the MCP `pack` tool returns as
+ * `contents`), and the pack's `warnings`. A refusal prints
  * `{ "error", "code" }` and exits 1.
+ *
+ * Warnings — fields without a description, doc links that lead nowhere —
+ * are printed under the summary. They never stop the pack or change the
+ * exit code.
  */
 async function runPack(opts) {
   // Imported lazily: the packer boots the engine (Vite + OC wasm), which the
@@ -43,7 +48,7 @@ async function runPack(opts) {
     throw err;
   }
 
-  const { manifest, zip } = result;
+  const { manifest, zip, warnings } = result;
   const archiveName = PackageLayout.archiveName(manifest.name, manifest.version);
   const outPath = outputPath(opts.out, workspace, archiveName);
   writeFileSync(outPath, zip);
@@ -59,10 +64,12 @@ async function runPack(opts) {
       files: manifest.files.length + 1,
       unit: manifest.unit,
       contents,
+      warnings,
     }, null, 2));
     return;
   }
   printSummary(manifest, contents, outPath, zip.length);
+  printWarnings(warnings);
 }
 
 /** `-o` names the archive, or a directory to write it into; the workspace root by default. */
@@ -99,6 +106,9 @@ function printSummary(manifest, contents, outPath, bytes) {
     ['parts/', count(contents.parts.length, 'part'), contents.parts.map((p) => p.exportName)],
     ['assemblies/', count(contents.assemblies.length, 'assembly', 'assemblies'), contents.assemblies.map((a) => a.exportName)],
   ];
+  if (contents.docs.length > 0) {
+    rows.push(['docs/', count(contents.docs.length, 'page'), contents.docs.map((page) => page.slice('docs/'.length))]);
+  }
   for (const [folder, counted, names] of rows) {
     console.log(`  ${folder.padEnd(12)}${counted}${names.length ? `: ${names.join(', ')}` : ''}`);
   }
@@ -107,6 +117,18 @@ function printSummary(manifest, contents, outPath, bytes) {
   }
   // The archive holds manifest.json beside the files it lists.
   console.log(`  ${count(manifest.files.length + 1, 'file')}, ${size(bytes)}, unit ${manifest.unit}`);
+}
+
+/** The warnings under the summary: how many, then one per line. Nothing when there are none. */
+function printWarnings(warnings) {
+  if (warnings.length === 0) {
+    return;
+  }
+  console.log('');
+  console.log(`${count(warnings.length, 'warning')} (the package still packed):`);
+  for (const warning of warnings) {
+    console.log(`  ! ${warning.message}`);
+  }
 }
 
 function count(n, noun, plural = `${noun}s`) {

@@ -95,6 +95,8 @@ export type PackageContents = {
   assemblies: { exportName: string; name: string; module: string; params: number }[];
   /** The parts and assemblies together: a package needs at least one to publish (`no-models`). */
   models: number;
+  /** The author's doc pages, `docs/**\/*.md` in `files` order ({@link PackageLayout.docPagesOf}); empty for a package without `docs/`. */
+  docs: string[];
 };
 
 /**
@@ -111,6 +113,16 @@ export type PackageContents = {
  * **The root.** The three generated files sit at the root and those paths
  * are reserved: pack refuses a workspace file that would land on one.
  * README, LICENSE and CHANGELOG ship beside them.
+ *
+ * **`docs/` (package-docs DOC6).** An optional fourth folder that holds no
+ * modules: the author's markdown pages (`.md`) and the images they show
+ * (the feature image types), nested folders allowed. Pack ships all of it,
+ * and readers find the pages as the `docs/**\/*.md` entries of `files`;
+ * the manifest has no field of its own for them. A script there is
+ * `outside-layout`, any other file type `docs-file`, and a page, an image
+ * or the folder over its cap `docs-too-large` — the hub's port
+ * (`api/src/format/package-layout.ts`) mirrors these rules, their codes,
+ * their caps and their sentences.
  *
  * Node builtins and import-free siblings only (the type imports vanish at
  * compile time): `package-fields.ts`, which the plain-JS CLI imports
@@ -129,6 +141,24 @@ export class PackageLayout {
 
   /** The three folders, in the order pack lists them. */
   static readonly FOLDERS: readonly PackageFolder[] = ['features', 'parts', 'assemblies'];
+
+  /** The optional docs folder: markdown pages and their images, never a module (DOC6). */
+  static readonly DOCS = 'docs';
+  /** A doc page: a markdown file. */
+  static readonly DOC_PAGE = /\.md$/i;
+  /** An image a doc page shows: the types a feature's images take. */
+  static readonly DOC_IMAGE = /\.(svg|png|jpe?g|webp)$/i;
+  /** A script, as the layout rules read one (the hub's own test, case and all): `.js`, `.mjs` or `.cjs`. */
+  static readonly SCRIPT = /\.(?:js|mjs|cjs)$/;
+
+  /** The largest doc page: 256 KB (the hub's `docsPageBytes`). */
+  static readonly DOCS_PAGE_BYTES = 256 * 1024;
+  /** The largest doc image: 2 MB (the hub's `docsImageBytes`). */
+  static readonly DOCS_IMAGE_BYTES = 2 * 1024 * 1024;
+  /** All of `docs/` together: 4 MB (the hub's `docsBytes`). */
+  static readonly DOCS_BYTES = 4 * 1024 * 1024;
+  /** The most files `docs/` may hold: 200 (the hub's `docsFiles`). */
+  static readonly DOCS_FILES = 200;
 
   /**
    * The suffix ↔ folder table: which folder each kind of module belongs in.
@@ -233,13 +263,74 @@ export class PackageLayout {
     return `${module.path} is ${kind.one} in ${module.folder}/, but ${kind.many} belong in ${module.belongsIn}/: move it there.`;
   }
 
+  /** The `outside-layout` sentence for a script outside the three folders that nothing imports (the hub words it the same). */
+  static describeOutsideLayout(packagePath: string): string {
+    return `${packagePath} is outside ${PackageLayout.describeFolders()}: a package ships only what those folders hold. ` +
+      `Move ${packagePath} into one of them.`;
+  }
+
+  /** Whether a package path sits in `docs/`. */
+  static isDocsPath(packagePath: string): boolean {
+    return packagePath.startsWith(`${PackageLayout.DOCS}/`);
+  }
+
+  static isDocPage(packagePath: string): boolean {
+    return PackageLayout.isDocsPath(packagePath) && PackageLayout.DOC_PAGE.test(packagePath);
+  }
+
+  static isDocImage(packagePath: string): boolean {
+    return PackageLayout.isDocsPath(packagePath) && PackageLayout.DOC_IMAGE.test(packagePath);
+  }
+
+  static isScript(packagePath: string): boolean {
+    return PackageLayout.SCRIPT.test(packagePath);
+  }
+
+  /**
+   * Every file under the workspace's `docs/`, workspace-relative and sorted,
+   * nested folders included. Dot-entries and `node_modules` are skipped, as
+   * in the three folders; empty without a `docs/` folder.
+   */
+  static docsIn(workspacePath: string): string[] {
+    const out: string[] = [];
+    PackageLayout.walk(path.join(workspacePath, PackageLayout.DOCS), PackageLayout.DOCS, out);
+    return out.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  }
+
+  /** A manifest's doc pages: the `docs/**\/*.md` entries of `files`, in its order. A manifest from before `docs/` has none. */
+  static docPagesOf(manifest: Partial<Pick<PackageManifest, 'files'>>): string[] {
+    return (manifest.files ?? []).filter((file) => PackageLayout.isDocPage(file));
+  }
+
+  /** The `docs-file` sentence: a file in `docs/` that is neither a page nor an image. */
+  static describeDocsFile(packagePath: string): string {
+    return `${packagePath} can't ship: ${PackageLayout.DOCS}/ holds markdown pages (.md) and the images they show ` +
+      `(.svg, .png, .jpg, .jpeg, .webp) only. Move it out of ${PackageLayout.DOCS}/ or remove it.`;
+  }
+
+  /** The `docs-too-large` sentence for one page or image over its cap. */
+  static describeDocsFileTooLarge(packagePath: string, bytes: number): string {
+    const page = PackageLayout.DOC_PAGE.test(packagePath);
+    const limit = page ? PackageLayout.DOCS_PAGE_BYTES : PackageLayout.DOCS_IMAGE_BYTES;
+    return `${packagePath} is ${PackageLayout.size(bytes)}; ${page ? 'a page' : 'an image'} in ${PackageLayout.DOCS}/ can be at most ` +
+      `${PackageLayout.size(limit)}. ${page ? 'Split it into smaller pages.' : 'Make it smaller.'}`;
+  }
+
+  /** The `docs-too-large` sentence for the whole folder: too many files, or too many bytes. */
+  static describeDocsFolderTooLarge(files: number, bytes: number): string {
+    if (files > PackageLayout.DOCS_FILES) {
+      return `${PackageLayout.DOCS}/ holds ${files} files; it can hold at most ${PackageLayout.DOCS_FILES}.`;
+    }
+    return `${PackageLayout.DOCS}/ holds ${PackageLayout.size(bytes)}; it can hold at most ${PackageLayout.size(PackageLayout.DOCS_BYTES)}.`;
+  }
+
   /** The parts and assemblies a manifest lists: what H6's `no-models` preflight counts. */
   static modelCount(manifest: Pick<PackageManifest, 'parts'>): number {
     return manifest.parts.length;
   }
 
-  /** A manifest's entries by folder: features, parts, assemblies, each in manifest order. */
-  static contentsOf(manifest: Pick<PackageManifest, 'features' | 'parts'>): PackageContents {
+  /** A manifest's entries by folder: features, parts, assemblies, each in manifest order, and the doc pages. */
+  static contentsOf(manifest: Pick<PackageManifest, 'features' | 'parts'> & Partial<Pick<PackageManifest, 'files'>>): PackageContents {
     const model = (p: PackageManifestPart) => ({
       exportName: p.exportName,
       name: p.name,
@@ -251,7 +342,19 @@ export class PackageLayout {
       parts: manifest.parts.filter((p) => p.kind !== 'assembly').map(model),
       assemblies: manifest.parts.filter((p) => p.kind === 'assembly').map(model),
       models: PackageLayout.modelCount(manifest),
+      docs: PackageLayout.docPagesOf(manifest),
     };
+  }
+
+  /**
+   * Bytes for a sentence, in the units the caps are written in: `300 KB`,
+   * `2.4 MB`. Rounded up to a tenth, so a file one byte over a cap never
+   * reads as the cap itself.
+   */
+  private static size(bytes: number): string {
+    const [value, unit] = bytes >= 1024 * 1024 ? [bytes / (1024 * 1024), 'MB'] : [bytes / 1024, 'KB'];
+    const tenths = Math.ceil(value * 10) / 10;
+    return `${Number.isInteger(tenths) ? tenths : tenths.toFixed(1)} ${unit}`;
   }
 
   /** The module suffix of a path, or null. */

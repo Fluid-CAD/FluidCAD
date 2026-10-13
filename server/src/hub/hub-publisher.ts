@@ -3,7 +3,7 @@ import { Readable } from 'stream';
 import JSZip from 'jszip';
 import { FluidcadHome } from '../fluidcad-home.ts';
 import { readProjectConfig } from '../project-config.ts';
-import { packPackage, PackageBuilder, type PackPackageInputs, type PackPackageResult } from '../packages/package-builder.ts';
+import { packPackage, PackageBuilder, type PackPackageInputs, type PackPackageResult, type PackWarning } from '../packages/package-builder.ts';
 import type { PackageInfo } from '../packages/package-fields.ts';
 import { PackageLayout, type PackageContents, type PackageManifest } from '../packages/package-manifest.ts';
 import { PackageName } from '../packages/package-name.ts';
@@ -76,6 +76,8 @@ export type HubPublishSummary = {
   files: number;
   integrity: string;
   contents: PackageContents;
+  /** What pack noticed but packed anyway (undocumented fields, broken doc links): never a refusal, and the hub doesn't warn. */
+  warnings: PackWarning[];
   /** `draft` for a package's first version (finished in the browser), else `in_review`. */
   becomes: 'draft' | 'in_review';
   /** A draft of this version is on the hub: the upload replaces its archive, and the wizard keeps its edits. */
@@ -114,6 +116,7 @@ type Packed = {
   integrity: string;
   files: Record<string, Buffer>;
   entries: number;
+  warnings: PackWarning[];
 };
 
 export class HubPublisher {
@@ -170,6 +173,7 @@ export class HubPublisher {
         files: packed.manifest.files.length + 1,
         integrity: packed.integrity,
         contents: PackageLayout.contentsOf(packed.manifest),
+        warnings: packed.warnings,
         becomes: status?.highestVersion ? 'in_review' : 'draft',
         replacesDraft,
         notes,
@@ -400,6 +404,7 @@ export class HubPublisher {
       integrity: TreeHash.ofFiles(result.files),
       files: result.files,
       entries: Object.keys(zip.files).length,
+      warnings: result.warnings ?? [],
     };
   }
 

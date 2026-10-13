@@ -12,9 +12,10 @@ import JSZip from 'jszip';
  * the compiled server (`npm run build:server` first).
  *
  * - `archives/*.fluidpkg`: one valid package packed by `packPackage` from
- *   `server/tests/fixtures/conformance-workspace` (the H3b layout), one
- *   archive per `PackageArchive` refusal, and hand-made archives FluidCAD's
- *   check passes but the hub refuses (its layout and identity rules). The
+ *   `server/tests/fixtures/conformance-workspace` (the H3b layout, with a
+ *   `docs/` page and image), one archive per `PackageArchive` refusal, and
+ *   hand-made archives FluidCAD's check passes but the hub refuses (its
+ *   layout, `docs/` and identity rules). The
  *   package is `@acme/kit` (HD30: the manifest holds the scoped name), with
  *   plain feature ids; the hub's tests upload it at `@acme/kit`;
  * - `expected.json`: each archive's verdict from `PackageArchive.inspect`
@@ -181,12 +182,17 @@ class PackageConformance {
       return files;
     });
     const withRaw = (name, contents, options = {}) => () => this.zip(PackageConformance.copy(valid.files), { raw: { [name]: { contents, ...options } } });
+    /** The valid package with one more file, listed in `files`: a hand-made archive of what pack refuses to write. */
+    const withFile = (name, contents) => withManifest((m, files) => {
+      files[name] = contents;
+      m.files = Object.keys(files).filter((f) => f !== 'manifest.json').sort();
+    });
     const text = (s) => PackageConformance.encode(s);
 
     return [
       {
         file: 'valid.fluidpkg',
-        about: 'packed by packPackage from conformance-workspace: three features (icons, option images, raw OpenCascade), a part with a parameter, a factory part, an assembly, README, CHANGELOG and LICENSE',
+        about: 'packed by packPackage from conformance-workspace: three features (icons, option images, raw OpenCascade), a part with a parameter, a factory part, an assembly, README, CHANGELOG and LICENSE, and docs/standoff.md with its image docs/images/standoff.svg and a link to ../README.md',
         fluidcad: 'ok', hub: 'ok',
         build: async () => valid.zip,
       },
@@ -313,6 +319,30 @@ class PackageConformance {
       {
         file: 'pre-layout.fluidpkg', about: 'packed before the package layout (server/tests/fixtures/pre-layout): modules at the root', fluidcad: 'ok', hub: 'outside-layout',
         build: async () => new Uint8Array(fs.readFileSync(PackageConformance.PRE_LAYOUT)),
+      },
+      // ---- docs/ (package-docs DOC6): optional; pack refuses these, FluidCAD installs them, the hub refuses them ----
+      {
+        file: 'no-docs.fluidpkg', about: 'the valid package without its docs/ folder: what pack writes for a workspace with no docs/, as before docs/ shipped', fluidcad: 'ok', hub: 'ok',
+        build: withManifest((m, files) => {
+          for (const rel of Object.keys(files)) {
+            if (rel.startsWith('docs/')) {
+              delete files[rel];
+            }
+          }
+          m.files = Object.keys(files).filter((f) => f !== 'manifest.json').sort();
+        }),
+      },
+      {
+        file: 'docs-file.fluidpkg', about: 'docs/cad/standoff.zip: a file docs/ can\'t hold (markdown pages and their images only)', fluidcad: 'ok', hub: 'docs-file',
+        build: withFile('docs/cad/standoff.zip', PackageConformance.concat([new Uint8Array([0x50, 0x4b, 0x05, 0x06]), new Uint8Array(18)])),
+      },
+      {
+        file: 'docs-too-large.fluidpkg', about: 'docs/huge.md: a 300 KB page, over the 256 KB cap', fluidcad: 'ok', hub: 'docs-too-large',
+        build: withFile('docs/huge.md', text(`# Huge\n${'a'.repeat(300 * 1024 - 7)}`)),
+      },
+      {
+        file: 'outside-layout-docs.fluidpkg', about: 'docs/examples/run.js: a script in docs/, which is not one of the three folders', fluidcad: 'ok', hub: 'outside-layout',
+        build: withFile('docs/examples/run.js', text('export const run = () => 1;\n')),
       },
     ];
   }

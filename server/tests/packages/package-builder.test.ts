@@ -669,3 +669,234 @@ describe('what pack refuses', () => {
     expect(scans).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// docs/ (package-docs DOC6) and the warnings (DOC5)
+// ---------------------------------------------------------------------------
+
+/** A docs page about the standoff: a relative image, a link up to the README, an https link, and link syntax in code. */
+const STANDOFF_PAGE = [
+  '# Standoff',
+  '',
+  '![A standoff on a plate](./images/standoff.svg)',
+  '',
+  'Read the [README](../README.md) first, and the [fastener page](guide/fastener.md#usage).',
+  'The [SDK reference](https://fluidcad.io/docs/sdk) has the rest.',
+  '',
+  'Write a link as `[text](./missing-in-code-span.md)`:',
+  '',
+  '```md',
+  '![never checked](./missing-in-fence.png)',
+  '```',
+  '',
+].join('\n');
+
+/** The standoff page, the fastener page under docs/guide/ and the image. */
+function writeDocs(): void {
+  write('docs/standoff.md', STANDOFF_PAGE);
+  write('docs/guide/fastener.md', '# Fastener\n\nSee the [standoff](../standoff.md).\n');
+  write('docs/images/standoff.svg', '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>\n');
+}
+
+const DOCS = ['docs/guide/fastener.md', 'docs/images/standoff.svg', 'docs/standoff.md'];
+
+describe('docs/: pack ships the author\'s pages and images (package-docs DOC6)', () => {
+  it('ships every page and image under docs/, nested folders too, in the archive and in manifest.files', async () => {
+    writeDocs();
+    const { manifest, files, zip, warnings } = await pack();
+    expect(manifest.files).toEqual([...SHIPPED, ...DOCS].sort());
+    for (const rel of DOCS) {
+      expect(files[rel].equals(fs.readFileSync(at(rel))), rel).toBe(true);
+    }
+    expect(Object.keys(await unzip(zip)).filter((rel) => rel.startsWith('docs/')).sort()).toEqual(DOCS);
+    expect(PackageLayout.contentsOf(manifest).docs).toEqual(['docs/guide/fastener.md', 'docs/standoff.md']);
+    // Every link resolves: the image, the README, the other page; the https link and the code are never checked.
+    expect(warnings.filter((w) => w.code === 'docs-link')).toEqual([]);
+  });
+
+  it('adds no manifest field for the pages: readers find them in files', async () => {
+    const without = await pack();
+    writeDocs();
+    const withDocs = await pack();
+    expect(Object.keys(withDocs.manifest).sort()).toEqual(Object.keys(without.manifest).sort());
+    expect(withDocs.manifest.files.filter((f) => !f.startsWith('docs/'))).toEqual(without.manifest.files);
+  });
+
+  it('skips dot-entries in docs/, as in the three folders', async () => {
+    writeDocs();
+    write('docs/.DS_Store', 'junk');
+    write('docs/.drafts/next.md', '# Not yet');
+    expect((await pack()).manifest.files.filter((f) => f.startsWith('docs/'))).toEqual(DOCS);
+  });
+
+  it('packs a package without docs/ exactly as before: no docs entry, and the same bytes once docs/ is gone again', async () => {
+    const before = await pack();
+    expect(before.manifest.files.some((f) => f.startsWith('docs/'))).toBe(false);
+    expect(Object.keys(await unzip(before.zip)).some((f) => f.startsWith('docs/'))).toBe(false);
+    expect(PackageLayout.contentsOf(before.manifest).docs).toEqual([]);
+
+    writeDocs();
+    const withDocs = await pack();
+    expect(withDocs.zip.equals(before.zip)).toBe(false);
+
+    fs.rmSync(at('docs'), { recursive: true });
+    const after = await pack();
+    expect(after.zip.equals(before.zip)).toBe(true);
+    expect(TreeHash.ofFiles(after.files)).toBe(TreeHash.ofFiles(before.files));
+  });
+
+  it('packs a tree with docs/ to the same bytes twice', async () => {
+    writeDocs();
+    const first = await packAt('2026-10-13T12:00:00.000Z');
+    const second = await packAt('2030-01-01T00:00:00.000Z');
+    expect(second.zip.equals(first.zip)).toBe(true);
+    expect(TreeHash.ofFiles(second.files)).toBe(TreeHash.ofFiles(first.files));
+  });
+
+  it('packs an archive PackageArchive.inspect accepts, docs and all', async () => {
+    const { PackageArchive } = await import('../../src/packages/package-archive.ts');
+    writeDocs();
+    const { zip, files } = await pack();
+    const root = path.join(scratch, 'inspect-root');
+    fs.mkdirSync(root, { recursive: true });
+    const inspection = await PackageArchive.inspect(zip, { root, engineVersion: '0.0.46' });
+    try {
+      expect(inspection.integrity).toBe(TreeHash.ofFiles(files));
+      expect(inspection.manifest.files).toEqual(expect.arrayContaining(DOCS));
+    } finally {
+      PackageArchive.discard(inspection.token);
+    }
+  });
+});
+
+describe('what pack refuses in docs/ (layout rules, never missing docs)', () => {
+  it('a script in docs/: outside-layout, with the layout\'s own sentence', async () => {
+    writeDocs();
+    write('docs/examples/run.js', 'export const x = 1;\n');
+    const error = await refused();
+    expect(error.code).toBe('outside-layout');
+    expect(error.message).toBe(
+      'docs/examples/run.js is outside features/, parts/ and assemblies/: a package ships only what those folders hold. Move docs/examples/run.js into one of them.',
+    );
+  });
+
+  it('any other file type in docs/: docs-file', async () => {
+    writeDocs();
+    write('docs/cad/standoff.zip', 'PK');
+    const error = await refused();
+    expect(error.code).toBe('docs-file');
+    expect(error.message).toBe(PackageLayout.describeDocsFile('docs/cad/standoff.zip'));
+    expect(error.message).toContain('docs/cad/standoff.zip can\'t ship');
+  });
+
+  it('a page over 256 KB: docs-too-large, naming it', async () => {
+    write('docs/ok.md', `# OK\n${'a'.repeat(PackageLayout.DOCS_PAGE_BYTES - 5)}`);
+    write('docs/huge.md', `# Huge\n${'a'.repeat(PackageLayout.DOCS_PAGE_BYTES)}`);
+    const error = await refused();
+    expect(error.code).toBe('docs-too-large');
+    expect(error.message).toMatch(/^docs\/huge\.md is 256\.1 KB; a page in docs\/ can be at most 256 KB\./);
+  });
+
+  it('an image over 2 MB: docs-too-large, naming it', async () => {
+    write('docs/photo.png', Buffer.alloc(PackageLayout.DOCS_IMAGE_BYTES + 1).toString());
+    const error = await refused();
+    expect(error.code).toBe('docs-too-large');
+    expect(error.message).toMatch(/^docs\/photo\.png is 2\.1 MB; an image in docs\/ can be at most 2 MB\./);
+  });
+
+  it('the folder over 4 MB, though every file is within its cap: docs-too-large', async () => {
+    for (let i = 0; i < 3; i++) {
+      write(`docs/shot-${i}.png`, 'x'.repeat(1.5 * 1024 * 1024));
+    }
+    const error = await refused();
+    expect(error.code).toBe('docs-too-large');
+    expect(error.message).toBe('docs/ holds 4.5 MB; it can hold at most 4 MB.');
+  });
+
+  it('the folder over 200 files: docs-too-large', async () => {
+    for (let i = 0; i <= PackageLayout.DOCS_FILES; i++) {
+      write(`docs/pages/p${String(i).padStart(3, '0')}.md`, `# Page ${i}\n`);
+    }
+    const error = await refused();
+    expect(error.code).toBe('docs-too-large');
+    expect(error.message).toBe('docs/ holds 201 files; it can hold at most 200.');
+  });
+
+  it('a linked page whose file lies outside the workspace', async () => {
+    const outside = path.join(scratch, 'outside.md');
+    fs.writeFileSync(outside, '# Elsewhere\n');
+    fs.mkdirSync(at('docs'), { recursive: true });
+    fs.symlinkSync(outside, at('docs/elsewhere.md'));
+    expect(await refusal()).toBe('docs/elsewhere.md links to a file outside the workspace: a package ships only its own files.');
+  });
+
+  it('nothing for missing docs: a package with no docs/ and no description packs', async () => {
+    const { manifest, warnings } = await pack();
+    expect(manifest.name).toBe('@acme/kit');
+    expect(warnings.length).toBeGreaterThan(0);
+  });
+});
+
+describe('what pack warns about, and packs anyway (package-docs DOC5, DOC6)', () => {
+  it('a relative link or image that leads to no shipped file, or out of the package, with its line', async () => {
+    writeDocs();
+    write('docs/standoff.md', [
+      STANDOFF_PAGE,
+      '![Gone](./images/gone.svg)',
+      'Not shipped: [the demo](../demo.part.js), [the notes](../notes.txt).',
+      'Out: [up](../../elsewhere.md) and [root](/etc/hosts).',
+      'Fine: [spacer](../parts/spacer.part.js) and [top](#standoff).',
+    ].join('\n'));
+    const { manifest, warnings } = await pack();
+    expect(manifest.files).toContain('docs/standoff.md');
+    const links = warnings.filter((w) => w.code === 'docs-link');
+    expect(links.map((w) => [w.line, w.target])).toEqual([
+      [14, './images/gone.svg'],
+      [15, '../demo.part.js'],
+      [15, '../notes.txt'],
+      [16, '../../elsewhere.md'],
+      [16, '/etc/hosts'],
+    ]);
+    expect(links.map((w) => w.message)).toEqual([
+      'docs/standoff.md:14 links to ./images/gone.svg, which leads to no file the package ships.',
+      'docs/standoff.md:15 links to ../demo.part.js, which leads to no file the package ships.',
+      'docs/standoff.md:15 links to ../notes.txt, which leads to no file the package ships.',
+      'docs/standoff.md:16 links to ../../elsewhere.md, which leads outside the package.',
+      'docs/standoff.md:16 links to /etc/hosts, which leads outside the package.',
+    ]);
+    expect(links.every((w) => w.file === 'docs/standoff.md')).toBe(true);
+  });
+
+  it('a link to the README warns once the README is gone', async () => {
+    writeDocs();
+    fs.rmSync(at('README.md'));
+    const links = (await pack()).warnings.filter((w) => w.code === 'docs-link');
+    expect(links.map((w) => w.target)).toEqual(['../README.md']);
+  });
+
+  it('undocumented fields, one warning per module, the fields in declaration order: and it still packs', async () => {
+    const { manifest, warnings } = await pack();
+    expect(manifest.features.map((f) => f.id)).toEqual(['fastener', 'standoff']);
+    const undocumented = warnings.filter((w) => w.code === 'undocumented-fields');
+    expect(undocumented.map((w) => w.file)).toEqual(['features/fastener.feature.js', 'features/standoff.feature.js']);
+    const standoff = undocumented[1];
+    expect(standoff.fields!.map((g) => `${g.owner}.${g.name}`)).toEqual(['standoff.face', 'standoff.height', 'standoff.outer', 'standoff.hole']);
+    expect(standoff.message).toBe(
+      'features/standoff.feature.js: 4 fields without a description — standoff: face, height, outer, hole. Give each a `description`.',
+    );
+  });
+
+  it('no undocumented-fields warning once every field says something; one that repeats its label still counts', async () => {
+    write('features/standoff.feature.js', fs.readFileSync(at('features/standoff.feature.js'), 'utf8')
+      .replace("face: { picker: 'face', label: 'On face', surface: 'planar' },", "face: { picker: 'face', label: 'On face', surface: 'planar', description: 'The planar face the standoff stands on, at its centre.' },")
+      .replace('height: { type: \'length\', default: 10, min: 0 },', "height: { type: 'length', default: 10, min: 0, description: 'How tall the standoff stands above the face.' },")
+      .replace("outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },", "outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter', description: 'The outside diameter of the boss.' },")
+      .replace("hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },", "hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter', description: 'Hole diameter' },"));
+    const undocumented = (await pack()).warnings.filter((w) => w.code === 'undocumented-fields');
+    const standoff = undocumented.find((w) => w.file === 'features/standoff.feature.js')!;
+    expect(standoff.fields).toEqual([{ kind: 'value', owner: 'standoff', name: 'hole', label: 'Hole diameter', reason: 'repeats-label' }]);
+    expect(standoff.message).toBe(
+      'features/standoff.feature.js: 1 field without a description — standoff: hole (repeats its label). Give it a `description`.',
+    );
+  });
+});

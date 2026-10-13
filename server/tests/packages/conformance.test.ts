@@ -87,7 +87,9 @@ describe('package conformance fixtures', () => {
       'not-a-zip', 'ok', 'too-large', 'unsafe-path',
     ]);
     const hubOnly = Object.values(archives).filter((a) => a.verdict === 'ok' && a.hub !== 'ok').map((a) => a.hub);
-    expect([...new Set(hubOnly)].sort()).toEqual(['bad-params', 'no-models', 'outside-layout', 'scope-mismatch', 'wrong-folder']);
+    expect([...new Set(hubOnly)].sort()).toEqual([
+      'bad-params', 'docs-file', 'docs-too-large', 'no-models', 'outside-layout', 'scope-mismatch', 'wrong-folder',
+    ]);
     for (const verdict of Object.values(archives)) {
       if (verdict.verdict !== 'ok') {
         expect(verdict.hub).toBe(verdict.verdict);
@@ -137,6 +139,30 @@ describe('package conformance fixtures', () => {
         expect({ file, verdict: err.code }).toEqual({ file, verdict: verdict.verdict });
       }
     }
+  });
+
+  it('carry docs/ in the valid package, and the archives the hub refuses for docs/ (package-docs DOC6)', () => {
+    const { archives } = readJson<Expected>(path.join(KEPT, 'expected.json'));
+    expect(archives['docs-file.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'docs-file' });
+    expect(archives['docs-too-large.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'docs-too-large' });
+    expect(archives['outside-layout-docs.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'outside-layout' });
+    // A package without docs/ is as valid as it ever was.
+    expect(archives['no-docs.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'ok' });
+    expect(archives['no-docs.fluidpkg'].integrity).not.toBe(archives['valid.fluidpkg'].integrity);
+  });
+
+  it('pack the valid package\'s docs/ page and image into files, and the no-docs one without them', async () => {
+    const { PackageArchive: Archive } = await import('../../src/packages/package-archive.ts');
+    const root = path.join(scratch, 'docs-root');
+    fs.mkdirSync(root, { recursive: true });
+    const filesOf = async (file: string) => {
+      const inspection = await Archive.inspect(fs.readFileSync(path.join(out, 'archives', file)), { root, engineVersion: '0.0.46' });
+      Archive.discard(inspection.token);
+      return inspection.manifest.files;
+    };
+    const valid = await filesOf('valid.fluidpkg');
+    expect(valid.filter((f) => f.startsWith('docs/'))).toEqual(['docs/images/standoff.svg', 'docs/standoff.md']);
+    expect(await filesOf('no-docs.fluidpkg')).toEqual(valid.filter((f) => !f.startsWith('docs/')));
   });
 
   it('name the FluidCAD commit they came from', () => {

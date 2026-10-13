@@ -56,6 +56,12 @@ function listing(): string[] {
   return out.sort();
 }
 
+function write(rel: string, contents: string): void {
+  const abs = path.join(workspace, rel);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, contents);
+}
+
 async function manifestOf(archive: string): Promise<Record<string, any>> {
   const zip = await JSZip.loadAsync(fs.readFileSync(archive));
   return JSON.parse(await zip.file('manifest.json')!.async('string'));
@@ -91,6 +97,12 @@ describe('fluidcad pack', () => {
       '  parts/      1 part: spacer',
       '  assemblies/ 0 assemblies',
       expect.stringMatching(/^ {2}21 files, \d+\.\d kB, unit mm$/),
+      '',
+      // The fixture documents none of its fields: a warning per module, and it still packs.
+      '3 warnings (the package still packed):',
+      '  ! features/fastener.feature.js: 7 fields without a description — fastener: at, standard, size, head, depth, marking, finishes. Give each a `description`.',
+      '  ! features/standoff.feature.js: 4 fields without a description — standoff: face, height, outer, hole. Give each a `description`.',
+      '  ! parts/spacer.part.js: 1 field without a description — spacer: Length. Give it a `description`.',
       '',
     ]);
     // The archive is the only new entry; no engine link, no cache.
@@ -202,8 +214,78 @@ describe('fluidcad pack', () => {
         parts: [{ exportName: 'spacer', name: 'Spacer', module: 'parts/spacer.part.js', params: 1 }],
         assemblies: [],
         models: 1,
+        docs: [],
       },
+      warnings: [
+        expect.objectContaining({ code: 'undocumented-fields', file: 'features/fastener.feature.js' }),
+        expect.objectContaining({ code: 'undocumented-fields', file: 'features/standoff.feature.js' }),
+        {
+          code: 'undocumented-fields',
+          file: 'parts/spacer.part.js',
+          message: 'parts/spacer.part.js: 1 field without a description — spacer: Length. Give it a `description`.',
+          fields: [{ kind: 'param', owner: 'spacer', name: 'Length', label: 'Length', reason: 'missing' }],
+        },
+      ],
     });
+  });
+
+  it('lists the doc pages in the summary, ships docs/, and prints a broken link as a warning: still exit 0', async () => {
+    write('docs/standoff.md', '# Standoff\n\n![A standoff](./images/standoff.svg)\n\nSee the [README](../README.md) and [the guide](./guide.md).\n');
+    write('docs/images/standoff.svg', '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
+    write('docs/fastener.md', '# Fastener\n');
+
+    const run = cli(['pack']);
+
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    const lines = run.stdout.split('\n');
+    expect(lines).toContain('  docs/       2 pages: fastener.md, standoff.md');
+    expect(lines).toContain('4 warnings (the package still packed):');
+    expect(lines).toContain('  ! docs/standoff.md:5 links to ./guide.md, which leads to no file the package ships.');
+    const manifest = await manifestOf(path.join(workspace, 'acme-kit-0.1.0.fluidpkg'));
+    expect(manifest.files.filter((f: string) => f.startsWith('docs/'))).toEqual(['docs/fastener.md', 'docs/images/standoff.svg', 'docs/standoff.md']);
+
+    const json = JSON.parse(cli(['pack', '--json', '-o', scratch]).stdout);
+    expect(json.contents.docs).toEqual(['docs/fastener.md', 'docs/standoff.md']);
+    expect(json.warnings.filter((w: any) => w.code === 'docs-link')).toEqual([{
+      code: 'docs-link',
+      file: 'docs/standoff.md',
+      message: 'docs/standoff.md:5 links to ./guide.md, which leads to no file the package ships.',
+      target: './guide.md',
+      line: 5,
+    }]);
+  });
+
+  it('prints no warnings for a package whose fields are all documented and whose links resolve', () => {
+    // A features-only package of the documented standoff: no part, so no parameter to describe.
+    fs.rmSync(path.join(workspace, 'parts'), { recursive: true });
+    fs.rmSync(path.join(workspace, 'demo.part.js'));
+    fs.rmSync(path.join(workspace, 'features', 'fastener.feature.js'));
+    const standoff = path.join(workspace, 'features', 'standoff.feature.js');
+    fs.writeFileSync(standoff, fs.readFileSync(standoff, 'utf8')
+      .replace("surface: 'planar' },", "surface: 'planar', description: 'The planar face the standoff stands on, at its centre.' },")
+      .replace("height: { type: 'length', default: 10, min: 0 },", "height: { type: 'length', default: 10, min: 0, description: 'How tall the standoff stands above the face.' },")
+      .replace("label: 'Boss diameter' },", "label: 'Boss diameter', description: 'The outside diameter of the boss.' },")
+      .replace("label: 'Hole diameter' },", "label: 'Hole diameter', description: 'The bore through the boss, narrower than it.' },"));
+    write('docs/standoff.md', '# Standoff\n\nSee the [README](../README.md).\n');
+
+    const run = cli(['pack']);
+
+    expect(run.status).toBe(0);
+    expect(run.stdout).not.toContain('warning');
+    expect(JSON.parse(cli(['pack', '--json', '-o', scratch]).stdout).warnings).toEqual([]);
+  });
+
+  it('refuses a file docs/ can\'t hold, with its code, and writes nothing', () => {
+    write('docs/model.step', 'ISO-10303-21;');
+    const before = listing();
+    const run = cli(['pack', '--json']);
+    expect(run.status).toBe(1);
+    expect(JSON.parse(run.stdout)).toEqual({
+      error: "docs/model.step can't ship: docs/ holds markdown pages (.md) and the images they show (.svg, .png, .jpg, .jpeg, .webp) only. Move it out of docs/ or remove it.",
+      code: 'docs-file',
+    });
+    expect(listing()).toEqual(before);
   });
 
   it('--json prints a refusal as { error, code } and exits 1', () => {

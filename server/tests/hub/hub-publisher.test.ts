@@ -148,6 +148,10 @@ describe('HubPublisher.publish', () => {
     expect(confirmed).not.toHaveProperty('bareName');
     expect(confirmed!.contents.features.map((f) => f.id)).toEqual(['fastener', 'standoff']);
     expect(confirmed!.contents.parts.map((p) => p.exportName)).toEqual(['spacer']);
+    expect(confirmed!.contents.docs).toEqual([]);
+    // Pack's warnings ride along for the CLI to print; they never stop the upload.
+    expect(confirmed!.warnings).toEqual(packed.warnings);
+    expect(confirmed!.warnings.map((w) => w.code)).toContain('undocumented-fields');
 
     expect(steps.map((s) => s.step)).toEqual(expect.arrayContaining(['checking', 'packing', 'uploading', 'verifying']));
     const last = steps.filter((s) => s.step === 'uploading').at(-1) as { sent: number; total: number };

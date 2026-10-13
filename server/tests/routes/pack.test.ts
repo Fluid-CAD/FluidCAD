@@ -143,6 +143,29 @@ describe('POST /api/pack', () => {
     expect(zip.file('features/standoff.feature.js')).not.toBeNull();
   });
 
+  it('answers the pack\'s warnings and the doc pages in the JSON form', async () => {
+    fs.mkdirSync(path.join(ws, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(ws, 'docs', 'standoff.md'), '# Standoff\n\n![missing](./images/standoff.svg)\n');
+    const res = await post({ format: 'json' });
+    expect(res.status).toBe(200);
+    const body = JSON.parse(res.bytes.toString('utf8'));
+    expect(body.contents.docs).toEqual(['docs/standoff.md']);
+    expect(body.warnings.map((w: { code: string; file: string }) => `${w.code} ${w.file}`)).toEqual([
+      'undocumented-fields features/fastener.feature.js',
+      'undocumented-fields features/standoff.feature.js',
+      'docs-link docs/standoff.md',
+    ]);
+    expect(body.warnings[2].message).toBe('docs/standoff.md:3 links to ./images/standoff.svg, which leads to no file the package ships.');
+  });
+
+  it('answers 400 with docs/\'s own codes', async () => {
+    fs.mkdirSync(path.join(ws, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(ws, 'docs', 'notes.txt'), 'notes');
+    const res = await post({ format: 'json' });
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.bytes.toString('utf8')).code).toBe('docs-file');
+  });
+
   it('refuses a file whose editor buffer isn\'t saved', async () => {
     buffers.set(path.join(ws, 'features', 'standoff.feature.js').replace(/\\/g, '/'), '// unsaved\n');
     const res = await post();

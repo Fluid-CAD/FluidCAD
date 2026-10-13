@@ -152,7 +152,69 @@ describe('PackageLayout.modelCount and contentsOf', () => {
       parts: [{ exportName: 'spur', name: 'Spur', module: 'parts/spur.part.js', params: 2 }],
       assemblies: [{ exportName: 'train', name: 'Train', module: 'assemblies/train.assembly.js', params: 0 }],
       models: 2,
+      docs: [],
     });
+  });
+
+  it('lists the doc pages from files: docs/**/*.md, nested too, never an image or a page elsewhere', () => {
+    const files = ['README.md', 'docs/guide/holes.md', 'docs/images/standoff.svg', 'docs/standoff.MD', 'features/notes.md', 'index.js'];
+    expect(PackageLayout.contentsOf({ ...manifest, files }).docs).toEqual(['docs/guide/holes.md', 'docs/standoff.MD']);
+    expect(PackageLayout.docPagesOf({ files })).toEqual(['docs/guide/holes.md', 'docs/standoff.MD']);
+    // A manifest from before docs/ shipped has none.
+    expect(PackageLayout.docPagesOf({ files: ['README.md', 'index.js'] })).toEqual([]);
+    expect(PackageLayout.docPagesOf({})).toEqual([]);
+  });
+});
+
+describe('PackageLayout: docs/ (package-docs DOC6)', () => {
+  it('lists the files under docs/, nested and sorted, skipping dot-entries; none without the folder', () => {
+    expect(PackageLayout.docsIn(ws)).toEqual([]);
+    write('docs/standoff.md', '# Standoff\n');
+    write('docs/images/standoff.svg', '<svg/>');
+    write('docs/a/b/deep.md', '# Deep\n');
+    write('docs/.DS_Store', '');
+    write('docs/.drafts/next.md', '');
+    write('docs/node_modules/x.md', '');
+    expect(PackageLayout.docsIn(ws)).toEqual(['docs/a/b/deep.md', 'docs/images/standoff.svg', 'docs/standoff.md']);
+  });
+
+  it('keeps the three module folders as they were: docs/ exports nothing and is not one of them', () => {
+    write('docs/standoff.md', '# Standoff\n');
+    expect(PackageLayout.FOLDERS).toEqual(['features', 'parts', 'assemblies']);
+    expect(PackageLayout.folderOf('docs/standoff.md')).toBeNull();
+    expect(PackageLayout.foldersIn(ws)).toEqual([]);
+  });
+
+  it('tells pages, images and scripts apart, by the hub\'s own tests', () => {
+    expect(PackageLayout.isDocPage('docs/standoff.md')).toBe(true);
+    expect(PackageLayout.isDocPage('README.md')).toBe(false);
+    for (const image of ['docs/a.svg', 'docs/a.png', 'docs/a.jpg', 'docs/a.jpeg', 'docs/a.webp', 'docs/A.PNG']) {
+      expect(PackageLayout.isDocImage(image), image).toBe(true);
+    }
+    expect(PackageLayout.isDocImage('docs/a.gif')).toBe(false);
+    expect(PackageLayout.isScript('docs/run.js')).toBe(true);
+    expect(PackageLayout.isScript('docs/run.mjs')).toBe(true);
+    expect(PackageLayout.isScript('docs/run.cjs')).toBe(true);
+    expect(PackageLayout.isScript('docs/run.ts')).toBe(false);
+  });
+
+  it('words the refusals, naming the file and the caps', () => {
+    expect(PackageLayout.describeDocsFile('docs/cad.zip')).toBe(
+      "docs/cad.zip can't ship: docs/ holds markdown pages (.md) and the images they show (.svg, .png, .jpg, .jpeg, .webp) only. Move it out of docs/ or remove it.",
+    );
+    expect(PackageLayout.describeOutsideLayout('docs/run.js')).toBe(
+      'docs/run.js is outside features/, parts/ and assemblies/: a package ships only what those folders hold. Move docs/run.js into one of them.',
+    );
+    expect(PackageLayout.describeDocsFileTooLarge('docs/big.md', 300 * 1024)).toBe(
+      'docs/big.md is 300 KB; a page in docs/ can be at most 256 KB. Split it into smaller pages.',
+    );
+    expect(PackageLayout.describeDocsFileTooLarge('docs/photo.png', 2.5 * 1024 * 1024)).toBe(
+      'docs/photo.png is 2.5 MB; an image in docs/ can be at most 2 MB. Make it smaller.',
+    );
+    expect(PackageLayout.describeDocsFolderTooLarge(201, 1000)).toBe('docs/ holds 201 files; it can hold at most 200.');
+    expect(PackageLayout.describeDocsFolderTooLarge(30, 4.25 * 1024 * 1024)).toBe('docs/ holds 4.3 MB; it can hold at most 4 MB.');
+    expect([PackageLayout.DOCS_PAGE_BYTES, PackageLayout.DOCS_IMAGE_BYTES, PackageLayout.DOCS_BYTES, PackageLayout.DOCS_FILES])
+      .toEqual([262_144, 2_097_152, 4_194_304, 200]);
   });
 });
 

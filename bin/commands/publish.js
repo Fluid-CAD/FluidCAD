@@ -177,6 +177,9 @@ class PublishView {
       ['parts/', PublishView.count(contents.parts.length, 'part')],
       ['assemblies/', PublishView.count(contents.assemblies.length, 'assembly', 'assemblies')],
     ];
+    if (contents.docs?.length > 0) {
+      rows.push(['docs/', PublishView.count(contents.docs.length, 'page')]);
+    }
     for (const [folder, counted] of rows) {
       console.log(`  ${folder.padEnd(12)}${counted}`);
     }
@@ -191,6 +194,18 @@ class PublishView {
       console.log('  first version: you finish publishing in your browser (screenshots, license, release notes)');
     } else {
       console.log('  goes straight to review: an admin approves it before it is public');
+    }
+    PublishView.printWarnings(summary.warnings ?? []);
+  }
+
+  /** Pack's warnings, under the summary: they never stop the upload, and the hub doesn't repeat them. */
+  static printWarnings(warnings) {
+    if (warnings.length === 0) {
+      return;
+    }
+    console.log(`  ${PublishView.count(warnings.length, 'warning')} (nothing is refused for them):`);
+    for (const warning of warnings) {
+      console.log(`    ! ${warning.message}`);
     }
   }
 

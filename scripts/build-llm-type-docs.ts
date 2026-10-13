@@ -294,6 +294,16 @@ function renderMethodSignature(
 // avoids the website's resolveTypeName bug where `(A | B)[]` gets split into
 // `(A` and `B)[]`.
 function splitTopLevelUnion(raw: string): string[] | null {
+  return splitTopLevel(raw, '|');
+}
+
+// Top-level intersection split, the same way: `IRepeatInstance &
+// RepeatAccessorsOf<T>` renders each side on its own.
+function splitTopLevelIntersection(raw: string): string[] | null {
+  return splitTopLevel(raw, '&');
+}
+
+function splitTopLevel(raw: string, operator: '|' | '&'): string[] | null {
   const parts: string[] = [];
   let depth = 0;
   let start = 0;
@@ -304,7 +314,7 @@ function splitTopLevelUnion(raw: string): string[] | null {
     } else if (ch === ')' || ch === ']' || ch === '>' || ch === '}') {
       depth--;
     } else if (
-      ch === '|' &&
+      ch === operator &&
       depth === 0 &&
       raw[i - 1] === ' ' &&
       raw[i + 1] === ' '
@@ -323,6 +333,10 @@ function renderTypeText(raw: string): string {
   const union = splitTopLevelUnion(raw);
   if (union) {
     return union.map(renderTypeText).join(' | ');
+  }
+  const intersection = splitTopLevelIntersection(raw);
+  if (intersection) {
+    return intersection.map(renderTypeText).join(' & ');
   }
   const parenArray = raw.match(/^\((.+)\)\[\]$/);
   if (parenArray) {
@@ -406,9 +420,15 @@ function renderInterfacePage(
   // Full interface definition as the first code block so `firstCodeBlock`
   // returns a usable schema.
   body.push('```ts');
+  // A generic interface keeps its parameters, so a `T` in a signature reads as one.
+  const typeParams = iface.getTypeParameters().map((param) => {
+    const fallback = param.getDefault();
+    return fallback ? `${param.getName()} = ${renderTypeText(fallback.getText())}` : param.getName();
+  });
+  const name = typeParams.length > 0 ? `${type.displayName}<${typeParams.join(', ')}>` : type.displayName;
   const header = parent
-    ? `interface ${type.displayName} extends ${parent} {`
-    : `interface ${type.displayName} {`;
+    ? `interface ${name} extends ${parent} {`
+    : `interface ${name} {`;
   body.push(header);
   for (const m of ownMethods) {
     for (const sig of m.signatures) {
@@ -503,6 +523,10 @@ function linkType(raw: string): string {
   const union = splitTopLevelUnion(raw);
   if (union) {
     return union.map(linkType).join(' | ');
+  }
+  const intersection = splitTopLevelIntersection(raw);
+  if (intersection) {
+    return intersection.map(linkType).join(' & ');
   }
   const parenArray = raw.match(/^\((.+)\)\[\]$/);
   if (parenArray) {

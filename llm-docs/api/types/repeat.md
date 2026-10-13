@@ -9,8 +9,8 @@ seeAlso: [api/types/scene-object]
 # Repeat
 
 ```ts
-interface Repeat extends SceneObject {
-  instance(index: number): RepeatInstance;
+interface Repeat<T = SceneObject> extends SceneObject {
+  instance(index: number): RepeatInstance & RepeatAccessorsOf<T>;
 }
 ```
 
@@ -18,7 +18,9 @@ A 3D `repeat()` — linear, circular, mirror, rotate or matrix. Its
 instances are addressable by slot, so one clone of a pattern can be
 selected without describing its position numerically. It is itself a
 feature another `repeat()` takes, standing for its whole pattern — the
-original and every instance: `repeat('mirror', plane, row)`.
+original and every instance: `repeat('mirror', plane, row)`. `T` is what
+it repeats, which gives each instance the accessors of a custom feature's
+declared buckets.
 
 Extends [[api/types/scene-object]].
 
@@ -28,15 +30,16 @@ Extends [[api/types/scene-object]].
 
 Selects one instance of the pattern: the repeated features at that slot
 as a whole geometry, plus their forwarded bucket accessors when the
-repeat clones a single feature (`r.instance(1).endEdges()`). Slot 0 is
-the original for circular, mirror, rotate and matrix repeats. Linear
-repeats linearize the grid in axis order (the first axis varies
-slowest) with the original at its own slot — 0 when not centered, the
-center slot when centered — the same numbering the `skip` option uses;
-a skipped slot is an error. An instance of a repeat of a repeat is the
-whole inner pattern at that slot.
+repeat clones a single feature (`r.instance(1).endEdges()`, or a custom
+feature's own `r.instance(1).tipEdges()`). Slot 0 is the original for
+circular, mirror, rotate and matrix repeats. Linear repeats linearize
+the grid in axis order (the first axis varies slowest) with the
+original at its own slot — 0 when not centered, the center slot when
+centered — the same numbering the `skip` option uses; a skipped slot is
+an error. An instance of a repeat of a repeat is the whole inner
+pattern at that slot.
 
-**Returns**: [[api/types/repeat-instance]].
+**Returns**: [[api/types/repeat-instance]] & `RepeatAccessorsOf<T>`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

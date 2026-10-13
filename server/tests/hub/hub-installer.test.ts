@@ -143,7 +143,7 @@ describe('HubInstaller.resolve', () => {
     await publish('0.1.0');
     const latest = await publish('0.2.0');
     const resolved = await installer().resolve({ name: NAME, version: null });
-    expect(resolved).toMatchObject({ name: NAME, version: '0.2.0', integrity: latest.integrity, status: 'published', access: 'public', notes: [] });
+    expect(resolved).toMatchObject({ name: NAME, version: '0.2.0', integrity: latest.integrity, status: 'published', access: 'public', passedOver: null, signedOut: false, notes: [] });
     expect(hub.requestsTo(`/api/v1/packages/${NAME}`)[0].query).toBe('?engine=0.0.46&sdk=1');
   });
 
@@ -153,6 +153,7 @@ describe('HubInstaller.resolve', () => {
     const resolved = await installer().resolve({ name: NAME, version: null });
     expect(resolved.version).toBe('0.1.0');
     expect(resolved.integrity).toBe(older.integrity);
+    expect(resolved.passedOver).toEqual({ version: '0.2.0', needs: 'FluidCAD 0.0.99 or newer' });
     expect(resolved.notes).toEqual([
       'The latest @acme/kit, 0.2.0, needs FluidCAD 0.0.99 or newer; this FluidCAD is 0.0.46, so this installs 0.1.0, the newest version it runs.',
     ]);
@@ -246,6 +247,7 @@ describe('HubInstaller.resolve', () => {
     hub.tokenOf(stale)!.revoked = true;
     const resolved = await installer({ token: stale }).resolve({ name: NAME, version: null });
     expect(resolved.version).toBe('0.1.0');
+    expect(resolved.signedOut).toBe(true);
     expect(resolved.notes).toEqual([`${hub.origin} refused your saved token (revoked or expired), so this ran signed out: run \`fluidcad login\` to sign in again.`]);
     const reads = hub.requestsTo(`/api/v1/packages/${NAME}`);
     expect(reads.map((r) => r.headers.authorization !== undefined)).toEqual([true, false]);
@@ -304,7 +306,7 @@ describe('HubInstaller.choose', () => {
 
       await installLocally('0.1.0');
       const installed = await installer().choose({ name: NAME, version: null }, { project });
-      expect(installed).toMatchObject({ source: 'installed', location: { version: '0.1.0' }, notes: [note] });
+      expect(installed).toMatchObject({ source: 'installed', location: { version: '0.1.0' }, notes: [note], unreachable: false });
     });
 
     it('with the hub unreachable, uses the newest installed version, with a note', async () => {
@@ -312,7 +314,7 @@ describe('HubInstaller.choose', () => {
       await installLocally('0.3.0');
       const offline = await closedPort();
       const choice = await installer({ hubUrl: offline }).choose({ name: NAME, version: null }, { project });
-      expect(choice).toMatchObject({ source: 'installed', resolved: null, location: { target: 'library', version: '0.3.0' } });
+      expect(choice).toMatchObject({ source: 'installed', resolved: null, unreachable: true, location: { target: 'library', version: '0.3.0' } });
       expect(choice.source === 'installed' && choice.notes).toEqual([
         `Couldn't reach ${offline}, so this uses @acme/kit 0.3.0 from your library, the newest version there; the hub may have a newer one.`,
       ]);

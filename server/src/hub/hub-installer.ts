@@ -18,7 +18,8 @@ import { HubTransport } from './hub-transport.ts';
  * hub"): which version, then the download, verified, ready for the
  * existing consent and install path (`ProjectPackages.installInspected`).
  * Nothing here installs or pins: package code never runs, and nothing
- * lands in a root, before the caller has the user's consent.
+ * lands in a root, before the caller installs the verified inspection
+ * (the app asks first; `fluidcad install` installs it straight away).
  *
  * 0. {@link choose}: where `fluidcad install <name>[@version]` takes the
  *    package from (an installed copy, or the hub), the rule both the CLI
@@ -82,6 +83,14 @@ export type ResolvedHubPackage = {
   yanked: { at: string; reason: string | null } | null;
   /** The package's deprecation message (H12), or null: it applies to every version. */
   deprecated: string | null;
+  /**
+   * The latest version, passed over because this engine can't run it, and
+   * what it needs (`FluidCAD 0.0.50 or newer`); null when the version is the
+   * latest or was asked for.
+   */
+  passedOver: { version: string; needs: string } | null;
+  /** The hub refused the saved token, so this was read signed out. */
+  signedOut: boolean;
   /** Sentences for the consent summary: a deprecated package, a yanked or unpublished version, an older compatible one, a refused token. */
   notes: string[];
 };
@@ -100,12 +109,13 @@ export type HubFetchOptions = {
  * - `installed`: a copy already in a root the install resolves from, used
  *   as is. `resolved` is the hub's answer it matched (same version, same
  *   integrity), or null when the hub wasn't asked (an exact or pinned
- *   version) or couldn't be reached. `notes` are the sentences to show
- *   (the hub's resolution notes, or why the hub wasn't used).
+ *   version) or couldn't be reached (`unreachable`, the newest installed
+ *   version taken instead). `notes` are the sentences to show (the hub's
+ *   resolution notes, or why the hub wasn't used).
  * - `hub`: download `resolved` ({@link HubInstaller.fetch}).
  */
 export type HubInstallChoice =
-  | { source: 'installed'; location: PackageLocation; resolved: ResolvedHubPackage | null; notes: string[] }
+  | { source: 'installed'; location: PackageLocation; resolved: ResolvedHubPackage | null; notes: string[]; unreachable: boolean }
   | { source: 'hub'; resolved: ResolvedHubPackage };
 
 /** A downloaded, verified package waiting for consent: `inspection.token` goes to `ProjectPackages.installInspected`. */
@@ -168,7 +178,7 @@ export class HubInstaller {
     if (exact) {
       const location = PackageRoots.locate(spec.name, exact, project);
       if (location) {
-        return { source: 'installed', location, resolved: null, notes: [] };
+        return { source: 'installed', location, resolved: null, notes: [], unreachable: false };
       }
       return { source: 'hub', resolved: await this.resolve({ name: spec.name, version: exact }) };
     }
@@ -180,7 +190,7 @@ export class HubInstaller {
     }
     const location = PackageRoots.locate(resolved.name, resolved.version, project);
     if (location && (await TreeHash.ofDirectory(location.directory)) === resolved.integrity) {
-      return { source: 'installed', location, resolved, notes: resolved.notes };
+      return { source: 'installed', location, resolved, notes: resolved.notes, unreachable: false };
     }
     return { source: 'hub', resolved };
   }
@@ -190,6 +200,7 @@ export class HubInstaller {
     const resolved = spec.version === null ? await this.resolveLatest(spec.name) : await this.resolveExact(spec.name, spec.version);
     if (this.tokenNote) {
       resolved.notes.push(this.tokenNote);
+      resolved.signedOut = true;
     }
     return resolved;
   }
@@ -298,7 +309,7 @@ export class HubInstaller {
     if (err.hubUnreachable) {
       const where = PackageInstaller.describe(newest.target);
       const note = `Couldn't reach ${this.config.origin}, so this uses ${name} ${newest.version} from ${where}, the newest version there; the hub may have a newer one.`;
-      return { source: 'installed', location: newest, resolved: null, notes: [note] };
+      return { source: 'installed', location: newest, resolved: null, notes: [note], unreachable: true };
     }
     if (err.code === 'not-found') {
       const where = PackageInstaller.describe(newest.target);
@@ -350,6 +361,8 @@ export class HubInstaller {
       access: detail.access,
       yanked: detail.yanked,
       deprecated,
+      passedOver: null,
+      signedOut: false,
       notes,
     };
   }
@@ -371,7 +384,7 @@ export class HubInstaller {
     }
     const compatibility = detail.compatibility;
     if (!compatibility || compatibility.latestCompatible) {
-      return this.resolvedFrom(detail, latest.version, latest.integrity, latest.size, []);
+      return this.resolvedFrom(detail, latest.version, latest.integrity, latest.size, [], null);
     }
     const needs = this.needsOf(latest.minEngine, latest.sdkVersion);
     if (!compatibility.newestCompatible) {
@@ -386,7 +399,7 @@ export class HubInstaller {
       throw HubInstallError.local('unexpected-response', `${this.config.origin} named ${name}@${compatibility.newestCompatible} for this FluidCAD but doesn't list it.`);
     }
     const note = `The latest ${name}, ${latest.version}, needs ${needs}; this FluidCAD is ${this.engineVersion}, so this installs ${chosen.version}, the newest version it runs.`;
-    return this.resolvedFrom(detail, chosen.version, chosen.integrity, chosen.size, [note]);
+    return this.resolvedFrom(detail, chosen.version, chosen.integrity, chosen.size, [note], { version: latest.version, needs });
   }
 
   /**
@@ -411,7 +424,14 @@ export class HubInstaller {
     return HubInstallError.local('nothing-published', `${name} has no published version on ${origin} yet.${open}`);
   }
 
-  private resolvedFrom(detail: HubPackageDetail, version: string, integrity: string, size: number | null, notes: string[]): ResolvedHubPackage {
+  private resolvedFrom(
+    detail: HubPackageDetail,
+    version: string,
+    integrity: string,
+    size: number | null,
+    notes: string[],
+    passedOver: ResolvedHubPackage['passedOver'],
+  ): ResolvedHubPackage {
     const deprecated = detail.deprecatedMessage ?? null;
     return {
       hub: this.config.origin,
@@ -423,6 +443,8 @@ export class HubInstaller {
       access: detail.access,
       yanked: null,
       deprecated,
+      passedOver,
+      signedOut: false,
       notes: [...HubInstaller.deprecationNotes(detail.name, deprecated), ...notes],
     };
   }

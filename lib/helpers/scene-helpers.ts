@@ -17,6 +17,7 @@ import { Wire } from "../common/wire.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { requireValidSolid } from "../oc/solid-validation.js";
 import { RenderSeams } from "../oc/render-seams.js";
+import { CutToolImages } from "../oc/cut-tool-images.js";
 import { heldSolidsOf, type HeldSolid } from "./live-solids.js";
 
 /**
@@ -646,8 +647,16 @@ export function cutWithSceneObjects(
      * object out of `scope` does not keep its solids out of the stock.
      */
     excludeStock?: Shape[];
+    /**
+     * Faces and edges of `toolShapes` to follow through the cut — a
+     * feature's named members. `toolImages` then answers what each became
+     * in the cleaned result (see `CutToolImages`). Following them only
+     * reads the cut's history: the cut, its history and its classification
+     * are the same with or without it.
+     */
+    trackTool?: Shape[];
   },
-): { cleanedShapes: Shape[], stockShapes: Shape[] } {
+): { cleanedShapes: Shape[], stockShapes: Shape[], toolImages: (member: Shape) => Shape[] } {
   const excluded = options?.excludeStock ?? [];
   const shapeObjectMap = new Map<Shape, SceneObject>();
   for (const { holder, solid } of stockOf(scope)) {
@@ -666,8 +675,9 @@ export function cutWithSceneObjects(
       + 'into the part() that owns the solid it should cut.',
     );
   }
+  const tracked = options?.trackTool ?? [];
   const cutResult = BooleanOps.cutMultiShape(stock, toolShapes, plane, distance,
-    { validate: options?.validateResult, stage: `${caller.getType()} cut result` });
+    { validate: options?.validateResult, stage: `${caller.getType()} cut result`, trackTool: tracked });
 
   const cleanedShapes: Shape[] = [];
   const cleanups: CleanShapeLineage[] = [];
@@ -728,7 +738,12 @@ export function cutWithSceneObjects(
 
     classifyCutResult(caller, cleanedShapes, sectionEdges, internalFaces, plane, distance, options?.bidirectional === true);
 
-    return { cleanedShapes, stockShapes: stock };
+    // The tracked members, as the cleaned result carries them — read while
+    // the cut's builders and the cleanups' lineage are still alive.
+    const toolImages = CutToolImages.lookup(tracked,
+      CutToolImages.settle(tracked.map(member => cutResult.toolImages(member)), cleanups, cleanedShapes));
+
+    return { cleanedShapes, stockShapes: stock, toolImages };
   } finally {
     for (const cleanup of cleanups) cleanup.dispose();
     cutResult.dispose();

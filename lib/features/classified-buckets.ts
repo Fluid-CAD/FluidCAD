@@ -169,6 +169,38 @@ export class ClassifiedBucketRemapper {
 }
 
 /**
+ * How {@link ClassifiedBuckets.writeNamed} carries a custom bucket's members
+ * across the operation that placed the feature's tools: each face and edge
+ * becomes what the result carries of it, repeats removed, in order. A
+ * fusion's {@link ClassifiedBucketRemapper} follows its history; a remove's
+ * {@link ToolImageCarrier} follows the cut.
+ */
+export type NamedBucketCarrier = Pick<ClassifiedBucketRemapper, 'followFaces' | 'remapEdges'>;
+
+/**
+ * Carries a removing feature's custom buckets across its cut: each member
+ * becomes its images in the cleaned result — what the cut left of a pocket's
+ * floor is the pocket floor, faced out of the material as the solid has it;
+ * a floor the cut went right through has none — as `cutWithSceneObjects`
+ * answers them for the members it tracked (see `CutToolImages`). Nothing is
+ * re-homed: a member the cut removed is dropped, as a fusion drops it.
+ */
+export class ToolImageCarrier implements NamedBucketCarrier {
+
+  constructor(private readonly images: (member: Shape) => Shape[]) {}
+
+  /** The faces' images in the cut's result, distinct, in member order. */
+  followFaces(faces: Face[]): Face[] {
+    return ClassifiedBucketRemapper.distinct(faces.flatMap(face => this.images(face) as Face[]));
+  }
+
+  /** The edges' images in the cut's result, distinct, in member order. */
+  remapEdges(edges: Edge[]): Edge[] {
+    return ClassifiedBucketRemapper.distinct(edges.flatMap(edge => this.images(edge) as Edge[]));
+  }
+}
+
+/**
  * A custom bucket a feature declared, as {@link ClassifiedBuckets.writeNamed}
  * writes it: where it lives, what it holds and what the feature named.
  */
@@ -301,19 +333,20 @@ export class ClassifiedBuckets {
    * in the edges where a face now meets the stock. A bucket with neither is
    * empty.
    *
-   * With a `remapper`, the buckets are carried across the fusion it reads
-   * (see {@link ClassifiedBucketRemapper.followFaces}): every member follows
-   * the history and only what the final solid carries is kept. Unlike the
-   * side-face rule, nothing stale stays — a custom bucket has no index picks
-   * recorded against the old numbering, and a stale member would only fail
-   * the whole-bucket read downstream. Without one, the members are written
-   * as they are.
+   * With a `carrier`, the buckets are carried across the operation it
+   * reads — a fusion's history ({@link ClassifiedBucketRemapper.followFaces})
+   * or a remove's cut ({@link ToolImageCarrier}): every member follows it
+   * and only what the final solid carries is kept. Unlike the side-face
+   * rule, nothing stale stays — a custom bucket has no index picks recorded
+   * against the old numbering, and a stale member would only fail the
+   * whole-bucket read downstream. Without one, the members are written as
+   * they are.
    */
-  static writeNamed(target: SceneObject, buckets: NamedBucket[], remapper: ClassifiedBucketRemapper | null) {
+  static writeNamed(target: SceneObject, buckets: NamedBucket[], carrier: NamedBucketCarrier | null) {
     for (const bucket of buckets) {
       if (bucket.kind === 'face') {
         const faces = (bucket.members ?? []) as Face[];
-        target.setState(bucket.key, remapper ? remapper.followFaces(faces) : faces);
+        target.setState(bucket.key, carrier ? carrier.followFaces(faces) : faces);
       }
     }
     for (const bucket of buckets) {
@@ -322,7 +355,7 @@ export class ClassifiedBuckets {
       }
       if (bucket.members) {
         const edges = bucket.members as Edge[];
-        target.setState(bucket.key, remapper ? remapper.remapEdges(edges) : edges);
+        target.setState(bucket.key, carrier ? carrier.remapEdges(edges) : edges);
       } else if (bucket.deriveFrom) {
         target.setState(bucket.key, ClassifiedBuckets.edgesOfFaces(target.getState(bucket.deriveFrom) as Face[] || []));
       } else {

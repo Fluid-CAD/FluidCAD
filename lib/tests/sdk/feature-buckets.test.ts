@@ -141,7 +141,7 @@ describe("declaring buckets", () => {
   it("refuses a method the class writes over a declared bucket, where the class registers or is constructed", () => {
     class Shadow extends Feature.with(P, { buckets: { tipFaces: {} } }) {
       static id = 'acme.shadow';
-      // @ts-expect-error The types refuse it too: the base declares tipFaces as its accessor.
+      // @ts-expect-error TS2425 on purpose: the base declares tipFaces as its accessor, so the types refuse this method as the runtime does.
       tipFaces(): ISelection {
         return this.endFaces();
       }

@@ -43,6 +43,11 @@ export class OrientedFaces {
     return index === 0 ? face : this.map.FindKey(index);
   }
 
+  /** Whether the result contains `face` (same TShape and location, whatever its orientation). */
+  has(face: TopoDS_Shape): boolean {
+    return this.map.FindIndex(face) !== 0;
+  }
+
   delete(): void {
     this.map.delete();
   }

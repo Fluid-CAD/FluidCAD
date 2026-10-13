@@ -11,7 +11,7 @@
 import { Feature, defineFeature, type FeatureArgs, type FeatureWith, type ValuesOf } from "../../../sdk/index.js";
 import { getFeatureMeta, type ResolvedFeatureMeta } from "../../../index.js";
 import { ShapeFactory, ShapeOps, type Face, type Shape } from "../../../sdk/kernel.js";
-import type { OccScope, TopoDS_Edge, TopoDS_Face, TopoDS_Shape, TopoDS_Vertex } from "../../../sdk/occt.js";
+import type { OccScope, TopoDS_Edge, TopoDS_Shape, TopoDS_Vertex } from "../../../sdk/occt.js";
 import { Matrix4 } from "../../../math/index.js";
 
 export const GEAR_DEFAULTS = { teeth: 20, module: 2, thickness: 8, bore: 8 };

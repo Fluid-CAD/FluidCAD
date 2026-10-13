@@ -16,7 +16,7 @@ import { BuildScope } from "../common/build-scope.js";
 import { SceneDisposal } from "../rendering/scene-disposal.js";
 import { cutWithSceneObjects, fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import { ShapeHistory } from "../common/shape-history-tracker.js";
-import { ClassifiedBucketRemapper, ClassifiedBuckets, type NamedBucket } from "../features/classified-buckets.js";
+import { ClassifiedBucketRemapper, ClassifiedBuckets, ToolImageCarrier, type NamedBucket } from "../features/classified-buckets.js";
 import { LazySelectionSceneObject } from "../features/lazy-scene-object.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
@@ -512,10 +512,13 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
    * wrong kind, and — for a tool — a member that is no face or edge of the
    * solids it returned.
    *
-   * A remove keeps none of the tool's faces: the cut classifies what it
-   * made — its rims as start, end or internal edges (see
-   * {@link FeatureBuckets.startPlane}), its walls as internal faces — as
-   * `cut()` does.
+   * A remove's standard buckets are what its cut made, classified as
+   * `cut()` classifies them — its rims as start, end or internal edges (see
+   * {@link FeatureBuckets.startPlane}), its walls as internal faces — and
+   * the standard members named are not kept. Its custom buckets follow the
+   * cut: each member becomes what the cut left of it, so a pocket's
+   * `floorFaces` is the pocket floor, faced out of the material; a member
+   * the cut removed entirely (a floor it went right through) is dropped.
    */
   protected setBuckets(buckets: FeatureBuckets & NamedBuckets<N>): void {
     this.bucketSet().checkFilled(buckets, this.getType(), FeatureKey.calleeOf(this.getType()));
@@ -647,14 +650,25 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
     this.carryBuckets(buckets, fusion.toolHistory, fusion.newShapes);
   }
 
+  /**
+   * Cut the tools out of the solids in scope. The cut classifies what it
+   * made into the standard buckets, from the start plane alone; the custom
+   * buckets follow the tool's members through it — each becomes what the
+   * cut left of it — and a declared edge bucket left out is the edges of
+   * its face sibling as it ended up.
+   */
   private cutTool(tools: Shape[], buckets: DeclaredBuckets, context: FeatureBuildContext): void {
     const stock = this.resolveFusionStock(context.getSceneObjects()).filter(held => held.holder !== this);
     const plane = buckets.startPlane ?? null;
+    const named = this.namedBuckets(buckets);
     // The cut classifies by the sign of its distance alone: a negative one
-    // sweeps along the plane's normal, the way the tool grows.
-    cutWithSceneObjects(stock, tools, plane, plane ? -1 : 0, this, { recordHistoryFor: this });
-    // CB-2 carries the custom buckets through the cut; until then a remove writes them empty.
-    ClassifiedBuckets.writeNamed(this, this.namedBuckets({}), null);
+    // sweeps along the plane's normal, the way the tool grows. It follows
+    // the custom members only — a feature that names none tracks nothing.
+    const cut = cutWithSceneObjects(stock, tools, plane, plane ? -1 : 0, this, {
+      recordHistoryFor: this,
+      trackTool: named.flatMap(bucket => bucket.members ?? []),
+    });
+    ClassifiedBuckets.writeNamed(this, named, new ToolImageCarrier(cut.toolImages));
   }
 
   /** Write `buckets` to the state as they are, deriving the edge buckets they leave out. */

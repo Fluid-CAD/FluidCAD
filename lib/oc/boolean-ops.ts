@@ -15,6 +15,7 @@ import { SameDomainMerge, SameDomainMergeResult } from "./same-domain-merge.js";
 import { requireValidSolid } from "./solid-validation.js";
 import { ShapeValidator } from "./shape-validator.js";
 import { BooleanBuilders } from "./boolean-builders.js";
+import { CutToolImages } from "./cut-tool-images.js";
 
 export class BooleanOps {
   // Fuzzy tolerance (mm) for the feature cut/fuse builders. A swept tube whose
@@ -199,10 +200,18 @@ export class BooleanOps {
    * left as it was (see `cutStock`); `makerOf` gives the boolean that ran
    * against a stock, for its lineage. `sectionEdges` and `internalFaces` are
    * the geometry the cut created, across the stocks it changed.
+   *
+   * `options.trackTool` names faces and edges of the tools to follow (a
+   * feature's named members): `toolImages` then gives each one's images in
+   * the uncleaned results, across the stocks the cut changed, in stock
+   * order (see `CutToolImages.inCut`) — none for a member not tracked.
+   * Tracking only reads the builders; without it nothing is gathered.
    */
-  static cutMultiShape(stocks: Shape[], tools: Shape[], plane?: Plane, cutDistance: number = 0, options: { validate?: boolean; stage?: string } = {}) {
+  static cutMultiShape(stocks: Shape[], tools: Shape[], plane?: Plane, cutDistance: number = 0,
+                       options: { validate?: boolean; stage?: string; trackTool?: Shape[] } = {}) {
     const oc = getOC();
     const toolRaws = tools.map(s => s.getShape());
+    const tracked = options.trackTool ?? [];
     const cuts = new Map<Shape, ReturnType<typeof BooleanOps.cutStock>>();
     let disposed = false;
     const dispose = () => {
@@ -212,9 +221,10 @@ export class BooleanOps {
     };
     try {
       for (const stock of stocks) {
-        cuts.set(stock, BooleanOps.cutStock(stock, toolRaws, options));
+        cuts.set(stock, BooleanOps.cutStock(stock, toolRaws, options, tracked));
       }
       const changed = [...cuts.values()].filter(cut => cut.changed);
+      const toolImages = CutToolImages.lookup(tracked, tracked.map((_, i) => changed.flatMap(cut => cut.toolImages[i] ?? [])));
       const modified = (shape: Shape) => {
         const cut = cuts.get(shape);
         if (!cut || !cut.changed) {
@@ -269,6 +279,7 @@ export class BooleanOps {
         endEdges,
         internalEdges,
         internalFaces,
+        toolImages,
         dispose,
       };
     } catch (error) {
@@ -288,8 +299,12 @@ export class BooleanOps {
    * that face split along the contact: the body it was. A stock the cut
    * changed holds a face that descends from none of its own (the tool's
    * wall, laid bare inside it), or has lost one of its own.
+   *
+   * `toolImages` holds, parallel to `tracked`, where a stock the cut changed
+   * put each tracked tool face or edge (see `CutToolImages.inCut`); it is
+   * empty for a stock the cut left as it was.
    */
-  private static cutStock(stock: Shape, tools: TopoDS_Shape[], options: { validate?: boolean; stage?: string }) {
+  private static cutStock(stock: Shape, tools: TopoDS_Shape[], options: { validate?: boolean; stage?: string }, tracked: readonly Shape[] = []) {
     const oc = getOC();
     const cut = BooleanOps.cutWithHistory([stock.getShape()], tools, options);
     const { result, maker: cutMaker, stockRaws } = cut;
@@ -311,7 +326,7 @@ export class BooleanOps {
       const imageCount = images.Size();
       images.delete();
       if (imageCount === 0) {
-        return { maker: cutMaker, empty: cut.empty, changed: cut.empty, sectionEdges: [] as Edge[], internalFaces: [] as Face[], dispose };
+        return { maker: cutMaker, empty: cut.empty, changed: cut.empty, sectionEdges: [] as Edge[], internalFaces: [] as Face[], toolImages: [] as Shape[][], dispose };
       }
 
       // Build maps of all edges and faces that came from the original stock (unchanged or modified).
@@ -355,12 +370,14 @@ export class BooleanOps {
         .filter(rf => !stockFaceMap.Contains(rf))
         .map(rf => Face.fromTopoDSFace(Explorer.toFace(rf)));
 
+      const changed = internalFaces.length > 0 || lostFace;
       return {
         maker: cutMaker,
         empty: cut.empty,
-        changed: internalFaces.length > 0 || lostFace,
+        changed,
         sectionEdges,
         internalFaces,
+        toolImages: changed ? CutToolImages.inCut(cutMaker, result, tracked) : [],
         dispose,
       };
     } catch (error) {

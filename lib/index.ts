@@ -245,6 +245,8 @@ export type {
   FeatureLayoutNote, FeatureLayoutImage, FeatureLayoutDivider, FeatureStaticItem, FeatureDialogWidth,
 } from './sdk/layout.js';
 export { FeatureCall, CallShapeMismatch } from './sdk/call-shape.js';
+export { FeatureDocs } from './sdk/feature-docs.js';
+export type { DocGap, DocGapReason } from './sdk/feature-docs.js';
 export { FeatureKey } from './sdk/feature-key.js';
 export { FeatureNamespaces } from './sdk/feature-namespaces.js';
 export type { FeatureNamespaceSource } from './sdk/feature-namespaces.js';

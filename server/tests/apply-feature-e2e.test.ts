@@ -45,6 +45,7 @@ import { FeatureCatalog } from '../src/feature-catalog/catalog.ts';
 import { getFeatureMeta, snapshotFeatureMeta } from '../../lib/sdk/meta.js';
 import { defineStandoff, standoff } from '../../lib/tests/fixtures/custom-features/standoff.js';
 import { boss } from '../../lib/tests/fixtures/custom-features/boss.js';
+import { gear, GEAR_DEFAULTS } from '../../lib/tests/fixtures/custom-features/gear.js';
 import { createApplyFeatureRouter } from '../src/routes/apply-feature/index.ts';
 import { Feature, defineFeature } from '../../lib/sdk/index.js';
 import { Primitives, ShapeOps as KernelShapeOps } from '../../lib/sdk/kernel.js';
@@ -1583,6 +1584,120 @@ describe('a custom feature as a producer', () => {
     expect(edited.error).toBeUndefined();
     expect(edited.newCode).toContain(`\nstandoff(e.endFaces(), { height: 12 }).remove().scope(b)\n`);
     expect(volumes(edited.newCode)[0]).toBeCloseTo(20 * 20 * 20 - tube(12), 3);
+  });
+});
+
+describe("a custom feature's named buckets, from a viewport pick to the built model", () => {
+  setupOC();
+
+  // A plate centred on (50, 0), an 18-tooth gear fused on its top, and the
+  // gear repeated three times round the z axis: each copy stands on its own.
+  const PLATE_TOP = 10;
+  const GEAR_TOP = PLATE_TOP + GEAR_DEFAULTS.thickness;
+  const TIP_RADIUS = (GEAR_DEFAULTS.module * 18) / 2 + GEAR_DEFAULTS.module;
+  const code = [
+    `import { sketch, line, extrude, repeat } from 'fluidcad/core'`,
+    `import { gear } from './gear.feature.js'`,
+    ``,
+    `sketch('xy', () => { ${rectBodySrc(60, 60, 20, -30)} })`,
+    `const plate = extrude(${PLATE_TOP})`,
+    `const g = gear(plate.endFaces(), { teeth: 18 })`,
+    `const r = repeat('circular', 'z', { count: 3, angle: 360 }, g)`,
+    ``,
+  ].join('\n');
+
+  /** The workspace's feature catalog, its one module answered from the TypeScript gear's metadata. */
+  function gearCatalog(): FeatureCatalog {
+    const meta = snapshotFeatureMeta(getFeatureMeta(gear)!);
+    return new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === '/ws/gear.feature.js'
+        ? { file: absPath, features: [{ exportName: 'gear', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: 'no such module', deps: [] },
+      builtIns: async () => ({}),
+    });
+  }
+
+  function buildModel(): Scene {
+    sketch('xy', () => { drawRect(60, 60, 20, -30) });
+    const plate = extrude(PLATE_TOP);
+    (plate as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 5, column: 14 });
+    const g = gear(plate.endFaces(), { teeth: 18 });
+    (g as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 6, column: 10 });
+    const r = core.repeat('circular', 'z', { count: 3, angle: 360 }, g);
+    (r as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 7, column: 10 });
+    const scene = render();
+    expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    return scene;
+  }
+
+  /** The solid standing round (`cx`, `cy`) — the plate with its gear, or a copy. */
+  function solidAround(scene: Scene, cx: number, cy: number): Solid {
+    const solid = scene.getAllSceneObjects()
+      .filter(o => !o.isContainer())
+      .flatMap(o => o.getShapes())
+      .find(s => s.getType() === 'solid' && Explorer.findEdgesWrapped(s).some(e => {
+        const mid = EdgeOps.getEdgeMidPoint(e);
+        return Math.abs(Math.hypot(mid.x - cx, mid.y - cy) - TIP_RADIUS) < 1e-3;
+      }));
+    expect(solid).toBeDefined();
+    return solid as Solid;
+  }
+
+  /** One tooth tip's arc round the top of the gear centred on (`cx`, `cy`). */
+  function topTipArc(solid: Shape, cx: number, cy: number): PickRef {
+    const index = Explorer.findEdgesWrapped(solid).findIndex(e => {
+      const mid = EdgeOps.getEdgeMidPoint(e);
+      return Math.abs(Math.hypot(mid.x - cx, mid.y - cy) - TIP_RADIUS) < 1e-3 && Math.abs(mid.z - GEAR_TOP) < 1e-6;
+    });
+    expect(index).toBeGreaterThanOrEqual(0);
+    return { shapeId: solid.id, sub: { type: 'edge', index } };
+  }
+
+  function torusCount(solid: Solid): number {
+    return solid.getFaces().filter(f => FaceProps.getProperties(f.getShape()).surfaceType === 'torus').length;
+  }
+
+  /** Synthesizes a 0.3 fillet over `pick` with the file's names, and writes it into the code. */
+  async function filletThrough(scene: Scene, pick: PickRef): Promise<{ preview: string; newCode: string }> {
+    const catalog = gearCatalog();
+    const callees = await catalog.calleesFor(code, '/ws/model.part.js');
+    const synthesis = synthesizeApplyFeature(scene, [pick], 'fillet', 0.3, [], {
+      bindable: await makeProducerBindable(code, callees), namer: await makeProducerNamer(code, callees),
+    });
+    expect(synthesis.ok, synthesis.ok === false ? synthesis.reason : '').toBe(true);
+    if (synthesis.ok !== true) {
+      throw new Error('unreachable');
+    }
+    const edited = await applyFeatureEdit(code, synthesis.spec, { callees: catalog });
+    expect(edited.error).toBeUndefined();
+    return { preview: synthesis.preview, newCode: edited.newCode };
+  }
+
+  it('fillets one picked tooth tip through the gear\'s own tipEdges bucket, and the model builds', async () => {
+    const scene = buildModel();
+    const { preview, newCode } = await filletThrough(scene, topTipArc(solidAround(scene, 50, 0), 50, 0));
+
+    expect(preview).toMatch(/^fillet\(0\.3, g\.tipEdges\(.+\)\)$/);
+    expect(newCode).toContain(`const r = repeat('circular', 'z', { count: 3, angle: 360 }, g)\n${preview}\n`);
+
+    const rerun = runFluid(newCode, { gear });
+    expect(rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    expect(torusCount(solidAround(rerun, 50, 0))).toBe(1);
+  });
+
+  it('fillets a copy\'s picked tooth tip through r.instance(k).tipEdges, forwarded by the repeat, and the model builds', async () => {
+    const scene = buildModel();
+    const [cx, cy] = [50 * Math.cos((2 * Math.PI) / 3), 50 * Math.sin((2 * Math.PI) / 3)];
+    const { preview, newCode } = await filletThrough(scene, topTipArc(solidAround(scene, cx, cy), cx, cy));
+
+    expect(preview).toMatch(/^fillet\(0\.3, r\.instance\(1\)\.tipEdges\(.+\)\)$/);
+    expect(newCode).toContain(`\n${preview}\n`);
+
+    const rerun = runFluid(newCode, { gear });
+    expect(rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    expect(torusCount(solidAround(rerun, cx, cy))).toBe(1);
+    expect(torusCount(solidAround(rerun, 50, 0))).toBe(0);
   });
 });
 

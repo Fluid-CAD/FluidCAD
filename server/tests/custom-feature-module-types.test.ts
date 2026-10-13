@@ -65,6 +65,72 @@ part('plate', () => {
   });
 });
 
+describe('the JavaScript gear fixture, whose class declares buckets, type-checked as a project checks it', () => {
+  const GEAR = path.resolve(import.meta.dirname, 'fixtures/custom-features/gear.feature.js');
+
+  function errorsOf(check: CheckJs): string[] {
+    return check.diagnostics().map(d => `${d.file}:${d.line}: ${d.message}`);
+  }
+
+  it('has no errors, its builder typed as the class with its bucket accessors', () => {
+    const check = CheckJs.check({}, [GEAR]);
+
+    expect(check.diagnostics()).toEqual([]);
+    expect(check.typeOf('gear.feature.js', 'gear')).toBe(
+      '(args_0: ISelection, args_1?: { teeth?: number | undefined; module?: number | undefined; thickness?: number | undefined; bore?: number | undefined; } | undefined) => Gear',
+    );
+  });
+
+  it('types a model that rounds the tips, picks the flanks and reaches a copy\'s tips, and marks a misspelled accessor', () => {
+    const gear = path.relative(path.resolve(import.meta.dirname, '../../lib/tests/.check-js'), GEAR);
+    const check = CheckJs.check({
+      'gearbox.part.js': `
+import { extrude, fillet, chamfer, repeat } from 'fluidcad/core';
+import { edge, face } from 'fluidcad/filters';
+import { gear } from '${gear}';
+
+const plate = extrude(6);
+const g = gear(plate.endFaces(), { teeth: 18 });
+const tips = g.tipEdges();
+const flanks = g.flankFaces(face().planar());
+fillet(0.3, g.tipEdges(edge().convex()));
+const r = repeat('circular', 'z', { count: 3, angle: 360 }, g);
+const copyTips = r.instance(1).tipEdges();
+chamfer(0.5, r.instance(2).boreEdges(0));
+g.tipEdge();
+`,
+    }, [GEAR]);
+
+    expect(errorsOf(check)).toEqual([
+      expect.stringMatching(/^gearbox\.part\.js:14: Property 'tipEdge' does not exist on type 'Gear'\. Did you mean 'tipEdges'\?/),
+    ]);
+    expect(['tips', 'flanks', 'copyTips'].map(name => check.typeOf('gearbox.part.js', name))).toEqual(['ISelection', 'ISelection', 'ISelection']);
+  });
+
+  it('marks a misspelled bucket in the feature\'s own setBuckets()', () => {
+    const check = CheckJs.check({
+      'sprocket.feature.js': `
+import { Feature, defineFeature } from 'fluidcad/sdk';
+import { Primitives } from 'fluidcad/sdk/kernel';
+
+class Sprocket extends Feature.with({ size: { type: 'length', default: 10 } }, { buckets: { tipFaces: {}, tipEdges: {} } }) {
+  static id = 'sprocket';
+  buildTool() {
+    const disc = Primitives.makeCylinder(this.values.size, 2);
+    this.setBuckets({ tipFace: [] });
+    return [disc];
+  }
+}
+export const sprocket = defineFeature(Sprocket, { label: 'Sprocket', group: 'create', call: ['size'] });
+`,
+    });
+
+    expect(errorsOf(check)).toEqual([
+      expect.stringMatching(/^sprocket\.feature\.js:9: Object literal may only specify known properties, .*'tipFace'/),
+    ]);
+  });
+});
+
 describe('the JavaScript raw OpenCascade fixtures, type-checked as a project checks them', () => {
   const TWIST = path.resolve(import.meta.dirname, 'fixtures/custom-features/twist.feature.js');
   const DANGLING = path.resolve(import.meta.dirname, 'fixtures/custom-features/dangling.feature.js');

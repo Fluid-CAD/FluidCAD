@@ -9,6 +9,7 @@ import {
   stringArgValue,
 } from '../ast/args.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
+import { SelectorText } from '../parse/selector-text.ts';
 import type { ForeignExposureRef } from './expose.ts';
 import { isPlaneProducer, isWireProducer } from '../producers/predicates.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
@@ -225,10 +226,11 @@ const PLANE_OPTION_MEMBERS = [...PLANE_NUMERIC_MEMBERS, 'rotationAxes'] as const
 /**
  * Which form a plane base's text reads as (see {@link ParsedPlaneBase}). A
  * `plane(…)` call and an origin-plane literal are plane-likes; an edge filter
- * or accessor is an edge source, as is an identifier bound to a `helix(…)` or
- * a `sketch(…)` (both draw wires, never a face to take a plane from); every
- * other identifier reads as a plane variable, and anything left is a face
- * selector. A misread costs one dropdown change to correct.
+ * or any edge bucket's accessor ({@link SelectorText}) is an edge source, as
+ * is an identifier bound to a `helix(…)` or a `sketch(…)` (both draw wires,
+ * never a face to take a plane from); every other identifier reads as a plane
+ * variable, and anything left is a face selector. A misread costs one dropdown
+ * change to correct.
  */
 function classifyPlaneBase(node: TSNode, boundCallee: string | null): ParsedPlaneBase['kind'] {
   if (node.type === 'identifier') {
@@ -238,7 +240,7 @@ function classifyPlaneBase(node: TSNode, boundCallee: string | null): ParsedPlan
   if (standardPlaneLiteral(node) !== null || /^plane\s*\(/.test(text)) {
     return 'plane';
   }
-  return /\bedge\s*\(/.test(text) || /\.(sideEdges|endEdges|edges)\s*\(/.test(text) ? 'edge' : 'face';
+  return SelectorText.namesEdges(text) ? 'edge' : 'face';
 }
 
 /** Read one plane base argument into its dialog-editable reading. */

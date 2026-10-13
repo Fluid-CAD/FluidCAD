@@ -3606,6 +3606,34 @@ describe('parseFeatureStatement — helix', () => {
     });
   });
 
+  // The face test reads the accessor's suffix, never a list of names: the
+  // standard face buckets the old list left out, a custom feature's declared
+  // bucket, and the same through a repeat's instance.
+  it.each([
+    'e.startFaces(0)',
+    'e.capFaces()',
+    'e.internalFaces(0)',
+    'g.boreFaces()',
+    'g.flankFaces(face().planar())',
+    'r.instance(2).boreFaces(0)',
+  ])('reads %s as face mode', async (source) => {
+    const code = `${editBase}\nhelix(${source}).turns(6)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'helix', sourceText: source, sourceMode: 'face', turns: 6 },
+    });
+  });
+
+  it('reads an axis() of a custom edge bucket as axis mode', async () => {
+    const code = `${editBase}\nhelix(axis(g.boreEdges(0))).turns(3)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'helix', sourceText: 'axis(g.boreEdges(0))', sourceMode: 'axis', turns: 3 },
+    });
+  });
+
   it('reads an axis() source as axis mode, kept verbatim', async () => {
     const code = `${editBase}\nhelix(axis(e.edges(3))).turns(3).height(50)\n`;
     const result = await parseFeatureStatement(code, 4);
@@ -6225,6 +6253,34 @@ describe('parseFeatureStatement — plane', () => {
         bases: [{ text: 'e.sideEdges(0)', kind: 'edge', standard: null }],
         position: 0.25, offset: null,
       },
+    });
+  });
+
+  // The edge test reads the accessor's suffix, never a list of names: the
+  // standard edge buckets the old list left out, a custom feature's declared
+  // bucket, and the same through a repeat's instance.
+  it.each([
+    'e.startEdges(0)',
+    'e.capEdges(1)',
+    'e.internalEdges(0)',
+    'g.tipEdges(3)',
+    'g.boreEdges(edge().circle())',
+    'r.instance(1).tipEdges(0)',
+  ])('reads %s with a position as the edge form', async (base) => {
+    const code = `${planeEditBase}\nplane(${base}, 0.25)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'plane', type: 'edge', bases: [{ text: base, kind: 'edge' }], position: 0.25, offset: null },
+    });
+  });
+
+  it('reads a custom face bucket base as an offset plane', async () => {
+    const code = `${planeEditBase}\nplane(g.flankFaces(0), 5)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'plane', type: 'offset', bases: [{ text: 'g.flankFaces(0)', kind: 'face' }], offset: 5 },
     });
   });
 

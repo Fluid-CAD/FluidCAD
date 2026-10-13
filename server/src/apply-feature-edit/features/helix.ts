@@ -1,5 +1,6 @@
 // helix(): option types, chain rendering and source expressions.
 
+import { SelectorText } from '../parse/selector-text.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
 import { ConnectorAxisSpecs, type ConnectorAxisSpec } from './connector-axis.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
@@ -118,13 +119,13 @@ export function renderHelixSourceExpr(
 
 /**
  * Which tab the helix edit dialog opens on, from the source text alone: a face
- * selector (a `face(...)` filter or a `.sideFaces()/.endFaces()/.faces()`
- * accessor) reads as 'face'; a standard-axis literal, an `axis(...)` call, or
- * an axis variable reads as 'axis'. A misread is one tab click to correct.
+ * selector (a `face(...)` filter or any face bucket's accessor, see
+ * {@link SelectorText}) reads as 'face'; a standard-axis literal, an
+ * `axis(...)` call, or an axis variable reads as 'axis'. A misread is one tab
+ * click to correct.
  */
 export function classifyHelixSource(text: string): 'axis' | 'face' {
-  const t = text.trim();
-  if (/\bface\s*\(/.test(t) || /\.(sideFaces|endFaces|faces)\s*\(/.test(t)) {
+  if (SelectorText.namesFaces(text.trim())) {
     return 'face';
   }
   return 'axis';

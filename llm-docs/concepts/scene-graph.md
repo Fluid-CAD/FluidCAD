@@ -54,3 +54,13 @@ view: one entry per operation, with `kind` (`sketch`, `extrude`, …),
 `params` (operation-specific), `sourceLocation` (file + line), and
 `shapeIds`. `list_shapes` returns the flat shape list with the owning
 operation's id. Pair them when answering "what does shape X come from?"
+
+In an assembly file the summary also lists `instances`, one per inserted
+instance (sub-assemblies' included): `instanceId`, `name`, the part it
+inserts (`partId`, `partName`), `owner` (the sub-assembly occurrence path,
+`""` at the root), `grounded`, `shapeIds` (the rendered solids it shows,
+the same for every instance of a part), `pose` and `sourceLocation`.
+`instancePoses` says what the poses are: `{ frame: "world", source:
+"statement" }`, where the `insert()` statements put each instance, not
+where the viewer's mate solve draws it. `occurrences` lists inserted
+sub-assemblies. A part file's summary has none of these keys.

@@ -66,7 +66,9 @@ and `repeat()` refuses connectors. See [[api/connector]] and [[api/copy]].
 
 Mates are solved in the viewer, live. The server's render places parts
 where the source puts them; the mated layout is what the viewport shows and
-what the viewer's Export writes.
+what the viewer's Export writes. `get_scene_summary` lists every instance
+under `instances` with that statement pose, the one `interfere`, `measure`
+and `resolve_selection` use; no tool reports the solved pose.
 
 ## Sub-assemblies and connectors
 

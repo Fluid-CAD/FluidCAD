@@ -3,8 +3,8 @@
 // (named view, orbit-from-current, or look-from) and the user's interactive
 // camera is never touched. Every tool takes the same overlay options —
 // highlighted entities, hidden/focused shapes, labelled annotation lines,
-// framing to the highlight and a section (cut-away) plane — which the
-// server resolves and the page draws.
+// framing to the highlight or to given shapes, and a section (cut-away)
+// plane — which the server resolves and the page draws.
 
 import { MeasureEntityInputs, resolveClient, type MeasureEntityInput, type WorkspaceArg } from './inspection.ts';
 import { ScreenshotRequest, type ImageResult } from './screenshot-request.ts';
@@ -24,13 +24,25 @@ export type ScreenshotAnnotationInput = {
   label?: string;
 };
 
+/**
+ * `fitTo: { shapes, margin? }` — frame these shape or instance ids as the page
+ * draws them (instance poses included), nothing hidden or ghosted. `margin`
+ * is the frame's size as a multiple of what the shapes cover on screen on the
+ * tighter axis: 1 is flush with the frame edge, the page's default 1.2 leaves
+ * a small margin.
+ */
+export type ScreenshotShapeFitInput = {
+  shapes: string[];
+  margin?: number;
+};
+
 /** The overlay options every screenshot tool accepts. */
 export type ScreenshotOverlayInput = {
   highlight?: MeasureEntityInput[];
   hide?: string[];
   focus?: string[];
   annotations?: ScreenshotAnnotationInput[];
-  fitTo?: 'highlight';
+  fitTo?: 'highlight' | ScreenshotShapeFitInput;
   section?: SectionSpec;
 };
 
@@ -99,19 +111,18 @@ export type ScreenshotShapeInput = WorkspaceArg & ScreenshotOverlayInput & {
   transparent?: boolean;
 };
 
+/**
+ * A picture of one shape from the iso-ftr view, framed by the page as it
+ * draws the shape — `fitTo: { shapes: [shapeId], margin }` — so an assembly
+ * instance is framed where its pose puts it. The server refuses a shape id
+ * the current render does not hold (404 `unknown-shape`).
+ */
 export async function screenshotShape(
   input: ScreenshotShapeInput,
 ): Promise<ToolResult<ImageResult>> {
-  if (!input?.shapeId || typeof input.shapeId !== 'string') {
-    return err('invalid-input', '`shapeId` is required and must be a non-empty string.');
-  }
-  const margin = input.margin ?? 1.2;
-  if (typeof margin !== 'number' || !Number.isFinite(margin) || margin <= 0) {
-    return err('invalid-input', '`margin` must be a positive finite number when provided.');
-  }
-  const overlays = ScreenshotOverlayInputs.validate(input);
-  if (overlays.ok === false) {
-    return overlays as ToolResult<ImageResult>;
+  const request = ScreenshotShapeRequest.validate(input);
+  if (request.ok === false) {
+    return request as ToolResult<ImageResult>;
   }
 
   const resolved = resolveClient(input);
@@ -121,47 +132,71 @@ export async function screenshotShape(
   const { client } = resolved.data;
 
   try {
-    // Fetch the shape's bounding box so we can build an iso framing.
-    const props = await client.getJson<any>(
-      `/api/shape-properties?shapeId=${encodeURIComponent(input.shapeId)}`,
-    );
-    const bbox = extractBoundingBox(props);
-    if (!bbox) {
-      return err(
-        'invalid-input',
-        `Shape "${input.shapeId}" has no bounding box — cannot frame it.`,
-        { properties: props },
-      );
+    return ScreenshotShapeRequest.explain(await ScreenshotRequest.post(client, request.data));
+  } catch (e: any) {
+    return ScreenshotShapeRequest.explain(ScreenshotRequest.wrapError<ImageResult>(e));
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
+/**
+ * The `/api/screenshot` body `screenshot_shape` sends, and what its errors
+ * mean. The caller's own `fitTo` wins over the shape framing; `margin` sizes
+ * that framing only, so passing it beside a `fitTo` is refused rather than
+ * silently dropped.
+ */
+export class ScreenshotShapeRequest {
+
+  static readonly VIEW: ScreenshotView = { kind: 'named', name: 'iso-ftr' };
+  /** An engine predating shape framing refuses any `fitTo` but "highlight" with this (inside a JSON body, so quotes may be escaped). */
+  static readonly STALE_ENGINE = /fitTo must be \\?"highlight\\?" when provided/;
+
+  static validate(input: ScreenshotShapeInput): ToolResult<Record<string, unknown>> {
+    if (!input?.shapeId || typeof input.shapeId !== 'string') {
+      return err('invalid-input', '`shapeId` is required and must be a non-empty string.');
+    }
+    if (input.margin !== undefined) {
+      const problem = ScreenshotOverlayInputs.fitMarginError(input.margin, 'margin');
+      if (problem) {
+        return err('invalid-input', problem);
+      }
+      if (input.fitTo !== undefined) {
+        return err('invalid-input', '`margin` sizes the framing of `shapeId`; with your own `fitTo` it has nothing to apply to. Drop one of them (a `fitTo: { shapes, margin }` carries its own margin).');
+      }
+    }
+    const overlays = ScreenshotOverlayInputs.validate(input);
+    if (overlays.ok === false) {
+      return overlays as ToolResult<Record<string, unknown>>;
     }
 
-    const cx = (bbox.min[0] + bbox.max[0]) / 2;
-    const cy = (bbox.min[1] + bbox.max[1]) / 2;
-    const cz = (bbox.min[2] + bbox.max[2]) / 2;
-    const sx = bbox.max[0] - bbox.min[0];
-    const sy = bbox.max[1] - bbox.min[1];
-    const sz = bbox.max[2] - bbox.min[2];
-    const diameter = Math.sqrt(sx * sx + sy * sy + sz * sz);
-    const distance = Math.max(diameter * margin, 1);
-    // Iso-ftr direction: (1, -1, 1) / sqrt(3).
-    const k = distance / Math.sqrt(3);
-    const view: ScreenshotView = {
-      kind: 'look-from',
-      eye: [cx + k, cy - k, cz + k],
-      target: [cx, cy, cz],
+    const fitTo = overlays.data.fitTo ?? {
+      shapes: [input.shapeId],
+      ...(input.margin !== undefined ? { margin: input.margin } : {}),
     };
-
-    const body: Record<string, unknown> = { view, ...overlays.data };
+    const body: Record<string, unknown> = { view: ScreenshotShapeRequest.VIEW, ...overlays.data, fitTo };
     if (input.width !== undefined) { body.width = input.width; }
     if (input.height !== undefined) { body.height = input.height; }
     if (input.showGrid !== undefined) { body.showGrid = input.showGrid; }
     if (input.showAxes !== undefined) { body.showAxes = input.showAxes; }
     if (input.transparent !== undefined) { body.transparent = input.transparent; }
+    return ok(body);
+  }
 
-    return await ScreenshotRequest.post(client, body);
-  } catch (e: any) {
-    return ScreenshotRequest.wrapError<ImageResult>(e);
-  } finally {
-    await client.close().catch(() => {});
+  /**
+   * An engine older than shape framing refuses the `fitTo` object with its
+   * "highlight only" message; say what that means instead of passing the
+   * bare refusal on.
+   */
+  static explain(result: ToolResult<ImageResult>): ToolResult<ImageResult> {
+    if (result.ok === false && result.code === 'http-error' && ScreenshotShapeRequest.STALE_ENGINE.test(result.message)) {
+      return err(
+        'http-error',
+        `${result.message} — this FluidCAD engine predates shape framing (fitTo: { shapes }), which screenshot_shape needs; update the engine.`,
+        result.details,
+      );
+    }
+    return result;
   }
 }
 
@@ -202,7 +237,7 @@ export type ValidatedOverlays = {
   hide?: string[];
   focus?: string[];
   annotations?: ScreenshotAnnotationInput[];
-  fitTo?: 'highlight';
+  fitTo?: 'highlight' | ScreenshotShapeFitInput;
   section?: SectionSpec;
 };
 
@@ -218,6 +253,9 @@ export class ScreenshotOverlayInputs {
   static readonly MAX_IDS = 64;
   static readonly MAX_ANNOTATIONS = 32;
   static readonly MAX_LABEL_LENGTH = 200;
+  /** A shape fit's margin range: 1 is flush with the frame edge. */
+  static readonly MIN_FIT_MARGIN = 1;
+  static readonly MAX_FIT_MARGIN = 10;
 
   static validate(input: ScreenshotOverlayInput): ToolResult<ValidatedOverlays> {
     const out: ValidatedOverlays = {};
@@ -254,13 +292,18 @@ export class ScreenshotOverlayInputs {
     }
 
     if (fitTo !== undefined) {
-      if (fitTo !== 'highlight') {
-        return err('invalid-input', '`fitTo` must be "highlight" when provided.');
+      if (fitTo === 'highlight') {
+        if (!out.highlight) {
+          return err('invalid-input', '`fitTo: "highlight"` needs a non-empty `highlight` to frame.');
+        }
+        out.fitTo = fitTo;
+      } else {
+        const problem = ScreenshotOverlayInputs.shapeFitError(fitTo);
+        if (problem) {
+          return err('invalid-input', problem);
+        }
+        out.fitTo = fitTo;
       }
-      if (!out.highlight) {
-        return err('invalid-input', '`fitTo: "highlight"` needs a non-empty `highlight` to frame.');
-      }
-      out.fitTo = fitTo;
     }
 
     if (section !== undefined) {
@@ -272,6 +315,32 @@ export class ScreenshotOverlayInputs {
     }
 
     return ok(out);
+  }
+
+  /** The problem with a shape-fit margin, or null when it is usable. */
+  static fitMarginError(value: unknown, label: string): string | null {
+    const inRange = typeof value === 'number'
+      && value >= ScreenshotOverlayInputs.MIN_FIT_MARGIN
+      && value <= ScreenshotOverlayInputs.MAX_FIT_MARGIN;
+    if (!inRange) {
+      return `\`${label}\` must be a number between ${ScreenshotOverlayInputs.MIN_FIT_MARGIN} and ${ScreenshotOverlayInputs.MAX_FIT_MARGIN} (1 frames the shape flush with the frame edge, 1.2 leaves a small margin).`;
+    }
+    return null;
+  }
+
+  private static shapeFitError(value: unknown): string | null {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      return '`fitTo` must be "highlight" or { shapes: [...ids], margin? } when provided.';
+    }
+    const { shapes, margin } = value as Record<string, unknown>;
+    const problem = ScreenshotOverlayInputs.idListError(shapes, 'fitTo.shapes');
+    if (problem) {
+      return problem;
+    }
+    if (margin !== undefined) {
+      return ScreenshotOverlayInputs.fitMarginError(margin, 'fitTo.margin');
+    }
+    return null;
   }
 
   private static idListError(value: unknown, label: string): string | null {
@@ -408,32 +477,4 @@ async function runScreenshot(
   } finally {
     await client.close().catch(() => {});
   }
-}
-
-function extractBoundingBox(
-  props: any,
-): { min: [number, number, number]; max: [number, number, number] } | null {
-  if (!props || typeof props !== 'object') {
-    return null;
-  }
-  const bbox = props.boundingBox ?? props.bbox ?? null;
-  if (!bbox || typeof bbox !== 'object') {
-    return null;
-  }
-  const min = bbox.min;
-  const max = bbox.max;
-  const isTriple = (v: any) =>
-    Array.isArray(v) && v.length === 3 && v.every((n: any) => typeof n === 'number' && Number.isFinite(n));
-  if (isTriple(min) && isTriple(max)) {
-    return { min: min as [number, number, number], max: max as [number, number, number] };
-  }
-  // Some payloads use `xMin/yMin/zMin` etc.
-  const fields = ['xMin', 'yMin', 'zMin', 'xMax', 'yMax', 'zMax'];
-  if (fields.every((f) => typeof bbox[f] === 'number')) {
-    return {
-      min: [bbox.xMin, bbox.yMin, bbox.zMin],
-      max: [bbox.xMax, bbox.yMax, bbox.zMax],
-    };
-  }
-  return null;
 }

@@ -602,6 +602,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   const marginArg = z.number().nonnegative().optional();
 
   const idListArg = z.array(z.string().min(1)).min(1).max(64);
+  const fitMarginArg = z
+    .number()
+    .min(1)
+    .max(10)
+    .describe(
+      'The frame\'s size as a multiple of what the shapes cover on screen, on the tighter axis: 1 puts them flush with the frame edge, ' +
+      'the default 1.2 leaves a small margin (they fill about 83% of it), 2 makes them half the frame. 1-10.',
+    );
   const sectionArg = z
     .object({
       plane: z
@@ -647,9 +655,18 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       .optional()
       .describe('Point-to-point lines with end markers and a text label, painted in screen space over the capture.'),
     fitTo: z
-      .literal('highlight')
+      .union([
+        z.literal('highlight').describe('Frame the highlighted entities\' combined bounding box (plus annotation points). Needs highlight.'),
+        z.object({
+          shapes: idListArg.describe('Shape ids (from list_shapes / get_scene_summary) or assembly instance ids to frame.'),
+          margin: fitMarginArg.optional(),
+        }).describe('Frame these shapes/instances as the page draws them (assembly instances where their pose puts them). Framing only: nothing is hidden or ghosted. An id the current render does not hold is an error.'),
+      ])
       .optional()
-      .describe('Frame the highlighted entities\' combined bounding box (plus annotation points) instead of the whole model, the way screenshot_shape frames one shape. Needs highlight.'),
+      .describe(
+        'Frame something other than the whole model, from the view\'s direction: "highlight" frames the highlighted geometry, ' +
+        '{ shapes, margin? } frames the given shapes the way screenshot_shape frames one.',
+      ),
     section: sectionArg,
   };
 
@@ -700,7 +717,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       title: 'Capture a PNG of the current scene from a stateless view',
       description:
         'Renders the current FluidCAD scene to a PNG using a stateless camera view. The user\'s interactive camera is never moved. `view` defaults to the agent\'s last seen camera state — pass a `named` view (e.g. {kind:"named", name:"iso-ftr"}) for "show me from the front-top-right" or `look-from` for a precise vantage. ' +
-        '`highlight` draws faces/edges (by index or filter expression) through occluders, `hide`/`focus` drop or ghost other shapes, `annotations` add labelled lines, `fitTo: "highlight"` frames the highlighted geometry, and `section` cuts the model away on one side of a plane (cut faces capped) to show bores, blind holes and walls. Returns an MCP image content block.',
+        '`highlight` draws faces/edges (by index or filter expression) through occluders, `hide`/`focus` drop or ghost other shapes, `annotations` add labelled lines, `fitTo` frames the highlighted geometry ("highlight") or given shapes/instances ({ shapes }) instead of the whole model, and `section` cuts the model away on one side of a plane (cut faces capped) to show bores, blind holes and walls. Returns an MCP image content block.',
       inputSchema: {
         ...workspaceArg,
         view: screenshotViewArg.optional(),
@@ -757,15 +774,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Capture a framed iso view of a single shape',
       description:
-        'Fetches the shape\'s bounding box and renders a PNG from an iso vantage point that frames it with a small margin. Useful for "show me this specific feature" requests. Takes the same highlight/hide/focus/annotations/fitTo/section overlays as screenshot.',
+        'Renders a PNG of one shape from the iso-ftr view, framed by the page as it draws the shape (fitTo: { shapes: [shapeId], margin }) with a small margin, so in an assembly an instance\'s shape is framed where its pose puts it. ' +
+        'The rest of the scene is drawn as it is (pass focus or hide to ghost or drop it). Useful for "show me this specific feature" requests. ' +
+        'Takes the same highlight/hide/focus/annotations/section overlays as screenshot. Your own fitTo wins over the shape framing (margin is then refused: put it in fitTo.margin). ' +
+        'A shapeId the current render does not hold is an error (HTTP 404, unknown-shape): take ids from list_shapes or get_scene_summary.',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,
-        margin: z
-          .number()
-          .positive()
-          .optional()
-          .describe('Distance multiplier on the bounding sphere (default 1.2). Larger values pull the camera farther back.'),
+        margin: fitMarginArg.optional(),
         width: widthArg,
         height: heightArg,
         showGrid: z.boolean().optional(),

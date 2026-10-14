@@ -29,6 +29,8 @@ let homeSpy: ReturnType<typeof vi.spyOn>;
 let fakeServer: http.Server | null = null;
 let fakePort = 0;
 let lastRequest: { method: string; url: string; body: string } | null = null;
+/** Every path the fake server was asked for, in order. */
+let requestedPaths: string[] = [];
 
 function entry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
   return {
@@ -61,6 +63,7 @@ function startFakeServer(
         const body = Buffer.concat(chunks).toString('utf8');
         lastRequest = { method: req.method ?? '', url: req.url ?? '', body };
         const url = (req.url ?? '').split('?')[0];
+        requestedPaths.push(url);
         if (url === '/api/health') {
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(
@@ -102,6 +105,7 @@ beforeEach(() => {
   fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-mcp-shot-test-'));
   homeSpy = vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
   lastRequest = null;
+  requestedPaths = [];
 });
 
 afterEach(async () => {
@@ -176,36 +180,95 @@ describe('screenshot tools (unit)', () => {
     expect(result.data.image.base64).toBe(ONE_PIXEL_PNG.toString('base64'));
   });
 
-  it('screenshot_shape fetches the bounding box and frames it with a look-from view', async () => {
-    let postedView: any = null;
+  it('screenshot_shape asks the page to frame the shape from iso-ftr, without fetching any shape properties', async () => {
     fakePort = await startFakeServer({
-      '/api/shape-properties': () => ({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          volume: 1000,
-          boundingBox: { min: [0, 0, 0], max: [10, 10, 10] },
-        }),
-      }),
-      '/api/screenshot': (_req, body) => {
-        postedView = JSON.parse(body).view;
-        return { status: 200, contentType: 'image/png', body: ONE_PIXEL_PNG };
-      },
+      '/api/screenshot': () => ({ status: 200, contentType: 'image/png', body: ONE_PIXEL_PNG }),
     });
     writeRegistry([entry()]);
 
-    const result = await screenshotShape({ shapeId: 'sh-1', margin: 1.5 });
+    const result = await screenshotShape({ shapeId: 'sh-1', margin: 1.5, width: 640 });
     expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
+    expect(requestedPaths).toEqual(['/api/screenshot']);
+    expect(JSON.parse(lastRequest!.body)).toEqual({
+      view: { kind: 'named', name: 'iso-ftr' },
+      fitTo: { shapes: ['sh-1'], margin: 1.5 },
+      width: 640,
+    });
+
+    // No margin: the page's default (1.2) applies, so none is sent.
+    const plain = await screenshotShape({ shapeId: 'inst-2' });
+    expect(plain.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({
+      view: { kind: 'named', name: 'iso-ftr' },
+      fitTo: { shapes: ['inst-2'] },
+    });
+  });
+
+  it('screenshot_shape lets the caller\'s own fitTo win, and refuses a margin it would drop', async () => {
+    fakePort = await startFakeServer({
+      '/api/screenshot': () => ({ status: 200, contentType: 'image/png', body: ONE_PIXEL_PNG }),
+    });
+    writeRegistry([entry()]);
+
+    const highlight = [{ shapeId: 'sh-1', kind: 'face' as const, index: 2 }];
+    const byHighlight = await screenshotShape({ shapeId: 'sh-1', highlight, fitTo: 'highlight' });
+    expect(byHighlight.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({ view: { kind: 'named', name: 'iso-ftr' }, highlight, fitTo: 'highlight' });
+
+    const byShapes = await screenshotShape({ shapeId: 'sh-1', fitTo: { shapes: ['sh-1', 'sh-2'], margin: 2 } });
+    expect(byShapes.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body).fitTo).toEqual({ shapes: ['sh-1', 'sh-2'], margin: 2 });
+
+    lastRequest = null;
+    const both = await screenshotShape({ shapeId: 'sh-1', margin: 1.5, fitTo: { shapes: ['sh-2'] } });
+    expect(both.ok).toBe(false);
+    if (!both.ok) {
+      expect(both.code).toBe('invalid-input');
+      expect(both.message).toContain('`margin` sizes the framing of `shapeId`');
     }
-    expect(postedView).not.toBeNull();
-    expect(postedView.kind).toBe('look-from');
-    expect(postedView.target).toEqual([5, 5, 5]);
-    // Iso-ftr direction with positive distance: eye-x > center, eye-y < center, eye-z > center.
-    expect(postedView.eye[0]).toBeGreaterThan(5);
-    expect(postedView.eye[1]).toBeLessThan(5);
-    expect(postedView.eye[2]).toBeGreaterThan(5);
+    for (const margin of [0.5, 11, Number.NaN]) {
+      const bad = await screenshotShape({ shapeId: 'sh-1', margin });
+      expect(bad.ok).toBe(false);
+      if (!bad.ok) {
+        expect(bad.message).toContain('`margin` must be a number between 1 and 10');
+      }
+    }
+    expect(lastRequest).toBeNull();
+  });
+
+  it('screenshot_shape surfaces an unknown shape as the server\'s 404, and explains an engine that predates shape framing', async () => {
+    let answer: { status: number; error: string; code?: string } = {
+      status: 404,
+      error: 'fitTo.shapes[0] "sh-404" is not a shape or instance id of the current render.',
+      code: 'unknown-shape',
+    };
+    fakePort = await startFakeServer({
+      '/api/screenshot': () => ({
+        status: answer.status,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: answer.error, ...(answer.code ? { code: answer.code } : {}) }),
+      }),
+    });
+    writeRegistry([entry()]);
+
+    const missing = await screenshotShape({ shapeId: 'sh-404' });
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) {
+      expect(missing.code).toBe('http-error');
+      expect((missing.details as any).statusCode).toBe(404);
+      expect(missing.message).toContain('is not a shape or instance id of the current render');
+      expect(missing.message).toContain('sh-404');
+      expect(missing.message).toContain('unknown-shape');
+      expect(missing.message).not.toContain('bounding box');
+    }
+
+    answer = { status: 400, error: 'fitTo must be "highlight" when provided.' };
+    const stale = await screenshotShape({ shapeId: 'sh-1' });
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) {
+      expect(stale.code).toBe('http-error');
+      expect(stale.message).toContain('predates shape framing');
+    }
   });
 
   it('screenshot_shape rejects an empty shapeId', async () => {
@@ -290,6 +353,40 @@ describe('screenshot tools (over MCP)', () => {
     }
   });
 
+  it('screenshot_shape\'s schema takes a margin and a shape fit, and the tool posts the framing body', async () => {
+    fakePort = await startFakeServer({
+      '/api/screenshot': () => ({ status: 200, contentType: 'image/png', body: ONE_PIXEL_PNG }),
+    });
+    writeRegistry([entry()]);
+
+    const server = buildServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const shot = await client.callTool({ name: 'screenshot_shape', arguments: { shapeId: 'sh-1', margin: 1.3, section: { plane: 'xy' } } });
+      expect(shot.isError).not.toBe(true);
+      expect(JSON.parse(lastRequest!.body)).toEqual({
+        view: { kind: 'named', name: 'iso-ftr' },
+        fitTo: { shapes: ['sh-1'], margin: 1.3 },
+        section: { plane: 'xy' },
+      });
+
+      const own = await client.callTool({ name: 'screenshot', arguments: { fitTo: { shapes: ['sh-2'], margin: 2 } } });
+      expect(own.isError).not.toBe(true);
+      expect(JSON.parse(lastRequest!.body).fitTo).toEqual({ shapes: ['sh-2'], margin: 2 });
+
+      const { tools } = await client.listTools();
+      const shapeTool = tools.find((t) => t.name === 'screenshot_shape')!;
+      expect(shapeTool.description).toContain('fitTo: { shapes: [shapeId], margin }');
+      expect(shapeTool.description).not.toContain('bounding box');
+      expect((shapeTool.inputSchema as any).properties.margin.description).toContain('flush with the frame edge');
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it('the four screenshot tools are exposed in the tool list', async () => {
     const server = buildServer();
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -310,12 +407,9 @@ describe('screenshot tools (over MCP)', () => {
 });
 
 describe('screenshot overlays', () => {
-  const BBOX = { boundingBox: { min: [0, 0, 0], max: [10, 10, 10] } };
-
   function pngServer(): Promise<number> {
     return startFakeServer({
       '/api/screenshot': () => ({ status: 200, contentType: 'image/png', body: ONE_PIXEL_PNG }),
-      '/api/shape-properties': () => ({ status: 200, contentType: 'application/json', body: JSON.stringify(BBOX) }),
     });
   }
 
@@ -336,6 +430,21 @@ describe('screenshot overlays', () => {
       annotations,
       fitTo: 'highlight',
     });
+  });
+
+  it('screenshot and screenshot_multi post a shape fit through to the server, no highlight needed', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const result = await screenshot({ fitTo: { shapes: ['sh-1', 'inst-3'], margin: 1.4 }, hide: ['sh-7'], view: { kind: 'named', name: 'top' } });
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({
+      view: { kind: 'named', name: 'top' },
+      hide: ['sh-7'],
+      fitTo: { shapes: ['sh-1', 'inst-3'], margin: 1.4 },
+    });
+    const multi = await screenshotMulti({ fitTo: { shapes: ['sh-1'] } });
+    expect(multi.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({ multi: true, fitTo: { shapes: ['sh-1'] } });
   });
 
   it('screenshot posts a section through to the server, and screenshot_multi applies it to the grid', async () => {
@@ -382,10 +491,12 @@ describe('screenshot overlays', () => {
     writeRegistry([entry()]);
     const result = await screenshotShape({ shapeId: 'sh-1', focus: ['sh-1'], highlight: [{ shapeId: 'sh-1', kind: 'face', index: 0 }] });
     expect(result.ok).toBe(true);
-    const body = JSON.parse(lastRequest!.body);
-    expect(body.view.kind).toBe('look-from');
-    expect(body.focus).toEqual(['sh-1']);
-    expect(body.highlight).toEqual([{ shapeId: 'sh-1', kind: 'face', index: 0 }]);
+    expect(JSON.parse(lastRequest!.body)).toEqual({
+      view: { kind: 'named', name: 'iso-ftr' },
+      fitTo: { shapes: ['sh-1'] },
+      focus: ['sh-1'],
+      highlight: [{ shapeId: 'sh-1', kind: 'face', index: 0 }],
+    });
   });
 
   it('rejects hide together with focus without contacting the server', async () => {
@@ -411,6 +522,10 @@ describe('screenshot overlays', () => {
       [{ focus: ['ok', ''] }, '`focus`'],
       [{ fitTo: 'highlight' }, 'needs a non-empty `highlight`'],
       [{ highlight: [{ shapeId: 'sh-1', kind: 'face', index: 0 }], fitTo: 'model' }, '`fitTo`'],
+      [{ fitTo: { shapes: [] } }, '`fitTo.shapes`'],
+      [{ fitTo: { shapes: ['sh-1', ''] } }, '`fitTo.shapes` must contain non-empty string ids'],
+      [{ fitTo: { shapes: ['sh-1'], margin: 0.8 } }, '`fitTo.margin` must be a number between 1 and 10'],
+      [{ fitTo: ['sh-1'] }, '`fitTo` must be "highlight" or { shapes'],
       [{ highlight: [{ shapeId: 'sh-1', kind: 'vertex', index: 0 }] }, '`highlight`'],
       [{ highlight: [{ expression: 'face()', scope: { part: '' } }] }, 'highlight[0].scope'],
     ];

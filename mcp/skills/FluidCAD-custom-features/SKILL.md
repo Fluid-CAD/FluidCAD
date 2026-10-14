@@ -52,7 +52,9 @@ Before code, write the design down the way a CAD user would describe a feature d
 `read_doc` these before writing (in parallel sub-agents when your client has them; sub-agents read, never write):
 
 - `concepts/custom-features` — the module, discovery, the lifecycle, where errors show;
-- `api/feature` — the class, `buildTool()`, `setBuckets()` and its refusals, named buckets (the naming rule, derived edge buckets, what a fusion, a remove and a repeat do to them, a gear and a bearing seat as complete examples), the reference readers, `ghost()`;
+- `api/feature` — the class, `buildTool()` and `getOperationMode()`, `setBuckets()` and what it refuses, named buckets in short, the reference readers, `ghost()`;
+- `api/feature-buckets` — named buckets in full: the naming rule, derived edge buckets, every refusal and its message, what a fusion, a remove and a repeat do to them, the editor's picks;
+- the worked example closest to the design: `api/feature-example-gear` (named buckets, a raw OpenCascade outline), `api/feature-example-bearing-seat` (named buckets through a remove), `api/feature-example-bosses` (several tools at connectors and points), `api/feature-example-tube` (a different tool for a remove);
 - `api/define-feature` — the metadata, operations, the call shape, what the dialog can edit;
 - `api/feature-params` — every value kind, picker and option, unions; each `display`; the table of what an untouched row shows and the builder gets; a runnable example with every control ("a screw hole with choices");
 - `api/feature-layout` — only when the design has a `layout`, `width`, an `aside` or a value's own `aside`;
@@ -104,7 +106,7 @@ export const ventGrid = defineFeature(VentGrid, {
 });
 ```
 
-Every value the class declares must appear in `call` (and in the `layout`, when there is one). A complete module with every control and a layout is the screw hole in `api/feature-params`; complete modules with named buckets are the gear and the bearing seat in `api/feature`.
+Every value the class declares must appear in `call` (and in the `layout`, when there is one). A complete module with every control and a layout is the screw hole in `api/feature-params`; complete modules with named buckets are the gear (`api/feature-example-gear`) and the bearing seat (`api/feature-example-bearing-seat`).
 
 The rules that keep it right:
 

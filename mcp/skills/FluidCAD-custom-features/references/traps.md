@@ -22,13 +22,13 @@ Read before writing a `*.feature.js` module. Each entry: the mistake, how it sho
   - `gear: setBuckets() tipFaces[0] is an edge, not a face — tipFaces holds faces`;
   - `gear: setBuckets() boreFaces[1] is not a face of the solids buildTool() returned — name faces of the shapes you return`.
 - **Why.** `setBuckets()` refuses what it would lose: a name the feature has no bucket for (it used to be dropped silently, leaving an empty bucket), a member of the wrong kind, and a member of a shape `buildTool()` doesn't return (most often a face of the shape before `ShapeOps.transformTracking` placed it).
-- **Fix.** Use the declared name exactly (under checkJs a misspelt name in `setBuckets()`, and `g.tipEdge()` in a model, are editor errors before they are build errors); pass lists; put faces in `…Faces` buckets and edges in `…Edges` ones; name `placed.images`, not the unplaced shape's faces.
+- **Fix.** Use the declared name exactly (under checkJs a misspelt name in `setBuckets()`, and `g.tipEdge()` in a model, are editor errors before they are build errors); pass lists; put faces in `…Faces` buckets and edges in `…Edges` ones; name `placed.images`, not the unplaced shape's faces. Every `setBuckets()` refusal: `api/feature-buckets`.
 
 ## A description on a bucket
 
 - **Signature.** The model importing the module fails to compile and the Custom cell greys: `Feature.with(): bucket 'tipFaces': leave 'description' out — describe what the feature's buckets hold in the package's docs/ pages`. Also refused: `kind` (`leave 'kind' out — the name's ending gives it`), any other field (`unknown field 'note' — a bucket declares only its label`), a name without the ending (`'teeth' needs to end in Faces or Edges (teethFaces?)`), and `buckets` in `defineFeature()`'s metadata (`leave 'buckets' out — declare buckets on the class: Feature.with(params, { buckets })`).
 - **Why.** A bucket declaration is `{}` or `{ label }`. What a bucket holds is documented in the feature's `docs/` page, where other authors and the LLM read it, not in code.
-- **Fix.** Keep `{ label }` or `{}`, a line comment beside it for the code's reader, and describe each bucket (what it holds, its order) in `docs/<feature>.md`.
+- **Fix.** Keep `{ label }` or `{}`, a line comment beside it for the code's reader, and describe each bucket (what it holds, its order) in `docs/<feature>.md`. Every declaration refusal: `api/feature-buckets`.
 
 ## A face the feature grows from, in a bucket of your own
 

@@ -217,7 +217,11 @@ app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, {
 }));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createShareRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
-app.use('/api', createScreenshotRouter(requestScreenshot, request => fluidCadServer.resolveSelection(request)));
+app.use('/api', createScreenshotRouter(
+  requestScreenshot,
+  request => fluidCadServer.resolveSelection(request),
+  () => fluidCadServer.getSceneTargetIds(),
+));
 app.use('/api', createPreferencesRouter((prefs) => setMaxWorkers(prefs.maxWorkers)));
 app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));
 app.use('/api', createEditorRouter(dirtyBufferState, editDispatcher));

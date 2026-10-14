@@ -1,16 +1,19 @@
 import { Router } from 'express';
-import { ScreenshotRequests, type ScreenshotSelectionResolver } from './screenshot-overlays.ts';
+import { ScreenshotRequests, type ScreenshotSceneIds, type ScreenshotSelectionResolver } from './screenshot-overlays.ts';
 
 /**
  * POST /screenshot — validate the capture options and forward them to the
  * page over the `take-screenshot` message. Overlay fields (`highlight`,
  * `hide`, `focus`, `annotations`, `fitTo`, `views`, `section`) are checked by
  * {@link ScreenshotRequests}; highlight expressions resolve through
- * `resolveSelection` here so the page only receives index refs.
+ * `resolveSelection` here so the page only receives index refs, and
+ * `fitTo.shapes` ids are checked against `sceneIds` (the current render's
+ * shape and instance ids) so an unknown one is a 404 rather than a page error.
  */
 export function createScreenshotRouter(
   requestScreenshot: (options: Record<string, unknown>) => Promise<Buffer>,
   resolveSelection?: ScreenshotSelectionResolver,
+  sceneIds?: ScreenshotSceneIds,
 ): Router {
   const router = Router();
 
@@ -142,7 +145,7 @@ export function createScreenshotRouter(
       options.view = validated;
     }
 
-    const overlays = ScreenshotRequests.overlays(req.body ?? {}, resolveSelection);
+    const overlays = ScreenshotRequests.overlays(req.body ?? {}, resolveSelection, sceneIds);
     if (overlays.ok === false) {
       res.status(overlays.status).json({
         error: overlays.error,

@@ -2280,6 +2280,33 @@ export class FluidCadServer {
     };
   }
 
+  /**
+   * Every id a screenshot can address in the current render: the shape ids
+   * its rendered objects carry (the ones `getShapesList` lists, which the page
+   * draws, an assembly's inserted parts included) and, in an assembly, its
+   * instance ids. Null with no rendered scene, when there is nothing to check
+   * an id against.
+   */
+  getSceneTargetIds(): Set<string> | null {
+    if (!this.currentFileName || !this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    const ids = new Set<string>();
+    for (const r of scene.getRenderedObjects() as any[]) {
+      for (const s of (r.sceneShapes ?? []) as any[]) {
+        ids.add(s.shapeId);
+      }
+    }
+    for (const instance of this.sceneManager.getAssemblyData(scene)?.instances ?? []) {
+      ids.add(instance.instanceId);
+    }
+    return ids;
+  }
+
   getShapesList(): ShapeList | null {
     if (!this.currentFileName) {
       return null;

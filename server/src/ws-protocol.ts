@@ -631,6 +631,19 @@ export type ScreenshotAnnotation = {
   label?: string;
 };
 
+/**
+ * A capture's framing target that is a set of shapes (or assembly instances)
+ * rather than the highlight: the page frames them as it draws them, instance
+ * poses included, from the capture's view direction. Framing only: nothing is
+ * hidden or ghosted. `margin` is the frame's size as a multiple of what the
+ * shapes cover on screen on the tighter axis (1 = flush with the frame edge;
+ * the page defaults to 1.2).
+ */
+export type ScreenshotShapeFit = {
+  shapes: string[];
+  margin?: number;
+};
+
 
 /** The world datum planes a section can be taken on. */
 export type SectionPlaneName = 'xy' | 'yz' | 'xz';
@@ -681,8 +694,8 @@ export type UITakeScreenshotMessage = {
     focus?: string[];
     /** Labelled lines painted in screen space over the capture. */
     annotations?: ScreenshotAnnotation[];
-    /** Frame the highlighted entities instead of the model. */
-    fitTo?: 'highlight';
+    /** Frame the highlighted entities, or the given shapes/instances, instead of the model. */
+    fitTo?: 'highlight' | ScreenshotShapeFit;
     /** `multi` captures: the cells' views (2-6), two per row, each labelled. */
     views?: ScreenshotView[];
     /** Cut the model away on one side of a plane, cut faces capped; every cell of a `multi` capture. */

@@ -22,7 +22,11 @@ export { FluidCadServer } from './fluidcad-server/index.ts';
 export type {
   SceneRenderedData,
   SceneSummary,
+  SceneSummaryInstance,
+  SceneSummaryInstancePose,
+  SceneSummaryInstancePoses,
   SceneSummaryObject,
+  SceneSummaryOccurrence,
   ShapeList,
   ShapeListEntry,
 } from './fluidcad-server/index.ts';

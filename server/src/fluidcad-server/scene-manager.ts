@@ -50,6 +50,10 @@ export type SceneManager = {
   validate?(scene: any, request: ValidateSceneRequest): SceneValidationOutcome;
   // Optional: may predate interference checking.
   interfere?(scene: any, request: InterferenceRequest): SceneInterferenceOutcome;
+  // Optional: may predate the per-instance solid lookup. Instance id → the
+  // rendered solids it shows (the pool validate / interfere address); null
+  // for a part scene.
+  getInstanceShapeIds?(scene: any): Map<string, string[]> | null;
   explainSelection(
     scene: any,
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],

@@ -60,7 +60,11 @@ export {
   sceneStopFields,
   sceneUnitFields,
   type SceneSummary,
+  type SceneSummaryInstance,
+  type SceneSummaryInstancePose,
+  type SceneSummaryInstancePoses,
   type SceneSummaryObject,
+  type SceneSummaryOccurrence,
   type ShapeList,
   type ShapeListEntry,
 } from './scene-summary.ts';

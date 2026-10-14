@@ -73,6 +73,7 @@ import { TimelineHistory } from './timeline-history.ts';
 import { PackageRoots } from '../packages/package-roots.ts';
 import { PackageManifests } from '../packages/package-manifests.ts';
 import type { PackageResolveError, ResolvedPackage } from '../packages/resolver.ts';
+import { AssemblySummary } from './scene-summary.ts';
 import type { SceneSummary, SceneSummaryObject, ShapeList, ShapeListEntry } from './scene-summary.ts';
 
 /** How many synthesis answers one rendered scene keeps (see `synthesizeApplyFeatureCached`). */
@@ -2269,6 +2270,7 @@ export class FluidCadServer {
       isContainer: !!r.isContainer,
       visible: r.visible !== false,
     }));
+    const assembly = this.sceneManager?.getAssemblyData(scene) ?? null;
     return {
       schemaVersion: 1,
       file: this.currentFileName,
@@ -2277,6 +2279,7 @@ export class FluidCadServer {
       rollbackStop: this.lastRollbackStop,
       ...(this.lastRollbackScopePartId ? { rollbackScopePartId: this.lastRollbackScopePartId } : {}),
       compileError: this.compileError,
+      ...(assembly ? AssemblySummary.fields(assembly, this.sceneManager?.getInstanceShapeIds?.(scene) ?? null) : {}),
     };
   }
 

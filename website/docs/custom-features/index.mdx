@@ -6,6 +6,8 @@ title: "Custom Features"
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
 import standoffModule from '!!raw-loader!./_examples/standoff.feature.js';
 import standoffPlate from '!!raw-loader!./_examples/standoff-pcb-plate.part.js';
+import gearModule from '!!raw-loader!./_examples/gear.feature.js';
+import gearPair from '!!raw-loader!./_examples/gear-pair.part.js';
 
 # Custom Features
 
@@ -39,7 +41,7 @@ A feature file holds a class and the builder it exports:
 
 1. The class extends `Feature.with({ … })`, which declares the feature's values: each one is typed in (`{ type: 'length', default: 10 }`) or picked in the viewport (`{ picker: 'face' }`).
 2. `static id` is the feature's type, a plain name: `'standoff'`. It can't be one of FluidCAD's own types (`extrude`, `fillet`, `part`, …). Installed from a [package](/docs/packages), the feature is told apart by the package it comes from, so two packages' `standoff` never clash.
-3. `buildTool()` builds the solid the feature adds or cuts, where its picked face stands. FluidCAD applies the operation (add, new or remove) and fuses or cuts the result. `setBuckets()` names its faces, so that `post.endEdges()` in a model reaches its top rims.
+3. `buildTool()` builds the solid the feature adds or cuts, where its picked face stands. FluidCAD applies the operation (add, new or remove) and fuses or cuts the result. `setBuckets()` names its faces, so that `post.endEdges()` in a model reaches its top rims. A feature can also give names of its own to what it makes: see [Faces and edges with names of their own](#faces-and-edges-with-names-of-their-own).
 4. `defineFeature(Class, { … })` describes the feature for the toolbar and the dialog (label, group, the operations it offers, the call a model writes) and returns the builder. Export it by name.
 
 <ExplainedCode code={standoffModule} fileName="standoff.feature.js" />
@@ -60,12 +62,67 @@ An `icon: './standoff.svg'` in the description gives the feature its picture in 
 | A value in the description that FluidCAD doesn't know | The feature is greyed in the dropdown, and a model importing it fails to compile with the message. |
 | A call the feature can't read (a negative height, a missing value) | The model fails to compile: `standoff(): 'height' must be at least 0, got -2`. |
 | `buildTool()` throws or returns nothing | That statement's row fails with the message; the rest of the model builds. |
+| `setBuckets()` gets a name the feature doesn't have, or faces of a shape `buildTool()` doesn't return | That statement's row fails: `gear: setBuckets() 'tipFace' is not a bucket of gear — did you mean tipFaces?` |
 
 ### Limits
 
 - Custom features run in part files and part bodies, not at the top level of an assembly.
-- The faces a feature can name are the standard ones: start, end, side, internal and cap faces, and their edges.
 - The dialog is built from the declared values; a feature can't add its own controls.
+
+## Faces and edges with names of their own
+
+A feature can name parts of what it makes, so that the dialogs and a model reach them by name. The gear below names its tooth tips, flanks, roots and bore. Rounding every tooth tip is then a click and a menu choice in the viewport, and `pinion.tipEdges()` in the code.
+
+### In a dialog
+
+1. Click **Fillet** and click the top edge of one tooth. The statement under the dialog writes the pick through the gear's own name: `pinion.tipEdges(…)`, with a filter that picks that edge.
+2. Right-click the edge. The menu leads with **Gear Tip Edges (72)**, every edge round the tips of the pinion's 18 teeth, and hovering it highlights them. The gear's other names, such as **Gear Bore Rims**, and its standard groups are under **Select other**.
+
+   ![The right-click menu on a tooth's top edge, with Gear Tip Edges highlighted](/img/docs/ui/custom-feature-gear-menu.png)
+
+3. Click **Gear Tip Edges**. The selection holds all 72 edges. Set **Radius** to 0.3: the statement under the dialog reads `fillet(0.3, pinion.tipEdges())`.
+
+   ![The Fillet dialog with the gear's 72 tip edges selected](/img/docs/ui/custom-feature-gear-fillet.png)
+
+4. Click **Apply**. Every tooth tip of the pinion is rounded. Below, the wheel's tips are rounded the same way, and its bore takes a chamfer on **Gear Bore Rims**.
+
+   ![A gear pair on a base plate, with rounded tooth tips](/img/docs/ui/custom-feature-gear-model.png)
+
+<ExplainedCode code={gearPair} fileName="gear-pair.part.js" />
+
+On a repeated gear, a pick on a copy is written `r.instance(1).tipEdges(…)`.
+
+:::note
+These gears are **New** bodies. A gear added to the plate (**Add**) also counts the edges where each tip meets the plate among its tip edges, and a fillet can't round those together with the outer ones. There, keep the outer edges with a filter: `fillet(0.3, pinion.tipEdges(edge().convex()))`.
+:::
+
+### In the feature's code
+
+The names are declared beside the values, as the second argument of `Feature.with()`, and filled in `buildTool()` with `setBuckets()`:
+
+```js
+export class Gear extends Feature.with({ /* the values */ }, {
+  buckets: {
+    tipFaces: {},
+    tipEdges: {},
+    flankFaces: {},
+    rootFaces: {},
+    boreFaces: {},
+    boreEdges: { label: 'Bore Rims' },
+  },
+}) {
+  // …
+  this.setBuckets({ startFaces, endFaces, sideFaces, internalFaces, tipFaces, flankFaces, rootFaces, boreFaces });
+```
+
+- A name ends in `Faces` or `Edges`, which says what it holds, and becomes a method of the feature: `pinion.tipEdges()`, or `wheel.boreEdges(0)` with an index or a filter, as `endEdges()` takes them. The editor knows the names: `pinion.tipEdge()` is marked as an error.
+- `label` is what the menus show after the feature's name (**Gear Bore Rims**). Without it, the menus show the name made readable (**Gear Tip Edges**).
+- An edge name exists only when it is declared. `tipEdges` is declared and left out of `setBuckets()`, so it holds every edge of the tip faces.
+- Say what each name holds, and in what order, in the package's `docs/` page for the feature (`docs/gear.md`). A declaration takes no description.
+- A name misspelt in `setBuckets()` fails the statement's row, with the name it was probably meant to be.
+- The names follow the operation. A gear added to a solid keeps what the solid still carries of each one. A feature that removes material keeps what its cut left, such as a pocket's floor. Each copy of a repeat has its own, moved with it.
+
+<ExplainedCode code={gearModule} fileName="gear.feature.js" />
 
 ## Sharing a feature
 

@@ -1,8 +1,9 @@
-import type { TopoDS_Shape } from "ocjs-fluidcad";
+import type { TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
+import { FaceOps } from "./face-ops.js";
 import { FaceQuery } from "./face-query.js";
 import { classifyEdge, classifyFace } from "./measure/classify.js";
 import type { MeasureVec } from "./measure/measure-types.js";
@@ -68,33 +69,18 @@ function perpendicular(dir: MeasureVec): MeasureVec {
 }
 
 /**
- * Face point + OUTWARD normal at UV mid (orientation-corrected) — the
- * probe-together pattern (`calculateNormal` alone is planar-only).
+ * Face point + OUTWARD normal ({@link FaceOps.outwardNormalRaw}) at the
+ * centre of its UV bounds, both from that one parameter. Null where the
+ * normal is undefined there.
  */
 function probeFaceOutward(shape: TopoDS_Shape): { point: MeasureVec; normal: MeasureVec } | null {
-  const oc = getOC();
-  const rawFace = oc.TopoDS.Face(shape);
-  const bounds = oc.BRepTools.UVBounds(rawFace);
-  const u = (bounds.UMin + bounds.UMax) / 2;
-  const v = (bounds.VMin + bounds.VMax) / 2;
-
-  const surface = oc.BRep_Tool.Surface(rawFace);
-  const props = new oc.GeomLProp_SLProps(surface, u, v, 1, 1e-6);
-  try {
-    let rawNormal = props.Normal();
-    if (rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
-      rawNormal = rawNormal.Reversed();
-    }
-    const normal = { x: rawNormal.X(), y: rawNormal.Y(), z: rawNormal.Z() };
-    const value = props.Value();
-    const point = { x: value.X(), y: value.Y(), z: value.Z() };
-    return { point, normal };
-  } catch {
+  const face = shape as TopoDS_Face;
+  const uv = FaceOps.uvCentreRaw(face);
+  const normal = FaceOps.outwardNormalRaw(face, uv);
+  if (!normal) {
     return null;
-  } finally {
-    props.delete();
-    surface.delete();
   }
+  return { point: FaceOps.pointAtRaw(face, uv), normal };
 }
 
 /** Surface points on the face's UV bounding box (restricted adaptor). */

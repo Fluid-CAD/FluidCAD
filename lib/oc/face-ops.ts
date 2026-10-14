@@ -220,9 +220,10 @@ export class FaceOps {
 
   /**
    * The face's OUTWARD (material-out) unit normal at surface parameters
-   * `uv`, by default the centre of the face's UV bounds. It is the surface's
-   * parametric normal (D1U × D1V — not a plane's axis, which a left-handed
-   * frame reverses), reversed when the face is TopAbs_REVERSED. That flag is
+   * `uv`, by default the centre of the face's UV bounds
+   * ({@link uvCentreRaw}). It is the surface's parametric normal (D1U × D1V
+   * — not a plane's axis, which a left-handed frame reverses), reversed
+   * when the face is TopAbs_REVERSED. That flag is
    * the face's orientation in its solid, so the face must carry it: take it
    * from the solid through an Explorer (TopExp_Explorer composes it) or a
    * list built that way, such as `Solid.getIndexedShapes('face')`. Without
@@ -233,11 +234,7 @@ export class FaceOps {
   static outwardNormalRaw(face: TopoDS_Face, uv?: { u: number; v: number }): Vector3d | null {
     const oc = getOC();
     const rawFace = oc.TopoDS.Face(face);
-    let at = uv;
-    if (!at) {
-      const bounds = oc.BRepTools.UVBounds(rawFace);
-      at = { u: (bounds.UMin + bounds.UMax) / 2, v: (bounds.VMin + bounds.VMax) / 2 };
-    }
+    const at = uv ?? FaceOps.uvCentreRaw(rawFace);
     const surface = oc.BRep_Tool.Surface(rawFace);
     const props = new oc.GeomLProp_SLProps(surface, at.u, at.v, 1, 1e-6);
     try {
@@ -254,6 +251,35 @@ export class FaceOps {
     } finally {
       props.delete();
       surface.delete();
+      rawFace.delete();
+    }
+  }
+
+  /**
+   * The centre of the face's UV bounds, where {@link outwardNormalRaw}
+   * probes by default. A caller that pairs that normal with the surface
+   * point passes this to both, so they come from one parameter.
+   */
+  static uvCentreRaw(face: TopoDS_Face): { u: number; v: number } {
+    const oc = getOC();
+    const rawFace = oc.TopoDS.Face(face);
+    try {
+      const bounds = oc.BRepTools.UVBounds(rawFace);
+      return { u: (bounds.UMin + bounds.UMax) / 2, v: (bounds.VMin + bounds.VMax) / 2 };
+    } finally {
+      rawFace.delete();
+    }
+  }
+
+  /** The face's surface point at parameters `uv`, where the face sits (its location applied). */
+  static pointAtRaw(face: TopoDS_Face, uv: { u: number; v: number }): Point {
+    const oc = getOC();
+    const rawFace = oc.TopoDS.Face(face);
+    const adaptor = new oc.BRepAdaptor_Surface(rawFace, false);
+    try {
+      return Convert.toPoint(adaptor.Value(uv.u, uv.v), true);
+    } finally {
+      adaptor.delete();
       rawFace.delete();
     }
   }

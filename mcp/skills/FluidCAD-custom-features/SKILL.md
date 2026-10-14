@@ -1,6 +1,6 @@
 ---
 name: FluidCAD-custom-features
-description: "Writing custom features for FluidCAD: a feature type of the project's own in a `*.feature.js` module (`fluidcad/sdk` — `Feature.with()`, `defineFeature()`, `buildTool()`, `setBuckets()`, pickers, call shapes, `fluidcad/sdk/kernel`, raw OpenCascade through `fluidcad/sdk/occt`) that the toolbar's Custom dropdown offers with its own dialog and preview, and that models call like a built-in. Use this skill whenever the user wants a custom feature, their own feature type or toolbar button, a reusable feature, a `.feature.js` file, `fluidcad/sdk`, `Feature`, `defineFeature` or `registerBuilder`, asks to turn a construction they keep repeating into one statement, or wants to share custom features as a package (`fluidcad.json` `package` block, the `pack` tool). Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and a feature type, not a part, is being written."
+description: "Writing custom features for FluidCAD: a feature type of the project's own in a `*.feature.js` module (`fluidcad/sdk` — `Feature.with()`, `defineFeature()`, `buildTool()`, `setBuckets()` and named buckets (`g.tipEdges()`), pickers, call shapes, `fluidcad/sdk/kernel`, raw OpenCascade through `fluidcad/sdk/occt`) that the toolbar's Custom dropdown offers with its own dialog and preview, and that models call like a built-in. Use this skill whenever the user wants a custom feature, their own feature type or toolbar button, a reusable feature, a `.feature.js` file, `fluidcad/sdk`, `Feature`, `defineFeature` or `registerBuilder`, asks to turn a construction they keep repeating into one statement, or wants to share custom features as a package (`fluidcad.json` `package` block, the `pack` tool). Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and a feature type, not a part, is being written."
 ---
 
 Provenance: maintained in the FluidCAD repo (`https://github.com/Fluid-CAD/FluidCAD`), under `mcp/skills/`. The installed local skill files are the runtime source of truth.
@@ -39,7 +39,11 @@ Before code, write the design down the way a CAD user would describe a feature d
   - images are files next to the module (`'./vent/slots.svg'`), drawn as pictures: use mid-tone strokes, not `currentColor`.
 - **The layout, only when it earns it.** A handful of rows needs none: declaration order is the dialog, with a value's `group` and `tab` as the short form. Write a `layout` (with `width: 'wide'` when rows sit side by side) when values pair up in a `row` (count and spacing), a rarely used set should fold (`{ section, collapsed: true }`), or a dimension drawing belongs in the `aside`. A value that measures something the user may not know (a pressure angle, a profile shift, a backlash) earns an `aside` of its own — a diagram and a one-line note the card shows while its row has the focus. Rows never cut a label short: a cell that can't fit wraps to its own line, so pair narrow controls and give a long segmented choice (or a select) its own line. A layout places every value exactly once, and then no value may keep its own `group` or `tab`.
 - **The call a model writes.** Picked geometry first and positional, sizes in one object of options: `ventGrid(panel.endFaces(), { rows: 4, columns: 6, pitch: 8 })`. A list of picks is one array argument or a trailing rest. A pick that may be left out (`optional: true`, a placement that defaults to the origin) stays first: a call without it goes straight to the options, `gear({ teeth: 24 })` (never `gear(undefined, …)`), and the dialog writes it that way.
-- **The buckets.** Which faces of the result are its start faces (where it meets what it grew from), end faces (its far end), side faces, internal faces (bores, a cut's walls) and cap faces. A downstream fillet and every pick on the feature read these; without them `f.endEdges()` names nothing. For a cut, the plane the tool starts on (`startPlane`) classifies the rims.
+- **The buckets: declare named buckets for what a user will fillet, chamfer or sketch on.** A downstream fillet, a sketch and every pick on the feature read its buckets; without them `f.endEdges()` names nothing and the editor writes picks on it as filters. Two layers:
+  - **the standard ones**: which faces are its start faces (where it meets what it grew from), end faces (its far end), side faces, internal faces (bores, a cut's walls) and cap faces. For a cut, the plane the tool starts on (`startPlane`) classifies the rims;
+  - **named buckets of its own**, for the parts of the result a user will name: a gear's `tipFaces`/`tipEdges`, a pocket's `floorFaces`/`floorEdges`, a boss's `boreFaces`/`boreEdges`. Declared with `Feature.with(params, { buckets: { tipFaces: {}, tipEdges: {} } })`, each becomes a typed method (`fillet(0.3, g.tipEdges())`, `r.instance(2).tipEdges()` on a repeat's copy), the editor writes picks through it first, and the right-click menu offers it ("Gear Tip Edges"). A name ends in `Faces` or `Edges`; an edge bucket exists only when declared, and one left out of `setBuckets()` is the edges of its `…Faces` sibling. A declaration holds only an optional `label` (the menus' words). Name the face the feature grows from `startFaces`, not a bucket of your own: a named bucket drops a face the fusion merges away, `startFaces` is re-homed onto the stock face.
+
+  List each named bucket in the design with what it holds and in what order (teeth in tooth order, flanks two per tooth); that list becomes the feature's `docs/` page (section 4).
 - **The preview.** The dialog's **Preview** toggle starts off (remembered per feature once the user turns it on); while it is on, a tool previews by running `buildTool()` on every change, and one that takes over 5 s to build times out (the user turns the toggle off and on to ask again). Keep the build cheap, or override `ghost()` with a cheaper shape; `ghost: false` removes the toggle.
 - **Can the curated kernel build it?** `fluidcad/sdk/kernel` has cylinders, spheres, cuts and placement transforms. Anything else (a box, a loft, a sweep, an offset) needs raw OpenCascade inside `this.occ()`: say so in the design, since it is unstable and unchecked.
 
@@ -48,7 +52,7 @@ Before code, write the design down the way a CAD user would describe a feature d
 `read_doc` these before writing (in parallel sub-agents when your client has them; sub-agents read, never write):
 
 - `concepts/custom-features` — the module, discovery, the lifecycle, where errors show;
-- `api/feature` — the class, `buildTool()`, `setBuckets()`, the reference readers, `ghost()`;
+- `api/feature` — the class, `buildTool()`, `setBuckets()` and its refusals, named buckets (the naming rule, derived edge buckets, what a fusion, a remove and a repeat do to them, a gear and a bearing seat as complete examples), the reference readers, `ghost()`;
 - `api/define-feature` — the metadata, operations, the call shape, what the dialog can edit;
 - `api/feature-params` — every value kind, picker and option, unions; each `display`; the table of what an untouched row shows and the builder gets; a runnable example with every control ("a screw hole with choices");
 - `api/feature-layout` — only when the design has a `layout`, `width`, an `aside` or a value's own `aside`;
@@ -56,7 +60,7 @@ Before code, write the design down the way a CAD user would describe a feature d
 - `api/sdk-occt` — only when the design needs raw OpenCascade;
 - `api/register-builder` — only when the builder must act before it reads its arguments.
 
-`get_type_definition` resolves `Feature`, `FeatureBuckets`, `ParamSpec`, `ChoiceOption`, `FeatureLayout`, `CallShape`, `FeatureMeta`, `OccScope` and the kernel classes; `get_api_signature` resolves `defineFeature`, `registerBuilder`, `parseCall` and `getOC`. Then read `references/traps.md` in this skill.
+`get_type_definition` resolves `Feature`, `FeatureBuckets`, `FeatureWithOptions`, `FeatureBucketSpec`, `ParamSpec`, `ChoiceOption`, `FeatureLayout`, `CallShape`, `FeatureMeta`, `OccScope` and the kernel classes; `get_api_signature` resolves `defineFeature`, `registerBuilder`, `parseCall` and `getOC`. Then read `references/traps.md` in this skill.
 
 ## 4. Write the module
 
@@ -72,6 +76,11 @@ export class VentGrid extends Feature.with({
   rows: { type: 'integer', display: 'stepper', default: 3, min: 1, max: 50 },
   pitch: { type: 'length', display: 'slider', default: 8, min: 2, max: 40, suffix: 'mm' },
   // …
+}, {
+  buckets: {
+    holeFaces: {},                      // the wall of every hole, row by row
+    holeEdges: { label: 'Hole Rims' },  // declared, not filled: the edges of holeFaces
+  },
 }) {
   static id = 'ventGrid';
 
@@ -80,7 +89,7 @@ export class VentGrid extends Feature.with({
     const [face] = this.facesOf(this.values.face);
     // Build on the XY plane, sort the faces into buckets there, place with
     // ShapeOps.transformTracking, name the placed images, dispose what you drop.
-    this.setBuckets({ /* startFaces, endFaces, sideFaces, internalFaces, startPlane */ });
+    this.setBuckets({ /* startFaces, endFaces, sideFaces, internalFaces, startPlane, */ holeFaces });
     return [/* the solids */];
   }
 }
@@ -95,7 +104,7 @@ export const ventGrid = defineFeature(VentGrid, {
 });
 ```
 
-Every value the class declares must appear in `call` (and in the `layout`, when there is one). A complete module with every control and a layout is the screw hole in `api/feature-params`.
+Every value the class declares must appear in `call` (and in the `layout`, when there is one). A complete module with every control and a layout is the screw hole in `api/feature-params`; complete modules with named buckets are the gear and the bearing seat in `api/feature`.
 
 The rules that keep it right:
 
@@ -107,6 +116,9 @@ The rules that keep it right:
 - **Dispose every intermediate** (a cylinder a cut consumed, a shape you moved); never dispose a shape `buildTool()` returns or one read from a reference.
 - **A loop inside `buildTool()` is fine**: the instances come from one statement and one row. The no-loops rule is for models.
 - **Raw OpenCascade only inside `this.occ(({ oc, track }) => …)`**: construct through the scope's `oc`, `track()` every object a method returns, return wrappers made with `ShapeFactory.fromShape(raw)`. Never construct through `getOC()`, never free a shape the scene holds.
+- **Fill every named bucket you declare** in `setBuckets()`, except an `xEdges` meant to be the edges of `xFaces`. A misspelt name, a non-list, a face in an edge bucket or a face of a shape you don't return fails the feature's row (`gear: setBuckets() 'tipFace' is not a bucket of gear — did you mean tipFaces?`).
+
+**Describe each named bucket in the feature's `docs/` page.** A bucket declaration takes no description (one is refused): what a bucket holds belongs in `docs/<feature>.md` at the workspace root (the folder a package ships), which other authors and the LLM read. Write it with `write_file` (any file that is not a model or a module renders nothing): for each named bucket, what it holds, in what order (`g.tipFaces(i)` is tooth `i`'s top land, counting from the face's X direction), and what a user does with it (`fillet(0.3, g.tipEdges())`). A line comment beside each declaration is for the code's reader; the page is the documentation.
 
 **Writing it with the MCP.** `write_file` on a `*.feature.js` (or any module, or `fluidcad.json`) never renders the module itself: it re-renders the **open model** in full, and `render` carries `openModel: true` with that model's `state` and `objectErrors`. So write the module, then write the test part (which renders and becomes the open model); from then on, every module write reports on the test part. `render.state` of `no-open-model` means no model is open yet; `render-failed` carries the first lines of the error the model hit loading the module (a refused metadata field, a syntax error), and `get_compile_error` has the whole message with the module's line a moment later.
 
@@ -118,7 +130,7 @@ A recognisable part (a panel, a bracket, a PCB plate), built by the FluidCAD ski
 - the feature on a picked face written as an accessor (`panel.endFaces()`), as the dialog would write it;
 - each operation it offers, and `.scope(…)` when it matters;
 - a `repeat()` or `copy()` of the feature, when its use calls for patterns;
-- a fillet or chamfer on its buckets (`fillet(0.5, post.endEdges())`), and a downstream feature on one of its faces;
+- a fillet or chamfer through one of its named buckets (`fillet(0.3, g.tipEdges())`, `chamfer(0.5, post.boreEdges())`), a standard one where it fits (`post.endEdges()`), and a downstream feature on one of its faces (`sketch(p.floorFaces(), …)`);
 - values at their limits (the smallest count, a value left to its default).
 
 ## 6. Render and check
@@ -127,7 +139,7 @@ A recognisable part (a panel, a bracket, a PCB plate), built by the FluidCAD ski
    - a refused metadata field, a syntax error in the module, or a call the builder can't read (`ventGrid(): 'rows' must be at least 1, got 0`) fails the **whole model** to compile: `compile-error` on the model's write, `render-failed` on the module's;
    - `buildTool()` throwing, returning nothing, or an operation the feature doesn't offer fails **its row** only: `build-error`, with the message under `objectErrors`.
 2. **`validate`** every solid the feature made, then `screenshot` it (a section through a cut feature) and `measure` the dimensions its values drive: a hole's diameter, a boss's height, a pitch between two instances.
-3. **The buckets resolve.** Find the feature's scene-object `id` and `index` with `get_scene_summary`, then `resolve_selection` the expression `$obj["<id>"].startEdges()` (and each other bucket you declared), scoped to its part, with `before` set to the index right after the feature: a later fillet or chamfer replaces the edges and faces it touches, so at the model's end those buckets resolve to nothing. The count must be what the design says (a 3 × 5 vent grid: 15 start edges, 15 end edges, 15 internal faces), and the summaries' centres and diameters must sit where the values put them. Zero means `setBuckets()` missed them, or named faces of a shape the feature doesn't return.
+3. **The buckets resolve.** Find the feature's scene-object `id` and `index` with `get_scene_summary`, then `resolve_selection` the expression `$obj["<id>"].startEdges()` and each named bucket (`$obj["<id>"].holeFaces()`, `….holeEdges()`), scoped to its part, with `before` set to the index right after the feature: a later fillet or chamfer replaces the edges and faces it touches, so at the model's end those buckets resolve to nothing. The count must be what the design says (a 3 × 5 vent grid: 15 start edges, 15 end edges, 15 hole faces), and the summaries' centres and diameters must sit where the values put them. Zero means the fusion or the cut removed them, or the bucket was left unfilled (a misspelt or wrong-kind name fails the row instead). The synthesized `source` of a whole named bucket is the bucket itself (`g.holeFaces()`), which shows the editor will write picks through it.
 4. **A value change rebuilds.** Change one value in the test part and confirm the geometry follows; `render.changes.rebuilt` lists the feature's row.
 5. **It typechecks** under the workspace's `jsconfig.json` (`fluidcad init` writes one with `checkJs`): when you have a shell, `npx -p typescript tsc --noEmit -p jsconfig.json` in the workspace, expecting no errors. `this.values` and the builder's arguments are typed by inference; a misspelled option in the test part is an error.
 6. **The editor offers it.** When you have a shell, `GET http://localhost:<port>/api/features/catalog` (the port from `list_workspaces`) lists the feature with no `error`; an `error` is what the Custom dropdown's greyed cell says.
@@ -161,11 +173,11 @@ Report the design (section 2), what you rendered, validated, measured and resolv
 ## Quick reference: the custom-feature loop
 
 1. Decide that a feature is warranted, or say what to use instead (section 1).
-2. Design it in CAD terms: tool or modifier, operations, each value as a dialog row, the call, the buckets, kernel or raw OpenCascade (section 2). Show it.
+2. Design it in CAD terms: tool or modifier, operations, each value as a dialog row, the call, the standard buckets and the named buckets a user will fillet, chamfer or sketch on, kernel or raw OpenCascade (section 2). Show it.
 3. `read_doc` the custom-feature docs; read `references/traps.md`.
-4. `write_file` the `*.feature.js` module.
-5. `write_file` a recognisable test part that uses it as a user would.
-6. `render.state`, `objectErrors`, `validate`, `screenshot`, `measure`, `resolve_selection` on its buckets; typecheck and the catalog when a shell is available.
+4. `write_file` the `*.feature.js` module, and `docs/<feature>.md` describing each named bucket (what it holds, its order).
+5. `write_file` a recognisable test part that uses it as a user would, with a fillet or chamfer through a named bucket.
+6. `render.state`, `objectErrors`, `validate`, `screenshot`, `measure`, `resolve_selection` on its buckets, named ones included; typecheck and the catalog when a shell is available.
 7. Iterate on the module: each write re-renders the open model (`render.openModel`).
 8. When it should travel: the modules into `features/`, `parts/` and `assemblies/`, the `package` block in `fluidcad.json`, then `pack` with `saveAsPath` (section 8).
 9. Report what was checked, and what was not.

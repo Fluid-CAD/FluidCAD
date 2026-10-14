@@ -8,11 +8,45 @@ Read before writing a `*.feature.js` module. Each entry: the mistake, how it sho
 - **Why.** The module is evaluated anew on every render and by the editor's catalog scan; each evaluation makes a new class, so an instance of the last render's `Standoff` is not an instance of this one's.
 - **Fix.** Never `x instanceof Standoff`. The engine compares features by `static id` and values. To tell a value's elements apart, use the readers (`isLocation()`, `facesOf()`); `instanceof Feature` (the engine's base) is fine.
 
-## No buckets, or buckets of the wrong shape
+## No buckets
 
 - **Signature.** `fillet(0.5, post.endEdges())` fails its row with `fillet: the selection resolved to no edges — nothing was filleted.`; the dialog's picks on the feature are written as filters (`select(edge()…)`) instead of `post.endEdges()`.
-- **Why.** A feature fills only the buckets `setBuckets()` declares, and a tool's buckets must be faces and edges of the shapes `buildTool()` returns. Naming faces of the shape before `ShapeOps.transformTracking` placed it names shapes the result doesn't hold.
-- **Fix.** Sort the faces on the XY plane, place the tool with `transformTracking(shape, frame, faces)`, and name `placed.images` (filtering out `null`). Declare start, end, side and internal faces; edges are derived. For a cut, give `startPlane` (its normal the way the tool grows) so the rims are start and end edges, not all internal. Check each bucket's count with `resolve_selection`.
+- **Why.** A feature fills only the buckets `setBuckets()` names.
+- **Fix.** Sort the faces on the XY plane, place the tool with `transformTracking(shape, frame, faces)`, and name `placed.images` (filtering out `null`). Name start, end, side and internal faces (edges are derived), and named buckets for what a user will fillet, chamfer or sketch on. For a cut, give `startPlane` (its normal the way the tool grows) so the rims are start and end edges, not all internal. Check each bucket's count with `resolve_selection`.
+
+## A misspelt bucket, or a member of the wrong shape, is a build error
+
+- **Signature.** The feature's row fails (`build-error`; the dialog's preview says the same) with one of:
+  - `gear: setBuckets() 'tipFace' is not a bucket of gear — did you mean tipFaces?` (a standard name misspelt, `endFace`, too; with no close name it lists the feature's buckets);
+  - `gear: setBuckets() tipFaces must be a list of faces, got a face`;
+  - `gear: setBuckets() tipFaces[0] is an edge, not a face — tipFaces holds faces`;
+  - `gear: setBuckets() boreFaces[1] is not a face of the solids buildTool() returned — name faces of the shapes you return`.
+- **Why.** `setBuckets()` refuses what it would lose: a name the feature has no bucket for (it used to be dropped silently, leaving an empty bucket), a member of the wrong kind, and a member of a shape `buildTool()` doesn't return (most often a face of the shape before `ShapeOps.transformTracking` placed it).
+- **Fix.** Use the declared name exactly (under checkJs a misspelt name in `setBuckets()`, and `g.tipEdge()` in a model, are editor errors before they are build errors); pass lists; put faces in `…Faces` buckets and edges in `…Edges` ones; name `placed.images`, not the unplaced shape's faces.
+
+## A description on a bucket
+
+- **Signature.** The model importing the module fails to compile and the Custom cell greys: `Feature.with(): bucket 'tipFaces': leave 'description' out — describe what the feature's buckets hold in the package's docs/ pages`. Also refused: `kind` (`leave 'kind' out — the name's ending gives it`), any other field (`unknown field 'note' — a bucket declares only its label`), a name without the ending (`'teeth' needs to end in Faces or Edges (teethFaces?)`), and `buckets` in `defineFeature()`'s metadata (`leave 'buckets' out — declare buckets on the class: Feature.with(params, { buckets })`).
+- **Why.** A bucket declaration is `{}` or `{ label }`. What a bucket holds is documented in the feature's `docs/` page, where other authors and the LLM read it, not in code.
+- **Fix.** Keep `{ label }` or `{}`, a line comment beside it for the code's reader, and describe each bucket (what it holds, its order) in `docs/<feature>.md`.
+
+## A face the feature grows from, in a bucket of your own
+
+- **Signature.** After `.add()`, a named bucket that held the feature's bottom face (`baseFaces`) is empty, or misses the faces that merged into the plate: a sketch or fillet on it resolves to nothing.
+- **Why.** Across a fusion a named bucket follows each member's history and keeps only what the final solid carries: a face the fusion merged away is dropped, never swapped for the stock face it merged into. Only `startFaces` (and `endFaces`) are re-homed that way.
+- **Fix.** Name the face the feature grows from `startFaces`, its far end `endFaces`. Keep named buckets for faces that survive as themselves (tips, flanks, floors, bores). The same rule trims a named bucket to what is left when the stock swallows part of a face.
+
+## Derived edges need the edge bucket declared
+
+- **Signature.** `g.flankEdges is not a function` at run time, `Property 'flankEdges' does not exist on type 'Gear'` in the editor, though `flankFaces` is declared and filled.
+- **Why.** An edge bucket exists only when declared; nothing makes `xEdges` from `xFaces` on its own.
+- **Fix.** Declare `flankEdges: {}` beside `flankFaces` and leave it out of `setBuckets()`: it is then the distinct edges of `flankFaces`, taken after the fusion or the cut. Fill it explicitly when it should hold only some of those edges.
+
+## Filleting a fused feature's whole derived edge bucket
+
+- **Signature.** `fillet(0.3, g.tipEdges())` fails its row with `fillet: could not fillet the selected edges — the radius may be too large for the adjacent geometry. The solid was left unfilleted.` on a gear added onto a face wider than its teeth (the plate itself), while the same fillet works on a `.new()` gear, or on one standing on a seat smaller than its root circle.
+- **Why.** Derived edges are taken after the fusion, so they include the concave edges where each tip now meets the plate, and OpenCascade can't round those together with the convex tip edges at the same corner.
+- **Fix.** Filter the bucket (`fillet(0.3, g.tipEdges(edge().convex()))`), or keep the feature apart (`.new()`).
 
 ## Leaking intermediates, or freeing what isn't yours
 

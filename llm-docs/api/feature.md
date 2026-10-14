@@ -1,9 +1,9 @@
 ---
 id: api/feature
 title: "Feature / Feature.with(params) — the base class of a custom feature"
-summary: "The class a custom feature extends, from fluidcad/sdk: Feature.with({ … }) declares its values and types this.values; static id names it; a tool implements buildTool(ctx) and returns its solids (the base applies add/new/remove, fuses or cuts, moves them for a repeat), a modifier overrides build(ctx). setBuckets() names startFaces…capFaces (edges derived) plus startPlane; shapesOf/facesOf/edgesOf/axisOf/planeOf/frameOf/pointOf/isLocation read the picked references; getOperationMode() reads the operation the statement applies (chain or default, the dialog's tab in the preview, the same on a repeat's copy); ghost(ctx) is the dialog's preview; occ() runs raw OpenCascade in a scope."
+summary: "The class a custom feature extends, from fluidcad/sdk: Feature.with({ … }, { buckets }) declares its values (typing this.values) and its own named buckets; static id names it; a tool implements buildTool(ctx) and returns its solids (the base applies add/new/remove, fuses or cuts, moves them for a repeat), a modifier overrides build(ctx). setBuckets() names startFaces…capFaces (edges derived) plus startPlane, and each declared bucket: Feature.with(params, { buckets: { tipFaces: {}, tipEdges: {} } }) gives the feature real methods g.tipFaces()/g.tipEdges() (a name ends in Faces or Edges; a declaration holds only a label; a declared xEdges left out is the edges of xFaces), which a fusion follows (dropping what it removed), a remove maps through its cut and a repeat's copy moves (r.instance(k).tipEdges()), and which the editor writes picks through first; setBuckets() refuses unknown names, non-lists, wrong kinds and members outside the returned solids. shapesOf/facesOf/edgesOf/axisOf/planeOf/frameOf/pointOf/isLocation read the picked references; getOperationMode() reads the operation the statement applies; ghost(ctx) is the dialog's preview; occ() runs raw OpenCascade in a scope."
 tags: [api, sdk, custom-feature, type]
-symbols: [Feature, FeatureBuckets, FeatureBuildContext]
+symbols: [Feature, FeatureBuckets, FeatureBuildContext, FeatureWithOptions, FeatureBucketSpec, FeatureBucketSpecs]
 seeAlso: [concepts/custom-features, api/define-feature, api/feature-params, api/sdk-kernel, api/sdk-occt, api/register-builder, api/connector, api/repeat]
 ---
 
@@ -12,7 +12,7 @@ seeAlso: [concepts/custom-features, api/define-feature, api/feature-params, api/
 Imported from `fluidcad/sdk`.
 
 ```ts
-class MyFeature extends Feature.with(params) {   // params: { [name]: ParamSpec }
+class MyFeature extends Feature.with(params, { buckets }) {   // params: { [name]: ParamSpec }; the options are optional
   static id = 'myFeature';                       // plain: the timeline type and the cache's
 
   readonly values: ValuesOf<params>;             // frozen; a length is a number, a face pick an ISelection
@@ -28,7 +28,7 @@ class MyFeature extends Feature.with(params) {   // params: { [name]: ParamSpec 
   getOperationMode(): 'add' | 'new' | 'remove';
 
   // Protected helpers:
-  setBuckets(buckets: FeatureBuckets): void;
+  setBuckets(buckets: FeatureBuckets & { [declared: string]: Face[] | Edge[] }): void;
   shapesOf(ref: ISceneObject | ISceneObject[]): Shape[];
   facesOf(ref: ISceneObject | ISceneObject[]): Face[];
   edgesOf(ref: ISceneObject | ISceneObject[]): Edge[];
@@ -46,11 +46,18 @@ type FeatureBuckets = {
   startPlane?: Plane;
 };
 
+// Feature.with()'s second argument: the feature's own named buckets.
+type FeatureWithOptions = { buckets?: FeatureBucketSpecs };
+type FeatureBucketSpecs = { [name: string]: FeatureBucketSpec };   // name: /^[a-z][A-Za-z0-9]*(Faces|Edges)$/
+type FeatureBucketSpec = { label?: string };                        // the menus' words; nothing else
+
 // What a model gets from every feature, as from a built-in:
 f.startFaces(...)  f.endFaces(...)  f.sideFaces(...)  f.internalFaces(...)  f.capFaces(...)
 f.startEdges(...)  f.endEdges(...)  f.sideEdges(...)  f.internalEdges(...)  f.capEdges(...)
 f.edges(...)                        // every edge a remove created
 f.add()  f.new()  f.remove()  f.scope(...solids)  f.name(label)
+// And one method per bucket its class declares:
+g.tipFaces(...)  g.tipEdges(...)    // r.instance(k).tipEdges(...) on a repeat's copy
 ```
 
 `Shape`, `Face`, `Edge` come from `fluidcad/sdk/kernel` ([[api/sdk-kernel]]);
@@ -62,7 +69,9 @@ filters as `extrude()`'s do: `f.endEdges(0)`, `f.sideFaces(face().cylinder())`.
 `Feature.with({ … })` returns an abstract base whose `this.values` is typed
 from `params`, and which carries them as `static params` for
 `defineFeature()`. Each value is typed in (`type`) or picked (`picker`) —
-see [[api/feature-params]] for every kind and option.
+see [[api/feature-params]] for every kind and option. Its optional second
+argument, `{ buckets }`, declares the feature's own named buckets (see
+*Named buckets* below).
 
 | Declared | `this.values.<name>` |
 |---|---|
@@ -175,22 +184,144 @@ export const hub = part("Hub", () => {
 ## Naming the buckets: `setBuckets(buckets)`
 
 Downstream features name the feature's faces and edges through its
-accessors (`post.endEdges()`), and the editor's picks on its geometry are
-written the same way. A feature fills only the buckets it declares:
+accessors (`post.endEdges()`, `g.tipEdges()`), and the editor's picks on its
+geometry are written the same way. A feature fills only the buckets it
+names: the standard ones, and the ones its class declares (see *Named
+buckets* below).
 
 - **A tool** names sub-shapes of the solids `buildTool()` returns. The base
   moves them with a repeat's copy and carries them across the fusion.
 - **Edge buckets left out are derived** from the face buckets: a start
-  face's edges are start edges, and so on (the extrude rule).
+  face's edges are start edges, and so on (the extrude rule). A declared
+  `xEdges` left out is the edges of `xFaces`.
 - **`startPlane`** is the plane the tool starts on, its normal pointing the
-  way the tool grows. A **remove** keeps none of the tool's face buckets: the
-  cut classifies what it made, as `cut()` does — its rims as start edges
-  (where the tool enters the material) and end edges (its far end), its walls
-  as internal faces. Without `startPlane` every rim is internal.
-  `f.edges()` lists every edge a remove created.
+  way the tool grows. A **remove** keeps none of the tool's standard face
+  buckets: the cut classifies what it made, as `cut()` does — its rims as
+  start edges (where the tool enters the material) and end edges (its far
+  end), its walls as internal faces. Without `startPlane` every rim is
+  internal. `f.edges()` lists every edge a remove created. A remove's named
+  buckets follow the cut instead (below).
 - **A modifier** names its final geometry; the buckets land at once.
-- Calls accumulate. Buckets are the standard ones only — there are no custom
-  names.
+- Calls accumulate. A value left `undefined` names nothing.
+
+**Refused as the row's build error**, for standard and declared names alike
+(the dialog's preview shows the same message; `render()` never throws):
+
+| `setBuckets()` was handed | The row's error |
+|---|---|
+| a name that is no bucket of the feature | `gear: setBuckets() 'tipFace' is not a bucket of gear — did you mean tipFaces?` (with no name close, it lists the feature's buckets) |
+| a value that is not a list | `gear: setBuckets() tipFaces must be a list of faces, got a face` |
+| a member of the wrong kind | `gear: setBuckets() tipFaces[0] is an edge, not a face — tipFaces holds faces` |
+| a tool's member that is no face or edge of the solids `buildTool()` returned (a face of the shape before `transformTracking` placed it) | `gear: setBuckets() boreFaces[1] is not a face of the solids buildTool() returned — name faces of the shapes you return` |
+| a `startPlane` that is not a `Plane` | `gear: setBuckets() startPlane must be a plane, got 'xy'` |
+| anything but an object of buckets by name | `gear: setBuckets() takes the buckets by name, such as { endFaces: [face] } — got a list` |
+
+So a misspelt bucket fails where it is filled, not later as an empty bucket
+that a fillet finds nothing in.
+
+## Named buckets: `Feature.with(params, { buckets })`
+
+The standard buckets say where a face sits the way an extrude's do. When the
+feature's result has parts with names of their own — a gear's tooth tips, a
+pocket's floor — declare them, and each becomes a method a model calls like
+`endFaces()`. Declare the buckets a user will fillet, chamfer or sketch on:
+
+```js
+export class Gear extends Feature.with({ /* … values … */ }, {
+  buckets: {
+    tipFaces: {},                       // the top land of every tooth, in tooth order
+    tipEdges: {},                       // declared, not filled: the edges of tipFaces
+    flankFaces: {},                     // two per tooth, in tooth order
+    boreFaces: {},                      // the wall of the shaft hole
+    boreEdges: { label: 'Bore Rims' },  // the menus read "Gear Bore Rims"
+  },
+}) {
+  static id = 'gear';
+
+  buildTool() {
+    // … build the solid, sort its faces, place it …
+    this.setBuckets({ startFaces, endFaces, sideFaces, tipFaces, flankFaces, boreFaces });
+    return [solid];
+  }
+}
+
+// In a model:
+const g = gear(seat.endFaces(), { teeth: 18 }).new();
+fillet(0.3, g.tipEdges());                // every tooth tip
+chamfer(0.5, g.boreEdges(0));             // indices and filters, as endEdges() takes them
+```
+
+- **The name is the accessor, and its ending is what it holds**: a
+  `…Faces` bucket holds faces, an `…Edges` bucket edges. A lowercase letter,
+  then letters and digits, ending in `Faces` or `Edges` with a name before
+  it (`/^[a-z][A-Za-z0-9]*(Faces|Edges)$/`), at most 48 characters; at most
+  32 buckets a class.
+- **A declaration is `{}` or `{ label }`.** `label` is what the editor's
+  menus call the bucket; left out, the name made readable (`tipEdges` →
+  "Tip Edges"). The menus put the feature's label first: "Gear Tip Edges",
+  "Gear Bore Rims". There is no `description`: say what each bucket holds,
+  and in what order, in the package's `docs/` page for the feature
+  (`docs/gear.md`), which other authors and the LLM read. A line comment
+  beside the declaration is for whoever reads the code.
+- **A standard name** is declared only to relabel it: `endFaces: { label:
+  'Top Face' }` makes no new method.
+- **Edge buckets are opt-in.** `g.tipEdges()` exists because `tipEdges` is
+  declared; `g.flankEdges()` doesn't. A declared `xEdges` that `setBuckets()`
+  leaves out is the distinct edges of `xFaces`, taken after the fusion or the
+  cut. Fill an edge bucket explicitly when it is not every edge of a face
+  bucket (a pocket's vertical corner edges).
+- **Checked where the module loads**, by `Feature.with()` (by
+  `registerBuilder` for a plain subclass): the model importing the module
+  fails to compile and its Custom cell greys, with one of:
+
+  | Declared | Refused with |
+  |---|---|
+  | a name without the ending | `Feature.with(): 'teeth' needs to end in Faces or Edges (teethFaces?)` |
+  | the ending alone | `Feature.with(): 'Faces' needs a name before Faces, such as tipFaces` |
+  | a description | `Feature.with(): bucket 'tipFaces': leave 'description' out — describe what the feature's buckets hold in the package's docs/ pages` |
+  | a kind | `Feature.with(): bucket 'tipFaces': leave 'kind' out — the name's ending gives it: a …Faces bucket holds faces, an …Edges bucket edges` |
+  | any other field | `Feature.with(): bucket 'tipFaces': unknown field 'note' — a bucket declares only its label` |
+  | a name every feature already has | `Feature.with(): 'getAddedFaces' is already a member of SceneObject — give the bucket another name` |
+  | a method of the same name written on the class | `feature 'gear': Gear writes tipFaces() itself — the declared bucket makes that accessor; remove the method or rename the bucket` |
+  | more than 32 | `Feature.with(): declares 33 buckets — a feature declares at most 32` |
+
+- **`buckets` in the metadata is refused**: `defineFeature(Gear): leave
+  'buckets' out — declare buckets on the class: Feature.with(params, {
+  buckets })`.
+- **Typed under checkJs.** `g.tipEdges()` is an `ISelection`, and
+  `g.tipEdge()` is an editor error ("Property 'tipEdge' does not exist on
+  type 'Gear'. Did you mean 'tipEdges'?"), as is a misspelt name in
+  `setBuckets()`. A repeat of one gear types `r.instance(k).tipEdges()`.
+- **A plain subclass** (the [[api/register-builder]] path) declares
+  `static buckets = { boreFaces: {}, boreEdges: {} }`: the same checks and
+  the same methods at run time, but no types. `Feature.with()` is the typed
+  path.
+
+**What a named bucket holds after the operation:**
+
+| The statement | Its named buckets |
+|---|---|
+| `.add()` | Each member followed through the fusion, keeping only what the final solid carries: a face the stock swallowed is dropped, a face the stock cut short is the piece that is left. Nothing is re-homed: a face that merges into the stock leaves the bucket. (`startFaces` is re-homed to the stock face it merged into, so name the face a feature grows from `startFaces`, not a bucket of your own.) |
+| `.new()` | The members as built. |
+| `.remove()` | Each member becomes what the cut left of it: a pocket's `floorFaces` is the floor the cut made, faced out of the material, and its derived `floorEdges` the floor's rim. A member the cut removes entirely is dropped, so a pocket that goes right through has no floor and `p.floorFaces()` is empty. The standard buckets are the cut's own classification, as above. |
+| a `repeat()` copy | Its own members, moved with it: `r.instance(2).tipEdges()` reads copy 2's (when the slot holds that one feature; with several, the accessor says it is ambiguous). On a mirror, `m.instance(1).tipFaces(i)` is the mirror image of `g.tipFaces(i)`. |
+| a modifier | Its final geometry, at once. |
+
+A gear fused into a plate keeps in `g.tipEdges()` the concave edges where
+each tip meets the plate, and OpenCascade can't round those together with
+the convex tip edges at the same corner: there `fillet(0.3, g.tipEdges())`
+fails. Filter them (`g.tipEdges(edge().convex())`) or keep the gear apart
+(`.new()`).
+
+**In the editor.** A pick on the feature's geometry is written through its
+named buckets first, in declaration order, then the standard ones: a click on
+a tooth's tip edge writes `g.tipEdges(…)` (a filter, or an index among its
+alternatives), never `g.endEdges(7)`, and a set of picks that exactly fills
+one bucket is written as the whole bucket (`g.tipFaces()`; every side face
+of the gear, `g.sideFaces()`). Right-clicking a pick offers "Gear Tip Edges
+(72)", with the feature's other buckets under *Select other*; the hover reads
+"tip edges of Gear"; a pick on a repeat's copy writes
+`r.instance(1).tipEdges(…)`.
 
 ## Reading the references
 
@@ -393,6 +524,351 @@ export const mountingPlate = part("Mounting plate", () => {
   chamfer(0.5, bosses.endEdges());
 });
 ```
+
+## Example: a spur gear with named buckets
+
+The gear tells its faces apart by the outline edge each one was swept from
+(`prism.Generated(edge)`, see [[api/sdk-occt]]), fills the standard buckets
+and its own, and derives `tipEdges` and `boreEdges` from their faces:
+
+```feature.js
+// gear.feature.js
+// A spur gear with straight flanks — a disc of `teeth` trapezoid teeth round
+// a shaft bore — standing on a planar face, centred on it. Its tips, flanks,
+// roots and bore are named buckets. The outline is raw OpenCascade
+// (this.occ()): the curated kernel draws no outline.
+import { Feature, defineFeature } from 'fluidcad/sdk';
+import { ShapeFactory, ShapeOps } from 'fluidcad/sdk/kernel';
+import { Matrix4 } from 'fluidcad/math';
+
+/** The flanks' slant from the tooth's centre line: the old 14.5° rack, which keeps a root land down to ten teeth. */
+const FLANK_ANGLE = (14.5 * Math.PI) / 180;
+
+export class Gear extends Feature.with({
+  face: { picker: 'face', label: 'On face', surface: 'planar', description: 'The planar face the gear stands on, centred on it' },
+  teeth: { type: 'integer', default: 20, min: 10, max: 120, description: 'How many teeth go round the gear' },
+  module: { type: 'length', default: 2, min: 0.2, description: 'The tooth size: the pitch diameter over the number of teeth' },
+  thickness: { type: 'length', default: 8, min: 0, description: 'How far the gear stands off the face' },
+  bore: { type: 'length', default: 8, min: 0, label: 'Bore diameter', description: 'The shaft hole through the middle; 0 leaves it solid' },
+}, {
+  // What the gear names, in the order the editor tries them.
+  buckets: {
+    tipFaces: {}, // the top land of every tooth, one per tooth, in tooth order
+    tipEdges: {}, // the edges round the tip faces: where a fillet rounds the tooth tips
+    flankFaces: {}, // the tooth flanks, two per tooth, in tooth order
+    rootFaces: {}, // the bottom land between neighbouring teeth
+    boreFaces: {}, // the wall of the shaft hole
+    boreEdges: { label: 'Bore Rims' }, // the rims of the shaft hole, top and bottom
+  },
+}) {
+  static id = 'gear';
+
+  buildTool() {
+    const faces = this.facesOf(this.values.face);
+    if (faces.length !== 1) {
+      throw new Error(`gear: pick one planar face to stand on (got ${faces.length} faces)`);
+    }
+    const plane = faces[0].getPlane();
+    const origin = plane.projectPoint(faces[0].center());
+    const body = this.occ(scope => Gear.#body(scope, this.values));
+
+    // Placed on the face, centred on it, growing along its normal.
+    const all = body.solid.getSubShapes('face');
+    const frame = Matrix4.fromBasis(plane.xDirection, plane.yDirection, plane.normal, origin);
+    const placed = ShapeOps.transformTracking(body.solid, frame, all);
+    body.solid.dispose();
+    /** @param {number[]} indices */
+    const imagesOf = indices => indices.map(i => placed.images[i]).filter(f => f !== null);
+    const tipFaces = imagesOf(body.faces.tip);
+    const flankFaces = imagesOf(body.faces.flank);
+    const rootFaces = imagesOf(body.faces.root);
+    const boreFaces = imagesOf(body.faces.bore);
+    this.setBuckets({
+      startFaces: imagesOf(body.faces.start),
+      endFaces: imagesOf(body.faces.end),
+      sideFaces: [...flankFaces, ...tipFaces, ...rootFaces],
+      internalFaces: boreFaces,
+      tipFaces, flankFaces, rootFaces, boreFaces,
+    });
+    return [placed.shape];
+  }
+
+  /**
+   * The gear's outline on the XY plane, extruded along Z: for each tooth, a
+   * flank, the tip land, the other flank, then the root land to the next
+   * tooth, all on shared vertices so the wire takes the edges as they are.
+   * The faces are told apart by the outline edge each one was swept from.
+   *
+   * @param {import('fluidcad/sdk/occt').OccScope} scope
+   * @param {{ teeth: number, module: number, thickness: number, bore: number }} values
+   */
+  static #body({ oc, track }, { teeth, module, thickness, bore }) {
+    const pitch = (module * teeth) / 2;
+    const tip = pitch + module;
+    const root = pitch - 1.25 * module;
+    // Half the tooth's width, across its centre line, at the tip and at the root.
+    const tipHalf = (Math.PI * module) / 4 - module * Math.tan(FLANK_ANGLE);
+    const rootHalf = (Math.PI * module) / 4 + 1.25 * module * Math.tan(FLANK_ANGLE);
+    const step = (2 * Math.PI) / teeth;
+    if (step - 2 * Math.asin(rootHalf / root) <= 0) {
+      throw new Error(`gear: ${teeth} teeth leave no room between them — give it more teeth`);
+    }
+    if (bore > 0 && bore / 2 >= root - module) {
+      throw new Error(`gear: the bore (${bore}) leaves no rim under the teeth — keep it under ${(2 * (root - module)).toFixed(2)}`);
+    }
+
+    /** @param {number} radius @param {number} half @param {number} angle */
+    const vertex = (radius, half, angle) => {
+      const along = Math.sqrt(radius * radius - half * half);
+      const x = along * Math.cos(angle) - half * Math.sin(angle);
+      const y = along * Math.sin(angle) + half * Math.cos(angle);
+      return track(new oc.BRepBuilderAPI_MakeVertex(new oc.gp_Pnt(x, y, 0)).Vertex());
+    };
+    const axis = new oc.gp_Ax2(new oc.gp_Pnt(0, 0, 0), new oc.gp_Dir(0, 0, 1));
+    const tipCircle = new oc.gp_Circ(axis, tip);
+    const rootCircle = new oc.gp_Circ(axis, root);
+
+    const corners = Array.from({ length: teeth }, (_, i) => ({
+      rootIn: vertex(root, -rootHalf, i * step),
+      tipIn: vertex(tip, -tipHalf, i * step),
+      tipOut: vertex(tip, tipHalf, i * step),
+      rootOut: vertex(root, rootHalf, i * step),
+    }));
+    const wire = new oc.BRepBuilderAPI_MakeWire();
+    /** @type {{ role: 'flank' | 'tip' | 'root', edge: import('fluidcad/sdk/occt').TopoDS_Edge }[]} */
+    const roles = [];
+    /** @param {'flank' | 'tip' | 'root'} role @param {import('fluidcad/sdk/occt').TopoDS_Edge} edge */
+    const add = (role, edge) => {
+      wire.Add(track(edge));
+      roles.push({ role, edge: track(wire.Edge()) });
+    };
+    corners.forEach((c, i) => {
+      const next = corners[(i + 1) % teeth];
+      add('flank', new oc.BRepBuilderAPI_MakeEdge(c.rootIn, c.tipIn).Edge());
+      add('tip', new oc.BRepBuilderAPI_MakeEdge(tipCircle, c.tipIn, c.tipOut).Edge());
+      add('flank', new oc.BRepBuilderAPI_MakeEdge(c.tipOut, c.rootOut).Edge());
+      add('root', new oc.BRepBuilderAPI_MakeEdge(rootCircle, c.rootOut, next.rootIn).Edge());
+    });
+    if (!wire.IsDone()) {
+      throw new Error('gear: the outline did not close');
+    }
+
+    const face = new oc.BRepBuilderAPI_MakeFace(track(wire.Wire()), true);
+    /** @type {import('fluidcad/sdk/occt').TopoDS_Edge | null} */
+    let boreEdge = null;
+    if (bore > 0) {
+      boreEdge = track(new oc.BRepBuilderAPI_MakeEdge(new oc.gp_Circ(axis, bore / 2)).Edge());
+      const boreWire = track(new oc.BRepBuilderAPI_MakeWire(boreEdge).Wire());
+      // A hole runs the other way round from the outline.
+      face.Add(track(oc.TopoDS.Wire(track(boreWire.Reversed()))));
+    }
+    const prism = new oc.BRepPrimAPI_MakePrism(track(face.Face()), new oc.gp_Vec(0, 0, thickness), false, true);
+    if (!prism.IsDone()) {
+      throw new Error('gear: the extrusion failed');
+    }
+
+    const solid = ShapeFactory.fromShape(track(prism.Shape()));
+    const all = solid.getSubShapes('face');
+    /** @param {import('fluidcad/sdk/occt').TopoDS_Shape} raw */
+    const indexOf = raw => all.findIndex(f => f.getShape().IsSame(raw));
+    /** @param {import('fluidcad/sdk/occt').TopoDS_Edge} edge */
+    const sweptFrom = edge => {
+      const list = track(prism.Generated(edge));
+      /** @type {number[]} */
+      const found = [];
+      for (; list.Size() > 0; list.RemoveFirst()) {
+        const at = indexOf(track(list.First()));
+        if (at >= 0) {
+          found.push(at);
+        }
+      }
+      return found;
+    };
+    /** @type {Record<'start' | 'end' | 'tip' | 'flank' | 'root' | 'bore', number[]>} */
+    const faces = {
+      start: [indexOf(track(prism.FirstShape()))],
+      end: [indexOf(track(prism.LastShape()))],
+      tip: [],
+      flank: [],
+      root: [],
+      bore: boreEdge ? sweptFrom(boreEdge) : [],
+    };
+    for (const { role, edge } of roles) {
+      faces[role].push(...sweptFrom(edge));
+    }
+    return { solid, faces };
+  }
+}
+
+export const gear = defineFeature(Gear, {
+  label: 'Gear',
+  description: 'A spur gear with straight flanks and a shaft bore, standing on a planar face',
+  group: 'create',
+  operations: ['add', 'new'],
+  call: ['face', { teeth: 'teeth', module: 'module', thickness: 'thickness', bore: 'bore' }],
+});
+```
+
+A gear pair on a base plate, each gear a body of its own, its tooth tips
+rounded through its own bucket:
+
+```fluid.js
+import { part, sketch, line, circle, extrude, fillet, chamfer } from "fluidcad/core";
+import { coincident, horizontal, vertical, distance, diameter, fix } from "fluidcad/constraints";
+import { gear } from "./gear.feature.js";
+
+// A gear pair on a 120 × 70 × 6 base plate: an 18-tooth pinion and a 31-tooth
+// wheel, module 2, on round seats 49 mm apart (the sum of their pitch radii).
+export const gearPair = part("Gear pair", () => {
+  sketch("xy", () => {
+    const b = line([-61, -36], [59, -34]);
+    const r = line([59, -34], [61, 36]);
+    const t = line([61, 36], [-59, 34]);
+    const l = line([-59, 34], [-61, -36]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [-60, -35]);
+    distance(b.start(), b.end(), 120);
+    distance(r.start(), r.end(), 70);
+  });
+  extrude(6);
+
+  // The two seats, 2 mm proud of the plate.
+  sketch("xy", () => {
+    const s = circle([-24.5, 0], 9);
+    fix(s.center(), [-24.5, 0]);
+    diameter(s, 20);
+  });
+  const pinionSeat = extrude(8);
+  sketch("xy", () => {
+    const s = circle([24.5, 0], 14);
+    fix(s.center(), [24.5, 0]);
+    diameter(s, 30);
+  });
+  const wheelSeat = extrude(8);
+
+  // Each gear a body of its own on its seat, its tooth tips rounded.
+  const pinion = gear(pinionSeat.endFaces(), { teeth: 18 }).new();
+  fillet(0.3, pinion.tipEdges());
+  const wheel = gear(wheelSeat.endFaces(), { teeth: 31 }).new();
+  fillet(0.3, wheel.tipEdges());
+  chamfer(0.5, wheel.boreEdges());
+});
+```
+
+## Example: a bearing seat, named buckets through a remove
+
+A round pocket built with the curated kernel. It removes by default, so its
+named buckets are what the cut leaves: `floorFaces` the seat's floor,
+`floorEdges` (declared, not filled) its rim, `wallFaces` the bore. Its
+`startPlane` lets the cut classify the mouth as a start edge:
+
+```feature.js
+// bearing-seat.feature.js
+// A bearing seat: a round pocket sunk into a planar face, centred on it,
+// built with the curated kernel. It removes by default.
+import { Feature, defineFeature } from 'fluidcad/sdk';
+import { Primitives, ShapeOps } from 'fluidcad/sdk/kernel';
+import { Matrix4, Plane } from 'fluidcad/math';
+
+export class BearingSeat extends Feature.with({
+  face: { picker: 'face', label: 'On face', surface: 'planar' },
+  diameter: { type: 'length', default: 22, min: 0 },
+  depth: { type: 'length', default: 7, min: 0 },
+}, {
+  buckets: {
+    floorFaces: {}, // the flat bottom the bearing rests on; none when the seat goes right through
+    floorEdges: {}, // the rim round the floor, derived from floorFaces
+    wallFaces: {}, // the bore the bearing presses into
+  },
+}) {
+  static id = 'bearingSeat';
+
+  buildTool() {
+    const { diameter, depth } = this.values;
+    const faces = this.facesOf(this.values.face);
+    if (faces.length !== 1) {
+      throw new Error(`bearing seat: pick one planar face to sink it into (got ${faces.length} faces)`);
+    }
+    const plane = faces[0].getPlane();
+    const origin = plane.projectPoint(faces[0].center());
+
+    // Built on the XY plane from z = 0 to z = depth, its faces sorted there.
+    const tool = Primitives.makeCylinder(diameter / 2, depth);
+    const all = tool.getSubShapes('face');
+    const tolerance = 1e-6 * Math.max(depth, diameter);
+    const mouth = all.filter(f => Math.abs(f.getBoundingBox().maxZ) < tolerance);
+    const floor = all.filter(f => Math.abs(f.getBoundingBox().minZ - depth) < tolerance);
+    const wall = all.filter(f => !mouth.includes(f) && !floor.includes(f));
+
+    // Placed with its Z running into the material: the face's normal reversed.
+    const into = plane.normal.negate();
+    const frame = Matrix4.fromBasis(plane.xDirection, plane.yDirection.negate(), into, origin);
+    const placed = ShapeOps.transformTracking(tool, frame, all);
+    tool.dispose();
+    const [floorFaces, wallFaces] = [floor, wall]
+      .map(group => group.map(f => placed.images[all.indexOf(f)]).filter(f => f !== null));
+
+    this.setBuckets({
+      floorFaces,
+      wallFaces,
+      // The cut classifies its own rims from it: the mouth is a start edge.
+      startPlane: new Plane(origin, plane.xDirection, into),
+    });
+    return [placed.shape];
+  }
+}
+
+export const bearingSeat = defineFeature(BearingSeat, {
+  label: 'Bearing seat',
+  description: 'A round pocket a bearing presses into, sunk into a planar face',
+  group: 'modify',
+  operations: ['remove', 'new'],
+  call: ['face', { diameter: 'diameter', depth: 'depth' }],
+});
+```
+
+```fluid.js
+import { part, sketch, line, extrude, fillet, chamfer } from "fluidcad/core";
+import { coincident, horizontal, vertical, distance, fix } from "fluidcad/constraints";
+import { bearingSeat } from "./bearing-seat.feature.js";
+
+// A 60 × 40 × 12 bearing plate with a seat for a 608 bearing (Ø22 × 7).
+export const bearingPlate = part("Bearing plate", () => {
+  sketch("xy", () => {
+    const b = line([-31, -21], [29, -19]);
+    const r = line([29, -19], [31, 21]);
+    const t = line([31, 21], [-29, 19]);
+    const l = line([-29, 19], [-31, -21]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [-30, -20]);
+    distance(b.start(), b.end(), 60);
+    distance(r.start(), r.end(), 40);
+  });
+  const plate = extrude(12);
+
+  const seat = bearingSeat(plate.endFaces(), { diameter: 22, depth: 7 });
+  fillet(0.3, seat.floorEdges());      // a relief where the floor meets the bore
+  chamfer(0.5, seat.startEdges());     // a lead-in at the mouth, a rim the cut classified
+});
+```
+
+A seat deeper than the plate goes right through: its `floorFaces()` and
+`floorEdges()` are empty, and the fillet on them fails its row with
+`fillet: the selection resolved to no edges — nothing was filleted.`
 
 See [[api/define-feature]] for the metadata, [[api/feature-params]] for the
 values and pickers, [[api/connector]] for connectors and their copies.

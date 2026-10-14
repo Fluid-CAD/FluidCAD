@@ -1,7 +1,7 @@
 ---
 id: concepts/custom-features
 title: Custom features — your own feature types in *.feature.js modules
-summary: "A custom feature is a feature type a project writes in JavaScript: a Feature.with() class whose buildTool() returns its solids, exported through defineFeature() from a *.feature.js module. The editor finds it by scanning the module's exports (no init.js), lists it under the toolbar's Custom dropdown with a dialog built from its declared values, a live preview behind a toggle, Apply that writes the import and the call, and timeline edits; models call it like a built-in, and repeat, copy and fillet its buckets. The module re-evaluates on every render, so never instanceof your own class; saving its code rebuilds its statements with no restart."
+summary: "A custom feature is a feature type a project writes in JavaScript: a Feature.with() class whose buildTool() returns its solids, exported through defineFeature() from a *.feature.js module. The editor finds it by scanning the module's exports (no init.js), lists it under the toolbar's Custom dropdown with a dialog built from its declared values, a live preview behind a toggle, Apply that writes the import and the call, and timeline edits; models call it like a built-in, and repeat, copy and fillet its buckets — the standard ones and the named buckets its class declares (Feature.with(params, { buckets: { tipEdges: {} } }) → g.tipEdges(), which the editor's picks and right-click menu use too; each bucket is described in the package's docs/ pages). The module re-evaluates on every render, so never instanceof your own class; saving its code rebuilds its statements with no restart."
 tags: [concept, sdk, custom-feature, feature]
 seeAlso: [api/feature, api/define-feature, api/feature-params, api/feature-layout, api/register-builder, api/sdk-kernel, api/sdk-occt, api/draft, api/repeat, concepts/scene-graph, concepts/packages]
 ---
@@ -58,7 +58,8 @@ A `*.feature.js` module holds a class and the builder it exports:
    model never writes that key, it imports and calls `standoff`.
 3. **`buildTool()`** returns the solids the feature adds or cuts, built where
    its picked references stand. The base applies the operation (add, new or
-   remove), fuses or cuts, and carries the buckets `setBuckets()` names.
+   remove), fuses or cuts, and carries the buckets `setBuckets()` names: the
+   standard ones, and the class's own (see *Naming what the feature makes*).
 4. **`defineFeature(Class, { … })`** describes the feature for the editor
    (label, group, operations, the call shape) and returns the builder that
    models call. Export it by name.
@@ -184,6 +185,62 @@ Without `setBuckets()` the feature's accessors are empty: `post.endEdges()`
 names nothing, so a fillet on it fails, and the editor names picks on the
 standoff's geometry with filters instead.
 
+## Naming what the feature makes
+
+A model reaches what a feature made through its buckets, and so does the
+editor: a pick on the standoff's top rim is written `post.endEdges()`. The
+standard buckets (`startFaces`, `endFaces`, `sideFaces`, `internalFaces`,
+`capFaces` and their edges) say where a face sits the way an extrude's do.
+When the result has parts with names of their own — a gear's tooth tips, a
+pocket's floor — declare them beside the values and fill them in
+`setBuckets()`:
+
+```js
+export class Gear extends Feature.with({ /* … values … */ }, {
+  buckets: {
+    tipFaces: {},                       // the top land of every tooth, in tooth order
+    tipEdges: {},                       // declared, not filled: the edges of tipFaces
+    boreFaces: {},                      // the wall of the shaft hole
+    boreEdges: { label: 'Bore Rims' },  // the right-click menu reads "Gear Bore Rims"
+  },
+}) {
+  static id = 'gear';
+
+  buildTool() {
+    // … build the gear, sort its faces, place it …
+    this.setBuckets({ startFaces, endFaces, sideFaces, tipFaces, boreFaces });
+    return [solid];
+  }
+}
+```
+
+Each declared bucket is a method of the feature, read like `endFaces()`:
+a model writes `fillet(0.3, g.tipEdges())` or `chamfer(0.5,
+g.boreEdges(0))`, typed under checkJs (`g.tipEdge()` is an editor error), and
+`r.instance(2).tipEdges()` on a repeat's copy. In the editor a click on a
+tooth's tip edge writes `g.tipEdges(…)`, and right-clicking it offers **Gear
+Tip Edges**, with the gear's other buckets under *Select other*.
+
+- **Declare the buckets a user will fillet, chamfer or sketch on.** A name
+  ends in `Faces` or `Edges`, which says what it holds. An edge bucket
+  exists only when declared; one that `setBuckets()` leaves out is the edges
+  of its `…Faces` sibling.
+- **A declaration holds only a `label`**, the menus' words. Describe each
+  bucket, what it holds and in what order, in the `docs/` page for the
+  feature (`docs/gear.md`, which a package ships): that is where other
+  authors and the LLM look. A `description` field is refused.
+- **Mistakes fail loudly.** A misspelt name in `setBuckets()`, a face in an
+  edge bucket, or a face of a shape `buildTool()` doesn't return fails the
+  feature's row with a message that names it, where before it was an empty
+  bucket.
+- **The buckets follow the operation.** A fusion keeps what the final solid
+  still carries of each one (a face the stock swallowed is dropped, never
+  swapped for the stock face as `startFaces` is), a remove keeps what its cut
+  left (a pocket's floor), and a repeat's copy moves them.
+
+The naming rule, every refusal, the carry rules and two complete examples (a
+gear pair, a bearing seat): [[api/feature]].
+
 ## What the dialog can hold
 
 The dialog is drawn from the declaration: one row per value, in the order
@@ -263,7 +320,9 @@ shape: {
 |---|---|
 | Metadata refused (`defineFeature()` checks it where the module loads) | the module's catalog entry is greyed; a model importing it fails to compile with the message, such as `feature 'standoff': param 'face': unknown field 'surfce' for a face picker — its fields are …` |
 | A call the builder can't read (a wrong value, a missing required one) | the model fails to compile: `standoff(): 'height' must be at least 0, got -2` |
+| A bucket declaration refused (`Feature.with()` checks it where the module loads) | as a refused metadata field: `Feature.with(): 'teeth' needs to end in Faces or Edges (teethFaces?)` |
 | `buildTool()` throws, or returns nothing | that statement's row fails with the message; the rest of the model builds |
+| `setBuckets()` handed a name the feature has no bucket for, a value that isn't a list, a member of the wrong kind, or a member of a shape `buildTool()` doesn't return | that row fails: `gear: setBuckets() 'tipFace' is not a bucket of gear — did you mean tipFaces?` |
 | An operation the feature doesn't offer (`.remove()` on an add/new feature) | that row fails: `standoff(): .remove() is not an operation this feature offers — it offers 'add' and 'new'; 'add' is its default and needs no chain` |
 
 ## Sharing as a package
@@ -304,9 +363,6 @@ to look at without publishing; publishing never needs it first.
   the top level of an `*.assembly.js` file (`contexts` takes only `'part'`).
 - **Node built-ins are blocked** in feature modules as in models (`fs`,
   `child_process`, `net`, `http`, `os`, `worker_threads`, `vm`, …).
-- **Standard buckets only:** `startFaces`, `endFaces`, `sideFaces`,
-  `internalFaces`, `capFaces` and their edges. There are no custom named
-  buckets.
 - **No custom dialog controls or illustrations:** the dialog is built from
   the declared values (see [[api/feature-params]]).
 

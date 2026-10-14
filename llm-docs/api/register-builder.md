@@ -1,7 +1,7 @@
 ---
 id: api/register-builder
 title: "registerBuilder(build, { feature }) / parseCall(meta, args) — the explicit path"
-summary: "The explicit way to make a custom feature's builder, from fluidcad/sdk: a plain Feature subclass, the whole metadata object (class, kind and params included) passed to registerBuilder(build, { feature }), and parseCall(meta, args) to read the call's arguments into the feature's values. It builds exactly what defineFeature() builds; use it when the builder must do something before reading its arguments. The metadata is checked at registration."
+summary: "The explicit way to make a custom feature's builder, from fluidcad/sdk: a plain Feature subclass, the whole metadata object (class, kind and params included) passed to registerBuilder(build, { feature }), and parseCall(meta, args) to read the call's arguments into the feature's values. It builds exactly what defineFeature() builds; use it when the builder must do something before reading its arguments. The metadata is checked at registration; it refuses a buckets field (a plain subclass declares static buckets, untyped)."
 tags: [api, sdk, custom-feature, metadata, type]
 symbols: [registerBuilder, parseCall, FeatureMeta]
 seeAlso: [api/define-feature, api/feature, api/feature-params, concepts/custom-features]
@@ -54,6 +54,16 @@ when it is called with an angle alone.
   return.
 - `allowAssemblyTopLevel` is refused with `feature`: a feature runs where its
   `contexts` say.
+- **Buckets are declared on the class, never in the metadata.** A `buckets`
+  field is refused: `feature metadata: leave 'buckets' out — declare buckets
+  on the class: Feature.with(params, { buckets }), or static buckets on a
+  plain Feature subclass`. A plain subclass declares `static buckets = {
+  boreFaces: {}, boreEdges: {} }`; `registerBuilder` checks the declaration
+  as `Feature.with()` does and installs the accessors (`post.boreEdges()`),
+  which exist at run time only: the types don't carry them, so under checkJs
+  `post.boreEdges()` and `this.setBuckets({ boreFaces })` are flagged. For
+  typed named buckets, use `Feature.with(params, { buckets })` (see
+  [[api/feature]]).
 
 In plain JavaScript, a plain `Feature` subclass's `this.values` is untyped;
 declare it with JSDoc, as below, or prefer `Feature.with()` and

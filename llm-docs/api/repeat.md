@@ -80,6 +80,17 @@ axis, options, bolt), or copy(<this repeat>, bolt) to follow it`. Repeat
 the hole, then lay the connector on its instances with
 `copy(holes, bolt)` (see [[api/copy]]).
 
+## One instance's faces and edges
+
+`r.instance(k)` is the geometry the repeat placed at slot `k` (see
+[[api/types/repeat]] for the numbering). When the repeat clones one feature,
+the instance forwards that feature's accessors, with the indices and filters
+the original's take: `fillet(1, r.instance(2).endEdges())` rounds only that
+copy's top edges. A custom feature's named buckets are forwarded too:
+`fillet(0.3, r.instance(2).tipEdges())` on a repeat of a gear (see
+[[api/feature]]). A repeat of several features (`repeat(…, pad, post)`)
+forwards none: reading one says it is ambiguous.
+
 ## Examples
 
 ```fluid.js

@@ -197,6 +197,13 @@ export const twist = defineFeature(Twist, {
 });
 ```
 
+The twist sorts its faces by where they stand and names the standard
+buckets. A raw algorithm usually knows more: a prism's
+`Generated(edge)` is the face swept from that outline edge, so a feature can
+tell its faces apart by the edge they came from and name buckets of its own
+(`tipFaces`, `flankFaces`, declared with `Feature.with(params, { buckets })`).
+The spur gear in [[api/feature]] does exactly that.
+
 A pen holder: a hexagonal foot, 24 mm across its corners, and a column
 twisting a third of a turn up from its top with a bore down the middle:
 

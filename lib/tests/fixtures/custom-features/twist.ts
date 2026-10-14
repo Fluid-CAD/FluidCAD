@@ -18,11 +18,26 @@ export const TWIST_DEFAULTS = { height: 20, angle: 90, sections: 8, bore: 0 };
 
 /** The twist's values, as `Feature.with()` declares them. */
 const TWIST_PARAMS = {
-  face: { picker: 'face', label: 'Profile face', surface: 'planar' },
-  height: { type: 'length', default: TWIST_DEFAULTS.height, min: 0 },
-  angle: { type: 'angle', default: TWIST_DEFAULTS.angle, label: 'Twist' },
-  sections: { type: 'integer', default: TWIST_DEFAULTS.sections, min: 2, max: 64 },
-  bore: { type: 'length', default: TWIST_DEFAULTS.bore, min: 0, label: 'Bore diameter' },
+  face: {
+    picker: 'face', label: 'Profile face', surface: 'planar',
+    description: "The planar face whose outline twists upward, such as a sketched profile's extrusion top (foot.endFaces()). Only its outer outline is used, so holes in the face don't carry into the column.",
+  },
+  height: {
+    type: 'length', default: TWIST_DEFAULTS.height, min: 0,
+    description: "How far the column rises from the face, along the face's normal.",
+  },
+  angle: {
+    type: 'angle', default: TWIST_DEFAULTS.angle, label: 'Twist',
+    description: "How far the top is turned from the bottom, in degrees, about the face's normal through its centre; positive turns anticlockwise seen from above.",
+  },
+  sections: {
+    type: 'integer', default: TWIST_DEFAULTS.sections, min: 2, max: 64,
+    description: 'How many steps the loft takes from bottom to top (2 to 64): more sections follow the twist more closely and build more slowly.',
+  },
+  bore: {
+    type: 'length', default: TWIST_DEFAULTS.bore, min: 0, label: 'Bore diameter',
+    description: "The diameter of a hole down the column's axis, through its full height; 0 for none. Keep it inside the outline.",
+  },
 } as const;
 
 /** `twist(face, { height, angle, sections, bore })`. */

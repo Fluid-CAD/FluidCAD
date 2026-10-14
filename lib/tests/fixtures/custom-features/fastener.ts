@@ -28,10 +28,14 @@ export const FASTENER_DEFAULTS = { standard: 'iso', size: 'm3', head: 'plain', d
 
 /** The fastener's values, as `Feature.with()` declares them. */
 const FASTENER_PARAMS = {
-  at: { picker: ['connector', 'point', 'anchor'], anchors: ['center'], label: 'At' },
+  at: {
+    picker: ['connector', 'point', 'anchor'], anchors: ['center'], label: 'At',
+    description: "Where the screw enters: a connector, a point or a face centre (e.endFaces().center()). The hole is sunk into the material from there, against the location's normal (a connector's Z axis, a face's outward normal), so put it on the surface the screw goes in from.",
+  },
   standard: {
     type: 'radio', display: 'buttons',
     options: [{ label: 'Metric', value: 'iso' }, { label: 'Imperial', value: 'unc' }],
+    description: "'iso' (metric) or 'unc' (imperial): which screws the dialog offers for size. It narrows the choice only; the hole is cut from size.",
   },
   size: {
     type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3,
@@ -42,6 +46,7 @@ const FASTENER_PARAMS = {
       { label: '#4', value: 'n4', image: './fastener/n4.svg', description: '3.3 mm clearance', when: { standard: 'unc' }, keywords: ['unc', 'inch'] },
       { label: '#6', value: 'n6', image: './fastener/n6.svg', description: '3.9 mm clearance', when: { standard: 'unc' }, keywords: ['unc', 'inch'] },
     ],
+    description: "The screw: 'm3', 'm4', 'm5' (metric) or 'n4', 'n6' (#4, #6 imperial). It sets the clearance diameter (3.4, 4.5, 5.5, 3.3, 3.9 mm) and the size of the head recess.",
   },
   head: {
     type: 'radio', display: 'cards', columns: 3,
@@ -50,14 +55,22 @@ const FASTENER_PARAMS = {
       { label: 'Counterbore', value: 'counterbore', image: './fastener/counterbore.svg', description: 'A flat recess the head sinks into' },
       { label: 'Countersink', value: 'countersink', image: './fastener/countersink.svg', description: 'A shallow recess for a flat head' },
     ],
+    description: "The recess for the screw head: 'plain' (none), 'counterbore' (as wide as the head, as deep as the head is tall) or 'countersink' (a shallow flat recess for a flat head; the SDK has no cone).",
   },
-  depth: { type: 'length', default: FASTENER_DEFAULTS.depth, min: 1, max: 50, display: 'slider', suffix: 'mm', hint: 'Measured from the surface' },
+  depth: {
+    type: 'length', default: FASTENER_DEFAULTS.depth, min: 1, max: 50, display: 'slider', suffix: 'mm', hint: 'Measured from the surface',
+    description: 'The whole depth of the hole from the surface, recess included (1 to 50). Must be deeper than the head recess; deeper than the material cuts through.',
+  },
   /** A note kept with the hole — a part number, a torque class. It cuts nothing. */
-  marking: { type: 'text', optional: true, placeholder: 'A2-70', maxLength: 12, pattern: '[A-Za-z0-9-]*', hint: 'Letters, digits and dashes' },
+  marking: {
+    type: 'text', optional: true, placeholder: 'A2-70', maxLength: 12, pattern: '[A-Za-z0-9-]*', hint: 'Letters, digits and dashes',
+    description: "An optional note kept with the hole, such as a part number or a torque class ('A2-70'): letters, digits and dashes, at most 12. It cuts nothing.",
+  },
   /** What is done to the hole's rim afterwards, at most two of them. It cuts nothing. */
   finishes: {
     type: 'select', multiple: true, label: 'Finishes', default: ['deburr'], max: 2,
     options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Chamfer', value: 'chamfer' }, { label: 'Polish', value: 'polish' }],
+    description: "What is done to the hole's rim afterwards: an array of at most two of 'deburr', 'chamfer' and 'polish'. Recorded with the hole; it cuts nothing.",
   },
 } as const;
 

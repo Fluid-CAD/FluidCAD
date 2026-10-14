@@ -371,10 +371,10 @@ describe("a feature metadata snapshot", () => {
       operations: ['add', 'new'],
       defaultOperation: 'add',
       params: {
-        face: { picker: 'face', label: 'On face', surface: 'planar' },
-        height: { type: 'length', default: 10, min: 0, label: 'Height' },
-        outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },
-        hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
+        face: { picker: 'face', label: 'On face', surface: 'planar', description: expect.stringMatching(/^Exactly one planar face to stand on\./) },
+        height: { type: 'length', default: 10, min: 0, label: 'Height', description: expect.stringMatching(/^How far the standoff rises/) },
+        outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter', description: expect.stringMatching(/^The outside diameter of the cylindrical boss/) },
+        hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter', description: expect.stringMatching(/^The diameter of the bore/) },
       },
       call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],
       ghost: true,
@@ -993,7 +993,13 @@ describe("how a typed-in value's row looks: slider, stepper, suffix, checkbox, t
       .toEqual({ type: 'text', multiline: true, placeholder: 'A note', maxLength: 40, pattern: '[^!]*', label: 'Height' });
     expect(JSON.stringify(snapshot({ type: 'length', min: 0 }))).toBe('{"type":"length","min":0,"label":"Height"}');
     const { depth, marking } = snapshotFeatureMeta(defineFastener().meta).params as Record<string, unknown>;
-    expect(depth).toEqual({ type: 'length', default: 10, min: 1, max: 50, display: 'slider', suffix: 'mm', hint: 'Measured from the surface', label: 'Depth' });
-    expect(marking).toEqual({ type: 'text', optional: true, placeholder: 'A2-70', maxLength: 12, pattern: '[A-Za-z0-9-]*', hint: 'Letters, digits and dashes', label: 'Marking' });
+    expect(depth).toEqual({
+      type: 'length', default: 10, min: 1, max: 50, display: 'slider', suffix: 'mm', hint: 'Measured from the surface', label: 'Depth',
+      description: expect.stringMatching(/^The whole depth of the hole from the surface/),
+    });
+    expect(marking).toEqual({
+      type: 'text', optional: true, placeholder: 'A2-70', maxLength: 12, pattern: '[A-Za-z0-9-]*', hint: 'Letters, digits and dashes', label: 'Marking',
+      description: expect.stringMatching(/^An optional note kept with the hole/),
+    });
   });
 });

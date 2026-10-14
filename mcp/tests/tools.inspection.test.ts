@@ -715,6 +715,17 @@ describe('inspection tools (over MCP)', () => {
       for (const name of ['get_scene_summary', 'get_shape_properties', 'get_face_properties', 'get_edge_properties']) {
         expect(byName.get(name)).toContain('`unit`');
       }
+      // The tools send agents to get_scene_summary for instance ids and
+      // poses, so it must say it lists them and what the pose is; interfere
+      // must not promise a solved pose the summary never carries.
+      expect(byName.get('get_scene_summary')).toContain('`instances`');
+      expect(byName.get('get_scene_summary')).toContain('`instancePoses`');
+      expect(byName.get('get_scene_summary')).toContain('NOT the mate-solved pose');
+      expect(interfereTool.description).toContain('`instances[].pose`');
+      expect(interfereTool.description).not.toContain('after a viewport drag writes it back');
+      const measureSchema = JSON.stringify(tools.tools.find((t) => t.name === 'measure')!.inputSchema);
+      expect(measureSchema).toContain('statement pose');
+      expect(measureSchema).not.toContain('dragged poses');
       // `pack` packs the workspace's package; the old model packer's tool is gone.
       expect(byName.has('pack_model')).toBe(false);
       expect(byName.get('pack')).toContain('`unit`');

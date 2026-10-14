@@ -323,7 +323,7 @@ class ValidateInputs {
     }
     const instanceId = input?.instanceId;
     if (instanceId !== undefined && (typeof instanceId !== 'string' || instanceId.length === 0)) {
-      return '`instanceId` must be a non-empty string when given (ids from get_scene_summary in an assembly file).';
+      return '`instanceId` must be a non-empty string when given (`instances[].instanceId` from get_scene_summary in an assembly file).';
     }
     return null;
   }
@@ -362,7 +362,7 @@ class InterfereInputs {
 
   static error(input: InterfereInput | undefined): string | null {
     const idsError = InterfereInputs.idListError('shapeIds', input?.shapeIds, 'ids from list_shapes or get_scene_summary; omit it to check every solid the scene renders')
-      ?? InterfereInputs.idListError('instanceIds', input?.instanceIds, 'ids from get_scene_summary in an assembly file; omit it to check every instance');
+      ?? InterfereInputs.idListError('instanceIds', input?.instanceIds, '`instances[].instanceId` from get_scene_summary in an assembly file; omit it to check every instance');
     if (idsError) {
       return idsError;
     }
@@ -377,7 +377,7 @@ class InterfereInputs {
       }
       for (const pose of poses) {
         if (typeof pose?.instanceId !== 'string' || pose.instanceId.length === 0) {
-          return '`poses` entries need a non-empty `instanceId` (ids from get_scene_summary).';
+          return '`poses` entries need a non-empty `instanceId` (get_scene_summary\'s `instances[].pose` entries have this shape).';
         }
         if (!InterfereInputs.isPose(pose)) {
           return `\`poses\` entry for "${pose.instanceId}" needs a finite position {x,y,z} and a non-zero quaternion {x,y,z,w}.`;

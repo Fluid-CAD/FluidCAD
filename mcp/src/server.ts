@@ -282,7 +282,17 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get the feature tree for a workspace',
       description:
-        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. Use this before list_shapes when you need feature-tree context.',
+        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. Use this before list_shapes when you need feature-tree context. ' +
+        'In an assembly file it also returns `instances`, one per inserted instance (sub-assemblies\' included): `instanceId` (what ' +
+        'validate, interfere, measure, resolve_selection and the screenshot `hide`/`focus`/`fitTo` take), `name`, `partId`/`partName` ' +
+        '(the `part` row it inserts; `partId` feeds get_shape_properties), `owner` (the sub-assembly occurrence path, "" at the root), ' +
+        '`grounded` (fixed in the world), `shapeIds` (the rendered solids it shows, the same ids for every instance of one part: what ' +
+        'validate checks and interfere places for it), `pose`, `sourceLocation`, and `replica` on a replicate() copy. `instancePoses` ' +
+        'says what every `pose` is: { frame: "world", source: "statement" }, the insert() chain\'s translate/rotate composed through ' +
+        'sub-assembly frames, the pose interfere, measure and resolve_selection use by default. It is NOT the mate-solved pose the ' +
+        'viewport draws: mates are solved only in the viewer, and no tool reports that pose. Each `pose` is already an interfere ' +
+        '`poses` entry ({ instanceId, position, quaternion }). `occurrences` lists inserted sub-assemblies (`occurrenceId`, `name`, ' +
+        '`assemblyName`, `parentPath`). A part file has none of these keys.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await getSceneSummary({ workspace })),
@@ -362,14 +372,15 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     .union([
       z.object({ sceneObjectId: z.string().min(1).describe('A scene object id from get_scene_summary; the scope is that object\'s enclosing part.') }),
       z.object({ part: z.string().min(1).describe('A part name (or a part\'s scene object id).') }),
-      z.object({ instanceId: z.string().min(1).describe('Assembly files: an inserted instance id from get_scene_summary.') }),
+      z.object({ instanceId: z.string().min(1).describe('Assembly files: an instance id from get_scene_summary (`instances[].instanceId`).') }),
     ])
     .optional()
     .describe(
       'Where the expression is evaluated. Omitted: root scope — the whole scene, as a root-level select() sees it. ' +
       '{ sceneObjectId } or { part }: only that part\'s own geometry, exactly what a select() inside part("name", ...) sees ' +
       '(a filter scoped to part "base" never matches faces of part "pillar"). { instanceId }: that instance\'s part build, ' +
-      'matches carrying instanceId and the statement pose so they feed measure unchanged.',
+      'matches carrying instanceId and the statement pose (the `pose` get_scene_summary reports for the instance) so they feed ' +
+      'measure unchanged.',
     );
 
   const expressionArg = z
@@ -466,7 +477,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Default is every solid the scene renders (a solid a later cut consumed is not rendered, so not checked). `shapeIds` ' +
         'narrows to those shapes — and lets you name a non-solid shape, which reports `noSolid`. In an assembly, instances of one ' +
         'part share its prototype: each shape is checked once and `instanceIds` lists every instance showing it; `instanceId` ' +
-        'narrows to that instance\'s part. An unknown shape or instance, or no rendered scene, is an error naming the problem.',
+        'narrows to that instance\'s part (get_scene_summary lists those solids as the instance\'s `shapeIds`). An unknown shape ' +
+        'or instance, or no rendered scene, is an error naming the problem.',
       inputSchema: {
         ...workspaceArg,
         shapeIds: z
@@ -478,7 +490,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .string()
           .min(1)
           .optional()
-          .describe('Assembly files: only the shapes of this instance\'s part prototype (instance ids from get_scene_summary).'),
+          .describe('Assembly files: only the shapes of this instance\'s part prototype (`instances[].instanceId` from get_scene_summary; that entry\'s `shapeIds` are the solids checked).'),
       },
     },
     async ({ workspace, shapeIds, instanceId }) =>
@@ -486,7 +498,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   );
 
   const instancePoseArg = z.object({
-    instanceId: z.string().min(1).describe('The instance this pose is for (ids from get_scene_summary).'),
+    instanceId: z.string().min(1).describe('The instance this pose is for. get_scene_summary\'s `instances[].pose` is already this shape: { instanceId, position, quaternion }.'),
     position: z.object({ x: z.number(), y: z.number(), z: z.number() }),
     quaternion: z.object({ x: z.number(), y: z.number(), z: z.number(), w: z.number() }),
   });
@@ -507,9 +519,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'set), `bodies`, `units` (parts or instances compared), `checked` (pairs whose boolean ran — the cost), `rejectedByBounds`, ' +
         '`clashes` and `intraPart` (each pair: two bodies with shapeId, sceneObjectId, part, instanceId in an assembly, and the shared ' +
         '`volume`), `failed` (pairs whose boolean threw, with the message; not cleared), `tolerance`, `unit`. Assembly instances sit ' +
-        'at their STATEMENT poses (insert().translate()/.rotate()); mate-solved or dragged poses seen in the viewport are not applied ' +
-        'unless you pass `poses` (a world pose per instance, from get_scene_summary after a viewport drag writes it back). `instanceIds` ' +
-        'with one id tests that instance against every other body; with two or more, only the named instances among themselves. ' +
+        'at their STATEMENT poses: insert().translate()/.rotate() composed through sub-assembly frames, in the world. That is the ' +
+        '`pose` get_scene_summary reports per instance, so passing those back unchanged gives the same result. Mates are solved only ' +
+        'in the viewer and no tool reports the solved pose: a mated instance is checked where its statement puts it. A viewport drag ' +
+        'writes the dragged instance\'s pose back onto its statement, so later checks read it. `poses` (world poses, each shaped like ' +
+        'get_scene_summary\'s `instances[].pose`) places instances elsewhere for this check only, e.g. at a pose you computed from ' +
+        'the mate geometry. `instanceIds` with one id tests that instance against every other body; with two or more, only the ' +
+        'named instances among themselves. ' +
         '`shapeIds` narrows to those shapes (every instance showing them). An unknown shape or instance, or no rendered scene, is an ' +
         'error naming the problem.',
       inputSchema: {
@@ -518,7 +534,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .array(z.string().min(1))
           .min(1)
           .optional()
-          .describe('Assembly files: one id tests that instance against everything; two or more test only the named instances among themselves (ids from get_scene_summary).'),
+          .describe('Assembly files: one id tests that instance against everything; two or more test only the named instances among themselves (`instances[].instanceId` from get_scene_summary).'),
         shapeIds: z
           .array(z.string().min(1))
           .min(1)
@@ -533,7 +549,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .array(instancePoseArg)
           .min(1)
           .optional()
-          .describe('Assembly files: world poses to use instead of the statement poses, per instance.'),
+          .describe('Assembly files: world poses to use instead of the statement poses, per instance. Each entry has the shape of get_scene_summary\'s `instances[].pose`, which holds the statement pose itself.'),
       },
     },
     async ({ workspace, instanceIds, shapeIds, tolerance, poses }) =>
@@ -572,9 +588,10 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       .min(1)
       .optional()
       .describe(
-        'Assembly files only: the inserted instance the entity belongs to (instance ids come from get_scene_summary). ' +
-        'Instances of one part share a shapeId, and the entity is measured where the instance sits per its insert() ' +
-        'statement (translate/rotate) — mate-solved or dragged poses seen in the viewport are not applied.',
+        'Assembly files only: the inserted instance the entity belongs to (`instances[].instanceId` from get_scene_summary). ' +
+        'Instances of one part share a shapeId, and the entity is measured at the instance\'s statement pose: the world `pose` ' +
+        'get_scene_summary reports for it (insert() translate/rotate, through sub-assembly frames). The mate-solved pose the ' +
+        'viewport draws is not applied.',
       ),
   });
 
@@ -642,8 +659,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'so a bore or a far-side face shows. Each entry is an index ref { shapeId, kind, index, instanceId? } or a filter { expression, scope? } ' +
         'as in measure; a filter highlights every entity it matches (ambiguity is fine here), one matching nothing is an error.',
       ),
-    hide: idListArg.optional().describe('Shape ids (from get_scene_summary) or assembly instance ids left out of the render. Exclusive with focus.'),
-    focus: idListArg.optional().describe('Shape ids or instance ids kept as they are while everything else is ghosted in place (faint, silhouettes kept) so the context stays. Exclusive with hide.'),
+    hide: idListArg.optional().describe('Shape ids (get_scene_summary `objects[].shapeIds` / `instances[].shapeIds`) or assembly instance ids (`instances[].instanceId`) left out of the render. In an assembly a part\'s shape id reaches every instance of that part; an instance id reaches one instance. Exclusive with focus.'),
+    focus: idListArg.optional().describe('Shape ids or instance ids (as for hide) kept as they are while everything else is ghosted in place (faint, silhouettes kept) so the context stays. Exclusive with hide.'),
     annotations: z
       .array(z.object({
         from: vec3.describe('Line start, document units.'),
@@ -658,7 +675,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       .union([
         z.literal('highlight').describe('Frame the highlighted entities\' combined bounding box (plus annotation points). Needs highlight.'),
         z.object({
-          shapes: idListArg.describe('Shape ids (from list_shapes / get_scene_summary) or assembly instance ids to frame.'),
+          shapes: idListArg.describe('Shape ids (from list_shapes / get_scene_summary) or assembly instance ids (get_scene_summary `instances[].instanceId`) to frame.'),
           margin: fitMarginArg.optional(),
         }).describe('Frame these shapes/instances as the page draws them (assembly instances where their pose puts them). Framing only: nothing is hidden or ghosted. An id the current render does not hold is an error.'),
       ])

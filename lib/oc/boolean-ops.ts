@@ -799,13 +799,11 @@ export class BooleanOps {
       }
     }
 
-    console.log('FuseMultiShape: Result shapes count:', rawShapes.length);
     const result = rawShapes.map(s => ShapeFactory.fromShape(s));
 
     const modifiedShapes: Shape[] = [];
     for (const shape of args) {
       if (builder.IsDeleted(shape.getShape())) {
-        console.log('=======', 'Shape was deleted in fuse:', shape);
         modifiedShapes.push(shape);
       }
     }
@@ -911,7 +909,6 @@ export class BooleanOps {
 
     const rawShapes = Explorer.findAllShapes(resultShape);
     const result = rawShapes.map(s => ShapeFactory.fromShape(s));
-    console.log('Common operation: result shape type:', rawShapes.length);
 
     const modifiedShapes: Shape[] = [];
 
@@ -944,10 +941,6 @@ export class BooleanOps {
     const cleanResult = result.map(s => ShapeOps.cleanShape(s));
     const cleanNewShapes = newShapes.map(s => ShapeOps.cleanShape(s));
 
-    console.log('Common operation: result shapes count:', cleanResult.length);
-    console.log('Common operation: new shapes count:', cleanNewShapes.length);
-    console.log('Common operation: modified shapes count:', modifiedShapes.length);
-
     return { result: cleanResult, newShapes: cleanNewShapes, modifiedShapes };
   }
 
@@ -964,7 +957,6 @@ export class BooleanOps {
     if (bbox1.IsOut(bbox2)) {
       bbox1.delete();
       bbox2.delete();
-      console.log(`Intersection test: Bounding boxes do not intersect.`);
       return false;
     }
 
@@ -984,9 +976,7 @@ export class BooleanOps {
     const distance = distCalc.IsDone() ? distCalc.Value() : Infinity;
     distCalc.delete();
 
-    console.log(`Intersection test: Minimum distance between shapes is ${distance}.`);
     if (distance <= 0) {
-      console.log(`Intersection test: Shapes are separated by distance ${distance}.`);
       return true;
     }
 
@@ -996,7 +986,6 @@ export class BooleanOps {
 
     if (!common.IsDone()) {
       BooleanBuilders.release(common);
-      console.log(`Intersection test: Boolean common operation failed.`);
       return false;
     }
 

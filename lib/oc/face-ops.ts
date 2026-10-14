@@ -17,7 +17,6 @@ export class FaceOps {
   }
 
   static getPlaneRaw(face: TopoDS_Face): Plane {
-    console.log("Extracting plane from face...");
     const plane = FaceOps.tryGetPlaneRaw(face);
     if (!plane) {
       throw new Error("Face is not planar");
@@ -361,7 +360,6 @@ export class FaceOps {
 
   static makeFace(wire: TopoDS_Wire): TopoDS_Face {
     const oc = getOC();
-    console.log("Creating face from wire:", wire);
     const MakeFaceFn = new oc.BRepBuilderAPI_MakeFace(wire, false);
 
     if (MakeFaceFn.IsDone()) {
@@ -410,7 +408,6 @@ export class FaceOps {
     const surfaceAdaptor = new oc.BRepAdaptor_Surface(topoFace, true);
 
     if (surfaceAdaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-      console.log("Face is a plane, extracting axis");
       const plane = surfaceAdaptor.Plane();
 
       surfaceAdaptor.delete();
@@ -455,12 +452,9 @@ export class FaceOps {
       throw new Error("No wires provided to create a face.");
     }
 
-    console.log("Creating face from wires:");
     const MakeFaceFn = new oc.BRepBuilderAPI_MakeFace(wires[0], true);
-    console.log("Number of wires:", wires.length);
 
     for (let i = 1; i < wires.length; i++) {
-      console.log("Adding wire:", wires[i]);
       MakeFaceFn.Add(wires[i]);
     }
 

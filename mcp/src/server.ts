@@ -409,7 +409,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'would see at the given scope; or `picks` — explicit face/edge/vertex refs (from hit_test, the rendered topology, or an earlier ' +
         'match). Returns every match with its shapeId/kind/index (faces/edges are usable in measure and hit_test), owning ' +
         'sceneObjectId and part, and a compact summary: form (plane/cylinder/cone/sphere/torus/surface or line/circle/arc/ellipse/curve), ' +
-        'center [x,y,z], normal or axis, area or length, diameter for cylinders/spheres/circles. Lengths are in the document unit ' +
+        'center [x,y,z], normal (a planar face\'s points out of its solid) or axis, area or length, diameter for ' +
+        'cylinders/spheres/circles. Lengths are in the document unit ' +
         '(returned as `unit`), rounded to its meaningful precision. Vertex summaries have form vertex and a world-space center; ' +
         'vertex source synthesis is not yet available. Zero matches is a normal result with count 0 — check it before ' +
         'writing a fillet/chamfer/color on that filter, which would silently do nothing.\n\n' +

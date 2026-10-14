@@ -341,7 +341,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get geometric properties of a face',
       description:
-        'Returns area, normal, surface kind (plane/cylinder/...), and related measurements for a single face on a shape. Lengths and areas are in the document unit, returned as `unit` (`areaMm2` is a historical field name).',
+        'Returns the surface kind and size of a single face on a shape, as `surfaceType` plus that kind\'s fields: plane (`areaMm2`); circle, a flat face bounded only by circular edges (`radius`, no area); cylinder (`radius`, and `closed` — true when it wraps fully around its axis like a bore or a boss wall, false for a fillet or a partial wall); sphere (`radius`); torus (`majorRadius`, `minorRadius`); cone (`halfAngleDeg`); other (`areaMm2`). It returns no normal, center or axis, and no area for a circle or a curved analytic face: resolve_selection with `picks: [{ shapeId, kind: "face", index: faceIndex }]` summarizes the face with its center, normal (a planar face\'s points out of its solid) or axis, and area. Lengths and areas are in the document unit, returned as `unit` (`areaMm2` is a historical field name).',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,

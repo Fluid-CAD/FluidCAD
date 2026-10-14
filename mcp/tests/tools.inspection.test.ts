@@ -715,6 +715,11 @@ describe('inspection tools (over MCP)', () => {
       for (const name of ['get_scene_summary', 'get_shape_properties', 'get_face_properties', 'get_edge_properties']) {
         expect(byName.get(name)).toContain('`unit`');
       }
+      // get_face_properties carries no normal: it must say so and send the
+      // agent to resolve_selection, whose summary has the outward one.
+      expect(byName.get('get_face_properties')).not.toContain('area, normal');
+      expect(byName.get('get_face_properties')).toContain('no normal');
+      expect(byName.get('get_face_properties')).toContain('resolve_selection');
       // The tools send agents to get_scene_summary for instance ids and
       // poses, so it must say it lists them and what the pose is; interfere
       // must not promise a solved pose the summary never carries.

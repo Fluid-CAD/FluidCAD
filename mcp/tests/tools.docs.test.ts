@@ -187,8 +187,8 @@ describe('doc tools (unit)', () => {
     for (const [name, docId, definition] of [
       ['Feature', 'api/feature', /class MyFeature extends Feature\.with\(params, \{ buckets \}\)/],
       ['FeatureBuckets', 'api/feature', /type FeatureBuckets = \{/],
-      ['FeatureWithOptions', 'api/feature', /type FeatureWithOptions = \{ buckets\?: FeatureBucketSpecs \}/],
-      ['FeatureBucketSpec', 'api/feature', /type FeatureBucketSpec = \{ label\?: string \}/],
+      ['FeatureWithOptions', 'api/feature-buckets', /type FeatureWithOptions = \{ buckets\?: FeatureBucketSpecs \}/],
+      ['FeatureBucketSpec', 'api/feature-buckets', /type FeatureBucketSpec = \{ label\?: string \}/],
       ['ParamSpec', 'api/feature-params', /type ParamSpec = ScalarParamSpec \| PickerParamSpec/],
       ['ChoiceOption', 'api/feature-params', /ChoiceOption — one option of a select or a radio/],
       ['RadioParamSpec', 'api/feature-params', /type: 'radio'; options: ChoiceOption\[\]/],

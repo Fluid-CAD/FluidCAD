@@ -21,9 +21,14 @@ axis(a1: AxisLike, a2: AxisLike, options?)          // midaxis
 axis(a1: Axis, a2: Axis, options?)
 ```
 
-`AxisLike` is `"x"` / `"y"` / `"z"`, a direction vector, or an
-`{ point?, direction }` record. `AxisTransformOptions` includes
-`offsetX`, `offsetY`, `offsetZ`, `flip`, etc.
+Here `AxisLike` is a world axis name, `"x"` / `"y"` / `"z"`. `axis()`
+takes no direction vector and no `{ point, direction }` record: build any
+other axis from an edge, or offset and tilt a world axis.
+`AxisTransformOptions` is `offsetX`, `offsetY`, `offsetZ` (applied first),
+then `rotateX`, `rotateY`, `rotateZ` around the world axes.
+
+Rank filters need no axis: `edge().nearest([1, 1, 0])` takes the vector
+as it is ([[api/edge-filter]]).
 
 ## Example
 

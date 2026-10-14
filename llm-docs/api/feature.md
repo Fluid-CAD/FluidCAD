@@ -718,7 +718,8 @@ import { coincident, horizontal, vertical, distance, diameter, fix } from "fluid
 import { gear } from "./gear.feature.js";
 
 // A gear pair on a 120 × 70 × 6 base plate: an 18-tooth pinion and a 31-tooth
-// wheel, module 2, on round seats 49 mm apart (the sum of their pitch radii).
+// wheel, module 2, on round seats 50 mm apart (the sum of their pitch radii,
+// 49, and 1 mm of backlash).
 export const gearPair = part("Gear pair", () => {
   sketch("xy", () => {
     const b = line([-61, -36], [59, -34]);
@@ -741,14 +742,14 @@ export const gearPair = part("Gear pair", () => {
 
   // The two seats, 2 mm proud of the plate.
   sketch("xy", () => {
-    const s = circle([-24.5, 0], 9);
-    fix(s.center(), [-24.5, 0]);
+    const s = circle([-25, 0], 9);
+    fix(s.center(), [-25, 0]);
     diameter(s, 20);
   });
   const pinionSeat = extrude(8);
   sketch("xy", () => {
-    const s = circle([24.5, 0], 14);
-    fix(s.center(), [24.5, 0]);
+    const s = circle([25, 0], 14);
+    fix(s.center(), [25, 0]);
     diameter(s, 30);
   });
   const wheelSeat = extrude(8);

@@ -200,6 +200,15 @@ describe('scene summary instances through the real route', () => {
         expect(posedBlock.shapeIds).toContain(match.shapeId);
         expect({ instanceId: match.instanceId, ...match.pose }).toEqual(posedBlock.pose);
       }
+      // The block validate calls sound reports every face normal out of it,
+      // posed: dotted with (face center − block center) it is positive.
+      const centers = resolved.matches.map((m) => m.summary.center);
+      const blockCenter = [0, 1, 2].map((axis) => centers.reduce((sum, c) => sum + c[axis], 0) / centers.length);
+      for (const match of resolved.matches) {
+        const normal = match.summary.normal!;
+        const outward = normal.reduce((sum, n, axis) => sum + n * (match.summary.center[axis] - blockCenter[axis]), 0);
+        expect(outward, `normal [${normal}] at [${match.summary.center}]`).toBeGreaterThan(0);
+      }
     }
   });
 

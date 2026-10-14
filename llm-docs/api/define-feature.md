@@ -95,7 +95,8 @@ default**: `'add'` when it is offered, else the first listed. So:
   it is refused.
 - **Reading it.** `buildTool()` reads the operation its statement applies
   — the chain's, else the default — with `this.getOperationMode()`, to build
-  a different tool for a remove (see [[api/feature]]).
+  a different tool for a remove (see [[api/feature]]; a tube that cuts only
+  its bore: [[api/feature-example-tube]]).
 
 ## The call shape
 

@@ -3,7 +3,7 @@ id: concepts/custom-features
 title: Custom features — your own feature types in *.feature.js modules
 summary: "A custom feature is a feature type a project writes in JavaScript: a Feature.with() class whose buildTool() returns its solids, exported through defineFeature() from a *.feature.js module. The editor finds it by scanning the module's exports (no init.js), lists it under the toolbar's Custom dropdown with a dialog built from its declared values, a live preview behind a toggle, Apply that writes the import and the call, and timeline edits; models call it like a built-in, and repeat, copy and fillet its buckets — the standard ones and the named buckets its class declares (Feature.with(params, { buckets: { tipEdges: {} } }) → g.tipEdges(), which the editor's picks and right-click menu use too; each bucket is described in the package's docs/ pages). The module re-evaluates on every render, so never instanceof your own class; saving its code rebuilds its statements with no restart."
 tags: [concept, sdk, custom-feature, feature]
-seeAlso: [api/feature, api/define-feature, api/feature-params, api/feature-layout, api/register-builder, api/sdk-kernel, api/sdk-occt, api/draft, api/repeat, concepts/scene-graph, concepts/packages]
+seeAlso: [api/feature, api/feature-buckets, api/define-feature, api/feature-params, api/feature-layout, api/register-builder, api/sdk-kernel, api/sdk-occt, api/draft, api/repeat, concepts/scene-graph, concepts/packages]
 ---
 
 # Custom features
@@ -205,12 +205,7 @@ export class Gear extends Feature.with({ /* … values … */ }, {
   },
 }) {
   static id = 'gear';
-
-  buildTool() {
-    // … build the gear, sort its faces, place it …
-    this.setBuckets({ startFaces, endFaces, sideFaces, tipFaces, boreFaces });
-    return [solid];
-  }
+  // buildTool(): … this.setBuckets({ startFaces, endFaces, sideFaces, tipFaces, boreFaces });
 }
 ```
 
@@ -229,17 +224,16 @@ Tip Edges**, with the gear's other buckets under *Select other*.
   bucket, what it holds and in what order, in the `docs/` page for the
   feature (`docs/gear.md`, which a package ships): that is where other
   authors and the LLM look. A `description` field is refused.
-- **Mistakes fail loudly.** A misspelt name in `setBuckets()`, a face in an
-  edge bucket, or a face of a shape `buildTool()` doesn't return fails the
-  feature's row with a message that names it, where before it was an empty
-  bucket.
 - **The buckets follow the operation.** A fusion keeps what the final solid
   still carries of each one (a face the stock swallowed is dropped, never
   swapped for the stock face as `startFaces` is), a remove keeps what its cut
   left (a pocket's floor), and a repeat's copy moves them.
 
-The naming rule, every refusal, the carry rules and two complete examples (a
-gear pair, a bearing seat): [[api/feature]].
+A misspelt or wrong-kind bucket fails the feature's row (see *Errors, and
+where they show*). The naming rule, every refusal and the carry rules:
+[[api/feature-buckets]]; complete examples: a gear pair
+([[api/feature-example-gear]]) and a bearing seat
+([[api/feature-example-bearing-seat]]).
 
 ## What the dialog can hold
 

@@ -196,4 +196,5 @@ const flange = part("Flange", () => {
 A custom feature takes connectors too: a `connector` picker (or a union such
 as `['connector', 'point', 'anchor']`) reads one as a location with
 `frameOf()` — its own frame, a copy's included — and an `axis` picker as its
-Z axis with `axisOf()`. See [[api/feature-params]] and [[api/feature]].
+Z axis with `axisOf()`. See [[api/feature-params]] and [[api/feature]]; bosses
+standing at a connector and its copy: [[api/feature-example-bosses]].

@@ -4,7 +4,7 @@ title: "registerBuilder(build, { feature }) / parseCall(meta, args) — the expl
 summary: "The explicit way to make a custom feature's builder, from fluidcad/sdk: a plain Feature subclass, the whole metadata object (class, kind and params included) passed to registerBuilder(build, { feature }), and parseCall(meta, args) to read the call's arguments into the feature's values. It builds exactly what defineFeature() builds; use it when the builder must do something before reading its arguments. The metadata is checked at registration; it refuses a buckets field (a plain subclass declares static buckets, untyped)."
 tags: [api, sdk, custom-feature, metadata, type]
 symbols: [registerBuilder, parseCall, FeatureMeta]
-seeAlso: [api/define-feature, api/feature, api/feature-params, concepts/custom-features]
+seeAlso: [api/define-feature, api/feature, api/feature-buckets, api/feature-params, concepts/custom-features]
 ---
 
 # registerBuilder / parseCall
@@ -63,7 +63,7 @@ when it is called with an angle alone.
   which exist at run time only: the types don't carry them, so under checkJs
   `post.boreEdges()` and `this.setBuckets({ boreFaces })` are flagged. For
   typed named buckets, use `Feature.with(params, { buckets })` (see
-  [[api/feature]]).
+  [[api/feature-buckets]]).
 
 In plain JavaScript, a plain `Feature` subclass's `this.values` is untyped;
 declare it with JSDoc, as below, or prefer `Feature.with()` and

@@ -3,10 +3,12 @@
 // centred on it. Its class names what a model works on beside its values:
 // the tooth tips, flanks and roots, the bore, and the edges of the tips and
 // of the bore (derived from their faces), so a model rounds `g.tipEdges()`
-// or chamfers `g.boreEdges()`; its top face is the standard `endFaces`,
-// declared to document it. The outline and the extrusion are raw
-// OpenCascade (`this.occ()`): the curated kernel draws no outline. Written
-// against the SDK entry points only, with Feature.with() and defineFeature().
+// or chamfers `g.boreEdges()`. It fills the standard start, end, side and
+// internal faces too, without declaring them. The outline and the extrusion
+// are raw OpenCascade (`this.occ()`): the curated kernel draws no outline.
+// Written against the SDK entry points only, with Feature.with() and
+// defineFeature(). The JavaScript copy is
+// server/tests/fixtures/custom-features/gear.feature.js; keep them in step.
 
 import { Feature, defineFeature, type FeatureArgs, type FeatureWith, type ValuesOf } from "../../../sdk/index.js";
 import { getFeatureMeta, type ResolvedFeatureMeta } from "../../../index.js";

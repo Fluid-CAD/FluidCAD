@@ -85,11 +85,13 @@ export type FeatureWith<P extends FeatureParams, B extends FeatureBucketSpecs = 
 export type FeatureWithOptions<B extends FeatureBucketSpecs = FeatureBucketSpecs> = {
   /**
    * The feature's named buckets, by accessor name — each ends in `Faces` or
-   * `Edges`, which says what it holds: `{ tipFaces: { description: 'The flat
-   * top land of every tooth' } }`. Each custom name becomes a method
+   * `Edges`, which says what it holds: `{ tipFaces: {}, boreEdges: { label:
+   * 'Bore Rims' } }`. A declaration holds only an optional `label`, the
+   * words the editor's menus use; what a bucket holds is described in the
+   * package's `docs/` pages. Each custom name becomes a method
    * (`g.tipFaces()`), filled with `setBuckets()`; a declared `tipEdges` left
-   * out of `setBuckets()` is the edges of `tipFaces`. A standard name
-   * declared documents the bucket and makes no method.
+   * out of `setBuckets()` is the edges of `tipFaces`. A standard name is
+   * declared only to relabel it, and makes no method.
    */
   buckets?: B;
 };

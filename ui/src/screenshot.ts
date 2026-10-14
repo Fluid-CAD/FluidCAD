@@ -22,9 +22,11 @@ import {
   type ScreenshotHighlightRef,
 } from './screenshot-overlays';
 import { SectionController, type SectionSpec } from './scene/section-controller';
+import { ScreenshotShapeFraming, type ScreenshotShapeFit } from './screenshot-shape-framing';
 
 export type { ScreenshotAnnotation, ScreenshotHighlightRef } from './screenshot-overlays';
 export type { SectionSpec } from './scene/section-controller';
+export type { ScreenshotShapeFit } from './screenshot-shape-framing';
 
 /**
  * Padding on a highlight-fitted frame: looser than a whole-model fit so a
@@ -95,8 +97,15 @@ export interface ScreenshotOptions {
   focus: string[];
   /** Labelled point-to-point lines in document units, painted in screen space over the capture. */
   annotations: ScreenshotAnnotation[];
-  /** `'highlight'` frames the highlighted entities (and annotation points) instead of the model. */
-  fitTo: 'highlight' | null;
+  /**
+   * What to frame instead of the model. `'highlight'` frames the highlighted
+   * entities (and annotation points). `{ shapes, margin? }` frames those shape
+   * or instance ids as drawn, instance poses included, with the page's tight
+   * fit from the view's direction (see {@link ScreenshotShapeFraming}) and
+   * draws everything as it is; an id the page draws nothing for fails the
+   * capture.
+   */
+  fitTo: 'highlight' | ScreenshotShapeFit | null;
   /** Multi captures: the cells' views, 2-6, laid out two per row. */
   views: ScreenshotView[];
   /**
@@ -199,6 +208,10 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   const camera = sceneCtx.camera;
   const cc = sceneCtx.cameraControls;
 
+  // Measured before anything below changes the scene: an id the page draws
+  // nothing for throws here, with nothing yet to undo.
+  const shapeFraming = fitTo !== null && typeof fitTo === 'object' ? ScreenshotShapeFraming.measure(scene, fitTo) : null;
+
   // --- Save state ---
   // Solids-only goes first so the grid/axes toggles below still win over it,
   // and its restore runs last so everything lands back where it started.
@@ -252,7 +265,8 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     cam.right = exportAspect * currentHeight / 2;
     cam.updateProjectionMatrix();
   } else {
-    savedCameraState = { aspect: cam.aspect };
+    // near/far too: a shape-framed close-up widens the clip range for the shot.
+    savedCameraState = { aspect: cam.aspect, near: cam.near, far: cam.far };
     cam.aspect = exportAspect;
     cam.updateProjectionMatrix();
   }
@@ -260,8 +274,12 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // --- Apply requested view (if any) ---
   // Stateless: we mutate the camera directly and restore it below. The user's
   // CameraControls are never moved, so the interactive view is preserved.
-  const resolved = ScreenshotFraming.frameFor(sceneCtx, framePlanes, fitBox);
-  if (view.kind !== 'current') {
+  if (shapeFraming) {
+    // Every view kind, `current` included: the view lends the direction and
+    // the tight fit places the camera on the shapes.
+    shapeFraming.pose(camera, view, { eye: savedCamPos, target: savedCamTarget }, { width, height });
+  } else if (view.kind !== 'current') {
+    const resolved = ScreenshotFraming.frameFor(sceneCtx, framePlanes, fitBox);
     const target = resolveView(view, resolved.center, resolved.diameter, savedCamPos, savedCamTarget);
     if (target) {
       orientCameraForView(camera, target.eye, target.target);
@@ -385,6 +403,8 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     cam.bottom = savedCameraState.bottom;
   } else {
     cam.aspect = savedCameraState.aspect;
+    cam.near = savedCameraState.near;
+    cam.far = savedCameraState.far;
   }
   camera.zoom = savedZoom;
   camera.up.copy(savedUp);
@@ -517,8 +537,8 @@ class ScreenshotSection {
 /**
  * What a capture frames: the whole model (a named view, `fitToModel`), or
  * the highlighted entities when the capture asks for `fitTo: "highlight"` —
- * the same centre-plus-bounding-diameter that `screenshot_shape` frames one
- * shape with, so every view kind fits the same way.
+ * one centre-plus-bounding-diameter, so every view kind fits the same way.
+ * `fitTo: { shapes }` is framed by {@link ScreenshotShapeFraming} instead.
  */
 class ScreenshotFraming {
 

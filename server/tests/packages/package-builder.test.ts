@@ -875,6 +875,9 @@ describe('what pack warns about, and packs anyway (package-docs DOC5, DOC6)', ()
   });
 
   it('undocumented fields, one warning per module, the fields in declaration order: and it still packs', async () => {
+    // The standoff with its values' descriptions taken out, the feature's own kept.
+    write('features/standoff.feature.js', fs.readFileSync(at('features/standoff.feature.js'), 'utf8')
+      .replace(/\n {4}description: (?:"[^"]*"|'[^']*'),/g, ''));
     const { manifest, warnings } = await pack();
     expect(manifest.features.map((f) => f.id)).toEqual(['fastener', 'standoff']);
     const undocumented = warnings.filter((w) => w.code === 'undocumented-fields');
@@ -887,11 +890,11 @@ describe('what pack warns about, and packs anyway (package-docs DOC5, DOC6)', ()
   });
 
   it('no undocumented-fields warning once every field says something; one that repeats its label still counts', async () => {
+    // The fixture documents every value: no warning for it.
+    expect((await pack()).warnings.some((w) => w.code === 'undocumented-fields' && w.file === 'features/standoff.feature.js')).toBe(false);
+    // The hole's description saying only its label still counts.
     write('features/standoff.feature.js', fs.readFileSync(at('features/standoff.feature.js'), 'utf8')
-      .replace("face: { picker: 'face', label: 'On face', surface: 'planar' },", "face: { picker: 'face', label: 'On face', surface: 'planar', description: 'The planar face the standoff stands on, at its centre.' },")
-      .replace('height: { type: \'length\', default: 10, min: 0 },', "height: { type: 'length', default: 10, min: 0, description: 'How tall the standoff stands above the face.' },")
-      .replace("outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },", "outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter', description: 'The outside diameter of the boss.' },")
-      .replace("hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },", "hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter', description: 'Hole diameter' },"));
+      .replace(/(hole: \{\n {4}type: 'length', default: 3, min: 0, label: 'Hole diameter',\n {4}description: )"[^"]*"/, "$1'Hole diameter'"));
     const undocumented = (await pack()).warnings.filter((w) => w.code === 'undocumented-fields');
     const standoff = undocumented.find((w) => w.file === 'features/standoff.feature.js')!;
     expect(standoff.fields).toEqual([{ kind: 'value', owner: 'standoff', name: 'hole', label: 'Hole diameter', reason: 'repeats-label' }]);

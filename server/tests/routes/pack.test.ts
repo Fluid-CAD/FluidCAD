@@ -152,10 +152,9 @@ describe('POST /api/pack', () => {
     expect(body.contents.docs).toEqual(['docs/standoff.md']);
     expect(body.warnings.map((w: { code: string; file: string }) => `${w.code} ${w.file}`)).toEqual([
       'undocumented-fields features/fastener.feature.js',
-      'undocumented-fields features/standoff.feature.js',
       'docs-link docs/standoff.md',
     ]);
-    expect(body.warnings[2].message).toBe('docs/standoff.md:3 links to ./images/standoff.svg, which leads to no file the package ships.');
+    expect(body.warnings[1].message).toBe('docs/standoff.md:3 links to ./images/standoff.svg, which leads to no file the package ships.');
   });
 
   it('answers 400 with docs/\'s own codes', async () => {

@@ -11,10 +11,29 @@ import { BooleanOps, Primitives, ShapeOps } from 'fluidcad/sdk/kernel';
 import { Matrix4, Plane } from 'fluidcad/math';
 
 export class Standoff extends Feature.with({
-  face: { picker: 'face', label: 'On face', surface: 'planar' },
-  height: { type: 'length', default: 10, min: 0 },
-  outer: { type: 'length', default: 6, min: 0, label: 'Boss diameter' },
-  hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
+  face: {
+    picker: 'face', label: 'On face', surface: 'planar',
+    description: "Exactly one planar face to stand on. The standoff is centred on the face's centre and grows along its normal, so pick a face sized for one standoff, such as a raised pad's top (pad.endFaces()).",
+  },
+  height: {
+    type: 'length', default: 10, min: 0,
+    description: 'How far the standoff rises from the face, along its normal: the gap the board sits above the face.',
+  },
+  outer: {
+    type: 'length', default: 6, min: 0, label: 'Boss diameter',
+    description: 'The outside diameter of the cylindrical boss. Must be larger than hole.',
+  },
+  hole: {
+    type: 'length', default: 3, min: 0, label: 'Hole diameter',
+    description: "The diameter of the bore, always through the boss's full height: about 3.2 for an M3 clearance hole, 2.5 for an M3 thread-forming screw. Must be smaller than outer.",
+  },
+}, {
+  // What a model works on beside the standard buckets; docs/standoff.md says
+  // what each holds.
+  buckets: {
+    boreFaces: {}, // the wall of the bore
+    boreEdges: {}, // the bore's two rims, derived from boreFaces
+  },
 }) {
   static id = 'acme.standoff';
 
@@ -57,6 +76,7 @@ export class Standoff extends Feature.with({
       endFaces,
       sideFaces,
       internalFaces,
+      boreFaces: internalFaces,
       startPlane: new Plane(origin, plane.xDirection, plane.normal),
     });
     return [placed.shape];

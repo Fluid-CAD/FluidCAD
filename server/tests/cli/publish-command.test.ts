@@ -150,7 +150,7 @@ describe('fluidcad publish', () => {
     expect(hub.packages.has(NAME)).toBe(false);
     // Pack's warnings come under the summary, and never stop the upload.
     expect(run.stdout).toContain('  docs/       1 page\n');
-    expect(run.stdout).toContain('  4 warnings (nothing is refused for them):\n');
+    expect(run.stdout).toContain('  3 warnings (nothing is refused for them):\n');
     expect(run.stdout).toContain('    ! parts/spacer.part.js: 1 field without a description — spacer: Length. Give it a `description`.\n');
     expect(run.stdout).toContain('    ! docs/spacer.md:3 links to ./washer.md, which leads to no file the package ships.\n');
     expect(run.stdout).toMatch(new RegExp(`✓ Dry run: ${hub.origin.replace(/[.]/g, '\\.')} accepts @acme/kit@0\\.1\\.0 · sha256-\\S+ · it would be a draft you finish in your browser\\. Nothing was stored\\.`));

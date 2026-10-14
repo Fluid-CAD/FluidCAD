@@ -158,8 +158,14 @@ describe('the feature catalog over a workspace', () => {
       },
     });
     expect(standoff!.error).toBeUndefined();
-    expect(standoff!.meta!.params.face).toEqual({ picker: 'face', label: 'On face', surface: 'planar' });
-    expect(standoff!.meta!.params.height).toEqual({ type: 'length', default: 10, min: 0, label: 'Height' });
+    expect(standoff!.meta!.params.face).toEqual({
+      picker: 'face', label: 'On face', surface: 'planar',
+      description: expect.stringMatching(/^Exactly one planar face to stand on\./),
+    });
+    expect(standoff!.meta!.params.height).toEqual({
+      type: 'length', default: 10, min: 0, label: 'Height',
+      description: expect.stringMatching(/^How far the standoff rises from the face/),
+    });
     // Plain JSON: what reaches the UI runs no feature code.
     expect(JSON.parse(JSON.stringify(standoff))).toEqual(standoff);
     expect(manager.currentFile).toBe('/ws/live.part.js');
@@ -195,8 +201,10 @@ describe('the feature catalog over a workspace', () => {
     // Only the module that never loaded is scanned again: a failed scan is never cached.
     expect(scans).toEqual(['broken.feature.js']);
 
-    write('standoff.feature.js', fs.readFileSync(at('standoff.feature.js'), 'utf8')
-      .replace(`height: { type: 'length', default: 10, min: 0 }`, `height: { type: 'length', default: 12, min: 0 }`));
+    const source = fs.readFileSync(at('standoff.feature.js'), 'utf8');
+    const heightSpec = `type: 'length', default: 10, min: 0,\n    description: 'How far`;
+    expect(source).toContain(heightSpec);
+    write('standoff.feature.js', source.replace(heightSpec, heightSpec.replace('default: 10', 'default: 12')));
     scans.length = 0;
     const edited = (await list()).find(entry => entry.id === 'standoff');
     expect(edited!.meta!.params.height).toMatchObject({ default: 12 });

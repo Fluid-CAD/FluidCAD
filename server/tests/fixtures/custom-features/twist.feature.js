@@ -16,11 +16,26 @@ import { Feature, defineFeature } from 'fluidcad/sdk';
 import { ShapeFactory } from 'fluidcad/sdk/kernel';
 
 export class Twist extends Feature.with({
-  face: { picker: 'face', label: 'Profile face', surface: 'planar' },
-  height: { type: 'length', default: 20, min: 0 },
-  angle: { type: 'angle', default: 90, label: 'Twist' },
-  sections: { type: 'integer', default: 8, min: 2, max: 64 },
-  bore: { type: 'length', default: 0, min: 0, label: 'Bore diameter' },
+  face: {
+    picker: 'face', label: 'Profile face', surface: 'planar',
+    description: "The planar face whose outline twists upward, such as a sketched profile's extrusion top (foot.endFaces()). Only its outer outline is used, so holes in the face don't carry into the column.",
+  },
+  height: {
+    type: 'length', default: 20, min: 0,
+    description: "How far the column rises from the face, along the face's normal.",
+  },
+  angle: {
+    type: 'angle', default: 90, label: 'Twist',
+    description: "How far the top is turned from the bottom, in degrees, about the face's normal through its centre; positive turns anticlockwise seen from above.",
+  },
+  sections: {
+    type: 'integer', default: 8, min: 2, max: 64,
+    description: 'How many steps the loft takes from bottom to top (2 to 64): more sections follow the twist more closely and build more slowly.',
+  },
+  bore: {
+    type: 'length', default: 0, min: 0, label: 'Bore diameter',
+    description: "The diameter of a hole down the column's axis, through its full height; 0 for none. Keep it inside the outline.",
+  },
 }) {
   static id = 'twist';
 

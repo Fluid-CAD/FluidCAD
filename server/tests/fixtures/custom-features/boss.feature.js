@@ -12,10 +12,22 @@ import { BooleanOps, Primitives, ShapeOps } from 'fluidcad/sdk/kernel';
 import { Matrix4 } from 'fluidcad/math';
 
 export class Boss extends Feature.with({
-  at: { picker: ['connector', 'point', 'anchor'], multiple: true, anchors: ['center'], label: 'At' },
-  diameter: { type: 'length', default: 8, min: 0, label: 'Boss diameter' },
-  height: { type: 'length', default: 6, min: 0 },
-  hole: { type: 'length', default: 3, min: 0, label: 'Hole diameter' },
+  at: {
+    picker: ['connector', 'point', 'anchor'], multiple: true, anchors: ['center'], label: 'At',
+    description: "Where the bosses stand, one boss per location: connectors and their copies (bolt, bolt.instance(1)), points (a sketch point, e.endEdges(0).start()) or face centres (e.endFaces().center()), passed as one value or an array. Each boss grows along its location's normal: a connector's Z axis, a face's outward normal.",
+  },
+  diameter: {
+    type: 'length', default: 8, min: 0, label: 'Boss diameter',
+    description: 'The outside diameter of every boss. Must be larger than hole.',
+  },
+  height: {
+    type: 'length', default: 6, min: 0,
+    description: "How far each boss rises from its location, along the location's normal.",
+  },
+  hole: {
+    type: 'length', default: 3, min: 0, label: 'Hole diameter',
+    description: "The diameter of the bore through each boss's full height; 0 builds solid bosses. Must be smaller than diameter.",
+  },
 }) {
   static id = 'boss';
 

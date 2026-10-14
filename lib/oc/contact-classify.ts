@@ -247,12 +247,10 @@ function classifyContactFace(shape: Shape): ContactEntity | null {
 
   if (classified.form === 'plane') {
     const point = classified.point!;
-    const dir = classified.dir!;
-    // The classify axis normal is the SURFACE normal — re-orient it to the
-    // face's outward (material-out) side so the sign policy (§ contact side
-    // is canonical) holds without a flip option.
-    const probe = probeFaceOutward(raw);
-    const outward = probe && dot(probe.normal, dir) < 0 ? scale(dir, -1) : dir;
+    // classifyFace already signs a plane's normal to the face's outward
+    // (material-out) side, so the sign policy (§ contact side is canonical)
+    // holds without a flip option.
+    const outward = classified.dir!;
     const xDir = perpendicular(outward);
     const yDir = cross(outward, xDir);
     return {

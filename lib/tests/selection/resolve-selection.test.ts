@@ -188,7 +188,7 @@ describe("SelectionResolver — part scoping", () => {
     expect(match.summary.form).toBe('plane');
     expect(match.summary.center).toEqual([20, 20, 10]);
     expect(match.summary.area).toBe(1600);
-    expect(Math.abs(match.summary.normal![2])).toBe(1);
+    expect(match.summary.normal).toEqual([0, 0, 1]);
     expect(match.summary.axis).toBeUndefined();
     expect(match.summary.diameter).toBeUndefined();
   });

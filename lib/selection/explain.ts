@@ -816,6 +816,9 @@ function explainPick(scene: SelectionScene, index: SelectionIndex, ref: PickRef)
     const feature = attr.producer.bucket.feature;
     const def = attr.producer.bucket.def;
     const loc = feature.getSourceLocation();
+    // A clone binds through its repeat's variable (`r.instance(k)`), so the
+    // statement the expression names is the repeat's, not the clone's own.
+    const binding = producerBinding(feature);
     explanation.producer = {
       featureType: feature.getType(),
       featureName: feature.getName(),
@@ -825,15 +828,16 @@ function explainPick(scene: SelectionScene, index: SelectionIndex, ref: PickRef)
       index: attr.producer.index,
       bucketSize: attr.producer.bucket.members.length,
       sourceLocation: loc,
-      sharedCallSite: index.isSharedCallSite(feature),
+      // Asked of that statement: every clone of a repeat carries the repeat's
+      // call site, so with three slots or more the clones share one, while
+      // the repeat itself runs once.
+      sharedCallSite: index.isSharedCallSite(binding.producer),
       isClone: !!feature.getCloneSource(),
     };
     const at = loc ? ` @ line ${loc.line}` : '';
-    // A clone binds through its repeat's variable (`r.instance(k)`) when the
-    // repeat can address it; a shared call site never binds.
-    const binding = producerBinding(feature);
-    const bindable = !explanation.producer.sharedCallSite
-      && (!explanation.producer.isClone || checkBindable(index, feature) === null);
+    // The rule synthesis binds by (checkBindable), so the tooltip shows the
+    // form the dialog will write.
+    const bindable = checkBindable(index, feature) === null;
     // What the bucket is, in the menus' words: "end edges of Extrude", or a
     // custom feature's own bucket, "tip edges of Gear".
     const what = `${def.label.toLowerCase()} of ${feature.getDisplayType()}`;
@@ -844,9 +848,10 @@ function explainPick(scene: SelectionScene, index: SelectionIndex, ref: PickRef)
       explanation.expression =
         `${hint}.${binding.accessorPrefix}${def.accessor}(${BucketArguments.indexFor(index, attr)}) — ${what}${where}`;
     } else {
-      // No variable can be bound to a clone or shared call site, so the
-      // accessor form would be a lie — say what will actually be synthesized.
-      const why = explanation.producer.isClone ? 'repeat instance' : 'shared call site';
+      // No variable can name the producer, so the accessor form would be a
+      // lie — say what will actually be synthesized.
+      const why = explanation.producer.isClone ? 'repeat instance'
+        : explanation.producer.sharedCallSite ? 'shared call site' : 'no source location';
       explanation.expression = `${what}${at} (${why}) — a geometric select() will be synthesized`;
     }
   } else {

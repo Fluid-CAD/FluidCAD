@@ -1320,6 +1320,42 @@ describe("producer naming", () => {
     expect(pick.expression).not.toMatch(/^e\./);
   });
 
+  it("shows the instance address when the clones share the repeat's call site, as the engine stamps them", () => {
+    sketch("xy", () => {
+        testRect(20, 20);
+      });
+    const e = extrude(10).new();
+    setLocation(e, 4);
+    const r = repeat("linear", "x", { count: 3, offset: 40 }, e);
+    setLocation(r, 6);
+
+    const scene = render();
+    // registerBuilder stamps every object the repeat adds with the repeat's
+    // statement, so the two extrude clones of a three-slot repeat share one
+    // call site.
+    const clones = scene.getAllSceneObjects().filter(obj => obj.getCloneSource());
+    for (const clone of clones) {
+      setLocation(clone, 6);
+    }
+    expect(clones.filter(clone => clone.getType() === 'extrude')).toHaveLength(2);
+    const solid = findSolids(scene).find(s =>
+      Explorer.findEdgesWrapped(s).every(eg => EdgeOps.getEdgeMidPoint(eg).x > 70))!;
+    expect(solid).toBeDefined();
+
+    const ref = allEdgeRefs(solid)[0];
+    const pick = explainSelection(scene, [ref]).picks[0];
+    expect(pick.producer!.isClone).toBe(true);
+    expect(pick.producer!.sharedCallSite).toBe(false);
+    expect(pick.expression).toMatch(/^r\.instance\(2\)\.\w+Edges\(\d+\) — \w[\w ]* of Extrude \(instance of repeat @ line 6\)$/);
+
+    // The tooltip and the written code agree.
+    const result = synthesizeApplyFeature(scene, [ref], 'fillet', 1);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.args).toMatch(/^r\.instance\(2\)\./);
+    }
+  });
+
   it("labels an unaddressable clone pick honestly in the teach-mode expression", () => {
     sketch("xy", () => {
         testRect(20, 20);

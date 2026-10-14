@@ -89,6 +89,37 @@ export class RenderedSolidPool {
     return RenderedSolidPool.renderedCandidates(scene).filter(c => RenderedSolidPool.isRenderedSolid(scene, c, instances));
   }
 
+  /**
+   * Instance id → the ids of the rendered solids it shows, in scene order:
+   * its part prototype's solids from the default pool, so the bodies
+   * `interfere` places for that instance and the shapes `validate` checks
+   * for its `instanceId`. Every instance of one part lists the same ids; an
+   * instance whose part shows no solid (rolled back, failed) lists none.
+   * Null when the scene is not an assembly.
+   */
+  static solidIdsByInstance(scene: Scene): Map<string, string[]> | null {
+    const instances = RenderedSolidPool.instancesByPartId(scene);
+    if (!instances) {
+      return null;
+    }
+    const byInstance = new Map<string, string[]>();
+    for (const instanceIds of instances.values()) {
+      for (const instanceId of instanceIds) {
+        byInstance.set(instanceId, []);
+      }
+    }
+    for (const candidate of RenderedSolidPool.renderedCandidates(scene)) {
+      if (!RenderedSolidPool.isRenderedSolid(scene, candidate, instances)) {
+        continue;
+      }
+      const part = scene.findEnclosingPart(candidate.object);
+      for (const instanceId of instances.get(part?.id ?? '') ?? []) {
+        byInstance.get(instanceId)!.push(candidate.shape.id);
+      }
+    }
+    return byInstance;
+  }
+
   /** The candidates belonging to one assembly instance's part prototype. */
   static scopeToInstance(scene: Scene, candidates: RenderedCandidate[], instanceId: string): RenderedPoolSelection {
     if (!(scene instanceof AssemblyScene)) {

@@ -78,6 +78,7 @@ import { SceneValidator } from "./validation/scene-validator.js";
 import type { ValidateSceneRequest, SceneValidationOutcome } from "./validation/scene-validator.js";
 import { SceneInterference } from "./validation/scene-interference.js";
 import type { InterferenceMesher, InterferenceRequest, SceneInterferenceOutcome } from "./validation/scene-interference.js";
+import { RenderedSolidPool } from "./validation/rendered-pool.js";
 import { MeshBuilder } from "./rendering/mesh-builder.js";
 import type { SceneObjectMesh } from "./rendering/scene.js";
 import type {
@@ -389,6 +390,15 @@ class SceneManager {
    */
   interfere(scene: Scene, request: InterferenceRequest = {}): SceneInterferenceOutcome {
     return SceneInterference.check(scene, request, request.includeGeometry ? this.interferenceMesher(scene) : undefined);
+  }
+
+  /**
+   * Instance id → the ids of the rendered solids each assembly instance
+   * shows — the same pool `validate` and `interfere` address it by (see
+   * RenderedSolidPool.solidIdsByInstance). Null for a part scene.
+   */
+  getInstanceShapeIds(scene: Scene): Map<string, string[]> | null {
+    return RenderedSolidPool.solidIdsByInstance(scene);
   }
 
   /**

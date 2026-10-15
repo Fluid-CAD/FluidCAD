@@ -209,6 +209,31 @@ describe('split statement templates', () => {
     expect(result.newCode).toContain(`  const c1 = circle([0, 0], 40).guide()\n  return { c1 };\n})\nsplit(s.geometries.c1, { keep: 'front' }, e)\n`);
   });
 
+  it('exports a bezier seed, which is geometry but no solver entity', async () => {
+    const code = [
+      `import { sketch, ellipse, bezier, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `const e = extrude(30)`,
+      `sketch('xy', () => {`,
+      `  bezier([-20, -60], [-30, 0], [30, 0], [20, 60]).guide()`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, splitSpec({
+      plane: { kind: 'sketchEdge', producer: 1, target: { line: 6 } },
+      keep: 'both',
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [
+        { line: 4, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const bz1 = bezier([-20, -60], [-30, 0], [30, 0], [20, 60]).guide()\n  return { bz1 };\n})\nsplit(s.geometries.bz1, e)\n`);
+  });
+
   it('binds a color() statement as the target when it holds the solid', async () => {
     const code = [
       `import { sketch, ellipse, extrude, color } from 'fluidcad/core'`,

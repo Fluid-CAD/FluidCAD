@@ -59,9 +59,12 @@ export class SplitSeeds {
       return { error: 'a split seed edge needs its sketch producer' };
     }
     const producer = spec.producers[plane.producer];
+    // A seed is a whole curve — a bezier or a spline qualifies as well as
+    // a solver entity.
     const refs: SketchExportRequest[] = [{
       sketch: { filePath: spec.filePath, line: producer.line, column: producer.column },
       target: plane.target,
+      entities: 'geometry',
     }];
     const staged = await SketchExports.applyCreates(code, refs, SplitSeeds.trackedLines(spec));
     if ('error' in staged) {
@@ -84,7 +87,7 @@ export class SplitSeeds {
     sketch: { line: number; column: number },
     target: SketchExportRequest['target'],
   ): Promise<string | { error: string }> {
-    const staged = await SketchExports.applyCreates(code, [{ sketch: { filePath, ...sketch }, target }]);
+    const staged = await SketchExports.applyCreates(code, [{ sketch: { filePath, ...sketch }, target, entities: 'geometry' }]);
     if ('error' in staged) {
       return staged;
     }

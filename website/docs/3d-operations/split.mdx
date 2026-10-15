@@ -9,15 +9,16 @@ import splitPlane from '!!raw-loader!./_examples/split-plane.js';
 import splitFront from '!!raw-loader!./_examples/split-front.js';
 import splitBack from '!!raw-loader!./_examples/split-back.js';
 import splitLine from '!!raw-loader!./_examples/split-line.js';
+import splitCircle from '!!raw-loader!./_examples/split-circle.js';
 
 # Split
 
-Split divides a solid along a plane. Keep both sides as separate solids, or keep just one side to trim the model. Use it to divide a housing or separate a model into pieces for printing. Each new cut face is flat and closes the resulting solid.
+Split divides a solid along a plane, or along the surface a sketch edge sweeps out of its sketch. Keep both sides as separate solids, or keep just one side to trim the model. Use it to divide a housing or separate a model into pieces for printing. Each new cut face closes the resulting solid.
 
 ## In the viewport
 
 1. Finish any open sketch, then click **Split** on the toolbar.
-2. Choose the cutting plane in the **Cut** slot. You can pick an origin plane, a plane feature in the viewport or timeline, a planar face, or a straight sketch line. The **Cut** slot is active when the dialog opens.
+2. Choose the cut in the **Cut** slot. You can pick an origin plane, a plane feature in the viewport or timeline, a planar face, or a sketch edge: a straight line cuts along the plane it defines, and an arc, circle, ellipse or spline cuts along the curved surface it sweeps. The **Cut** slot is active when the dialog opens.
 3. To limit the operation, click the **Solids** slot, then click a face or edge of a target solid, or its feature row in the timeline. Leave **Solids** empty to use all solids in the current scope. Inside a part, that means the solids in that part.
 4. Choose **Both**, **Front**, or **Back** to set which pieces to keep. The cut is at the selected plane itself; to cut somewhere else, create an offset plane with the **Plane** tool first and pick that.
 5. Check the preview, then click **Apply**. FluidCAD adds a Split feature to the timeline and writes the statement to your file.
@@ -61,15 +62,15 @@ For the same block and cut at `x = 10`:
 
 A plane that only touches a solid splits nothing. Selecting an exterior face, for example, usually needs a plane offset inward from that face (`plane(select(face()…), -8)`) so the cut passes through the solid instead of grazing its surface.
 
-## Split along a sketch line
+## Split along a sketch edge
 
-Use a straight sketch line when the cut needs an angle that is easier to draw than to define with a datum plane.
+Use a sketch edge when the cut is easier to draw than to define with a datum plane: a line for an angled flat cut, a curve for a curved one.
 
-1. Draw a line across the intended cut in a sketch. Turn on **Guide** before drawing if the line is only for construction.
-2. Finish the sketch, open **Split**, and pick the line in the **Cut** slot.
+1. Draw the edge across the intended cut in a sketch. Turn on **Guide** before drawing if the edge is only for construction.
+2. Finish the sketch, open **Split**, and pick the edge in the **Cut** slot.
 3. Choose the target solids and which side to keep, then click **Apply**.
 
-The line defines an infinite plane perpendicular to its sketch. The cut extends beyond the line's endpoints and through the full solid. Arcs and circles cannot define this plane.
+A straight line defines an infinite plane perpendicular to its sketch; the cut extends beyond the line's endpoints and through the full solid. An arc, circle, ellipse or spline defines a curved surface perpendicular to its sketch instead, as if the curve were extruded out of the sketch both ways. That surface ends where the curve ends, so draw a curve all the way across the solid: a curve that stops inside a solid leaves it unchanged.
 
 This example cuts a 60 × 40 × 15 block diagonally and keeps **Front**:
 
@@ -77,9 +78,13 @@ This example cuts a 60 × 40 × 15 block diagonally and keeps **Front**:
 
 <ExplainedCode code={splitLine} fileName="split-line.part.js" />
 
-For a sketch line, the plane normal is the line direction crossed with the sketch normal. Reversing the line's start and end swaps **Front** and **Back**. Use the red removal preview to confirm which piece will remain.
+For a sketch edge, **Front** is the side to the right of the edge when you travel it from start to end, looking at the sketch from its front (the edge tangent crossed with the sketch normal). Reversing the edge's start and end swaps **Front** and **Back**; for a circle or any closed loop drawn counter-clockwise, **Front** is the outside. Use the red removal preview to confirm which piece will remain.
 
-Applying the split hides the source sketch. Use its timeline eye to show it again; later features can still reference the line. In code, return the line from the sketch callback to access it as `s.geometries.seed`, as shown in the example.
+This example cores a cylinder out of a plate with a construction circle, keeping the outside:
+
+<ExplainedCode code={splitCircle} fileName="split-circle.part.js" />
+
+Applying the split hides the source sketch. Use its timeline eye to show it again; later features can still reference the edge. In code, return the edge from the sketch callback to access it as `s.geometries.seed`, as shown in the examples.
 
 ## In code
 
@@ -89,11 +94,12 @@ split(p, body);                             // Only body, at an existing plane p
 split('yz', { keep: 'front' }, body);        // Keep the +X side of the cut.
 split(plane('xy', 12), body);               // Cut 12 units above the XY plane.
 split(s.geometries.seed, { keep: 'back' });  // Along a sketch line, keep the left side.
+split(s.geometries.ring, { keep: 'front' }); // Outside a counter-clockwise circle: core it out.
 ```
 
 | Argument | Accepted values |
 | --- | --- |
-| Cut | `'xy'`, `'xz'`, `'yz'`, a `plane()` feature, a planar face selection, or a straight sketch line |
+| Cut | `'xy'`, `'xz'`, `'yz'`, a `plane()` feature, a planar face selection, or a sketch edge (line, arc, circle, ellipse, spline) |
 | Options | `keep`: `'both'` (default), `'front'`, or `'back'` |
 | Targets | One or more solid-producing features; omit to use all solids in scope |
 
@@ -101,7 +107,7 @@ See the [API reference](/docs/api/features/3d/split) for the full signature.
 
 ## If nothing is split
 
-The cutting plane must pass through the interior of a target solid. A plane that misses a solid or only touches a face or edge leaves that solid unchanged, even when **Front** or **Back** is selected.
+The cut must pass through the interior of a target solid. A plane that misses a solid or only touches a face or edge leaves that solid unchanged, even when **Front** or **Back** is selected. So does a sketch curve that stops inside the solid instead of running all the way across it.
 
 If no target is crossed, the original solids remain and the Split row reports **nothing was split**. Move the plane, choose a different cut, or check the **Solids** selection. If there are no solids in scope, create a solid first or place the split inside the part that contains it.
 

@@ -1,7 +1,7 @@
 ---
 id: api/split
-title: split(plane | line, options?, ...targets?)
-summary: Splits solids with a plane — an origin plane, a plane() statement, a planar face, or a sketched line used as the seed of the plane it sweeps out of its sketch. Every body the plane crosses becomes the pieces on either side; keep one side or both.
+title: split(plane | edge, options?, ...targets?)
+summary: Splits solids with a plane — an origin plane, a plane() statement, a planar face — or along a sketched edge, which is swept out of its sketch into the cutter (a line gives a plane, an arc, circle, ellipse or spline a curved sheet). Every body the cut crosses becomes the pieces on either side; keep one side or both.
 tags: [api, 3d, modify]
 symbols: [split]
 seeAlso: [api/types/split, api/plane, api/mirror, api/remove, api/select]
@@ -14,13 +14,14 @@ Imported from `fluidcad/core`.
 ```ts
 split(plane: PlaneLike | SceneObject, ...targets?: SceneObject[])
 split(plane: PlaneLike | SceneObject, options: { keep?: 'both' | 'front' | 'back' }, ...targets?: SceneObject[])
-split(line: Geometry, ...targets?: SceneObject[])
-split(line: Geometry, options: { keep? }, ...targets?: SceneObject[])
+split(edge: Geometry, ...targets?: SceneObject[])
+split(edge: Geometry, options: { keep? }, ...targets?: SceneObject[])
 ```
 
-Cuts solids along an infinite plane. Each solid the plane crosses is
-replaced by the pieces on either side, every piece a body of its own with
-a flat cap on the plane. The split statement then holds the pieces: a
+Cuts solids along an infinite plane, or along the sheet a sketched edge
+sweeps out of its sketch. Each solid the cut crosses is replaced by the
+pieces on either side, every piece a body of its own capped where the cut
+went. The split statement then holds the pieces: a
 later feature naming the split (`translate(v, s)`, `fillet(2, …)` on its
 edges, `remove(s)`) reads all of them, and a `.scope()` follows them too.
 
@@ -28,19 +29,23 @@ edges, `remove(s)`) reads all of them, and a `.scope()` follows them too.
   statement, or a planar face selection — read exactly as `mirror(plane, …)`
   reads one. The plane is consumed for display only: its quad leaves the
   screen from the split on, and a later feature may take it again.
-- **`line`**: a `line()` of a sketch, usually a construction line
-  (`.guide()`). It seeds the plane that contains the line and stands normal
-  to the line's sketch — the sheet the line would sweep if it were extruded
-  out of the sketch both ways. The sketch is consumed for display, as an
-  extrude's profile is — its wires leave the screen from the split on and
-  the timeline eye brings them back — while the line stays readable by any
-  later feature. The plane's normal is the line direction turned a quarter turn inside the
-  sketch (line × sketch normal), so `front` is to the right of the line when
-  you look along it from the sketch's front. Reach the line from outside
-  the sketch with a hoisted `let`.
+- **`edge`**: an edge of a sketch — a `line()`, `arc()`, `circle()`,
+  `ellipse()` or spline, usually a construction edge (`.guide()`). The cut
+  is what the edge would sweep if it were extruded out of the sketch both
+  ways: a straight line gives the infinite plane that contains it and
+  stands normal to the sketch; any curve gives a curved sheet, bounded by
+  the curve's ends, so a curve must run all the way across a body to split
+  it (a curve that stops inside splits nothing). The sketch is consumed for
+  display, as an extrude's profile is — its wires leave the screen from the
+  split on and the timeline eye brings them back — while the edge stays
+  readable by any later feature. `front` is to the right of the edge when
+  you travel it from the sketch's front (edge tangent × sketch normal): for
+  a circle or a closed loop drawn counter-clockwise, the outside. Reach the
+  edge from outside the sketch with a hoisted `let`, or return it from the
+  sketch callback (`s.geometries.seed`).
 - **`targets`**: the solids to split. Without targets every solid in scope
   is a candidate; inside `part()`, this means that part’s preceding solids.
-  A solid the plane misses, or only touches along a face or an edge, stays
+  A solid the cut misses, or only touches along a face or an edge, stays
   unchanged.
 - **`keep`**: `'both'` (the default) keeps every piece; `'front'` keeps the
   pieces on the side the plane normal points to, `'back'` the other side.
@@ -51,7 +56,7 @@ edges, `remove(s)`) reads all of them, and a `.scope()` follows them too.
 There is no offset option: to cut away from a plane, offset the plane
 itself — `split(plane('xy', 12))`, `split(plane(select(face()…), -8))`.
 
-A split whose plane crosses none of the solids builds nothing and reports
+A split whose cut crosses none of the solids builds nothing and reports
 `nothing was split` on its row; a split with no solid in scope is an error.
 
 ```js
@@ -60,6 +65,7 @@ split(p, boss);                                   // one body, at a plane() stat
 split(plane(select(face().onPlane('yz', 20)), -8)); // 8 inside the +x face
 split('yz', { keep: 'front' }, body);             // keep the +x half only
 split(seed, { keep: 'back' }, body);              // along a sketched line, keep the left side
+split(ring, { keep: 'front' });                   // outside a counter-clockwise circle — core it out
 ```
 
 ## Example

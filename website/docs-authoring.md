@@ -321,7 +321,8 @@ Dialog fields:
 - **Rotate**: tabs **Move** (turn in place) / **Copy** (keep originals, add
   turned copies); **Solids** slot; **Axis** slot; **Angle**.
 - **Split**: **Both / Front / Back**; **Cut** slot (origin plane, plane feature,
-  planar face, or straight sketch line); **Solids** slot (empty = all solids
+  planar face, or a sketch edge — a line cuts flat, a curve along its swept
+  surface); **Solids** slot (empty = all solids
   in scope). No offset field — offset the plane itself. Click a slot before
   picking in the viewport. The preview shows removed pieces in red.
 - **Boolean**: **Fuse / Subtract / Common**, **Target** and **Tool** solids.

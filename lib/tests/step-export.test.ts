@@ -19,6 +19,9 @@ import { Solid } from "../common/solid.js";
 import { Shape } from "../common/shape.js";
 import { ISceneObject } from "../core/interfaces.js";
 import { testRect } from "./helpers/profiles.js";
+import { exportable } from "./io/helpers.js";
+import { faceColorsOf } from "./utils.js";
+
 
 /** Every solid the scene would hand to an export, same walk as SceneManager. */
 function sceneSolids(): Solid[] {
@@ -131,7 +134,7 @@ describe("STEP export", () => {
     const solids = sceneSolids();
     expect(solids.length).toBe(2);
 
-    const step = FileExport.exportShapes(solids, { format: "step" }).data as string;
+    const step = FileExport.exportShapes(exportable(solids), { format: "step" }).data as string;
 
     // The colored (XCAF) writer used to switch to multi-file mode and only one
     // of the split files came back, silently dropping the cylinder.
@@ -146,7 +149,7 @@ describe("STEP export", () => {
     color("#3366cc", plate);
     render();
 
-    const step = FileExport.exportShapes(sceneSolids(), { format: "step" }).data as string;
+    const step = FileExport.exportShapes(exportable(sceneSolids()), { format: "step" }).data as string;
 
     expect(countOccurrences(step, "MANIFOLD_SOLID_BREP")).toBe(2);
     expect(step).toContain("COLOUR_RGB");
@@ -157,7 +160,7 @@ describe("STEP export", () => {
     twoBodies();
     render();
 
-    const step = FileExport.exportShapes(sceneSolids(), {
+    const step = FileExport.exportShapes(exportable(sceneSolids()), {
       format: "step",
       includeColors: false,
     }).data as string;
@@ -179,7 +182,7 @@ describe("STEP export", () => {
       const faceCount = solids.reduce((n, solid) => n + solid.getFaces().length, 0);
       const volume = solids.reduce((v, solid) => v + volumeOf(solid), 0);
 
-      const step = FileExport.exportShapes(solids, { format: "step", includeColors }).data as string;
+      const step = FileExport.exportShapes(exportable(solids), { format: "step", includeColors }).data as string;
       expect(countOccurrences(step, "ADVANCED_FACE")).toBe(faceCount);
       expect(step).not.toContain("SURFACE_OF_REVOLUTION");
 
@@ -207,12 +210,12 @@ describe("STEP export", () => {
     render();
 
     // color() wraps the body in its own scene object; export the painted copy.
-    const painted = sceneSolids().filter(solid => solid.colorMap.length > 0);
+    const painted = sceneSolids().filter(solid => faceColorsOf(getCurrentScene(), solid).size > 0);
     expect(painted.length).toBe(1);
     const faceCount = painted[0].getFaces().length;
-    expect(painted[0].colorMap.length).toBe(faceCount);
+    expect(faceColorsOf(getCurrentScene(), painted[0]).size).toBe(faceCount);
 
-    const step = FileExport.exportShapes(painted, { format: "step" }).data as string;
+    const step = FileExport.exportShapes(exportable(painted), { format: "step" }).data as string;
     expect(countOccurrences(step, "ADVANCED_FACE")).toBe(faceCount);
     expect(countOccurrences(step, "CONICAL_SURFACE(")).toBe(1);
     expect(step).toContain("COLOUR_RGB");
@@ -239,7 +242,7 @@ describe("STEP export", () => {
       // its own object as the consumed input.
       const body = sceneSolids().at(-1)!;
       expect(body.getFaces().length).toBe(5);
-      const step = FileExport.exportShapes([body], { format: "step", includeColors }).data as string;
+      const step = FileExport.exportShapes(exportable([body]), { format: "step", includeColors }).data as string;
 
       // Two planar ends, the barrel and two cones — every face survives.
       expect(countOccurrences(step, "CONICAL_SURFACE(")).toBe(2);

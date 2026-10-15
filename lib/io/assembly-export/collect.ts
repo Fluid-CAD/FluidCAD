@@ -1,6 +1,7 @@
 import { AssemblyScene } from "../../rendering/assembly-scene.js";
 import { Part } from "../../features/part.js";
 import { Solid } from "../../common/solid.js";
+import { ColoredSolids } from "../../common/colored-solid.js";
 import { IDENTITY_POSE, relativePose } from "../../math/pose.js";
 import type { Pose } from "../../math/pose.js";
 import type { AssemblyExportNode, AssemblyExportPart, AssemblyExportPose, AssemblyExportTree } from "./tree.js";
@@ -66,7 +67,9 @@ export function collectAssemblyExportTree(scene: AssemblyScene, options: Collect
     if (!part) {
       return { ok: false, reason: `The part of instance "${inst.name}" is not in the scene.` };
     }
-    const solids = part.getShapes(undefined, "solid").filter((s): s is Solid => s.isSolid());
+    const solids = part.getShapes(undefined, "solid")
+      .filter((s): s is Solid => s.isSolid())
+      .map(solid => ColoredSolids.fromHolder(part, solid));
     parts.set(inst.partId, { partId: inst.partId, name: inst.partName, solids });
   }
 

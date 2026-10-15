@@ -8,7 +8,8 @@ import type { ShapeHistory } from "../common/shape-history-tracker.js";
 import { Plane } from "../math/plane.js";
 import { getOC } from "../oc/init.js";
 import { Explorer } from "../oc/explorer.js";
-import { SplitOps, type SplitCutter } from "../oc/split-ops.js";
+import { SplitOps, type SplitCutter, type SplitSolidResult } from "../oc/split-ops.js";
+import type { CarriedColor } from "../oc/color-transfer.js";
 import { heldSolidsOf, liveOperandShapes, type HeldShape } from "../helpers/live-solids.js";
 import { recordModifierHistory } from "../helpers/scene-helpers.js";
 import { ISplit } from "../core/interfaces.js";
@@ -86,7 +87,15 @@ export class Split extends SceneObject implements ISplit {
 
     let splitCount = 0;
     for (const { holder, shape } of stock) {
-      const { pieces, history } = SplitOps.splitSolid(shape, cutter);
+      const colors = holder.getFaceColors(shape);
+      let pieces: SplitSolidResult['pieces'];
+      let history: SplitSolidResult['history'];
+      let carried: CarriedColor[];
+      try {
+        ({ pieces, history, colors: carried } = SplitOps.splitSolid({ shape, colors }, cutter));
+      } finally {
+        colors.delete();
+      }
       if (pieces.length === 0) {
         continue;
       }
@@ -101,6 +110,7 @@ export class Split extends SceneObject implements ISplit {
         recordModifierHistory(this.keep === 'both' ? history : historyWithin(history, kept), holder, this);
       }
       this.addShapes(kept);
+      this.recordCarriedColors(carried.filter(c => kept.some(piece => piece === c.shape)));
     }
 
     if (splitCount === 0) {

@@ -9,11 +9,17 @@ import { getOC } from "../oc/init.js";
 import { HiddenEdges } from "../oc/hidden-edges.js";
 import { EdgeConvexityOps } from "../oc/edge-convexity.js";
 import { TopologyIndex } from "../oc/topology-index.js";
+import type { FaceColorView } from "../common/face-color-view.js";
 
-export function renderSolid(shapeObj: Shape, meshConfig?: MeshConfig): SceneObjectMesh[] {
+/**
+ * Meshes a solid: its faces grouped by colour (one `solid-faces` mesh per
+ * colour, `colors` resolving each face — none means unpainted) and its
+ * edges.
+ */
+export function renderSolid(shapeObj: Shape, meshConfig?: MeshConfig, colors?: FaceColorView): SceneObjectMesh[] {
   Mesh.ensureTriangulated(shapeObj.getShape(), meshConfig);
 
-  const facesMeshes = getFacesMesh(shapeObj);
+  const facesMeshes = getFacesMesh(shapeObj, colors);
   const edgesMesh = getEdgesMesh(shapeObj);
 
   return [...facesMeshes, ...edgesMesh];
@@ -75,14 +81,14 @@ function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
   return result;
 }
 
-function getFacesMesh(shapeObj: Shape): SceneObjectMesh[] {
+function getFacesMesh(shapeObj: Shape, colors?: FaceColorView): SceneObjectMesh[] {
   const faces = Explorer.findFacesWrapped(shapeObj);
 
   const groups = new Map<string | undefined, { vertices: number[]; normals: number[]; indices: number[]; faceMapping: number[]; vertexOffset: number }>();
 
   for (let faceIdx = 0; faceIdx < faces.length; faceIdx++) {
     const face = faces[faceIdx];
-    const color = shapeObj.getColor(face.getShape());
+    const color = colors?.get(face.getShape());
 
     const faceResult = Mesh.extractFaceTriangulationRaw(face.getShape(), 0);
 

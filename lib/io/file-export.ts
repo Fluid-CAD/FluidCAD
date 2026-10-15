@@ -1,5 +1,5 @@
 import { OcIO } from "../oc/io.js";
-import { Solid } from "../common/solid.js";
+import type { ColoredSolid } from "../common/colored-solid.js";
 import { unitFactor } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 
@@ -31,7 +31,8 @@ export const RESOLUTION_PRESETS = {
 } as const;
 
 export class FileExport {
-  static exportShapes(solids: Solid[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {
+  /** Writes `solids` — each with the colours its holder resolves for it (`ColoredSolids.fromHolder`). */
+  static exportShapes(solids: ColoredSolid[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {
     if (solids.length === 0) {
       throw new Error('No solids to export');
     }
@@ -42,7 +43,7 @@ export class FileExport {
     return FileExport.exportStl(solids, options);
   }
 
-  private static exportStep(solids: Solid[], options: ExportOptions): { data: string; fileName: string } {
+  private static exportStep(solids: ColoredSolid[], options: ExportOptions): { data: string; fileName: string } {
     const fileName = 'export.step';
     const includeColors = options.includeColors !== false;
     const unit = options.unit ?? 'mm';
@@ -52,11 +53,11 @@ export class FileExport {
       return { data, fileName };
     }
 
-    const data = OcIO.writeStep(solids, fileName, unit);
+    const data = OcIO.writeStep(solids.map(s => s.solid), fileName, unit);
     return { data, fileName };
   }
 
-  private static exportStl(solids: Solid[], options: ExportOptions): { data: Uint8Array; fileName: string } {
+  private static exportStl(solids: ColoredSolid[], options: ExportOptions): { data: Uint8Array; fileName: string } {
     const fileName = 'export.stl';
     const unit = options.unit ?? 'mm';
     const scaleTo = options.scaleTo ?? 'mm';
@@ -66,7 +67,7 @@ export class FileExport {
 
     const { linearDeflection, angularDeflection } = FileExport.stlDeflections(options, unit, meshUnit);
 
-    const compound = OcIO.makeCompoundRaw(solids.map(s => s.getShape()));
+    const compound = OcIO.makeCompoundRaw(solids.map(s => s.solid.getShape()));
     const factor = unitFactor(unit, meshUnit);
     if (factor === 1) {
       const data = OcIO.writeStl(compound, fileName, linearDeflection, angularDeflection);

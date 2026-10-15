@@ -1,4 +1,5 @@
 import { Shape } from "../common/shape.js";
+import type { FaceColorView } from "../common/face-color-view.js";
 import { Vertex } from "../common/vertex.js";
 import { Explorer } from "../oc/explorer.js";
 import { renderSolid } from "./render-solid.js";
@@ -32,13 +33,18 @@ export class MeshBuilder {
     return resolveRenderMeshConfig(shape, this.quality, unit);
   }
 
-  build(shapeObj: Shape, unit: LengthUnit = getActiveUnit()) {
+  /**
+   * Meshes `shapeObj`. `colors` is the face-colour view of a solid (its
+   * holder's `getFaceColors`); without one — ghosts, scratch shapes — the
+   * solid is meshed unpainted.
+   */
+  build(shapeObj: Shape, unit: LengthUnit = getActiveUnit(), colors?: FaceColorView) {
     const shape = shapeObj.getShape();
 
     let result: SceneObjectMesh[] | SceneObjectMesh | null = null;
 
     if (Explorer.isSolid(shape)) {
-      result = renderSolid(shapeObj, this.resolveConfig(shapeObj, unit));
+      result = renderSolid(shapeObj, this.resolveConfig(shapeObj, unit), colors);
     }
     else if (Explorer.isFace(shape)) {
       result = renderFace(shapeObj, 0, this.resolveConfig(shapeObj, unit));

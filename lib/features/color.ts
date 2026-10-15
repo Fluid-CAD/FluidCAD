@@ -95,11 +95,18 @@ export class Color extends SceneObject {
 
     const facesByOwner = this.collectFacesByOwner(allShapes);
 
-    // Apply all face colors per solid in a single copy
+    // Apply all face colors per solid in a single copy. The copy shares the
+    // original's raw handle, so its faces are the original's: the owner's
+    // existing records come along first (authors kept — `Solid.copy()`
+    // carries geometry only), then this statement's paint on top.
     for (const [ownerShape, faces] of facesByOwner) {
       const newSolid = ownerShape.copy();
+      const ownerObj = objShapeMap.get(ownerShape);
+      if (ownerObj) {
+        this.carryFaceColors(ownerObj, ownerShape, newSolid);
+      }
       for (const face of faces) {
-        newSolid.setColor(face.getShape(), this.color);
+        this.recordFaceColor(newSolid, face, this.color, this);
       }
 
       if (this._selection instanceof SelectSceneObject) {
@@ -108,7 +115,6 @@ export class Color extends SceneObject {
         }
       }
 
-      const ownerObj = objShapeMap.get(ownerShape);
       if (ownerObj) {
         ownerObj.removeShape(ownerShape, this);
       }

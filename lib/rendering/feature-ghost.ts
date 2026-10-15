@@ -59,6 +59,7 @@ import { SplitOps, type SplitCutter } from "../oc/split-ops.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { MeshBuilder } from "./mesh-builder.js";
+import { ColorTransfer } from "../oc/color-transfer.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { renderFacePatch } from "./render-face.js";
 import { Scene, SceneObjectMesh } from "./scene.js";
@@ -2323,7 +2324,7 @@ function buildSplitGhost(
     const out: GhostSolid[] = [];
     const crossed: Shape[] = [];
     for (const solid of solids) {
-      const { pieces } = SplitOps.splitSolid(solid, cutter);
+      const { pieces } = SplitOps.splitSolid(ColorTransfer.plain(solid), cutter);
       if (pieces.length === 0) {
         continue;
       }

@@ -24,6 +24,7 @@ import { AssemblyCompare } from "../../rendering/assembly-compare.js";
 import { ShapeProps } from "../../oc/props.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { INCH_PART_FILE, defineInchBlock } from "./fixtures/inch-part.js";
+import { colorOf, faceColorsOf } from "../utils.js";
 
 const IN = 25.4;
 const MM_FILE = "/ws/consumer.fluid.js";
@@ -113,9 +114,10 @@ describe("foreign-unit parts", () => {
 
       // The coloured top face survived the transform, mapped onto the
       // scaled face (color() stores a normalized colour value).
-      expect(solid.colorMap).toHaveLength(1);
-      const stored = solid.colorMap[0].color;
-      const coloured = solid.getFaces().filter(f => solid.getColor(f.getShape()) === stored);
+      const colors = faceColorsOf(scene, solid);
+      expect(colors.size).toBe(1);
+      const [stored] = colors.values();
+      const coloured = solid.getFaces().filter(f => colorOf(scene, solid, f) === stored);
       expect(coloured).toHaveLength(1);
       expect(ShapeOps.getBoundingBox(coloured[0]).minZ).toBeCloseTo(IN, 4);
 

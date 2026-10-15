@@ -5,6 +5,7 @@ import { Plane } from "../math/plane.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
+import type { CarriedColor } from "../oc/color-transfer.js";
 import { requireShapes } from "../common/operand-check.js";
 import { liveOperandShapes } from "../helpers/live-solids.js";
 
@@ -75,22 +76,32 @@ export class MirrorShape extends SceneObject {
     }
 
     const transformedShapes: Shape[] = [];
+    const mirroredColors: CarriedColor[] = [];
 
     // A named target's body is read wherever the features since left it
     // (liveOperandShapes); the mirror never takes it, so no holder to update.
     for (const obj of targetObjects) {
-      for (const { shape } of liveOperandShapes(obj, { excludeMeta: false }, 'solid')) {
+      for (const { holder, shape } of liveOperandShapes(obj, { excludeMeta: false }, 'solid')) {
         const matrix = Matrix4.mirrorPlane(plane.normal, plane.origin);
-        const transformed = ShapeOps.transform(shape, matrix);
-        transformed.setMeshSource(shape, matrix);
-        transformedShapes.push(transformed);
+        const colors = holder.getFaceColors(shape);
+        try {
+          const { shape: transformed, colors: carried } = ShapeOps.transformColored({ shape, colors }, matrix);
+          transformed.setMeshSource(shape, matrix);
+          transformedShapes.push(transformed);
+          mirroredColors.push(...carried);
+        } finally {
+          colors.delete();
+        }
       }
     }
 
     const stock = this.resolveFusionStock(allSceneObjects);
 
     if (this._operationMode === 'new') {
+      // Only a kept image is a body of this statement's; as a boolean tool
+      // its colours are the stock's business (the fuse/cut colour rules).
       this.addShapes(transformedShapes);
+      this.recordCarriedColors(mirroredColors);
     } else if (this._operationMode === 'remove') {
       cutWithSceneObjects(stock, transformedShapes, plane, 0, this, {
         recordHistoryFor: this,

@@ -52,6 +52,11 @@ export class FaceColorView {
 
   /** The colour of `raw` (any orientation of the face), or undefined when unpainted. */
   get(raw: TopoDS_Shape): string | undefined {
+    return this.entryOf(raw)?.color;
+  }
+
+  /** The resolved entry for `raw` (any orientation of the face) — its colour and author — or undefined when unpainted. */
+  entryOf(raw: TopoDS_Shape): FaceColorEntry | undefined {
     if (!this.map) {
       return undefined;
     }
@@ -59,7 +64,7 @@ export class FaceColorView {
     if (key === 0) {
       return undefined;
     }
-    return this.byKey.get(key)?.color;
+    return this.byKey.get(key);
   }
 
   isEmpty(): boolean {

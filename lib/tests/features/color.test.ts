@@ -13,7 +13,7 @@ import { Solid } from "../../common/solid.js";
 import { Color } from "../../features/color.js";
 import { Extrude } from "../../features/extrude.js";
 import { SelectSceneObject } from "../../features/select.js";
-import { countShapes } from "../utils.js";
+import { countShapes, faceColorsOf } from "../utils.js";
 import { edge, face } from "../../filters/index.js";
 import { testRect } from "../helpers/profiles.js";
 
@@ -30,13 +30,13 @@ describe("color", () => {
       select(face().onPlane("xy", 30));
       const c = color("red") as Color;
 
-      render();
+      const scene = render();
 
       const shapes = c.getShapes();
       expect(shapes).toHaveLength(1);
 
       const solid = shapes[0] as Solid;
-      expect(solid.hasColors()).toBe(true);
+      expect(faceColorsOf(scene, solid).size).toBeGreaterThan(0);
     });
 
     it("should store the correct color value", () => {
@@ -48,14 +48,14 @@ describe("color", () => {
       const sel = select(face().onPlane("xy", 30)) as SelectSceneObject;
       const c = color("#ff0000", sel) as Color;
 
-      render();
+      const scene = render();
 
       const solid = c.getShapes()[0] as Solid;
-      expect(solid.hasColors()).toBe(true);
+      const colors = faceColorsOf(scene, solid);
+      expect(colors.size).toBeGreaterThan(0);
 
-      // The color map should have an entry with the specified color
-      expect(solid.colorMap.length).toBeGreaterThan(0);
-      expect(solid.colorMap[0].color).toBe("#ff0000");
+      // The holder's records carry the specified color
+      expect([...colors.values()][0]).toBe("#ff0000");
     });
   });
 
@@ -69,11 +69,12 @@ describe("color", () => {
       const sel = select(face().onPlane("xy")) as SelectSceneObject;
       const c = color("blue", sel) as Color;
 
-      render();
+      const scene = render();
 
       const solid = c.getShapes()[0] as Solid;
-      expect(solid.hasColors()).toBe(true);
-      expect(solid.colorMap[0].color).toBe("#0000ff");
+      const colors = faceColorsOf(scene, solid);
+      expect(colors.size).toBeGreaterThan(0);
+      expect([...colors.values()][0]).toBe("#0000ff");
     });
   });
 
@@ -88,12 +89,13 @@ describe("color", () => {
       select(face().parallelTo("xy"));
       const c = color("#008000") as Color;
 
-      render();
+      const scene = render();
 
       const solid = c.getShapes()[0] as Solid;
-      expect(solid.colorMap).toHaveLength(2);
-      for (const entry of solid.colorMap) {
-        expect(entry.color).toBe("#008000");
+      const colors = faceColorsOf(scene, solid);
+      expect(colors.size).toBe(2);
+      for (const value of colors.values()) {
+        expect(value).toBe("#008000");
       }
     });
   });
@@ -107,13 +109,14 @@ describe("color", () => {
 
       const c = color("red") as Color;
 
-      render();
+      const scene = render();
 
       const solid = c.getShapes()[0] as Solid;
       // A box has six faces; all of them should be colored red.
-      expect(solid.colorMap).toHaveLength(6);
-      for (const entry of solid.colorMap) {
-        expect(entry.color).toBe("#ff0000");
+      const colors = faceColorsOf(scene, solid);
+      expect(colors.size).toBe(6);
+      for (const value of colors.values()) {
+        expect(value).toBe("#ff0000");
       }
     });
 
@@ -126,9 +129,10 @@ describe("color", () => {
       select(face());
       const explicit = color("red") as Color;
 
-      render();
+      const explicitScene = render();
 
       const explicitSolid = explicit.getShapes()[0] as Solid;
+      const explicitColors = faceColorsOf(explicitScene, explicitSolid);
 
       // Rebuild the same model from scratch, coloring with an implicit
       // (no-selection) call, and assert the colored output is identical.
@@ -141,12 +145,13 @@ describe("color", () => {
 
       const implicit = color("red") as Color;
 
-      render();
+      const implicitScene = render();
 
       const implicitSolid = implicit.getShapes()[0] as Solid;
+      const implicitColors = faceColorsOf(implicitScene, implicitSolid);
 
-      expect(implicitSolid.colorMap).toHaveLength(explicitSolid.colorMap.length);
-      expect(implicitSolid.colorMap.every(e => e.color === "#ff0000")).toBe(true);
+      expect(implicitColors.size).toBe(explicitColors.size);
+      expect([...implicitColors.values()].every(value => value === "#ff0000")).toBe(true);
     });
   });
 
@@ -163,14 +168,15 @@ describe("color", () => {
       fillet(2, select(edge().verticalTo("xy")));
       const c = color("red") as Color;
 
-      render();
+      const scene = render();
 
       expect(c.getError()).toBeFalsy();
       const solid = c.getShapes()[0] as Solid;
       // Six box faces plus four fillet faces — every one colored.
-      expect(solid.colorMap).toHaveLength(solid.getFaces().length);
-      expect(solid.colorMap).toHaveLength(10);
-      expect(solid.colorMap.every(e => e.color === "#ff0000")).toBe(true);
+      const colors = faceColorsOf(scene, solid);
+      expect(colors.size).toBe(solid.getFaces().length);
+      expect(colors.size).toBe(10);
+      expect([...colors.values()].every(value => value === "#ff0000")).toBe(true);
     });
 
     it("should not fall back to a selection wrapped in a lazy accessor", () => {
@@ -187,12 +193,13 @@ describe("color", () => {
         c = color("red") as Color;
       });
 
-      render();
+      const scene = render();
 
       expect(c.getError()).toBeFalsy();
       const solid = c.getShapes()[0] as Solid;
-      expect(solid.colorMap).toHaveLength(6);
-      expect(solid.colorMap.every(e => e.color === "#ff0000")).toBe(true);
+      const colors = faceColorsOf(scene, solid);
+      expect(colors.size).toBe(6);
+      expect([...colors.values()].every(value => value === "#ff0000")).toBe(true);
     });
 
   });
@@ -206,12 +213,13 @@ describe("color", () => {
 
       const c = color("red", e) as Color;
 
-      render();
+      const scene = render();
 
       const solid = c.getShapes()[0] as Solid;
-      expect(solid.colorMap).toHaveLength(6);
-      for (const entry of solid.colorMap) {
-        expect(entry.color).toBe("#ff0000");
+      const colors = faceColorsOf(scene, solid);
+      expect(colors.size).toBe(6);
+      for (const value of colors.values()) {
+        expect(value).toBe("#ff0000");
       }
     });
 
@@ -226,12 +234,13 @@ describe("color", () => {
       select(face().onPlane("xy", 30));
       const c = color("tomato") as Color;
 
-      render();
+      const scene = render();
 
       const solid = c.getShapes()[0] as Solid;
-      expect(solid.colorMap).toHaveLength(6);
-      expect(solid.colorMap.filter(entry => entry.color === "#ff6347")).toHaveLength(1);
-      expect(solid.colorMap.filter(entry => entry.color === "#4682b4")).toHaveLength(5);
+      const colors = [...faceColorsOf(scene, solid).values()];
+      expect(colors).toHaveLength(6);
+      expect(colors.filter(value => value === "#ff6347")).toHaveLength(1);
+      expect(colors.filter(value => value === "#4682b4")).toHaveLength(5);
     });
 
     it("should consume the object's solid rather than duplicate it", () => {

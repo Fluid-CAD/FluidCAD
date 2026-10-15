@@ -5,9 +5,8 @@ import { Explorer } from "./explorer.js";
 import { FaceOps } from "./face-ops.js";
 import { ShapeOps } from "./shape-ops.js";
 import { ShapeProps } from "./props.js";
-import { ColorTransfer } from "./color-transfer.js";
+import { ColorTransfer, type CarriedColor, type SourceColors } from "./color-transfer.js";
 import { RenderSeams } from "./render-seams.js";
-import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import type { BoundingBox } from "../helpers/types.js";
@@ -47,6 +46,8 @@ export type SplitSolidResult = {
   pieces: SplitPiece[];
   /** Maker history against the input solid, for the caller's provenance records. Null when nothing was split. */
   history: ShapeHistory | null;
+  /** The source's colours carried onto the pieces (cap faces bled from their neighbours) — the caller records them. */
+  colors: CarriedColor[];
 };
 
 type SidedPiece = SplitPiece & { distance: number };
@@ -63,8 +64,8 @@ export class SplitOps {
   }
 
   /** Splits `solid` with the infinite plane — see {@link splitSolid}. */
-  static splitSolidByPlane(solid: Shape, plane: Plane): SplitSolidResult {
-    return SplitOps.splitSolid(solid, { kind: 'plane', plane });
+  static splitSolidByPlane(source: SourceColors, plane: Plane): SplitSolidResult {
+    return SplitOps.splitSolid(source, { kind: 'plane', plane });
   }
 
   /**
@@ -81,9 +82,10 @@ export class SplitOps {
    * that lost or doubled material is a kernel failure, never geometry a user
    * asked for, so it is refused here instead of reaching the scene.
    */
-  static splitSolid(solid: Shape, cutter: SplitCutter): SplitSolidResult {
+  static splitSolid(source: SourceColors, cutter: SplitCutter): SplitSolidResult {
     const oc = getOC();
-    const none: SplitSolidResult = { pieces: [], history: null };
+    const solid = source.shape;
+    const none: SplitSolidResult = { pieces: [], history: null, colors: [] };
 
     const bbox = ShapeOps.getBoundingBox(solid);
     const diagonal = SplitOps.diagonalOf(bbox);
@@ -173,13 +175,14 @@ export class SplitOps {
 
       const solids = pieces.map(p => p.solid);
       solids.forEach(target => RenderSeams.throughHistory(target, [solid], splitter));
-      ColorTransfer.applyThroughMaker([solid], solids, splitter);
-      ColorTransfer.applyBleeding([solid], solids, splitter);
+      const colors = ColorTransfer.applyThroughMaker([source], solids, splitter);
+      colors.push(...ColorTransfer.applyBleeding([source], solids, splitter, undefined, colors));
       const history = ShapeHistoryTracker.collect(splitter, [solid]);
 
       return {
         pieces: pieces.map(({ solid, side }) => ({ solid, side })),
         history,
+        colors,
       };
     } finally {
       result?.delete();

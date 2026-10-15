@@ -8,6 +8,7 @@ import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { Vertex } from "../common/vertex.js";
 import { ShapeFactory } from "../common/shape-factory.js";
+import type { ColoredSolid } from "../common/colored-solid.js";
 
 /**
  * Uniform scaling about the origin — the one transform a unit change is.
@@ -33,10 +34,11 @@ export class ScaleOps {
   }
 
   /**
-   * Uniformly scales `solids` about the origin by `factor`, carrying each
-   * per-face colour over to the face the transform produced. Returns the
-   * input untouched when the factor is 1 so an mm document loading an mm
-   * asset stays bit-identical to an unscaled load.
+   * Uniformly scales `solids` about the origin by `factor` — geometry only;
+   * face colours are holder records, carried by {@link scaleColoredSolids}
+   * or, for records already in a scene, by `StateScaler`. Returns the input
+   * untouched when the factor is 1 so an mm document loading an mm asset
+   * stays bit-identical to an unscaled load.
    */
   static scaleSolids(solids: Solid[], factor: number): Solid[] {
     if (factor === 1) {
@@ -46,8 +48,32 @@ export class ScaleOps {
   }
 
   /**
-   * A scaled copy of a scene shape wrapper: same wrapper class, colours
-   * re-mapped through the transform, meta/guide/role flags carried over.
+   * {@link scaleSolids} for solids travelling with their colours (an import):
+   * each painted face is remapped through its solid's own transform, so it
+   * stays `IsSame` with a face of the scaled solid. Factor 1 hands the input
+   * back untouched.
+   */
+  static scaleColoredSolids(solids: ColoredSolid[], factor: number): ColoredSolid[] {
+    if (factor === 1) {
+      return solids;
+    }
+    const scaler = new ShapeScaler(factor);
+    try {
+      return solids.map(({ solid, colors }) => ({
+        solid: scaler.scale(solid) as Solid,
+        colors: colors.map(({ face, color }) => ({
+          face: Face.fromTopoDSFace(Explorer.toFace(scaler.remapSub(solid, face.getShape()))),
+          color,
+        })),
+      }));
+    } finally {
+      scaler.delete();
+    }
+  }
+
+  /**
+   * A scaled copy of a scene shape wrapper: same wrapper class,
+   * meta/guide/role flags carried over.
    * `metaData` is copied by reference — callers that know its payload
    * (e.g. a pick point) scale it themselves. The input is left untouched.
    * One-shot: a caller that also has to remap sub-shapes of the result
@@ -132,9 +158,6 @@ export class ShapeScaler {
     transformer.Perform(shape.getShape(), true);
 
     const scaled = ScaleOps.wrapLike(shape, transformer.Shape());
-    for (const entry of shape.colorMap) {
-      scaled.setColor(transformer.ModifiedShape(entry.shape), entry.color);
-    }
     if (shape.isMetaShape()) {
       scaled.markAsMetaShape(shape.metaType);
     }

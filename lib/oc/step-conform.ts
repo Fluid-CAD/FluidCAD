@@ -70,7 +70,7 @@ export class StepConform {
 
     // Intrinsic orientations (re-added under parents that keep theirs) with
     // cumulative locations, so every face is placed as the solid places it and
-    // stays IsSame with the faces a caller's colorMap was built from.
+    // stays IsSame with the faces a caller's colour records name.
     const shellIt = new oc.TopoDS_Iterator(shape, false, true);
     for (; shellIt.More(); shellIt.Next()) {
       const oldShell = shellIt.Value();

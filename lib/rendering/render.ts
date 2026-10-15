@@ -116,6 +116,8 @@ function collectForeignParts(
 export class SceneRenderer {
   private readonly meshQuality: MeshQuality;
   private readonly meshBuilder: MeshBuilder;
+  /** Which object holds which solid, for the pass under way — see getOrBuildMeshes. */
+  private holders: SceneHolders | null = null;
   /** Recomputed at the top of every render pass — see computeCallSiteOccurrences. */
   private occurrenceIndexes: Map<SceneObject, number> = new Map();
 
@@ -197,6 +199,7 @@ export class SceneRenderer {
     // published selection stays out of the picture — while feature reads,
     // which call getShapes() scope-less, keep seeing those shapes.
     const renderScope = new Set<SceneObject>(sceneObjects);
+    this.holders = new SceneHolders(scene);
 
     const prepared = new Map<SceneObject, PreparedShapes>();
     for (const object of sceneObjects) {
@@ -241,6 +244,7 @@ export class SceneRenderer {
    */
   renderRollback(scene: Scene, rollbackIndex: number, scope?: Set<SceneObject>): Scene {
     console.log("============ Rollback Rendering ==============", rollbackIndex);
+    this.holders = new SceneHolders(scene);
 
     this.occurrenceIndexes = computeCallSiteOccurrences(scene.getAllSceneObjects());
     const rows = scene.getTimelineObjects();
@@ -262,9 +266,9 @@ export class SceneRenderer {
       }
 
       const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }, scope);
-      const renderedSceneShapes = sceneShapes.map(s => this.toRenderedShape(s, obj.getUnit()));
+      const renderedSceneShapes = sceneShapes.map(s => this.toRenderedShape(s, obj));
       const hiddenShapes = this.hiddenShapes(obj, sceneShapes)
-        .map(s => this.toRenderedShape(s, obj.getUnit()));
+        .map(s => this.toRenderedShape(s, obj));
 
       // A rollback re-emits already-built objects rather than rebuilding them,
       // but an object that failed to build still carries its error — dropping
@@ -367,12 +371,12 @@ export class SceneRenderer {
       if (sceneShapes.length) {
         debug(` - Scene shapes: ${sceneShapes.length}`);
         for (const shape of sceneShapes) {
-          renderedSceneShapes.push(this.toRenderedShape(shape, obj.getUnit(), profiler));
+          renderedSceneShapes.push(this.toRenderedShape(shape, obj, profiler));
         }
       }
       const hidden = this.hiddenShapes(obj, sceneShapes);
       const hiddenShapes = hidden.length > 0
-        ? hidden.map(shape => this.toRenderedShape(shape, obj.getUnit(), profiler))
+        ? hidden.map(shape => this.toRenderedShape(shape, obj, profiler))
         : undefined;
       return { renderedSceneShapes, hiddenShapes, ownShapeCount: sceneShapes.length };
     } catch (error) {
@@ -506,14 +510,17 @@ export class SceneRenderer {
     }
   }
 
-  // Meshing runs outside the object's build scope, so the owning object's
-  // unit travels explicitly: the deflection is resolved in that unit.
-  private getOrBuildMeshes(shape: Shape, unit: LengthUnit, profiler?: Profiler): SceneObjectMesh[] | null {
+  // Meshing runs outside the object's build scope, so the owning object
+  // travels explicitly: the deflection is resolved in its unit, and the
+  // face colours are the ones it resolves for the shape (scope-less: every
+  // paint still makes a fresh wrapper, so a wrapper's colours are fixed).
+  private getOrBuildMeshes(shape: Shape, holder: SceneObject, profiler?: Profiler): SceneObjectMesh[] | null {
     const existing = shape.getMeshes();
     if (existing) {
       return existing;
     }
 
+    const unit = holder.getUnit();
     profiler?.start("Triangulation");
     try {
       let meshes: SceneObjectMesh[] | null;
@@ -521,12 +528,15 @@ export class SceneRenderer {
       if (meshSource) {
         let sourceMeshes = meshSource.shape.getMeshes();
         if (!sourceMeshes) {
-          sourceMeshes = this.meshBuilder.build(meshSource.shape, unit);
+          // The source is another object's solid (a moved body's original,
+          // a copy's seed): meshed with that holder's colours, which the
+          // copy carried over unchanged.
+          sourceMeshes = this.buildMeshes(meshSource.shape, unit, this.holders?.holderOf(meshSource.shape));
           meshSource.shape.setMeshes(sourceMeshes);
         }
-        meshes = sourceMeshes ? transformMeshes(sourceMeshes, meshSource.matrix) : this.meshBuilder.build(shape, unit);
+        meshes = sourceMeshes ? transformMeshes(sourceMeshes, meshSource.matrix) : this.buildMeshes(shape, unit, holder);
       } else {
-        meshes = this.meshBuilder.build(shape, unit);
+        meshes = this.buildMeshes(shape, unit, holder);
       }
 
       shape.setMeshes(meshes);
@@ -536,7 +546,17 @@ export class SceneRenderer {
     }
   }
 
-  private toRenderedShape(shape: Shape, unit: LengthUnit, profiler?: Profiler): RenderedShape {
+  /** `meshBuilder.build` with `holder`'s face-colour view for `shape`, deleted once the meshes are built. */
+  private buildMeshes(shape: Shape, unit: LengthUnit, holder: SceneObject | undefined): SceneObjectMesh[] | null {
+    const colors = holder?.getFaceColors(shape);
+    try {
+      return this.meshBuilder.build(shape, unit, colors);
+    } finally {
+      colors?.delete();
+    }
+  }
+
+  private toRenderedShape(shape: Shape, holder: SceneObject, profiler?: Profiler): RenderedShape {
     return {
       shapeId: shape.id,
       // Meta shapes carry no topology vertices — except a lone vertex (a
@@ -544,7 +564,7 @@ export class SceneRenderer {
       // the vertex pick channel offers it as a sketch point.
       vertices: shape.isMetaShape() && shape.getType() !== 'vertex' ? undefined : topologyVertices(shape),
       faceVertices: shape.isMetaShape() || shape.isEdge() || shape.isWire() ? undefined : topologyFaceVertices(shape),
-      meshes: this.getOrBuildMeshes(shape, unit, profiler),
+      meshes: this.getOrBuildMeshes(shape, holder, profiler),
       shapeType: shape.getType(),
       isMetaShape: shape.isMetaShape() || undefined,
       isGuide: shape.isGuideShape() || undefined,
@@ -656,7 +676,7 @@ export class SceneRenderer {
       return undefined;
     }
     try {
-      return obj.source.getShapes().map(s => this.toRenderedShape(s, obj.source.getUnit()));
+      return obj.source.getShapes().map(s => this.toRenderedShape(s, obj.source));
     } catch {
       return undefined;
     }
@@ -725,5 +745,32 @@ export class SceneRenderer {
     };
 
     scene.addRenderedObject(obj, rendered);
+  }
+}
+
+/**
+ * Which object holds which shape, for a shape the render meets outside its
+ * holder's own pass — a mesh source. Built lazily from every leaf's added
+ * shapes; a shape two objects added (a copy's original, moved over as it is)
+ * answers with the later one, which carried the colours.
+ */
+class SceneHolders {
+  private index: Map<Shape, SceneObject> | null = null;
+
+  constructor(private readonly scene: Scene) {}
+
+  holderOf(shape: Shape): SceneObject | undefined {
+    if (!this.index) {
+      this.index = new Map<Shape, SceneObject>();
+      for (const object of this.scene.getAllSceneObjects()) {
+        if (object.isContainer()) {
+          continue;
+        }
+        for (const added of object.getAddedShapes()) {
+          this.index.set(added, object);
+        }
+      }
+    }
+    return this.index.get(shape);
   }
 }

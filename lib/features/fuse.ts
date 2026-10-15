@@ -63,9 +63,16 @@ export class Fuse extends SceneObject {
     // colors, the fused result stays uncolored — even if other inputs are
     // colored, those colors are intentionally dropped.
     const firstShape = allShapes[0];
-    if (firstShape && firstShape.hasColors()) {
-      ColorTransfer.applyThroughMaker([firstShape], fuseResult.newShapes, fuseResult.maker);
-      ColorTransfer.applyBleeding([firstShape], fuseResult.newShapes, fuseResult.maker);
+    const firstView = objShapeMap.get(firstShape).getFaceColors(firstShape);
+    try {
+      if (!firstView.isEmpty()) {
+        const source = { shape: firstShape, colors: firstView };
+        const carried = ColorTransfer.applyThroughMaker([source], fuseResult.newShapes, fuseResult.maker);
+        carried.push(...ColorTransfer.applyBleeding([source], fuseResult.newShapes, fuseResult.maker, undefined, carried));
+        this.recordCarriedColors(carried);
+      }
+    } finally {
+      firstView.delete();
     }
 
     for (const shape of fuseResult.modifiedShapes) {

@@ -11,6 +11,7 @@ import { DEFAULT_LENGTH_UNIT } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import { heldSolidsOf, liveSolidsIn, type HeldSolid } from "../helpers/live-solids.js";
 import { FaceColorView } from "./face-color-view.js";
+import type { CarriedColor } from "../oc/color-transfer.js";
 import { CssColor } from "./css-color.js";
 
 export type SourceLocation = {
@@ -748,6 +749,35 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return new FaceColorView(this.faceColors.filter(r =>
       r.solid === solid && (!scope || scope.has(r.setBy))
     ));
+  }
+
+  /**
+   * Record the colours an operation carried onto results this object holds
+   * (`ColorTransfer`'s output): each keeps the statement that painted the
+   * source face as its author, so the colour follows that statement's
+   * scope, edits and removal on every downstream body.
+   */
+  recordCarriedColors(colors: ReadonlyArray<CarriedColor>): void {
+    for (const carried of colors) {
+      this.recordFaceColor(carried.shape, carried.face, carried.color, carried.setBy);
+    }
+  }
+
+  /**
+   * Carry the colours `from` resolves for `solid` onto this object's records
+   * for `onto` — the same wrapper when this object takes the solid over as it
+   * is, or a `Solid.copy()` of it, whose faces are the same handles. Authors
+   * are kept.
+   */
+  carryFaceColors(from: SceneObject, solid: Shape, onto: Shape = solid): void {
+    const view = from.getFaceColors(solid);
+    try {
+      for (const entry of view.entries()) {
+        this.recordFaceColor(onto, entry.face, entry.color, entry.setBy);
+      }
+    } finally {
+      view.delete();
+    }
   }
 
   /** The colour `getFaceColors(solid, scope)` resolves for one face, or undefined. */

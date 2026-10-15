@@ -42,6 +42,7 @@ import { RepeatFeatureService } from './interactive/create-feature/repeat-servic
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { MirrorFeatureService } from './interactive/create-feature/mirror-service';
 import { RotateFeatureService } from './interactive/create-feature/rotate-service';
+import { SplitFeatureService } from './interactive/create-feature/split-service';
 import { ConnectorFeatureService } from './interactive/create-feature/connector-service';
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
@@ -1088,7 +1089,7 @@ const syncSketchButtonBlocked = () => {
     extrudeService.isActive || ribService.isActive || holeService.isActive || revolveService.isActive
     || sweepService.isActive || loftService.isActive || wrapService.isActive
     || helixService.isActive || repeatService.isActive || copyService.isActive
-    || mirrorService.isActive || rotateService.isActive || connectorService.isActive
+    || mirrorService.isActive || rotateService.isActive || splitService.isActive || connectorService.isActive
     || booleanService.isActive || planeService.isActive,
   );
   syncKeepToolbar();
@@ -1103,7 +1104,7 @@ const syncSketchButtonBlocked = () => {
 // waits for that render so the bar never flashes the rolled-back layout.
 const featureEditOpen = () =>
   [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService,
-    helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService, connectorService,
+    helixService, repeatService, copyService, mirrorService, rotateService, splitService, booleanService, planeService, connectorService,
   ].some(service => service.isEditing)
   || textEditService.isActive;
 const syncEditFreeze = () => {
@@ -1143,6 +1144,8 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1173,6 +1176,8 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1201,6 +1206,8 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1229,6 +1236,8 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1258,6 +1267,8 @@ const wrapService = new WrapFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1288,6 +1299,8 @@ const helixService = new HelixFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1317,6 +1330,8 @@ const ribService = new RibFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1347,6 +1362,8 @@ const holeService = new HoleFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1386,6 +1403,8 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     const entities = [...measureController.selection];
@@ -1422,6 +1441,8 @@ const textEditService = new TextEditService(container, viewer, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1443,7 +1464,7 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     || sweepService.handleTimelinePick(obj) || wrapService.handleTimelinePick(obj)
     || loftService.handleTimelinePick(obj) || helixService.handleTimelinePick(obj)
     || repeatService.handleTimelinePick(obj) || copyService.handleTimelinePick(obj)
-    || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj)
+    || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj) || splitService.handleTimelinePick(obj)
     || booleanService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
   // Part rows don't navigate: a click makes that part the active part — new
   // statements land inside its callback body instead of at top level — and
@@ -1575,7 +1596,7 @@ function isMirror2DRow(obj: SceneObjectRender): boolean {
  */
 const EDITABLE_ROW_TYPES = new Set([
   'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'shell', 'fillet', 'chamfer', 'text',
-  'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror', 'rotate',
+  'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror', 'rotate', 'split',
   // A copy row opens the Copy dialog — a connector copy row too, filed with
   // its part's connectors in the timeline; a copy that follows a repeat
   // (`copy(holes, bolt)`) opens it on "Along a repeat".
@@ -1722,6 +1743,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     // `repeat('rotate', …)` rows parse as feature 'repeat' above, so only
     // `rotate()` rows reach here.
     rotateService.enterEdit(target, parsed, info);
+  } else if (parsed.feature === 'split') {
+    splitService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'boolean') {
     booleanService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'plane') {
@@ -1865,6 +1888,7 @@ function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
   copyService.exit();
   mirrorService.exit();
   rotateService.exit();
+  splitService.exit();
   booleanService.exit();
   connectorService.exit();
   planeService.exit();
@@ -2164,6 +2188,8 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2210,6 +2236,8 @@ const repeatService = new RepeatFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2247,6 +2275,8 @@ const copyService = new CopyFeatureService(container, viewer, navbar, {
     repeatService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2286,6 +2316,8 @@ const mirrorService = new MirrorFeatureService(container, viewer, navbar, {
     repeatService.exit();
     copyService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2338,8 +2370,47 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
 });
+// Constructed after the rotate service so the three transform tools sit
+// together in one group (…, Repeat, Copy, | Mirror, Rotate, Split).
+const splitService = new SplitFeatureService(container, viewer, navbar, {
+  // The current selection seeds the dialog: every selected face/edge
+  // resolves to its owning solid, opening as a target chip, and a pending
+  // plane fills the cut slot. Captured before the exits below clear it.
+  onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
+    modifyService.displaceSketchSession();
+    const pendingPlaneShapeId = modifyService.pendingPlane;
+    modifyService.exit();
+    extrudeService.exit();
+    ribService.exit();
+    holeService.exit();
+    revolveService.exit();
+    helixService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
+    repeatService.exit();
+    copyService.exit();
+    mirrorService.exit();
+    rotateService.exit();
+    booleanService.exit();
+    connectorService.exit();
+    planeService.exit();
+    const seed = [...measureController.selection];
+    textEditService.exit();
+    measureController.clearSelection();
+    modifyService.clearPendingPlane();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+    return { seed, pendingPlaneShapeId };
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+  filePath: () => currentSceneAbsPath,
+});
 // Constructed after the transform services so its own navbar group registers
-// after theirs (…, | Mirror, Rotate, | separator |, Boolean).
+// after theirs (…, | Mirror, Rotate, Split, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: every selected face/edge
   // resolves to its owning solid, opening as a target chip. Captured before
@@ -2361,6 +2432,8 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
@@ -2401,6 +2474,8 @@ const connectorService = new ConnectorFeatureService(container, viewer, navbar, 
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     planeService.exit();
     textEditService.exit();
@@ -2448,7 +2523,7 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
   // it, and a session re-assert would fight the view the user asked for.
-  for (const service of [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService, connectorService]) {
+  for (const service of [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, splitService, booleanService, planeService, connectorService]) {
     if (service.isEditing) {
       service.exit({ editEnd: 'continue' });
     }
@@ -2570,6 +2645,8 @@ const sectionViewService = new SectionViewService(container, viewer, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2835,6 +2912,7 @@ const createDialogPicking = () =>
   || copyService.isPicking
   || mirrorService.isPicking
   || rotateService.isPicking
+  || splitService.isPicking
   || connectorService.isPicking
   || booleanService.isPicking
   || planeService.isPicking
@@ -2963,6 +3041,9 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
         || sweepService.handleSketchPick(shapeId)
         || wrapService.handleSketchPick(shapeId)
         || loftService.handleSketchPick(shapeId)
+        // The split dialog's cut slot takes one sketched line as the seed of
+        // the plane it sweeps out of its sketch.
+        || splitService.handleSketchPick(shapeId)
         // The plane dialog's From-edge type takes a single-curve sketch as
         // the edge its plane is normal to.
         || planeService.handleSketchPick(shapeId);
@@ -3005,6 +3086,10 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
       }
       if (mirrorService.isPlanePicking) {
         mirrorService.handlePlanePick(shapeId);
+        return;
+      }
+      if (splitService.isPlanePicking) {
+        splitService.handlePlanePick(shapeId);
         return;
       }
       if (planeService.isPlanePicking) {
@@ -3076,6 +3161,12 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // solid as a target, or (plane slot armed) a face is the mirror plane.
   if (mirrorService.isPicking) {
     mirrorService.handleClick(shapeId, sub);
+    return;
+  }
+  // The armed split dialog owns clicks — a face or edge selects its whole
+  // solid as a target, or (cut slot armed) a face is the cut plane.
+  if (splitService.isPicking) {
+    splitService.handleClick(shapeId, sub);
     return;
   }
   // The armed section dialog owns clicks — a face is the cut plane.
@@ -3327,7 +3418,7 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
       || sweepService.sketchUISuspended || wrapService.sketchUISuspended
       || loftService.sketchUISuspended || repeatService.sketchUISuspended
       || copyService.sketchUISuspended || mirrorService.sketchUISuspended
-      || rotateService.sketchUISuspended || booleanService.sketchUISuspended
+      || rotateService.sketchUISuspended || splitService.sketchUISuspended || booleanService.sketchUISuspended
       || planeService.sketchUISuspended || extrudeService.sketchUISuspended
       || ribService.sketchUISuspended || holeService.sketchUISuspended || sectionViewService.sketchUISuspended
       || revolveService.sketchUISuspended || helixService.sketchUISuspended
@@ -3357,6 +3448,7 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
   copyService.handleSceneRendered(result, renderStop, isRollback);
   mirrorService.handleSceneRendered(result, renderStop, isRollback);
   rotateService.handleSceneRendered(result, renderStop, isRollback);
+  splitService.handleSceneRendered(result, renderStop, isRollback);
   connectorService.handleSceneRendered(result, renderStop, isRollback);
   booleanService.handleSceneRendered(result, renderStop, isRollback);
   planeService.handleSceneRendered(result, renderStop, isRollback);

@@ -49,7 +49,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
   { tools: [
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
     { id: 'offset', label: 'Offset', iconPng: 'offset' },
-    { id: 'split', label: 'Split', iconPng: 'split' },
+    { id: 'split', label: 'Split', iconPng: 'split2d' },
     { id: 'trim', label: 'Trim', iconPng: 'trim' },
   ]},
   { tools: [

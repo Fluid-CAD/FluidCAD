@@ -15,6 +15,8 @@ export type PlaneSelection =
   | { kind: 'standard'; plane: StandardPlane }
   | { kind: 'plane'; option: PlaneOption }
   | { kind: 'face' }
+  /** A picked sketched line seeding the plane (the split's cut; the service owns the pick). */
+  | { kind: 'sketchLine' }
   | { kind: 'keep' };
 
 /**
@@ -39,8 +41,13 @@ export class PlaneSlotControl {
   private keepLabel: string | null = null;
   /** The picked-face chip label the service pushed. */
   private faceLabel: string | null = null;
+  /** The picked sketch-line chip label the service pushed. */
+  private sketchLineLabel: string | null = null;
+  /** The empty slot's prompt. */
+  private readonly prompt: string;
 
-  constructor(private readonly slotHost: HTMLElement, opts: { label?: string } = {}) {
+  constructor(private readonly slotHost: HTMLElement, opts: { label?: string; prompt?: string } = {}) {
+    this.prompt = opts.prompt ?? 'Pick a plane or face';
 
     this.slot = new PickSlot(slotHost, { label: opts.label ?? 'Plane', multiple: false });
     this.slot.onArm = () => this.onArm?.();
@@ -63,6 +70,7 @@ export class PlaneSlotControl {
   reset(): void {
     this.keepLabel = null;
     this.faceLabel = null;
+    this.sketchLineLabel = null;
     this.state = null;
     this.render();
   }
@@ -76,6 +84,7 @@ export class PlaneSlotControl {
   seedKeep(label: string | null): void {
     this.keepLabel = label;
     this.faceLabel = null;
+    this.sketchLineLabel = null;
     this.state = this.fallbackState();
     this.render();
   }
@@ -121,6 +130,20 @@ export class PlaneSlotControl {
     this.render();
   }
 
+  /**
+   * The picked sketch-line chip (the service owns the pick); null clears it
+   * — back to the statement's own cut (edit mode), else the prompt.
+   */
+  setSketchLineChip(label: string | null): void {
+    this.sketchLineLabel = label;
+    if (label !== null) {
+      this.state = { kind: 'sketchLine' };
+    } else if (this.state?.kind === 'sketchLine') {
+      this.state = this.fallbackState();
+    }
+    this.render();
+  }
+
   /** Mark the slot as the live pick target (the primary border). */
   setArmed(armed: boolean): void {
     this.slot.setArmed(armed);
@@ -160,9 +183,12 @@ export class PlaneSlotControl {
     } else if (state?.kind === 'face') {
       this.slot.setChips([{ label: this.faceLabel ?? 'Picked face', badge: '●', removable: true }]);
       this.slot.setPrompt(null);
+    } else if (state?.kind === 'sketchLine') {
+      this.slot.setChips([{ label: this.sketchLineLabel ?? 'Picked sketch line', badge: '●', removable: true }]);
+      this.slot.setPrompt(null);
     } else {
       this.slot.setChips([]);
-      this.slot.setPrompt('Pick a plane or face');
+      this.slot.setPrompt(this.prompt);
     }
   }
 }

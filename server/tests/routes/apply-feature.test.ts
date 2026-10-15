@@ -5426,11 +5426,11 @@ describe('apply-feature route validation', () => {
       currentCode = CODE;
       const splitBody = {
         feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1, T2],
-        plane: { kind: 'standard', plane: 'yz' }, keep: 'front', offset: 5,
+        plane: { kind: 'standard', plane: 'yz' }, keep: 'front',
       };
       const preview = await post({ ...splitBody, preview: true });
       expect(preview.status).toBe(200);
-      expect(preview.body.preview).toBe("split('yz', { keep: 'front', offset: 5 }, f, f2)");
+      expect(preview.body.preview).toBe("split('yz', { keep: 'front' }, f, f2)");
       expect(relayed).toEqual([]);
 
       const { status, body } = await post(splitBody);
@@ -5439,7 +5439,7 @@ describe('apply-feature route validation', () => {
       const spec = relayed[0].spec;
       expect(spec.feature).toBe('split');
       expect(spec.split).toEqual({
-        plane: { kind: 'standard', plane: 'yz' }, keep: 'front', offset: 5,
+        plane: { kind: 'standard', plane: 'yz' }, keep: 'front',
         targets: [{ producer: 0 }, { producer: 1 }],
       });
       expect(spec.producers).toHaveLength(2);
@@ -5453,6 +5453,21 @@ describe('apply-feature route validation', () => {
       });
       expect(status).toBe(200);
       expect(body.preview).toBe("split('xz')");
+    });
+
+    it('relays the active part for an implicit split, which lands inside the part body', async () => {
+      currentCode = CODE;
+      const splitBody = {
+        feature: 'split', filePath: '/ws/m.fluid.js', plane: { kind: 'standard', plane: 'xz' },
+      };
+      const { status } = await post({ ...splitBody, activePart: { filePath: '/ws/m.fluid.js', line: 3, column: 0 } });
+      expect(status).toBe(200);
+      expect(relayed[0].spec.activePart).toEqual({ line: 3, column: 0 });
+
+      // A part in another file is not where this file's split lands.
+      const other = await post({ ...splitBody, activePart: { filePath: '/ws/other.fluid.js', line: 3, column: 0 } });
+      expect(other.status).toBe(200);
+      expect(relayed[1].spec.activePart).toBeUndefined();
     });
 
     it('synthesizes a picked face through the plane kind', async () => {
@@ -5486,7 +5501,7 @@ describe('apply-feature route validation', () => {
       const splitBody = {
         feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1],
         plane: {
-          kind: 'sketchLine',
+          kind: 'sketchEdge',
           sketch: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
           line: { filePath: '/ws/m.fluid.js', line: 6, column: 2 },
         },
@@ -5498,7 +5513,7 @@ describe('apply-feature route validation', () => {
       const { status } = await post(splitBody);
       expect(status).toBe(200);
       const spec = relayed[0].spec;
-      expect(spec.split.plane).toEqual({ kind: 'sketchLine', producer: 1, target: { line: 6 } });
+      expect(spec.split.plane).toEqual({ kind: 'sketchEdge', producer: 1, target: { line: 6 } });
       expect(spec.producers[1]).toMatchObject({ line: 5, column: 0, featureType: 'sketch', bind: true });
     });
   });
@@ -5519,14 +5534,14 @@ describe('apply-feature route validation', () => {
     it('relays an options change keeping the plane and targets, and previews it', async () => {
       currentCode = EDIT_CODE;
       currentFileName = '/ws/m.fluid.js';
-      const { status, body } = await post({ feature: 'split', edit: EDIT, keep: 'both', offset: 3 });
+      const { status, body } = await post({ feature: 'split', edit: EDIT, keep: 'back' });
       expect(status).toBe(200);
-      expect(body.preview).toBe("split('yz', { offset: 3 }, e)");
+      expect(body.preview).toBe("split('yz', { keep: 'back' }, e)");
       expect(relayed[0].spec).toMatchObject({
         feature: 'split',
         producers: [],
         parts: [],
-        edit: { line: 7, column: 0, split: { plane: { kind: 'keep' }, keep: 'both', offset: 3 } },
+        edit: { line: 7, column: 0, split: { plane: { kind: 'keep' }, keep: 'back' } },
       });
       expect(relayed[0].spec.edit.split.targets).toBeUndefined();
     });

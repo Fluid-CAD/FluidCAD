@@ -24,7 +24,7 @@ Extends [[api/types/scene-object]].
 
 ### `getPlane()`
 
-The cut plane as built — the datum's plane moved by the `offset` option (origin, normal, x-direction).
+The cut plane as built (origin, normal, x-direction); null when the cut is a sketched curve's sheet, which has no plane.
 
 **Returns**: [[api/types/plane]].
 

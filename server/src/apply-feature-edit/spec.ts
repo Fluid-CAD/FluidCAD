@@ -787,14 +787,13 @@ export type FeatureStatementEditTarget = {
    * producers/parts like create mode, a seed line staged into its sketch
    * export first. The target list mixes `verbatim` keeps with re-picked
    * feature statements; an absent list keeps every statement target, an
-   * empty one makes the split implicit. `keep` and `offset` rewrite the
-   * options object wholesale.
+   * empty one makes the split implicit. `keep` rewrites the options object
+   * wholesale.
    */
   split?: {
     /** The cut; `keep` re-emits the statement's own expression. */
     plane?: SplitEditPlane;
     keep: SplitEditOptions['keep'];
-    offset: SplitEditOptions['offset'];
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];
   };

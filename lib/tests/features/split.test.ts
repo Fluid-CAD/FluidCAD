@@ -6,7 +6,8 @@ import plane from "../../core/plane.js";
 import select from "../../core/select.js";
 import split from "../../core/split.js";
 import translate from "../../core/translate.js";
-import { line, arc, circle } from "../../core/2d/index.js";
+import { line, arc, circle, bezier } from "../../core/2d/index.js";
+import rect from "../../core/shapes/rect.js";
 import { coincident, fix, distance, vertical, horizontal } from "../../core/constraints/index.js";
 import { face } from "../../filters/index.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
@@ -94,22 +95,9 @@ describe("split", () => {
       expect(bbox.maxX).toBeCloseTo(0, 5);
     });
 
-    it("moves the plane by the offset before cutting", () => {
-      box();
-      const s = split("yz", { offset: 5 }) as unknown as Split;
-
-      render();
-
-      const pieces = s.getShapes();
-      expect(pieces.length).toBe(2);
-      expect(ShapeOps.getBoundingBox(pieces[0]).minX).toBeCloseTo(5, 5);
-      expect(ShapeOps.getBoundingBox(pieces[1]).maxX).toBeCloseTo(5, 5);
-      expect(s.getPlane().origin.x).toBeCloseTo(5, 9);
-    });
-
     it("leaves a solid the plane misses untouched and flags the statement", () => {
       const e = box();
-      const s = split("yz", { offset: 100 }) as unknown as Split;
+      const s = split(plane("yz", 100)) as unknown as Split;
 
       const scene = render();
 
@@ -299,7 +287,7 @@ describe("split", () => {
       expect(zs[3]).toBeCloseTo(10, 5);
     });
 
-    it("keeps one side and offsets along the seeded plane's normal", () => {
+    it("keeps one side of the seeded plane", () => {
       box();
       let seed: any;
       sketch("xy", () => {
@@ -308,45 +296,123 @@ describe("split", () => {
         fix(seed.start(), [0, -40]);
         distance(seed.start(), seed.end(), 80);
       });
-      const s = split(seed, { keep: 'back', offset: -5 }) as unknown as Split;
+      const s = split(seed, { keep: 'back' }) as unknown as Split;
 
       render();
 
       const pieces = s.getShapes();
       expect(pieces.length).toBe(1);
-      expect(ShapeOps.getBoundingBox(pieces[0]).maxX).toBeCloseTo(-5, 5);
+      expect(ShapeOps.getBoundingBox(pieces[0]).maxX).toBeCloseTo(0, 5);
       expect(ShapeOps.getBoundingBox(pieces[0]).minX).toBeCloseTo(-20, 5);
     });
 
-    it("refuses a curved seed", () => {
-      box();
+    it("cuts along an arc's curved sheet, front to the right of the arc", () => {
+      const e = box();
       let seed: any;
+      // An arc bulging into the box from the left, drawn bottom to top: it
+      // crosses the top and bottom faces near x = 14.5 and reaches x = 16.6
+      // at y = 0. Travelled from the sketch's front its right is +x.
       sketch("xy", () => {
-        seed = arc([-10, 0], [10, 0], [0, 10]).guide();
-        coincident(seed.start(), seed.start());
+        seed = arc([0, -40], [0, 40], [-40, 0]).guide();
+        fix(seed.start(), [0, -40]);
+        fix(seed.end(), [0, 40]);
+        fix(seed.center(), [-40, 0]);
       });
       const s = split(seed) as unknown as Split;
 
       const scene = render();
 
-      const row = scene.getRenderedObjects().find(r => r.type === 'split');
-      expect(s.getShapes().length).toBe(0);
-      expect((s.getError() ?? row?.errorMessage ?? '')).toMatch(/not a straight line|no shapes/);
+      const pieces = s.getShapes();
+      expect(pieces.length).toBe(2);
+      expect(pieces.every(p => p.isSolid())).toBe(true);
+      const front = ShapeOps.getBoundingBox(pieces[0]);
+      const back = ShapeOps.getBoundingBox(pieces[1]);
+      // Curved pieces carry the kernel's loose curve bounds (a few hundredths).
+      expect(front.minX).toBeCloseTo(14.5, 0);
+      expect(front.maxX).toBeCloseTo(20, 1);
+      expect(back.minX).toBeCloseTo(-20, 1);
+      expect(back.maxX).toBeCloseTo(16.6, 0);
+      expect(volume(pieces[0]) + volume(pieces[1])).toBeCloseTo(40 * 30 * 10, 2);
+      // A sheet has no plane; the cut reports itself as one.
+      expect(s.getPlane()).toBeNull();
+      expect(s.getCutKind()).toBe('sheet');
+      expect(e.getShapes().length).toBe(0);
+      expect(sceneSolids(scene).length).toBe(2);
+      expect(s.getError()).toBeNull();
+      expectDisplayConsumed(scene, (seed as SceneObject).getParent()!);
     });
 
-    it("refuses a circle seed", () => {
+    it("keeps the outside of a counter-clockwise circle as its front", () => {
       box();
       let seed: any;
       sketch("xy", () => {
-        seed = circle([0, 0], 5).guide();
+        seed = circle([0, 0], 20).guide();
+        fix(seed.center(), [0, 0]);
+      });
+      const s = split(seed, { keep: 'front' }) as unknown as Split;
+
+      render();
+
+      const pieces = s.getShapes();
+      expect(pieces.length).toBe(1);
+      // The plate minus the core the circle's sheet cored out of it.
+      expect(volume(pieces[0])).toBeCloseTo(40 * 30 * 10 - Math.PI * 10 * 10 * 10, 1);
+      expect(ShapeOps.getBoundingBox(pieces[0]).minX).toBeCloseTo(-20, 1);
+    });
+
+    it("splits along every edge of a rect, its inside being the back", () => {
+      box();
+      let seed: any;
+      sketch("xy", () => {
+        seed = rect([-5, -5], 10, 10).guide();
+      });
+      const s = split(seed, { keep: 'back' }) as unknown as Split;
+
+      render();
+
+      const pieces = s.getShapes();
+      expect(pieces.length).toBe(1);
+      expect(volume(pieces[0])).toBeCloseTo(10 * 10 * 10, 3);
+      const bbox = ShapeOps.getBoundingBox(pieces[0]);
+      expect(bbox.minX).toBeCloseTo(-5, 5);
+      expect(bbox.maxX).toBeCloseTo(5, 5);
+    });
+
+    it("cuts along a bezier's sheet", () => {
+      box();
+      let seed: any;
+      // An S-curve from below the box to above it, crossing it once.
+      sketch("xy", () => {
+        seed = bezier([-5, -40], [-25, 0], [25, 0], [5, 40]).guide();
+      });
+      const s = split(seed) as unknown as Split;
+
+      render();
+
+      const pieces = s.getShapes();
+      expect(pieces.length).toBe(2);
+      expect(volume(pieces[0]) + volume(pieces[1])).toBeCloseTo(40 * 30 * 10, 2);
+      expect(s.getCutKind()).toBe('sheet');
+      expect(s.getError()).toBeNull();
+    });
+
+    it("leaves a solid untouched when the curve stops inside it", () => {
+      const e = box();
+      let seed: any;
+      sketch("xy", () => {
+        seed = arc([-10, 0], [10, 0], [0, 0]).guide();
+        fix(seed.start(), [-10, 0]);
+        fix(seed.end(), [10, 0]);
+        fix(seed.center(), [0, 0]);
       });
       const s = split(seed) as unknown as Split;
 
       const scene = render();
 
-      const row = scene.getRenderedObjects().find(r => r.type === 'split');
       expect(s.getShapes().length).toBe(0);
-      expect((s.getError() ?? row?.errorMessage ?? '')).toMatch(/not a straight line/);
+      expect(e.getShapes().length).toBe(1);
+      expect(sceneSolids(scene).length).toBe(1);
+      expect(s.getError()).toContain("passes through none of the solids");
     });
   });
 
@@ -356,9 +422,9 @@ describe("split", () => {
       expect(() => split("yz", { keep: 'left' } as any)).toThrow(/keep must be/);
     });
 
-    it("rejects a non-finite offset", () => {
+    it("points an offset option at the plane itself", () => {
       box();
-      expect(() => split("yz", { offset: Number.NaN })).toThrow(/offset must be/);
+      expect(() => split("yz", { offset: 5 } as any)).toThrow(/no offset option/);
     });
 
     it("rejects an unknown option", () => {

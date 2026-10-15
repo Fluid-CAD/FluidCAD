@@ -278,7 +278,7 @@ export function parseMirror(body: GhostBody): RawMirror | string {
   return { targets, plane };
 }
 
-/** A split request's slots, before its offset is resolved. */
+/** A split request's slots. */
 export type RawSplit = {
   targets: { filePath: string; line: number }[];
   plane: GhostPlaneRef;
@@ -288,7 +288,6 @@ export type RawSplit = {
 /**
  * The split dialog's slots: target statements (none for every solid), the
  * cut to part them along — a plane or a seed line — and the side to keep.
- * The offset is a value the router resolves like the plane's.
  */
 export function parseSplit(body: GhostBody): RawSplit | string {
   const targets = body.targets === undefined || body.targets === null ? [] : parseSourceRefs(body.targets);

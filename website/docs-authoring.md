@@ -41,6 +41,10 @@ website/docs/
 - Every section has ONE `_examples/` folder directly under it
   (`docs/sketching/_examples/`), shared by all its sub-pages. Import with the
   right number of `../`.
+- All documentation screenshots must use **light mode with the grid hidden**.
+  Set the capture viewer to `fluidcad-light`, pass `showGrid: false`, and
+  use an opaque light background (`transparent: false`) so the image stays
+  light in both website themes. Add `hideGrid` to example screenshot directives.
 - Screenshots: `docs/<section>/.../_examples/<name>.js` renders to
   `static/img/docs/<section>/<name>.png`, referenced as
   `/img/docs/<section>/<name>.png`. Hand-made UI screenshots live in
@@ -325,6 +329,12 @@ Dialog fields:
   feature it repeated). Repeat refuses connectors and points to Copy.
 - **Rotate**: tabs **Move** (turn in place) / **Copy** (keep originals, add
   turned copies); **Solids** slot; **Axis** slot; **Angle**.
+- **Split**: **Cut** slot (origin plane, plane feature, planar face, or a
+  sketch edge — a line cuts flat, a curve along its swept surface); **Solids**
+  slot (empty = all solids in scope); **Keep** dropdown last (**Both sides /
+  Front side / Back side**). No offset field — offset the plane itself. Click
+  a slot before picking in the viewport. The preview shows removed pieces in
+  red.
 - **Boolean**: **Fuse / Subtract / Common**, **Target** and **Tool** solids.
 - **Connector**: **Source** slot (hover faces/edges to see anchor candidates
   — face centre, edge centre / start / end — as a translucent frame; click to

@@ -2,10 +2,8 @@
 
 import {
   validSplitKeep,
-  validValueExpr,
   type FeatureStatementEditTarget,
   type SplitKeep,
-  type ValueExpr,
 } from '../../../apply-feature-edit/index.ts';
 import { validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validatePick } from '../picks.ts';
@@ -14,19 +12,19 @@ import type { StatementEditRequest } from './statement-edit.ts';
 
 /**
  * The split dialog's cut: the mirror's three plane inputs, plus a sketched
- * line — the line statement's call site inside its sketch, with the sketch
- * statement's own call site so the export can bind and extend it.
+ * edge — a line (its plane) or a curve (its sheet): the edge statement's
+ * call site inside its sketch, with the sketch statement's own call site so
+ * the export can bind and extend it.
  */
 export type SplitPlaneInput =
   | RepeatPlaneInput
-  | { kind: 'sketchLine'; sketch: SketchLoc; line: SketchLoc };
+  | { kind: 'sketchEdge'; sketch: SketchLoc; line: SketchLoc };
 
 export type SplitRequest = {
   /** The feature statements being split, in argument order; empty splits every solid in scope. */
   targets: SketchLoc[];
   plane: SplitPlaneInput;
   keep: SplitKeep;
-  offset: ValueExpr | null;
   /** The file the statement lands in — required for a standard plane with no targets, which pins no scope. */
   filePath: string;
 };
@@ -57,7 +55,7 @@ function validatePlaneInput(raw: any, filePath: string, label: string): SplitPla
     }
     return { kind: 'face', pick };
   }
-  if (raw?.kind === 'sketchLine') {
+  if (raw?.kind === 'sketchEdge') {
     const sketch = validateSketchLoc(raw.sketch);
     const line = validateSketchLoc(raw.line);
     if (!sketch || !line) {
@@ -69,27 +67,24 @@ function validatePlaneInput(raw: any, filePath: string, label: string): SplitPla
     if (line.line <= sketch.line) {
       return { error: 'the seed line must be a statement inside the sketch callback' };
     }
-    return { kind: 'sketchLine', sketch, line };
+    return { kind: 'sketchEdge', sketch, line };
   }
-  return { error: 'plane must be {kind: "standard"|"plane"|"face"|"sketchLine", …}' };
+  return { error: 'plane must be {kind: "standard"|"plane"|"face"|"sketchEdge", …}' };
 }
 
-function validateOptions(body: any): { keep: SplitKeep; offset: ValueExpr | null } | { error: string } {
-  const { keep, offset } = body ?? {};
+function validateOptions(body: any): { keep: SplitKeep } | { error: string } {
+  const { keep } = body ?? {};
   if (keep !== undefined && !validSplitKeep(keep)) {
     return { error: 'keep must be "both", "front" or "back"' };
   }
-  if (offset !== undefined && offset !== null && !validValueExpr(offset)) {
-    return { error: 'offset must be a finite number or expression when provided' };
-  }
-  return { keep: keep ?? 'both', offset: offset ?? null };
+  return { keep: keep ?? 'both' };
 }
 
 /**
  * The split request's shape: zero or more target feature statements by
  * source location (none for every solid in scope), the cut (a standard
  * origin plane, an existing plane feature, a picked face, or a sketched
- * line), the side to keep and the plane offset.
+ * line) and the side to keep.
  */
 export function validateSplit(body: any): SplitRequest | { error: string } {
   const { targets, filePath } = body ?? {};
@@ -130,8 +125,8 @@ export function validateSplit(body: any): SplitRequest | { error: string } {
 }
 
 /**
- * The split edit request's shape: keep and offset (the dialog owns the
- * options object outright), the cut — keep, or any create-mode input, a
+ * The split edit request's shape: keep (the dialog owns the options object
+ * outright), the cut — keep, or any create-mode input, a
  * picked face flipping `needsPicks` — and the optional target list mixing
  * `verbatim` keeps with re-picked features; an absent list keeps every
  * statement target, an empty one makes the split implicit.
@@ -148,7 +143,7 @@ export function validateSplitEdit(
   const result: StatementEditRequest = base;
   // The cut defaults to keep; the resolution pass rewrites it (and fills
   // the targets) from the request fields below once producers exist.
-  edit.split = { plane: { kind: 'keep' }, keep: options.keep, offset: options.offset };
+  edit.split = { plane: { kind: 'keep' }, keep: options.keep };
 
   const raw = body?.plane;
   if (raw === undefined || raw === null || raw?.kind === 'keep') {

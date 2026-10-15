@@ -262,8 +262,17 @@ export function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmi
   return null;
 }
 
-/** Verify an existing statement against the target captured by the pick. */
-export function solvedTargetCallee(entityCall: TSNode, target: SolvedEmissionTarget): string {
+/**
+ * Verify an existing statement against the target captured by the pick.
+ * `statementCallees` is what a plain `line` target may name — the solver
+ * entities by default; a consumer that takes a whole curve passes the
+ * geometry callees (beziers and splines too).
+ */
+export function solvedTargetCallee(
+  entityCall: TSNode,
+  target: SolvedEmissionTarget,
+  statementCallees: ReadonlySet<string> = SOLVED_ENTITY_CALLEES,
+): string {
   const callee = calleeName(chainBase(entityCall));
   const isReference = target.refIndex !== undefined;
   const isCopyInstance = target.instanceIndex !== undefined;
@@ -281,7 +290,7 @@ export function solvedTargetCallee(entityCall: TSNode, target: SolvedEmissionTar
           ? !!callee && OFFSET_CALLEES.has(callee)
           : isAnchor
             ? callee === target.featureType
-            : !!callee && SOLVED_ENTITY_CALLEES.has(callee);
+            : !!callee && statementCallees.has(callee);
   if (!legalCallee) {
     throw new EmissionRefusal(isReference
       ? `line ${target.line} is not a project()/intersect() statement`
@@ -293,7 +302,7 @@ export function solvedTargetCallee(entityCall: TSNode, target: SolvedEmissionTar
             ? `line ${target.line} is not a 2D offset() statement`
             : isAnchor
               ? `line ${target.line} is not a ${target.featureType}() statement`
-              : `line ${target.line} is not a sketch entity statement`);
+              : `line ${target.line} is not a sketch ${statementCallees === SOLVED_ENTITY_CALLEES ? 'entity' : 'geometry'} statement`);
   }
   if (target.featureType && callee !== target.featureType) {
     throw new EmissionRefusal(`line ${target.line} is a ${callee}() statement now — the source changed since the picks were made`);

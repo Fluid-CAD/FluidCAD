@@ -498,7 +498,6 @@ export function createFeatureGhostRouter(
       request = {
         feature: 'split',
         keep: split!.keep,
-        offset,
         targets: split!.targets,
         plane: split!.plane,
         exclude: transformExclude,

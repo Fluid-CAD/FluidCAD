@@ -1,4 +1,4 @@
-// A split's seed line, exported from its sketch before the split statement
+// A split's seed edge, exported from its sketch before the split statement
 // renders: `split(s.geometries.l, …)` names the line through the sketch
 // callback's return value, the way a hole names a sketch point. Staged
 // against the original buffer and handed back as one buffer plus the spec
@@ -20,7 +20,7 @@ export class SplitSeeds {
   }
 
   static needsStaging(spec: ApplyFeatureEditSpec): boolean {
-    return spec.feature === 'split' && SplitSeeds.plane(spec)?.kind === 'sketchLine';
+    return spec.feature === 'split' && SplitSeeds.plane(spec)?.kind === 'sketchEdge';
   }
 
   /** The line numbers the spec addresses, in the order `relocate` hands them back. */
@@ -52,16 +52,19 @@ export class SplitSeeds {
    */
   static async prepare(code: string, spec: ApplyFeatureEditSpec): Promise<Staged> {
     const plane = SplitSeeds.plane(spec);
-    if (!plane || plane.kind !== 'sketchLine') {
+    if (!plane || plane.kind !== 'sketchEdge') {
       return { code, spec };
     }
     if (!isSketchProducer(spec, plane.producer)) {
-      return { error: 'a split seed line needs its sketch producer' };
+      return { error: 'a split seed edge needs its sketch producer' };
     }
     const producer = spec.producers[plane.producer];
+    // A seed is a whole curve — a bezier or a spline qualifies as well as
+    // a solver entity.
     const refs: SketchExportRequest[] = [{
       sketch: { filePath: spec.filePath, line: producer.line, column: producer.column },
       target: plane.target,
+      entities: 'geometry',
     }];
     const staged = await SketchExports.applyCreates(code, refs, SplitSeeds.trackedLines(spec));
     if ('error' in staged) {
@@ -84,7 +87,7 @@ export class SplitSeeds {
     sketch: { line: number; column: number },
     target: SketchExportRequest['target'],
   ): Promise<string | { error: string }> {
-    const staged = await SketchExports.applyCreates(code, [{ sketch: { filePath, ...sketch }, target }]);
+    const staged = await SketchExports.applyCreates(code, [{ sketch: { filePath, ...sketch }, target, entities: 'geometry' }]);
     if ('error' in staged) {
       return staged;
     }

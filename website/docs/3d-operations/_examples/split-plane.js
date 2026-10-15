@@ -1,28 +1,37 @@
-// @screenshot showAxes
-import { sketch, line, extrude, split, translate, xAxis, yAxis } from "fluidcad/core";
-import { coincident, distance, horizontal, symmetric, vertical } from "fluidcad/constraints";
+// @screenshot showAxes hideGrid view iso-ftr size 1200x800 noAutoCrop
+import { sketch, line, extrude, plane, split } from "fluidcad/core";
+import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 
-// An 80 × 60 × 20 block centred on the origin.
+const width = 80;
+const depth = 60;
+const height = 20;
+const cutOffset = 10;
+
+// Draw a centred rectangle. Constraints join its corners, square its
+// sides, and fix its position and size.
 sketch("xy", () => {
-  const b = line([-40, -30], [40, -30]);
-  const r = line([40, -30], [40, 30]);
-  const t = line([40, 30], [-40, 30]);
-  const l = line([-40, 30], [-40, -30]);
+  const b = line([-width / 2, -depth / 2], [width / 2, -depth / 2]);
+  const r = line([width / 2, -depth / 2], [width / 2, depth / 2]);
+  const t = line([width / 2, depth / 2], [-width / 2, depth / 2]);
+  const l = line([-width / 2, depth / 2], [-width / 2, -depth / 2]);
   coincident(b.end(), r.start());
   coincident(r.end(), t.start());
   coincident(t.end(), l.start());
   coincident(l.end(), b.start());
+  horizontal(b);
+  vertical(r);
   horizontal(t);
   vertical(l);
-  symmetric(b.start(), b.end(), yAxis());
-  symmetric(r.start(), r.end(), xAxis());
-  distance(b.start(), b.end(), 80);
-  distance(r.start(), r.end(), 60);
+  fix(b.start(), [-width / 2, -depth / 2]);
+  distance(b.start(), b.end(), width);
+  distance(r.start(), r.end(), depth);
 });
-const block = extrude(20);
+const block = extrude(height);
 
-// Part the block at the YZ plane, 10 towards +x: two bodies, 50 and 30 wide.
-const halves = split("yz", { offset: 10 }, block);
+// The cut plane: the YZ plane moved 10 along its normal, which points along +X.
+const cutPlane = plane("yz", cutOffset);
 
-// Both pieces are the split's shapes — move them apart to see the cut.
-translate([15, 0, 0], halves);
+// Cut at x = 10. The default is to keep both pieces. They remain in their original
+// positions, touching at the cut; Split does not move them apart.
+// highlight-next-line
+const pieces = split(cutPlane, block);

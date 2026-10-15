@@ -498,7 +498,7 @@ export async function applyCreateEdit(
       && Array.isArray(targets)
       && targets.every(t => isCopyTargetProducer(spec, t.producer))
       && new Set(targets.map(t => t.producer)).size === targets.length
-      && so.plane?.kind !== 'sketchLine'
+      && so.plane?.kind !== 'sketchEdge'
       && validSplitPlane(spec, so.plane, claimPart)
       && selectorParts.length === spec.parts.length
       && new Set(selectorParts).size === selectorParts.length;

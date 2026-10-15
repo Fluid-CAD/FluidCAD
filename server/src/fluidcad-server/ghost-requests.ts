@@ -326,11 +326,9 @@ export type SplitGhostRequest = {
   feature: 'split';
   /** The pieces the split keeps. */
   keep: 'both' | 'front' | 'back';
-  /** Distance the plane is moved along its normal; null when the field is empty. */
-  offset: number | null;
   /** The solid-bearing statements being split, by call site; empty for every solid in the scene. */
   targets: { filePath: string; line: number }[];
-  /** The plane to cut along, or the sketched line seeding it. */
+  /** The plane to cut along, or the sketched edge seeding the cut. */
   plane: GhostPlaneRef;
   /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
   exclude?: { filePath: string; line: number };
@@ -362,8 +360,8 @@ export type GhostPlaneRef =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'plane'; filePath: string; line: number }
   | { kind: 'face'; shapeId: string; index: number }
-  /** A sketched line by its statement's call site inside its sketch — the split's seed. */
-  | { kind: 'sketchLine'; filePath: string; line: number; column?: number };
+  /** A sketched edge by its statement's call site inside its sketch — the split's seed (a line's plane, a curve's sheet). */
+  | { kind: 'sketchEdge'; filePath: string; line: number; column?: number };
 
 /**
  * The construction plane. Like the helix it neither adds nor removes material

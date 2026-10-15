@@ -40,7 +40,6 @@ describe('split statement templates', () => {
     const result = await applyFeatureEdit(`${base}\n`, splitSpec({
       plane: { kind: 'standard', plane: 'yz' },
       keep: 'front',
-      offset: 5,
       targets: [{ producer: 0 }, { producer: 1 }],
     }, {
       producers: [
@@ -56,7 +55,7 @@ describe('split statement templates', () => {
       `const f = extrude(30)`,
       `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
-      `split('yz', { keep: 'front', offset: 5 }, f, f2)`,
+      `split('yz', { keep: 'front' }, f, f2)`,
       ``,
     ].join('\n'));
   });
@@ -65,12 +64,65 @@ describe('split statement templates', () => {
     const result = await applyFeatureEdit(`${base}\n`, splitSpec({
       plane: { kind: 'standard', plane: 'xz' },
       keep: 'both',
-      offset: null,
       targets: [],
     }, { producers: [] }));
     expect(result.error).toBeUndefined();
     expect(result.newCode.endsWith(`cut(5)\nsplit('xz')\n`)).toBe(true);
     expect(result.newCode).toContain(`import { split, sketch`);
+  });
+
+  describe('with an active part', () => {
+    // A split of every solid cuts the solids built before it in its scope.
+    // part() is lazy — a top-level statement after the part builds before
+    // it — so with nothing pinning a scope the split lands at the end of
+    // the timeline's active part, the home of the other unpinned creates.
+    const partCode = [
+      `import { sketch, ellipse, extrude, part, plane } from 'fluidcad/core'`,
+      ``,
+      `const p = plane('yz', 40)`,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const activePart = { line: 4, column: 0 };
+
+    it('appends a standard-plane split of every solid inside the active part', async () => {
+      const result = await applyFeatureEdit(partCode, splitSpec({
+        plane: { kind: 'standard', plane: 'xz' },
+        keep: 'both',
+        targets: [],
+      }, { producers: [], activePart }));
+      expect(result.error).toBeUndefined();
+      expect(result.newCode.endsWith(`  extrude(30)\n  split('xz')\n})\n`)).toBe(true);
+    });
+
+    it('appends a plane-feature split of every solid inside the active part', async () => {
+      const result = await applyFeatureEdit(partCode, splitSpec({
+        plane: { kind: 'plane', producer: 0 },
+        keep: 'front',
+        targets: [],
+      }, {
+        producers: [{ line: 3, column: 10, featureType: 'plane', nameHint: 'p', bind: true }],
+        activePart,
+      }));
+      expect(result.error).toBeUndefined();
+      expect(result.newCode.endsWith(`  extrude(30)\n  split(p, { keep: 'front' })\n})\n`)).toBe(true);
+    });
+
+    it('keeps a split with a target beside that target inside the part', async () => {
+      const result = await applyFeatureEdit(partCode, splitSpec({
+        plane: { kind: 'standard', plane: 'xz' },
+        keep: 'both',
+        targets: [{ producer: 0 }],
+      }, {
+        producers: [{ line: 6, column: 2, featureType: 'feature', nameHint: 'f', bind: true }],
+        activePart,
+      }));
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toContain(`  const f = extrude(30)\n  split('xz', f)\n})\n`);
+    });
   });
 
   it('renders an existing plane feature as its bound variable', async () => {
@@ -85,7 +137,6 @@ describe('split statement templates', () => {
     const result = await applyFeatureEdit(code, splitSpec({
       plane: { kind: 'plane', producer: 1 },
       keep: 'both',
-      offset: null,
       targets: [{ producer: 0 }],
     }, {
       producers: [
@@ -109,9 +160,8 @@ describe('split statement templates', () => {
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, splitSpec({
-      plane: { kind: 'sketchLine', producer: 1, target: { line: 6 } },
+      plane: { kind: 'sketchEdge', producer: 1, target: { line: 6 } },
       keep: 'back',
-      offset: null,
       targets: [{ producer: 0 }],
     }, {
       producers: [
@@ -134,6 +184,56 @@ describe('split statement templates', () => {
     ].join('\n'));
   });
 
+  it('exports a curved seed — a circle — the same way, named after its kind', async () => {
+    const code = [
+      `import { sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `const e = extrude(30)`,
+      `sketch('xy', () => {`,
+      `  circle([0, 0], 40).guide()`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, splitSpec({
+      plane: { kind: 'sketchEdge', producer: 1, target: { line: 6 } },
+      keep: 'front',
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [
+        { line: 4, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const c1 = circle([0, 0], 40).guide()\n  return { c1 };\n})\nsplit(s.geometries.c1, { keep: 'front' }, e)\n`);
+  });
+
+  it('exports a bezier seed, which is geometry but no solver entity', async () => {
+    const code = [
+      `import { sketch, ellipse, bezier, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `const e = extrude(30)`,
+      `sketch('xy', () => {`,
+      `  bezier([-20, -60], [-30, 0], [30, 0], [20, 60]).guide()`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, splitSpec({
+      plane: { kind: 'sketchEdge', producer: 1, target: { line: 6 } },
+      keep: 'both',
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [
+        { line: 4, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const bz1 = bezier([-20, -60], [-30, 0], [30, 0], [20, 60]).guide()\n  return { bz1 };\n})\nsplit(s.geometries.bz1, e)\n`);
+  });
+
   it('binds a color() statement as the target when it holds the solid', async () => {
     const code = [
       `import { sketch, ellipse, extrude, color } from 'fluidcad/core'`,
@@ -146,7 +246,6 @@ describe('split statement templates', () => {
     const result = await applyFeatureEdit(code, splitSpec({
       plane: { kind: 'standard', plane: 'yz' },
       keep: 'both',
-      offset: null,
       targets: [{ producer: 0 }],
     }, {
       producers: [{ line: 5, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
@@ -159,7 +258,6 @@ describe('split statement templates', () => {
     const result = await applyFeatureEdit(`${base}\n`, splitSpec({
       plane: { kind: 'standard', plane: 'zz' as never },
       keep: 'both',
-      offset: null,
       targets: [{ producer: 0 }],
     }));
     expect(result.error).toContain('malformed split edit spec');
@@ -177,15 +275,15 @@ const splitEditBase = [
 
 describe('parseFeatureStatement — split', () => {
   it('reads the cut, the options and identifier targets with their refs', async () => {
-    const code = `${splitEditBase}\nsplit('yz', { keep: 'front', offset: 5 }, e, c)\n`;
+    const code = `${splitEditBase}\nsplit('yz', { keep: 'front' }, e, c)\n`;
     const result = await parseFeatureStatement(code, 7);
     expect(result).toEqual({
       ok: true,
       parsed: {
-        feature: 'split', planeText: `'yz'`, keep: 'front', offset: 5, targetTexts: ['e', 'c'],
+        feature: 'split', planeText: `'yz'`, keep: 'front', targetTexts: ['e', 'c'],
         targetRefs: [{ line: 4, column: 10 }, { line: 6, column: 10 }],
       },
-      statement: `split('yz', { keep: 'front', offset: 5 }, e, c)`,
+      statement: `split('yz', { keep: 'front' }, e, c)`,
     });
   });
 
@@ -193,13 +291,15 @@ describe('parseFeatureStatement — split', () => {
     const result = await parseFeatureStatement(`${splitEditBase}\nsplit(s.geometries.l)\n`, 7);
     expect(result).toMatchObject({
       ok: true,
-      parsed: { feature: 'split', planeText: 's.geometries.l', keep: 'both', offset: null, targetTexts: [] },
+      parsed: { feature: 'split', planeText: 's.geometries.l', keep: 'both', targetTexts: [] },
     });
   });
 
   it('refuses options the dialog cannot read back', async () => {
     const unknown = await parseFeatureStatement(`${splitEditBase}\nsplit('yz', { flip: true }, e)\n`, 7);
     expect(unknown).toMatchObject({ ok: false });
+    const offset = await parseFeatureStatement(`${splitEditBase}\nsplit('yz', { offset: 5 }, e)\n`, 7);
+    expect(offset).toMatchObject({ ok: false });
     const badKeep = await parseFeatureStatement(`${splitEditBase}\nsplit('yz', { keep: side }, e)\n`, 7);
     expect(badKeep).toMatchObject({ ok: false });
   });
@@ -225,10 +325,10 @@ describe('split in-place edits', () => {
   }
 
   it('rewrites the options object keeping the cut and targets', async () => {
-    const result = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'both', offset: 3 }));
+    const result = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'back' }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`split('yz', { offset: 3 }, e)\n`);
-    const plain = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'both', offset: null }));
+    expect(result.newCode).toContain(`split('yz', { keep: 'back' }, e)\n`);
+    const plain = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'both' }));
     expect(plain.newCode).toContain(`split('yz', e)\n`);
   });
 
@@ -236,7 +336,6 @@ describe('split in-place edits', () => {
     const result = await applyFeatureEdit(code, editSpec({
       plane: { kind: 'standard', plane: 'xz' },
       keep: 'back',
-      offset: null,
       targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
     }, {
       producers: [{ line: 6, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
@@ -246,7 +345,7 @@ describe('split in-place edits', () => {
   });
 
   it('makes the split implicit with an empty target list', async () => {
-    const result = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'front', offset: null, targets: [] }));
+    const result = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'front', targets: [] }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`split('yz', { keep: 'front' })\n`);
   });

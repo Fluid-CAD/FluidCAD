@@ -973,33 +973,30 @@ describe('feature-ghost route — split', () => {
     return {
       feature: 'split',
       keep: 'both',
-      offset: null,
       targets: [{ filePath: FILE, line: 7 }],
       plane: { kind: 'standard', plane: 'yz' },
       ...overrides,
     };
   }
 
-  it('passes a split through with its plane, targets, keep and offset', async () => {
-    const { status, body } = await postGhost(splitBody({ keep: 'front', offset: 12 }));
+  it('passes a split through with its plane, targets and keep', async () => {
+    const { status, body } = await postGhost(splitBody({ keep: 'front' }));
 
     expect(status).toBe(200);
     expect(body.success).toBe(true);
     expect(received).toEqual({
       feature: 'split',
       keep: 'front',
-      offset: 12,
       targets: [{ filePath: FILE, line: 7 }],
       plane: { kind: 'standard', plane: 'yz' },
     });
   });
 
   it('passes an implicit split of every solid, and the seed line form', async () => {
-    await postGhost(splitBody({ targets: [], plane: { kind: 'sketchLine', filePath: FILE, line: 5, column: 2 } }));
+    await postGhost(splitBody({ targets: [], plane: { kind: 'sketchEdge', filePath: FILE, line: 5, column: 2 } }));
     expect(received).toMatchObject({
       targets: [],
-      offset: null,
-      plane: { kind: 'sketchLine', filePath: FILE, line: 5, column: 2 },
+      plane: { kind: 'sketchEdge', filePath: FILE, line: 5, column: 2 },
     });
 
     await postGhost(splitBody({ plane: { kind: 'face', shapeId: 's1', index: 2 }, exclude: { filePath: FILE, line: 9 } }));
@@ -1015,7 +1012,7 @@ describe('feature-ghost route — split', () => {
       splitBody({ plane: { kind: 'keep' } }),
       splitBody({ keep: 'left' }),
       splitBody({ targets: [{ filePath: FILE }] }),
-      splitBody({ plane: { kind: 'sketchLine', filePath: FILE } }),
+      splitBody({ plane: { kind: 'sketchEdge', filePath: FILE } }),
     ];
 
     for (const body of bodies) {

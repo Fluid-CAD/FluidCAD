@@ -371,6 +371,8 @@ export class Viewer {
    * — nothing in the file changes.
    */
   private shownKeys = new Set<string>();
+  /** Source-location keys of the `image()` rows the timeline eye hid. View state only. */
+  private hiddenImageKeys = new Set<string>();
   private revealedKeys = new Set<string>();
   /**
    * Consumed rows a highlight asked for: a dialog lighting up the wires of
@@ -1425,6 +1427,10 @@ export class Viewer {
   updateView(sceneObjects: SceneObjectRender[], isRollback = false, rollbackStop?: number): void {
     if (this.shownKeys.size > 0 && sceneObjects !== this.sceneObjects) {
       this.shownKeys = carryShownKeys(this.shownKeys, this.sceneObjects, sceneObjects);
+    }
+    if (this.hiddenImageKeys.size > 0 && sceneObjects !== this.sceneObjects) {
+      this.hiddenImageKeys = carryShownKeys(this.hiddenImageKeys, this.sceneObjects, sceneObjects);
+      this.referenceImage.setHidden(this.hiddenImageKeys);
     }
     this.sceneObjects = sceneObjects;
     this.lastRenderIsRollback = isRollback;
@@ -2752,6 +2758,21 @@ export class Viewer {
       this.shownKeys.delete(key);
     }
     this.rebuildSceneMesh();
+  }
+
+  /** Whether the timeline eye hides this `image()` row's picture (by its source-location key). */
+  isImageHidden(key: string): boolean {
+    return this.hiddenImageKeys.has(key);
+  }
+
+  /** The timeline eye on an `image()` row: stop (or resume) drawing its picture. */
+  setImageHidden(key: string, hidden: boolean): void {
+    if (hidden) {
+      this.hiddenImageKeys.add(key);
+    } else {
+      this.hiddenImageKeys.delete(key);
+    }
+    this.referenceImage.setHidden(this.hiddenImageKeys);
   }
 
   /**

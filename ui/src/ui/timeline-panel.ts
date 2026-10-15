@@ -199,6 +199,14 @@ export class TimelinePanel {
   isRowShown?: (obj: SceneObjectRender) => boolean;
   onToggleRowShown?: (obj: SceneObjectRender) => void;
 
+  /**
+   * The eye on an `image()` row: whether the viewer hides its reference
+   * picture, and the toggle. View state only — the file never changes.
+   * Unset, image rows carry no eye.
+   */
+  isImageHidden?: (obj: SceneObjectRender) => boolean;
+  onToggleImageHidden?: (obj: SceneObjectRender) => void;
+
 
   /**
    * A row was double-clicked (the enter-breakpoint gesture). Fired after the
@@ -964,7 +972,10 @@ export class TimelinePanel {
         const obj = this.sceneObjects[index];
         if ((e.target as HTMLElement).closest('[data-show-eye]')) {
           // The eye is its own control: no rollback, no selection change.
-          if (obj) {
+          if (obj?.type === 'image') {
+            this.onToggleImageHidden?.(obj);
+            this.renderTimeline();
+          } else if (obj) {
             this.onToggleRowShown?.(obj);
 
             this.renderTimeline();
@@ -1455,7 +1466,13 @@ export class TimelinePanel {
     // is likewise a reference, not geometry — dimming it would read as
     // "consumed" about something nothing can consume. A region declaration
     // is a name for a pick, with no shapes of its own, so it stays lit too.
-    const isInvisible = obj.visible === false && !isConstraintRow(obj) && !isRegionRow(obj) && obj.type !== 'exposed';
+    // An image row has no shapes either; it dims only while its eye hides
+    // the picture.
+    const isImageRow = obj.type === 'image';
+    const isImageHidden = !unevaluated && isImageRow && this.isImageHidden?.(obj) === true;
+    const isInvisible = isImageRow
+      ? isImageHidden
+      : obj.visible === false && !isConstraintRow(obj) && !isRegionRow(obj) && obj.type !== 'exposed';
     const isTopLevel = depth === 0;
     const isActivePart = !unevaluated && isTopLevel && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
     const isSelected = this.selectedIndices.has(index);
@@ -1539,6 +1556,14 @@ export class TimelinePanel {
       const eyeIcon = shown ? ICON_EYE : ICON_EYE_OFF;
       const eyeVisibility = shown ? 'opacity-100 text-base-content/70' : 'opacity-0 group-hover:opacity-100 text-base-content/40';
       const eyeTitle = shown ? `Hide the ${obj.type} again` : `Show the ${obj.type} (a feature used it)`;
+      eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-show-eye="${index}" title="${eyeTitle}">${eyeIcon}</button>`;
+    } else if (!unevaluated && isImageRow && obj.sourceLocation && this.onToggleImageHidden) {
+      // An image is shown by default, so the shapes panel's convention
+      // applies as is: a hidden one wears its crossed eye always, a shown
+      // one reveals the eye on hover.
+      const eyeIcon = isImageHidden ? ICON_EYE_OFF : ICON_EYE;
+      const eyeVisibility = isImageHidden ? 'opacity-100 text-base-content/70' : 'opacity-0 group-hover:opacity-100 text-base-content/40';
+      const eyeTitle = isImageHidden ? 'Show the reference image' : 'Hide the reference image';
       eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-show-eye="${index}" title="${eyeTitle}">${eyeIcon}</button>`;
     }
 

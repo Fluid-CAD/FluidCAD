@@ -1474,6 +1474,16 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     const key = sourceLocKey(obj.sourceLocation);
     viewer.setShown(key, !viewer.isShown(key));
   };
+  // The eye on an `image()` row: whether its reference picture draws. View
+  // state like the one above, never written to the file.
+  panel.isImageHidden = (obj) => obj.sourceLocation !== undefined && viewer.isImageHidden(sourceLocKey(obj.sourceLocation));
+  panel.onToggleImageHidden = (obj) => {
+    if (!obj.sourceLocation) {
+      return;
+    }
+    const key = sourceLocKey(obj.sourceLocation);
+    viewer.setImageHidden(key, !viewer.isImageHidden(key));
+  };
 
   // Connector / exposed rows are references, not modeling steps: a click
   // shows what they publish in the viewer instead of a rollback preview. A

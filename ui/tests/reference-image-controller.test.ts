@@ -197,4 +197,26 @@ describe('ReferenceImageController', () => {
     ctl.clearPreview();
     expect(nodes()[0].scale.x).toBeCloseTo(80);
   });
+
+  it('hides a row the timeline eye hid, keeps seeding the tool from it, and draws the tool\'s override over it', async () => {
+    const loaded = image();
+    const { ctl, nodes } = make({ [URL_A]: async () => loaded, [URL_B]: async () => image() });
+    ctl.sync([source(), source({ src: 'images/b.png' }, KEY_B)]);
+    await flush();
+    expect(nodes()).toHaveLength(2);
+
+    ctl.setHidden(new Set([KEY_A]));
+    expect(nodes()).toHaveLength(1);
+    ctl.sync([source(), source({ src: 'images/b.png' }, KEY_B)]);
+    expect(nodes()).toHaveLength(1);
+    expect(ctl.current(KEY_A)).toEqual({ spec: spec(), pixel: { width: 400, height: 200 } });
+
+    ctl.preview({ key: KEY_A, plane: XY, spec: spec({ width: 20 }), modelFile: MODEL });
+    expect(nodes()).toHaveLength(2);
+    ctl.clearPreview();
+    expect(nodes()).toHaveLength(1);
+
+    ctl.setHidden(new Set());
+    expect(nodes()).toHaveLength(2);
+  });
 });

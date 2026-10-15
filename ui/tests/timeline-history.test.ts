@@ -119,3 +119,28 @@ describe('paused timeline history display', () => {
     expect(el.querySelector('img[src="x"]')).toBeNull();
   });
 });
+
+describe('image row eye', () => {
+  function image(id: string): SceneObjectRender {
+    return { ...feature(id, 'image', null), visible: false };
+  }
+
+  it('toggles the reference picture without rolling back, and dims the row only while hidden', () => {
+    const h = mount();
+    const hidden = new Set<string>();
+    h.panel.isImageHidden = (obj) => hidden.has(obj.id);
+    h.panel.onToggleImageHidden = vi.fn((obj) => { hidden.has(obj.id) ? hidden.delete(obj.id) : hidden.add(obj.id); });
+    h.panel.update([image('i')], 0, null);
+
+    const row = () => h.container.querySelector<HTMLElement>('[data-index="0"]')!;
+    expect(row().querySelector('[data-show-eye]')?.getAttribute('title')).toBe('Hide the reference image');
+    expect(row().querySelector('img')!.className).not.toContain('grayscale');
+
+    row().querySelector<HTMLElement>('[data-show-eye]')!.click();
+    expect(h.panel.onToggleImageHidden).toHaveBeenCalledTimes(1);
+    expect(h.panel.onToggleRowShown).not.toHaveBeenCalled();
+    expect(h.client.rollback).not.toHaveBeenCalled();
+    expect(row().querySelector('[data-show-eye]')?.getAttribute('title')).toBe('Show the reference image');
+    expect(row().querySelector('img')!.className).toContain('grayscale');
+  });
+});

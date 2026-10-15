@@ -72,6 +72,8 @@ export class ReferenceImageController implements ReferenceImageHost {
 
   private sources: ReferenceImageSource[] = [];
   private override: ReferenceImagePreview | null = null;
+  /** Rows the timeline eye hid: kept as sources (the Image tool still seeds from them), never drawn. */
+  private hidden: ReadonlySet<string> = new Set();
   private readonly pictures = new Map<string, Picture>();
   private readonly slots = new Map<string, Slot>();
 
@@ -148,6 +150,15 @@ export class ReferenceImageController implements ReferenceImageHost {
   clearPreview(): void {
     this.override = null;
     this.ensurePictures();
+    this.apply();
+  }
+
+  /**
+   * The rows the timeline eye hides, by key — view state only. The Image
+   * tool's override still draws over a hidden row while it edits it.
+   */
+  setHidden(keys: ReadonlySet<string>): void {
+    this.hidden = new Set(keys);
     this.apply();
   }
 
@@ -253,15 +264,15 @@ export class ReferenceImageController implements ReferenceImageHost {
   }
 
   /**
-   * Put the effective pictures on screen: every row whose bytes are in,
-   * the override in place of the row it edits (or in its own slot when it
+   * Put the effective pictures on screen: every row whose bytes are in and
+   * the eye leaves shown, the override in place of the row it edits (or in its own slot when it
    * is new) — with its own decoded picture, or the one at its path.
    */
   private apply(): void {
     const wanted = new Map<string, { plane: PlaneData; spec: SketchImageData; image: LoadedImage }>();
     for (const source of this.sources) {
       const image = this.pictures.get(ReferenceImageController.urlOf(source))?.image;
-      if (image && source.key !== this.override?.key) {
+      if (image && source.key !== this.override?.key && !this.hidden.has(source.key)) {
         wanted.set(source.key, { plane: source.plane, spec: source.spec, image });
       }
     }

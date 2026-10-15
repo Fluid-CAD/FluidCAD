@@ -4,6 +4,14 @@ export type SolvedEmissionRole = 'start' | 'end' | 'center' | 'mid';
 export type SketchExportRequest = {
   sketch: { line: number; column: number; filePath: string };
   target: SolvedEmissionTarget;
+  /**
+   * Which statements a plain `line` target may name: the solver entities
+   * (`line`, `arc`, `circle`, `point`, `ellipse` — the default, what a
+   * point accessor rides), or every geometry statement, the beziers and
+   * splines included — a consumer that takes the whole curve, like a split
+   * seed.
+   */
+  entities?: 'solver' | 'geometry';
 };
 
 export type SolvedEmissionTarget = {

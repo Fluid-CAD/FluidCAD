@@ -6,7 +6,7 @@ import plane from "../../core/plane.js";
 import select from "../../core/select.js";
 import split from "../../core/split.js";
 import translate from "../../core/translate.js";
-import { line, arc, circle } from "../../core/2d/index.js";
+import { line, arc, circle, bezier } from "../../core/2d/index.js";
 import rect from "../../core/shapes/rect.js";
 import { coincident, fix, distance, vertical, horizontal } from "../../core/constraints/index.js";
 import { face } from "../../filters/index.js";
@@ -376,6 +376,24 @@ describe("split", () => {
       const bbox = ShapeOps.getBoundingBox(pieces[0]);
       expect(bbox.minX).toBeCloseTo(-5, 5);
       expect(bbox.maxX).toBeCloseTo(5, 5);
+    });
+
+    it("cuts along a bezier's sheet", () => {
+      box();
+      let seed: any;
+      // An S-curve from below the box to above it, crossing it once.
+      sketch("xy", () => {
+        seed = bezier([-5, -40], [-25, 0], [25, 0], [5, 40]).guide();
+      });
+      const s = split(seed) as unknown as Split;
+
+      render();
+
+      const pieces = s.getShapes();
+      expect(pieces.length).toBe(2);
+      expect(volume(pieces[0]) + volume(pieces[1])).toBeCloseTo(40 * 30 * 10, 2);
+      expect(s.getCutKind()).toBe('sheet');
+      expect(s.getError()).toBeNull();
     });
 
     it("leaves a solid untouched when the curve stops inside it", () => {

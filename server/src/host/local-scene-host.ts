@@ -1,4 +1,5 @@
 import { type ViteDevServer, createServer } from 'vite';
+import { realpathSync } from 'fs';
 import { dirname, resolve, isAbsolute } from 'path';
 import { normalizePath } from '../normalize-path.ts';
 import type { SceneHost } from './scene-host.ts';
@@ -31,12 +32,15 @@ function scanForBlockedImports(code: string): string | null {
 export class LocalSceneHost implements SceneHost {
   server!: ViteDevServer;
   private rootPath: string = '';
+  /** {@link rootPath} read through symlinks, for {@link isWorkspaceModule}. */
+  private realRootPath: string = '';
   private buffers: Map<string, string> = new Map();
   /** Set when this engine answers the workspace's `import 'fluidcad'` itself. */
   private engineImports: EngineImportResolver | null = null;
 
   async init(rootPath: string) {
     this.rootPath = normalizePath(rootPath);
+    this.realRootPath = LocalSceneHost.realpathOrSelf(this.rootPath);
     const that = this;
     // A workspace with no engine install of its own gets a marked
     // `node_modules/fluidcad` link to this server's copy, for the tools that
@@ -54,6 +58,15 @@ export class LocalSceneHost implements SceneHost {
     this.engineImports = runtimeUsesThisEngine(link) ? new EngineImportResolver(ENGINE_PACKAGE_ROOT) : null;
     this.server = await createServer({
       root: rootPath,
+      resolve: {
+        // Module ids keep the path a script was loaded by instead of its
+        // real path. Source locations are those ids, and the routes compare
+        // them with the file the render was asked for (`getCurrentFileName`)
+        // and the editors hold — a workspace reached through a symlink
+        // (macOS's /var and /tmp, a linked projects folder) would otherwise
+        // name every feature by a path no client knows.
+        preserveSymlinks: true
+      },
       server: {
         watch: {
           ignoreInitial: true,
@@ -87,7 +100,7 @@ export class LocalSceneHost implements SceneHost {
             }
           },
           transform(code, id) {
-            if ((id.startsWith(that.rootPath) && !id.includes('/node_modules/')) || id.startsWith('virtual:live-render')) {
+            if (that.isWorkspaceModule(id) || id.startsWith('virtual:live-render')) {
               const blocked = scanForBlockedImports(code);
               if (blocked) {
                 const moduleName = getBlockedNodeModule(blocked)!;
@@ -118,6 +131,35 @@ export class LocalSceneHost implements SceneHost {
     });
     this.engineImports?.install(this.server.environments.ssr);
     installSourceUrlEncoding(this.server.environments.ssr);
+  }
+
+  /**
+   * Whether a module Vite is about to transform is one of the workspace's own
+   * scripts, the ones the blocked-import scan guards. Judged by the path as
+   * written and by its real path: a script loaded by another spelling of the
+   * workspace folder (through a symlink, or by its real path when the
+   * workspace was opened through one) is still the workspace's, and must not
+   * slip past the scan.
+   */
+  private isWorkspaceModule(id: string): boolean {
+    const file = id.split('?')[0];
+    if (LocalSceneHost.isUnder(file, this.rootPath)) {
+      return true;
+    }
+    return LocalSceneHost.isUnder(LocalSceneHost.realpathOrSelf(file), this.realRootPath);
+  }
+
+  /** Inside `root` and not in an npm dependency under it. */
+  private static isUnder(file: string, root: string): boolean {
+    return file.startsWith(root.endsWith('/') ? root : root + '/') && !file.includes('/node_modules/');
+  }
+
+  private static realpathOrSelf(file: string): string {
+    try {
+      return normalizePath(realpathSync(file));
+    } catch {
+      return file;
+    }
   }
 
   steeredEngineEntry(): string | null {

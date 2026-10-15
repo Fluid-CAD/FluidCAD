@@ -26,8 +26,8 @@ export class SceneTypes {
     // Parts and assemblies
     'assembly', 'part', 'part-definition',
     // Sketches, their geometry and tools
-    'arc', 'bezier', 'circle', 'ellipse', 'fillet2d', 'intersect', 'line', 'offset', 'point',
-    'projection', 'rect', 'region', 'sketch', 'text',
+    'arc', 'bezier', 'circle', 'ellipse', 'fillet2d', 'image', 'intersect', 'line', 'offset', 'point',
+    'projection', 'rect', 'region', 'sketch', 'spline', 'text',
     // Sketch constraints (a constraint's type is its kind)
     'angle', 'coincident', 'collinear', 'concentric', 'diameter', 'distance', 'equal', 'fix',
     'horizontal', 'midpoint', 'offsetFrom', 'parallel', 'perpendicular', 'radius', 'symmetric',

@@ -18,10 +18,12 @@ import type { ApplyFeatureRequestContext } from '../context.ts';
 // a picked face synthesized into `plane(<selector>)`, or a sketched line
 // exported from its sketch as `s.geometries.l` — plus the solids it parts
 // (none for every solid in scope), the side it keeps and the plane offset.
-// A standard-plane split of every solid appends at the end of the active
-// scope; anything naming a statement lands after its producers.
+// A split of every solid cuts the solids built before it in its scope, so
+// with no target pinning a scope it lands at the end of the timeline's
+// active part (a top-level split would build before the lazy part and see
+// nothing); anything naming a statement lands after its producers.
 export async function handleSplit(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
-  const { fluidCadServer, dispatcher, preview, newVariables } = ctx;
+  const { fluidCadServer, dispatcher, preview, newVariables, activePartFor } = ctx;
   const request = validateSplit(req.body);
   if ('error' in request) {
     res.status(400).json({ error: request.error });
@@ -107,6 +109,7 @@ export async function handleSplit(ctx: ApplyFeatureRequestContext, req: Request,
       res.json({ success: true, preview: statement });
       return;
     }
+    const activePart = activePartFor(filePath);
     await dispatcher.dispatch(res, {
       feature: 'split',
       split: options,
@@ -115,6 +118,7 @@ export async function handleSplit(ctx: ApplyFeatureRequestContext, req: Request,
       parts,
       imports: [...imports],
       newVariables,
+      ...(activePart ? { activePart } : {}),
     }, { success: true, preview: statement });
   } catch (err: any) {
     res.status(500).json({ success: false, reason: err?.message ?? String(err) });

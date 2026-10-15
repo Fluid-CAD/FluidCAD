@@ -73,6 +73,63 @@ describe('split statement templates', () => {
     expect(result.newCode).toContain(`import { split, sketch`);
   });
 
+  describe('with an active part', () => {
+    // A split of every solid cuts the solids built before it in its scope.
+    // part() is lazy — a top-level statement after the part builds before
+    // it — so with nothing pinning a scope the split lands at the end of
+    // the timeline's active part, the home of the other unpinned creates.
+    const partCode = [
+      `import { sketch, ellipse, extrude, part, plane } from 'fluidcad/core'`,
+      ``,
+      `const p = plane('yz', 40)`,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const activePart = { line: 4, column: 0 };
+
+    it('appends a standard-plane split of every solid inside the active part', async () => {
+      const result = await applyFeatureEdit(partCode, splitSpec({
+        plane: { kind: 'standard', plane: 'xz' },
+        keep: 'both',
+        offset: null,
+        targets: [],
+      }, { producers: [], activePart }));
+      expect(result.error).toBeUndefined();
+      expect(result.newCode.endsWith(`  extrude(30)\n  split('xz')\n})\n`)).toBe(true);
+    });
+
+    it('appends a plane-feature split of every solid inside the active part', async () => {
+      const result = await applyFeatureEdit(partCode, splitSpec({
+        plane: { kind: 'plane', producer: 0 },
+        keep: 'front',
+        offset: null,
+        targets: [],
+      }, {
+        producers: [{ line: 3, column: 10, featureType: 'plane', nameHint: 'p', bind: true }],
+        activePart,
+      }));
+      expect(result.error).toBeUndefined();
+      expect(result.newCode.endsWith(`  extrude(30)\n  split(p, { keep: 'front' })\n})\n`)).toBe(true);
+    });
+
+    it('keeps a split with a target beside that target inside the part', async () => {
+      const result = await applyFeatureEdit(partCode, splitSpec({
+        plane: { kind: 'standard', plane: 'xz' },
+        keep: 'both',
+        offset: null,
+        targets: [{ producer: 0 }],
+      }, {
+        producers: [{ line: 6, column: 2, featureType: 'feature', nameHint: 'f', bind: true }],
+        activePart,
+      }));
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toContain(`  const f = extrude(30)\n  split('xz', f)\n})\n`);
+    });
+  });
+
   it('renders an existing plane feature as its bound variable', async () => {
     const code = [
       `import { sketch, ellipse, extrude, plane } from 'fluidcad/core'`,

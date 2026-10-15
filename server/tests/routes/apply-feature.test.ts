@@ -5455,6 +5455,21 @@ describe('apply-feature route validation', () => {
       expect(body.preview).toBe("split('xz')");
     });
 
+    it('relays the active part for an implicit split, which lands inside the part body', async () => {
+      currentCode = CODE;
+      const splitBody = {
+        feature: 'split', filePath: '/ws/m.fluid.js', plane: { kind: 'standard', plane: 'xz' },
+      };
+      const { status } = await post({ ...splitBody, activePart: { filePath: '/ws/m.fluid.js', line: 3, column: 0 } });
+      expect(status).toBe(200);
+      expect(relayed[0].spec.activePart).toEqual({ line: 3, column: 0 });
+
+      // A part in another file is not where this file's split lands.
+      const other = await post({ ...splitBody, activePart: { filePath: '/ws/other.fluid.js', line: 3, column: 0 } });
+      expect(other.status).toBe(200);
+      expect(relayed[1].spec.activePart).toBeUndefined();
+    });
+
     it('synthesizes a picked face through the plane kind', async () => {
       currentCode = CODE;
       currentSynthesis = {

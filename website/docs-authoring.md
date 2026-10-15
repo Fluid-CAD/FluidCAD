@@ -322,8 +322,8 @@ Dialog fields:
   turned copies); **Solids** slot; **Axis** slot; **Angle**.
 - **Split**: **Both / Front / Back**; **Cut** slot (origin plane, plane feature,
   planar face, or straight sketch line); **Solids** slot (empty = all solids
-  in scope); **Offset** along the plane normal. Click a slot before picking
-  in the viewport. The preview shows removed pieces in red.
+  in scope). No offset field — offset the plane itself. Click a slot before
+  picking in the viewport. The preview shows removed pieces in red.
 - **Boolean**: **Fuse / Subtract / Common**, **Target** and **Tool** solids.
 - **Connector**: **Source** slot (hover faces/edges to see anchor candidates
   — face centre, edge centre / start / end — as a translucent frame; click to

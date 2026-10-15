@@ -16,11 +16,12 @@ split('xz');                                   // every body, at the XZ plane
 split(p, boss);                                // one body, at a plane() statement
 split(select(face().onPlane('xy', 30)));       // at a planar face
 split('yz', { keep: 'front' }, body);          // keep the normal side only
-split('xy', { offset: 12 });                   // 12 above XY
+split(plane('xy', 12));                        // 12 above XY
 
 ```
 `keep` drops the pieces on one side — `front` is the side the plane
-normal points to. `offset` moves the plane along its normal first.
+normal points to. To cut away from a plane, offset the plane itself
+(`plane('xy', 12)`, `plane(select(face()…), -8)`).
 
 **Returns**: [**`Split`**](/docs/api/types/split)
 
@@ -44,11 +45,12 @@ split('xz');                                   // every body, at the XZ plane
 split(p, boss);                                // one body, at a plane() statement
 split(select(face().onPlane('xy', 30)));       // at a planar face
 split('yz', { keep: 'front' }, body);          // keep the normal side only
-split('xy', { offset: 12 });                   // 12 above XY
+split(plane('xy', 12));                        // 12 above XY
 
 ```
 `keep` drops the pieces on one side — `front` is the side the plane
-normal points to. `offset` moves the plane along its normal first.
+normal points to. To cut away from a plane, offset the plane itself
+(`plane('xy', 12)`, `plane(select(face()…), -8)`).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -66,7 +68,7 @@ Splits solids with a plane, with options.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | An origin plane (`'xy'`, `'xz'`, `'yz'`), a `plane()` statement, or a planar face selection. |
-| `options` | SplitOptions | `keep` (`'both'`, `'front'`, `'back'`) and `offset` along the normal. |
+| `options` | SplitOptions | `keep` (`'both'`, `'front'`, `'back'`). |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The solids to split; none for every solid in scope. *(optional)* |
 
 ---
@@ -104,5 +106,5 @@ Splits solids along a sketched line, with options.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `line` | [Geometry](/docs/api/types/geometry) | A `line()` of a sketch. |
-| `options` | SplitOptions | `keep` (`'both'`, `'front'`, `'back'`) and `offset` along the plane normal (line direction × sketch normal). |
+| `options` | SplitOptions | `keep` (`'both'`, `'front'`, `'back'`); `front` is the side of line direction × sketch normal. |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The solids to split; none for every solid in scope. *(optional)* |

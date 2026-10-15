@@ -1,5 +1,5 @@
 // @screenshot showAxes hideGrid view iso-ftr size 1200x800 noAutoCrop
-import { sketch, line, extrude, split } from "fluidcad/core";
+import { sketch, line, extrude, plane, split } from "fluidcad/core";
 import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 
 const width = 80;
@@ -28,6 +28,9 @@ sketch("xy", () => {
 });
 const block = extrude(height);
 
+// The cut plane: the YZ plane moved 10 along its normal, which points along +X.
+const cutPlane = plane("yz", cutOffset);
+
 // Keep the 50-wide piece on the -X side of the cut.
 // highlight-next-line
-split("yz", { keep: "back", offset: cutOffset }, block);
+split(cutPlane, { keep: "back" }, block);

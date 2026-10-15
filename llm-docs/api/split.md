@@ -13,9 +13,9 @@ Imported from `fluidcad/core`.
 
 ```ts
 split(plane: PlaneLike | SceneObject, ...targets?: SceneObject[])
-split(plane: PlaneLike | SceneObject, options: { keep?: 'both' | 'front' | 'back', offset?: number }, ...targets?: SceneObject[])
+split(plane: PlaneLike | SceneObject, options: { keep?: 'both' | 'front' | 'back' }, ...targets?: SceneObject[])
 split(line: Geometry, ...targets?: SceneObject[])
-split(line: Geometry, options: { keep?, offset? }, ...targets?: SceneObject[])
+split(line: Geometry, options: { keep? }, ...targets?: SceneObject[])
 ```
 
 Cuts solids along an infinite plane. Each solid the plane crosses is
@@ -47,7 +47,9 @@ edges, `remove(s)`) reads all of them, and a `.scope()` follows them too.
   Only pieces of solids the plane actually crosses are removed; missed or
   tangent solids remain unchanged. For origin planes, front is +Z for XY,
   −Y for XZ, and +X for YZ.
-- **`offset`**: moves the plane along its normal before the cut.
+
+There is no offset option: to cut away from a plane, offset the plane
+itself — `split(plane('xy', 12))`, `split(plane(select(face()…), -8))`.
 
 A split whose plane crosses none of the solids builds nothing and reports
 `nothing was split` on its row; a split with no solid in scope is an error.
@@ -57,7 +59,7 @@ split('xz');                                      // every body, at the XZ plane
 split(p, boss);                                   // one body, at a plane() statement
 split(plane(select(face().onPlane('yz', 20)), -8)); // 8 inside the +x face
 split('yz', { keep: 'front' }, body);             // keep the +x half only
-split(seed, { offset: 3 });                       // along a sketched line, moved 3
+split(seed, { keep: 'back' }, body);              // along a sketched line, keep the left side
 ```
 
 ## Example

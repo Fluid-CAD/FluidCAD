@@ -19,18 +19,18 @@ Split divides a solid along a plane. Keep both sides as separate solids, or keep
 1. Finish any open sketch, then click **Split** on the toolbar.
 2. Choose the cutting plane in the **Cut** slot. You can pick an origin plane, a plane feature in the viewport or timeline, a planar face, or a straight sketch line. The **Cut** slot is active when the dialog opens.
 3. To limit the operation, click the **Solids** slot, then click a face or edge of a target solid, or its feature row in the timeline. Leave **Solids** empty to use all solids in the current scope. Inside a part, that means the solids in that part.
-4. Choose **Both**, **Front**, or **Back** to set which pieces to keep. Enter an **Offset** to move the cutting plane along its normal; leave it empty to cut at the selected plane.
+4. Choose **Both**, **Front**, or **Back** to set which pieces to keep. The cut is at the selected plane itself; to cut somewhere else, create an offset plane with the **Plane** tool first and pick that.
 5. Check the preview, then click **Apply**. FluidCAD adds a Split feature to the timeline and writes the statement to your file.
 
 The preview shows a translucent cutting plane. With **Front** or **Back** selected, pieces that will be removed appear red. Click the **Cut** or **Solids** slot before picking in the viewport to choose what the next click selects.
 
 Targets are selected by feature. If a feature produced several solids, selecting it can include all of those solids.
 
-To change an existing split, double-click its timeline row. You can replace the cut, change the targets, or adjust the keep side and offset.
+To change an existing split, double-click its timeline row. You can replace the cut, change the targets, or adjust the keep side.
 
 ## Split at an offset plane
 
-For this 80 × 60 × 20 block, choose the **YZ** origin plane, enter an **Offset** of **10**, and keep **Both**. The cut is at `x = 10`, leaving pieces that are 50 and 30 units wide.
+For this 80 × 60 × 20 block, first create a plane 10 units from **YZ** with the **Plane** tool, then pick that plane in the **Cut** slot and keep **Both**. The cut is at `x = 10`, leaving pieces that are 50 and 30 units wide. The plane feature is hidden once the split consumes it; its timeline eye shows it again.
 
 ![A block split at x = 10, with a seam across its top and front faces](/img/docs/3d-operations/split-plane.png)
 
@@ -53,13 +53,13 @@ For the same block and cut at `x = 10`:
 <ExplainedCode code={splitFront} fileName="split-front.part.js" title="Keep the front side" />
 <ExplainedCode code={splitBack} fileName="split-back.part.js" title="Keep the back side" />
 
-| Origin plane | Front side / positive offset direction |
+| Origin plane | Front side |
 | --- | --- |
 | XY | +Z |
 | XZ | −Y |
 | YZ | +X |
 
-A negative **Offset** moves the cut in the opposite direction. For example, selecting an exterior face usually requires an inward offset so the plane passes through the solid instead of touching its surface.
+A plane that only touches a solid splits nothing. Selecting an exterior face, for example, usually needs a plane offset inward from that face (`plane(select(face()…), -8)`) so the cut passes through the solid instead of grazing its surface.
 
 ## Split along a sketch line
 
@@ -87,14 +87,14 @@ Applying the split hides the source sketch. Use its timeline eye to show it agai
 split('xz');                               // All solids in scope, at the XZ plane.
 split(p, body);                             // Only body, at an existing plane p.
 split('yz', { keep: 'front' }, body);        // Keep the +X side of the cut.
-split('xy', { offset: 12 }, body);          // Cut 12 units above the XY plane.
-split(s.geometries.seed, { offset: 3 });     // Offset the plane defined by a line.
+split(plane('xy', 12), body);               // Cut 12 units above the XY plane.
+split(s.geometries.seed, { keep: 'back' });  // Along a sketch line, keep the left side.
 ```
 
 | Argument | Accepted values |
 | --- | --- |
 | Cut | `'xy'`, `'xz'`, `'yz'`, a `plane()` feature, a planar face selection, or a straight sketch line |
-| Options | `keep`: `'both'` (default), `'front'`, or `'back'`; `offset`: a distance in document units (default `0`) |
+| Options | `keep`: `'both'` (default), `'front'`, or `'back'` |
 | Targets | One or more solid-producing features; omit to use all solids in scope |
 
 See the [API reference](/docs/api/features/3d/split) for the full signature.
@@ -103,6 +103,6 @@ See the [API reference](/docs/api/features/3d/split) for the full signature.
 
 The cutting plane must pass through the interior of a target solid. A plane that misses a solid or only touches a face or edge leaves that solid unchanged, even when **Front** or **Back** is selected.
 
-If no target is crossed, the original solids remain and the Split row reports **nothing was split**. Change the **Offset**, choose a different cut, or check the **Solids** selection. If there are no solids in scope, create a solid first or place the split inside the part that contains it.
+If no target is crossed, the original solids remain and the Split row reports **nothing was split**. Move the plane, choose a different cut, or check the **Solids** selection. If there are no solids in scope, create a solid first or place the split inside the part that contains it.
 
 To divide a line or curve within a sketch, use the [sketch Split tool](/docs/sketching/tools/split).

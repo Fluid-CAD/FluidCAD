@@ -1,0 +1,41 @@
+---
+sidebar_position: 12.9
+title: "Split"
+description: "The Split type. Extends SceneObject."
+---
+
+# Split
+
+Extends [`SceneObject`](/docs/api/types/scene-object)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+
+</details>
+
+## Methods
+
+### getPlane()
+
+```ts
+getPlane(): Plane
+```
+
+The cut plane as built — the datum's plane moved by the `offset` option (origin, normal, x-direction).
+
+**Returns**: [`Plane`](/docs/api/types/plane)
+

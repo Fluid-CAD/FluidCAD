@@ -1,0 +1,108 @@
+---
+sidebar_position: 20
+title: "split"
+description: "Splits solids with a plane: every solid the plane crosses becomes the pieces on either side, each a body of its own with a flat cap on the plane. Without targets every solid in scope is a candidate; a solid the plane misses is left as it is."
+---
+
+# split()
+
+Splits solids with a plane: every solid the plane crosses becomes the
+pieces on either side, each a body of its own with a flat cap on the
+plane. Without targets every solid in scope is a candidate; a solid the
+plane misses is left as it is.
+
+```js
+split('xz');                                   // every body, at the XZ plane
+split(p, boss);                                // one body, at a plane() statement
+split(select(face().onPlane('xy', 30)));       // at a planar face
+split('yz', { keep: 'front' }, body);          // keep the normal side only
+split('xy', { offset: 12 });                   // 12 above XY
+
+```
+`keep` drops the pieces on one side — `front` is the side the plane
+normal points to. `offset` moves the plane along its normal first.
+
+**Returns**: [**`Split`**](/docs/api/types/split)
+
+:::tip
+See the [guide](/docs/3d-operations/split) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+split(plane: SceneObject | PlaneLike, ...targets: SceneObject[]): Split
+```
+
+Splits solids with a plane: every solid the plane crosses becomes the
+pieces on either side, each a body of its own with a flat cap on the
+plane. Without targets every solid in scope is a candidate; a solid the
+plane misses is left as it is.
+
+```js
+split('xz');                                   // every body, at the XZ plane
+split(p, boss);                                // one body, at a plane() statement
+split(select(face().onPlane('xy', 30)));       // at a planar face
+split('yz', { keep: 'front' }, body);          // keep the normal side only
+split('xy', { offset: 12 });                   // 12 above XY
+
+```
+`keep` drops the pieces on one side — `front` is the side the plane
+normal points to. `offset` moves the plane along its normal first.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | An origin plane (`'xy'`, `'xz'`, `'yz'`), a `plane()` statement, or a planar face selection. |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The solids to split; none for every solid in scope. *(optional)* |
+
+---
+
+```ts
+split(plane: SceneObject | PlaneLike, options: SplitOptions, ...targets: SceneObject[]): Split
+```
+
+Splits solids with a plane, with options.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | An origin plane (`'xy'`, `'xz'`, `'yz'`), a `plane()` statement, or a planar face selection. |
+| `options` | SplitOptions | `keep` (`'both'`, `'front'`, `'back'`) and `offset` along the normal. |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The solids to split; none for every solid in scope. *(optional)* |
+
+---
+
+```ts
+split(line: Geometry, ...targets: SceneObject[]): Split
+```
+
+Splits solids along a sketched line: the line seeds the infinite plane
+that contains it and stands normal to its sketch, as if the line were
+extruded out of the sketch both ways. The sketch is consumed for display
+like an extrude's profile (the timeline eye shows it again); the line
+stays readable, so a construction line is the usual seed.
+
+```js
+let seed;
+sketch('xy', () => { seed = line([0, -50], [0, 50]).guide(); … });
+extrude(20);
+split(seed);                                   // at the plane the line sweeps
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `line` | [Geometry](/docs/api/types/geometry) | A `line()` of a sketch. |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The solids to split; none for every solid in scope. *(optional)* |
+
+---
+
+```ts
+split(line: Geometry, options: SplitOptions, ...targets: SceneObject[]): Split
+```
+
+Splits solids along a sketched line, with options.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `line` | [Geometry](/docs/api/types/geometry) | A `line()` of a sketch. |
+| `options` | SplitOptions | `keep` (`'both'`, `'front'`, `'back'`) and `offset` along the plane normal (line direction × sketch normal). |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The solids to split; none for every solid in scope. *(optional)* |

@@ -12,14 +12,14 @@ import { IAxis, ISceneObject } from "./interfaces.js";
 
 interface AxisFunction {
   /**
-   * Creates an axis from a direction vector.
-   * @param axis - The direction vector or standard axis
+   * Creates an axis datum on a world axis.
+   * @param axis - The world axis: `"x"`, `"y"` or `"z"`
    */
   (axis: AxisLike): IAxis;
   /**
-   * Creates an axis from a direction vector with transform options.
-   * @param axis - The direction vector or standard axis
-   * @param options - Transform options (offset, flip, etc.)
+   * Creates an axis datum on a world axis, moved and tilted by the transform options.
+   * @param axis - The world axis: `"x"`, `"y"` or `"z"`
+   * @param options - Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes
    */
   (axis: AxisLike, options: AxisTransformOptions): IAxis;
   /**
@@ -32,27 +32,27 @@ interface AxisFunction {
    * Creates an axis from a scene object's edge — or from a connector, along
    * its Z axis through its origin — with transform options.
    * @param source - The scene object whose edge defines the axis, or a connector
-   * @param options - Transform options (offset, flip, etc.)
+   * @param options - Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes
    */
   (source: ISceneObject, options: AxisTransformOptions): IAxis;
   /**
    * Transforms an existing axis with options.
    * @param axis - The existing axis to transform
-   * @param options - Transform options (offset, flip, etc.)
+   * @param options - Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes
    */
   (axis: IAxis, options: AxisTransformOptions): IAxis;
   /**
-   * Creates an axis midway between two direction vectors.
-   * @param a1 - The first direction vector or standard axis
-   * @param a2 - The second direction vector or standard axis
-   * @param options - Transform options (offset, flip, etc.)
+   * Creates an axis midway between two world axes.
+   * @param a1 - The first world axis: `"x"`, `"y"` or `"z"`
+   * @param a2 - The second world axis: `"x"`, `"y"` or `"z"`
+   * @param options - Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes
    */
   (a1: AxisLike, a2: AxisLike, options?: AxisTransformOptions): IAxis;
   /**
    * Creates an axis midway between two existing Axis objects.
    * @param a1 - The first Axis object
    * @param a2 - The second Axis object
-   * @param options - Transform options (offset, flip, etc.)
+   * @param options - Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes
    */
   (a1: IAxis, a2: IAxis, options?: AxisTransformOptions): IAxis;
 }

@@ -1,1 +1,0 @@
-extension/neovim/bridge.cjs

@@ -1,8 +1,6 @@
 import { Router } from 'express';
-import { relative } from 'path';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
-import { collectEntryFiles } from '../files/entry-files.ts';
-import { normalizePath } from '../normalize-path.ts';
+import { collectEntryFiles, entryPath } from '../files/entry-files.ts';
 
 /** What the UI turns into a viewer link: the engine pin, the model to render first, its source tree. */
 export interface ShareFilesResponse {
@@ -33,7 +31,7 @@ export function createShareRouter(
     }
     try {
       const files = await collectEntryFiles(currentFile, workspacePath);
-      const entry = normalizePath(relative(normalizePath(workspacePath), normalizePath(currentFile)));
+      const entry = entryPath(currentFile, workspacePath);
       const body: ShareFilesResponse = { fluidcadVersion, entry, files };
       res.json(body);
     } catch (err: any) {

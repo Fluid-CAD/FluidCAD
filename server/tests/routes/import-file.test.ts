@@ -6,7 +6,7 @@ import { createSketchEditsRouter } from '../../src/routes/sketch-edits.ts';
 let server: http.Server;
 let baseUrl: string;
 
-/** Messages the route relayed to the editor (VS Code / Neovim). */
+/** Messages the route relayed to the editor host. */
 let relayed: any[];
 /** Arguments each importFile call received. */
 let importCalls: { workspacePath: string; fileName: string }[];

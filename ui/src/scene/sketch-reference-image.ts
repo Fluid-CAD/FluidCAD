@@ -99,8 +99,16 @@ export class SketchReferenceImage {
     }
     const texture = new Texture(image.source as any);
     texture.colorSpace = SRGBColorSpace;
-    // Canvas-space images read top-down; the quad's UVs run bottom-up.
-    texture.flipY = true;
+    // Canvas-space images read top-down; the quad's UVs run bottom-up. WebGL
+    // ignores the unpack flip for an ImageBitmap (the loader's usual
+    // decode), so a bitmap is flipped by the texture's UV transform instead.
+    if (typeof ImageBitmap !== 'undefined' && image.source instanceof ImageBitmap) {
+      texture.flipY = false;
+      texture.repeat.set(1, -1);
+      texture.offset.set(0, 1);
+    } else {
+      texture.flipY = true;
+    }
     texture.needsUpdate = true;
     this.texture = texture;
     this.pixel = { width: image.width, height: image.height };

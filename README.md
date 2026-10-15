@@ -196,7 +196,7 @@ In both, `./projects` holds your projects and must be writable by uid 1000 (`sud
 
 ### Editors
 
-Keep `npx fluidcad serve` running beside any editor; the viewport updates when you save. For an integrated workflow, use the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=FluidCAD.fluidcad) or [Neovim plugin](extension/neovim/README.md).
+Keep `npx fluidcad serve` running beside any editor; the viewport updates when you save.
 
 ### AI agents
 

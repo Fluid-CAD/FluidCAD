@@ -252,3 +252,15 @@ describe('lintFluidJs — unit() placement diagnostics', () => {
     expect(result.missing).toEqual([]);
   });
 });
+
+describe('lintFluidJs — sketch curve symbols', () => {
+  it('knows spline() as a fluidcad/core symbol alongside bezier()', async () => {
+    const code = [
+      'sketch("xy", () => { spline([0, 0], [10, 10], [20, 0]); bezier([0, 0], [10, 10]); });',
+      '',
+    ].join('\n');
+    const result = await lintFluidJs(code);
+    expect(result.missing.map((m) => m.symbol).sort()).toEqual(['bezier', 'sketch', 'spline']);
+    expect(result.suggestion).toBe('import { bezier, sketch, spline } from "fluidcad/core";');
+  });
+});

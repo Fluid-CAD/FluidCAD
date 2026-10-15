@@ -119,8 +119,23 @@ export class SolvedConstraint extends SceneObject {
       substitute(resolved);
       this._resolvedSpec = resolved;
       this._constraintId = this._sketch.solver().constrain(this, resolved);
+      // A cached sketch subtree never re-runs the pre-solve pass (see
+      // Sketch.restoreState), so the resolved form has to travel with the
+      // transferred state — like a projection's reference entities — or the
+      // cached statement would serialize its placeholder spec and id -1.
+      this.setState('resolved-spec', resolved);
+      this.setState('constraint-id', this._constraintId);
     } catch (error) {
       this._registrationError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  override restoreState(state: Map<string, any>): void {
+    super.restoreState(state);
+    const resolved = state.get('resolved-spec') as ConstraintSpec | undefined;
+    if (resolved) {
+      this._resolvedSpec = resolved;
+      this._constraintId = state.get('constraint-id') ?? -1;
     }
   }
 

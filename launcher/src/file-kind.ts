@@ -1,7 +1,7 @@
 /**
  * Which files the engine renders as models. Mirror of `server/src/file-kind.ts`
- * (and the VS Code extension's copy) — the shell can't import across the
- * package boundary, and the rule is three suffixes.
+ * — the shell can't import across the package boundary, and the rule is three
+ * suffixes.
  */
 
 const SUFFIXES = ['.part.js', '.assembly.js', '.fluid.js'];

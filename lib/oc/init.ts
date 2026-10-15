@@ -33,10 +33,10 @@ export async function loadOC() {
 
 /**
  * How many threads OpenCascade's parallel algorithms (booleans, meshing) may
- * use. Before the kernel loads this also sets how many workers it starts
- * with. Once loaded it applies from the next operation: a higher count starts
- * the extra workers on demand (Node only; a browser can deadlock there), and a
- * lower one idles workers without freeing them until the kernel restarts.
+ * use. Before the kernel loads this also sets how many workers it starts with.
+ * Once loaded it applies from the next operation, up to the workers the
+ * kernel started with: a lower count idles threads without ending them, and a
+ * higher one than it started with takes effect when the kernel next starts.
  */
 export function setMaxWorkers(count: number): void {
   const clamped = clampMaxWorkers(count);
@@ -50,15 +50,24 @@ export function setMaxWorkers(count: number): void {
 }
 
 /**
- * Cap OCCT's default thread pool at `count` threads, the calling thread
- * included. The first `DefaultPool` call creates the pool at that size;
- * later ones re-size it, which OCCT allows only while no job holds it — and
- * none can while JS runs, since jobs start and finish inside one kernel call.
+ * Let OCCT's parallel algorithms use `count` threads, the calling thread
+ * included. The pool has one slot per worker the kernel pre-spawned
+ * (`pthreadPoolSize`, set by the binding while loading) and keeps them for
+ * life; only the number of slots a job may take moves. A slot's thread starts
+ * the first time a job takes it, on one of those pre-spawned workers.
+ *
+ * The pool is never re-sized (`Init`) or taken past the pre-spawned workers.
+ * Both start kernel threads on workers created after load — a re-size ends
+ * threads and restarts them, racing the exited workers' return to the pool —
+ * and the kernel then trapped at random in unrelated calls ("null function or
+ * function signature mismatch", "operation does not support unaligned
+ * accesses"), on the main thread and in threads as they started. The lib
+ * suite, whose only thread churn was the re-size, failed about one run in
+ * three until it stopped. So a count above the pre-spawned pool waits for the
+ * next kernel start, which then pre-spawns that many.
  */
 function applyThreadCount(instance: OpenCascadeInstance, count: number): void {
-  const pool = instance.OSD_ThreadPool.DefaultPool(count);
-  if (pool.NbThreads() !== count && !pool.IsInUse()) {
-    pool.Init(count);
-  }
+  const pool = instance.OSD_ThreadPool.DefaultPool();
+  pool.SetNbDefaultThreadsToLaunch(Math.min(count, pool.NbThreads()));
   pool.delete();
 }

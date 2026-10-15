@@ -54,7 +54,7 @@ axis("y", { rotateZ: 30 })                // Y tilted 30° in the ground plane
 axis(a, { offsetZ: 10 })                  // an existing axis, shifted
 ```
 
-An axis can also be given as a direction vector or as a point-and-direction record: `axis([1, 1, 0])`, `axis({ point: [0, 0, 20], direction: [0, 0, 1] })`.
+`axis()` takes no direction vector or point-and-direction record: an axis in any other direction is read off an edge (below). A [rank filter](/docs/3d-operations/selection-and-filters#by-rank-and-extremes) needs no axis at all, because it takes the vector as it is: `edge().nearest([1, 1, 0])`.
 
 ## Axes from geometry
 

@@ -1,0 +1,49 @@
+---
+sidebar_position: 8.5
+title: "spline"
+description: "Draws a smooth curve through the given points, in order — the first is the start, the last the end, and the curve passes through every point between (a cubic interpolating B-spline, C2 continuous; a bezier's points pull the curve, a spline's lie on it). Inside a sketch every literal point is a solver point entity — constraints target `.point(i)` (or `.start()`/`.end()`) and the solve reshapes the curve; a point given as another entity's accessor (e.g. `l.end()`) rides that entity instead. With 0 args: interactive mode placeholder (no geometry). With 1 arg: places only the start point (no curve yet). With 2 args: a straight segment from start to end. With 3 or more args: the curve through every point."
+---
+
+# spline()
+
+Draws a smooth curve through the given points, in order — the first is
+the start, the last the end, and the curve passes through every point
+between (a cubic interpolating B-spline, C2 continuous; a bezier's
+points pull the curve, a spline's lie on it). Inside a sketch every
+literal point is a solver point entity — constraints target `.point(i)`
+(or `.start()`/`.end()`) and the solve reshapes the curve; a point
+given as another entity's accessor (e.g. `l.end()`) rides that entity
+instead.
+With 0 args: interactive mode placeholder (no geometry).
+With 1 arg: places only the start point (no curve yet).
+With 2 args: a straight segment from start to end.
+With 3 or more args: the curve through every point.
+
+**Returns**: [**`Spline`**](/docs/api/types/spline)
+
+:::tip
+See the [guide](/docs/sketching/primitives/spline) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+spline(...points: Point2DLike[]): Spline
+```
+
+Draws a smooth curve through the given points, in order — the first is
+the start, the last the end, and the curve passes through every point
+between (a cubic interpolating B-spline, C2 continuous; a bezier's
+points pull the curve, a spline's lie on it). Inside a sketch every
+literal point is a solver point entity — constraints target `.point(i)`
+(or `.start()`/`.end()`) and the solve reshapes the curve; a point
+given as another entity's accessor (e.g. `l.end()`) rides that entity
+instead.
+With 0 args: interactive mode placeholder (no geometry).
+With 1 arg: places only the start point (no curve yet).
+With 2 args: a straight segment from start to end.
+With 3 or more args: the curve through every point.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...points` | [Point2DLike](/docs/api/types/point2dlike)[] | The points the curve passes through, start to end *(optional)* |

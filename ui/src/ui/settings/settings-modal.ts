@@ -37,7 +37,7 @@ const TAB_DOT = 'size-1.5 rounded-full bg-primary shrink-0';
  * unsaved edit carries a dot so the change is visible from any tab.
  *
  * It is part of the page, not a window of its own: the same dialog serves
- * the browser, the VS Code host and the desktop app. Project settings are
+ * the browser and the desktop app. Project settings are
  * not here — those belong to the project's own UI.
  */
 export class SettingsModal {

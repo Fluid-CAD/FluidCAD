@@ -4,7 +4,7 @@ import type { SerializedAssemblyInstance } from '../../types';
 import type { AssemblyController } from '../../scene/assembly-controller';
 import type { BodyFreedom } from '../../solver';
 import { resolveExpressionValue, type VariableInfo } from '../../ui/expression-core';
-import { isEditableTarget } from '../../keyboard-bridge';
+import { isEditableTarget } from '../../editable-target';
 import { TransformGizmo } from './transform-gizmo';
 import type { GizmoRingHandleId, GizmoTypableHandleId, GizmoAxisTypingContext } from './transform-gizmo';
 import type { GizmoExpressionCommit } from './gizmo-value-input';

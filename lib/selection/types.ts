@@ -436,6 +436,7 @@ export function nameHintFor(featureType: string): string {
     case 'circle': return 'c';
     case 'ellipse': return 'el';
     case 'bezier': return 'bz';
+    case 'spline': return 'sp';
     case 'connect': return 'cn';
     case 'offset': return 'o';
     case 'projection': return 'pj';

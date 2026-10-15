@@ -90,7 +90,7 @@ export type EditorDirtyStateMessage = {
 export type EditorHelloMessage = {
   type: 'editor-hello';
   /** `monaco` arrives over the UI WebSocket rather than IPC — same message. */
-  editor: 'vscode' | 'neovim' | 'monaco';
+  editor: string;
   capabilities: { undoRedo: boolean };
 };
 
@@ -362,8 +362,8 @@ export type GotoSourceMessage = {
   /**
    * False for a passive navigation (a timeline row click): move the caret,
    * but never pop a hidden editor open. Hosts where the editor *is* the
-   * window — VS Code, Neovim — have nothing to reveal and ignore it; only
-   * the in-page host, whose editor is a pane beside the scene, honors it.
+   * window have nothing to reveal and ignore it; only the in-page host,
+   * whose editor is a pane beside the scene, honors it.
    * Omitted means the caller is an explicit "show me the code".
    */
   revealEditor?: boolean;

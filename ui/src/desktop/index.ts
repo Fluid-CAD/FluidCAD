@@ -1,8 +1,8 @@
 /**
  * The desktop shell bridge, from the page's side.
  *
- * The same `ui/dist` runs in three places: a browser tab from `npx fluidcad
- * serve`, a VS Code webview, and the Electron shell. Only the last one exposes
+ * The same `ui/dist` runs in two places: a browser tab from `npx fluidcad
+ * serve`, and the Electron shell. Only the latter exposes
  * `window.fluidcadDesktop`, so every function here degrades to the browser
  * behaviour when it isn't there — that is the contract, not a fallback.
  *

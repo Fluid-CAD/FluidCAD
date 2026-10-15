@@ -4,10 +4,8 @@ import { ackEdit } from '../editor-api';
 import { TRANSFORMS, postCodeEdit, targetPathOf } from './transforms';
 
 /**
- * The third implementation of the host contract — the one that lives in the
- * page (`docs/desktop/00-architecture.md`). The VS Code extension and the
- * Neovim bridge do the same job over IPC and keep working unchanged; this is
- * an addition, not a replacement (Invariant 5).
+ * The host contract's in-page implementation
+ * (`docs/desktop/00-architecture.md`).
  *
  * What a host owes the server:
  *
@@ -18,7 +16,7 @@ import { TRANSFORMS, postCodeEdit, targetPathOf } from './transforms';
  * - reveal a line when asked.
  */
 
-/** Match VS Code's `initLiveRender`, so both hosts feel the same. */
+/** Long enough to skip mid-word renders, short enough to feel live. */
 const LIVE_RENDER_DEBOUNCE_MS = 300;
 
 export interface EditorHostDeps {
@@ -289,8 +287,7 @@ export class EditorHost {
       console.warn(`FluidCAD: could not save ${entry.relPath}:`, err);
     });
     // Immediate, not debounced: the edit came from a click on the viewport and
-    // the viewport is what has to answer it. VS Code's `updateLiveCode` clears
-    // its debounce for the same reason.
+    // the viewport is what has to answer it.
     this.renderNow(entry);
   }
 
@@ -317,8 +314,7 @@ export class EditorHost {
     // needs no new channel for it. An edit that landed in a file other than
     // the rendered model (a cross-file connector, a feature in an imported
     // part) is `keepCurrent`: the server folds it in as a dependency of the
-    // current model instead of switching the viewport to the edited file —
-    // the same rule the Neovim bridge applies to every non-current buffer.
+    // current model instead of switching the viewport to the edited file.
     const keepCurrent = entry.absPath !== this.deps.currentModelPath();
     void fetch('api/render', {
       method: 'POST',

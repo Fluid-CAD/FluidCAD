@@ -2085,7 +2085,7 @@ export type SketchConstraintTargetParam = {
   occurrence?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
   featureType?: 'line' | 'arc' | 'circle' | 'point' | 'project' | 'intersect' | 'copy' | 'mirror'
-    | 'ellipse' | 'text' | 'bezier';
+    | 'ellipse' | 'text' | 'bezier' | 'spline';
   datum?: 'origin' | 'x-axis' | 'y-axis';
   /**
    * Mirror-image targets: the mirrored statement whose image on the 2D
@@ -2186,7 +2186,7 @@ export type SolvedEmissionTargetParam = {
   occurrence?: number;
   newIndex?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'mirror' | 'ellipse' | 'text' | 'bezier'
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'mirror' | 'ellipse' | 'text' | 'bezier' | 'spline'
     | 'project' | 'intersect';
   datum?: 'origin' | 'x-axis' | 'y-axis';
   /** Mirror-image targets: the mirrored statement (a nested line-addressed
@@ -2208,10 +2208,10 @@ export type SolvedEmissionTargetParam = {
 
 export type SolvedGeometryParam = {
   /** An entity statement — the ellipse included: a solver entity whose
-   * `center` role is its one point accessor — or a bezier, addressed only
-   * through its literal control points (`featureType: 'bezier'` +
-   * `pointIndex` on a `newIndex` target). */
-  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'bezier';
+   * `center` role is its one point accessor — or a bezier/spline,
+   * addressed only through its literal points (`featureType: 'bezier' |
+   * 'spline'` + `pointIndex` on a `newIndex` target). */
+  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'bezier' | 'spline';
   /** Rendered call text without binding or `;` — `line([0, 0], [40, 0])`. */
   text: string;
   guide?: boolean;
@@ -4905,7 +4905,7 @@ export function clearBreakpoints(): void {
  * `revealEditor: false` marks a passive navigation — a timeline row click or
  * a sketch constraint badge click, which is about the scene, not the code. The in-page editor then moves its
  * caret only when the pane is already visible and stays shut otherwise;
- * hosts whose editor is the whole window (VS Code, Neovim) jump regardless.
+ * hosts whose editor is the whole window jump regardless.
  */
 export function gotoSource(
   sourceLocation: SourceLocationParam,

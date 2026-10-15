@@ -131,6 +131,43 @@ export function solveBanded(matrix: number[][], rhsColumns: number[][]): number[
   return solutions;
 }
 
+/** Expands OCC's distinct-knots + multiplicities back to a flat knot vector. */
+export function toFlatKnots(knots: ReadonlyArray<number>, multiplicities: ReadonlyArray<number>): number[] {
+  const flat: number[] = [];
+  for (let i = 0; i < knots.length; i++) {
+    for (let m = 0; m < multiplicities[i]; m++) {
+      flat.push(knots[i]);
+    }
+  }
+  return flat;
+}
+
+/**
+ * The point of a polynomial B-spline at parameter `t` (clamped to the knot
+ * range) — Cox–de Boor over the nonzero basis functions, dimension-agnostic
+ * like {@link interpolateWithDerivatives}. The evaluator the UI tessellates
+ * a sketch spline with between renders, so the drawn polyline is the same
+ * curve the kernel builds from the same data.
+ */
+export function evaluateBSpline(data: BSplineCurveData, t: number): number[] {
+  const flat = toFlatKnots(data.knots, data.multiplicities);
+  const { degree, poles } = data;
+  const first = flat[degree];
+  const last = flat[poles.length];
+  const u = t <= first ? first : t >= last ? last : t;
+  const span = findSpan(poles.length, degree, u, flat);
+  const values = basisFunctions(span, u, degree, flat);
+  const dimension = poles[0].length;
+  const point = new Array<number>(dimension).fill(0);
+  for (let j = 0; j <= degree; j++) {
+    const pole = poles[span - degree + j];
+    for (let d = 0; d < dimension; d++) {
+      point[d] += values[j] * pole[d];
+    }
+  }
+  return point;
+}
+
 /** Converts a flat knot vector to OCC's distinct-knots + multiplicities. */
 function toDistinctKnots(flatKnots: number[]): { knots: number[]; multiplicities: number[] } {
   const knots: number[] = [];

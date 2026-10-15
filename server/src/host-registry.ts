@@ -1,15 +1,14 @@
 /**
  * Routes host-directed messages to whichever editor host is attached.
  *
- * There are three implementations of the host contract (see
- * `docs/desktop/00-architecture.md`): the VS Code extension and the Neovim
- * bridge over IPC, and the in-page Monaco host over the UI WebSocket. They all
- * receive the same messages; only the pipe differs. Route call sites keep
+ * A host is reached over IPC (the process that forked the server) or over the
+ * UI WebSocket (the in-page Monaco host; see `docs/desktop/00-architecture.md`).
+ * Both receive the same messages; only the pipe differs. Route call sites keep
  * calling one `(msg) => boolean` and never learn which one answered.
  *
- * **The IPC host wins when both are attached.** A VS Code webview showing the
- * new UI has a real editor holding the buffer; the in-page host must not fight
- * it for the same file.
+ * **The IPC host wins when both are attached.** An IPC host that announced
+ * itself holds the buffer; the in-page host must not fight it for the same
+ * file.
  */
 
 export type HostSend = (msg: any) => boolean;

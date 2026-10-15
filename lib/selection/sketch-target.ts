@@ -27,10 +27,10 @@ export type SolvedEmissionTarget = {
    * mismatch means the source changed under the picks and refuses the edit.
    * References (P6) name their producer callee: 'project' | 'intersect';
    * copy-instance targets name theirs: 'copy'; anchor-point targets (P8)
-   * name theirs: 'text' | 'bezier' — rendered as the anchor accessor
-   * (`t.anchor()`, `bz.point(i)`). */
+   * name theirs: 'text' | 'bezier' | 'spline' — rendered as the anchor
+   * accessor (`t.anchor()`, `bz.point(i)`, `sp.point(i)`). */
   featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'project' | 'intersect' | 'copy' | 'mirror'
-    | 'text' | 'bezier' | 'offset';
+    | 'text' | 'bezier' | 'spline' | 'offset';
   /**
    * Offset edge targets: the index of the picked edge on the 2D offset()
    * statement at `line` — renders `o.edge(i)` before the point role
@@ -68,10 +68,11 @@ export type SolvedEmissionTarget = {
    */
   instanceIndex?: number;
   /**
-   * Anchor-point targets (P8): a bezier literal control point's 0-based
-   * index on the bezier statement at `line` — renders `bz.point(i)`.
-   * Requires `featureType: 'bezier'`; the `text` anchor target carries no
-   * index (its accessor is fixed: `.anchor()`).
+   * Anchor-point targets (P8): a bezier control point's or a spline fit
+   * point's 0-based index on the statement at `line` — renders
+   * `bz.point(i)` / `sp.point(i)`. Requires `featureType: 'bezier' |
+   * 'spline'`; the `text` anchor target carries no index (its accessor is
+   * fixed: `.anchor()`).
    * Composes with `line` and `occurrence` only — never `datum`/`newIndex`/
    * `role`/`refIndex`/`instanceIndex`.
    */
@@ -90,7 +91,7 @@ export function renderSolvedTarget(
   if (target.instanceIndex !== undefined) {
     name += `.instance(${target.instanceIndex})`;
   }
-  if (target.featureType === 'bezier') {
+  if (target.featureType === 'bezier' || target.featureType === 'spline') {
     name += `.point(${target.pointIndex})`;
   } else if (target.featureType === 'text') {
     name += '.anchor()';
@@ -104,5 +105,5 @@ export function renderSolvedTarget(
 
 export const SOLVED_ENTITY_NAME_HINTS: Record<string, string> = {
   line: 'l', arc: 'a', circle: 'c', point: 'p', project: 'prj', intersect: 'sec',
-  copy: 'cp', mirror: 'm', ellipse: 'el', text: 't', bezier: 'bz', offset: 'o',
+  copy: 'cp', mirror: 'm', ellipse: 'el', text: 't', bezier: 'bz', spline: 'sp', offset: 'o',
 };

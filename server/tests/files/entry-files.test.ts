@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, symlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { collectEntryFiles } from '../../src/files/entry-files.ts';
+import { collectEntryFiles, entryPath } from '../../src/files/entry-files.ts';
 
 let ws: string;
 
@@ -78,6 +78,25 @@ describe('collectEntryFiles — the source tree a viewer link carries', () => {
     write('fluidcad.json', JSON.stringify({ unit: 'in', materials: { bad: { name: 'x' } } }));
     const invalid = await collectEntryFiles(join(ws, 'model.fluid.js'), ws);
     expect(JSON.parse(invalid['fluidcad.json'])).toEqual({ unit: 'in' });
+  });
+
+  it('collects a workspace reached through a symlink, whichever spelling each path uses', async () => {
+    write('main.part.js', "import { hole } from './lib/hole.js';\nexport const main = hole(3);\n");
+    write('lib/hole.js', 'export const hole = (d) => d;\n');
+    const real = realpathSync(ws);
+    const links = mkdtempSync(join(tmpdir(), 'fluidshare-link-'));
+    try {
+      const link = join(links, 'workspace');
+      symlinkSync(real, link, 'junction');
+      const expected = { 'main.part.js': expect.any(String), 'lib/hole.js': expect.any(String) };
+      expect(await collectEntryFiles(join(link, 'main.part.js'), link)).toEqual(expected);
+      expect(await collectEntryFiles(join(real, 'main.part.js'), link)).toEqual(expected);
+      expect(await collectEntryFiles(join(link, 'main.part.js'), real)).toEqual(expected);
+      expect(entryPath(join(link, 'main.part.js'), real)).toBe('main.part.js');
+      expect(entryPath(join(real, 'main.part.js'), link)).toBe('main.part.js');
+    } finally {
+      rmSync(links, { recursive: true, force: true });
+    }
   });
 
   it('refuses npm dependencies, Node built-ins, and files outside the workspace', async () => {

@@ -24,13 +24,13 @@ import type { SolvedGlyphLayout } from './solved-glyph-layout';
 import { addFrameHook } from '../frame-hooks';
 import {
   SolvedSketchModel,
-  bezierControlPoints,
+  curveControlPoints,
   buildSolvedSketchModel,
   layoutConstraintGlyphs,
-  tessellateBezier,
+  tessellateCurve,
   tessellateSolvedEntity,
 } from '../../sketch-solver-client';
-import type { LiveEntityGeometry, SolvedBezierView } from '../../sketch-solver-client';
+import type { LiveEntityGeometry, SolvedCurveView } from '../../sketch-solver-client';
 import type { Vec2 } from '../../sketch-solver-client/resolve';
 import { localToWorld } from '../../interactive/sketch-plane-utils';
 import { createDashedPolyline } from '../../interactive/tools/tool-preview-utils';
@@ -70,16 +70,17 @@ export class SketchMesh extends Group {
   private solvedEdgeMeshes = new Map<number, Group[]>();
   /** Vertex-dot groups bound to solved entity points, for live drag moves. */
   private solvedDotBindings: { group: Group; entityId: number; role: 'point' | 'start' | 'end' | 'center' }[] = [];
-  /** Bezier statements → their curve edge meshes: the curve is a rigid
-   * function of solver points (its control points), so a drag that moves
-   * any of them retessellates it every frame (P8). */
-  private solvedBezierMeshes: { curve: SolvedBezierView; meshes: Group[] }[] = [];
+  /** Bezier/spline statements → their curve edge meshes: the curve is a
+   * rigid function of solver points (its control points), so a drag that
+   * moves any of them retessellates it every frame (P8). */
+  private solvedCurveMeshes: { curve: SolvedCurveView; meshes: Group[] }[] = [];
   /** The active sketch's bezier handles — the dashed control polygon per
-   * curve; the control-point dots are ordinary bound vertex dots. */
-  private bezierHandlePolylines: { curve: SolvedBezierView; line: Line }[] = [];
-  /** Bezier handles belong to the sketch being edited: reference sketches
+   * bezier (a spline's points lie on the curve, so it draws none); the
+   * point dots of both are ordinary bound vertex dots. */
+  private curveHandlePolylines: { curve: SolvedCurveView; line: Line }[] = [];
+  /** Curve handles belong to the sketch being edited: reference sketches
    * on screen show their curves, not their control polygons. */
-  private readonly showBezierHandles: boolean;
+  private readonly showCurveHandles: boolean;
   /** The current glyph groups — replaced wholesale on live updates. */
   private solvedGlyphGroups: Group[] = [];
   /** This mesh is the sketch being edited. Constraint annotations — badges,
@@ -114,11 +115,11 @@ export class SketchMesh extends Group {
     this.userData.sketchObjectId = sceneObject.id;
     this.isRollback = isRollback;
     this.isActiveSketch = sceneObject.id === activeSketchId;
-    this.showBezierHandles = this.isActiveSketch;
+    this.showCurveHandles = this.isActiveSketch;
     this.solvedModel = buildSolvedSketchModel(sceneObject, allObjects);
     this.buildEdges(sceneObject, allObjects);
     this.buildVertices(sceneObject, allObjects);
-    this.buildBezierHandles();
+    this.buildCurveHandles();
     this.bindSolvedDots();
     this.addConstraintIcons();
   }
@@ -177,16 +178,16 @@ export class SketchMesh extends Group {
       }
     }
 
-    // Beziers redraw from their control points' fresh views — the entity
-    // loop above already moved those — and their handles follow.
-    for (const { curve, meshes } of this.solvedBezierMeshes) {
-      const controls = bezierControlPoints(model, curve);
+    // Beziers and splines redraw from their control points' fresh views —
+    // the entity loop above already moved those — and their handles follow.
+    for (const { curve, meshes } of this.solvedCurveMeshes) {
+      const controls = curveControlPoints(model, curve);
       for (const edgeMesh of meshes) {
-        this.rewriteEdgeMesh(edgeMesh, segments => tessellateBezier(controls, segments));
+        this.rewriteEdgeMesh(edgeMesh, segments => tessellateCurve(curve.kind, controls, segments));
       }
     }
-    for (const { curve, line } of this.bezierHandlePolylines) {
-      this.rewritePolyline(line, bezierControlPoints(model, curve));
+    for (const { curve, line } of this.curveHandlePolylines) {
+      this.rewritePolyline(line, curveControlPoints(model, curve));
     }
 
     for (const binding of this.solvedDotBindings) {
@@ -284,28 +285,30 @@ export class SketchMesh extends Group {
   }
 
   /**
-   * The active sketch's bezier handles: a dashed control polygon and a
-   * meta dot per control point, for every bezier statement — a one-point
-   * placeholder mid-draw included (its dot is all there is yet). A curve
-   * whose edge was consumed downstream (fillet, trim) is dropped from the
-   * payload outright, so a curve with no live edge draws no handles: a
-   * `.guide()` edge still renders and still drags, so it counts as live.
-   * The dots are ordinary vertex dots, so bindSolvedDots ties each to its
-   * control point's solver point and the live drag moves it.
+   * The active sketch's curve handles: a meta dot per control point for
+   * every bezier and spline statement — a one-point placeholder mid-draw
+   * included (its dot is all there is yet) — plus, for a bezier, the dashed
+   * control polygon (a spline's points lie on the curve, which is its own
+   * polygon). A curve whose edge was consumed downstream (fillet, trim) is
+   * dropped from the payload outright, so a curve with no live edge draws
+   * no handles: a `.guide()` edge still renders and still drags, so it
+   * counts as live. The dots are ordinary vertex dots, so bindSolvedDots
+   * ties each to its control point's solver point and the live drag moves
+   * it.
    */
-  private buildBezierHandles(): void {
+  private buildCurveHandles(): void {
     const model = this.solvedModel;
-    if (!model || !this.showBezierHandles) {
+    if (!model || !this.showCurveHandles) {
       return;
     }
     const normal = model.sketch.object?.plane?.normal;
-    for (const curve of model.beziers.values()) {
+    for (const curve of model.curves.values()) {
       const hasCurve = curve.points.length >= 2;
       const hasLiveEdge = curve.obj.sceneShapes.some(shape => !shape.isMetaShape);
       if (hasCurve && !hasLiveEdge) {
         continue;
       }
-      if (hasCurve) {
+      if (hasCurve && curve.kind === 'bezier') {
         const verts = new Float32Array(curve.points.length * 3);
         for (const [i, point] of curve.points.entries()) {
           const world = localToWorld(point, model.plane);
@@ -319,7 +322,7 @@ export class SketchMesh extends Group {
         // meta shapes and no pick channel claims it (no shapeId, no edge).
         line.userData.isMetaShape = true;
         this.add(line);
-        this.bezierHandlePolylines.push({ curve, line });
+        this.curveHandlePolylines.push({ curve, line });
       }
       this.addVertexDots(
         curve.points.map(point => localToWorld(point, model.plane)),
@@ -520,7 +523,7 @@ export class SketchMesh extends Group {
 
   /** Register an edge mesh for per-frame rewriting during a live drag:
    * under its entity for a solved entity, under its statement for a bezier
-   * (a rigid function of solver points, not an entity itself). */
+   * or spline (a rigid function of solver points, not an entity itself). */
   private registerLiveEdgeMesh(obj: SceneObjectRender, mesh: Group): void {
     if (this.isSolvedEntity(obj)) {
       const entityId = obj.object.entityId as number;
@@ -530,13 +533,13 @@ export class SketchMesh extends Group {
       this.solvedEdgeMeshes.set(entityId, list);
       return;
     }
-    const curve = obj.id ? this.solvedModel?.beziers.get(obj.id) : undefined;
+    const curve = obj.id ? this.solvedModel?.curves.get(obj.id) : undefined;
     if (curve) {
-      const entry = this.solvedBezierMeshes.find(e => e.curve === curve);
+      const entry = this.solvedCurveMeshes.find(e => e.curve === curve);
       if (entry) {
         entry.meshes.push(mesh);
       } else {
-        this.solvedBezierMeshes.push({ curve, meshes: [mesh] });
+        this.solvedCurveMeshes.push({ curve, meshes: [mesh] });
       }
     }
   }

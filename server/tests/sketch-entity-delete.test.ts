@@ -155,6 +155,20 @@ describe('SketchEntityDelete.apply', () => {
     ));
   });
 
+  it('substitutes spline fit points by their arguments like a bezier\'s', async () => {
+    const code = src(
+      `const s1 = spline([0, 0], [3, 4], [8, 8]);`,
+      `const l1 = line(s1.start(), s1.point(1));`,
+      `const l2 = line(s1.point(2), s1.end());`,
+    );
+    const result = await SketchEntityDelete.apply(code, { sketchLine: SKETCH, lines: [row(0)] });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(src(
+      `const l1 = line([0, 0], [3, 4]);`,
+      `const l2 = line([8, 8], [8, 8]);`,
+    ));
+  });
+
   it('refuses a point the primitive has no argument for', async () => {
     const result = await SketchEntityDelete.apply(src(
       `const a1 = arc([0, 0], [10, 10], [10, 0]);`,

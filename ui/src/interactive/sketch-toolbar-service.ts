@@ -11,6 +11,7 @@ import { RoundedRectTool } from './tools/rounded-rect-tool';
 import { SlotTool } from './tools/slot-tool';
 import { PolylineTool } from './tools/polyline';
 import { BezierTool } from './tools/bezier-tool';
+import { SplineTool } from './tools/spline-tool';
 import { PolygonTool } from './tools/polygon-tool';
 import { TextTool } from './tools/text-tool';
 import { ReferenceImageTool } from './tools/reference-image-tool';
@@ -813,11 +814,11 @@ export class SketchToolbarService {
       }
       : null;
 
-    // bezier and text create through the LEGACY insert rail on purpose: their
-    // statements are anchor-point statements (P8), not solved emission
-    // entities — insertGeometryCall places text in the derived-ops tail and
-    // bezier in the geometry region, and both are solver-backed after the
-    // re-render (draggable anchors, constraint targets).
+    // bezier, spline and text create through the LEGACY insert rail on
+    // purpose: their statements are anchor-point statements (P8), not solved
+    // emission entities — insertGeometryCall places text in the derived-ops
+    // tail and the curves in the geometry region, and all are solver-backed
+    // after the re-render (draggable anchors, constraint targets).
     const applySolvedContext = (tool: SketchTool | null): SketchTool | null => {
       tool?.setSolvedContext(solvedCtx);
       return tool;
@@ -852,6 +853,13 @@ export class SketchToolbarService {
         // poles auto-constrain through the solved rail (coincident on
         // bz.point(i)) — the tool needs the emission context for that.
         const tool = applySolvedContext(new BezierTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars))!;
+        tool.onSceneUpdate(sceneObjects, sketchId);
+        return tool;
+      }
+      case 'spline': {
+        // Same rail as the bezier: the spline is an anchor-point statement
+        // whose fit points are its anchors (coincident on sp.point(i)).
+        const tool = applySolvedContext(new SplineTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars))!;
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
       }

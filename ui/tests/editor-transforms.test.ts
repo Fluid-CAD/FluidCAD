@@ -1,12 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { TRANSFORMS, targetPathOf } from '../src/editor/host/transforms';
 
-// The in-page editor host is a third implementation of the host contract, and
-// the thing that can silently diverge from the VS Code one is not the plumbing
-// — it's the request body each message turns into. So each case below is the
-// exact `{ endpoint, body }` `extension/vscode/src/{code-edits,code-api}.ts`
-// produces for the same message. A drift here shows up in the product as a
-// transform that quietly does nothing.
+// What can silently diverge in the in-page editor host is not the plumbing —
+// it's the request body each message turns into. So each case below pins the
+// exact `{ endpoint, body }` the server's `/api/code/*` routes expect for the
+// same message. A drift here shows up in the product as a transform that
+// quietly does nothing.
 
 const SOURCE_LOCATION = { line: 12, column: 3 };
 
@@ -134,8 +133,7 @@ const CASES: Record<string, Case> = {
   },
 
   // Assembly instance edits (parts panel) rewrite the insert() chain at the
-  // statement's own location — the file comes from `sourceLocation`, as in
-  // the Neovim bridge.
+  // statement's own location — the file comes from `sourceLocation`.
   'update-insert-chain': {
     message: {
       sourceLocation: { filePath: '/ws/robot.assembly.js', ...SOURCE_LOCATION },
@@ -214,8 +212,8 @@ describe('editor host transform table', () => {
     expect(Object.keys(TRANSFORMS).sort()).toEqual(Object.keys(CASES).sort());
   });
 
-  it('defaults the optional arguments the way the VS Code host does', () => {
-    // Every one of these has a default in `code-api.ts`; sending `undefined`
+  it('defaults the optional arguments', () => {
+    // Every one of these has a documented default; sending `undefined`
     // instead would make the server read a missing field rather than the
     // documented default.
     expect(TRANSFORMS['update-position'].body({

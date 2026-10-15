@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { HostRegistry } from '../src/host-registry.ts';
 
-// Three implementations of the host contract share one router-facing send.
-// What matters here is the precedence rule: a VS Code webview showing the new
-// UI has both an IPC host and a page that can host, and the real editor must
-// win — the in-page host must never fight it for the same buffer.
+// IPC and in-page hosts share one router-facing send. What matters here is the
+// precedence rule: with both an announced IPC host and a page that can host,
+// the IPC editor must win — the in-page host must never fight it for the same
+// buffer.
 
 describe('host registry', () => {
   it('reports no host when neither pipe is attached', () => {

@@ -38,7 +38,7 @@ With the code editor open, the file sits between the rail and the panels. Edits 
 
 ## Settings
 
-The gear in the top bar, just before the light/dark switch, opens the global settings. They are yours rather than the project's, and they apply everywhere FluidCAD runs for you: the browser, the VS Code extension and the desktop app. Edits wait for **Save**; a tab with an unsaved edit shows a dot, and Cancel drops the edits.
+The gear in the top bar, just before the light/dark switch, opens the global settings. They are yours rather than the project's, and they apply everywhere FluidCAD runs for you: the browser and the desktop app. Edits wait for **Save**; a tab with an unsaved edit shows a dot, and Cancel drops the edits.
 
 | Tab | What it holds |
 |-----|---------------|
@@ -73,7 +73,7 @@ The History panel is the feature timeline. Every statement in the file is a row:
 
 ### Breakpoints
 
-A `breakpoint()` statement stops evaluation at that line. The viewport shows the model up to that point, and anything the toolbar writes is inserted before the breakpoint rather than at the end of the file. Remove the statement to resume the full model. Besides the History menu, VS Code inserts one from the gutter and Neovim with `:FluidCadToggleBreakpoint`.
+A `breakpoint()` statement stops evaluation at that line. The viewport shows the model up to that point, and anything the toolbar writes is inserted before the breakpoint rather than at the end of the file. Remove the statement to resume the full model.
 
 After a complete evaluation, History keeps later features visible when a breakpoint stops the next build. These dimmed rows carry a pause icon: their names and structure come from the last complete evaluation, and they have not been evaluated in the current build. You can expand them and follow their source, but geometry and editing actions become available when they are evaluated again.
 
@@ -164,8 +164,8 @@ See [Assembly](/docs/assembly/introduction) for the joints and the [Getting star
 
 ## Undo and redo
 
-Every toolbar operation is one edit to the source file, so Undo and Redo step the editor's own history: the first two buttons on the toolbar, <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (<kbd>Ctrl</kbd>+<kbd>Y</kbd> also redoes; on macOS use <kbd>⌘</kbd>). The keys work in both workbenches with the viewport focused; inside the code editor or a text field they keep their native meaning. The group appears once an editor is attached — the in-page editor, or the VS Code / Neovim extension.
+Every toolbar operation is one edit to the source file, so Undo and Redo step the editor's own history: the first two buttons on the toolbar, <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (<kbd>Ctrl</kbd>+<kbd>Y</kbd> also redoes; on macOS use <kbd>⌘</kbd>). The keys work in both workbenches with the viewport focused; inside the code editor or a text field they keep their native meaning. The group appears once the in-page editor is attached.
 
 ## Editors
 
-The in-page editor is enough for most work: it completes against the engine's own type declarations and shows diagnostics inline. The VS Code and Neovim extensions drive the same server from your editor; see [Editor setup](/docs/installation#editor-setup).
+The in-page editor is enough for most work: it completes against the engine's own type declarations and shows diagnostics inline. To edit in your own editor instead, see [Editor setup](/docs/installation#editor-setup).

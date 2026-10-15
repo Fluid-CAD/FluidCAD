@@ -36,9 +36,9 @@ FluidCAD is a parametric CAD application built on the OpenCascade B-Rep kernel.
 You model with the mouse — sketch with constraints, extrude, revolve, fillet,
 pattern, assemble with mates — and every action writes a plain JavaScript
 statement into a file you own. Code is the record and the fine control, not the
-price of entry. It runs on the desktop (macOS, Windows, Linux), from any editor
-via VS Code and Neovim extensions or the CLI, and exposes an MCP server so an
-AI agent can drive a live workspace.
+price of entry. It runs on the desktop (macOS, Windows, Linux), in the browser
+through the CLI beside any editor, and exposes an MCP server so an AI agent can
+drive a live workspace.
 
 The home page succeeds when a CAD user believes the geometry is real and a
 developer believes the API is worth writing, and both know within one screen

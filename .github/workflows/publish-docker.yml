@@ -1,8 +1,8 @@
 name: Publish Docker Image
 
-# Publishing is gated on the GitHub release being published, like the VS Code
-# extension: the desktop workflow leaves every release as a draft so the builds
-# can be tested first, and the image must not appear before the manual
+# Publishing is gated on the GitHub release being published: the desktop
+# workflow leaves every release as a draft so the builds can be tested first,
+# and the image must not appear before the manual
 # `gh release edit --draft=false` flips the draft. The checkout below lands on
 # the release tag because a `release` event's ref is `refs/tags/<tag>`.
 #

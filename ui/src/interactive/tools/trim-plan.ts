@@ -33,7 +33,7 @@ export type TrimSegment = {
   /**
    * Per cut, the entity crossing there as an emission target — the cut end
    * left behind is pinned to it — or null when nothing can be named (a
-   * bezier curve, an ellipse, a looped statement).
+   * bezier or spline curve, an ellipse, a looped statement).
    */
   cutters: (SolvedEmissionTargetParam | null)[];
   /** The index of the segment among the pieces the kernel cuts at `cuts`. */
@@ -204,7 +204,7 @@ function circleSegment(view: SolvedEntityView, model: SolvedSketchModel, at: Vec
 /**
  * The entity a crossing belongs to, as the emission target the cut end is
  * pinned to: a T-junction names the end of it the crossing sits on. Null
- * when there is nothing a coincident can name — a bezier curve, an
+ * when there is nothing a coincident can name — a bezier or spline curve, an
  * ellipse, an anchor point, a looped statement.
  */
 function cutterTarget(model: SolvedSketchModel, crossing: Crossing): SolvedEmissionTargetParam | null {

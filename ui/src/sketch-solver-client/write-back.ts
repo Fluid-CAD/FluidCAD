@@ -55,7 +55,7 @@ export function buildPositionWriteBack(
   model: SolvedSketchModel,
   read: (entityId: number) => LiveEntityGeometry | null,
 ): { edits: SketchPositionEditParam[]; filePath?: string } {
-  // One edit per STATEMENT, keyed by source line: a bezier's control points
+  // One edit per STATEMENT, keyed by source line: a bezier's or spline's points
   // are separate anchor entities that all address the same statement, and
   // the server refuses a batch that names a line twice.
   const editsByLine = new Map<number, SketchPositionEditParam>();
@@ -80,7 +80,7 @@ export function buildPositionWriteBack(
       ['center', g.center],
     ];
     for (const [role, current] of roles) {
-      // Anchor points (text anchor / bezier control point) address the
+      // Anchor points (text anchor / bezier or spline point) address the
       // owning statement's chain point arg directly — a bezier's i-th
       // literal is its i-th point-like argument.
       const index = view.anchor && role === 'point'

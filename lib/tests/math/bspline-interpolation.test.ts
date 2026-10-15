@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   interpolateBSpline2d,
   interpolateWithDerivatives,
+  evaluateBSpline,
+  toFlatKnots,
   BSplineCurveData,
   XY,
 } from "../../math/bspline-interpolation.js";
@@ -239,5 +241,42 @@ describe("interpolateWithDerivatives", () => {
       [[0, 0], [1, 1], [2, 2]],
       [0, 0.5, 0.5],
     )).toThrow(/strictly increasing/);
+  });
+});
+
+describe("evaluateBSpline", () => {
+  const points: XY[] = [{ x: 0, y: 0 }, { x: 20, y: 30 }, { x: 50, y: 10 }, { x: 80, y: 40 }, { x: 100, y: 0 }];
+
+  it("agrees with the independent Cox–de Boor evaluator and passes through the fit points", () => {
+    const data = interpolateBSpline2d(points);
+    const asCurve: BSplineCurveData = {
+      poles: data.poles.map(p => [p.x, p.y]), knots: data.knots, multiplicities: data.multiplicities, degree: data.degree,
+    };
+    for (let i = 0; i <= 50; i++) {
+      const t = i / 50;
+      const [x, y] = evaluateBSpline(asCurve, t);
+      const expected = evaluate(data, t);
+      expect(x).toBeCloseTo(expected.x, 9);
+      expect(y).toBeCloseTo(expected.y, 9);
+    }
+    const params = chordParams(points);
+    points.forEach((p, i) => {
+      const [x, y] = evaluateBSpline(asCurve, params[i]);
+      expect(x).toBeCloseTo(p.x, 6);
+      expect(y).toBeCloseTo(p.y, 6);
+    });
+  });
+
+  it("clamps the parameter to the knot range", () => {
+    const data = interpolateBSpline2d(points);
+    const asCurve: BSplineCurveData = {
+      poles: data.poles.map(p => [p.x, p.y]), knots: data.knots, multiplicities: data.multiplicities, degree: data.degree,
+    };
+    expect(evaluateBSpline(asCurve, -1)).toEqual([expect.closeTo(0, 9), expect.closeTo(0, 9)]);
+    expect(evaluateBSpline(asCurve, 2)).toEqual([expect.closeTo(100, 9), expect.closeTo(0, 9)]);
+  });
+
+  it("round-trips a flat knot vector through toFlatKnots", () => {
+    expect(toFlatKnots([0, 0.5, 1], [4, 1, 4])).toEqual([0, 0, 0, 0, 0.5, 1, 1, 1, 1]);
   });
 });

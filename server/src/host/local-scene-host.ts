@@ -101,6 +101,15 @@ export class LocalSceneHost implements SceneHost {
     this.engineImports = new EngineImportResolver(ENGINE_PACKAGE_ROOT);
     this.server = await createServer({
       root: rootPath,
+      resolve: {
+        // Module ids keep the path a script was loaded by instead of its
+        // real path. Source locations are those ids, and the routes compare
+        // them with the file the render was asked for (`getCurrentFileName`)
+        // and the editors hold — a workspace reached through a symlink
+        // (macOS's /var and /tmp, a linked projects folder) would otherwise
+        // name every feature by a path no client knows.
+        preserveSymlinks: true
+      },
       server: {
         watch: {
           ignoreInitial: true,
@@ -248,12 +257,24 @@ export class LocalSceneHost implements SceneHost {
     return this.packages.rootOf(id) !== null;
   }
 
-  /** Whether `file` lies under the workspace root, by the spelling the host was handed or by its real path. */
+  /**
+   * Whether `file` lies under the workspace root: by the spelling the host
+   * was handed, by the root's real path, or by the file's own real path — a
+   * script loaded by another spelling of the workspace folder (through a
+   * symlink, or by its real path when the workspace was opened through one)
+   * is still the workspace's, and must not slip past the blocked-import scan.
+   */
   private inWorkspace(file: string): boolean {
-    return [this.rootPath, this.realRootPath].some(root => {
-      const dir = root.replace(/\/+$/, '');
-      return dir !== '' && (file === dir || file.startsWith(`${dir}/`));
-    });
+    const plain = file.split('?')[0];
+    if (LocalSceneHost.under(plain, this.rootPath) || LocalSceneHost.under(plain, this.realRootPath)) {
+      return true;
+    }
+    return LocalSceneHost.under(LocalSceneHost.realPathOf(plain), this.realRootPath);
+  }
+
+  private static under(file: string, root: string): boolean {
+    const dir = root.replace(/\/+$/, '');
+    return dir !== '' && (file === dir || file.startsWith(`${dir}/`));
   }
 
   /** `path` with its symlinks resolved, normalized; `path` itself when it does not resolve. */

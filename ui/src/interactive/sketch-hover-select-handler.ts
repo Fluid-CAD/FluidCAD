@@ -31,7 +31,9 @@ import {
   entityPickAddress,
   solvedHitTest,
 } from '../sketch-solver-client';
-import type { SketchDatumName, SolvedDatumHit, SolvedEntityKind, SolvedEntityView } from '../sketch-solver-client';
+import type {
+  AnchorOwner, SketchDatumName, SolvedDatumHit, SolvedEntityKind, SolvedEntityView,
+} from '../sketch-solver-client';
 import { viewerSettings } from '../scene/viewer-settings';
 
 /**
@@ -86,10 +88,10 @@ export type SolvedPick = {
    * statement's own address (entity, copy instance, another mirror's
    * image) and no role. */
   mirrorInstance?: { source: SolvedPick };
-  /** Anchor-point picks (P8): a text anchor or a bezier literal control
-   * point. Emission addresses the owning statement and renders
+  /** Anchor-point picks (P8): a text anchor, a bezier control point or a
+   * spline fit point. Emission addresses the owning statement and renders
    * `.anchor()` / `.point(i)`. */
-  anchor?: { owner: 'text' | 'bezier'; pointIndex: number };
+  anchor?: { owner: AnchorOwner; pointIndex: number };
 };
 
 type SelectedVertexPick = {

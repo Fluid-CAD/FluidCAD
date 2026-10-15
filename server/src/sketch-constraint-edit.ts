@@ -28,9 +28,9 @@ export type SketchConstraintTarget = {
   /** The entity command the statement must call — a mismatch means the
    * source changed under the picks and refuses the edit. References (P6)
    * name their producer callee; copy-instance targets name theirs;
-   * anchor-point targets (P8) name 'ellipse' | 'text' | 'bezier'. */
+   * anchor-point targets (P8) name 'ellipse' | 'text' | 'bezier' | 'spline'. */
   featureType?: SolvedEntityKind | 'project' | 'intersect' | 'copy' | 'mirror'
-    | 'ellipse' | 'text' | 'bezier';
+    | 'ellipse' | 'text' | 'bezier' | 'spline';
   /** Mirror-image targets: the mirrored statement whose image on the 2D
    * mirror() statement at `line` is picked — a nested line-addressed target
    * (entity statement, copy instance, another mirror's instance; no role),
@@ -44,8 +44,9 @@ export type SketchConstraintTarget = {
    * `line`/`role`/`occurrence`; never with `datum`, and v1 never with
    * `refIndex`. */
   instanceIndex?: number;
-  /** Anchor-point targets (P8): a bezier literal control point's 0-based
-   * index — renders `bz.point(i)`. Requires `featureType: 'bezier'`. */
+  /** Anchor-point targets (P8): a bezier control point's or a spline fit
+   * point's 0-based index — renders `bz.point(i)` / `sp.point(i)`.
+   * Requires `featureType: 'bezier' | 'spline'`. */
   pointIndex?: number;
 };
 

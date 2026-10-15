@@ -50,6 +50,7 @@ export const SKETCH_PRODUCER_CALLEES: Record<string, string[]> = {
   ellipse: ['ellipse'],
   arc: ['arc'],
   bezier: ['bezier'],
+  spline: ['spline'],
   offset: ['offset'],
   projection: ['project'],
   intersect: ['intersect'],

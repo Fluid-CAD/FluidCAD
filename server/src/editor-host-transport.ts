@@ -36,8 +36,8 @@ export function broadcastEditorCapabilities(core: ServerCore, hosts: HostRegistr
 export function attachEditorHostTransport(deps: EditorHostTransportDeps): void {
   const { core, hosts, dispatcher, dirtyBufferState } = deps;
 
-  // An IPC hello usually lands before the first UI connection (the extension
-  // forks the server, then opens the webview), so late joiners get a replay.
+  // An IPC hello usually lands before the first UI connection (the host forks
+  // the server, then opens the viewport), so late joiners get a replay.
   // Nothing is sent when no host ever announced — the UI's default is "no
   // editor", and a server without one must not claim otherwise.
   core.setConnectionHandler((_sessionId, ws) => {

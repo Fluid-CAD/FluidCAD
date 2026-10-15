@@ -23,14 +23,15 @@ export const SOLVED_ENTITY_CALLEES = new Set<string>(['line', 'arc', 'circle', '
 
 /**
  * What the emission rail may write as geometry: the entity statements, plus
- * the bezier — no solver entity itself, but a rigid function of its literal
- * control points, each an anchor point a constraint target addresses as
- * `bz.point(i)` (P8). The sketch Mirror tool writes reflected beziers this
- * way, one point-pair symmetric per control point.
+ * the point-driven curves — the bezier and the spline — no solver entities
+ * themselves, but rigid functions of their literal points, each an anchor
+ * point a constraint target addresses as `bz.point(i)` / `sp.point(i)`
+ * (P8). The sketch Mirror tool writes reflected curves this way, one
+ * point-pair symmetric per point.
  */
-export type SolvedGeometryKind = SolvedEntityKind | 'bezier';
+export type SolvedGeometryKind = SolvedEntityKind | 'bezier' | 'spline';
 
-export const SOLVED_GEOMETRY_CALLEES = new Set<string>([...SOLVED_ENTITY_CALLEES, 'bezier']);
+export const SOLVED_GEOMETRY_CALLEES = new Set<string>([...SOLVED_ENTITY_CALLEES, 'bezier', 'spline']);
 
 /** Binding-name hints per entity kind — `const l1 = line(…)`,
  * `const el1 = ellipse(…)`. Reference producers (P6) hoist too:
@@ -71,7 +72,7 @@ export const MIRROR_CALLEES = new Set<string>(['mirror']);
  * are free solver points a constraint target may address via the
  * featureType-derived accessor.
  */
-export const ANCHOR_CALLEES = new Set<string>(['text', 'bezier']);
+export const ANCHOR_CALLEES = new Set<string>(['text', 'bezier', 'spline']);
 
 /**
  * The region declaration statement (`region('r1', l1, far(c1))`): the tail

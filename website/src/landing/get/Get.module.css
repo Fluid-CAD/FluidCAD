@@ -136,13 +136,13 @@
 }
 .below {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: clamp(2rem, 6vw, 6rem);
+  grid-template-columns: minmax(0, 40rem);
+  justify-content: center;
+  gap: 2.5rem;
   padding-top: 2.5rem;
   border-top: 1px solid var(--fc-line);
 }
-.package,
-.extensions {
+.package {
   min-width: 0;
 }
 .otherTitle {
@@ -190,8 +190,7 @@
   margin-top: 1.5rem;
 }
 @media (max-width: 42rem) {
-  .platforms,
-  .below {
+  .platforms {
     grid-template-columns: 1fr;
   }
   .platform {

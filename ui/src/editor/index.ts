@@ -29,7 +29,7 @@ import type { SceneObjectRender, SourceLocation } from '../types';
  * The in-page code editor, assembled.
  *
  * Reached through a dynamic `import()` from `main.ts`, so Monaco lands in its
- * own chunk: a viewport-only host (`?editor=0`, the VS Code webview, the hub)
+ * own chunk: a viewport-only host (`?editor=0`, the hub)
  * never downloads it, and the scene renders before the editor is even fetched.
  * The scene is the product; the editor is a pane beside it (Invariant 7).
  */
@@ -708,7 +708,7 @@ export class EditorSurface {
         void this.models.save(absPath);
       }
     });
-    // Typing re-renders the scene, the way saving a buffer does in VS Code.
+    // Typing re-renders the scene, the way saving does with an external editor.
     editor.onDidChangeModelContent(() => {
       const entry = editor.getModel() ? this.models.findByModel(editor.getModel()!) : undefined;
       if (entry) {

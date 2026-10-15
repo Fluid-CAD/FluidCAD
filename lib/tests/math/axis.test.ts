@@ -130,7 +130,7 @@ describe("Axis", () => {
     it("applies rotation without gimbal lock", () => {
       const axis = new Axis(Point.origin(), Vector3d.unitX());
       // Apply 90° Y rotation - this would cause gimbal lock with sequential rotations
-      const transformed = axis.transform({ rotateY: Math.PI / 2 });
+      const transformed = axis.transform({ rotateY: 90 });
       expect(transformed.direction.x).toBeCloseTo(0);
       expect(transformed.direction.z).toBeCloseTo(-1);
     });
@@ -139,7 +139,7 @@ describe("Axis", () => {
       const axis = new Axis(Point.origin(), Vector3d.unitX());
       const transformed = axis.transform({
         offsetX: 5,
-        rotateZ: Math.PI / 2,
+        rotateZ: 90,
       });
       expect(transformed.origin.x).toBe(5);
       expect(transformed.direction.x).toBeCloseTo(0);

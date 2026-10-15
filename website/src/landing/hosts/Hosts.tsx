@@ -20,7 +20,7 @@ type Host = {
  * One server, several front doors.
  *
  * The honest shape of this section is a list, not a grid of tiles: these are
- * not six products, they are six ways into the same running workspace, and a
+ * not four products, they are four ways into the same running workspace, and a
  * list is what says that. Ordered by how most people arrive.
  */
 const HOSTS: Host[] = [
@@ -37,34 +37,8 @@ const HOSTS: Host[] = [
     hrefLabel: 'Downloads',
   },
   {
-    id: 'vscode',
-    name: 'VS Code',
-    line: (
-      <>
-        The scene beside the file. Click the gutter to drop a <code>breakpoint()</code>, pick regions
-        and edges in the viewport, and the source updates as you do.
-      </>
-    ),
-    command: 'FluidCAD: Show FluidCAD Scene',
-    href: 'https://marketplace.visualstudio.com/items?itemName=FluidCAD.fluidcad',
-    hrefLabel: 'Marketplace',
-  },
-  {
-    id: 'neovim',
-    name: 'Neovim',
-    line: (
-      <>
-        The same server, driven from the editor you already live in. The plugin starts it when you
-        open a model.
-      </>
-    ),
-    command: ':FluidCadOpenBrowser',
-    href: '/docs/installation#editor-setup',
-    hrefLabel: 'Editor setup',
-  },
-  {
     id: 'cli',
-    name: 'Any other editor',
+    name: 'Your own editor',
     line: <>Run the server yourself and keep the viewport in a browser tab. It rebuilds on save.</>,
     command: 'npx fluidcad serve',
     href: '/docs/cli',
@@ -106,7 +80,7 @@ export default function Hosts() {
     <Section>
       <SectionHead
         title="It runs where you work"
-        lead="One server holds the model. Everything below is a way into it, and they can all be open at once: edit in Neovim, watch the scene in a browser, let an agent measure a face while you do."
+        lead="One server holds the model. Everything below is a way into it, and they can all be open at once: edit in your own editor, watch the scene in a browser, let an agent measure a face while you do."
       />
 
       <ul className={styles.list}>

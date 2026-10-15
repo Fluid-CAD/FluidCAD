@@ -25,6 +25,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
     { id: 'line', label: 'Line', iconPng: 'line' },
     { id: 'polyline', label: 'Polyline', iconPng: 'wire' },
     { id: 'bezier', label: 'Bezier', iconPng: 'bezier' },
+    { id: 'spline', label: 'Spline', iconPng: 'spline' },
   ]},
   { tools: [
     { id: 'circle', label: 'Circle', iconPng: 'circle' },
@@ -71,6 +72,7 @@ export const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   arc3: 'a',
   arc2: 'ca',
   bezier: 'b',
+  spline: 'sl',
   fillet: 'f',
   offset: 'o',
   split: 'sp',

@@ -1,5 +1,5 @@
 import { readFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, realpathSync } from 'fs';
 import { join, relative } from 'path';
 import { normalizePath } from '../normalize-path.ts';
 import { PROJECT_CONFIG_FILENAME, readProjectConfig } from '../project-config.ts';
@@ -10,6 +10,16 @@ const WRAPPER_NAME = '__share_entry__.js';
 
 /** A model's source tree as a viewer link carries it: workspace-relative path → text. */
 export type EntryFiles = Record<string, string>;
+
+/**
+ * The model's workspace-relative path, the key it has in
+ * {@link collectEntryFiles}' tree. Read through symlinks on both sides, so
+ * the workspace and the model may arrive spelled differently (one through a
+ * link, one by its real path) and still meet.
+ */
+export function entryPath(entryAbs: string, workspaceAbs: string): string {
+  return normalizePath(relative(normalizePath(realpathSync(workspaceAbs)), normalizePath(realpathSync(entryAbs))));
+}
 
 /**
  * The workspace files one model transitively imports, including itself and
@@ -34,8 +44,12 @@ export type EntryFiles = Record<string, string>;
  * built-in materials alone.
  */
 export async function collectEntryFiles(entryAbs: string, workspaceAbs: string): Promise<EntryFiles> {
-  const workspace = normalizePath(workspaceAbs);
-  const entryRel = './' + normalizePath(relative(workspace, normalizePath(entryAbs)));
+  // The workspace is taken as its real path: esbuild resolves absWorkingDir
+  // and every imported file through symlinks but names the stdin wrapper by
+  // the resolveDir it was given, so a workspace reached through a link
+  // (macOS's /var, /tmp) would list the wrapper as a path outside itself.
+  const workspace = normalizePath(realpathSync(workspaceAbs));
+  const entryRel = './' + entryPath(entryAbs, workspaceAbs);
   const initAbs = join(workspace, 'init.js');
   const imports = [entryRel];
   if (existsSync(initAbs)) {

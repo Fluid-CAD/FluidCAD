@@ -6,7 +6,7 @@ import { SolvedPointRef } from '../features/2d/solved/refs.js';
 import { isReferenceProducer, ReferencePointRef } from '../features/2d/solved/reference.js';
 import { Copy2DBase } from '../features/copy2d-base.js';
 import { MirrorShape2D } from '../features/mirror-shape2d.js';
-import { BezierCurve } from '../features/2d/bezier.js';
+import { ControlPointCurve } from '../features/2d/control-point-curve.js';
 import { Offset } from '../features/2d/offset.js';
 import { PointResolver } from '../features/point-resolver.js';
 import { LazyVertex } from '../features/lazy-vertex.js';
@@ -69,7 +69,7 @@ export function attributeSketchVertex(scene: SelectionScene, sketch: Sketch, poi
           continue;
         }
         assertAddressable(scene, location.filePath, address.entities);
-        const target = owner instanceof BezierCurve
+        const target = owner instanceof ControlPointCurve
           ? { ...address.target, pointIndex: role === 'start' ? 0 : owner.controlPoints.length - 1 }
           : { ...address.target, role };
         return { ok: true, sketch, request: { sketch: location, target }, entities: address.entities };
@@ -174,8 +174,10 @@ function entityAddress(owner: SceneObject, edge: Edge, sketch: Sketch, seen = ne
     return { target: { ...target, featureType: owner.solverKind }, entities, entity: owner,
       point: role => new SolvedPointRef(owner, role, `vertex-${role}`) };
   }
-  if (owner instanceof BezierCurve) {
-    return { target: { ...target, featureType: 'bezier' }, entities, entity: owner,
+  if (owner instanceof ControlPointCurve) {
+    // A bezier's or a spline's ends are its first and last points —
+    // addressed by index on the statement, never by role.
+    return { target: { ...target, featureType: owner.getType() as 'bezier' | 'spline' }, entities, entity: owner,
       point: role => owner.point(role === 'start' ? 0 : owner.controlPoints.length - 1) };
   }
   if (isReferenceProducer(owner)) {

@@ -4,7 +4,7 @@ import {
   VariableInfo,
 } from './expression-core';
 import { bottomRightRow, BOTTOM_RIGHT_ORDER } from './bottom-right-row';
-import { isEditableTarget } from '../keyboard-bridge';
+import { isEditableTarget } from '../editable-target';
 import { viewportChrome } from './viewport-chrome';
 
 export type { VariableInfo };

@@ -213,7 +213,9 @@ export function buildCenterIndex(
     }
 
     const uniqueType = obj.uniqueType ?? '';
-    if (uniqueType.startsWith('bezier-')) {
+    // Point-driven curves (bezier poles, spline fit points): every point
+    // is a drag target of the statement.
+    if (uniqueType.startsWith('bezier-') || uniqueType.startsWith('spline-')) {
       const start = (obj as any).object?.startPoint as [number, number] | null | undefined;
       const poles = (obj as any).object?.resolvedPoints as [number, number][] | undefined;
       if (start) {

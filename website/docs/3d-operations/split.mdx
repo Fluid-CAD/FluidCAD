@@ -20,10 +20,10 @@ Split divides a solid along a plane, or along the surface a sketch edge sweeps o
 1. Finish any open sketch, then click **Split** on the toolbar.
 2. Choose the cut in the **Cut** slot. You can pick an origin plane, a plane feature in the viewport or timeline, a planar face, or a sketch edge: a straight line cuts along the plane it defines, and an arc, circle, ellipse or spline cuts along the curved surface it sweeps. The **Cut** slot is active when the dialog opens.
 3. To limit the operation, click the **Solids** slot, then click a face or edge of a target solid, or its feature row in the timeline. Leave **Solids** empty to use all solids in the current scope. Inside a part, that means the solids in that part.
-4. Choose **Both**, **Front**, or **Back** to set which pieces to keep. The cut is at the selected plane itself; to cut somewhere else, create an offset plane with the **Plane** tool first and pick that.
+4. In the **Keep** dropdown, choose **Both sides**, **Front side**, or **Back side** to set which pieces to keep. The cut is at the selected plane itself; to cut somewhere else, create an offset plane with the **Plane** tool first and pick that.
 5. Check the preview, then click **Apply**. FluidCAD adds a Split feature to the timeline and writes the statement to your file.
 
-The preview shows a translucent cutting plane. With **Front** or **Back** selected, pieces that will be removed appear red. Click the **Cut** or **Solids** slot before picking in the viewport to choose what the next click selects.
+The preview shows a translucent cutting surface. With **Front side** or **Back side** selected, pieces that will be removed appear red. Click the **Cut** or **Solids** slot before picking in the viewport to choose what the next click selects.
 
 Targets are selected by feature. If a feature produced several solids, selecting it can include all of those solids.
 

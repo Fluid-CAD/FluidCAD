@@ -1,7 +1,6 @@
-// @screenshot showAxes
-import { sketch, line, extrude, split } from "fluidcad/core";
+// @screenshot showAxes hideGrid view iso-ftr size 1200x800 noAutoCrop
+import { sketch, line, extrude, split, xAxis, yAxis } from "fluidcad/core";
 import { coincident, distance, horizontal, symmetric, vertical, fix } from "fluidcad/constraints";
-import { xAxis, yAxis } from "fluidcad/core";
 
 // A 60 × 40 × 15 block.
 sketch("xy", () => {
@@ -13,6 +12,8 @@ sketch("xy", () => {
   coincident(r.end(), t.start());
   coincident(t.end(), l.start());
   coincident(l.end(), b.start());
+  horizontal(b);
+  vertical(r);
   horizontal(t);
   vertical(l);
   symmetric(b.start(), b.end(), yAxis());
@@ -22,13 +23,15 @@ sketch("xy", () => {
 });
 const block = extrude(15);
 
-// A diagonal construction line sketched on the XY plane. The split cuts
-// along the plane this line sweeps out of its sketch — a vertical sheet
-// through the block — and keeps the side the plane normal points to.
+// Draw a diagonal construction line on the XY plane and fix its ends.
+// Return the line so the split below can reference it outside the sketch.
 const s = sketch("xy", () => {
   const seed = line([-40, -25], [40, 25]).guide();
   fix(seed.start(), [-40, -25]);
   fix(seed.end(), [40, 25]);
   return { seed };
 });
+// The cut plane contains the line and is perpendicular to the sketch.
+// Keep the side its normal points toward; discard the other piece.
+// highlight-next-line
 split(s.geometries.seed, { keep: "front" }, block);

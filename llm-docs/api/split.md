@@ -39,11 +39,14 @@ edges, `remove(s)`) reads all of them, and a `.scope()` follows them too.
   you look along it from the sketch's front. Reach the line from outside
   the sketch with a hoisted `let`.
 - **`targets`**: the solids to split. Without targets every solid in scope
-  is a candidate. A solid the plane misses, or only grazes along a face or
-  an edge, is left exactly as it is — with its own statement.
+  is a candidate; inside `part()`, this means that part’s preceding solids.
+  A solid the plane misses, or only touches along a face or an edge, stays
+  unchanged.
 - **`keep`**: `'both'` (the default) keeps every piece; `'front'` keeps the
   pieces on the side the plane normal points to, `'back'` the other side.
-  The dropped pieces are gone for good.
+  Only pieces of solids the plane actually crosses are removed; missed or
+  tangent solids remain unchanged. For origin planes, front is +Z for XY,
+  −Y for XZ, and +X for YZ.
 - **`offset`**: moves the plane along its normal before the cut.
 
 A split whose plane crosses none of the solids builds nothing and reports
@@ -81,10 +84,10 @@ sketch("xy", () => {
 });
 const block = extrude(20);
 
-// Part the block in two at the YZ plane, then take the +x half apart.
+// Divide the block at the YZ plane. Both pieces stay in place.
 const halves = split("yz", block);
 
-// A diagonal construction line on the top face seeds a second, slanted cut
+// A diagonal construction line on the XY plane defines a second, slanted cut
 // through both halves.
 let seed;
 sketch("xy", () => {
@@ -94,6 +97,7 @@ sketch("xy", () => {
 });
 const quarters = split(seed, { keep: "back" }, halves);
 
+// Move all retained pieces together 30 units along +Z.
 translate([0, 0, 30], quarters);
 ```
 

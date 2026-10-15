@@ -234,7 +234,30 @@ describe('split statement templates', () => {
     expect(result.newCode).toContain(`  const bz1 = bezier([-20, -60], [-30, 0], [30, 0], [20, 60]).guide()\n  return { bz1 };\n})\nsplit(s.geometries.bz1, e)\n`);
   });
 
-  it('binds a color() statement as the target when it holds the solid', async () => {
+  it('binds the feature that built a painted body, not the color() that painted it', async () => {
+    // A colour writes face records on the extrude's holder and holds no body
+    // of its own, so the pick attributes to the extrude and the split lands
+    // after the paint (the selection resolves on the final model).
+    const code = [
+      `import { sketch, ellipse, extrude, color } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `extrude(30)`,
+      `color('red')`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, splitSpec({
+      plane: { kind: 'standard', plane: 'yz' },
+      keep: 'both',
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const f = extrude(30)\ncolor('red')\nsplit('yz', f)\n`);
+  });
+
+  it('refuses a color() statement as the target: it holds no body', async () => {
     const code = [
       `import { sketch, ellipse, extrude, color } from 'fluidcad/core'`,
       ``,
@@ -250,8 +273,8 @@ describe('split statement templates', () => {
     }, {
       producers: [{ line: 5, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
     }));
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const f = color('red')\nsplit('yz', f)\n`);
+    expect(result.error).toContain('color(');
+    expect(result.newCode).toBe(code);
   });
 
   it('refuses a malformed cut', async () => {

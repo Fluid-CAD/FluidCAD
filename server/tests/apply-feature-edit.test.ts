@@ -4460,6 +4460,26 @@ describe('repeat statement templates', () => {
     expect(result.newCode).toContain(`repeat('mirror', 'yz', e, s)`);
   });
 
+  it('refuses a color() statement as a repeat target: a paint holds no body', async () => {
+    const code = [
+      `import { sketch, ellipse, extrude, color } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `const e = extrude(30)`,
+      `color('red', e)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, repeatSpec({
+      kind: 'mirror',
+      plane: { kind: 'standard', plane: 'yz' },
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 5, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toContain('color(');
+    expect(result.newCode).toBe(code);
+  });
+
   it('accepts a repeat statement as a repeat target, binding a bare one', async () => {
     const code = `${base}\nrepeat('linear', 'x', { count: 3, offset: 40 }, cut(5))\n`;
     const result = await applyFeatureEdit(code, repeatSpec({

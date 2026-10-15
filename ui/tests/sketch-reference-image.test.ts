@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Scene, Vector3 } from 'three';
 import { SketchReferenceImage } from '../src/scene/sketch-reference-image';
 import type { PlaneData, SketchImageData } from '../src/types';
@@ -90,5 +90,28 @@ describe('SketchReferenceImage quad', () => {
     expect(node.visible).toBe(false);
     quad.dispose();
     expect(scene.getObjectByName('sketchReferenceImage')).toBeUndefined();
+  });
+  // WebGL ignores UNPACK_FLIP_Y_WEBGL for an ImageBitmap, so a bitmap set
+  // with flipY alone uploads top row first and draws upside down.
+  it('turns a decoded bitmap upright through the UV transform, an <img> through flipY', () => {
+    class FakeBitmap {}
+    vi.stubGlobal('ImageBitmap', FakeBitmap);
+    try {
+      const quad = new SketchReferenceImage(new Scene());
+      const map = () => (quad.object.children[0] as any).material.map;
+
+      quad.setImage({ source: new FakeBitmap() as any, width: 4, height: 2, close: () => {} });
+      expect(map().flipY).toBe(false);
+      expect(map().repeat.toArray()).toEqual([1, -1]);
+      expect(map().offset.toArray()).toEqual([0, 1]);
+
+      quad.setImage(fakeImage());
+      expect(map().flipY).toBe(true);
+      expect(map().repeat.toArray()).toEqual([1, 1]);
+      expect(map().offset.toArray()).toEqual([0, 0]);
+      quad.dispose();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

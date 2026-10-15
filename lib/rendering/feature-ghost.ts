@@ -61,6 +61,7 @@ import { WireOps } from "../oc/wire-ops.js";
 import { MeshBuilder } from "./mesh-builder.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
 import { transformMeshes } from "./mesh-transform.js";
+import { MeshPieces } from "./mesh-pieces.js";
 import { renderFacePatch } from "./render-face.js";
 import { Scene, SceneObjectMesh } from "./scene.js";
 import { getActiveUnit, withUnit } from "../units/registry.js";
@@ -1953,8 +1954,10 @@ function solidDifference(stocks: Shape[], tools: Shape[], scratch: Shape[]): Sha
 function stampMeshes(solids: Shape[], builder: MeshBuilder): SceneObjectMesh[] {
   const meshes: SceneObjectMesh[] = [];
   for (const solid of solids) {
-    const cached = solid.getMeshes();
-    const built = cached && cached.length > 0 ? cached : builder.build(solid);
+    const cached = solid.getMeshPieces();
+    const built = cached && (cached.faces.length > 0 || cached.meshes.length > 0)
+      ? MeshPieces.group(cached)
+      : builder.build(solid);
     if (built) {
       meshes.push(...built);
     }

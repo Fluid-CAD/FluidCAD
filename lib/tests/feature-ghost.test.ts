@@ -1460,11 +1460,14 @@ describe("feature ghost — repeat", () => {
   });
 
   /**
-   * A colour takes the plate in and hands it back the same shape. Repeated
-   * alongside the hole it adds no material and takes none away, and it is told
-   * apart by measuring the two solids — never by cutting one against its twin.
+   * A colour holds nothing and takes nothing: `color("red", plate)` is a
+   * reference to the plate's extrude, so repeating the colour row clones that
+   * extrude with it (its dependency closure, exactly as a translate's would)
+   * and the instance stamps the plate as material it adds — built from
+   * nothing inside the chain, so no boolean is spent on it — next to the
+   * hole's removal.
    */
-  it("draws nothing for a body a target handed back unchanged", () => {
+  it("stamps the body a colour names as added, with no boolean spent on it", () => {
     const { plate, post } = plateAndPost();
     const drilled = hole(6, post.endFaces().center()).depth(10) as unknown as SceneObject;
     drilled.setSourceLocation({ filePath: FILE, line: 13, column: 0 });
@@ -1478,16 +1481,22 @@ describe("feature ghost — repeat", () => {
       result = repeatGhost(scene, [13, 17], {
         directions: [{ count: 2, offset: 60, length: null }],
       });
-      // The hole's two, and none for the painted plate.
+      // The hole's two, and none for the plate.
       expect(cuts).toHaveBeenCalledTimes(2);
     } finally {
       cuts.mockRestore();
     }
 
     const solids = solidsOf(result);
-    expect(solids).toHaveLength(1);
-    expect(solids[0].kind).toBe('remove');
-    const box = extent(solids[0]);
+    expect(solids.map(s => s.kind).sort()).toEqual(['add', 'remove']);
+    // The plate, moved 60.
+    const added = extent(solids.find(s => s.kind === 'add')!);
+    expect(added.minX).toBeCloseTo(-40, 1);
+    expect(added.maxX).toBeCloseTo(160, 1);
+    expect(added.minZ).toBeCloseTo(0, 3);
+    expect(added.maxZ).toBeCloseTo(20, 3);
+    // The hole alone, in the post's top.
+    const box = extent(solids.find(s => s.kind === 'remove')!);
     expect(box.minX).toBeCloseTo(57, 1);
     expect(box.maxX).toBeCloseTo(63, 1);
     expect(box.minZ).toBeCloseTo(60, 3);

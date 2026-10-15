@@ -80,14 +80,11 @@ function meshedDiagonal(shapes: Shape[]): number {
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
   for (const shape of shapes) {
-    for (const mesh of shape.getMeshes() ?? []) {
-      if (mesh.label !== "solid-faces") {
-        continue;
-      }
-      for (let i = 0; i < mesh.vertices.length; i += 3) {
+    for (const piece of shape.getMeshPieces()?.faces ?? []) {
+      for (let i = 0; i < piece.vertices.length; i += 3) {
         for (let k = 0; k < 3; k++) {
-          min[k] = Math.min(min[k], mesh.vertices[i + k]);
-          max[k] = Math.max(max[k], mesh.vertices[i + k]);
+          min[k] = Math.min(min[k], piece.vertices[i + k]);
+          max[k] = Math.max(max[k], piece.vertices[i + k]);
         }
       }
     }

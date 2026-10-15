@@ -26,7 +26,13 @@ function build(context: SceneParserContext): ColorFunction {
     if (arguments.length >= 2 && arguments[1] instanceof SceneObject) {
       selection = arguments[1] as SceneObject;
     } else {
-      selection = context.getLastSelection() || undefined;
+      // A bare color() takes the last unclaimed selection and claims it: a
+      // bare fillet(2) after it must not inherit a face selection (D1).
+      const implicit = context.getLastSelection();
+      if (implicit) {
+        implicit.markClaimed();
+        selection = implicit;
+      }
     }
 
     if (selection) {

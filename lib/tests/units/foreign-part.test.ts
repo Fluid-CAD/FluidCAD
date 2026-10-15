@@ -57,7 +57,7 @@ function renderedExtent(scene: Scene, obj: SceneObject): number {
   return max;
 }
 
-/** The member whose own shapes hold the part's solid (the trailing color() owns it). */
+/** The member whose own shapes hold the part's solid (the extrude: a color() paints without owning). */
 function solidOwner(part: Part): SceneObject {
   const owner = part.getChildren().find(c => c.getOwnShapes().some(s => s instanceof Solid));
   expect(owner).toBeDefined();

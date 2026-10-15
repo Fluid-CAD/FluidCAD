@@ -1,6 +1,6 @@
 import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { ShapeType } from "./shape-type.js";
-import { SceneObjectMesh } from "../rendering/scene.js";
+import type { ShapeMeshPieces } from "../rendering/mesh-pieces.js";
 import { Matrix4 } from "../math/matrix4.js";
 import type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
 
@@ -35,7 +35,8 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   provenance?: string;
   id: string;
 
-  private meshes: SceneObjectMesh[]
+  /** The renderer's scope-free geometry cache — see `ShapeMeshPieces`. */
+  private meshPieces: ShapeMeshPieces | null = null;
   private _meshSource: { shape: Shape; matrix: Matrix4 } | null = null;
   private _released: boolean = false;
   /** Independently owned native handles: rewrapped/cached paths do not depend on a source wrapper's lifetime. */
@@ -162,7 +163,7 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     this._helixEdges = [];
     this._renderSeams = [];
     this.shape = null;
-    this.meshes = null;
+    this.meshPieces = null;
     this._meshSource = null;
   }
 
@@ -246,12 +247,12 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     return this.isGuideFlag;
   }
 
-  getMeshes(): SceneObjectMesh[] {
-    return this.meshes;
+  getMeshPieces(): ShapeMeshPieces | null {
+    return this.meshPieces;
   }
 
-  setMeshes(meshes: SceneObjectMesh[]) {
-    this.meshes = meshes;
+  setMeshPieces(pieces: ShapeMeshPieces | null) {
+    this.meshPieces = pieces;
   }
 
   setMeshSource(source: Shape, matrix: Matrix4) {

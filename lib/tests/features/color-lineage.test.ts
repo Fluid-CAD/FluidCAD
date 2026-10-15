@@ -36,13 +36,14 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     sketch("xy", () => {
         testRect(100, 50);
       });
-    extrude(30);
+    const e = extrude(30) as Extrude;
 
     select(face().onPlane("xy", 30));
-    const c = color("red") as Color;
+    color("red");
     const scene = render();
 
-    const colored = c.getShapes()[0] as Solid;
+    // The paint is a record on the extrude: it keeps its body.
+    const colored = e.getShapes()[0] as Solid;
     expect(faceColorsOf(scene, colored).size).toBeGreaterThan(0);
 
     // The copy is a new wrapper over the same raw handle: its faces are

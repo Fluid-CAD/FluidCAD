@@ -12,12 +12,13 @@ import type { StatementEditRequest } from './statement-edit.ts';
 
 /**
  * The split dialog's cut: the mirror's three plane inputs, plus a sketched
- * line — the line statement's call site inside its sketch, with the sketch
- * statement's own call site so the export can bind and extend it.
+ * edge — a line (its plane) or a curve (its sheet): the edge statement's
+ * call site inside its sketch, with the sketch statement's own call site so
+ * the export can bind and extend it.
  */
 export type SplitPlaneInput =
   | RepeatPlaneInput
-  | { kind: 'sketchLine'; sketch: SketchLoc; line: SketchLoc };
+  | { kind: 'sketchEdge'; sketch: SketchLoc; line: SketchLoc };
 
 export type SplitRequest = {
   /** The feature statements being split, in argument order; empty splits every solid in scope. */
@@ -54,7 +55,7 @@ function validatePlaneInput(raw: any, filePath: string, label: string): SplitPla
     }
     return { kind: 'face', pick };
   }
-  if (raw?.kind === 'sketchLine') {
+  if (raw?.kind === 'sketchEdge') {
     const sketch = validateSketchLoc(raw.sketch);
     const line = validateSketchLoc(raw.line);
     if (!sketch || !line) {
@@ -66,9 +67,9 @@ function validatePlaneInput(raw: any, filePath: string, label: string): SplitPla
     if (line.line <= sketch.line) {
       return { error: 'the seed line must be a statement inside the sketch callback' };
     }
-    return { kind: 'sketchLine', sketch, line };
+    return { kind: 'sketchEdge', sketch, line };
   }
-  return { error: 'plane must be {kind: "standard"|"plane"|"face"|"sketchLine", …}' };
+  return { error: 'plane must be {kind: "standard"|"plane"|"face"|"sketchEdge", …}' };
 }
 
 function validateOptions(body: any): { keep: SplitKeep } | { error: string } {

@@ -87,7 +87,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.mirrorPlane?.kind === 'plane' ? [request.mirrorPlane.loc] : []),
       ...(request.mirrorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.splitPlane?.kind === 'plane' ? [request.splitPlane.loc] : []),
-      ...(request.splitPlane?.kind === 'sketchLine' ? [request.splitPlane.sketch, request.splitPlane.line] : []),
+      ...(request.splitPlane?.kind === 'sketchEdge' ? [request.splitPlane.sketch, request.splitPlane.line] : []),
       ...(request.splitTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.rotateAxis?.kind === 'axis' ? [request.rotateAxis.loc] : []),
       ...(request.rotateTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
@@ -841,12 +841,12 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
               featureType: 'plane', nameHint: 'p', bind: true,
             }),
           };
-        } else if (input.kind === 'sketchLine') {
+        } else if (input.kind === 'sketchEdge') {
           // The seed line is exported from its sketch by the transform
           // (SplitSeeds) before the statement re-renders; here it only
           // names the sketch producer and the line's statement.
           so.plane = {
-            kind: 'sketchLine',
+            kind: 'sketchEdge',
             producer: mergeProducer({
               line: input.sketch.line, column: input.sketch.column,
               featureType: 'sketch', nameHint: 's', bind: true,

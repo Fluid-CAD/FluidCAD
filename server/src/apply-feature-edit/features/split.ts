@@ -14,7 +14,7 @@ export const SPLIT_KEEPS: readonly SplitKeep[] = ['both', 'front', 'back'];
 /**
  * The cut a split statement names. The three plane shapes are the repeat
  * mirror's (origin literal / plane statement / picked face as
- * `plane(<selector>)`); a sketched line adds two more: the seed as the
+ * `plane(<selector>)`); a sketched edge adds two more: the seed as the
  * line's statement inside a sketch producer — staged into a sketch export
  * before the statement renders (`SplitSeeds`), exactly as a hole's sketch
  * point placement is — and the staged result, an expression rendered
@@ -22,7 +22,7 @@ export const SPLIT_KEEPS: readonly SplitKeep[] = ['both', 'front', 'back'];
  */
 export type SplitPlaneSpec =
   | RepeatPlaneSpec
-  | { kind: 'sketchLine'; producer: number; target: SolvedEmissionTarget }
+  | { kind: 'sketchEdge'; producer: number; target: SolvedEmissionTarget }
   | { kind: 'expression'; expression: string };
 
 /** One edited split's cut: keep the statement's own text, or any create-mode cut. */
@@ -79,8 +79,8 @@ export function renderSplitPlaneExpr(
   if (plane.kind === 'expression') {
     return plane.expression;
   }
-  if (plane.kind === 'sketchLine') {
-    throw new Error('a split seed line must be exported from its sketch before the statement renders');
+  if (plane.kind === 'sketchEdge') {
+    throw new Error('a split seed edge must be exported from its sketch before the statement renders');
   }
   return renderRepeatPlaneExpr(plane, parts, varFor);
 }
@@ -112,7 +112,7 @@ export function validSplitPlane(
   if (plane.kind === 'plane') {
     return isPlaneProducer(spec as ApplyFeatureEditSpec, plane.producer);
   }
-  if (plane.kind === 'sketchLine') {
+  if (plane.kind === 'sketchEdge') {
     return isSketchProducer(spec as ApplyFeatureEditSpec, plane.producer)
       && plane.target !== null && typeof plane.target === 'object'
       && Number.isInteger(plane.target.line) && (plane.target.line as number) >= 1;
@@ -177,7 +177,7 @@ export function parseSplitChain(
 /**
  * Render an edited split statement: resolve the cut — a keep entry re-reads
  * the statement's own argument text, a re-sourced one renders from
- * producers/parts like create mode (a seed line already staged into its
+ * producers/parts like create mode (a seed edge already staged into its
  * expression) — and the target list (`verbatim` keeps by position,
  * re-picked features by bound producer; an absent list keeps every
  * statement target, an empty one makes the split implicit). The options
@@ -208,8 +208,8 @@ export function renderEditedSplit(
   if (plane.kind === 'keep') {
     planeExpr = parsed.planeText;
   } else {
-    if (plane.kind === 'sketchLine') {
-      return { error: 'malformed split edit spec: the seed line was not exported from its sketch' };
+    if (plane.kind === 'sketchEdge') {
+      return { error: 'malformed split edit spec: the seed edge was not exported from its sketch' };
     }
     if (!validSplitPlane(spec, plane, claimPart)) {
       return { error: 'malformed split edit spec: bad cut' };

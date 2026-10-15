@@ -988,10 +988,10 @@ describe('feature-ghost route — split', () => {
   });
 
   it('passes an implicit split of every solid, and the seed line form', async () => {
-    await postGhost(splitBody({ targets: [], plane: { kind: 'sketchLine', filePath: FILE, line: 5, column: 2 } }));
+    await postGhost(splitBody({ targets: [], plane: { kind: 'sketchEdge', filePath: FILE, line: 5, column: 2 } }));
     expect(received).toMatchObject({
       targets: [],
-      plane: { kind: 'sketchLine', filePath: FILE, line: 5, column: 2 },
+      plane: { kind: 'sketchEdge', filePath: FILE, line: 5, column: 2 },
     });
 
     await postGhost(splitBody({ plane: { kind: 'face', shapeId: 's1', index: 2 }, exclude: { filePath: FILE, line: 9 } }));
@@ -1007,7 +1007,7 @@ describe('feature-ghost route — split', () => {
       splitBody({ plane: { kind: 'keep' } }),
       splitBody({ keep: 'left' }),
       splitBody({ targets: [{ filePath: FILE }] }),
-      splitBody({ plane: { kind: 'sketchLine', filePath: FILE } }),
+      splitBody({ plane: { kind: 'sketchEdge', filePath: FILE } }),
     ];
 
     for (const body of bodies) {

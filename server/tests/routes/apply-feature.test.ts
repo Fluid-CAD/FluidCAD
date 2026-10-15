@@ -5501,7 +5501,7 @@ describe('apply-feature route validation', () => {
       const splitBody = {
         feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1],
         plane: {
-          kind: 'sketchLine',
+          kind: 'sketchEdge',
           sketch: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
           line: { filePath: '/ws/m.fluid.js', line: 6, column: 2 },
         },
@@ -5513,7 +5513,7 @@ describe('apply-feature route validation', () => {
       const { status } = await post(splitBody);
       expect(status).toBe(200);
       const spec = relayed[0].spec;
-      expect(spec.split.plane).toEqual({ kind: 'sketchLine', producer: 1, target: { line: 6 } });
+      expect(spec.split.plane).toEqual({ kind: 'sketchEdge', producer: 1, target: { line: 6 } });
       expect(spec.producers[1]).toMatchObject({ line: 5, column: 0, featureType: 'sketch', bind: true });
     });
   });

@@ -332,7 +332,7 @@ export type ParsedFeatureStatement =
   }
   | {
     feature: 'split';
-    /** The cut argument text — a plane or a seed line — verbatim. */
+    /** The cut argument text — a plane or a seed edge — verbatim. */
     planeText: string;
     /** The pieces the statement keeps; `both` when the option is absent. */
     keep: SplitKeep;

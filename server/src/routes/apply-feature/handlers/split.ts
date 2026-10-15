@@ -15,7 +15,7 @@ import { validateSplit } from '../validate/split.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
 // A split names its cut — a standard origin plane, an existing plane feature,
-// a picked face synthesized into `plane(<selector>)`, or a sketched line
+// a picked face synthesized into `plane(<selector>)`, or a sketched edge
 // exported from its sketch as `s.geometries.l` — plus the solids it parts
 // (none for every solid in scope) and the side it keeps.
 // A split of every solid cuts the solids built before it in its scope, so
@@ -75,7 +75,7 @@ export async function handleSplit(ctx: ApplyFeatureRequestContext, req: Request,
       plane = { kind: 'selector', part };
     } else {
       plane = {
-        kind: 'sketchLine',
+        kind: 'sketchEdge',
         producer: mergeProducer({
           line: input.sketch.line, column: input.sketch.column,
           featureType: 'sketch', nameHint: 's', bind: true,

@@ -160,7 +160,7 @@ describe('split statement templates', () => {
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, splitSpec({
-      plane: { kind: 'sketchLine', producer: 1, target: { line: 6 } },
+      plane: { kind: 'sketchEdge', producer: 1, target: { line: 6 } },
       keep: 'back',
       targets: [{ producer: 0 }],
     }, {
@@ -182,6 +182,31 @@ describe('split statement templates', () => {
       `split(s.geometries.l1, { keep: 'back' }, e)`,
       ``,
     ].join('\n'));
+  });
+
+  it('exports a curved seed — a circle — the same way, named after its kind', async () => {
+    const code = [
+      `import { sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `const e = extrude(30)`,
+      `sketch('xy', () => {`,
+      `  circle([0, 0], 40).guide()`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, splitSpec({
+      plane: { kind: 'sketchEdge', producer: 1, target: { line: 6 } },
+      keep: 'front',
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [
+        { line: 4, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const c1 = circle([0, 0], 40).guide()\n  return { c1 };\n})\nsplit(s.geometries.c1, { keep: 'front' }, e)\n`);
   });
 
   it('binds a color() statement as the target when it holds the solid', async () => {

@@ -144,7 +144,7 @@ describe('bezier live drag', () => {
   it('draws the active sketch\'s control polygon and a dot per control point', () => {
     const [sketch, bezier] = solvedBezierPayload();
     const mesh = new SketchMesh(sketch, [sketch, bezier], 'sk', new PerspectiveCamera());
-    expect(mesh.solved?.beziers.get('bz1')?.points).toEqual(CONTROLS);
+    expect(mesh.solved?.curves.get('bz1')?.points).toEqual(CONTROLS);
 
     const polyline = findHandlePolyline(mesh);
     expect(polyline).not.toBeNull();

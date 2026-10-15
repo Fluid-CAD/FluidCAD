@@ -50,7 +50,8 @@ const p2 = (p: V2): V2 => [Math.round(p[0] * 100) / 100, Math.round(p[1] * 100) 
  * entity of its own, so its edge never appears among those.
  */
 export function offsetNeedsStatement(ownerTypes: (string | undefined)[]): boolean {
-  return ownerTypes.some(type => type === 'solved-ellipse' || type?.startsWith('bezier-') === true);
+  return ownerTypes.some(type => type === 'solved-ellipse'
+    || type?.startsWith('bezier-') === true || type?.startsWith('spline-') === true);
 }
 
 /**

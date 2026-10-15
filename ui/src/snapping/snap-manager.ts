@@ -209,7 +209,7 @@ export class SnapManager {
             ? {
               ...provenance,
               featureType: e.anchor.owner,
-              ...(e.anchor.owner === 'bezier' ? { pointIndex: e.anchor.pointIndex } : {}),
+              ...(e.anchor.owner === 'bezier' || e.anchor.owner === 'spline' ? { pointIndex: e.anchor.pointIndex } : {}),
             }
             : { ...provenance, featureType: 'point' as const };
           pushUnique(e.point[0], e.point[1], ref);

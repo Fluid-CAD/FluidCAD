@@ -8,13 +8,13 @@
 
 import type { SolvedPick } from '../sketch-hover-select-handler';
 import {
-  bezierControlPoints, bezierViewForShape, pickForEntity,
-  type SolvedBezierView, type SolvedSketchModel,
+  curveControlPoints, curveViewForShape, pickForEntity,
+  type SolvedCurveView, type SolvedSketchModel,
 } from '../../sketch-solver-client';
 import type { SceneObjectRender } from '../../types';
 import { constraintTargetFor } from '../solved-constraint-toolbar/constraint-targets';
 import {
-  arcText, bezierText, circleText, ellipseText, lineText, newTarget, pointText,
+  arcText, circleText, curveText, ellipseText, lineText, newTarget, pointText,
   type SolvedConstraintParam, type SolvedEmissionRequest, type SolvedEmissionTargetParam,
   type SolvedGeometryParam,
 } from './solved-emission';
@@ -27,13 +27,14 @@ export type MirrorAxisInput =
   | { kind: 'pick'; pick: SolvedPick };
 
 /**
- * One picked shape to mirror: a solver entity's edge pick, or a bezier
- * curve — no solver entity itself, but a rigid function of its control
- * points, each a solver point (its own anchor, or another entity's point).
+ * One picked shape to mirror: a solver entity's edge pick, or a bezier /
+ * spline curve — no solver entity itself, but a rigid function of its
+ * control points, each a solver point (its own anchor, or another entity's
+ * point).
  */
 export type MirrorTarget =
   | { pick: SolvedPick }
-  | { bezier: SolvedBezierView };
+  | { curve: SolvedCurveView };
 
 export type MirrorEmissionPlan = {
   ok: true;
@@ -99,9 +100,9 @@ export function mirrorTargetsFor(
       targets.push({ pick });
       continue;
     }
-    const bezier = model ? bezierViewForShape(model, shapeId) : undefined;
-    if (bezier) {
-      targets.push({ bezier });
+    const curve = model ? curveViewForShape(model, shapeId) : undefined;
+    if (curve) {
+      targets.push({ curve });
       continue;
     }
     unresolved.push(shapeId);
@@ -110,23 +111,23 @@ export function mirrorTargetsFor(
 }
 
 /**
- * The constraint target naming control point `index` of a bezier — the
- * solver point it rides: the statement's own anchor for a literal
- * argument (`bz.point(i)`), or the owner entity's point for an
- * accessor-valued one (`l.end()`). A string is the refusal.
+ * The constraint target naming control point `index` of a bezier/spline —
+ * the solver point it rides: the statement's own anchor for a literal
+ * argument (`bz.point(i)` / `sp.point(i)`), or the owner entity's point
+ * for an accessor-valued one (`l.end()`). A string is the refusal.
  */
-function bezierPointSource(
+function curvePointSource(
   model: SolvedSketchModel,
-  view: SolvedBezierView,
+  view: SolvedCurveView,
   index: number,
 ): SolvedEmissionTargetParam | string {
   const source = view.sources[index];
   const entity = source ? model.entities.get(source.entityId) : undefined;
   if (!source || !entity) {
-    return `control point ${index + 1} of the bezier has no solver identity — mirror it with mirror() in code`;
+    return `control point ${index + 1} of the ${view.kind} has no solver identity — mirror it with mirror() in code`;
   }
   if (source.role === 'mid') {
-    return `control point ${index + 1} of the bezier rides a line midpoint, which symmetric() cannot name`;
+    return `control point ${index + 1} of the ${view.kind} rides a line midpoint, which symmetric() cannot name`;
   }
   return constraintTargetFor(pickForEntity(model, entity, source.role));
 }
@@ -174,35 +175,37 @@ export function buildMirrorEmission(opts: {
   const constraints: SolvedConstraintParam[] = [];
   const preview: string[] = [];
   const seenEntities = new Set<number>();
-  const seenBeziers = new Set<SolvedBezierView>();
+  const seenCurves = new Set<SolvedCurveView>();
   for (const target of opts.targets) {
-    if ('bezier' in target) {
-      const view = target.bezier;
-      if (seenBeziers.has(view)) {
+    if ('curve' in target) {
+      const view = target.curve;
+      if (seenCurves.has(view)) {
         continue;
       }
-      seenBeziers.add(view);
-      const points = bezierControlPoints(model, view);
+      seenCurves.add(view);
+      const points = curveControlPoints(model, view);
       if (points.length < 2) {
-        return fail('a picked bezier has a single control point — finish drawing it first');
+        return fail(`a picked ${view.kind} has a single control point — finish drawing it first`);
       }
       const k = geometry.length;
-      const text = bezierText(points.map(reflect));
+      const text = curveText(view.kind, points.map(reflect));
       const guide = isGuideObj(view.obj);
       // The curve is a rigid function of its control points, so mirroring
       // every control point mirrors the curve exactly: one point-pair
       // symmetric per control point (2 rows each — the image's 2n params).
+      // A spline interpolates its points, and a reflection is an isometry,
+      // so the image through the reflected points IS the reflected curve.
       for (let i = 0; i < points.length; i++) {
-        const source = bezierPointSource(model, view, i);
+        const source = curvePointSource(model, view, i);
         if (typeof source === 'string') {
           return fail(source);
         }
         constraints.push({
           kind: 'symmetric',
-          targets: [source, { newIndex: k, featureType: 'bezier', pointIndex: i }, axisTarget],
+          targets: [source, { newIndex: k, featureType: view.kind, pointIndex: i }, axisTarget],
         });
       }
-      geometry.push({ kind: 'bezier', text, ...(guide ? { guide: true } : {}) });
+      geometry.push({ kind: view.kind, text, ...(guide ? { guide: true } : {}) });
       preview.push(`${text}${guide ? '.guide()' : ''}`);
       continue;
     }
@@ -215,7 +218,7 @@ export function buildMirrorEmission(opts: {
       return fail('the mirror line cannot be mirrored across itself — remove it from Geometry');
     }
     if (pick.anchor !== undefined) {
-      return fail(`the Mirror tool mirrors lines, arcs, circles, ellipses, beziers and points — a ${pick.anchor.owner} needs mirror() in code`);
+      return fail(`the Mirror tool mirrors lines, arcs, circles, ellipses, beziers, splines and points — a ${pick.anchor.owner} needs mirror() in code`);
     }
     const view = model.entities.get(pick.entityId);
     if (!view) {
@@ -275,7 +278,7 @@ export function buildMirrorEmission(opts: {
     constraints.push({ kind: 'symmetric', targets: [source, newTarget(k), axisTarget] });
   }
   if (geometry.length === 0) {
-    return fail('pick sketch edges to mirror — lines, arcs, circles, ellipses, beziers or points');
+    return fail('pick sketch edges to mirror — lines, arcs, circles, ellipses, beziers, splines or points');
   }
   return {
     ok: true,

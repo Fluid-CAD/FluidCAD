@@ -63,12 +63,12 @@ export type PendingEmission = {
 
 /**
  * The solver entity an emitted statement IS — every entity kind by its own
- * name; null for the bezier, which is no single entity (its control points
+ * name; null for a bezier or spline, which is no single entity (its points
  * are n anchor points the trial has no stand-in for, so constraints on an
- * emitted bezier stay unverified — conservative, never dropped).
+ * emitted curve stay unverified — conservative, never dropped).
  */
 export function solverEntityKind(kind: SolvedGeometryParam['kind']): EntityKind | null {
-  return kind === 'bezier' ? null : kind;
+  return kind === 'bezier' || kind === 'spline' ? null : kind;
 }
 
 function isPair(v: unknown): v is [number, number] {
@@ -135,6 +135,7 @@ export function parseEmittedGeometry(kind: SolvedGeometryParam['kind'], text: st
       return [c[0], c[1], rx, ry, theta];
     }
     case 'bezier':
+    case 'spline':
       return null;
   }
 }
@@ -207,8 +208,8 @@ function viewMatchesTarget(
     const source = model.entities.get(view.mirrorInstance.sourceEntityId);
     return source !== undefined && viewMatchesTarget(model, source, t.source);
   }
-  if (t.featureType === 'bezier') {
-    return view.anchor?.owner === 'bezier' && view.anchor.pointIndex === t.pointIndex;
+  if (t.featureType === 'bezier' || t.featureType === 'spline') {
+    return view.anchor?.owner === t.featureType && view.anchor.pointIndex === t.pointIndex;
   }
   if (t.featureType === 'text') {
     return view.anchor?.owner === 'text';

@@ -23,7 +23,7 @@ export type SolvedVertexRef = {
    * Reference snaps (P6) name their producer ('project' | 'intersect') and
    * copy-duplicate snaps name 'copy' — the statement at `line` is NOT an
    * entity call, and the server refuses a plain entity target on it. */
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'text' | 'bezier'
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'text' | 'bezier' | 'spline'
     | 'project' | 'intersect' | 'copy' | 'mirror';
   /** Mirror-image snaps: the mirrored statement's own ref (line + its
    * address, no role) — rides `featureType: 'mirror'`; the server renders
@@ -36,8 +36,8 @@ export type SolvedVertexRef = {
   /** Copy-duplicate snaps: the picked duplicate's `instance()` slot on the
    * 2D copy() statement at `line` — rides `featureType: 'copy'`. */
   instanceIndex?: number;
-  /** Bezier anchor snaps: the snapped control point's 0-based index —
-   * rides `featureType: 'bezier'` only. */
+  /** Bezier/spline anchor snaps: the snapped point's 0-based index —
+   * rides `featureType: 'bezier' | 'spline'` only. */
   pointIndex?: number;
   /** The implicit sketch datum the snap landed on — the origin point, or a
    * point-on-axis snap. Exclusive with line/role/featureType. */

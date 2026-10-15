@@ -534,7 +534,7 @@ export class SketchOpService {
 
   /** Whether this dialog opening emits a constraint-native offset: the
    * offset CREATE path in a solved sketch, for a selection the offsetFrom
-   * tie can hold (lines, arcs, circles). A selection with a bezier or an
+   * tie can hold (lines, arcs, circles). A selection with a bezier, a spline or an
    * ellipse in it is written as an `offset()` statement through the
    * synthesis rail, like edits, which keep rewriting their `offset()`
    * statement there. Re-read on every preview and apply: a pick added or

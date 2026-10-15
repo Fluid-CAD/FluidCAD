@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { curveIntersections, entityIntersections, type Curve } from '../src/sketch-solver-client/intersections';
 import { angleWithinSweep } from '../src/sketch-solver-client/tessellate';
-import type { SolvedBezierView, SolvedEntityView, SolvedSketchModel } from '../src/sketch-solver-client/model';
+import type { SolvedCurveView, SolvedEntityView, SolvedSketchModel } from '../src/sketch-solver-client/model';
 
 // Sketch-local crossings between solved entities — the Trim tool's cut
 // points. Analytic for lines, arcs and circles; through a fine polyline for
@@ -29,10 +29,10 @@ function arcView(entityId: number, start: V2, end: V2, center: V2, cw: boolean):
   return { entityId, kind: 'arc', start, end, center, radius, cw } as SolvedEntityView;
 }
 
-function makeModel(entities: SolvedEntityView[], beziers: SolvedBezierView[] = []): SolvedSketchModel {
+function makeModel(entities: SolvedEntityView[], beziers: SolvedCurveView[] = []): SolvedSketchModel {
   return {
     entities: new Map(entities.map(e => [e.entityId, e])),
-    beziers: new Map(beziers.map((b, i) => [`b${i}`, b])),
+    curves: new Map(beziers.map((b, i) => [`b${i}`, b])),
     constraints: [],
     hasDatums: true,
   } as unknown as SolvedSketchModel;
@@ -151,8 +151,8 @@ describe('entityIntersections', () => {
   it('crosses a bezier curve through its polyline', () => {
     const l = lineView(1, [0, 0], [10, 0]);
     const bezier = {
-      obj: {}, points: [[2, -5], [5, 15], [8, -5]], sources: [null, null, null],
-    } as unknown as SolvedBezierView;
+      kind: 'bezier', obj: {}, points: [[2, -5], [5, 15], [8, -5]], sources: [null, null, null],
+    } as unknown as SolvedCurveView;
     // The quadratic through (2,-5),(5,15),(8,-5) has x = 2 + 6t and
     // y = -5 + 40t - 40t², so it crosses y = 0 at t = (1 ∓ 1/√2)/2.
     const points = sortByX(entityIntersections(l, makeModel([l], [bezier])).map(c => c.point));

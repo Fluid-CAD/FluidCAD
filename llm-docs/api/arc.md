@@ -4,7 +4,7 @@ title: arc(start, end, center)
 summary: Circular arc specified by start, end, and center guesses. Sweeps counterclockwise by default — chain .cw() for the other side. Constrain with tangent/radius/coincident for exact geometry.
 tags: [api, 2d, primitive, curve]
 symbols: [arc]
-seeAlso: [api/circle, api/bezier, api/line, api/constraints]
+seeAlso: [api/circle, api/bezier, api/spline, api/line, api/constraints]
 ---
 
 # arc

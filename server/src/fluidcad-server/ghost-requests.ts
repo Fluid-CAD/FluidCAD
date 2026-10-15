@@ -20,6 +20,7 @@ export type FeatureGhostRequest =
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
+  | SplitGhostRequest
   | RotateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
@@ -316,6 +317,24 @@ export type MirrorGhostRequest = {
 };
 
 /**
+ * The split — the cut plane `split()` would part the bodies along, sized to
+ * them, plus the pieces a dropped side loses, in the cut's red.
+ */
+export type SplitGhostRequest = {
+  feature: 'split';
+  /** The pieces the split keeps. */
+  keep: 'both' | 'front' | 'back';
+  /** Distance the plane is moved along its normal; null when the field is empty. */
+  offset: number | null;
+  /** The solid-bearing statements being split, by call site; empty for every solid in the scene. */
+  targets: { filePath: string; line: number }[];
+  /** The plane to cut along, or the sketched line seeding it. */
+  plane: GhostPlaneRef;
+  /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
  * The rotate — the transform sibling of the mirror: the target solids' own
  * bodies stamped once, under the same rotation matrix the apply hands OCC.
  */
@@ -340,7 +359,9 @@ export type RotateGhostRequest = {
 export type GhostPlaneRef =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'plane'; filePath: string; line: number }
-  | { kind: 'face'; shapeId: string; index: number };
+  | { kind: 'face'; shapeId: string; index: number }
+  /** A sketched line by its statement's call site inside its sketch — the split's seed. */
+  | { kind: 'sketchLine'; filePath: string; line: number; column?: number };
 
 /**
  * The construction plane. Like the helix it neither adds nor removes material

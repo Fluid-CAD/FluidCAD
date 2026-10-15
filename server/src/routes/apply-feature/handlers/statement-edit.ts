@@ -86,6 +86,9 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.copyPattern?.kind === 'repeat' ? [request.copyPattern.loc] : []),
       ...(request.mirrorPlane?.kind === 'plane' ? [request.mirrorPlane.loc] : []),
       ...(request.mirrorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
+      ...(request.splitPlane?.kind === 'plane' ? [request.splitPlane.loc] : []),
+      ...(request.splitPlane?.kind === 'sketchLine' ? [request.splitPlane.sketch, request.splitPlane.line] : []),
+      ...(request.splitTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.rotateAxis?.kind === 'axis' ? [request.rotateAxis.loc] : []),
       ...(request.rotateTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.booleanTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
@@ -812,6 +815,62 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       }
       if (request.mirrorTargets) {
         mo.targets = request.mirrorTargets.map(target => target.kind === 'verbatim'
+          ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
+          : {
+            kind: 'feature' as const,
+            producer: mergeProducer({
+              line: target.loc.line, column: target.loc.column,
+              featureType: 'feature', nameHint: 'f', bind: true,
+            }),
+          });
+      }
+    }
+    if (request.feature === 'split') {
+      const so = edit.split!;
+      if (request.splitPlane) {
+        const input = request.splitPlane;
+        if (input.kind === 'keep') {
+          so.plane = { kind: 'keep' };
+        } else if (input.kind === 'standard') {
+          so.plane = { kind: 'standard', plane: input.plane };
+        } else if (input.kind === 'plane') {
+          so.plane = {
+            kind: 'plane',
+            producer: mergeProducer({
+              line: input.loc.line, column: input.loc.column,
+              featureType: 'plane', nameHint: 'p', bind: true,
+            }),
+          };
+        } else if (input.kind === 'sketchLine') {
+          // The seed line is exported from its sketch by the transform
+          // (SplitSeeds) before the statement re-renders; here it only
+          // names the sketch producer and the line's statement.
+          so.plane = {
+            kind: 'sketchLine',
+            producer: mergeProducer({
+              line: input.sketch.line, column: input.sketch.column,
+              featureType: 'sketch', nameHint: 's', bind: true,
+            }),
+            target: { line: input.line.line },
+          };
+        } else {
+          const synthesis = synthesizeSlot([input.pick], 'plane', undefined, []);
+          if (!synthesis) {
+            return;
+          }
+          // The plane argument is ONE SceneObject — a multi-part
+          // selection has no single-expression rendering.
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({ success: false, reason: 'the split plane must be a single face selection' });
+            return;
+          }
+          const part = foldSynthesis(synthesis);
+          importSet.add('plane');
+          so.plane = { kind: 'selector', part };
+        }
+      }
+      if (request.splitTargets) {
+        so.targets = request.splitTargets.map(target => target.kind === 'verbatim'
           ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
           : {
             kind: 'feature' as const,

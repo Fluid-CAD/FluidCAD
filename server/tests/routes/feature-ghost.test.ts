@@ -960,6 +960,68 @@ describe('feature-ghost route — mirror', () => {
   });
 });
 
+describe('feature-ghost route — split', () => {
+  useGhostRoute();
+
+  /** A split exactly as the dialog sends it. */
+  function splitBody(overrides: Record<string, unknown> = {}) {
+    return {
+      feature: 'split',
+      keep: 'both',
+      offset: null,
+      targets: [{ filePath: FILE, line: 7 }],
+      plane: { kind: 'standard', plane: 'yz' },
+      ...overrides,
+    };
+  }
+
+  it('passes a split through with its plane, targets, keep and offset', async () => {
+    const { status, body } = await postGhost(splitBody({ keep: 'front', offset: 12 }));
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(received).toEqual({
+      feature: 'split',
+      keep: 'front',
+      offset: 12,
+      targets: [{ filePath: FILE, line: 7 }],
+      plane: { kind: 'standard', plane: 'yz' },
+    });
+  });
+
+  it('passes an implicit split of every solid, and the seed line form', async () => {
+    await postGhost(splitBody({ targets: [], plane: { kind: 'sketchLine', filePath: FILE, line: 5, column: 2 } }));
+    expect(received).toMatchObject({
+      targets: [],
+      offset: null,
+      plane: { kind: 'sketchLine', filePath: FILE, line: 5, column: 2 },
+    });
+
+    await postGhost(splitBody({ plane: { kind: 'face', shapeId: 's1', index: 2 }, exclude: { filePath: FILE, line: 9 } }));
+    expect(received).toMatchObject({
+      plane: { kind: 'face', shapeId: 's1', index: 2 },
+      exclude: { filePath: FILE, line: 9 },
+    });
+  });
+
+  it('refuses a body the split does not accept', async () => {
+    const bodies: Record<string, unknown>[] = [
+      splitBody({ plane: null }),
+      splitBody({ plane: { kind: 'keep' } }),
+      splitBody({ keep: 'left' }),
+      splitBody({ targets: [{ filePath: FILE }] }),
+      splitBody({ plane: { kind: 'sketchLine', filePath: FILE } }),
+    ];
+
+    for (const body of bodies) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+      expect(result.body.success).toBe(false);
+    }
+    expect(received).toBeUndefined();
+  });
+});
+
 describe('feature-ghost route — rotate', () => {
   useGhostRoute();
 

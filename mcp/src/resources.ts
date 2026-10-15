@@ -1,4 +1,4 @@
-// MCP resource registrations for `fluidcad-docs://*`.
+// MCP resource registrations for `fluidcad-docs://*` and `skill://*`.
 //
 // Resources are a bonus surface — clients that auto-attach them (e.g. Claude
 // Desktop) get the docs for free without burning tool calls. Clients that
@@ -12,6 +12,7 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { DocsIndex, DocRecord } from './docs-index.ts';
+import { SKILL_ENTRY, fileUri, type SkillsIndex } from './skills-index.ts';
 
 export const URI_OVERVIEW = 'fluidcad-docs://overview';
 
@@ -144,4 +145,42 @@ function renderOverview(index: DocsIndex): string {
   }
 
   return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// `skill://*` — the workflow skills under mcp/skills/, per MCP SEP-2640.
+//
+// Every file of a skill is a resource at `skill://<name>/<path>`; the
+// SKILL.md is `skill://<name>/SKILL.md`, served verbatim (hosts parse its
+// frontmatter and compare it with the skills/list entry). The SKILL.md
+// resource carries the skill's name and description so a resource picker
+// shows what each skill is for. Clients that ignore resources use
+// list_skills/read_skill instead.
+
+export function registerSkillResources(server: McpServer, index: SkillsIndex): void {
+  for (const skill of index.skills) {
+    for (const file of skill.files) {
+      const isEntry = file.path === SKILL_ENTRY;
+      server.registerResource(
+        isEntry ? skill.name : `${skill.name}/${file.path}`,
+        fileUri(skill, file.path),
+        {
+          title: isEntry ? `FluidCAD skill — ${skill.name}` : `${skill.name} — ${file.path}`,
+          description: isEntry
+            ? skill.description
+            : `Supporting file of the ${skill.name} skill.`,
+          mimeType: file.mimeType,
+        },
+        async (uri) => ({
+          contents: [
+            {
+              uri: uri.href,
+              mimeType: file.mimeType,
+              text: index.file(skill, file.path) ?? '',
+            },
+          ],
+        }),
+      );
+    }
+  }
 }

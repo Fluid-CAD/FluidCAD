@@ -35,6 +35,7 @@
     "launcher/dist/",
     "!launcher/dist/**/*.map",
     "mcp/dist/",
+    "mcp/skills/",
     "bin/",
     "llm-docs/"
   ],

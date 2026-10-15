@@ -1,5 +1,5 @@
 ---
-name: FluidCAD-from-drawing
+name: fluidcad-from-drawing
 description: "Turning a 2D engineering drawing into a parametric FluidCAD model. Use this skill whenever the user supplies a drawing, blueprint, dimension sheet, hand sketch, screenshot, PDF, or photo of a part and wants it modeled — \"model this\", \"build this part\", \"make this in CAD\", \"here's the drawing\". Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and the geometry is being read off a drawing rather than described in conversation."
 ---
 
@@ -7,7 +7,7 @@ Provenance: maintained in the FluidCAD repo (`https://github.com/Fluid-CAD/Fluid
 
 # Modeling a part from a drawing
 
-This skill layers on top of the **FluidCAD** skill. That one owns everything generic: the MCP loop (read the docs, write the file, check `render.state`, screenshot), parallel doc research with sub-agents, what a build plan contains and how to write it, building in small increments, when a feature earns a verification screenshot, and rolling the scene back to debug. Follow it. This skill covers only what is specific to working from a drawing: reading it correctly, turning it into that plan, and checking the result back against the sheet.
+This skill layers on top of the **fluidcad** skill. That one owns everything generic: the MCP loop (read the docs, write the file, check `render.state`, screenshot), parallel doc research with sub-agents, what a build plan contains and how to write it, building in small increments, when a feature earns a verification screenshot, and rolling the scene back to debug. Follow it. This skill covers only what is specific to working from a drawing: reading it correctly, turning it into that plan, and checking the result back against the sheet.
 
 The governing principle: **a drawing is a specification you are transcribing, not a picture you are approximating.** Every number in the model should trace back to a number on the sheet — printed, or derived from printed ones by construction.
 
@@ -43,11 +43,11 @@ That glance is enough to launch the baseline doc sub-agents (FluidCAD skill, "Se
 **The transcribers.** In the same message as those doc agents, launch **three transcriber sub-agents** (two is acceptable for a small, cleanly rendered sheet):
 
 - each gets the drawing's **file path** and reads the whole image itself
-- each is told to first read `references/transcription-contract.md` in this skill's folder and follow it exactly — it defines the JSON they produce and the reading rules that bind them
+- each is told to first read `references/transcription-contract.md` in this skill's folder (when the skill is not installed locally: the resource `skill://fluidcad-from-drawing/references/transcription-contract.md`, or `read_skill` with `name: "fluidcad-from-drawing"`, `file: "references/transcription-contract.md"`) and follow it exactly — it defines the JSON they produce and the reading rules that bind them
 - each gets a reader label (A, B, C) and a distinct output path in your scratch directory (`drawing-read-a.json`, …)
 - they work independently — never show one reader another's output
 
-**The merge.** When they return, run the bundled script (no dependencies, Node ≥ 18):
+**The merge.** When they return, run the bundled script (no dependencies, Node ≥ 18). Without a local skill folder, fetch it with `read_skill` (`file: "scripts/merge-drawing-reads.mjs"`) and save it to your scratch directory first:
 
 ```bash
 node <this skill's folder>/scripts/merge-drawing-reads.mjs \

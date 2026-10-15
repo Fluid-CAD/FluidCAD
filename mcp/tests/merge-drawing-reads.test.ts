@@ -9,12 +9,12 @@ import {
   validateTranscription,
   formatReport,
   // @ts-ignore — plain-JS skill script, no type declarations
-} from '../skills/FluidCAD-from-drawing/scripts/merge-drawing-reads.mjs';
+} from '../skills/fluidcad-from-drawing/scripts/merge-drawing-reads.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.resolve(
   __dirname,
-  '../skills/FluidCAD-from-drawing/scripts/merge-drawing-reads.mjs',
+  '../skills/fluidcad-from-drawing/scripts/merge-drawing-reads.mjs',
 );
 
 type Dim = Record<string, unknown>;

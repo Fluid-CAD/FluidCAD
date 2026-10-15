@@ -1,5 +1,5 @@
 ---
-name: FluidCAD-assembly
+name: fluidcad-assembly
 description: "Building multi-part models in FluidCAD: assemblies, part files, inserting and mating parts, connectors, exposed geometry, part parameters, sub-assemblies, replicated instances, STEP parts, project units, and assembly export. Use this skill whenever the user wants an assembly, a mechanism, a hinge, a slider, several parts that fit or move together, a `.assembly.js` or `.part.js` file, `insert()`, `mate()`, `connector()`, `expose()`, `replicate()`, instances, or asks to split a model into parts. Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and more than one part is involved."
 ---
 
@@ -7,7 +7,7 @@ Provenance: maintained in the FluidCAD repo (`https://github.com/Fluid-CAD/Fluid
 
 # Assemblies in FluidCAD
 
-This skill layers on top of the **FluidCAD** skill. That one owns the loop: read the docs, plan in generic CAD terms, build in increments, check `render.state` and `objectErrors`, resolve filters before writing them, screenshot when a feature earns it, roll back to debug, and report only what was checked. Follow it for every part. This skill covers only what is specific to models made of several parts: when to split, how a part publishes its interface, how an assembly places and joins instances, and how to verify the result.
+This skill layers on top of the **fluidcad** skill. That one owns the loop: read the docs, plan in generic CAD terms, build in increments, check `render.state` and `objectErrors`, resolve filters before writing them, screenshot when a feature earns it, roll back to debug, and report only what was checked. Follow it for every part. This skill covers only what is specific to models made of several parts: when to split, how a part publishes its interface, how an assembly places and joins instances, and how to verify the result.
 
 The governing principle: **a part is verified alone before it is inserted, and mates are added one at a time.** An assembly is where three parts' mistakes meet; keep the mistakes out of it.
 

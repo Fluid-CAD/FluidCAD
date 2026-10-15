@@ -1,5 +1,5 @@
 ---
-name: FluidCAD
+name: fluidcad
 description: "Workflow and best practices for designing parts in FluidCAD through its MCP server. Use this skill whenever the user wants to model, design, build, edit, fix, or modify any part in FluidCAD, whenever they mention FluidCAD, a `.fluid.js` or `.part.js` file, or ask for CAD, parametric modeling, or 3D printing work that involves sketches, constraints, extrudes, cuts, revolves, sweeps, lofts, fillets, chamfers, shells, holes, bosses, ribs, patterns, repeats, mirrors, faces, edges, shape filters, measuring, STEP or STL export. Trigger this even if the user does not explicitly say \"FluidCAD\": any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and the task involves 3D part design, follow this skill."
 ---
 
@@ -113,7 +113,7 @@ Show it. When a user is present, pause for them, and confirm before the first fe
 - **Prefer built-ins over hand math.** A circular `repeat` on the `cut()`, not hand-computed hole angles.
 - **Prefer feature repeat over sketch pattern.** Repeating the feature keeps each instance a first-class entity you can filter, fillet or reference later.
 - **No features inside JavaScript loops when `repeat()` or `copy()` can place them.** A `for` loop (or `forEach` / `map`) that calls `sketch`, `extrude`, `cut`, `hole` and the like builds, but the user cannot easily edit the result from the FluidCAD UI: every instance comes from one call site, and `resolve_selection` cannot synthesize a selector for its geometry. Build the feature once and place the rest with `repeat("linear" | "circular" | "mirror" | "rotate", ...)` (a repeat of a repeat covers a row plus its mirror; slots the pattern leaves out are `skip`, not an `if` in a loop), or `copy()` for independent duplicates of a finished shape. Instances that genuinely differ (each with its own diameter or depth) are separate statements, written out. Use a loop only when none of these can express the geometry, and say why in a comment.
-- **Pattern connectors with `copy()`, never `repeat()`.** `repeat()` refuses a connector, passed or taken as the implicit last object (`repeat() re-applies features — copy a connector with …` on the repeat's row). Declare one connector on the original hole and follow the hole's repeat: `const bolt = connector("bolt", hole.startEdges()); copy(holes, bolt);` puts `bolt.instance(k)` on `holes.instance(k)`, and the copies move when the repeat changes. `copy("linear" | "circular", axis, options, bolt)` patterns a connector without a repeat, as a rigid move of its frame: it lands on geometry only if the pattern matches, and a circular copy steps `angle / count` where a repeat's partial arc steps `angle / (count - 1)`. Copies are read-only; addressing them from an assembly is in the **FluidCAD-assembly** skill.
+- **Pattern connectors with `copy()`, never `repeat()`.** `repeat()` refuses a connector, passed or taken as the implicit last object (`repeat() re-applies features — copy a connector with …` on the repeat's row). Declare one connector on the original hole and follow the hole's repeat: `const bolt = connector("bolt", hole.startEdges()); copy(holes, bolt);` puts `bolt.instance(k)` on `holes.instance(k)`, and the copies move when the repeat changes. `copy("linear" | "circular", axis, options, bolt)` patterns a connector without a repeat, as a rigid move of its frame: it lands on geometry only if the pattern matches, and a circular copy steps `angle / count` where a repeat's partial arc steps `angle / (count - 1)`. Copies are read-only; addressing them from an assembly is in the **fluidcad-assembly** skill.
 - **Sketch on face references, not transformed planes.** `sketch(e.endFaces(), ...)` moves with the extrude; `sketch(plane("xy", 40), ...)` is a magic-number duplicate of geometry that already exists.
 - **Keep features small and named clearly.** One feature per logical operation makes filters such as `face().cylinder(5)` and `edge().circle(5)` predictable. `face().cylinder()` is a full bore; a fillet or rounded corner is `face().cylinderCurve()`.
 - **Comment the decisions.** Anything the user resolved, every `// ASSUMPTION:`, and anything you deliberately did not model (thread forms, surface finish, knurls). Silence reads as an oversight; a comment reads as a decision.
@@ -220,7 +220,7 @@ FluidCAD does not currently support **3D curves** (work around by sketching on s
 
 ## Progressive references
 
-Load only what the task needs, from this skill's `references/` folder:
+Load only what the task needs, from this skill's `references/` folder. If you are reading this through the MCP server rather than an installed skill, a reference is the resource `skill://fluidcad/references/<name>.md`, or `read_skill` with `name: "fluidcad"`, `file: "references/<name>.md"`:
 
 - `references/traps.md`: read before fillet, chamfer, shell, cut, repeat, `plane()` offsets, sketching on a face, or a breakpoint. FluidCAD-specific silent failures with their signatures and fixes.
 - `references/repair-loop.md`: read the moment `render.state` is not `rendered`. Failure classes keyed by the actual `compileError` and `objectErrors` messages, with the smallest fix and what to rerun.
@@ -229,7 +229,7 @@ Load only what the task needs, from this skill's `references/` folder:
 - `references/sketching.md`: read before the first sketch, or when a sketch solves somewhere you did not draw it.
 - `references/handoff.md`: read when the user wants an STL, a STEP, a package, or asks "how do I use this".
 
-Assemblies (parts, inserts, mates, connectors) are covered by the separate **FluidCAD-assembly** skill; modeling from a drawing by **FluidCAD-from-drawing**.
+Assemblies (parts, inserts, mates, connectors) are covered by the separate **fluidcad-assembly** skill; modeling from a drawing by **fluidcad-from-drawing**. Both are also served by the MCP server (`skill://fluidcad-assembly/SKILL.md`, `skill://fluidcad-from-drawing/SKILL.md`, or `read_skill`).
 
 ## Quick reference: the loop
 

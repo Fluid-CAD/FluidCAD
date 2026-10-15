@@ -54,7 +54,10 @@ import {
   rollbackTo,
 } from './tools/engine.ts';
 import { loadDocsIndex, type DocsIndex } from './docs-index.ts';
-import { registerDocResources } from './resources.ts';
+import { loadSkillsIndex, type SkillsIndex } from './skills-index.ts';
+import { registerSkillsExtension, skillsExtensionCapability } from './skills-extension.ts';
+import { listSkills, readSkill } from './tools/skills.ts';
+import { registerDocResources, registerSkillResources } from './resources.ts';
 import type { ToolResult } from './types.ts';
 
 export const SERVER_NAME = 'FluidCAD';
@@ -80,6 +83,8 @@ function readPackageVersion(): string {
 export type BuildServerOptions = {
   /** Pre-built docs index. Tests use this to inject a custom docs root. */
   docsIndex?: DocsIndex;
+  /** Pre-built skills index. Tests use this to inject a custom skills root. */
+  skillsIndex?: SkillsIndex;
 };
 
 export function buildServer(options: BuildServerOptions = {}): McpServer {
@@ -89,11 +94,24 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       capabilities: {
         tools: {},
         resources: {},
+        // MCP SEP-2640 Skills Extension: skills/list, skills/get and
+        // resources/directory/read over the skill:// resources.
+        extensions: skillsExtensionCapability(),
       },
       instructions: [
         'Drives a running FluidCAD workspace.',
         'Call list_workspaces first to find available workspaces.',
         'Use list_docs/search_docs/read_doc/get_api_signature to learn the API.',
+        '',
+        'The FluidCAD workflow skills ship with this server and always match',
+        'its version. Unless your client has already loaded a FluidCAD skill,',
+        'load skill://fluidcad/SKILL.md before modeling and follow it; add',
+        'skill://fluidcad-from-drawing/SKILL.md when the geometry comes from a',
+        'drawing or image, and skill://fluidcad-assembly/SKILL.md when more',
+        'than one part is involved. Clients without skill support read them',
+        'with read_skill("fluidcad") etc.; a skill\'s supporting files',
+        '(references/*.md, scripts/*) load with read_skill(name, file).',
+        'list_skills lists them all.',
         'When a signature mentions an unfamiliar type (e.g. PlaneLike, AxisLike,',
         'SceneObject, LinearRepeatOptions), call get_type_definition with the',
         'type name to resolve its accepted forms / methods / properties.',
@@ -238,6 +256,42 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   );
 
   registerDocResources(server, docsIndex);
+
+  const skillsIndex = options.skillsIndex ?? loadSkillsIndex();
+
+  server.registerTool(
+    'list_skills',
+    {
+      title: 'List the FluidCAD workflow skills',
+      description:
+        'Returns every workflow skill bundled with this server (fluidcad, fluidcad-from-drawing, fluidcad-assembly) with its name, trigger description, skill:// uri, and file list. These are the same skills `npx skills add Fluid-CAD/FluidCAD` installs, served at the version matching this server. Use read_skill to load one.',
+      inputSchema: {},
+    },
+    async () => toMcp(listSkills(skillsIndex)),
+  );
+
+  server.registerTool(
+    'read_skill',
+    {
+      title: 'Read a FluidCAD workflow skill',
+      description:
+        'Returns a skill\'s SKILL.md (frontmatter stripped) and its file list, or with `file` one of its supporting files (e.g. "references/traps.md"). Read "fluidcad" before modeling unless your client already loaded the skill; follow it as instructions.',
+      inputSchema: {
+        name: z
+          .string()
+          .min(1)
+          .describe('Skill name from list_skills: "fluidcad", "fluidcad-from-drawing" or "fluidcad-assembly". Case-insensitive.'),
+        file: z
+          .string()
+          .optional()
+          .describe('Path relative to the skill directory, e.g. "references/traps.md". Defaults to SKILL.md.'),
+      },
+    },
+    async ({ name, file }) => toMcp(readSkill(skillsIndex, { name, file })),
+  );
+
+  registerSkillResources(server, skillsIndex);
+  registerSkillsExtension(server, skillsIndex);
 
   const workspaceArg = {
     workspace: z

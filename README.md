@@ -206,7 +206,7 @@ The bundled MCP server lets agents inspect geometry, take screenshots, edit mode
 npx -y fluidcad mcp
 ```
 
-Install the companion modeling skills with `npx skills add Fluid-CAD/FluidCAD`. See the [MCP setup guide](mcp/README.md#wire-it-into-an-mcp-client) for client configuration and usage.
+The server also serves the companion modeling skills to the agent (`read_skill`), so they always match the running version; clients with native skill support can additionally install them with `npx skills add Fluid-CAD/FluidCAD` for automatic triggering. See the [MCP setup guide](mcp/README.md#wire-it-into-an-mcp-client) for client configuration and usage.
 
 ## About the project
 

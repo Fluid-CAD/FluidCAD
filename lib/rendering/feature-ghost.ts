@@ -1,5 +1,6 @@
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
+import { ShapeFactory } from "../common/shape-factory.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { Wire } from "../common/wire.js";
@@ -29,7 +30,7 @@ import { buildFillet2DGhostArcs } from "../features/fillet2d-ghost.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { buildPlaneGhostQuad, PlaneGhostBase, PlaneGhostSource } from "../features/plane-ghost.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
-import { sketchLinePlane } from "../features/plane-from-sketch-line.js";
+import { sketchEdgeCutter } from "../features/cutter-from-sketch-edge.js";
 import {
   buildCircularGhostMatrices, buildLinearGhostMatrices, buildMirrorGhostMatrices,
   buildRotateGhostMatrices, linearGhostInstanceCount, RepeatGhostDirection, RepeatGhostSweep,
@@ -54,7 +55,7 @@ import type { LoftEndCondition } from "../oc/loft-ops.js";
 import type { MeshSettings } from "../oc/mesh.js";
 import { ShapeProps } from "../oc/props.js";
 import { ShapeOps } from "../oc/shape-ops.js";
-import { SplitOps } from "../oc/split-ops.js";
+import { SplitOps, type SplitCutter } from "../oc/split-ops.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { MeshBuilder } from "./mesh-builder.js";
@@ -501,12 +502,13 @@ export type GhostPlaneRef =
   | { kind: 'plane'; filePath: string; line: number }
   | { kind: 'face'; shapeId: string; index: number }
   /**
-   * A sketched line, by its statement's call site inside its sketch — the
-   * split dialog's seed: the plane it stands for is the one the line sweeps
-   * out of its sketch (`sketchLinePlane`). `column` tells two lines written
-   * on one source line apart.
+   * A sketched edge, by its statement's call site inside its sketch — the
+   * split dialog's seed: what it stands for is what the edge sweeps out of
+   * its sketch (`sketchEdgeCutter`) — a line its plane, a curve its sheet,
+   * which only the split reads. `column` tells two edges written on one
+   * source line apart.
    */
-  | { kind: 'sketchLine'; filePath: string; line: number; column?: number };
+  | { kind: 'sketchEdge'; filePath: string; line: number; column?: number };
 
 /**
  * The construction plane, and the second feature (after the helix) whose ghost
@@ -2239,8 +2241,48 @@ function buildMirrorGhost(
 }
 
 /**
- * The split branch. The plane resolves the way a mirror's does — plus the
- * seed line's own form; the targets read
+ * The sketched edge a split ghost cuts with, read off the rendered scene the
+ * way the split itself reads it; null when the scene holds no such edge or
+ * the edge seeds nothing (a line along its sketch normal).
+ */
+function resolveSketchEdgeCutter(
+  scene: Scene,
+  ref: Extract<GhostPlaneRef, { kind: 'sketchEdge' }>,
+): ReturnType<typeof sketchEdgeCutter> | null {
+  const column = ref.column;
+  const geometry = findByLocation(scene, ref, o => o instanceof GeometrySceneObject
+    && (column === undefined || o.getSourceLocation()?.column === column));
+  if (!(geometry instanceof GeometrySceneObject)) {
+    return null;
+  }
+  try {
+    return sketchEdgeCutter(geometry);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What a split ghost cuts with: a sketched edge's plane or sheet, else the
+ * plane the slot names, resolved as a mirror's is.
+ */
+function resolveSplitCutter(scene: Scene, ref: GhostPlaneRef, scratch: Shape[]): SplitCutter | null {
+  if (ref.kind === 'sketchEdge') {
+    const cutter = resolveSketchEdgeCutter(scene, ref);
+    if (!cutter) {
+      return null;
+    }
+    return cutter.kind === 'plane'
+      ? { kind: 'plane', plane: cutter.plane }
+      : { kind: 'sheet', edges: cutter.edges.map(edge => edge.getShape()), normal: cutter.normal };
+  }
+  const plane = resolveGhostPlane(scene, ref, scratch);
+  return plane ? { kind: 'plane', plane } : null;
+}
+
+/**
+ * The split branch. The cut resolves the way a mirror's plane does — plus
+ * the seed edge's own forms, a line's plane and a curve's sheet; the targets read
  * through {@link copyTargetSolids} (every solid of the scene when the
  * statement names none), so the body a later feature took is read as that
  * feature left it, and in the edit dialog `exclude` keeps the applied split —
@@ -2257,9 +2299,9 @@ function buildSplitGhost(
 ): FeatureGhostResult {
   const scratch: Shape[] = [];
   try {
-    const plane = resolveGhostPlane(scene, request.plane, scratch);
-    if (!plane) {
-      return { ok: false, reason: 'That cut plane is not in the rendered scene.' };
+    const cutter = resolveSplitCutter(scene, request.plane, scratch);
+    if (!cutter) {
+      return { ok: false, reason: 'That cut is not in the rendered scene.' };
     }
 
     let solids: Shape[];
@@ -2281,7 +2323,7 @@ function buildSplitGhost(
     const out: GhostSolid[] = [];
     const crossed: Shape[] = [];
     for (const solid of solids) {
-      const { pieces } = SplitOps.splitSolidByPlane(solid, plane);
+      const { pieces } = SplitOps.splitSolid(solid, cutter);
       if (pieces.length === 0) {
         continue;
       }
@@ -2297,11 +2339,11 @@ function buildSplitGhost(
       }
     }
 
-    const quad = splitGhostQuad(plane, crossed.length > 0 ? crossed : solids);
-    scratch.push(quad.face);
-    const meshes = builder.build(quad.face);
+    const tool = splitGhostTool(cutter, crossed.length > 0 ? crossed : solids);
+    scratch.push(tool.shape);
+    const meshes = builder.build(tool.shape);
     if (meshes) {
-      out.unshift({ meshes, plane: { normal: toVector3Wire(plane.normal), center: toVector3Wire(quad.center) } });
+      out.unshift({ meshes, plane: { normal: toVector3Wire(tool.normal), center: toVector3Wire(tool.center) } });
     }
     return { ok: true, solids: out };
   } catch (error) {
@@ -2314,22 +2356,34 @@ function buildSplitGhost(
 }
 
 /**
- * The quad a split ghost draws: a square on the plane, centred on the
- * projection of the bodies' joint bounds centre, reaching a little past
- * their farthest corner so the cut reads as going all the way through.
+ * The tool a split ghost draws, with the frame its normal arrow stands on
+ * (the arrow points at the front side). A plane draws as a square centred
+ * on the projection of the bodies' joint bounds centre, reaching a little
+ * past their farthest corner so the cut reads as going all the way
+ * through; a sheet draws as the very sheet the split cuts with, sized to
+ * the same bounds, its arrow on the curve nearest that centre.
  */
-function splitGhostQuad(plane: Plane, solids: Shape[]): { face: Face; center: Point } {
+function splitGhostTool(cutter: SplitCutter, solids: Shape[]): { shape: Shape; normal: Vector3d; center: Point } {
   const bbox = ShapeOps.unionBoundingBoxes(solids.map(solid => ShapeOps.getBoundingBox(solid)));
-  const center = plane.projectPoint(new Point(
+  const middle = new Point(
     (bbox.minX + bbox.maxX) / 2,
     (bbox.minY + bbox.maxY) / 2,
     (bbox.minZ + bbox.maxZ) / 2,
-  ));
+  );
+  if (cutter.kind === 'sheet') {
+    const shape = ShapeFactory.fromShape(SplitOps.makeSheetTool(cutter, bbox));
+    const { foot, front } = SplitOps.sheetFrontAt(middle, cutter);
+    // The arrow sits on the sheet at the height of the bounds' centre.
+    const lift = middle.subtract(foot).toVector3d().dot(cutter.normal);
+    return { shape, normal: front, center: foot.add(cutter.normal.multiply(lift)) };
+  }
+  const plane = cutter.plane;
+  const center = plane.projectPoint(middle);
   const reach = Math.max(...ShapeOps.boundingBoxCorners(bbox).map(corner => corner.distanceTo(center)));
   const halfSize = (Number.isFinite(reach) && reach > 0 ? reach : mmTol(50)) * 1.1;
   const quadPlane = new Plane(center, plane.xDirection, plane.normal);
   const face = Face.fromTopoDSFace(FaceOps.makeSquareFace(quadPlane, halfSize));
-  return { face, center };
+  return { shape: face, normal: plane.normal, center };
 }
 
 /**
@@ -3141,18 +3195,9 @@ function resolveGhostPlane(scene: Scene, ref: GhostPlaneRef, scratch: Shape[]): 
     const obj = findByLocation(scene, ref, o => o instanceof PlaneObjectBase);
     return (obj as PlaneObjectBase | null)?.getPlane() ?? null;
   }
-  if (ref.kind === 'sketchLine') {
-    const column = ref.column;
-    const line = findByLocation(scene, ref, o => o instanceof GeometrySceneObject
-      && (column === undefined || o.getSourceLocation()?.column === column));
-    if (!(line instanceof GeometrySceneObject)) {
-      return null;
-    }
-    try {
-      return sketchLinePlane(line).plane;
-    } catch {
-      return null;
-    }
+  if (ref.kind === 'sketchEdge') {
+    const cutter = resolveSketchEdgeCutter(scene, ref);
+    return cutter?.kind === 'plane' ? cutter.plane : null;
   }
   const face = resolvePickedFace(scene, ref, scratch);
   if (!face || !FaceQuery.isPlanarFace(face)) {

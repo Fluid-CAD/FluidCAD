@@ -23,7 +23,7 @@ import connector from "../core/connector.js";
 import select from "../core/select.js";
 import { face } from "../filters/index.js";
 import { Connector } from "../features/connector.js";
-import { bezier, circle, line } from "../core/2d/index.js";
+import { arc, bezier, circle, line } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
@@ -4014,7 +4014,7 @@ describe("feature ghost — split", () => {
     seed!.setSourceLocation({ filePath: FILE, line: 10, column: 12 });
     const scene = render();
 
-    const result = splitGhost(scene, [5], { plane: { kind: 'sketchLine', filePath: FILE, line: 10 }, keep: 'back' });
+    const result = splitGhost(scene, [5], { plane: { kind: 'sketchEdge', filePath: FILE, line: 10 }, keep: 'back' });
 
     const solids = solidsOf(result);
     expect(solids).toHaveLength(2);
@@ -4026,12 +4026,44 @@ describe("feature ghost — split", () => {
     expect(dropped.maxX).toBeCloseTo(20, 3);
   });
 
+  it("draws a curved seed's sheet and the piece it drops", () => {
+    locatedBox(5);
+    let seed: SceneObject | undefined;
+    // An arc through the box bulging from the left: it reaches x = 16.6 at
+    // y = 10 (the box's middle) and crosses the box's long faces at 15.7.
+    locatedSketch(9, () => {
+      const a = arc([0, -30], [0, 50], [-40, 10]).guide();
+      fix(a.start(), [0, -30]);
+      fix(a.end(), [0, 50]);
+      fix(a.center(), [-40, 10]);
+      seed = a as unknown as SceneObject;
+    });
+    seed!.setSourceLocation({ filePath: FILE, line: 10, column: 12 });
+    const scene = render();
+
+    const result = splitGhost(scene, [5], { plane: { kind: 'sketchEdge', filePath: FILE, line: 10 }, keep: 'back' });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(2);
+    // The tool is the sheet itself — curved, so its vertices spread in x —
+    // with its arrow on the arc nearest the box's centre, pointing right.
+    const xs = solids[0].meshes[0].vertices.filter((_, i) => i % 3 === 0);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(1);
+    expect(solids[0].plane!.normal.x).toBeCloseTo(1, 2);
+    expect(solids[0].plane!.center.x).toBeCloseTo(16.6, 0);
+    // Front (+x, to the arc's right) is dropped: the red piece is the sliver past the arc.
+    expect(solids[1].kind).toBe('remove');
+    const dropped = bounds(result, 1);
+    expect(dropped.minX).toBeCloseTo(15.7, 0);
+    expect(dropped.maxX).toBeCloseTo(20, 1);
+  });
+
   it("refuses targets and planes the scene does not hold", () => {
     locatedBox(5);
     const scene = render();
 
     expect(splitGhost(scene, [99]).ok).toBe(false);
     expect(splitGhost(scene, [5], { plane: { kind: 'plane', filePath: FILE, line: 99 } }).ok).toBe(false);
-    expect(splitGhost(scene, [5], { plane: { kind: 'sketchLine', filePath: FILE, line: 99 } }).ok).toBe(false);
+    expect(splitGhost(scene, [5], { plane: { kind: 'sketchEdge', filePath: FILE, line: 99 } }).ok).toBe(false);
   });
 });

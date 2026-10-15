@@ -3,7 +3,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { isPlaneLike, PlaneLike } from "../math/plane.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
-import { PlaneFromSketchLine } from "../features/plane-from-sketch-line.js";
+import { CutterFromSketchEdge } from "../features/cutter-from-sketch-edge.js";
 import { resolvePlane } from "../helpers/resolve.js";
 import { materializePartArgs } from "../features/part-args.js";
 import { Split, SPLIT_KEEP_VALUES } from "../features/split.js";
@@ -41,28 +41,36 @@ interface SplitFunction {
    */
   (plane: PlaneLike | IPlane | ISceneObject, options: SplitOptions, ...targets: ISceneObject[]): ISplit;
   /**
-   * Splits solids along a sketched line: the line seeds the infinite plane
-   * that contains it and stands normal to its sketch, as if the line were
-   * extruded out of the sketch both ways. The sketch is consumed for display
-   * like an extrude's profile (the timeline eye shows it again); the line
-   * stays readable, so a construction line is the usual seed.
+   * Splits solids along a sketched edge, as if the edge were extruded out
+   * of its sketch both ways. A straight line seeds the infinite plane that
+   * contains it and stands normal to its sketch; any other edge — an arc,
+   * a circle, an ellipse, a spline — sweeps a curved sheet that cuts the
+   * solids it passes through (a curve that stops inside a body does not
+   * split it). The sketch is consumed for display like an extrude's
+   * profile (the timeline eye shows it again); the edge stays readable, so
+   * a construction edge is the usual seed.
    *
    *     let seed;
    *     sketch('xy', () => { seed = line([0, -50], [0, 50]).guide(); … });
    *     extrude(20);
    *     split(seed);                                   // at the plane the line sweeps
+   *     sketch('xy', () => { seed = arc([-50, 0], [50, 0], [0, 30]).guide(); … });
+   *     split(seed, { keep: 'back' });                 // along the arc's curved sheet
    *
-   * @param line - A `line()` of a sketch.
+   * @param edge - A `line()`, `arc()`, `circle()`, `ellipse()` or spline of a sketch.
    * @param targets - The solids to split; none for every solid in scope.
    */
-  (line: IGeometry, ...targets: ISceneObject[]): ISplit;
+  (edge: IGeometry, ...targets: ISceneObject[]): ISplit;
   /**
-   * Splits solids along a sketched line, with options.
-   * @param line - A `line()` of a sketch.
-   * @param options - `keep` (`'both'`, `'front'`, `'back'`); `front` is the side of line direction × sketch normal.
+   * Splits solids along a sketched edge, with options. `front` is the side
+   * to the right of the edge when travelling it from the sketch's front
+   * (edge tangent × sketch normal) — for a circle drawn counter-clockwise,
+   * the outside.
+   * @param edge - A `line()`, `arc()`, `circle()`, `ellipse()` or spline of a sketch.
+   * @param options - `keep` (`'both'`, `'front'`, `'back'`).
    * @param targets - The solids to split; none for every solid in scope.
    */
-  (line: IGeometry, options: SplitOptions, ...targets: ISceneObject[]): ISplit;
+  (edge: IGeometry, options: SplitOptions, ...targets: ISceneObject[]): ISplit;
 }
 
 function isOptionsBag(value: unknown): value is SplitOptions {
@@ -93,21 +101,21 @@ function validateOptions(options: unknown): SplitOptions {
 }
 
 /**
- * The cut plane a split's first argument names. A sketched line seeds the
- * plane it would sweep out of its sketch; anything else is a plane the
- * same way `mirror(plane, …)` reads one.
+ * The cut a split's first argument names. A sketched edge seeds what it
+ * would sweep out of its sketch — a line its plane, a curve its sheet;
+ * anything else is a plane the same way `mirror(plane, …)` reads one.
  */
-function resolveCutter(arg: unknown, context: SceneParserContext): PlaneObjectBase {
+function resolveCutter(arg: unknown, context: SceneParserContext): PlaneObjectBase | CutterFromSketchEdge {
   if (arg instanceof GeometrySceneObject) {
-    const planeObj = new PlaneFromSketchLine(arg);
-    planeObj.markInternal();
-    context.addSceneObject(planeObj);
-    return planeObj;
+    const cutter = new CutterFromSketchEdge(arg);
+    cutter.markInternal();
+    context.addSceneObject(cutter);
+    return cutter;
   }
   const valid = arg instanceof PlaneObjectBase || isPlaneLike(arg) || arg instanceof SceneObject;
   if (!valid) {
     throw new Error(
-      "split(): the first argument is the cut — 'xy', 'xz', 'yz', a plane() statement, a planar face selection, or a sketched line.",
+      "split(): the first argument is the cut — 'xy', 'xz', 'yz', a plane() statement, a planar face selection, or a sketched edge.",
     );
   }
   return resolvePlane(arg as PlaneLike | ISceneObject, context);
@@ -119,7 +127,7 @@ function build(context: SceneParserContext): SplitFunction {
       throw new Error("split() is a 3D operation and cannot be used inside a sketch. Close the sketch first, then split the solid.");
     }
     if (args.length === 0) {
-      throw new Error("split() takes the cut first — a plane ('xy', a plane() statement, a planar face) or a sketched line.");
+      throw new Error("split() takes the cut first — a plane ('xy', a plane() statement, a planar face) or a sketched edge.");
     }
 
     const cutter = resolveCutter(args[0], context);

@@ -170,8 +170,8 @@ export interface ISection extends ISceneObject {
  * reads all of them.
  */
 export interface ISplit extends ISceneObject {
-  /** The cut plane as built (origin, normal, x-direction). */
-  getPlane(): Plane;
+  /** The cut plane as built (origin, normal, x-direction); null when the cut is a sketched curve's sheet, which has no plane. */
+  getPlane(): Plane | null;
 }
 
 /**

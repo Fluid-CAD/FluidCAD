@@ -17,7 +17,7 @@ import { AxisFromEdge } from "../features/axis-from-edge.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
 import { MirrorShape } from "../features/mirror-shape.js";
 import { Split } from "../features/split.js";
-import { PlaneFromSketchLine } from "../features/plane-from-sketch-line.js";
+import { CutterFromSketchEdge } from "../features/cutter-from-sketch-edge.js";
 import { Rotate } from "../features/rotate.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
 import { PlaneMiddleRenderable } from "../features/plane-mid.js";
@@ -307,7 +307,7 @@ export function resolveFeatureSources(
         ok: true,
         feature: 'split',
         targets: resolver.statementSlots(feature.targetObjects),
-        plane: resolver.splitPlaneSlot(feature.plane),
+        plane: resolver.splitPlaneSlot(feature.cut),
       };
     }
     // The standalone rotate — `rotate(axis, angle, …)`, the transform, not
@@ -490,13 +490,13 @@ class SourceResolver {
   }
 
   /**
-   * A split's cut: the sketched line seeding its plane resolves to the
-   * line's own statement inside the sketch, by call site; any other plane
-   * resolves as a mirror's does.
+   * A split's cut: a sketched edge seeding it — a line's plane, a curve's
+   * sheet — resolves to the edge's own statement inside the sketch, by call
+   * site; any other plane resolves as a mirror's does.
    */
-  splitPlaneSlot(obj: PlaneObjectBase): SourceSlot {
-    if (obj instanceof PlaneFromSketchLine) {
-      return this.callSiteSlot(obj.line);
+  splitPlaneSlot(obj: PlaneObjectBase | CutterFromSketchEdge): SourceSlot {
+    if (obj instanceof CutterFromSketchEdge) {
+      return this.callSiteSlot(obj.geometry);
     }
     return this.planeSlot(obj);
   }

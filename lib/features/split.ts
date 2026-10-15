@@ -8,14 +8,14 @@ import type { ShapeHistory } from "../common/shape-history-tracker.js";
 import { Plane } from "../math/plane.js";
 import { getOC } from "../oc/init.js";
 import { Explorer } from "../oc/explorer.js";
-import { SplitOps } from "../oc/split-ops.js";
+import { SplitOps, type SplitCutter } from "../oc/split-ops.js";
 import { heldSolidsOf, liveOperandShapes, type HeldShape } from "../helpers/live-solids.js";
 import { recordModifierHistory } from "../helpers/scene-helpers.js";
 import { ISplit } from "../core/interfaces.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
-import { PlaneFromSketchLine } from "./plane-from-sketch-line.js";
+import { CutterFromSketchEdge } from "./cutter-from-sketch-edge.js";
 
-/** A side of the split plane: `front` is where the plane normal points. */
+/** A side of the cut: `front` is where the plane normal (or the sheet's tangent × sketch normal) points. */
 export type SplitSide = 'front' | 'back';
 
 /** Which pieces a split keeps — both sides, or one of them. */
@@ -29,16 +29,21 @@ export type SplitOptions = {
 
 export const SPLIT_KEEP_VALUES: readonly SplitKeep[] = ['both', 'front', 'back'];
 
+/** What a split names as its cut: a plane datum, or a sketched edge's plane or sheet. */
+export type SplitCut = PlaneObjectBase | CutterFromSketchEdge;
+
 /**
- * Splits solids with a plane: each solid the plane crosses is cut into the
- * pieces on either side, every piece a body of its own with a flat cap on
- * the plane. Explicit targets name the bodies to cut, read wherever the
- * features since left them; without targets every solid in scope is a
- * candidate. A solid the plane misses — or only grazes along a face or an
- * edge — is left exactly as it is, with its holder.
+ * Splits solids with a plane or a sketched curve's sheet: each solid the
+ * cut crosses is cut into the pieces on either side, every piece a body of
+ * its own capped where the cut went. Explicit targets name the bodies to
+ * cut, read wherever the features since left them; without targets every
+ * solid in scope is a candidate. A solid the cut misses — or only grazes
+ * along a face or an edge, or that a curve enters without coming out — is
+ * left exactly as it is, with its holder.
  *
- * The plane is consumed for display only, like a mirror's: its quad leaves
- * the screen from here on, and a later feature may take the plane again.
+ * A plane is consumed for display only, like a mirror's: its quad leaves
+ * the screen from here on, and a later feature may take the plane again. A
+ * seed edge's sketch is consumed for display the same way.
  *
  * `keep` drops the pieces on one side. A dropped piece is never added, so
  * the split's removal record for the source solid lists only the kept
@@ -47,7 +52,7 @@ export const SPLIT_KEEP_VALUES: readonly SplitKeep[] = ['both', 'front', 'back']
 export class Split extends SceneObject implements ISplit {
 
   constructor(
-    public readonly plane: PlaneObjectBase,
+    public readonly cut: SplitCut,
     public readonly targetObjects: SceneObject[] | null = null,
     public readonly options: SplitOptions = {},
   ) {
@@ -77,26 +82,11 @@ export class Split extends SceneObject implements ISplit {
       );
     }
 
-    this.plane.removeShapes(this);
-    // A seed line's sketch is consumed for display, the way an extrude
-    // consumes its profile: its wires leave the screen from the split on
-    // (the timeline eye brings them back), while every later feature may
-    // still read the line.
-    if (this.plane instanceof PlaneFromSketchLine) {
-      this.plane.line.sketch?.removeShapes(this);
-    }
-    const plane = this.plane.getPlane();
-    if (!plane) {
-      // An inline datum (a picked face, a seed line) has no row of its own:
-      // its failure is reported here, on the statement that named it.
-      const cause = this.plane.getError();
-      throw new BuildError(cause ?? "split: the plane it names did not build.");
-    }
-    this.setState('plane', plane);
+    const cutter = this.resolveCutter();
 
     let splitCount = 0;
     for (const { holder, shape } of stock) {
-      const { pieces, history } = SplitOps.splitSolidByPlane(shape, plane);
+      const { pieces, history } = SplitOps.splitSolid(shape, cutter);
       if (pieces.length === 0) {
         continue;
       }
@@ -115,16 +105,56 @@ export class Split extends SceneObject implements ISplit {
 
     if (splitCount === 0) {
       this.setError(
-        "split: the plane crosses none of the solids — nothing was split.\n" +
-        "Hint: move the plane (plane(base, offset), another face) so it passes through the body, " +
-        "or pick the solid it should cut as a target.",
+        cutter.kind === 'plane'
+          ? "split: the plane crosses none of the solids — nothing was split.\n" +
+            "Hint: move the plane (plane(base, offset), another face) so it passes through the body, " +
+            "or pick the solid it should cut as a target."
+          : "split: the sketched curve passes through none of the solids — nothing was split.\n" +
+            "Hint: draw the curve all the way across the body (its sheet only cuts where the curve runs), " +
+            "or pick the solid it should cut as a target.",
       );
     }
   }
 
   /**
+   * The cutter the statement's cut argument stands for, with the display
+   * consumption that goes with it. A seed edge's sketch is consumed for
+   * display, the way an extrude consumes its profile: its wires leave the
+   * screen from the split on (the timeline eye brings them back), while
+   * every later feature may still read the edge. An inline datum (a picked
+   * face, a seed edge) has no row of its own: its failure is reported here,
+   * on the statement that named it.
+   */
+  private resolveCutter(): SplitCutter {
+    if (this.cut instanceof CutterFromSketchEdge) {
+      this.cut.geometry.sketch?.removeShapes(this);
+      const seed = this.cut.getCutter();
+      if (!seed) {
+        throw new BuildError(this.cut.getError() ?? "split: the sketched edge it names did not build.");
+      }
+      this.setState('cut-kind', seed.kind);
+      if (seed.kind === 'plane') {
+        this.setState('plane', seed.plane);
+        return { kind: 'plane', plane: seed.plane };
+      }
+      this.setState('plane', null);
+      return { kind: 'sheet', edges: seed.edges.map(edge => edge.getShape()), normal: seed.normal };
+    }
+
+    this.cut.removeShapes(this);
+    const plane = this.cut.getPlane();
+    if (!plane) {
+      const cause = this.cut.getError();
+      throw new BuildError(cause ?? "split: the plane it names did not build.");
+    }
+    this.setState('cut-kind', 'plane');
+    this.setState('plane', plane);
+    return { kind: 'plane', plane };
+  }
+
+  /**
    * The solids this split may cut, each with its holder: the named targets'
-   * bodies wherever the features since left them, or — unnamed — every
+   * live solids (each listed once), or — without targets — every live
    * solid the scope's objects hold before this statement.
    */
   private resolveStock(context: BuildSceneObjectContext): HeldShape[] {
@@ -147,21 +177,26 @@ export class Split extends SceneObject implements ISplit {
     return heldSolidsOf(objects).map(({ holder, solid }) => ({ holder, shape: solid }));
   }
 
-  /** The cut plane as built. */
-  getPlane(): Plane {
-    return this.getState('plane') as Plane;
+  /** The cut plane as built; null when the cut is a sketched curve's sheet. */
+  getPlane(): Plane | null {
+    return (this.getState('plane') as Plane | null | undefined) ?? null;
+  }
+
+  /** What the split cut with: a plane, or a sketched curve's sheet. */
+  getCutKind(): 'plane' | 'sheet' {
+    return (this.getState('cut-kind') as 'plane' | 'sheet' | undefined) ?? 'plane';
   }
 
   override getDependencies(): SceneObject[] {
-    return [this.plane, ...(this.targetObjects ?? [])];
+    return [this.cut, ...(this.targetObjects ?? [])];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const plane = (remap.get(this.plane) as PlaneObjectBase | undefined) ?? this.plane;
+    const cut = (remap.get(this.cut) as SplitCut | undefined) ?? this.cut;
     const targets = this.targetObjects
       ? this.targetObjects.map(obj => remap.get(obj) || obj)
       : null;
-    return new Split(plane, targets, { ...this.options });
+    return new Split(cut, targets, { ...this.options });
   }
 
   compareTo(other: Split): boolean {
@@ -171,7 +206,7 @@ export class Split extends SceneObject implements ISplit {
     if (!super.compareTo(other)) {
       return false;
     }
-    if (!this.plane.compareTo(other.plane)) {
+    if (!(this.cut as SceneObject).compareTo(other.cut)) {
       return false;
     }
     const thisTargets = this.targetObjects || [];
@@ -199,6 +234,7 @@ export class Split extends SceneObject implements ISplit {
     const plane = this.getPlane();
     return {
       keep: this.keep,
+      cut: this.getCutKind(),
       origin: plane ? [plane.origin.x, plane.origin.y, plane.origin.z] : [0, 0, 0],
       normal: plane ? [plane.normal.x, plane.normal.y, plane.normal.z] : [0, 0, 1],
     };

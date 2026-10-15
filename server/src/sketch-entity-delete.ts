@@ -315,7 +315,10 @@ export class SketchEntityDelete extends SketchEntityRewrite {
       case 'circle':
       case 'ellipse':
         return property === 'center' && args.length >= 1 ? args[0] : null;
-      case 'bezier': {
+      case 'bezier':
+      case 'spline': {
+        // Point-driven curves: `.start()`/`.end()` are the first and last
+        // arguments, `.point(i)` the i-th.
         if (args.length === 0) {
           return null;
         }

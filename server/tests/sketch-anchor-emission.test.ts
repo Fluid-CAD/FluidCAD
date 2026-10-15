@@ -272,3 +272,96 @@ describe('applySolvedEmission — anchor-point targets', () => {
     expect(result.newCode).toContain('fix(ellipses[1].center());');
   });
 });
+
+// The spline rides the bezier's anchor rail: its fit points are the
+// statement's anchors, addressed by index and rendered as `sp.point(i)`.
+describe('applySolvedEmission — spline fit points', () => {
+  it('renders spline fit points as .point(i) on a bound statement and hoists an unbound one under the sp hint', async () => {
+    const code = [
+      `import { sketch, line, spline } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [100, 0]);`,
+      `  const s = spline([0, 0], [50, 50], [100, 0]);`,
+      `  spline([0, 20], [50, 70], [100, 20]);`,
+      `});`,
+    ].join('\n');
+    const result = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry: [],
+      constraints: [{
+        kind: 'coincident',
+        targets: [
+          { line: 5, featureType: 'spline', pointIndex: 1 },
+          { line: 4, role: 'end', featureType: 'line' },
+        ],
+      }, {
+        kind: 'fix',
+        targets: [{ line: 6, featureType: 'spline', pointIndex: 2 }],
+      }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('coincident(s.point(1), a.end());');
+    expect(result.newCode).toContain('const sp1 = spline([0, 20], [50, 70], [100, 20]);');
+    expect(result.newCode).toContain('fix(sp1.point(2));');
+  });
+
+  it('emits a spline and binds its fit points by newIndex — the Mirror tool\'s reflected curve', async () => {
+    const code = [
+      `import { sketch, line, spline } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [100, 0]);`,
+      `  spline([0, 0], [50, 50], a.end());`,
+      `});`,
+    ].join('\n');
+    const image = (pointIndex: number) => ({ newIndex: 0, featureType: 'spline' as const, pointIndex });
+    const result = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry: [{ kind: 'spline', text: 'spline([0, 0], [-50, 50], [-100, 0])' }],
+      constraints: [
+        { kind: 'symmetric', targets: [{ line: 5, featureType: 'spline', pointIndex: 0 }, image(0), { datum: 'y-axis' }] },
+        { kind: 'symmetric', targets: [{ line: 5, featureType: 'spline', pointIndex: 1 }, image(1), { datum: 'y-axis' }] },
+        { kind: 'symmetric', targets: [{ line: 4, featureType: 'line', role: 'end' }, image(2), { datum: 'y-axis' }] },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('const sp1 = spline([0, 0], [-50, 50], [-100, 0]);');
+    expect(result.newCode).toContain('const sp2 = spline([0, 0], [50, 50], a.end());');
+    expect(result.newCode).toContain('symmetric(sp2.point(0), sp1.point(0), yAxis());');
+    expect(result.newCode).toContain('symmetric(sp2.point(1), sp1.point(1), yAxis());');
+    expect(result.newCode).toContain('symmetric(a.end(), sp1.point(2), yAxis());');
+    expect(result.newCode.split('\n')[0]).toMatch(/\bspline\b/);
+  });
+
+  it('refuses a newIndex target naming an emitted spline whole, a spline target without pointIndex, and a callee that drifted', async () => {
+    const code = [
+      `import { sketch, line, bezier } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [100, 0]);`,
+      `  bezier([0, 0], [50, 50], [100, 0]);`,
+      `});`,
+    ].join('\n');
+    const geometry = [{ kind: 'spline' as const, text: 'spline([0, 0], [-50, 50], [-100, 0])' }];
+    const whole = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry,
+      constraints: [{ kind: 'symmetric', targets: [{ line: 4, featureType: 'line' }, { newIndex: 0 }, { datum: 'y-axis' }] }],
+    });
+    expect(whole.error).toMatch(/is a spline — address one of its control points \(featureType 'spline' \+ pointIndex\)/);
+    const noIndex = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry: [],
+      constraints: [{ kind: 'fix', targets: [{ line: 5, featureType: 'spline' }] }],
+    });
+    expect(noIndex.error).toMatch(/a spline anchor target needs a non-negative pointIndex/);
+    // Line 5 is a bezier(): a spline target on it is a drifted pick.
+    const drifted = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry: [],
+      constraints: [{ kind: 'fix', targets: [{ line: 5, featureType: 'spline', pointIndex: 0 }] }],
+    });
+    expect(drifted.error).toMatch(/not a spline\(\) statement/);
+  });
+});

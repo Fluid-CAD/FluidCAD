@@ -20,7 +20,7 @@ const WIRE_DATUMS = new Set(['origin', 'x-axis', 'y-axis']);
 // instanceIndex/source reaches the transform's honest refusal instead of a
 // 400. The anchor-point statements (P8) ride it too — the transform derives
 // their accessor (`.anchor()`/`.point(i)`) from the type.
-const WIRE_TYPES = new Set(['line', 'arc', 'circle', 'point', 'copy', 'mirror', 'ellipse', 'text', 'bezier']);
+const WIRE_TYPES = new Set(['line', 'arc', 'circle', 'point', 'copy', 'mirror', 'ellipse', 'text', 'bezier', 'spline']);
 
 const WIRE_REFERENCE_TYPES = new Set(['project', 'intersect']);
 
@@ -105,8 +105,14 @@ export function sanitizeEmissionTarget(
 
 /** Anchor-point statement callees (P8) and the accessor each renders. */
 const ANCHOR_ACCESSORS: Record<string, string> = {
-  text: 'anchor', bezier: 'point',
+  text: 'anchor', bezier: 'point', spline: 'point',
 };
+
+/** The anchor statements addressed by point index (`.point(i)`): the
+ * point-driven curves, whose anchors are their literal points. */
+function isIndexedAnchorType(featureType: string | undefined): boolean {
+  return featureType !== undefined && ANCHOR_ACCESSORS[featureType] === 'point';
+}
 
 /** Datum name → the fluidcad/core accessor command it renders as. */
 export const DATUM_COMMANDS: Record<string, string> = {
@@ -140,15 +146,15 @@ export function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmi
     }
     // A same-emission statement is addressed by what it IS: a featureType
     // on a newIndex target must match the geometry entry's kind, and a
-    // bezier entry — no solver entity — is only reachable through its
-    // control points (`featureType: 'bezier'` + pointIndex).
+    // bezier/spline entry — no solver entity — is only reachable through
+    // its points (`featureType: 'bezier' | 'spline'` + pointIndex).
     if (byNew) {
       const emittedKind = geometry[t.newIndex!].kind;
       if (t.featureType !== undefined && t.featureType !== emittedKind) {
         return (`constraint target newIndex ${t.newIndex} is a ${emittedKind} statement, not ${t.featureType}`);
       }
-      if (emittedKind === 'bezier' && t.featureType === undefined) {
-        return (`constraint target newIndex ${t.newIndex} is a bezier — address one of its control points (featureType 'bezier' + pointIndex)`);
+      if (isIndexedAnchorType(emittedKind) && t.featureType === undefined) {
+        return (`constraint target newIndex ${t.newIndex} is a ${emittedKind} — address one of its control points (featureType '${emittedKind}' + pointIndex)`);
       }
     }
     if (t.role !== undefined && !VALID_ROLES.has(t.role)) {
@@ -197,15 +203,15 @@ export function targetError(t: SolvedEmissionTarget, geometry: SolvedGeometryEmi
       if (t.refIndex !== undefined || t.instanceIndex !== undefined) {
         return (`a ${t.featureType} anchor target takes no refIndex/instanceIndex`);
       }
-      if (t.featureType === 'bezier') {
+      if (isIndexedAnchorType(t.featureType)) {
         if (!Number.isInteger(t.pointIndex) || t.pointIndex! < 0) {
-          return ('a bezier anchor target needs a non-negative pointIndex');
+          return (`a ${t.featureType} anchor target needs a non-negative pointIndex`);
         }
       } else if (t.pointIndex !== undefined) {
         return (`a ${t.featureType} anchor target takes no pointIndex`);
       }
     } else if (t.pointIndex !== undefined) {
-      return (`a target pointIndex requires featureType 'bezier'`);
+      return (`a target pointIndex requires featureType 'bezier' or 'spline'`);
     }
   // Mirror-image targets: `featureType: 'mirror'` + a nested `source`
   // (the mirrored statement), composing with line/role/occurrence only.

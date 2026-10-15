@@ -39,7 +39,7 @@ const CORE_SYMBOLS = new Set<string>([
   'load', 'loft', 'sweep', 'rib', 'hole', 'color', 'draft', 'remove',
   'part', 'assembly', 'breakpoint', 'connector', 'expose', 'property', 'insert', 'mate', 'replicate', 'relation', 'section',
   'line', 'circle', 'ellipse', 'arc', 'offset', 'project', 'intersect',
-  'bezier', 'point',
+  'bezier', 'spline', 'point',
   // Sketch datum accessors (origin + axes, constraint sketches).
   'origin', 'xAxis', 'yAxis',
   // Region declarations inside a sketch and their far-side wrapper.

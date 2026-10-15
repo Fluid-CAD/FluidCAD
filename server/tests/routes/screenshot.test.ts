@@ -23,19 +23,39 @@ const BORE = {
   summary: { form: 'cylinder', center: [0, 0, 0], axis: [0, 0, 1], area: 100, diameter: 5 },
 };
 
-/** The engine's resolver stubbed on the expression text — the route's validation and resolution to refs are under test. */
+/** The scene objects a section may name by id: a plane() (points), a section() (triples, its own cut), a solid, a failed plane. */
+const SCENE_OBJECTS: Record<string, any> = {
+  'obj-plane': { id: 'obj-plane', kind: 'plane', name: 'Plane', hasError: false, params: { origin: { x: 0, y: 0, z: 30 }, normal: { x: 0, y: 0, z: 1 }, options: {} } },
+  'obj-section': { id: 'obj-section', kind: 'section', name: 'A-A', hasError: false, params: { name: 'A-A', origin: [1, 0, 0], normal: [0, 1, 0], offset: 12, flip: true } },
+  'obj-2': { id: 'obj-2', kind: 'extrude', name: 'extrude', hasError: false, params: { distance: 10 } },
+  'obj-broken': { id: 'obj-broken', kind: 'plane', name: 'Plane', hasError: true, errorMessage: 'Selected shape is not a face', params: {} },
+};
+const sceneObject = (id: string) => SCENE_OBJECTS[id] ?? null;
+
+/** The engine's resolver stubbed on the expression text (or the pick) — the route's validation and resolution to refs are under test. */
 const resolveSelection: ScreenshotSelectionResolver = (request) => {
   const scope = request.scope ? { kind: 'part', partId: 'obj-1', part: 'base' } as const : { kind: 'root' } as const;
-  if (request.expression.includes('onPlan(')) {
+  if (request.picks) {
+    const pick = request.picks[0];
+    const instance = request.scope && 'instanceId' in request.scope ? request.scope.instanceId : undefined;
+    if (pick.shapeId === 'sh-1' && pick.sub.index === 5) {
+      return { ok: true, matches: [{ ...TOP_FACE, ...(instance ? { instanceId: instance } : {}) } as any], count: 1, scope, unit: 'mm' };
+    }
+    if (pick.shapeId === 'sh-9' && pick.sub.index === 2) {
+      return { ok: true, matches: [BORE as any], count: 1, scope, unit: 'mm' };
+    }
+    return { ok: false, code: 'unresolved-pick', reason: `No solid "${pick.shapeId}" in the scene (ids come from list_shapes / get_scene_summary).`, pick } as any;
+  }
+  if (request.expression!.includes('onPlan(')) {
     return { ok: false, code: 'evaluation-error', reason: 'face(...).onPlan is not a function' };
   }
-  if (request.expression.includes('"xy", 10')) {
+  if (request.expression!.includes('"xy", 10')) {
     return { ok: true, matches: [TOP_FACE as any], count: 1, scope, unit: 'mm' };
   }
-  if (request.expression.includes('parallelTo')) {
+  if (request.expression!.includes('parallelTo')) {
     return { ok: true, matches: SIDE_FACES as any, count: 2, scope, unit: 'mm' };
   }
-  if (request.expression.includes('cylinder')) {
+  if (request.expression!.includes('cylinder')) {
     return { ok: true, matches: [BORE as any], count: 1, scope: { kind: 'instance', instanceId: 'inst-1', partId: 'obj-3', part: 'bracket' }, unit: 'mm' };
   }
   return { ok: true, matches: [], count: 0, scope, unit: 'mm' };
@@ -59,7 +79,7 @@ describe('POST /api/screenshot overlays', () => {
     app.use('/api', createScreenshotRouter(async (options) => {
       lastOptions = options;
       return PNG;
-    }, resolveSelection));
+    }, resolveSelection, sceneObject));
     server = http.createServer(app);
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const address = server.address() as { port: number };
@@ -204,6 +224,13 @@ describe('POST /api/screenshot overlays', () => {
       [{ plane: { origin: [0, 0, 0], normal: [0, 'a', 1] } }, 'section.plane.normal'],
       [{ plane: 'xy', offset: '10' }, 'section.offset'],
       [{ plane: 'xy', flip: 'yes' }, 'section.flip'],
+      [{ plane: { sceneObjectId: '' } }, 'section.plane.sceneObjectId'],
+      [{ plane: { shapeId: 'sh-1', kind: 'edge', index: 0 } }, 'section.plane.kind'],
+      [{ plane: { shapeId: 'sh-1', index: 1.5 } }, 'section.plane.index'],
+      [{ plane: { shapeId: 'sh-1', index: 1, instanceId: 7 } }, 'section.plane.instanceId'],
+      [{ plane: { expression: '' } }, 'section.plane.expression'],
+      [{ plane: { expression: 'face()', scope: { part: '' } } }, 'section.plane.scope'],
+      [{ plane: { other: 1 } }, 'a planar face'],
     ];
     for (const [section, expected] of cases) {
       const res = await post({ section });
@@ -211,6 +238,102 @@ describe('POST /api/screenshot overlays', () => {
       expect(res.body.error).toContain(expected);
     }
     expect(lastOptions).toBeNull();
+  });
+
+  it('resolves a section on a planar face — by index or by filter — to the face\'s own plane', async () => {
+    const byIndex = await post({ section: { plane: { shapeId: 'sh-1', kind: 'face', index: 5 }, offset: -4 } });
+    expect(byIndex.status).toBe(200);
+    expect(lastOptions?.section).toEqual({ plane: { origin: [20, 20, 10], normal: [0, 0, 1] }, offset: -4 });
+
+    const posed = await post({ section: { plane: { shapeId: 'sh-1', index: 5, instanceId: 'inst-1' }, flip: true } });
+    expect(posed.status).toBe(200);
+    expect(lastOptions?.section).toEqual({ plane: { origin: [20, 20, 10], normal: [0, 0, 1] }, flip: true });
+
+    const byFilter = await post({ section: { plane: { expression: 'face().onPlane("xy", 10)', scope: { part: 'base' } } } });
+    expect(byFilter.status).toBe(200);
+    expect(lastOptions?.section).toEqual({ plane: { origin: [20, 20, 10], normal: [0, 0, 1] } });
+  });
+
+  it('refuses a face plane that is not one planar face: several matches, a cylinder, a missing pick', async () => {
+    const several = await post({ section: { plane: { expression: 'face().parallelTo("yz")', scope: { part: 'base' } } } });
+    expect(several.status).toBe(409);
+    expect(several.body.code).toBe('ambiguous-match');
+    expect(several.body.error).toContain('section.plane');
+    expect(several.body.error).toContain('exactly one planar face');
+    expect(several.body.candidates).toHaveLength(2);
+
+    const curved = await post({ section: { plane: { shapeId: 'sh-9', index: 2 } } });
+    expect(curved.status).toBe(422);
+    expect(curved.body.code).toBe('not-planar');
+    expect(curved.body.error).toContain('cylinder face, not planar');
+
+    const curvedFilter = await post({ section: { plane: { expression: 'face().cylinder()', scope: { instanceId: 'inst-1' } } } });
+    expect(curvedFilter.status).toBe(422);
+    expect(curvedFilter.body.code).toBe('not-planar');
+
+    const missing = await post({ section: { plane: { shapeId: 'sh-404', index: 0 } } });
+    expect(missing.status).toBe(404);
+    expect(missing.body.code).toBe('unresolved-pick');
+
+    const none = await post({ section: { plane: { expression: 'edge().circle(99)', scope: { part: 'base' } } } });
+    expect(none.status).toBe(404);
+    expect(none.body.code).toBe('no-match');
+    expect(lastOptions).toBeNull();
+  });
+
+  it('resolves a section on a plane() statement to its plane and on a section() statement to its saved cut', async () => {
+    const plane = await post({ section: { plane: { sceneObjectId: 'obj-plane' }, offset: -5 } });
+    expect(plane.status).toBe(200);
+    expect(lastOptions?.section).toEqual({ plane: { origin: [0, 0, 30], normal: [0, 0, 1] }, offset: -5 });
+
+    // The statement's own offset and flip are the cut; the request moves it further and may override the flip.
+    const saved = await post({ section: { plane: { sceneObjectId: 'obj-section' } } });
+    expect(saved.status).toBe(200);
+    expect(lastOptions?.section).toEqual({ plane: { origin: [1, 0, 0], normal: [0, 1, 0] }, offset: 12, flip: true });
+
+    const moved = await post({ section: { plane: { sceneObjectId: 'obj-section' }, offset: -2, flip: false } });
+    expect(moved.status).toBe(200);
+    expect(lastOptions?.section).toEqual({ plane: { origin: [1, 0, 0], normal: [0, 1, 0] }, offset: 10, flip: false });
+  });
+
+  it('refuses a statement that is unknown, carries no plane or did not build', async () => {
+    const unknown = await post({ section: { plane: { sceneObjectId: 'obj-404' } } });
+    expect(unknown.status).toBe(404);
+    expect(unknown.body.code).toBe('no-match');
+    expect(unknown.body.error).toContain('obj-404');
+
+    const solid = await post({ section: { plane: { sceneObjectId: 'obj-2' } } });
+    expect(solid.status).toBe(422);
+    expect(solid.body.code).toBe('not-a-plane');
+    expect(solid.body.error).toContain('extrude "extrude" (obj-2) carries no plane');
+
+    const broken = await post({ section: { plane: { sceneObjectId: 'obj-broken' } } });
+    expect(broken.status).toBe(422);
+    expect(broken.body.code).toBe('not-a-plane');
+    expect(broken.body.error).toContain('did not build: Selected shape is not a face');
+    expect(lastOptions).toBeNull();
+  });
+
+  it('accepts the section view, alone or in a grid, only with a section to look at', async () => {
+    const single = await post({ view: { kind: 'section' }, section: { plane: 'xz' } });
+    expect(single.status).toBe(200);
+    expect(lastOptions?.view).toEqual({ kind: 'section' });
+
+    const straight = await post({ multi: true, views: [{ kind: 'section', straight: true }, { kind: 'named', name: 'top' }], section: { plane: 'xz' } });
+    expect(straight.status).toBe(200);
+    expect(lastOptions?.views).toEqual([{ kind: 'section', straight: true }, { kind: 'named', name: 'top' }]);
+
+    const noSection = await post({ view: { kind: 'section' } });
+    expect(noSection.status).toBe(400);
+    expect(noSection.body.error).toContain('view.kind "section"');
+
+    const noSectionGrid = await post({ multi: true, views: [{ kind: 'named', name: 'top' }, { kind: 'section' }] });
+    expect(noSectionGrid.status).toBe(400);
+    expect(noSectionGrid.body.error).toContain('views[1].kind "section"');
+
+    const badStraight = await post({ view: { kind: 'section', straight: 'yes' }, section: { plane: 'xz' } });
+    expect(badStraight.status).toBe(400);
+    expect(badStraight.body.error).toContain('view.straight');
   });
 });
 
@@ -229,6 +352,25 @@ describe('POST /api/screenshot without a resolver', () => {
 
   afterAll(async () => {
     await new Promise<void>(resolve => bare.close(() => resolve()));
+  });
+
+  it('refuses a section on a face or a statement with a 501, and still takes a datum or explicit plane', async () => {
+    const face = await fetch(`${bareUrl}/api/screenshot`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ section: { plane: { shapeId: 'sh-1', index: 5 } } }),
+    });
+    expect(face.status).toBe(501);
+    expect((await face.json()).error).toContain('face planes cannot be resolved');
+    const statement = await fetch(`${bareUrl}/api/screenshot`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ section: { plane: { sceneObjectId: 'obj-plane' } } }),
+    });
+    expect(statement.status).toBe(501);
+    const datum = await fetch(`${bareUrl}/api/screenshot`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ section: { plane: 'xz' } }),
+    });
+    expect(datum.status).toBe(200);
   });
 
   it('still takes index highlights but refuses expressions', async () => {

@@ -9,7 +9,7 @@ import {
 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { orientCameraForView, resolveView, type ScreenshotView } from './screenshot-view';
-import { findGeometryRoot } from './scene/scene-geometry-bounds';
+import { findGeometryRoot, geometryBoundsOf } from './scene/scene-geometry-bounds';
 import { runFrameHooks } from './meshes/frame-hooks';
 import { withSketchConstraintVisibility } from './meshes/containers/sketch-constraint-visibility';
 import {
@@ -21,7 +21,7 @@ import {
   type ScreenshotAnnotation,
   type ScreenshotHighlightRef,
 } from './screenshot-overlays';
-import { SectionController, type SectionSpec } from './scene/section-controller';
+import { SectionController, SectionPlaneMath, SectionStyles, type SectionSpec } from './scene/section-controller';
 
 export type { ScreenshotAnnotation, ScreenshotHighlightRef } from './screenshot-overlays';
 export type { SectionSpec } from './scene/section-controller';
@@ -252,7 +252,8 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // CameraControls are never moved, so the interactive view is preserved.
   const resolved = ScreenshotFraming.frameFor(sceneCtx, framePlanes, fitBox);
   if (view.kind !== 'current') {
-    const target = resolveView(view, resolved.center, resolved.diameter, savedCamPos, savedCamTarget);
+    const resolvedSection = section ? SectionPlaneMath.resolve(section) : null;
+    const target = resolveView(view, resolved.center, resolved.diameter, savedCamPos, savedCamTarget, resolvedSection);
     if (target) {
       orientCameraForView(camera, target.eye, target.target);
 
@@ -488,8 +489,10 @@ function detachCanvas(src: HTMLCanvasElement, w: number, h: number): HTMLCanvasE
 
 /**
  * A capture's section view: one {@link SectionController} applied to the
- * geometry root for the duration of the render. Nothing to cut (an empty
- * scene) yields null so the renderer is not asked for a stencil buffer.
+ * geometry root for the duration of the render, in the look the viewport's
+ * section view has (distinct cap colours, hatched for the model's size).
+ * Nothing to cut (an empty scene) yields null so the renderer is not asked
+ * for a stencil buffer.
  */
 class ScreenshotSection {
 
@@ -499,7 +502,7 @@ class ScreenshotSection {
       return null;
     }
     const controller = new SectionController();
-    controller.apply(root, section);
+    controller.apply(root, section, SectionStyles.viewer(geometryBoundsOf(root)));
     return controller;
   }
 }

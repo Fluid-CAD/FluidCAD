@@ -1,4 +1,5 @@
 import { Box3, Camera, MathUtils, Object3D, Vector3 } from 'three';
+import { SectionPlaneMath, type ResolvedSection } from './scene/section-spec';
 
 // View types — mirrored from server/src/ws-protocol.ts. We don't import from
 // that file because the UI is built with its own tsconfig and shouldn't pull
@@ -31,6 +32,14 @@ export type ScreenshotView =
    * Only the direction matters; its length is ignored.
    */
   | { kind: 'direction'; direction: [number, number, number] }
+  /**
+   * The view that looks at a capture's section: from the removed half,
+   * tilted off the cut normal the way an isometric tilts off an axis, or
+   * square-on (`straight`) like a drawing's section A-A. The direction is
+   * the section's to give (see `SectionPlaneMath.viewDirection`); without
+   * a section to look at, the view is the iso-ftr named view.
+   */
+  | { kind: 'section'; straight?: boolean }
   | { kind: 'look-from'; eye: [number, number, number]; target?: [number, number, number] };
 
 /**
@@ -136,7 +145,9 @@ export function eyeTargetForOrbit(
 /**
  * Resolve a `ScreenshotView` to an `eye`/`target` pair plus a hint distance
  * (the bounding-sphere diameter used for fitting). Returns `null` for
- * `kind: 'current'` — caller should leave the camera untouched.
+ * `kind: 'current'` — caller should leave the camera untouched. `section`
+ * is the capture's resolved section, which the `section` view kind looks
+ * at; null (no section in the capture) sends that kind to iso-ftr.
  */
 export function resolveView(
   view: ScreenshotView,
@@ -144,6 +155,7 @@ export function resolveView(
   sceneDiameter: number,
   currentEye: Vector3,
   currentTarget: Vector3,
+  section: ResolvedSection | null = null,
 ): EyeTarget | null {
   switch (view.kind) {
     case 'current':
@@ -152,6 +164,13 @@ export function resolveView(
       return eyeTargetForNamedView(view.name, sceneCenter, sceneDiameter);
     case 'direction':
       return eyeTargetForDirection(new Vector3(...view.direction), sceneCenter, sceneDiameter);
+    case 'section': {
+      if (!section) {
+        return eyeTargetForNamedView('iso-ftr', sceneCenter, sceneDiameter);
+      }
+      const direction = SectionPlaneMath.viewDirection(section, view.straight === true);
+      return eyeTargetForDirection(new Vector3(...direction), sceneCenter, sceneDiameter);
+    }
     case 'orbit-from-current':
       return eyeTargetForOrbit(currentEye, currentTarget, view.azimuthDeg, view.elevationDeg);
     case 'look-from': {

@@ -207,7 +207,7 @@ export type SelectionScopeInput = { sceneObjectId: string } | { part: string } |
  * `measure` entities: the server validates again, but a malformed scope is
  * cheaper to refuse here with the exact field named.
  */
-class SelectionInputs {
+export class SelectionInputs {
   static expressionError(expression: unknown, label = '`expression`'): string | null {
     if (typeof expression !== 'string' || expression.trim().length === 0) {
       return `${label} must be a non-empty string of FluidCAD filter syntax, e.g. face().onPlane("xy", 10).`;

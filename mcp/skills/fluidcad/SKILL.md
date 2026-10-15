@@ -151,7 +151,7 @@ A screenshot serves two purposes with different cadences: a **verification gate 
 
 **Skip the gate when the feature is simple** and sits on geometry you have already seen: an extrude or cut of a rect, circle, slot or polygon on a verified plane; a plain through-hole at a known position; a translate or mirror of a body you already looked at. Batch two or three of these and verify them at the next checkpoint; never batch across a plane change or in front of a complex feature.
 
-When in doubt, screenshot. It is one tool call; unwinding three features built on a bad one is not. When the feature is inside the part (a blind hole, a counterbore, a tapped hole, a shelled wall, a bore another part will sit in), an outside view shows nothing: pass `section` through the feature's axis and look square on. Sections through every internal fit are mandatory before "done", and they only read when the bodies are coloured; `references/verification.md` lists them and says how to read one.
+When in doubt, screenshot. It is one tool call; unwinding three features built on a bad one is not. When the feature is inside the part (a blind hole, a counterbore, a tapped hole, a shelled wall, a bore another part will sit in), an outside view shows nothing: pass `section` through the feature's axis — a datum plane with an offset, a planar face, or a `plane()` statement's id — and leave `view` out, so the capture looks at the cut from the removed side (a named view may face the kept half and show no cut). Sections through every internal fit are mandatory before "done"; `references/verification.md` lists them and says how to read one.
 
 ### Two or more bodies: run `interfere` before you look
 

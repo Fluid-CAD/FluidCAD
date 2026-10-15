@@ -581,6 +581,8 @@ export type ScreenshotView =
   | { kind: 'current' }
   | { kind: 'named'; name: NamedView }
   | { kind: 'orbit-from-current'; azimuthDeg: number; elevationDeg: number }
+  /** Looks at the capture's `section` from the removed half: tilted off the cut normal, or square-on with `straight`. */
+  | { kind: 'section'; straight?: boolean }
   | { kind: 'look-from'; eye: [number, number, number]; target?: [number, number, number] };
 
 /**

@@ -57,6 +57,31 @@ export const SECTION_CAP_PALETTE: readonly number[] = [
   0x8fb3d9, 0xd9b48f, 0x9fcf9a, 0xcf9fc8, 0xd9d38f, 0x8fd1d9, 0xc9a8a8, 0xa8b8c9,
 ];
 
+/**
+ * The one look a section has on screen and in a capture: every body's cap
+ * in its own palette colour, hatched at a density set by the model's size,
+ * so the parts of an assembly read apart at the cut and a cut face is never
+ * mistaken for a real one.
+ */
+export class SectionStyles {
+
+  /** Hatch lines per scene diagonal — a drawing's density at any model size. */
+  static readonly HATCH_LINES_PER_DIAGONAL = 90;
+
+  /** The spacing's fallback when there is nothing to measure. */
+  static readonly DEFAULT_DIAGONAL = 100;
+
+  /** The shared style, hatched for the geometry's world `bounds` (null or empty: the default diagonal). */
+  static viewer(bounds: Box3 | null): SectionStyle {
+    const diagonal = bounds && !bounds.isEmpty() ? bounds.getSize(new Vector3()).length() : SectionStyles.DEFAULT_DIAGONAL;
+    return {
+      distinctColors: true,
+      hatch: true,
+      hatchSpacing: diagonal / SectionStyles.HATCH_LINES_PER_DIAGONAL,
+    };
+  }
+}
+
 /** The three.js side of {@link SectionPlaneMath}: a resolved section as a clipping `Plane`. */
 export class SectionPlanes {
 

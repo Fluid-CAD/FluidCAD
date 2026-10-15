@@ -606,6 +606,10 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         eye: vec3,
         target: vec3.optional(),
       }),
+      z.object({
+        kind: z.literal('section'),
+        straight: z.boolean().optional().describe('Look square-on along the cut normal, like a drawing\'s section A-A. Default false: tilted about 32° toward up and to the right, so the kept half\'s depth reads too.'),
+      }).describe('Looks at the capture\'s `section` from the removed half, where the cut face points — the default whenever a section is given without a view. Needs `section`.'),
     ])
     .describe('Stateless camera view for this screenshot. Does not move the user\'s interactive camera.');
 
@@ -656,17 +660,35 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           z.object({
             origin: vec3.describe('A point on the cut plane, document units.'),
             normal: vec3.describe('The plane normal; it points at the half that is removed.'),
-          }),
+          }).describe('An explicit plane.'),
+          z.object({
+            sceneObjectId: z.string().min(1).describe('The id of a plane() or section() statement, from get_scene_summary.'),
+          }).describe(
+            'The plane a statement built: a plane() feature (its origin and normal), or a section() view — its saved cut, own offset and flip ' +
+            'included; `offset` here moves that cut further and `flip` overrides.',
+          ),
+          z.object({
+            shapeId: shapeIdArg,
+            kind: z.literal('face').optional(),
+            index: z.number().int().nonnegative().describe('Zero-based face index inside the shape.'),
+            instanceId: z.string().min(1).optional().describe('Assembly files only: the inserted instance the face belongs to; the plane is read where the instance sits per its insert() statement.'),
+          }).describe('A planar face by index, as measure addresses it. Its outward normal points away from the solid, so a bare face cut shows the face itself: pass a negative `offset` to cut into the part, or `flip` to keep the outside.'),
+          z.object({
+            expression: z.string().min(1).describe('FluidCAD filter syntax matching exactly one planar face, e.g. face().onPlane("xy", 30); several matches are refused with the candidates listed.'),
+            scope: selectionScopeArg.optional(),
+          }).describe('A planar face by filter expression, scoped as in measure; the same normal rule as a face by index.'),
         ])
-        .describe('The cut plane: a named datum plane or an explicit { origin, normal }, document units.'),
-      offset: z.number().optional().describe('Moves the cut plane along its normal, document units (default 0). { plane: "xy", offset: 10 } cuts at z = 10.'),
+        .describe('The cut plane: a named datum plane, an explicit { origin, normal } (document units), a planar face (by index or filter) or a plane()/section() statement by id.'),
+      offset: z.number().optional().describe('Moves the cut plane along its normal, document units (default 0). { plane: "xy", offset: 10 } cuts at z = 10; on a face, a negative offset cuts into the part.'),
       flip: z.boolean().optional().describe('Keep the other half: the side the normal points at stays and the far side is removed.'),
     })
     .optional()
     .describe(
       'Section (cut-away) view, document units. The model is cut on the plane and the half the normal points at is removed, so the ' +
       'picture shows the cut from the normal\'s side; by default the far half (the side the normal points away from) is kept. Cut ' +
-      'faces are capped in the body\'s colour so solids read solid and holes read hollow; highlights are clipped with the model. ' +
+      'faces are capped as the viewport\'s section view caps them — hatched, each body in its own colour — so solids read solid, ' +
+      'holes read hollow and the bodies of a fit read apart; highlights are clipped with the model. With no `view` the capture looks ' +
+      'at the cut (view kind "section"); a named view can face the kept half and show no cut. ' +
       'Use it when a bore, blind hole, counterbore or wall cannot be seen from outside; grid and axes are not cut.',
     );
   const screenshotOverlayArgs = {
@@ -701,7 +723,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   const measureImageArg = z
     .object({
-      view: screenshotViewArg.optional().describe('Defaults to the iso-ftr named view.'),
+      view: screenshotViewArg.optional().describe('Defaults to the iso-ftr named view, or to the section view when `section` is given.'),
       width: widthArg,
       height: heightArg,
       pixelRatio: z.number().min(1).max(4).optional(),
@@ -745,8 +767,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Capture a PNG of the current scene from a stateless view',
       description:
-        'Renders the current FluidCAD scene to a PNG using a stateless camera view. The user\'s interactive camera is never moved. `view` defaults to the agent\'s last seen camera state — pass a `named` view (e.g. {kind:"named", name:"iso-ftr"}) for "show me from the front-top-right" or `look-from` for a precise vantage. ' +
-        '`highlight` draws faces/edges (by index or filter expression) through occluders, `hide`/`focus` drop or ghost other shapes, `annotations` add labelled lines, `fitTo: "highlight"` frames the highlighted geometry, and `section` cuts the model away on one side of a plane (cut faces capped) to show bores, blind holes and walls. Returns an MCP image content block.',
+        'Renders the current FluidCAD scene to a PNG using a stateless camera view. The user\'s interactive camera is never moved. `view` defaults to the agent\'s last seen camera state — or, with `section`, to the section view that looks at the cut — pass a `named` view (e.g. {kind:"named", name:"iso-ftr"}) for "show me from the front-top-right" or `look-from` for a precise vantage. ' +
+        '`highlight` draws faces/edges (by index or filter expression) through occluders, `hide`/`focus` drop or ghost other shapes, `annotations` add labelled lines, `fitTo: "highlight"` frames the highlighted geometry, and `section` cuts the model away on one side of a plane — a datum, a planar face or a plane() statement — with the cut faces capped and hatched, to show bores, blind holes and walls. Returns an MCP image content block.',
       inputSchema: {
         ...workspaceArg,
         view: screenshotViewArg.optional(),
@@ -775,7 +797,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       title: 'Capture a labelled grid of several views in one PNG',
       description:
         'Renders one PNG with 2-6 views laid out two per row, each cell labelled with its view in the corner. Default views: iso-ftr, its opposite iso-bbl ' +
-        '(two opposed isometrics show every face in at least one cell), top and front. Pass `views` for other vantages (named, look-from, orbit-from-current). ' +
+        '(two opposed isometrics show every face in at least one cell), top and front; with `section` and no `views`, the tilted section view beside the square-on one. ' +
+        'Pass `views` for other vantages (named, look-from, orbit-from-current, section). ' +
         'Use this to "see all sides at once" without several tool calls; the overlay options (highlight, hide, focus, annotations, fitTo, section) apply to every cell. The user\'s interactive camera is never moved.',
       inputSchema: {
         ...workspaceArg,
@@ -784,7 +807,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .min(2)
           .max(6)
           .optional()
-          .describe('The cells\' views, 2-6, row-major two per row. Default: iso-ftr, iso-bbl, top, front.'),
+          .describe('The cells\' views, 2-6, row-major two per row. Default: iso-ftr, iso-bbl, top, front — or, with `section`, {kind:"section"} and {kind:"section", straight:true}.'),
         width: widthArg,
         height: heightArg,
         showGrid: z.boolean().optional(),
@@ -803,7 +826,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Capture a framed iso view of a single shape',
       description:
-        'Fetches the shape\'s bounding box and renders a PNG from an iso vantage point that frames it with a small margin. Useful for "show me this specific feature" requests. Takes the same highlight/hide/focus/annotations/fitTo/section overlays as screenshot.',
+        'Fetches the shape\'s bounding box and renders a PNG from an iso vantage point that frames it with a small margin. Useful for "show me this specific feature" requests. Takes the same highlight/hide/focus/annotations/fitTo/section overlays as screenshot; with `section` the capture looks at the cut (view kind "section", framed to the model) instead of the iso vantage.',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,

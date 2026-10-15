@@ -1,16 +1,21 @@
 import { Router } from 'express';
 import { ScreenshotRequests, type ScreenshotSelectionResolver } from './screenshot-overlays.ts';
+import type { SectionSceneObjectLookup } from './screenshot-section.ts';
+import type { ScreenshotView } from '../ws-protocol.ts';
 
 /**
  * POST /screenshot — validate the capture options and forward them to the
  * page over the `take-screenshot` message. Overlay fields (`highlight`,
  * `hide`, `focus`, `annotations`, `fitTo`, `views`, `section`) are checked by
  * {@link ScreenshotRequests}; highlight expressions resolve through
- * `resolveSelection` here so the page only receives index refs.
+ * `resolveSelection` here so the page only receives index refs, and a
+ * section on a face or a `plane()`/`section()` statement resolves through
+ * it and `sceneObject` to the plane the page clips at.
  */
 export function createScreenshotRouter(
   requestScreenshot: (options: Record<string, unknown>) => Promise<Buffer>,
   resolveSelection?: ScreenshotSelectionResolver,
+  sceneObject?: SectionSceneObjectLookup,
 ): Router {
   const router = Router();
 
@@ -142,7 +147,7 @@ export function createScreenshotRouter(
       options.view = validated;
     }
 
-    const overlays = ScreenshotRequests.overlays(req.body ?? {}, resolveSelection);
+    const overlays = ScreenshotRequests.overlays(req.body ?? {}, resolveSelection, sceneObject);
     if (overlays.ok === false) {
       res.status(overlays.status).json({
         error: overlays.error,
@@ -152,6 +157,12 @@ export function createScreenshotRouter(
       return;
     }
     Object.assign(options, overlays.options);
+
+    const sectionView = ScreenshotRequests.sectionViewError(options.view as ScreenshotView | undefined, overlays.options.views, overlays.options.section);
+    if (sectionView) {
+      res.status(400).json({ error: sectionView });
+      return;
+    }
 
     try {
       const png = await requestScreenshot(options);

@@ -75,16 +75,18 @@ export class MeasureImage {
    * The `/api/screenshot` body for a measurement: every measured entity
    * highlighted, one labelled line for a two-entity measurement, framed to
    * the highlight. `view` defaults to iso-ftr so the picture is a known
-   * vantage rather than wherever the user's camera happens to be; `section`
-   * is passed through so an internal measurement is seen in section.
+   * vantage rather than wherever the user's camera happens to be — or, with
+   * a `section`, to the section view, so the cut the measurement sits in
+   * is the side the picture shows.
    */
   static screenshotBody(measured: Record<string, any>, image: MeasureImageInput): Record<string, unknown> {
     const entities: MeasuredEntity[] = Array.isArray(measured.entities) ? measured.entities : [];
     const highlight = entities
       .filter(e => e?.ref && typeof e.ref.shapeId === 'string')
       .map(e => MeasureImage.highlightRef(e));
+    const defaultView: ScreenshotView = image.section ? { kind: 'section' } : { kind: 'named', name: 'iso-ftr' };
     const body: Record<string, unknown> = {
-      view: image.view ?? { kind: 'named', name: 'iso-ftr' },
+      view: image.view ?? defaultView,
       fitTo: 'highlight',
     };
     if (highlight.length > 0) {

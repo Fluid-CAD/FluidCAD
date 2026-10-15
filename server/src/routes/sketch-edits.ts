@@ -389,9 +389,9 @@ export function createSketchEditsRouter(
   });
 
   // ---------------------------------------------------------------------------
-  // /api/code/* — extensions send the current buffer text plus operation
+  // /api/code/* — editor hosts send the current buffer text plus operation
   // params; the server returns the fully edited text. All source-text
-  // manipulation lives here so VSCode and Neovim share one implementation.
+  // manipulation lives here so every host shares one implementation.
   // ---------------------------------------------------------------------------
 
   router.post('/code/add-breakpoint', async (req, res) => {

@@ -1,4 +1,4 @@
-import { isEditableTarget } from '../../keyboard-bridge';
+import { isEditableTarget } from '../../editable-target';
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { viewportChrome } from '../../ui/viewport-chrome';
 import { consumedReveal } from './consumed-reveal';

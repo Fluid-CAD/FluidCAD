@@ -3,9 +3,8 @@ FROM node:24-bookworm-slim AS build
 WORKDIR /src
 # The manifests first, on their own layer: `npm ci` is cached across builds
 # whose lockfile did not change, and the sources below invalidate only the
-# build. `extension/vscode` is a workspace, so its manifest has to be there.
+# build.
 COPY package.json package-lock.json ./
-COPY extension/vscode/package.json extension/vscode/
 RUN npm ci
 
 COPY . .
@@ -16,7 +15,7 @@ RUN npm run build \
   && npm pack --pack-destination /tmp \
   && mkdir -p /out/fluidcad \
   && tar -xzf /tmp/fluidcad-*.tgz -C /out/fluidcad --strip-components=1 \
-  && npm prune --omit=dev --workspaces=false \
+  && npm prune --omit=dev \
   && rm -rf node_modules/fluidcad node_modules/.bin \
   && mv node_modules /out/fluidcad/node_modules
 

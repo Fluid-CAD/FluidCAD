@@ -380,10 +380,8 @@ slider current → +10 units; authored `.limits()` seed Start/End.
 unit chip (bottom right), scale bar. Breakpoint indicator shows while a
 `breakpoint()` is active.
 
-**Editors** — the in-page code editor (Monaco, engine-typed completion),
-VS Code extension (**Show FluidCAD Scene**; gutter click inserts
-`breakpoint()`), Neovim plugin (`:FluidCadOpenBrowser`,
-`:FluidCadToggleBreakpoint`).
+**Editors** — the in-page code editor (Monaco, engine-typed completion).
+Any other editor works beside `fluidcad serve`; the model rebuilds on save.
 
 ## API facts worth getting right
 

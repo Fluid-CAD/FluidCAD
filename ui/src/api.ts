@@ -4817,7 +4817,7 @@ export function clearBreakpoints(): void {
  * `revealEditor: false` marks a passive navigation — a timeline row click or
  * a sketch constraint badge click, which is about the scene, not the code. The in-page editor then moves its
  * caret only when the pane is already visible and stays shut otherwise;
- * hosts whose editor is the whole window (VS Code, Neovim) jump regardless.
+ * hosts whose editor is the whole window jump regardless.
  */
 export function gotoSource(
   sourceLocation: SourceLocationParam,

@@ -203,7 +203,7 @@ Three uses that pay off repeatedly:
 | Touches the source file | No | Yes, with the weight of any other write |
 | Re-runs the module | No: fast, shape ids stay valid | Yes, and execution stops: nothing after that line is built |
 | Synchronous | Yes | No: returns `success` as soon as the request is sent |
-| Needs an editor attached | No | Yes: routed through the VSCode/Neovim extension. On a standalone `fluidcad serve` it returns success and does nothing |
+| Needs an editor attached | No | Yes: routed through the page's code editor. With no FluidCAD page open it returns success and does nothing |
 | Clears itself | Yes, on the next full render | No: the statement stays until `clear_breakpoints` removes it |
 
 **Default to rollback.** Reach for a breakpoint only when the state you need never becomes a scene object: the module throws partway through, or the geometry lives inside a loop, a helper or a sketch body and fails before anything reaches the scene.

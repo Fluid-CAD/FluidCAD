@@ -94,8 +94,7 @@ export function getFreePort() {
 
 /**
  * The first free port at or above `start` — what `serve` uses so a second
- * workspace doesn't die on the first one's 3100. Same scan as the Neovim
- * bridge (`extension/neovim/bridge.cjs`), so both land on the same ports.
+ * workspace doesn't die on the first one's 3100.
  */
 export async function findFreePort(start, attempts = 100) {
   const last = Math.min(start + attempts - 1, 65535);

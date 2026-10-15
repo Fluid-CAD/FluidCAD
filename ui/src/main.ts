@@ -82,19 +82,15 @@ import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
 import type { LengthUnit } from './units/units';
-import { installHostKeyboardBridge } from './keyboard-bridge';
 import { installDesktopMenu } from './desktop';
 import type { EditorSurface } from './editor';
-
-installHostKeyboardBridge();
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
 
 /**
  * Whether this page hosts the code editor. `?editor=0` is the explicit switch
- * the hub's embedded viewer and the VS Code webview use; an iframe is the
- * implicit one, since a page embedded in a real editor must not fight it for
- * the same buffer (`docs/desktop/05-editor-surface-design.md`).
+ * the hub's embedded viewer uses; an iframe is the implicit one, since a page
+ * embedded in another host must not fight it for the same buffer (`docs/desktop/05-editor-surface-design.md`).
  */
 const editorSurfaceEnabled =
   new URLSearchParams(window.location.search).get('editor') !== '0' &&
@@ -978,8 +974,7 @@ const partTool = new PartToolButton(navbar, {
  * on the sketch-mode manager (sketch-toolbar-service) — this one carries
  * modifier combos only, so the two never contend for a key. Undo/Redo bind
  * only while the editor host has declared the capability: without it the
- * keys are not consumed, so the host bridge (VSCode) still sees them. A
- * focused field — the code editor included — keeps its native history.
+ * keys are not consumed and keep their browser meaning. A focused field — the code editor included — keeps its native history.
  */
 const globalShortcuts = new ShortcutManager();
 const historyAvailable = () => historyToolbar.isAvailable;

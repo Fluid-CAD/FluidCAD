@@ -1,11 +1,11 @@
 # FluidCAD Server
 
-Node.js server that bridges the editor extension (VSCode/Neovim) with the 3D viewer UI. It exposes an HTTP REST API, a WebSocket connection for real-time scene updates, and communicates with the extension host via Node.js IPC.
+Node.js server behind the FluidCAD UI. It exposes an HTTP REST API, a WebSocket connection for real-time scene updates, and talks to the process that forked it (`fluidcad serve`, the desktop launcher) via Node.js IPC.
 
 ## Architecture
 
 ```
-Extension (VSCode/Neovim) --IPC--> Server --WebSocket--> UI (3D viewer)
+CLI / desktop launcher --IPC--> Server --WebSocket--> UI (3D viewer + editor)
                                      |
                                   REST API
                                   (used by UI)
@@ -22,7 +22,7 @@ The server uses [Vite](https://vitejs.dev/) internally to resolve and execute us
 
 ## Starting the Server
 
-The server is normally spawned as a child process by the editor extension (with IPC enabled). It can also be started directly:
+The server is normally spawned as a child process by `fluidcad serve` or the desktop launcher (with IPC enabled). It can also be started directly:
 
 ```bash
 cd server
@@ -34,7 +34,7 @@ On startup it:
 2. Serves the UI static build from `../ui/dist`.
 3. Opens a WebSocket server on the same port.
 4. Initializes the CAD engine via the workspace's `init.js` file.
-5. Sends `ready` and `init-complete` messages back to the extension over IPC.
+5. Sends `ready` and `init-complete` messages back to the parent process over IPC.
 
 ## REST API
 
@@ -109,7 +109,7 @@ Performs a ray-cast hit test against a shape to determine which face/edge was cl
 
 #### `POST /api/insert-point`
 
-Forwards an insert-point command to the extension, which inserts a point into the source code.
+Forwards an insert-point command to the attached editor host, which inserts a point into the source code.
 
 **Request body:**
 
@@ -126,7 +126,7 @@ Forwards an insert-point command to the extension, which inserts a point into th
 
 #### `POST /api/remove-point`
 
-Forwards a remove-point command to the extension, which removes a point from the source code.
+Forwards a remove-point command to the attached editor host, which removes a point from the source code.
 
 **Request body:**
 
@@ -256,11 +256,11 @@ The UI can send messages back to the server:
 | -------------------- | --------------------------------------------------- |
 | `screenshot-result`  | Response to a `take-screenshot` request (base64 PNG)|
 
-## IPC Protocol (Extension <-> Server)
+## IPC Protocol (Parent process <-> Server)
 
-The server communicates with the editor extension via Node.js IPC (`process.send` / `process.on('message')`).
+The server communicates with the process that forked it via Node.js IPC (`process.send` / `process.on('message')`).
 
-### Extension -> Server
+### Parent -> Server
 
 | Message Type           | Description                                  |
 | ---------------------- | -------------------------------------------- |
@@ -273,7 +273,7 @@ The server communicates with the editor extension via Node.js IPC (`process.send
 | `show-shape-properties`| Show properties panel for a shape in the UI  |
 | `export-scene`         | Export shapes to STEP/STL                    |
 
-### Server -> Extension
+### Server -> Parent
 
 | Message Type       | Description                                      |
 | ------------------ | ------------------------------------------------ |

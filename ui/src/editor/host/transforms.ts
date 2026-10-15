@@ -8,9 +8,6 @@
  * (`feedback_reusable_helpers`). The parsing, the AST rewrite and the
  * preflight all live in the server; the host is an applier, not an editor
  * integration (`docs/desktop/00-architecture.md`).
- *
- * Ported from `extension/vscode/src/{code-edits,code-api}.ts`, which stays the
- * IPC host's copy until Phase 3.
  */
 
 /** Which file an edit lands in. */

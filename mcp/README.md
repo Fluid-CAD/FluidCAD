@@ -19,7 +19,7 @@ The server is transport-agnostic. It currently ships a stdio transport via
                   │ HTTP + WS
                   ▼
        running FluidCAD server            (the workspace you started with `fluidcad serve`
-                                           or by opening a .fluid.js file in VSCode)
+                                           or opened in the desktop app)
 ```
 
 The MCP process is a thin proxy. It does not run OpenCascade itself — it
@@ -145,8 +145,8 @@ frontmatter matches the server name registered above.
 
 ## Use it
 
-1. Open a workspace in FluidCAD — either through the VSCode/Neovim extension,
-   or with `fluidcad serve --workspace /path/to/project`. The server registers
+1. Open a workspace in FluidCAD — either in the desktop app, or with
+   `fluidcad serve --workspace /path/to/project`. The server registers
    itself in `~/.fluidcad/instances.json` on startup.
 2. Start a conversation in your MCP client. The agent should call
    `list_workspaces` first to find your workspace, then pass that path to

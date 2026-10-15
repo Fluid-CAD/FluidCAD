@@ -16,7 +16,7 @@ After editing the SVG, run from the repository root:
 python3 ../FluidCAD-Logo/export.py --project .
 ```
 
-The exporter needs Python 3 and ImageMagick 7 (`magick`, with SVG support). It refreshes the website and CAD UI SVGs/PNGs, both favicons, the desktop package/window icons, both VS Code logo copies, and the website share image. PNGs are generated from a 2048px vector render; the ICO contains 16–256px frames.
+The exporter needs Python 3 and ImageMagick 7 (`magick`, with SVG support). It refreshes the website and CAD UI SVGs/PNGs, both favicons, the desktop package/window icons, and the website share image. PNGs are generated from a 2048px vector render; the ICO contains 16–256px frames.
 
 To refresh the editable Blender file after an SVG change:
 
@@ -24,6 +24,6 @@ To refresh the editable Blender file after an SVG change:
 blender --background --python ../FluidCAD-Logo/build_blender.py
 ```
 
-The checked-in runtime SVG is [website/static/img/logo.svg](website/static/img/logo.svg). It remains editable if the sibling design folder is unavailable. Keep it and `ui/public/logo.svg` identical. The extension prepublish script maps the repository README's logo to the packaged `resources/logo.png`.
+The checked-in runtime SVG is [website/static/img/logo.svg](website/static/img/logo.svg). It remains editable if the sibling design folder is unavailable. Keep it and `ui/public/logo.svg` identical.
 
 The sibling `../FluidCAD-Viewer` uses the shared TopBar and copies the logo and favicons from `ui/dist-lib`. After exporting, run `npm run build:viewer-ui` here, then `npm run build:app` in the Viewer repository. The Viewer app build clears its output directory; rebuild its engine afterward when needed.

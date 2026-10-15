@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-// The in-page editor host is the third implementation of the host contract
-// (VS Code, Neovim, this). What can silently diverge is *which buffer* an
+// The in-page editor host implements the host contract. What can silently
+// diverge is *which buffer* an
 // edit lands in and *what render* follows it — the assembly work made both
 // matter: the mate dialog edits a connector() in a PART file while the
 // assembly is on screen, and the parts panel rewrites an insert() chain named
@@ -202,8 +202,8 @@ describe('in-page editor host — which buffer an edit lands in', () => {
 
   it('marks a path-targeted timeline edit in an imported file keepCurrent', async () => {
     // Removing a feature from an imported part while the assembly is current:
-    // the assembly re-renders with the dependency updated (the Neovim bridge's
-    // rule for every non-current buffer), the viewport does not switch.
+    // the assembly re-renders with the dependency updated, the viewport does
+    // not switch.
     const asm = entry(ASSEMBLY, '// assembly');
     const part = entry(PART, 'extrude(10);');
     const { host, requests, responses } = install({ loaded: [asm, part], current: ASSEMBLY });
@@ -280,7 +280,7 @@ describe('in-page editor host — acked solved-sketch drag write-back', () => {
 describe('in-page editor host — goto-source reveal', () => {
   it('passes a passive goto-source through without revealing the pane', async () => {
     // A timeline row click. The pane is a strip beside the scene here (unlike
-    // VS Code / Neovim, where the editor *is* the window), so the flag has to
+    // a host whose editor *is* the window), so the flag has to
     // survive the trip or every row click pops the code open again.
     const asm = entry(ASSEMBLY, '// assembly');
     const { host, reveals } = install({ loaded: [asm], current: ASSEMBLY });

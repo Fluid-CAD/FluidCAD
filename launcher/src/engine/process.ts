@@ -8,9 +8,8 @@ import type { ResolvedEngine } from './resolver.ts';
  *
  * The engine is always a **child process**, never the Electron main process
  * (Invariant 4): it runs OCC wasm, which can abort the whole process hard, and
- * a live Vite server. Today the VS Code extension survives a server crash for
- * exactly this reason, and every launcher keeps that property — the window or
- * tab (and Monaco's unsaved buffers) outlives its engine.
+ * a live Vite server. Every launcher keeps the window or tab (and Monaco's
+ * unsaved buffers) alive when its engine crashes.
  *
  * `ELECTRON_RUN_AS_NODE=1` plus `execPath: process.execPath` is what lets the
  * desktop app run the engine with no system Node installed: the app binary

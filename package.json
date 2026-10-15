@@ -20,9 +20,6 @@
     "stl"
   ],
   "type": "module",
-  "workspaces": [
-    "extension/vscode"
-  ],
   "bin": {
     "fluidcad": "./bin/fluidcad.js"
   },
@@ -76,7 +73,7 @@
     "typecheck": "tsc -b",
     "test": "vitest",
     "test:features": "vitest run lib/tests/features/",
-    "bump": "npx bumpp patch package.json package-lock.json extension/vscode/package.json shell/package.json shell/package-lock.json mcp/package.json --no-tag --no-push",
+    "bump": "npx bumpp patch package.json package-lock.json shell/package.json shell/package-lock.json mcp/package.json --no-tag --no-push",
     "release": "git tag -a \"v$npm_package_version\" -m \"chore: release v$npm_package_version\" && git push --follow-tags"
   },
   "dependencies": {

@@ -1,6 +1,6 @@
 /* A list, ruled. Three fields per row: what it is, what it adds, what you
-   type. The rows are not tiles on purpose — these are six doors into one
-   running server, and a grid of equal boxes would say six products. */
+   type. The rows are not tiles on purpose — these are four doors into one
+   running server, and a grid of equal boxes would say four products. */
 
 .list {
   margin: clamp(2.25rem, 4vw, 3.5rem) 0 0;

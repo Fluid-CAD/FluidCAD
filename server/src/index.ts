@@ -103,7 +103,7 @@ const projectUnitNow = (): LengthUnit => readProjectConfig(WORKSPACE_PATH).unit 
 
 
 // ---------------------------------------------------------------------------
-// Editor hosts — IPC (VS Code, Neovim) and the in-page Monaco host
+// Editor hosts — IPC and the in-page Monaco host
 // ---------------------------------------------------------------------------
 
 /** Returns true when a host process received the message (IPC connected). */
@@ -620,7 +620,7 @@ async function handleExtensionMessage(msg: any) {
   }
 }
 
-// Listen for IPC messages from extension host
+// Listen for IPC messages from the parent process
 process.on('message', (msg: any) => {
   handleExtensionMessage(msg);
 });
@@ -637,8 +637,8 @@ httpServer.listen(PORT, HOST, () => {
   console.log(`FluidCAD engine ${PACKAGE_VERSION} listening on ${url}`);
 
   // Warned here rather than in `bin/commands/serve.js` so that every host
-  // reaches it: the extensions fork this file directly and never run the CLI,
-  // and `serve` pipes our stdout through to the terminal anyway.
+  // reaches it: the desktop launcher forks this file directly and never runs
+  // the CLI, and `serve` pipes our stdout through to the terminal anyway.
   const pinWarning = describeEnginePinMismatch(PROJECT_CONFIG, PACKAGE_VERSION);
   if (pinWarning) {
     console.warn(pinWarning);
@@ -691,7 +691,7 @@ httpServer.listen(PORT, HOST, () => {
     }
   }
 
-  // Signal ready immediately so extension can show the webview
+  // Signal ready immediately so the parent can open the viewport
   sendToExtension({ type: 'ready', port: PORT, url });
 
   // Initialize FluidCAD server in the background. The stored worker count

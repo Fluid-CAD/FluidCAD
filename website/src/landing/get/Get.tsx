@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react'
 import Link from '@docusaurus/Link'
 import {
   IconBrandApple,
-  IconBrandWindows,
-  IconBrandVscode,
-  IconTerminal2
+  IconBrandWindows
 } from '@tabler/icons-react'
 import { usePluginData } from '@docusaurus/useGlobalData'
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext'
@@ -138,23 +136,6 @@ export default function Get() {
 
         <div className={styles.below}>
           <h3 className={styles.otherTitle}>Other installation options</h3>
-          <div className={styles.extensions}>
-            <h4 className={styles.columnTitle}>Editor extensions</h4>
-            <p className={styles.packageNote}>
-              Keep the model beside your code in the editor you use every day.
-            </p>
-            <div className={styles.actions}>
-              <Link
-                className={styles.secondary}
-                href="https://marketplace.visualstudio.com/items?itemName=FluidCAD.fluidcad"
-              >
-                <IconBrandVscode size={20} aria-hidden="true" /> VS Code
-              </Link>
-              <Link className={styles.secondary} to="/docs/installation#editor-setup">
-                <IconTerminal2 size={20} aria-hidden="true" /> Neovim
-              </Link>
-            </div>
-          </div>
           <div className={styles.package}>
             <h4 className={styles.columnTitle}>
               Install with npm

@@ -7,7 +7,7 @@ import {DownloadLink, ReleaseLink} from '@site/src/components/docs/DownloadLink'
 
 # Installation
 
-FluidCAD ships as a desktop app for Windows, Linux and macOS, and as an npm package for running it from a Node.js project in your browser. Pick the download for your system below, or skip to the [npm installation](#npm-installation) if you prefer to work from a terminal.
+FluidCAD ships as a desktop app for Windows, Linux and macOS, as an npm package for running it from a Node.js project in your browser, and as a [Docker image](#docker) for keeping your projects on a server. Pick the download for your system below, or skip to the [npm installation](#npm-installation) if you prefer to work from a terminal.
 
 Models are `.part.js` files (parts) and `.assembly.js` files (assemblies), written by the viewport as you work.
 
@@ -133,6 +133,139 @@ npx fluidcad export png --view front --open
 ```
 
 See the [CLI Reference](/docs/cli) for every command and flag, or run `npx fluidcad --help`.
+
+## Docker
+
+To keep your projects in one place, on a server or on a machine others on your
+network use, run the start screen in a container. The image is
+`ghcr.io/fluid-cad/fluidcad`, built for x64 and ARM64 and tagged with each
+release's version (`0.0.47`) and `latest`:
+
+```bash
+docker pull ghcr.io/fluid-cad/fluidcad:latest
+```
+
+The container runs the start screen with a [projects folder](/docs/cli#a-projects-folder)
+at `/app/projects`: the start screen lists every project in it, and **New
+Project** creates the next one there. Mount a folder of your own on it so the projects outlive the
+container. On Linux that folder has to be writable by uid 1000, the user the
+container runs as (`sudo chown 1000:1000 projects`).
+
+The second mount, `/home/node/.fluidcad`, keeps what FluidCAD remembers between
+runs: engines downloaded for projects pinned to another FluidCAD version, recent
+projects and previews.
+
+### On your own machine
+
+```bash
+mkdir projects
+docker run -d --name fluidcad \
+  -p 127.0.0.1:3100:3100 \
+  -e FLUIDCAD_ALLOWED_HOSTS=localhost \
+  -v "$PWD/projects:/app/projects" \
+  -v fluidcad-home:/home/node/.fluidcad \
+  ghcr.io/fluid-cad/fluidcad:latest
+
+docker logs fluidcad
+```
+
+The logs print a sign-in link, `http://localhost:3100/?token=…`. Open it once in
+your browser; FluidCAD then remembers the browser until the container restarts,
+which prints a new link. The port is published on `127.0.0.1` only, so no other
+machine reaches it, and `FLUIDCAD_ALLOWED_HOSTS=localhost` makes the link name
+`localhost` rather than the container's own host name.
+
+### On a server
+
+Pick the example that matches your network, save it as `compose.yaml` next to a
+`projects` folder, and run `docker compose up -d`.
+
+On a network you trust (home LAN, Tailscale), with no sign-in:
+
+```yaml
+services:
+  fluidcad:
+    image: ghcr.io/fluid-cad/fluidcad:latest
+    ports:
+      - "3100:3100"
+    environment:
+      FLUIDCAD_NO_AUTH: "1"
+      # Every name you open FluidCAD by; any other is refused.
+      FLUIDCAD_ALLOWED_HOSTS: "fluidcad.example.com,192.0.2.20"
+    volumes:
+      - ./projects:/app/projects
+      - fluidcad-home:/home/node/.fluidcad
+    restart: unless-stopped
+
+volumes:
+  fluidcad-home:
+```
+
+Open `http://fluidcad.example.com:3100` from any device. Anyone who can reach
+that port can read and change every project, and run code on the server through
+them, so don't expose it beyond that network.
+
+On a shared network (office, school), behind an HTTPS reverse proxy on the same
+machine (Caddy, nginx, Tailscale Serve) that forwards WebSocket upgrades:
+
+```yaml
+services:
+  fluidcad:
+    image: ghcr.io/fluid-cad/fluidcad:latest
+    ports:
+      - "127.0.0.1:3100:3100"
+    environment:
+      FLUIDCAD_PUBLIC_URL: "https://fluidcad.example.com"
+    volumes:
+      - ./projects:/app/projects
+      - fluidcad-home:/home/node/.fluidcad
+    restart: unless-stopped
+
+volumes:
+  fluidcad-home:
+```
+
+The port is published on `127.0.0.1`, so only the proxy reaches it. Sign in with
+the link from `docker compose logs fluidcad`, once in each browser.
+
+:::warning
+FluidCAD is not built to face the internet. Keep it on a network you control,
+and reach it from outside through a VPN such as Tailscale.
+:::
+
+### Settings
+
+The container is configured through environment variables, each standing in for
+a flag of [`fluidcad`](/docs/cli#fluidcad):
+
+| Variable | Flag | Description |
+|----------|------|-------------|
+| `FLUIDCAD_ALLOWED_HOSTS` | `--allowed-host` | Comma-separated names the start screen is reached by; any other is refused |
+| `FLUIDCAD_NO_AUTH` | `--no-auth` | `1` drops the sign-in link; needs `FLUIDCAD_ALLOWED_HOSTS` |
+| `FLUIDCAD_PUBLIC_URL` | `--public-url` | The origin a reverse proxy serves FluidCAD at, such as `https://cad.example.com` |
+
+[Reaching FluidCAD from other machines](/docs/cli#reaching-fluidcad-from-other-machines)
+and [Without a sign-in link](/docs/cli#without-a-sign-in-link) explain what each
+one protects against.
+
+### Updating
+
+With Compose:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+With `docker run`, pull the new image, remove the container with
+`docker rm -f fluidcad` and run it again with the same command. Your projects
+and the `fluidcad-home` volume stay as they were. To stay on one release
+instead of following `latest`, use its version as the tag:
+`ghcr.io/fluid-cad/fluidcad:0.0.47`.
+
+To build the image yourself from a clone of the
+[repository](https://github.com/Fluid-CAD/FluidCAD), replace `image:` with
+`build: .` in either Compose file.
 
 ## Editor setup
 

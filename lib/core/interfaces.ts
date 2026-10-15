@@ -166,6 +166,16 @@ export interface ISection extends ISceneObject {
 }
 
 /**
+ * A split — what `split()` returns. The pieces it made of the solids the
+ * plane crossed are its shapes; a feature naming the split as a target
+ * reads all of them.
+ */
+export interface ISplit extends ISceneObject {
+  /** The cut plane as built — the datum's plane moved by the `offset` option (origin, normal, x-direction). */
+  getPlane(): Plane;
+}
+
+/**
  * An axis datum in the scene — what `axis()` returns. `getAxis()`
  * plays the same structural role here as `getPlane()` does on `IPlane`.
  */

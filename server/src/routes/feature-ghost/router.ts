@@ -36,6 +36,8 @@ import {
   type RawMirror2D,
   type RawRepeat,
   type RawRotate,
+  parseSplit,
+  type RawSplit,
 } from './transforms.ts';
 import { CustomGhostRoute, type GhostFeatureCatalog } from './custom.ts';
 import { ValueScope } from './value-scope.ts';
@@ -85,6 +87,8 @@ export function createFeatureGhostRouter(
     const isMirror = body.feature === 'mirror';
     // The rotate IS exempt: it moves (or copies) bodies, no boolean involved.
     const isRotate = body.feature === 'rotate';
+    // The split IS exempt too: it parts bodies, keeping one side or both.
+    const isSplit = body.feature === 'split';
     const isPlane = body.feature === 'plane';
     // The 2D ops rework curves inside their sketch — there is no add/remove/new.
     const isOffset = body.feature === 'offset';
@@ -93,7 +97,7 @@ export function createFeatureGhostRouter(
     const isMirror2D = body.feature === 'mirror2d';
     // A hole is always a removal — no op to declare.
     const isHole = body.feature === 'hole';
-    if (!isHole && !isBand && !isHelix && !isRepeat && !isCopy && !isRotate && !isPlane && !isOffset
+    if (!isHole && !isBand && !isHelix && !isRepeat && !isCopy && !isRotate && !isSplit && !isPlane && !isOffset
       && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
@@ -247,7 +251,7 @@ export function createFeatureGhostRouter(
     // The transforms' edit mode: the edited statement's call site, so the
     // kernel reads its targets as of just before it (see copyTargetSolids).
     let transformExclude: { filePath: string; line: number } | undefined;
-    if ((isCopy || isMirror || isRotate) && body.exclude !== undefined && body.exclude !== null) {
+    if ((isCopy || isMirror || isRotate || isSplit) && body.exclude !== undefined && body.exclude !== null) {
       if (typeof body.exclude.filePath !== 'string' || typeof body.exclude.line !== 'number') {
         res.status(400).json({ success: false, reason: 'Invalid exclude reference' });
         return;
@@ -271,6 +275,15 @@ export function createFeatureGhostRouter(
         return;
       }
       mirror = parsed;
+    }
+    let split: RawSplit | null = null;
+    if (isSplit) {
+      const parsed = parseSplit(body);
+      if (typeof parsed === 'string') {
+        res.status(400).json({ success: false, reason: parsed });
+        return;
+      }
+      split = parsed;
     }
     let rotate: RawRotate | null = null;
     if (isRotate) {
@@ -479,6 +492,15 @@ export function createFeatureGhostRouter(
         op: body.op as 'add' | 'remove' | 'new',
         targets: mirror!.targets,
         plane: mirror!.plane,
+        exclude: transformExclude,
+      };
+    } else if (isSplit) {
+      request = {
+        feature: 'split',
+        keep: split!.keep,
+        offset,
+        targets: split!.targets,
+        plane: split!.plane,
         exclude: transformExclude,
       };
     } else if (isRotate) {

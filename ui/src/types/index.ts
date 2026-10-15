@@ -155,6 +155,8 @@ export type ObjectType =
   | 'draft'
   | 'thickness'
   | 'mirror'
+  /** A 3D `split(plane | line, …)` — parts solids at a plane. */
+  | 'split'
   | 'linear-pattern'
   // 3D copies — `copy('linear' | 'circular', …)`, and `copy(pattern, …)`
   // following a repeat

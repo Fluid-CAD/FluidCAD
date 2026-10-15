@@ -364,10 +364,17 @@ describe('screenshot tools (over MCP)', () => {
     const client = new Client({ name: 'test', version: '0.0.0' });
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
     try {
-      const shot = await client.callTool({ name: 'screenshot_shape', arguments: { shapeId: 'sh-1', margin: 1.3, section: { plane: 'xy' } } });
+      const shot = await client.callTool({ name: 'screenshot_shape', arguments: { shapeId: 'sh-1', margin: 1.3 } });
       expect(shot.isError).not.toBe(true);
       expect(JSON.parse(lastRequest!.body)).toEqual({
         view: { kind: 'named', name: 'iso-ftr' },
+        fitTo: { shapes: ['sh-1'], margin: 1.3 },
+      });
+      // A section is looked at instead of the iso vantage; the shape framing stays.
+      const cut = await client.callTool({ name: 'screenshot_shape', arguments: { shapeId: 'sh-1', margin: 1.3, section: { plane: 'xy' } } });
+      expect(cut.isError).not.toBe(true);
+      expect(JSON.parse(lastRequest!.body)).toEqual({
+        view: { kind: 'section' },
         fitTo: { shapes: ['sh-1'], margin: 1.3 },
         section: { plane: 'xy' },
       });
@@ -455,13 +462,99 @@ describe('screenshot overlays', () => {
     expect(JSON.parse(lastRequest!.body)).toEqual({ view: { kind: 'named', name: 'top' }, section: { plane: 'xy', offset: 10 } });
 
     const explicit = { plane: { origin: [0, 5, 0] as [number, number, number], normal: [0, 1, 0] as [number, number, number] }, flip: true };
-    const multi = await screenshotMulti({ section: explicit });
+    const multi = await screenshotMulti({ section: explicit, views: [{ kind: 'named', name: 'front' }, { kind: 'named', name: 'back' }] });
     expect(multi.ok).toBe(true);
-    expect(JSON.parse(lastRequest!.body)).toEqual({ multi: true, section: explicit });
+    expect(JSON.parse(lastRequest!.body)).toEqual({ multi: true, section: explicit, views: [{ kind: 'named', name: 'front' }, { kind: 'named', name: 'back' }] });
 
     const shape = await screenshotShape({ shapeId: 'sh-1', section: { plane: 'yz' } });
     expect(shape.ok).toBe(true);
     expect(JSON.parse(lastRequest!.body).section).toEqual({ plane: 'yz' });
+  });
+
+  it('a section with no view asked for is looked at: the section view, and the tilted + square-on pair on a grid', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const single = await screenshot({ section: { plane: 'xz' } });
+    expect(single.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({ view: { kind: 'section' }, section: { plane: 'xz' } });
+
+    const multi = await screenshotMulti({ section: { plane: 'xz' } });
+    expect(multi.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({
+      multi: true,
+      section: { plane: 'xz' },
+      views: [{ kind: 'section' }, { kind: 'section', straight: true }],
+    });
+
+    const shape = await screenshotShape({ shapeId: 'sh-1', section: { plane: 'yz' } });
+    expect(shape.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body).view).toEqual({ kind: 'section' });
+
+    const straight = await screenshot({ section: { plane: 'xz' }, view: { kind: 'section', straight: true } });
+    expect(straight.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body).view).toEqual({ kind: 'section', straight: true });
+  });
+
+  it('refuses a section view without a section to look at', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const single = await screenshot({ view: { kind: 'section' } });
+    expect(single.ok).toBe(false);
+    if (!single.ok) {
+      expect(single.code).toBe('invalid-input');
+      expect(single.message).toContain('`view.kind` "section"');
+    }
+    const multi = await screenshotMulti({ views: [{ kind: 'named', name: 'top' }, { kind: 'section', straight: true }] });
+    expect(multi.ok).toBe(false);
+    if (!multi.ok) {
+      expect(multi.message).toContain('`views[1].kind` "section"');
+    }
+    const bad = await screenshot({ section: { plane: 'xy' }, view: { kind: 'section', straight: 'yes' } } as any);
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) {
+      expect(bad.message).toContain('`view.straight`');
+    }
+    expect(lastRequest).toBeNull();
+  });
+
+  it('passes a section on a face, a filter or a statement through for the server to resolve', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const byIndex = { plane: { shapeId: 'sh-1', index: 5, instanceId: 'inst-1' }, offset: -3 };
+    expect((await screenshot({ section: byIndex })).ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body).section).toEqual({ plane: { shapeId: 'sh-1', kind: 'face', index: 5, instanceId: 'inst-1' }, offset: -3 });
+
+    const byFilter = { plane: { expression: 'face().onPlane("xy", 30)', scope: { part: 'base' } }, flip: true };
+    expect((await screenshot({ section: byFilter })).ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body).section).toEqual(byFilter);
+
+    const byStatement = { plane: { sceneObjectId: 'obj-7' } };
+    expect((await screenshotMulti({ section: byStatement })).ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body).section).toEqual(byStatement);
+  });
+
+  it('rejects a malformed face or statement plane without contacting the server', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const cases: Array<[unknown, string]> = [
+      [{ plane: { sceneObjectId: '' } }, '`section.plane.sceneObjectId`'],
+      [{ plane: { shapeId: 'sh-1', kind: 'edge', index: 0 } }, '`section.plane.kind`'],
+      [{ plane: { shapeId: 'sh-1', index: -1 } }, '`section.plane.index`'],
+      [{ plane: { shapeId: '', index: 1 } }, '`section.plane.shapeId`'],
+      [{ plane: { shapeId: 'sh-1', index: 1, instanceId: '' } }, '`section.plane.instanceId`'],
+      [{ plane: { expression: '' } }, '`section.plane.expression`'],
+      [{ plane: { expression: 'face()', scope: { part: 'a', instanceId: 'b' } } }, '`section.plane.scope`'],
+      [{ plane: { nothing: true } }, 'a planar face'],
+    ];
+    for (const [section, expected] of cases) {
+      const result = await screenshot({ section } as any);
+      expect(result.ok, JSON.stringify(section)).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe('invalid-input');
+        expect(result.message, JSON.stringify(section)).toContain(expected);
+      }
+    }
+    expect(lastRequest).toBeNull();
   });
 
   it('rejects a malformed section without contacting the server', async () => {
@@ -661,8 +754,15 @@ describe('measure with image', () => {
     expect(lastRequest?.url).toBe('/api/screenshot');
     const body = JSON.parse(lastRequest!.body);
     expect(body.section).toEqual({ plane: 'yz', offset: 1, flip: true });
-    expect(body.view).toEqual({ kind: 'named', name: 'iso-ftr' });
+    expect(body.view).toEqual({ kind: 'section' });
     expect(body.highlight).toHaveLength(2);
+
+    const named = await measure({
+      entities: [{ shapeId: 'sh-1', kind: 'face', index: 5 }],
+      image: { section: { plane: 'yz' }, view: { kind: 'named', name: 'right' } },
+    });
+    expect(named.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body).view).toEqual({ kind: 'named', name: 'right' });
   });
 
   it('measure without image posts once and returns the measurement alone', async () => {
@@ -778,6 +878,15 @@ describe('measure with image', () => {
       expect(sectionSchema.description).toContain('document units');
       expect(sectionSchema.description).toContain('normal points away from');
       expect(Object.keys(sectionSchema.properties)).toEqual(['plane', 'offset', 'flip']);
+      // The cut plane: a datum name, an explicit plane, a statement, a face by index, a face by filter.
+      const planeForms = sectionSchema.properties.plane.anyOf as any[];
+      expect(planeForms).toHaveLength(5);
+      expect(planeForms.map((f) => Object.keys(f.properties ?? {}).join(','))).toEqual([
+        '', 'origin,normal', 'sceneObjectId', 'shapeId,kind,index,instanceId', 'expression,scope',
+      ]);
+      const viewSchema = (byName.get('screenshot')!.inputSchema as any).properties.view;
+      const viewKinds = ((viewSchema.anyOf ?? viewSchema.oneOf) as any[]).map((v) => v.properties.kind.const);
+      expect(viewKinds).toContain('section');
     } finally {
       await client.close();
       await server.close();

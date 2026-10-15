@@ -49,6 +49,20 @@ export {
 } from './features/hole.ts';
 export { HolePlacements } from './hole-placements.ts';
 export { CustomFeaturePoints } from './custom-feature-points.ts';
+export { SplitSeeds } from './split-seeds.ts';
+export {
+  renderSplitOptionsArg,
+  renderSplitPlaneExpr,
+  renderSplitStatement,
+  validSplitKeep,
+  validSplitOptions,
+  validSplitPlane,
+  SPLIT_KEEPS,
+  type SplitEditOptions,
+  type SplitEditPlane,
+  type SplitKeep,
+  type SplitPlaneSpec,
+} from './features/split.ts';
 export { renderSweepStatement, type SweepEditOptions } from './features/sweep.ts';
 export { renderWrapStatement, type WrapEditOptions } from './features/wrap.ts';
 export { PROJECTION_OPS, type ProjectEditOptions, type ProjectionOp } from './features/projection.ts';

@@ -9,10 +9,11 @@ import type { ProjectionOp } from '../features/projection.ts';
 import type { ShellJoinKind } from '../features/shell.ts';
 import type { ParsedHole } from '../features/hole.ts';
 import type { ParsedCustomFeature } from '../features/custom.ts';
+import type { SplitKeep } from '../features/split.ts';
 import type { RegionName, ValueExpr } from '../value-expr.ts';
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split';
 
 /**
  * A statement's parsed `.scope(…)` chain, shared by every feature that
@@ -333,6 +334,24 @@ export type ParsedFeatureStatement =
     targetRefs: ({ line: number; column: number } | null)[];
   }
   | {
+    feature: 'split';
+    /** The cut argument text — a plane or a seed line — verbatim. */
+    planeText: string;
+    /** The pieces the statement keeps; `both` when the option is absent. */
+    keep: SplitKeep;
+    /** The plane offset along its normal; null when the option is absent. */
+    offset: ValueExpr | null;
+    /** Trailing target texts, verbatim; empty splits every solid in scope. */
+    targetTexts: string[];
+    /**
+     * Per-target source location of the feature statement a plain-identifier
+     * target references, or null when the expression doesn't resolve to one.
+     * Same length as `targetTexts`; lets the edit dialog seed targets as
+     * their timeline rows.
+     */
+    targetRefs: ({ line: number; column: number } | null)[];
+  }
+  | {
     feature: 'rotate';
     /** Rotation axis argument text, verbatim. */
     axisText: string;
@@ -410,6 +429,7 @@ export const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   // The 3D `rotate(axis, angle, …)` only — the 2D in-sketch form shares the
   // callee the same way, and the client gates its rows by uniqueType too.
   rotate: 'rotate',
+  split: 'split',
   fuse: 'boolean',
   subtract: 'boolean',
   common: 'boolean',
@@ -461,6 +481,9 @@ export const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // The axis, angle, copy flag and targets are all root-call arguments;
   // `.exclude()`/`.name()` are unrecognized members and survive verbatim.
   rotate: new Set(),
+  // The cut, the options object and the targets are all root-call arguments;
+  // `.name()` and friends are unrecognized members and survive verbatim.
+  split: new Set(),
   // The targets are the root call's arguments; `.name()` and friends are
   // unrecognized members and survive verbatim.
   boolean: new Set(),

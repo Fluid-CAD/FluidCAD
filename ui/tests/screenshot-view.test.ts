@@ -9,6 +9,7 @@ import {
   resolveView,
   type NamedView,
 } from '../src/screenshot-view';
+import { SectionPlaneMath } from '../src/scene/section-spec';
 
 describe('NAMED_VIEW_DIRECTIONS', () => {
   it('cardinal views are unit-length and aligned to their axis', () => {
@@ -119,6 +120,25 @@ describe('resolveView', () => {
     expect(result).not.toBeNull();
     expect(result!.eye.z).toBeGreaterThan(0);
     expect(result!.target.length()).toBeCloseTo(0, 9);
+  });
+
+  it('section view looks at the cut from the removed half, square-on with straight, and falls back to iso-ftr without a section', () => {
+    const section = SectionPlaneMath.resolve({ plane: 'xz', offset: 5 });
+    const tilted = resolveView({ kind: 'section' }, center, diameter, eye, target, section);
+    expect(tilted).not.toBeNull();
+    expect(tilted!.eye.y).toBeGreaterThan(0);
+    expect(tilted!.eye.z).toBeGreaterThan(0);
+    expect(tilted!.eye.length()).toBeCloseTo(diameter, 6);
+    expect(tilted!.target.length()).toBeCloseTo(0, 9);
+
+    const straight = resolveView({ kind: 'section', straight: true }, center, diameter, eye, target, section);
+    expect(straight!.eye.x).toBeCloseTo(0, 9);
+    expect(straight!.eye.y).toBeCloseTo(diameter, 6);
+    expect(straight!.eye.z).toBeCloseTo(0, 9);
+
+    const fallback = resolveView({ kind: 'section' }, center, diameter, eye, target, null);
+    const iso = resolveView({ kind: 'named', name: 'iso-ftr' }, center, diameter, eye, target);
+    expect(fallback!.eye).toEqual(iso!.eye);
   });
 
   it('look-from defaults target to scene center when omitted', () => {

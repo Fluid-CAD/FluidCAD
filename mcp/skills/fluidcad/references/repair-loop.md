@@ -41,7 +41,7 @@ The loop:
 | `param('…') must be declared inside a part() body` | `param()` at file top level | Wrap the model in `part("Name", () => { … })` and export it, or replace the `param()` with a `const` |
 | A thrown error naming `unit(` | `unit()` placement | Same as `unit-statement` above |
 | An error thrown inside a sketch callback (`rotate` is 3D-only, `select(face()…)` inside a sketch, 2D booleans) | A 3D statement used in 2D | Use constraints (`angle`, `horizontal`, `vertical`) or `copy("circular", …)` in the sketch; move the boolean outside |
-| A thrown error from `mate()`, `insert()`, `replicate()` outside a `*.assembly.js` file | Assembly statement in a part file | Move it to the assembly file; see the FluidCAD-assembly skill |
+| A thrown error from `mate()`, `insert()`, `replicate()` outside a `*.assembly.js` file | Assembly statement in a part file | Move it to the assembly file; see the fluidcad-assembly skill |
 
 On a compile error the previous scene is still being served. Do not screenshot or measure until the state is back to `rendered` or `build-error`.
 

@@ -91,7 +91,7 @@ export const features: FeatureEntry[] = [
   { name: 'region', displayName: 'region', category: '2d', sourceFile: 'core/2d/region.ts', interfaceName: 'RegionFunction', returnType: 'ISceneObject', relatedGuide: '/docs/3d-operations/extrude#region-picking', sidebarPosition: 13 },
   { name: 'far', displayName: 'far', category: '2d', sourceFile: 'core/2d/region.ts', interfaceName: null, functionName: 'far', returnType: 'IRegionSide', relatedGuide: '/docs/3d-operations/extrude#region-picking', sidebarPosition: 14 },
   // 2D Sketching — Reference pictures (editor-only, no geometry)
-  { name: 'image', displayName: 'image', category: '2d', sourceFile: 'core/2d/image.ts', interfaceName: 'ImageFunction', returnType: 'ISceneObject', relatedGuide: '/docs/sketching/introduction#reference-image', sidebarPosition: 15 },
+  { name: 'image', displayName: 'image', category: '2d', sourceFile: 'core/2d/image.ts', interfaceName: 'ImageFunction', returnType: 'ISceneObject', relatedGuide: '/docs/sketching/tools/reference-image', sidebarPosition: 15 },
   // 2D Sketching — Advanced Operations
   { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IOffset', relatedGuide: '/docs/sketching/tools/offset', sidebarPosition: 23 },
 
@@ -115,6 +115,7 @@ export const features: FeatureEntry[] = [
   { name: 'wrap', displayName: 'wrap', category: '3d', sourceFile: 'core/wrap.ts', interfaceName: 'WrapFunction', returnType: 'IWrap', relatedGuide: '/docs/3d-operations/wrap', sidebarPosition: 17 },
   { name: 'helix', displayName: 'helix', category: '3d', sourceFile: 'core/helix.ts', interfaceName: 'HelixFunction', returnType: 'IHelix', relatedGuide: '/docs/3d-operations/helix', sidebarPosition: 18 },
   { name: 'hole', displayName: 'hole', category: '3d', sourceFile: 'core/hole.ts', interfaceName: 'HoleFunction', returnType: 'IHole', relatedGuide: '/docs/3d-operations/hole', sidebarPosition: 19 },
+  { name: 'split', displayName: 'split', category: '3d', sourceFile: 'core/split.ts', interfaceName: 'SplitFunction', returnType: 'ISplit', relatedGuide: '/docs/3d-operations/split', sidebarPosition: 20 },
 
   // Transforms
   { name: 'translate', displayName: 'translate', category: 'transforms', sourceFile: 'core/translate.ts', interfaceName: 'TranslateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 1 },
@@ -185,6 +186,7 @@ export const types: TypeEntry[] = [
   { name: 'IOffsetEdge', displayName: 'OffsetEdge', sourceFile: 'core/interfaces.ts', extendsType: 'ISelect', sidebarPosition: 32.1 },
   { name: 'IPlane', displayName: 'Plane', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18 },
   { name: 'ISection', displayName: 'Section', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18.5 },
+  { name: 'ISplit', displayName: 'Split', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12.9 },
   { name: 'IAxis', displayName: 'Axis', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 19 },
   { name: 'ISelect', displayName: 'Select', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 20 },
   { name: 'IConnector', displayName: 'Connector', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 21 },
@@ -357,6 +359,9 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IOffset': 'Offset',
   'IOffsetEdge': 'OffsetEdge',
   'IPlane': 'Plane',
+  'ISection': 'Section',
+  'ISplit': 'Split',
+  'IMirror': 'Mirror',
   'ISketch': 'Sketch',
   'IAxis': 'Axis',
   'ISelect': 'Select',

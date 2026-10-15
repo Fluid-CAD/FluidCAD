@@ -75,7 +75,7 @@ const RENDER_DELAY_MS = 2000;
 const TEXT_RENDER_DELAY_MS = 10000;
 
 // Functions that indicate axes should be visible
-const SHOW_AXES_MARKERS = ['revolve(', 'mirror(', 'rotate('];
+const SHOW_AXES_MARKERS = ['revolve(', 'mirror(', 'rotate(', 'split('];
 
 // ─── Example discovery ─────────────────────────────────────────────────
 

@@ -252,6 +252,14 @@ export function parsePlane(value: unknown): GhostPlaneRef | null {
       ? { kind: 'face', shapeId: plane.shapeId, index: plane.index }
       : null;
   }
+  if (plane.kind === 'sketchLine') {
+    const column = (plane as { column?: unknown }).column;
+    if (typeof plane.filePath !== 'string' || typeof plane.line !== 'number'
+      || (column !== undefined && typeof column !== 'number')) {
+      return null;
+    }
+    return { kind: 'sketchLine', filePath: plane.filePath, line: plane.line, ...(typeof column === 'number' ? { column } : {}) };
+  }
   return null;
 }
 

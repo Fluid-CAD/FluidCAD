@@ -23,6 +23,7 @@ import { renderLoftConnections } from '../features/loft.ts';
 import type { MirrorAxisSpec } from '../features/mirror.ts';
 import { renderPlaneBaseExprs, renderPlaneStatement, validPlaneRotationAxes } from '../features/plane.ts';
 import { renderSectionPlaneExpr, renderSectionStatement, validSectionOptions } from '../features/section.ts';
+import { renderSplitPlaneExpr, renderSplitStatement, validSplitOptions, validSplitPlane } from '../features/split.ts';
 import { PROJECTION_OPS } from '../features/projection.ts';
 import type { RepeatAxisSpec, RepeatPlaneSpec } from '../features/repeat.ts';
 import { validTextStatementOptions } from '../features/text.ts';
@@ -473,6 +474,48 @@ export async function applyCreateEdit(
         () => renderSectionStatement(so, renderSectionPlaneExpr(so, spec.parts, () => null)),
         'section',
         spec.newVariables,
+      );
+    }
+  } else if (spec.feature === 'split') {
+    // Every target is a bound feature producer (solids, like a mirror's) —
+    // none for the implicit split of every solid; the cut is a standard
+    // plane, a plane producer, a picked face's own selector part, or a seed
+    // line already staged into its sketch export (an unstaged seed never
+    // reaches here — see SplitSeeds). Every part must belong to exactly one
+    // input, and for a split that input can only be the cut.
+    const so = spec.split;
+    const targets = so?.targets ?? [];
+    const selectorParts: number[] = [];
+    const claimPart = (part: number): boolean => {
+      if (!Number.isInteger(part) || part < 0 || part >= spec.parts.length) {
+        return false;
+      }
+      selectorParts.push(part);
+      return true;
+    };
+    const valid = so !== undefined
+      && validSplitOptions(so)
+      && Array.isArray(targets)
+      && targets.every(t => isCopyTargetProducer(spec, t.producer))
+      && new Set(targets.map(t => t.producer)).size === targets.length
+      && so.plane?.kind !== 'sketchLine'
+      && validSplitPlane(spec, so.plane, claimPart)
+      && selectorParts.length === spec.parts.length
+      && new Set(selectorParts).size === selectorParts.length;
+    if (!valid) {
+      return { newCode: code, error: 'malformed split edit spec' };
+    }
+    // A standard-plane split of every solid references no existing
+    // statement: it appends at the end of the active part's body (or the
+    // file), after the last feature — the bodies it cuts are the ones built
+    // before it.
+    if (spec.producers.length === 0 && spec.parts.length === 0) {
+      return appendTopLevelStatement(
+        code,
+        () => renderSplitStatement(so, renderSplitPlaneExpr(so.plane, spec.parts, () => null), []),
+        'split',
+        spec.newVariables,
+        spec.activePart,
       );
     }
   } else if (spec.feature === 'rotate') {

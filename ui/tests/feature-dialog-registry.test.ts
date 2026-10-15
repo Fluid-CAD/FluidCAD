@@ -139,7 +139,7 @@ class FakeService {
 
 const PART_ORDER = [
   'extrude', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix',
-  'repeat', 'copy', 'mirror', 'rotate', 'connector', 'boolean', 'plane', 'text',
+  'repeat', 'copy', 'mirror', 'rotate', 'split', 'connector', 'boolean', 'plane', 'text',
 ] as const;
 type PartId = typeof PART_ORDER[number];
 
@@ -305,7 +305,7 @@ describe('PartFeatureDialogs', () => {
   });
 
   it('gives a viewport click to the armed dialog only while its click slot is armed', () => {
-    const plainClickers: PartId[] = ['rib', 'hole', 'helix', 'repeat', 'copy', 'mirror', 'rotate', 'connector', 'boolean', 'plane'];
+    const plainClickers: PartId[] = ['rib', 'hole', 'helix', 'repeat', 'copy', 'mirror', 'rotate', 'split', 'connector', 'boolean', 'plane'];
     for (const id of plainClickers) {
       const service = arm(id);
       expect(registry.routeClick('s1', FACE), id).toBe(true);
@@ -355,7 +355,7 @@ describe('PartFeatureDialogs', () => {
   });
 
   it('routes plane quads, connector gizmos and sketch wires to the dialogs that take them', () => {
-    for (const id of ['repeat', 'mirror', 'plane'] as PartId[]) {
+    for (const id of ['repeat', 'mirror', 'split', 'plane'] as PartId[]) {
       arm(id);
       expect(registry.routePlanePick('q1'), id).toBe(false);
       fakes[id].planePicking = true;
@@ -388,7 +388,7 @@ describe('PartFeatureDialogs', () => {
       fakes[id].calls = [];
     }
 
-    const sketchTakers: PartId[] = ['extrude', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'plane'];
+    const sketchTakers: PartId[] = ['extrude', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'split', 'plane'];
     for (const id of PART_ORDER) {
       arm(id);
       expect(registry.routeSketchPick('w1'), id).toBe(sketchTakers.includes(id));
@@ -495,7 +495,7 @@ describe('PartFeatureDialogs', () => {
     const rowTypes = [
       'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix',
       'repeat-linear', 'repeat-circular', 'repeat-matrix', 'copy-linear', 'copy-circular', 'copy-pattern',
-      'mirror', 'rotate', 'connector', 'fuse', 'subtract', 'common', 'plane', 'text',
+      'mirror', 'rotate', 'split', 'connector', 'fuse', 'subtract', 'common', 'plane', 'text',
     ];
     for (const type of rowTypes) {
       expect(registry.editsRowType(type), type).toBe(true);
@@ -506,7 +506,7 @@ describe('PartFeatureDialogs', () => {
     const kinds: [ParsedFeatureStatement['feature'], PartId][] = [
       ['extrude', 'extrude'], ['rib', 'rib'], ['hole', 'hole'], ['revolve', 'revolve'], ['sweep', 'sweep'],
       ['wrap', 'wrap'], ['loft', 'loft'], ['helix', 'helix'], ['repeat', 'repeat'], ['copy', 'copy'],
-      ['mirror', 'mirror'], ['rotate', 'rotate'], ['connector', 'connector'], ['boolean', 'boolean'],
+      ['mirror', 'mirror'], ['rotate', 'rotate'], ['split', 'split'], ['connector', 'connector'], ['boolean', 'boolean'],
       ['plane', 'plane'], ['text', 'text'],
     ];
     for (const [kind, id] of kinds) {

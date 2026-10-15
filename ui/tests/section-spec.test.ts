@@ -80,3 +80,54 @@ describe('SectionPlaneMath.validate', () => {
     expect(SectionPlaneMath.validate({ plane: 3 }, 'image.section')).toContain('image.section.plane');
   });
 });
+
+describe('SectionPlaneMath.viewDirection', () => {
+  const angleOffNormal = (direction: number[], normal: number[]): number =>
+    (Math.acos(direction[0] * normal[0] + direction[1] * normal[1] + direction[2] * normal[2]) * 180) / Math.PI;
+
+  it('square-on is the removed direction itself: the cut face points at the camera', () => {
+    expect(SectionPlaneMath.viewDirection(SectionPlaneMath.resolve({ plane: 'xz' }), true)).toEqual([0, 1, 0]);
+    expect(SectionPlaneMath.viewDirection(SectionPlaneMath.resolve({ plane: 'xz', flip: true }), true)).toEqual([-0, -1, -0]);
+  });
+
+  it('tilts a horizontal-normal cut toward up and to the right of the normal, unit length, about 32° off square-on', () => {
+    const xz = SectionPlaneMath.viewDirection(SectionPlaneMath.resolve({ plane: 'xz' }));
+    expect(xz[1]).toBeGreaterThan(0);
+    expect(xz[2]).toBeGreaterThan(0);
+    expect(xz[0]).toBeGreaterThan(0);
+    expect(SectionPlaneMath.length(xz)).toBeCloseTo(1, 9);
+    expect(angleOffNormal(xz, [0, 1, 0])).toBeCloseTo(32.5, 0);
+
+    const yz = SectionPlaneMath.viewDirection(SectionPlaneMath.resolve({ plane: 'yz' }));
+    expect(yz[0]).toBeGreaterThan(0);
+    expect(yz[1]).toBeLessThan(0);
+    expect(yz[2]).toBeGreaterThan(0);
+    expect(angleOffNormal(yz, [1, 0, 0])).toBeCloseTo(angleOffNormal(xz, [0, 1, 0]), 9);
+  });
+
+  it('tilts a vertical-normal cut toward the front and right instead, the iso-ftr octant for a cut from above', () => {
+    const fromAbove = SectionPlaneMath.viewDirection(SectionPlaneMath.resolve({ plane: 'xy', offset: 10 }));
+    expect(fromAbove[2]).toBeGreaterThan(0);
+    expect(fromAbove[1]).toBeLessThan(0);
+    expect(fromAbove[0]).toBeGreaterThan(0);
+    expect(angleOffNormal(fromAbove, [0, 0, 1])).toBeCloseTo(32.5, 0);
+    const fromBelow = SectionPlaneMath.viewDirection(SectionPlaneMath.resolve({ plane: 'xy', flip: true }));
+    expect(fromBelow[2]).toBeLessThan(0);
+  });
+
+  it('follows the removed side: a flipped cut is looked at from the other half', () => {
+    const plain = SectionPlaneMath.viewDirection(SectionPlaneMath.resolve({ plane: 'xz' }));
+    const flipped = SectionPlaneMath.viewDirection(SectionPlaneMath.resolve({ plane: 'xz', flip: true }));
+    expect(flipped[1]).toBeLessThan(0);
+    expect(plain[1]).toBeGreaterThan(0);
+    expect(flipped[2]).toBeCloseTo(plain[2], 9);
+  });
+
+  it('works for a tilted explicit plane', () => {
+    const section = SectionPlaneMath.resolve({ plane: { origin: [0, 0, 0], normal: [1, 1, 0] } });
+    const direction = SectionPlaneMath.viewDirection(section);
+    expect(SectionPlaneMath.length(direction)).toBeCloseTo(1, 9);
+    expect(SectionPlaneMath.dot(direction, section.removedDirection)).toBeGreaterThan(0.8);
+    expect(direction[2]).toBeGreaterThan(0);
+  });
+});

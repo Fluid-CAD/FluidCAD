@@ -13,6 +13,7 @@ import type { RepeatFeatureService } from './create-feature/repeat-service';
 import type { RevolveFeatureService } from './create-feature/revolve-service';
 import type { RibFeatureService } from './create-feature/rib-service';
 import type { RotateFeatureService } from './create-feature/rotate-service';
+import type { SplitFeatureService } from './create-feature/split-service';
 import type { SweepFeatureService } from './create-feature/sweep-service';
 import type { TextEditService } from './create-feature/text-edit-service';
 import type { WrapFeatureService } from './create-feature/wrap-service';
@@ -35,6 +36,7 @@ export type PartDialogServices = {
   copy: CopyFeatureService;
   mirror: MirrorFeatureService;
   rotate: RotateFeatureService;
+  split: SplitFeatureService;
   connector: ConnectorFeatureService;
   boolean: BooleanFeatureService;
   plane: PlaneFeatureService;
@@ -242,6 +244,17 @@ export class PartFeatureDialogs {
       // armed) an edge or a connector gizmo is the rotation axis.
       claims: { click: (d) => d.isPicking, axis: (d) => d.isAxisPicking, connector: (d) => d.isConnectorPicking },
       timelinePicks: true,
+    }));
+    registry.register(new ServiceDialog('split', s.split, {
+      edit: { rowTypes: ['split'], kind: 'split', open: (t, p, i) => s.split.enterEdit(t, p, i) },
+      picking: (d) => d.isPicking,
+      // A face or edge selects its whole solid as a target, or (cut slot
+      // armed) a face or a plane quad is the cut plane; the cut slot also
+      // takes one sketched line as the seed of the plane it sweeps out of
+      // its sketch.
+      claims: { click: (d) => d.isPicking, plane: (d) => d.isPlanePicking },
+      timelinePicks: true,
+      sketchPicks: true,
     }));
     registry.register(new ServiceDialog('connector', s.connector, {
       // A connector row sits inside its part() body. The copies a `copy()`

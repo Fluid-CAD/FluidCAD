@@ -36,12 +36,12 @@ import {
   Mirror2DGhostRequest,
   Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, MirrorGhostRequest,
   OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, HoleGhostRequest, RotateGhostRequest,
-  SweepGhostRequest,
+  SplitGhostRequest, SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { getSceneManager } from "../scene-manager.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
-import { horizontal } from "../core/constraints/index.js";
+import { horizontal, vertical, fix, distance } from "../core/constraints/index.js";
 import { testRect } from "./helpers/profiles.js";
 import { runFluid, FLUID_FILE } from "./helpers/run-fluid.js";
 import { buildSketchRegions } from "../rendering/sketch-regions.js";
@@ -3897,4 +3897,132 @@ describe("feature ghost — rotate", () => {
     }
     throw new Error('no vertical edge in the scene');
   }
+});
+
+describe("feature ghost — split", () => {
+  setupOC();
+
+  const SPLIT_BASE: Omit<SplitGhostRequest, 'targets'> = {
+    feature: 'split',
+    keep: 'both',
+    offset: null,
+    plane: { kind: 'standard', plane: 'yz' },
+  };
+
+  function splitGhost(
+    scene: Scene,
+    lines: number[],
+    overrides: Partial<SplitGhostRequest> = {},
+  ): FeatureGhostResult {
+    return buildFeatureGhost(
+      scene,
+      {
+        ...SPLIT_BASE,
+        ...overrides,
+        targets: lines.map(line => ({ filePath: FILE, line })),
+      },
+      DEFAULT_MESH_CONFIG,
+    );
+  }
+
+  /** A 20 × 20 × 10 box at x 0…20, built by an `extrude()` addressable at `line`. */
+  function locatedBox(line: number): SceneObject {
+    sketch("xy", () => { testRect(20, 20); });
+    const solid = extrude(10).new() as unknown as SceneObject;
+    solid.setSourceLocation({ filePath: FILE, line, column: 0 });
+    return solid;
+  }
+
+  function solidsOf(result: FeatureGhostResult) {
+    if (!result.ok) {
+      throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
+    }
+    return result.solids;
+  }
+
+  it("draws the cut plane through the target and nothing else when both sides stay", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = splitGhost(scene, [5], { offset: 5 });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].kind).toBeUndefined();
+    expect(solids[0].plane).toBeDefined();
+    expect(solids[0].plane!.normal.x).toBeCloseTo(1, 6);
+    expect(solids[0].plane!.center.x).toBeCloseTo(5, 6);
+    // The quad — an unlabeled face triangulation, as the plane ghost's — reaches past the box on every side.
+    const vertices = solids[0].meshes[0].vertices;
+    const xs = vertices.filter((_, i) => i % 3 === 0);
+    const ys = vertices.filter((_, i) => i % 3 === 1);
+    expect(Math.min(...xs)).toBeCloseTo(5, 3);
+    expect(Math.max(...xs)).toBeCloseTo(5, 3);
+    expect(Math.min(...ys)).toBeLessThan(0);
+    expect(Math.max(...ys)).toBeGreaterThan(20);
+  });
+
+  it("paints the dropped side red when one side is kept", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = splitGhost(scene, [5], { offset: 5, keep: 'front' });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(2);
+    expect(solids[1].kind).toBe('remove');
+    // The back piece — x 0…5 — is what goes.
+    const dropped = bounds(result, 1);
+    expect(dropped.minX).toBeCloseTo(0, 3);
+    expect(dropped.maxX).toBeCloseTo(5, 3);
+  });
+
+  it("reads every solid of the scene when the statement names none", () => {
+    locatedBox(5);
+    sketch("xy", () => { testRect(20, 20, { at: [0, 40] }); });
+    extrude(10).new();
+    const scene = render();
+
+    const result = splitGhost(scene, [], { offset: 10, keep: 'back' });
+
+    // Both boxes straddle x = 10: one dropped piece each.
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(3);
+    expect(solids.filter(solid => solid.kind === 'remove')).toHaveLength(2);
+  });
+
+  it("seeds the plane from a sketched line", () => {
+    locatedBox(5);
+    let seed: SceneObject | undefined;
+    const s = locatedSketch(9, () => {
+      const l = line([6, -40], [6, 40]).guide();
+      vertical(l);
+      fix(l.start(), [6, -40]);
+      distance(l.start(), l.end(), 80);
+      seed = l as unknown as SceneObject;
+    });
+    void s;
+    seed!.setSourceLocation({ filePath: FILE, line: 10, column: 12 });
+    const scene = render();
+
+    const result = splitGhost(scene, [5], { plane: { kind: 'sketchLine', filePath: FILE, line: 10 }, keep: 'back' });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(2);
+    expect(solids[0].plane!.normal.x).toBeCloseTo(1, 6);
+    expect(solids[0].plane!.center.x).toBeCloseTo(6, 6);
+    // Front (+x) is dropped: the red piece spans x 6…20.
+    const dropped = bounds(result, 1);
+    expect(dropped.minX).toBeCloseTo(6, 3);
+    expect(dropped.maxX).toBeCloseTo(20, 3);
+  });
+
+  it("refuses targets and planes the scene does not hold", () => {
+    locatedBox(5);
+    const scene = render();
+
+    expect(splitGhost(scene, [99]).ok).toBe(false);
+    expect(splitGhost(scene, [5], { plane: { kind: 'plane', filePath: FILE, line: 99 } }).ok).toBe(false);
+    expect(splitGhost(scene, [5], { plane: { kind: 'sketchLine', filePath: FILE, line: 99 } }).ok).toBe(false);
+  });
 });

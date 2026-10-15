@@ -5377,6 +5377,194 @@ describe('apply-feature route validation', () => {
     });
   });
 
+  describe('split', () => {
+    const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
+    const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+    const CODE = [
+      "import { sketch, circle, extrude, cut } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { circle([0, 0], 100) })",
+      'extrude(30)',
+      "sketch('xy', () => { circle([0, 0], 10) })",
+      'cut(5)',
+      '',
+    ].join('\n');
+    const SEED_CODE = [
+      "import { sketch, circle, line, extrude } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { circle([0, 0], 100) })",
+      'extrude(30)',
+      "sketch('xy', () => {",
+      '  line([0, -50], [0, 50]).guide()',
+      '})',
+      '',
+    ].join('\n');
+
+    it('rejects a missing file, a bad plane, a bad keep and a duplicate target', async () => {
+      const noFile = await post({ feature: 'split', plane: { kind: 'standard', plane: 'yz' } });
+      expect(noFile.status).toBe(400);
+      expect(noFile.body.error).toContain('filePath');
+
+      const noPlane = await post({ feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1] });
+      expect(noPlane.status).toBe(400);
+      expect(noPlane.body.error).toContain('plane must be');
+
+      const badKeep = await post({
+        feature: 'split', filePath: '/ws/m.fluid.js', plane: { kind: 'standard', plane: 'yz' }, keep: 'left',
+      });
+      expect(badKeep.status).toBe(400);
+      expect(badKeep.body.error).toContain('keep must be');
+
+      const dup = await post({
+        feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1, T1], plane: { kind: 'standard', plane: 'yz' },
+      });
+      expect(dup.status).toBe(400);
+      expect(dup.body.error).toContain('picked twice');
+    });
+
+    it('previews and relays a split of named targets with its options', async () => {
+      currentCode = CODE;
+      const splitBody = {
+        feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1, T2],
+        plane: { kind: 'standard', plane: 'yz' }, keep: 'front', offset: 5,
+      };
+      const preview = await post({ ...splitBody, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe("split('yz', { keep: 'front', offset: 5 }, f, f2)");
+      expect(relayed).toEqual([]);
+
+      const { status, body } = await post(splitBody);
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      const spec = relayed[0].spec;
+      expect(spec.feature).toBe('split');
+      expect(spec.split).toEqual({
+        plane: { kind: 'standard', plane: 'yz' }, keep: 'front', offset: 5,
+        targets: [{ producer: 0 }, { producer: 1 }],
+      });
+      expect(spec.producers).toHaveLength(2);
+      expect(spec.producers.every((p: any) => p.featureType === 'feature' && p.bind)).toBe(true);
+    });
+
+    it('previews an implicit split of every solid with no options object', async () => {
+      currentCode = CODE;
+      const { status, body } = await post({
+        feature: 'split', filePath: '/ws/m.fluid.js', plane: { kind: 'standard', plane: 'xz' }, preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("split('xz')");
+    });
+
+    it('synthesizes a picked face through the plane kind', async () => {
+      currentCode = CODE;
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'plane',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+          imports: [],
+        },
+        preview: '',
+        args: 'e.endFaces(0)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'split', filePath: '/ws/m.fluid.js', targets: [T2],
+        plane: { kind: 'face', entity: PICK }, keep: 'back',
+      });
+      expect(status).toBe(200);
+      expect(synthesizeCalls).toEqual([{ feature: 'plane', value: undefined }]);
+      expect(body.preview).toContain("split(plane(e.endFaces(0)), { keep: 'back' }, ");
+      expect(relayed[0].spec.split.plane).toEqual({ kind: 'selector', part: 0 });
+      expect(relayed[0].spec.imports).toContain('plane');
+    });
+
+    it('previews a seed line as its sketch export and relays the sketch producer', async () => {
+      currentCode = SEED_CODE;
+      const splitBody = {
+        feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1],
+        plane: {
+          kind: 'sketchLine',
+          sketch: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
+          line: { filePath: '/ws/m.fluid.js', line: 6, column: 2 },
+        },
+      };
+      const preview = await post({ ...splitBody, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe('split(s.geometries.l1, f)');
+
+      const { status } = await post(splitBody);
+      expect(status).toBe(200);
+      const spec = relayed[0].spec;
+      expect(spec.split.plane).toEqual({ kind: 'sketchLine', producer: 1, target: { line: 6 } });
+      expect(spec.producers[1]).toMatchObject({ line: 5, column: 0, featureType: 'sketch', bind: true });
+    });
+  });
+
+  describe('split edit', () => {
+    const EDIT_CODE = [
+      "import { sketch, circle, extrude, cut, split } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { circle([0, 0], 100) })",
+      'const e = extrude(30)',
+      "sketch('xy', () => { circle([0, 0], 10) })",
+      'const c = cut(5)',
+      "split('yz', { keep: 'front' }, e)",
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 7, column: 0 };
+
+    it('relays an options change keeping the plane and targets, and previews it', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({ feature: 'split', edit: EDIT, keep: 'both', offset: 3 });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("split('yz', { offset: 3 }, e)");
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'split',
+        producers: [],
+        parts: [],
+        edit: { line: 7, column: 0, split: { plane: { kind: 'keep' }, keep: 'both', offset: 3 } },
+      });
+      expect(relayed[0].spec.edit.split.targets).toBeUndefined();
+    });
+
+    it('replaces the target list and re-sources the plane', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'split', edit: EDIT, keep: 'back',
+        plane: { kind: 'standard', plane: 'xz' },
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'feature', filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("split('xz', { keep: 'back' }, e, c)");
+      expect(relayed[0].spec.edit.split).toMatchObject({
+        plane: { kind: 'standard', plane: 'xz' },
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+      });
+    });
+
+    it('makes the split implicit with an empty target list', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({ feature: 'split', edit: EDIT, keep: 'both', targets: [] });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("split('yz')");
+    });
+
+    it('rejects a bad keep on an edit', async () => {
+      const { status, body } = await post({ feature: 'split', edit: EDIT, keep: 'left' });
+      expect(status).toBe(400);
+      expect(body.error).toContain('keep must be');
+    });
+  });
+
   describe('rotate', () => {
     const EDGE_PICK = { shapeId: 'shape-1', sub: { type: 'edge', index: 0 } };
     const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };

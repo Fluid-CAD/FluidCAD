@@ -43,6 +43,7 @@ import { RepeatFeatureService } from './interactive/create-feature/repeat-servic
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { MirrorFeatureService } from './interactive/create-feature/mirror-service';
 import { RotateFeatureService } from './interactive/create-feature/rotate-service';
+import { SplitFeatureService } from './interactive/create-feature/split-service';
 import { ConnectorFeatureService } from './interactive/create-feature/connector-service';
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
@@ -2128,8 +2129,24 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
 });
+// Constructed after the rotate service so the three transform tools sit
+// together in one group (…, Repeat, Copy, | Mirror, Rotate, Split).
+const splitService = new SplitFeatureService(container, viewer, navbar, {
+  // The current selection seeds the dialog: every selected face/edge
+  // resolves to its owning solid, opening as a target chip, and a pending
+  // plane fills the cut slot. enterPartDialog captures both before its exits
+  // clear them.
+  onEnter: () => {
+    const { selection, pendingPlane } = enterPartDialog('split', { clearPendingPlane: true });
+    return { seed: selection, pendingPlaneShapeId: pendingPlane };
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+  filePath: () => currentSceneAbsPath,
+});
 // Constructed after the transform services so its own navbar group registers
-// after theirs (…, | Mirror, Rotate, | separator |, Boolean).
+// after theirs (…, | Mirror, Rotate, Split, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: every selected face/edge
   // resolves to its owning solid, opening as a target chip. enterPartDialog
@@ -2174,6 +2191,7 @@ PartFeatureDialogs.register(featureDialogs, {
   copy: copyService,
   mirror: mirrorService,
   rotate: rotateService,
+  split: splitService,
   connector: connectorService,
   boolean: booleanService,
   plane: planeService,

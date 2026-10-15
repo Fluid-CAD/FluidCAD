@@ -6,6 +6,7 @@ import {
   MAX_MIRROR_TARGETS,
   MAX_REPEAT_TARGETS,
   MAX_ROTATE_TARGETS,
+  MAX_SPLIT_TARGETS,
 } from '../apply-feature/index.ts';
 import {
   parseAxes,
@@ -23,6 +24,7 @@ import {
   REPEAT_KINDS,
   SWEEP_MODES,
   type GhostBody,
+  SPLIT_KEEPS,
 } from './vocabulary.ts';
 
 /** One linear direction before its numbers are resolved. */
@@ -274,6 +276,34 @@ export function parseMirror(body: GhostBody): RawMirror | string {
     return 'Invalid mirror plane';
   }
   return { targets, plane };
+}
+
+/** A split request's slots, before its offset is resolved. */
+export type RawSplit = {
+  targets: { filePath: string; line: number }[];
+  plane: GhostPlaneRef;
+  keep: 'both' | 'front' | 'back';
+};
+
+/**
+ * The split dialog's slots: target statements (none for every solid), the
+ * cut to part them along — a plane or a seed line — and the side to keep.
+ * The offset is a value the router resolves like the plane's.
+ */
+export function parseSplit(body: GhostBody): RawSplit | string {
+  const targets = body.targets === undefined || body.targets === null ? [] : parseSourceRefs(body.targets);
+  if (!targets || targets.length > MAX_SPLIT_TARGETS) {
+    return 'Invalid split targets';
+  }
+  const plane = parsePlane(body.plane);
+  if (!plane) {
+    return 'Invalid split plane';
+  }
+  const keep = (body as { keep?: unknown }).keep ?? 'both';
+  if (typeof keep !== 'string' || !SPLIT_KEEPS.includes(keep)) {
+    return 'Invalid split keep';
+  }
+  return { targets, plane, keep: keep as RawSplit['keep'] };
 }
 
 /** A rotate request's slots, before its angle is resolved. */

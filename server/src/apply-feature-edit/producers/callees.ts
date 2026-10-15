@@ -25,6 +25,10 @@ const REPEAT_TARGET_CALLEES = new Set([
   'fillet', 'chamfer', 'draft', 'cylinder', 'sphere', 'helix',
   'fuse', 'subtract', 'common', 'mirror', 'translate', 'rotate',
   'repeat', 'copy', 'load', 'part', 'select',
+  // A colour holds the recoloured copy of the solid it painted, and a split
+  // the pieces it made: either is the body a later target pick lands on
+  // when it is the last feature to touch that body.
+  'color', 'split',
 ]);
 
 /**

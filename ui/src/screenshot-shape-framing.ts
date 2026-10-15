@@ -2,6 +2,7 @@ import { Box3, Vector3, type Object3D, type OrthographicCamera, type Perspective
 import { computeTightFraming, type FitLens } from './scene/camera-fit';
 import { geometryPartsOf, unionBox } from './scene/scene-geometry-bounds';
 import { orientCameraForView, resolveView, type ScreenshotView } from './screenshot-view';
+import type { ResolvedSection } from './scene/section-spec';
 import { ScreenshotScopes } from './screenshot-overlays';
 
 // Mirrored from server/src/ws-protocol.ts — the UI does not import the
@@ -87,6 +88,8 @@ export class ScreenshotShapeFraming {
    * `size` canvas. `current` is the interactive camera's eye and target, which
    * the `current` and `orbit-from-current` views start from. A `look-from`
    * view lends its direction only: the fit decides where the camera stands.
+   * `section` is the capture's resolved section, which the `section` view
+   * kind looks at (null sends that kind to iso-ftr, as `resolveView` does).
    * Returns false, leaving the camera as `view` would have pointed it, when
    * there is no direction or nothing with extent to frame.
    */
@@ -95,11 +98,12 @@ export class ScreenshotShapeFraming {
     view: ScreenshotView,
     current: { eye: Vector3; target: Vector3 },
     size: { width: number; height: number },
+    section: ResolvedSection | null = null,
   ): boolean {
     const bounds = unionBox(this.parts);
     const center = bounds.getCenter(new Vector3());
     const diameter = bounds.getSize(new Vector3()).length();
-    const direction = ScreenshotShapeFraming.directionFor(camera, view, center, diameter, current);
+    const direction = ScreenshotShapeFraming.directionFor(camera, view, center, diameter, current, section);
     if (!direction) {
       return false;
     }
@@ -147,12 +151,13 @@ export class ScreenshotShapeFraming {
     center: Vector3,
     diameter: number,
     current: { eye: Vector3; target: Vector3 },
+    section: ResolvedSection | null,
   ): Vector3 | null {
     let direction: Vector3;
     if (view.kind === 'current') {
       direction = camera.getWorldDirection(new Vector3()).negate();
     } else {
-      const resolved = resolveView(view, center, diameter, current.eye, current.target);
+      const resolved = resolveView(view, center, diameter, current.eye, current.target, section);
       if (!resolved) {
         return null;
       }

@@ -68,7 +68,17 @@ export async function screenshot(input: ScreenshotInput): Promise<ToolResult<Ima
   if (validated.ok === false) {
     return validated;
   }
-  return runScreenshot(input, validated.data, /* multi */ false);
+  const opts: ValidatedOptions = { ...validated.data };
+  // A section with no view asked for is looked at: the user's camera, or a
+  // named view, as often as not faces the kept half and shows no cut at all.
+  if (opts.section && opts.view === undefined) {
+    opts.view = ScreenshotViews.SECTION_DEFAULT;
+  }
+  const problem = ScreenshotViews.sectionViewError(opts.view, undefined, opts.section !== undefined);
+  if (problem) {
+    return err('invalid-input', problem);
+  }
+  return runScreenshot(input, opts, /* multi */ false);
 }
 
 export type ScreenshotMultiInput = WorkspaceArg & ScreenshotOverlayInput & {
@@ -97,6 +107,14 @@ export async function screenshotMulti(
       return err('invalid-input', views);
     }
     opts.views = views;
+  } else if (opts.section) {
+    // The default grid faces away from most cuts; a section is looked at
+    // tilted and square-on instead.
+    opts.views = ScreenshotViews.SECTION_DEFAULT_MULTI;
+  }
+  const problem = ScreenshotViews.sectionViewError(undefined, opts.views, opts.section !== undefined);
+  if (problem) {
+    return err('invalid-input', problem);
   }
   return runScreenshot(input, opts, /* multi */ true);
 }
@@ -174,7 +192,10 @@ export class ScreenshotShapeRequest {
       shapes: [input.shapeId],
       ...(input.margin !== undefined ? { margin: input.margin } : {}),
     };
-    const body: Record<string, unknown> = { view: ScreenshotShapeRequest.VIEW, ...overlays.data, fitTo };
+    // A section is looked at instead of the iso vantage, which faces away
+    // from most cuts; the shape framing still places the camera on the shape.
+    const view: ScreenshotView = overlays.data.section ? ScreenshotViews.SECTION_DEFAULT : ScreenshotShapeRequest.VIEW;
+    const body: Record<string, unknown> = { view, ...overlays.data, fitTo };
     if (input.width !== undefined) { body.width = input.width; }
     if (input.height !== undefined) { body.height = input.height; }
     if (input.showGrid !== undefined) { body.showGrid = input.showGrid; }

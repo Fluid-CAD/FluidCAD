@@ -61,6 +61,7 @@ export const UNIQUE_TYPE_ICONS: Record<string, string> = {
   'repeat-matrix': 'repeat-linear',
   'rotate-shape': 'rotate',
   'slot-from-edge': 'slot',
+  'split-solid': 'split',
   'tarc-radius-to-point': 'tarc',
   'tarc-to-point': 'tarc',
   'tarc-to-point-tangent': 'tarc',

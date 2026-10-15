@@ -1,0 +1,63 @@
+---
+sidebar_position: 13
+title: "Split"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import splitPlane from '!!raw-loader!./_examples/split-plane.js';
+import splitLine from '!!raw-loader!./_examples/split-line.js';
+
+# Split
+
+Split parts a solid at a plane. Every body the plane crosses becomes the pieces on either side, each a body of its own with a flat cap where the cut went through. Reach for it to make a two-piece housing from one shape, to keep only one side of a body, or to cut a model up for printing.
+
+## In the viewport
+
+1. Click **Split** on the toolbar, next to Mirror and Rotate. The Split dialog opens docked on the right.
+2. Pick the cut. The **Cut** slot opens armed and takes three kinds of pick:
+   - an origin plane, shown as a quad in the viewport, or a `plane()` feature's quad or timeline row;
+   - a planar face of the model — the cut runs along that face's plane;
+   - a sketched line, clicked in the viewport. The line seeds an infinite plane: the plane that contains the line and stands normal to its sketch, as if the line were extruded out of the sketch both ways. A construction line drawn for the purpose is the usual seed.
+3. Pick the **Solids** to split, or leave the slot empty to split every solid in the scene. A face or edge click selects the owning solid whole; a timeline row works too.
+4. Choose what to keep with the **Both / Front / Back** tabs. *Front* is the side the plane normal points to, *Back* the other; *Both* keeps every piece. Type an **Offset** to move the plane along its normal first.
+5. Click **Apply**. The timeline gains a Split row and the statement is written to the file.
+
+While the dialog is open, a translucent quad shows the cut plane running through the bodies it reaches. When one side is dropped, the pieces that will go are drawn in red.
+
+Double-clicking the Split row reopens the dialog over the statement: the cut, the solids and the options are all editable in place.
+
+## At a plane
+
+The block is parted at the YZ plane moved 10 towards +x, then the two pieces are slid apart:
+
+<ExplainedCode code={splitPlane} title="Split at an offset origin plane" />
+
+The split statement holds every piece it made. A later feature naming the split — `translate(v, halves)` here — reads all of them, and `remove(halves)` would drop them all.
+
+## Along a sketched line
+
+A line drawn on a sketch seeds the cut. The line is exported from its sketch through the callback's `return { seed }`, so the statement can name it as `s.geometries.seed`:
+
+<ExplainedCode code={splitLine} title="Split along a construction line, keeping one side" />
+
+The plane's x-direction is the line's own direction and its normal is the line turned a quarter turn inside the sketch, so with `keep: 'front'` the piece to the right of the line (looking along it from the sketch's front) stays. Switch to `'back'` for the other one. The sketch is consumed for display, exactly as an extrude consumes its profile: its wires leave the viewport from the split on, and the eye on its timeline row shows them again. The line itself stays readable by later features.
+
+## In code
+
+```js
+split('xz');                                        // every body, at the XZ plane
+split(p, boss);                                     // one body, at a plane() statement
+split(plane(select(face().onPlane('yz', 20)), -8)); // 8 inside the +x face
+split('yz', { keep: 'front' }, body);               // keep the +x half only
+split(s.geometries.seed, { offset: 3 });            // along a sketched line, moved 3
+```
+
+| Argument | What it takes |
+|----------|---------------|
+| cut | `'xy'`, `'xz'`, `'yz'`, a `plane()` statement, a planar face selection, or a `line()` of a sketch |
+| options | `{ keep: 'both' \| 'front' \| 'back', offset: number }` — both optional |
+| targets | the solids to split; none for every solid in scope |
+
+A solid the plane misses, or only touches along a face or an edge, is left exactly as it is. A split whose plane crosses none of the solids builds nothing and reports it on its timeline row; one with no solid in scope at all is an error.
+
+See the [API reference](/docs/api/features/3d/split) for the full signature.

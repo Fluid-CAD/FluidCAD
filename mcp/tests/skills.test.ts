@@ -133,11 +133,11 @@ describe('skills policy', () => {
     // An agent starts from the core skill: a layered skill it never names
     // (custom features, assemblies, drawings) is one the agent won't reach
     // for when the task turns that way.
-    const core = fs.readFileSync(path.join(skillsDir, 'FluidCAD', 'SKILL.md'), 'utf8');
+    const core = fs.readFileSync(path.join(skillsDir, 'fluidcad', 'SKILL.md'), 'utf8');
     const layered = fs.readdirSync(skillsDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && entry.name !== 'FluidCAD')
+      .filter((entry) => entry.isDirectory() && entry.name !== 'fluidcad')
       .map((entry) => entry.name);
-    expect(layered).toContain('FluidCAD-custom-features');
+    expect(layered).toContain('fluidcad-custom-features');
     for (const name of layered) {
       expect(core, `the FluidCAD skill never names ${name}`).toContain(`**${name}**`);
     }

@@ -1,0 +1,78 @@
+---
+sidebar_position: 10
+title: "Reference Image"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import toolReferenceImage from '!!raw-loader!../_examples/tool-reference-image.js';
+
+# Reference Image
+
+Place a drawing, photo or scan on the sketch plane to trace over it. The picture sits behind your sketch geometry; it does not create curves, participate in constraints or become part of an extruded profile.
+
+## In the viewport
+
+1. [Start or reopen a sketch](/docs/sketching/introduction#starting-a-sketch).
+2. Click **Image** on the sketch toolbar (its tooltip is **Reference Image**).
+3. In the **Reference image** dialog, click **Choose image…** and select a PNG, JPEG, WebP, GIF or BMP file. The picture appears immediately with a frame and handles, initially half the viewport wide.
+
+<UiFigure
+  src="/img/docs/ui/sketch-toolbar.png"
+  alt="The sketch toolbar, with the Image button between Text and Fillet"
+  rings={[{x: 56.2, y: 14, w: 3.2, h: 72}]}
+  caption="Open Image while a sketch is active."
+/>
+
+4. Position and size the picture using the handles described below. Use **Calibrate…** when the drawing contains a known dimension.
+5. Adjust **Opacity** so your sketch lines remain easy to see, then click **Apply**. FluidCAD copies the chosen file into an `images/` folder beside the model and writes an `image()` statement first in the sketch body.
+
+<UiFigure
+  src="/img/docs/ui/reference-image-dialog.png"
+  alt="Reference image dialog showing a chosen plate drawing, its size and centre, Calibrate, an Opacity slider, and Apply and Cancel buttons"
+  markers={[
+    {n: 1, x: 4, y: 22, label: 'Choose image…', description: 'Load a picture or replace the current one.'},
+    {n: 2, x: 4, y: 41.5, label: 'Size and position', description: 'Read-only values update as you drag the picture and its handles.'},
+    {n: 3, x: 4, y: 54, label: 'Calibrate…', description: 'Set the scale from two points and a known distance.'},
+    {n: 4, x: 4, y: 73, label: 'Opacity', description: 'Fade the picture underneath your sketch lines.'},
+  ]}
+  caption="Apply saves the placement. Cancel discards the preview."
+/>
+
+<ExplainedCode code={toolReferenceImage} fileName="plate.part.js">
+The image path is relative to the model file. To try this example, save the [sample plate drawing](/img/docs/sketching/plate-drawing.png) as `images/plate-drawing.png` beside it, or choose your own image through the dialog. The example sets the full picture width to 100 document units; the dialog screenshot shows the initial placement before sizing it.
+</ExplainedCode>
+
+## Move, resize and rotate
+
+| Action | Gesture |
+|---|---|
+| Move | Drag the picture. |
+| Resize with the original proportions | Drag a corner handle. The opposite corner stays in place. |
+| Stretch width and height independently | Hold <kbd>Shift</kbd> while dragging a corner. |
+| Rotate | Drag the knob above the picture's top edge. |
+| Rotate in steps | Hold <kbd>Shift</kbd> while rotating to snap to 15° increments. |
+
+The dialog reports the width, height and centre in the document unit, plus the angle when rotated. These are readouts, not input fields. In code, `at` is the picture's centre in sketch coordinates, and `angle` is a counter-clockwise rotation in degrees.
+
+## Calibrate to a known dimension
+
+1. Click **Calibrate…**.
+2. Click the first point on the picture, then the second point. Use two clearly identifiable points whose real separation you know, such as the endpoints of a dimension line.
+3. In the floating **Distance** field, enter the real distance in document units and press <kbd>Enter</kbd>. For example, if the drawing labels the span as 80 mm and the document uses millimetres, enter `80`.
+4. The picture scales about its centre so those points are that far apart. Reposition it if needed, then click **Apply** to save.
+
+Use **Cancel calibration** or <kbd>Esc</kbd> to leave calibration without completing it. Calibration changes the picture's scale; it does not add a sketch dimension or resize geometry you have already drawn. Calibrate before tracing, then [dimension and constrain](/docs/sketching/constraints/introduction) the traced geometry.
+
+## Trace and edit later
+
+After **Apply**, draw over the picture with the usual sketch tools. The picture remains visible wherever the sketch is shown and hides with the sketch's lines when a 3D feature consumes it.
+
+- **Edit:** double-click the picture's **Image** row under the sketch in the timeline. The sketch reopens with the picture's handles. Move, resize, rotate, recalibrate or change opacity, then **Apply**.
+- **Replace:** open that same row and use **Choose image…** to select another file.
+- **Add another picture:** click **Image** on the sketch toolbar again. Each picture has its own timeline row.
+- **Remove:** right-click the picture's timeline row and choose **Remove**.
+
+<kbd>Esc</kbd> cancels a calibration or drag in progress first; otherwise it leaves the tool. Keep the `images/` folder with the model when moving or sharing the source files.
+
+For all code options, including explicit width and height, see the [`image()` API reference](/docs/api/features/2d/image).

@@ -43,6 +43,7 @@ import type {
 } from './features/loft.ts';
 import type { MirrorAxisSpec, MirrorEditOptions } from './features/mirror.ts';
 import type { SectionEditOptions } from './features/section.ts';
+import type { SplitEditOptions, SplitEditPlane } from './features/split.ts';
 import type { OffsetEditOptions } from './features/offset.ts';
 import type { PlaneEditBase, PlaneEditOptions, PlaneValueOptions } from './features/plane.ts';
 import type { ProjectEditOptions } from './features/projection.ts';
@@ -70,7 +71,7 @@ import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'custom';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'custom';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -138,6 +139,8 @@ export type ApplyFeatureEditSpec = {
   mirror?: MirrorEditOptions;
   /** Section-only payload; `parts` (if any) render the plane selector. */
   section?: SectionEditOptions;
+  /** Split-only payload; `parts` (if any) render the plane selector, a seed line is staged into an expression first. */
+  split?: SplitEditOptions;
   /** Rotate-only payload; `parts` (if any) render the axis-edge selector. */
   rotate?: RotateEditOptions;
   /** Boolean-only payload (fuse/subtract/common); no selector parts. */
@@ -775,6 +778,23 @@ export type FeatureStatementEditTarget = {
     axis?: { kind: 'keep' } | MirrorAxisSpec;
     /** How the reflected bodies land: fused (the default), cut, or standalone. */
     op: 'add' | 'remove' | 'new';
+    /** Full replacement target list; absent keeps the statement's targets. */
+    targets?: RepeatEditTargetSource[];
+  };
+  /**
+   * Split options. The cut slot carries a keep entry that re-reads the
+   * statement's own cut text at apply time; a re-sourced cut renders from
+   * producers/parts like create mode, a seed line staged into its sketch
+   * export first. The target list mixes `verbatim` keeps with re-picked
+   * feature statements; an absent list keeps every statement target, an
+   * empty one makes the split implicit. `keep` and `offset` rewrite the
+   * options object wholesale.
+   */
+  split?: {
+    /** The cut; `keep` re-emits the statement's own expression. */
+    plane?: SplitEditPlane;
+    keep: SplitEditOptions['keep'];
+    offset: SplitEditOptions['offset'];
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];
   };

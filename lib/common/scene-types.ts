@@ -19,7 +19,7 @@ export class SceneTypes {
     'chamfer', 'color', 'common', 'copy-circular', 'copy-linear', 'copy-pattern', 'cut', 'cylinder',
     'draft', 'extrude', 'fillet', 'fuse', 'helix', 'hole', 'load', 'loft', 'mirror', 'remove',
     'repeat-circular', 'repeat-linear', 'repeat-matrix', 'revolve', 'rib', 'rotate', 'section',
-    'shell', 'sphere', 'subtract', 'sweep', 'translate', 'wrap',
+    'shell', 'sphere', 'split', 'subtract', 'sweep', 'translate', 'wrap',
     // Selections, datums and references
     'axis', 'connector', 'exposed', 'fixed-location', 'frozen-geometry', 'lazy-vertex', 'plane',
     'select', 'static',

@@ -12,12 +12,34 @@ export type ScreenshotView =
   | { kind: 'current' }
   | { kind: 'named'; name: NamedView }
   | { kind: 'orbit-from-current'; azimuthDeg: number; elevationDeg: number }
+  /** Looks at the capture's `section` from the removed half: tilted off the cut normal, or square-on with `straight`. */
+  | { kind: 'section'; straight?: boolean }
   | { kind: 'look-from'; eye: [number, number, number]; target?: [number, number, number] };
 
 export class ScreenshotViews {
 
   static readonly MIN_MULTI = 2;
   static readonly MAX_MULTI = 6;
+
+  /** The view a capture with a section takes when none is asked for: the cut, tilted so the kept half's depth reads. */
+  static readonly SECTION_DEFAULT: ScreenshotView = { kind: 'section' };
+  /** A multi capture's cells with a section and no `views`: the tilted section view beside the square-on one. */
+  static readonly SECTION_DEFAULT_MULTI: ScreenshotView[] = [{ kind: 'section' }, { kind: 'section', straight: true }];
+
+  /** A `section` view has nothing to look at without a section: the refusal, or null when every view has one. */
+  static sectionViewError(view: ScreenshotView | undefined, views: ScreenshotView[] | undefined, hasSection: boolean): string | null {
+    if (hasSection) {
+      return null;
+    }
+    if (view?.kind === 'section') {
+      return '`view.kind` "section" looks at the capture\'s section: pass `section` with it.';
+    }
+    const index = views?.findIndex((v) => v.kind === 'section') ?? -1;
+    if (index >= 0) {
+      return `\`views[${index}].kind\` "section" looks at the capture's section: pass \`section\` with it.`;
+    }
+    return null;
+  }
 
   /** The parsed view, or an error message naming the field under `label`. */
   static validate(raw: unknown, label = '`view`'): ScreenshotView | string {
@@ -57,8 +79,14 @@ export class ScreenshotViews {
           target: v.target as [number, number, number] | undefined,
         };
       }
+      case 'section': {
+        if (v.straight !== undefined && typeof v.straight !== 'boolean') {
+          return `${field('straight')} must be a boolean when provided.`;
+        }
+        return { kind: 'section', ...(v.straight !== undefined ? { straight: v.straight as boolean } : {}) };
+      }
       default:
-        return `${field('kind')} must be one of: current, named, orbit-from-current, look-from.`;
+        return `${field('kind')} must be one of: current, named, orbit-from-current, look-from, section.`;
     }
   }
 

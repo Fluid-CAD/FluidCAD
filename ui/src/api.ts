@@ -487,6 +487,7 @@ export type FeatureGhostRequest =
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
+  | SplitGhostRequest
   | RotateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
@@ -839,6 +840,30 @@ export type MirrorGhostRequest = {
 };
 
 /**
+ * The split on the ghost wire: the cut plane the statement would part the
+ * bodies along, sized to them, plus — when one side is dropped — the pieces
+ * that go, in the cut's red. The kept pieces are never drawn; they are the
+ * geometry already on screen.
+ */
+export type SplitGhostRequest = {
+  feature: 'split';
+  /** The pieces the split keeps. */
+  keep: 'both' | 'front' | 'back';
+  /** Distance the plane is moved along its normal; null when the field is empty. */
+  offset: ValueExpr | null;
+  /** The solid-bearing statements being split, by call site; empty for every solid in the scene. */
+  targets: { filePath: string; line: number }[];
+  /** The plane to cut along, or the sketched line seeding it. */
+  plane: GhostPlaneRef;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
  * The rotate on the ghost wire — the transform sibling of the mirror: the
  * target solids' own bodies stamped once, under the one rotation matrix the
  * apply itself will use. The copy flag never travels — either way the stamp
@@ -870,7 +895,9 @@ export type RotateGhostRequest = {
 export type GhostPlaneRef =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'plane'; filePath: string; line: number }
-  | { kind: 'face'; shapeId: string; index: number };
+  | { kind: 'face'; shapeId: string; index: number }
+  /** A sketched line by its statement's call site inside its sketch — the split dialog's seed. */
+  | { kind: 'sketchLine'; filePath: string; line: number; column?: number };
 
 /**
  * The plane dialog on the ghost wire, and the second feature (after the helix)
@@ -3191,6 +3218,54 @@ export async function applyMirror(options: MirrorApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
+/**
+ * The cut of a split request: the mirror's plane shapes, or a sketched line
+ * — the line statement's call site inside its sketch plus the sketch
+ * statement's own, so the server can export the line through the sketch
+ * callback's return value (`s.geometries.l`).
+ */
+export type SplitPlaneRef =
+  | RepeatPlaneRef
+  | { kind: 'sketchLine'; sketch: SketchSourceRef; line: SketchSourceRef };
+
+export type SplitKeepSide = 'both' | 'front' | 'back';
+
+export type SplitApplyOptions = {
+  /** The solid-bearing statements being split (whole-solid picks), in order; empty splits every solid in scope. */
+  targets: SketchSourceRef[];
+  /** The cut — a plane, or a sketched line seeding one. */
+  plane: SplitPlaneRef;
+  /** The pieces the split keeps. */
+  keep: SplitKeepSide;
+  /** Distance the plane is moved along its normal; null for none. */
+  offset: ValueExpr | null;
+  /** The file the statement lands in. */
+  filePath: string;
+  /** Declarations the dialog's offset field committed (`myVar = 5`). */
+  newVariables?: NewVariable[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a split
+ * statement parting the target solids at a plane. Same endpoint and
+ * response shape as {@link applyFeature}.
+ */
+export async function applySplit(options: SplitApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'split',
+    targets: options.targets,
+    plane: options.plane,
+    keep: options.keep,
+    offset: options.offset,
+    filePath: options.filePath,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 export type RotateApplyOptions = {
   /** The solid-bearing statements being rotated (whole-solid picks), in order. */
   targets: SketchSourceRef[];
@@ -3340,6 +3415,12 @@ export type FeatureSourcesResult =
    * an empty target list.
    */
   | { ok: true; feature: 'mirror'; targets: SourceSlotRef[]; plane: SourceSlotRef }
+  /**
+   * A split: the solids it cuts, by call site — empty for an implicit split
+   * of every solid in scope — plus the cut: a plane the way a mirror's
+   * resolves, or the sketched line seeding it, by the line's call site.
+   */
+  | { ok: true; feature: 'split'; targets: SourceSlotRef[]; plane: SourceSlotRef }
   /**
    * A standalone rotate: the solids it turns, by call site, plus the axis it
    * turns them around. A world-axis literal is `opaque` as it is for a
@@ -3702,6 +3783,23 @@ export type ParsedFeatureStatement =
       /** Mirror plane argument text, verbatim. */
       planeText: string;
       /** Trailing target texts, verbatim; empty mirrors the previous feature. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
+    }
+  | {
+      feature: 'split';
+      /** The cut argument text — a plane or a seed line — verbatim. */
+      planeText: string;
+      /** The pieces the statement keeps; `both` when the option is absent. */
+      keep: SplitKeepSide;
+      /** The plane offset along its normal; null when the option is absent. */
+      offset: ValueExpr | null;
+      /** Trailing target texts, verbatim; empty splits every solid in scope. */
       targetTexts: string[];
       /**
        * Per-target source location of the statement a plain-identifier target
@@ -4356,6 +4454,45 @@ export type RotateEditAxisRef = { kind: 'keep' } | RevolveAxisRef;
 export type RotateEditTargetRef =
   | { kind: 'verbatim'; sourceIndex: number }
   | ({ kind: 'feature' } & SketchSourceRef);
+
+/** The cut slot of an edited split: keep the statement's own text, or any create-mode cut. */
+export type SplitEditPlaneRef = { kind: 'keep' } | SplitPlaneRef;
+
+export type SplitEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type SplitEditOptions = EditSessionFields & {
+  /** The cut; `keep` re-emits the statement's own expression. */
+  plane: SplitEditPlaneRef;
+  keep: SplitKeepSide;
+  offset: ValueExpr | null;
+  /** Declarations the dialog's offset field committed (`myVar = 5`). */
+  newVariables?: NewVariable[];
+  /** Full replacement target list; omitted keeps the statement's own, empty makes the split implicit. */
+  targets?: SplitEditTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the split statement at `edit` in place. */
+export async function applySplitEdit(
+  edit: FeatureEditTarget,
+  options: SplitEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'split',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    plane: options.plane,
+    keep: options.keep,
+    offset: options.offset,
+    targets: options.targets,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
 
 export type RotateEditOptions = EditSessionFields & {
   /** The rotation axis; `keep` re-emits the statement's own expression. */

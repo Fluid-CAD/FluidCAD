@@ -221,6 +221,7 @@ app.use('/api', createScreenshotRouter(
   requestScreenshot,
   request => fluidCadServer.resolveSelection(request),
   () => fluidCadServer.getSceneTargetIds(),
+  id => fluidCadServer.getSceneSummary()?.objects.find(o => o.id === id) ?? null,
 ));
 app.use('/api', createPreferencesRouter((prefs) => setMaxWorkers(prefs.maxWorkers)));
 app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));

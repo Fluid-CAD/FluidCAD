@@ -571,11 +571,13 @@ claude mcp add --scope user FluidCAD -- npx -y fluidcad mcp
 }
 ```
 
-Then install the companion skill so agents follow the FluidCAD workflow:
+The server serves the companion FluidCAD skills to the agent itself, at the version matching the server: it implements the MCP Skills Extension (SEP-2640), so hosts that support it list `skill://fluidcad/SKILL.md` and its siblings next to local skills, and every other client gets them through the `list_skills` / `read_skill` tools, which the startup instructions point at before modeling. Clients with native skill support can additionally install them for automatic triggering:
 
 ```bash
 npx skills add Fluid-CAD/FluidCAD
 ```
+
+An installed copy is frozen at install time, so re-run that after upgrading `fluidcad`.
 
 The agent drives a **running** workspace, so start one first — with `fluidcad serve` or an editor extension — and the MCP server attaches to it.
 

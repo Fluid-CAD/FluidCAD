@@ -17,6 +17,7 @@ import { renderRibStatement } from '../features/rib.ts';
 import { renderHolePlacementExprs, renderHoleStatement } from '../features/hole.ts';
 import { renderRotateStatement } from '../features/rotate.ts';
 import { renderSectionPlaneExpr, renderSectionStatement } from '../features/section.ts';
+import { renderSplitPlaneExpr, renderSplitStatement } from '../features/split.ts';
 import { renderShellJoinChain } from '../features/shell.ts';
 import { renderSweepStatement } from '../features/sweep.ts';
 import { renderTextStatement } from '../features/text.ts';
@@ -140,6 +141,12 @@ export function buildStatement(
   if (spec.feature === 'section') {
     const so = spec.section!;
     return renderSectionStatement(so, renderSectionPlaneExpr(so, spec.parts, i => bindings[i].varName));
+  }
+  if (spec.feature === 'split') {
+    const so = spec.split!;
+    const varFor = (i: number): string | null => bindings[i].varName;
+    return renderSplitStatement(so, renderSplitPlaneExpr(so.plane, spec.parts, varFor),
+      so.targets.map(t => bindings[t.producer].varName!));
   }
   if (spec.feature === 'rotate') {
     const ro = spec.rotate!;

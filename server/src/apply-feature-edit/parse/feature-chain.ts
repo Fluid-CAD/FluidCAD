@@ -20,6 +20,7 @@ import { parsePlaneChain } from '../features/plane.ts';
 import type { ProjectionOp } from '../features/projection.ts';
 import { parseRepeatChain } from '../features/repeat.ts';
 import { parseRotateChain } from '../features/rotate.ts';
+import { parseSplitChain } from '../features/split.ts';
 import { parseJoinSegment } from '../features/shell.ts';
 import { parseSweepExtendSegments } from '../features/sweep.ts';
 import { parseTextChain } from '../features/text.ts';
@@ -271,6 +272,10 @@ export function parseFeatureChain(
 
   if (feature === 'rotate') {
     return parseRotateChain(args, start, end, bindings);
+  }
+
+  if (feature === 'split') {
+    return parseSplitChain(args, start, end);
   }
 
   if (feature === 'boolean') {

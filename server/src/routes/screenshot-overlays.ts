@@ -1,7 +1,8 @@
 import type { NamedView, ScreenshotAnnotation, ScreenshotHighlightRef, ScreenshotShapeFit, ScreenshotView, SectionSpec } from '../ws-protocol.ts';
+import type { ResolveSelectionRequest } from '../../../lib/dist/index.js';
 import { MeasureEntityResolver, type MeasureEntity } from '../measure-entities.ts';
 import { SelectionRequests } from './selection-requests.ts';
-import { SectionRequests } from './screenshot-section.ts';
+import { SectionRequests, type SectionSceneObjectLookup } from './screenshot-section.ts';
 
 const NAMED_VIEWS: ReadonlySet<NamedView> = new Set([
   'front', 'back', 'left', 'right', 'top', 'bottom',
@@ -9,8 +10,12 @@ const NAMED_VIEWS: ReadonlySet<NamedView> = new Set([
   'iso-btr', 'iso-bbr', 'iso-btl', 'iso-bbl',
 ]);
 
-/** The resolver a highlight's filter entities go through — `FluidCadServer.resolveSelection`. */
-export type ScreenshotSelectionResolver = Parameters<typeof MeasureEntityResolver.resolveMany>[1];
+/**
+ * The resolver a highlight's filter entities and a section's face go
+ * through — `FluidCadServer.resolveSelection`, which also takes explicit
+ * picks (a section plane named by face index).
+ */
+export type ScreenshotSelectionResolver = (request: ResolveSelectionRequest) => ReturnType<Parameters<typeof MeasureEntityResolver.resolveMany>[1]>;
 
 /**
  * The shape and instance ids the current render hands the page — what
@@ -95,16 +100,43 @@ export class ScreenshotRequests {
           target: v.target as [number, number, number] | undefined,
         };
       }
+      case 'section': {
+        if (v.straight !== undefined && typeof v.straight !== 'boolean') {
+          return `${label}.straight must be a boolean when provided.`;
+        }
+        return { kind: 'section', ...(v.straight !== undefined ? { straight: v.straight as boolean } : {}) };
+      }
       default:
-        return `${label}.kind must be one of: current, named, orbit-from-current, look-from.`;
+        return `${label}.kind must be one of: current, named, orbit-from-current, look-from, section.`;
     }
   }
 
-  /** Validate and resolve the overlay fields of a `/screenshot` body. */
+  /** A `section` view has nothing to look at without a section: the refusal, or null when every view has one. */
+  static sectionViewError(view: ScreenshotView | undefined, views: ScreenshotView[] | undefined, section: SectionSpec | undefined): string | null {
+    if (section) {
+      return null;
+    }
+    if (view?.kind === 'section') {
+      return 'view.kind "section" looks at the capture\'s section: pass a section with it.';
+    }
+    const index = views?.findIndex(v => v.kind === 'section') ?? -1;
+    if (index >= 0) {
+      return `views[${index}].kind "section" looks at the capture's section: pass a section with it.`;
+    }
+    return null;
+  }
+
+  /**
+   * Validate and resolve the overlay fields of a `/screenshot` body.
+   * `fitTo.shapes` ids are checked against `sceneIds` (the current render's
+   * shape and instance ids); a section on a face or a statement resolves
+   * through `resolveSelection` and `sceneObject` to the plane the page clips at.
+   */
   static overlays(
     body: Record<string, unknown>,
     resolveSelection: ScreenshotSelectionResolver | undefined,
     sceneIds?: ScreenshotSceneIds,
+    sceneObject?: SectionSceneObjectLookup,
   ): ScreenshotOverlayValidation {
     const options: ScreenshotOverlayOptions = {};
     const { highlight, hide, focus, annotations, fitTo, views, multi, section } = body;
@@ -170,11 +202,11 @@ export class ScreenshotRequests {
     }
 
     if (section !== undefined) {
-      const parsed = SectionRequests.validate(section);
-      if (typeof parsed === 'string') {
-        return ScreenshotRequests.refuse(400, parsed);
+      const resolved = SectionRequests.resolve(section, { resolveSelection, sceneObject });
+      if (resolved.ok === false) {
+        return resolved;
       }
-      options.section = parsed;
+      options.section = resolved.section;
     }
 
     return { ok: true, options };

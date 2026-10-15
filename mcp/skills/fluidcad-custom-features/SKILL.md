@@ -1,5 +1,5 @@
 ---
-name: FluidCAD-custom-features
+name: fluidcad-custom-features
 description: "Writing custom features for FluidCAD: a feature type of the project's own in a `*.feature.js` module (`fluidcad/sdk` — `Feature.with()`, `defineFeature()`, `buildTool()`, `setBuckets()` and named buckets (`g.tipEdges()`), pickers, call shapes, `fluidcad/sdk/kernel`, raw OpenCascade through `fluidcad/sdk/occt`) that the toolbar's Custom dropdown offers with its own dialog and preview, and that models call like a built-in. Use this skill whenever the user wants a custom feature, their own feature type or toolbar button, a reusable feature, a `.feature.js` file, `fluidcad/sdk`, `Feature`, `defineFeature` or `registerBuilder`, asks to turn a construction they keep repeating into one statement, or wants to share custom features as a package (`fluidcad.json` `package` block, the `pack` tool). Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and a feature type, not a part, is being written."
 ---
 
@@ -7,7 +7,7 @@ Provenance: maintained in the FluidCAD repo (`https://github.com/Fluid-CAD/Fluid
 
 # Writing a custom feature
 
-This skill layers on top of the **FluidCAD** skill. That one owns the loop: read the docs, plan in generic CAD terms, build in increments, check `render.state` and `objectErrors`, resolve filters before writing them, screenshot when a feature earns it, and report only what was checked. Follow it for the test part. This skill covers what is specific to a custom feature: deciding that one is warranted, designing it as a feature a user fills in, writing the module, and proving it in a part.
+This skill layers on top of the **fluidcad** skill. That one owns the loop: read the docs, plan in generic CAD terms, build in increments, check `render.state` and `objectErrors`, resolve filters before writing them, screenshot when a feature earns it, and report only what was checked. Follow it for the test part. This skill covers what is specific to a custom feature: deciding that one is warranted, designing it as a feature a user fills in, writing the module, and proving it in a part.
 
 The governing principle: **a custom feature is a CAD feature first and code second.** Its user picks a face and types a height in a dialog, then fillets its rim and repeats it; design for that user, write the code to that design, and prove it the way that user will use it.
 
@@ -19,7 +19,7 @@ Don't write one, and say why, when:
 
 - the geometry occurs once: write the statements in the model;
 - it is the same geometry again in one model: `repeat()` re-applies a feature at new positions, `copy()` duplicates a finished shape;
-- it is a whole part reused with other dimensions: a `part()` with `param()` values, inserted where needed (the **FluidCAD-assembly** skill);
+- it is a whole part reused with other dimensions: a `part()` with `param()` values, inserted where needed (the **fluidcad-assembly** skill);
 - a built-in already does it (`hole()` for drilled, clearance, tapped, counterbored and countersunk holes; `draft()`; `rib()`; `shell()`): search the docs first.
 
 ## 2. Design it in CAD terms

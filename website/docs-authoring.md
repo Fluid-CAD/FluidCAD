@@ -21,7 +21,7 @@ website/docs/
   datums/            axes, planes
   sketching/         introduction; primitives/, compound/, tools/, constraints/{positional,dimensional}
   3d-operations/     introduction, selection-and-filters, extrude, revolve, sweep, loft,
-                     shell, fillet, chamfer, wrap, rib, helix
+                     shell, fillet, chamfer, wrap, rib, helix, split
   booleans/          introduction, fuse, common, subtract
   transforms/        introduction, translate, rotate, mirror
   patterns/          copy, repeat

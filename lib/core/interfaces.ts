@@ -441,6 +441,23 @@ export interface IBezier extends IGeometry {
   end(): LazyVertex;
 }
 
+/**
+ * A spline statement: a smooth curve through its points. Inside a sketch
+ * every point given as a literal is a solver point entity — constraints
+ * target `.point(i)` (or `.start()`/`.end()`) and the solve reshapes the
+ * curve. A point given as another entity's accessor (e.g. `l.end()`) is
+ * that entity's point; `.point(i)` returns the original reference.
+ */
+export interface ISpline extends IGeometry {
+  /** Returns the i-th fit point (0-based; 0 is the start, the last index
+   * is the end) as a lazy vertex / constraint target. */
+  point(index: number): LazyVertex;
+  /** Returns the curve's start point — `point(0)`. */
+  start(): LazyVertex;
+  /** Returns the curve's end point — `point(n - 1)`. */
+  end(): LazyVertex;
+}
+
 /** A distance dimension statement in a constraint-mode sketch. */
 export interface IDistance extends ISceneObject {
   /**

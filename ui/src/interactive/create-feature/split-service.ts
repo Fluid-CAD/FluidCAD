@@ -45,8 +45,15 @@ type SplitTargetChoice =
   | { kind: 'option'; option: SolidTargetOption }
   | { kind: 'keep'; sourceIndex: number; label: string; loc?: { filePath: string; line: number; column: number } };
 
-/** A sketched line picked as the cut's seed: its statement and its sketch's, by call site. */
-type SeedLinePick = {
+/**
+ * The sketch statements a split seed may be: the entity kinds the server
+ * exports through the sketch callback's return value. A line seeds a plane;
+ * any curve seeds the sheet it sweeps out of the sketch.
+ */
+const SPLIT_SEED_TYPES = new Set(['line', 'arc', 'circle', 'ellipse', 'spline', 'bezier']);
+
+/** A sketched edge picked as the cut's seed: its statement and its sketch's, by call site. */
+type SeedEdgePick = {
   shapeId: string;
   line: SketchSourceRef;
   sketch: SketchSourceRef;
@@ -90,8 +97,8 @@ export class SplitFeatureService {
   private solidPick: SolidPickSelection;
   /** The picked cut face (the cut slot's `face` mode), or null. */
   private planeFaceEntity: SelectedEntity | null = null;
-  /** The picked seed line (the cut slot's `sketchLine` mode), or null. */
-  private seedLine: SeedLinePick | null = null;
+  /** The picked seed edge (the cut slot's `sketchEdge` mode), or null. */
+  private seedEdge: SeedEdgePick | null = null;
   /** Statement being edited in place (timeline double-click), or null. */
   private editTarget: FeatureEditTarget | null = null;
   /** The parsed statement the edit dialog opened over (keep-slot texts). */
@@ -166,7 +173,7 @@ export class SplitFeatureService {
       // The slot left face / sketch-line mode (✕, a standard/plane choice) —
       // the pick would otherwise silently ride along into the next state.
       this.planeFaceEntity = null;
-      this.seedLine = null;
+      this.seedEdge = null;
       this.refreshHighlight();
     };
     this.panel.onArmedSlotChange = () => this.syncViewport();
@@ -268,11 +275,11 @@ export class SplitFeatureService {
     if (this.editSceneStale) {
       this.editSceneStale = false;
       this.sourceSlots = null;
-      if (this.planeFaceEntity || this.seedLine) {
+      if (this.planeFaceEntity || this.seedEdge) {
         this.planeFaceEntity = null;
-        this.seedLine = null;
+        this.seedEdge = null;
         this.panel.setPlaneFaceChip(null);
-        this.panel.setSketchLineChip(null);
+        this.panel.setSketchEdgeChip(null);
         this.panel.setMessage('The code changed — the re-picked geometry was reset.');
       }
     }
@@ -331,18 +338,18 @@ export class SplitFeatureService {
       this.planeFaceEntity = null;
       this.panel.setPlaneFaceChip(null);
     }
-    if (this.seedLine) {
-      // A seed line is addressed by call site, so it survives a render when
-      // its statement still draws a line there.
-      const owner = sceneObjects.find(o => o.sourceLocation?.filePath === this.seedLine!.line.filePath
-        && o.sourceLocation.line === this.seedLine!.line.line
-        && o.sourceLocation.column === this.seedLine!.line.column && (o.type as string) === 'line');
+    if (this.seedEdge) {
+      // A seed edge is addressed by call site, so it survives a render when
+      // its statement still draws an edge there.
+      const owner = sceneObjects.find(o => o.sourceLocation?.filePath === this.seedEdge!.line.filePath
+        && o.sourceLocation.line === this.seedEdge!.line.line
+        && o.sourceLocation.column === this.seedEdge!.line.column && SPLIT_SEED_TYPES.has(o.type as string));
       const shapeId = owner?.sceneShapes?.[0]?.shapeId ?? owner?.hiddenShapes?.[0]?.shapeId;
       if (owner && shapeId) {
-        this.seedLine = { ...this.seedLine, shapeId };
+        this.seedEdge = { ...this.seedEdge, shapeId };
       } else {
-        this.seedLine = null;
-        this.panel.setSketchLineChip(null);
+        this.seedEdge = null;
+        this.panel.setSketchEdgeChip(null);
       }
     }
     this.panel.setOptions(this.planes);
@@ -375,7 +382,7 @@ export class SplitFeatureService {
     this.editSceneStale = false;
     this.sourceSlots = null;
     this.planeFaceEntity = null;
-    this.seedLine = null;
+    this.seedEdge = null;
     this.targets = parsed.targetTexts.map((label, sourceIndex) => {
       const ref = parsed.targetRefs[sourceIndex];
       return {
@@ -406,7 +413,7 @@ export class SplitFeatureService {
     this.armed = true;
     this.targets = [];
     this.planeFaceEntity = null;
-    this.seedLine = null;
+    this.seedEdge = null;
     if (this.sceneSketchActive) {
       this.sketchUI.suspend();
     }
@@ -469,7 +476,7 @@ export class SplitFeatureService {
     this.sourceSlots = null;
     this.targets = [];
     this.planeFaceEntity = null;
-    this.seedLine = null;
+    this.seedEdge = null;
     this.solidPick.set([]);
     this.runner.cancelPreview();
     this.ghost.clear();
@@ -496,8 +503,8 @@ export class SplitFeatureService {
       return;
     }
     if (sub.type === 'face' && this.isPlanePicking) {
-      this.seedLine = null;
-      this.panel.setSketchLineChip(null);
+      this.seedEdge = null;
+      this.panel.setSketchEdgeChip(null);
       this.planeFaceEntity = toggleEntity(this.planeFaceEntity, { shapeId, sub });
       this.panel.setPlaneFaceChip(this.planeFaceEntity ? 'Picked face' : null);
       this.panel.setMessage(null);
@@ -516,11 +523,12 @@ export class SplitFeatureService {
   }
 
   /**
-   * A sketch wire was clicked while the cut slot is armed: the line it
-   * belongs to seeds the cut — the plane the line sweeps out of its sketch.
-   * Only a `line()` statement that is a direct child of a sketch qualifies;
-   * the server exports it through the sketch callback's return value.
-   * Returns whether the dialog consumed the click.
+   * A sketch wire was clicked while the cut slot is armed: the edge it
+   * belongs to seeds the cut — what the edge sweeps out of its sketch, a
+   * line's plane or a curve's sheet. Only an entity statement that is a
+   * direct child of a sketch qualifies (see SPLIT_SEED_TYPES); the server
+   * exports it through the sketch callback's return value. Returns whether
+   * the dialog consumed the click.
    */
   handleSketchPick(shapeId: string): boolean {
     if (!this.isPlanePicking) {
@@ -533,32 +541,32 @@ export class SplitFeatureService {
     }
     const sketch = resolveSketchRow(owner, this.sceneObjects);
     if (!sketch || sketch === owner) {
-      this.panel.setMessage('Pick a single sketch line — the cut follows the plane that line sweeps out of its sketch.');
+      this.panel.setMessage('Pick a single sketch edge — the cut follows what that edge sweeps out of its sketch.');
       return true;
     }
-    if ((owner.type as string) !== 'line' || !owner.sourceLocation || !sketch.sourceLocation) {
-      this.panel.setMessage('Only a straight sketch line seeds a split — pick a line() of the sketch.');
+    if (!SPLIT_SEED_TYPES.has(owner.type as string) || !owner.sourceLocation || !sketch.sourceLocation) {
+      this.panel.setMessage('Only a sketched line, arc, circle, ellipse or spline seeds a split — pick one of the sketch.');
       return true;
     }
     if (owner.sourceLocation.filePath !== sketch.sourceLocation.filePath) {
       this.panel.setMessage('The seed line and its sketch live in different files.');
       return true;
     }
-    if (this.seedLine && this.seedLine.line.line === owner.sourceLocation.line
-      && this.seedLine.line.column === owner.sourceLocation.column) {
+    if (this.seedEdge && this.seedEdge.line.line === owner.sourceLocation.line
+      && this.seedEdge.line.column === owner.sourceLocation.column) {
       // Clicking the picked line again clears it back.
-      this.seedLine = null;
-      this.panel.setSketchLineChip(null);
+      this.seedEdge = null;
+      this.panel.setSketchEdgeChip(null);
     } else {
       this.planeFaceEntity = null;
       this.panel.setPlaneFaceChip(null);
-      this.seedLine = {
+      this.seedEdge = {
         shapeId,
         line: { ...owner.sourceLocation },
         sketch: { ...sketch.sourceLocation },
-        label: `Sketch line — line ${owner.sourceLocation.line}`,
+        label: `Sketch ${owner.type} — line ${owner.sourceLocation.line}`,
       };
-      this.panel.setSketchLineChip(this.seedLine.label);
+      this.panel.setSketchEdgeChip(this.seedEdge.label);
     }
     this.panel.setMessage(null);
     this.refreshHighlight();
@@ -585,8 +593,8 @@ export class SplitFeatureService {
       return;
     }
     this.planeFaceEntity = null;
-    this.seedLine = null;
-    this.panel.setSketchLineChip(null);
+    this.seedEdge = null;
+    this.panel.setSketchEdgeChip(null);
     this.panel.selectStandardPlane(plane);
     this.panel.setMessage(null);
     this.refreshHighlight();
@@ -639,8 +647,8 @@ export class SplitFeatureService {
   /** An offered plane landed in the cut slot (quad or timeline pick). */
   private pickPlane(option: PlaneOption): void {
     this.planeFaceEntity = null;
-    this.seedLine = null;
-    this.panel.setSketchLineChip(null);
+    this.seedEdge = null;
+    this.panel.setSketchEdgeChip(null);
     this.panel.selectPlane(option);
     this.panel.setMessage(null);
     this.refreshHighlight();
@@ -663,11 +671,11 @@ export class SplitFeatureService {
       const { filePath, line, column } = selection.option;
       return { kind: 'plane', filePath, line, column };
     }
-    if (selection.kind === 'sketchLine') {
-      if (!this.seedLine) {
+    if (selection.kind === 'sketchEdge') {
+      if (!this.seedEdge) {
         return { error: 'Pick the sketch line first.' };
       }
-      return { kind: 'sketchLine', sketch: this.seedLine.sketch, line: this.seedLine.line };
+      return { kind: 'sketchEdge', sketch: this.seedEdge.sketch, line: this.seedEdge.line };
     }
     if (!this.planeFaceEntity) {
       return { error: 'Pick the cut face first.' };
@@ -769,9 +777,9 @@ export class SplitFeatureService {
         ? { kind: 'face', shapeId: this.planeFaceEntity.shapeId, index: this.planeFaceEntity.sub.index }
         : null;
     }
-    if (selection.kind === 'sketchLine') {
-      return this.seedLine
-        ? { kind: 'sketchLine', filePath: this.seedLine.line.filePath, line: this.seedLine.line.line, column: this.seedLine.line.column }
+    if (selection.kind === 'sketchEdge') {
+      return this.seedEdge
+        ? { kind: 'sketchEdge', filePath: this.seedEdge.line.filePath, line: this.seedEdge.line.line, column: this.seedEdge.line.column }
         : null;
     }
     // The kept statement cut, as the sources query resolved it: a `plane()`
@@ -782,7 +790,7 @@ export class SplitFeatureService {
       const isPlane = planeOptionForLocation(this.planes, { filePath: slot.filePath, line: slot.line });
       return isPlane
         ? { kind: 'plane', filePath: slot.filePath, line: slot.line }
-        : { kind: 'sketchLine', filePath: slot.filePath, line: slot.line, column: slot.column };
+        : { kind: 'sketchEdge', filePath: slot.filePath, line: slot.line, column: slot.column };
     }
     const face = slot?.kind === 'entities' ? slot.entities[0] : null;
     if (face && face.sub.type === 'face') {

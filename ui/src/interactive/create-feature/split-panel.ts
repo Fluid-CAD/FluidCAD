@@ -18,8 +18,9 @@ export type SplitValues = {
 /**
  * The split dialog: a Both / Front / Back tab row (which pieces stay — the
  * normal side is "front"), the cut slot — an origin-plane quad, a plane
- * feature, a picked planar face, or a sketched line picked in the viewport
- * (the plane it would sweep out of its sketch) — and the solids slot, filled
+ * feature, a picked planar face, or a sketched edge picked in the viewport
+ * (what it would sweep out of its sketch: a line its plane, a curve its
+ * sheet) — and the solids slot, filled
  * from whole-solid viewport picks or timeline rows and left empty to split
  * every solid in scope. The cut is where the plane is: moving it is the
  * Plane tool's job, so there is no offset field. Exactly one slot is ARMED
@@ -30,7 +31,7 @@ export type SplitValues = {
 export class SplitPanel extends FeaturePanel {
   /** The target chip at `index` was removed. */
   onRemoveTarget?: (index: number) => void;
-  /** The cut slot left face / sketch-line mode (✕, a standard/plane pick) — drop the pick. */
+  /** The cut slot left face / sketch-edge mode (✕, a standard/plane pick) — drop the pick. */
   onPlaneModeChange?: () => void;
   /** The armed slot changed — the service re-aims the viewer pick channels. */
   onArmedSlotChange?: () => void;
@@ -63,7 +64,7 @@ export class SplitPanel extends FeaturePanel {
 
     this.planeSlot = new PlaneSlotControl(this.role('plane-slot'), {
       label: 'Cut',
-      prompt: 'Pick a plane, face or sketch line',
+      prompt: 'Pick a plane, face or sketch edge',
     });
     this.planeSlot.onArm = () => this.armSlot('plane');
     this.planeSlot.onModeChange = () => this.onPlaneModeChange?.();
@@ -82,7 +83,7 @@ export class SplitPanel extends FeaturePanel {
     this.planeSlot.reset();
     this.setTargets([]);
     // The cut is the one thing a split needs — its slot opens armed, taking
-    // planes, faces and sketch lines right away; the solids are optional.
+    // planes, faces and sketch edges right away; the solids are optional.
     this.armSlot('plane');
     this.shell.show();
   }
@@ -150,9 +151,9 @@ export class SplitPanel extends FeaturePanel {
     this.planeSlot.setFaceChip(label);
   }
 
-  /** The cut slot's picked sketch-line chip (the service owns the pick); null clears it. */
-  setSketchLineChip(label: string | null): void {
-    this.planeSlot.setSketchLineChip(label);
+  /** The cut slot's picked sketch-edge chip (the service owns the pick); null clears it. */
+  setSketchEdgeChip(label: string | null): void {
+    this.planeSlot.setSketchEdgeChip(label);
   }
 
   values(): SplitValues {

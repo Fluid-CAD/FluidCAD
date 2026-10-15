@@ -845,7 +845,7 @@ export type SplitGhostRequest = {
   keep: 'both' | 'front' | 'back';
   /** The solid-bearing statements being split, by call site; empty for every solid in the scene. */
   targets: { filePath: string; line: number }[];
-  /** The plane to cut along, or the sketched line seeding it. */
+  /** The plane to cut along, or the sketched edge seeding the cut. */
   plane: GhostPlaneRef;
   /**
    * Edit mode: the edited statement's own call site. The scene holds the
@@ -888,8 +888,8 @@ export type GhostPlaneRef =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'plane'; filePath: string; line: number }
   | { kind: 'face'; shapeId: string; index: number }
-  /** A sketched line by its statement's call site inside its sketch — the split dialog's seed. */
-  | { kind: 'sketchLine'; filePath: string; line: number; column?: number };
+  /** A sketched edge by its statement's call site inside its sketch — the split dialog's seed. */
+  | { kind: 'sketchEdge'; filePath: string; line: number; column?: number };
 
 /**
  * The plane dialog on the ghost wire, and the second feature (after the helix)
@@ -3167,21 +3167,22 @@ export async function applyMirror(options: MirrorApplyOptions): Promise<ApplyFea
 }
 
 /**
- * The cut of a split request: the mirror's plane shapes, or a sketched line
- * — the line statement's call site inside its sketch plus the sketch
- * statement's own, so the server can export the line through the sketch
+ * The cut of a split request: the mirror's plane shapes, or a sketched edge
+ * — the edge statement's call site inside its sketch plus the sketch
+ * statement's own, so the server can export the edge through the sketch
  * callback's return value (`s.geometries.l`).
+ * A line seeds a plane; a curve seeds the sheet it sweeps out of the sketch.
  */
 export type SplitPlaneRef =
   | RepeatPlaneRef
-  | { kind: 'sketchLine'; sketch: SketchSourceRef; line: SketchSourceRef };
+  | { kind: 'sketchEdge'; sketch: SketchSourceRef; line: SketchSourceRef };
 
 export type SplitKeepSide = 'both' | 'front' | 'back';
 
 export type SplitApplyOptions = {
   /** The solid-bearing statements being split (whole-solid picks), in order; empty splits every solid in scope. */
   targets: SketchSourceRef[];
-  /** The cut — a plane, or a sketched line seeding one. */
+  /** The cut — a plane, or a sketched edge seeding one (a line's plane, a curve's sheet). */
   plane: SplitPlaneRef;
   /** The pieces the split keeps. */
   keep: SplitKeepSide;
@@ -3727,7 +3728,7 @@ export type ParsedFeatureStatement =
     }
   | {
       feature: 'split';
-      /** The cut argument text — a plane or a seed line — verbatim. */
+      /** The cut argument text — a plane or a seed edge — verbatim. */
       planeText: string;
       /** The pieces the statement keeps; `both` when the option is absent. */
       keep: SplitKeepSide;

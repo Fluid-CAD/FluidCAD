@@ -324,8 +324,6 @@ export type SplitGhostRequest = {
   feature: 'split';
   /** The pieces the split keeps. */
   keep: 'both' | 'front' | 'back';
-  /** Distance the plane is moved along its normal; null when the field is empty. */
-  offset: number | null;
   /** The solid-bearing statements being split, by call site; empty for every solid in the scene. */
   targets: { filePath: string; line: number }[];
   /** The plane to cut along, or the sketched line seeding it. */

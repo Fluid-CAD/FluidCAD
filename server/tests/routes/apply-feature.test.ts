@@ -5426,11 +5426,11 @@ describe('apply-feature route validation', () => {
       currentCode = CODE;
       const splitBody = {
         feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1, T2],
-        plane: { kind: 'standard', plane: 'yz' }, keep: 'front', offset: 5,
+        plane: { kind: 'standard', plane: 'yz' }, keep: 'front',
       };
       const preview = await post({ ...splitBody, preview: true });
       expect(preview.status).toBe(200);
-      expect(preview.body.preview).toBe("split('yz', { keep: 'front', offset: 5 }, f, f2)");
+      expect(preview.body.preview).toBe("split('yz', { keep: 'front' }, f, f2)");
       expect(relayed).toEqual([]);
 
       const { status, body } = await post(splitBody);
@@ -5439,7 +5439,7 @@ describe('apply-feature route validation', () => {
       const spec = relayed[0].spec;
       expect(spec.feature).toBe('split');
       expect(spec.split).toEqual({
-        plane: { kind: 'standard', plane: 'yz' }, keep: 'front', offset: 5,
+        plane: { kind: 'standard', plane: 'yz' }, keep: 'front',
         targets: [{ producer: 0 }, { producer: 1 }],
       });
       expect(spec.producers).toHaveLength(2);
@@ -5534,14 +5534,14 @@ describe('apply-feature route validation', () => {
     it('relays an options change keeping the plane and targets, and previews it', async () => {
       currentCode = EDIT_CODE;
       currentFileName = '/ws/m.fluid.js';
-      const { status, body } = await post({ feature: 'split', edit: EDIT, keep: 'both', offset: 3 });
+      const { status, body } = await post({ feature: 'split', edit: EDIT, keep: 'back' });
       expect(status).toBe(200);
-      expect(body.preview).toBe("split('yz', { offset: 3 }, e)");
+      expect(body.preview).toBe("split('yz', { keep: 'back' }, e)");
       expect(relayed[0].spec).toMatchObject({
         feature: 'split',
         producers: [],
         parts: [],
-        edit: { line: 7, column: 0, split: { plane: { kind: 'keep' }, keep: 'both', offset: 3 } },
+        edit: { line: 7, column: 0, split: { plane: { kind: 'keep' }, keep: 'back' } },
       });
       expect(relayed[0].spec.edit.split.targets).toBeUndefined();
     });

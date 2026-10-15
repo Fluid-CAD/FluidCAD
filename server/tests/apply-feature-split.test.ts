@@ -40,7 +40,6 @@ describe('split statement templates', () => {
     const result = await applyFeatureEdit(`${base}\n`, splitSpec({
       plane: { kind: 'standard', plane: 'yz' },
       keep: 'front',
-      offset: 5,
       targets: [{ producer: 0 }, { producer: 1 }],
     }, {
       producers: [
@@ -56,7 +55,7 @@ describe('split statement templates', () => {
       `const f = extrude(30)`,
       `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
-      `split('yz', { keep: 'front', offset: 5 }, f, f2)`,
+      `split('yz', { keep: 'front' }, f, f2)`,
       ``,
     ].join('\n'));
   });
@@ -65,7 +64,6 @@ describe('split statement templates', () => {
     const result = await applyFeatureEdit(`${base}\n`, splitSpec({
       plane: { kind: 'standard', plane: 'xz' },
       keep: 'both',
-      offset: null,
       targets: [],
     }, { producers: [] }));
     expect(result.error).toBeUndefined();
@@ -94,7 +92,6 @@ describe('split statement templates', () => {
       const result = await applyFeatureEdit(partCode, splitSpec({
         plane: { kind: 'standard', plane: 'xz' },
         keep: 'both',
-        offset: null,
         targets: [],
       }, { producers: [], activePart }));
       expect(result.error).toBeUndefined();
@@ -105,7 +102,6 @@ describe('split statement templates', () => {
       const result = await applyFeatureEdit(partCode, splitSpec({
         plane: { kind: 'plane', producer: 0 },
         keep: 'front',
-        offset: null,
         targets: [],
       }, {
         producers: [{ line: 3, column: 10, featureType: 'plane', nameHint: 'p', bind: true }],
@@ -119,7 +115,6 @@ describe('split statement templates', () => {
       const result = await applyFeatureEdit(partCode, splitSpec({
         plane: { kind: 'standard', plane: 'xz' },
         keep: 'both',
-        offset: null,
         targets: [{ producer: 0 }],
       }, {
         producers: [{ line: 6, column: 2, featureType: 'feature', nameHint: 'f', bind: true }],
@@ -142,7 +137,6 @@ describe('split statement templates', () => {
     const result = await applyFeatureEdit(code, splitSpec({
       plane: { kind: 'plane', producer: 1 },
       keep: 'both',
-      offset: null,
       targets: [{ producer: 0 }],
     }, {
       producers: [
@@ -168,7 +162,6 @@ describe('split statement templates', () => {
     const result = await applyFeatureEdit(code, splitSpec({
       plane: { kind: 'sketchLine', producer: 1, target: { line: 6 } },
       keep: 'back',
-      offset: null,
       targets: [{ producer: 0 }],
     }, {
       producers: [
@@ -203,7 +196,6 @@ describe('split statement templates', () => {
     const result = await applyFeatureEdit(code, splitSpec({
       plane: { kind: 'standard', plane: 'yz' },
       keep: 'both',
-      offset: null,
       targets: [{ producer: 0 }],
     }, {
       producers: [{ line: 5, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
@@ -216,7 +208,6 @@ describe('split statement templates', () => {
     const result = await applyFeatureEdit(`${base}\n`, splitSpec({
       plane: { kind: 'standard', plane: 'zz' as never },
       keep: 'both',
-      offset: null,
       targets: [{ producer: 0 }],
     }));
     expect(result.error).toContain('malformed split edit spec');
@@ -234,15 +225,15 @@ const splitEditBase = [
 
 describe('parseFeatureStatement — split', () => {
   it('reads the cut, the options and identifier targets with their refs', async () => {
-    const code = `${splitEditBase}\nsplit('yz', { keep: 'front', offset: 5 }, e, c)\n`;
+    const code = `${splitEditBase}\nsplit('yz', { keep: 'front' }, e, c)\n`;
     const result = await parseFeatureStatement(code, 7);
     expect(result).toEqual({
       ok: true,
       parsed: {
-        feature: 'split', planeText: `'yz'`, keep: 'front', offset: 5, targetTexts: ['e', 'c'],
+        feature: 'split', planeText: `'yz'`, keep: 'front', targetTexts: ['e', 'c'],
         targetRefs: [{ line: 4, column: 10 }, { line: 6, column: 10 }],
       },
-      statement: `split('yz', { keep: 'front', offset: 5 }, e, c)`,
+      statement: `split('yz', { keep: 'front' }, e, c)`,
     });
   });
 
@@ -250,13 +241,15 @@ describe('parseFeatureStatement — split', () => {
     const result = await parseFeatureStatement(`${splitEditBase}\nsplit(s.geometries.l)\n`, 7);
     expect(result).toMatchObject({
       ok: true,
-      parsed: { feature: 'split', planeText: 's.geometries.l', keep: 'both', offset: null, targetTexts: [] },
+      parsed: { feature: 'split', planeText: 's.geometries.l', keep: 'both', targetTexts: [] },
     });
   });
 
   it('refuses options the dialog cannot read back', async () => {
     const unknown = await parseFeatureStatement(`${splitEditBase}\nsplit('yz', { flip: true }, e)\n`, 7);
     expect(unknown).toMatchObject({ ok: false });
+    const offset = await parseFeatureStatement(`${splitEditBase}\nsplit('yz', { offset: 5 }, e)\n`, 7);
+    expect(offset).toMatchObject({ ok: false });
     const badKeep = await parseFeatureStatement(`${splitEditBase}\nsplit('yz', { keep: side }, e)\n`, 7);
     expect(badKeep).toMatchObject({ ok: false });
   });
@@ -282,10 +275,10 @@ describe('split in-place edits', () => {
   }
 
   it('rewrites the options object keeping the cut and targets', async () => {
-    const result = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'both', offset: 3 }));
+    const result = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'back' }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`split('yz', { offset: 3 }, e)\n`);
-    const plain = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'both', offset: null }));
+    expect(result.newCode).toContain(`split('yz', { keep: 'back' }, e)\n`);
+    const plain = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'both' }));
     expect(plain.newCode).toContain(`split('yz', e)\n`);
   });
 
@@ -293,7 +286,6 @@ describe('split in-place edits', () => {
     const result = await applyFeatureEdit(code, editSpec({
       plane: { kind: 'standard', plane: 'xz' },
       keep: 'back',
-      offset: null,
       targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
     }, {
       producers: [{ line: 6, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
@@ -303,7 +295,7 @@ describe('split in-place edits', () => {
   });
 
   it('makes the split implicit with an empty target list', async () => {
-    const result = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'front', offset: null, targets: [] }));
+    const result = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'front', targets: [] }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`split('yz', { keep: 'front' })\n`);
   });

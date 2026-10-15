@@ -17,7 +17,7 @@ import type { ApplyFeatureRequestContext } from '../context.ts';
 // A split names its cut — a standard origin plane, an existing plane feature,
 // a picked face synthesized into `plane(<selector>)`, or a sketched line
 // exported from its sketch as `s.geometries.l` — plus the solids it parts
-// (none for every solid in scope), the side it keeps and the plane offset.
+// (none for every solid in scope) and the side it keeps.
 // A split of every solid cuts the solids built before it in its scope, so
 // with no target pinning a scope it lands at the end of the timeline's
 // active part (a top-level split would build before the lazy part and see
@@ -96,7 +96,7 @@ export async function handleSplit(ctx: ApplyFeatureRequestContext, req: Request,
       previewPlaneExpr = expression;
     }
 
-    const options: SplitEditOptions = { plane, keep: request.keep, offset: request.offset, targets };
+    const options: SplitEditOptions = { plane, keep: request.keep, targets };
     // Truthful preview: the same allocation walk the transform runs.
     const producerVars = await allocateProducerVars(producers, code);
     const varFor = (i: number): string | null => producerVars[i];

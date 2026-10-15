@@ -336,8 +336,6 @@ export type ParsedFeatureStatement =
     planeText: string;
     /** The pieces the statement keeps; `both` when the option is absent. */
     keep: SplitKeep;
-    /** The plane offset along its normal; null when the option is absent. */
-    offset: ValueExpr | null;
     /** Trailing target texts, verbatim; empty splits every solid in scope. */
     targetTexts: string[];
     /**

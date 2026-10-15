@@ -486,7 +486,6 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       request = {
         feature: 'split',
         keep: split!.keep,
-        offset,
         targets: split!.targets,
         plane: split!.plane,
         exclude: transformExclude,

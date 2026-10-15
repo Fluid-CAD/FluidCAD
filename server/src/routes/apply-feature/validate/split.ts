@@ -2,10 +2,8 @@
 
 import {
   validSplitKeep,
-  validValueExpr,
   type FeatureStatementEditTarget,
   type SplitKeep,
-  type ValueExpr,
 } from '../../../apply-feature-edit/index.ts';
 import { validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validatePick } from '../picks.ts';
@@ -26,7 +24,6 @@ export type SplitRequest = {
   targets: SketchLoc[];
   plane: SplitPlaneInput;
   keep: SplitKeep;
-  offset: ValueExpr | null;
   /** The file the statement lands in — required for a standard plane with no targets, which pins no scope. */
   filePath: string;
 };
@@ -74,22 +71,19 @@ function validatePlaneInput(raw: any, filePath: string, label: string): SplitPla
   return { error: 'plane must be {kind: "standard"|"plane"|"face"|"sketchLine", …}' };
 }
 
-function validateOptions(body: any): { keep: SplitKeep; offset: ValueExpr | null } | { error: string } {
-  const { keep, offset } = body ?? {};
+function validateOptions(body: any): { keep: SplitKeep } | { error: string } {
+  const { keep } = body ?? {};
   if (keep !== undefined && !validSplitKeep(keep)) {
     return { error: 'keep must be "both", "front" or "back"' };
   }
-  if (offset !== undefined && offset !== null && !validValueExpr(offset)) {
-    return { error: 'offset must be a finite number or expression when provided' };
-  }
-  return { keep: keep ?? 'both', offset: offset ?? null };
+  return { keep: keep ?? 'both' };
 }
 
 /**
  * The split request's shape: zero or more target feature statements by
  * source location (none for every solid in scope), the cut (a standard
  * origin plane, an existing plane feature, a picked face, or a sketched
- * line), the side to keep and the plane offset.
+ * line) and the side to keep.
  */
 export function validateSplit(body: any): SplitRequest | { error: string } {
   const { targets, filePath } = body ?? {};
@@ -130,8 +124,8 @@ export function validateSplit(body: any): SplitRequest | { error: string } {
 }
 
 /**
- * The split edit request's shape: keep and offset (the dialog owns the
- * options object outright), the cut — keep, or any create-mode input, a
+ * The split edit request's shape: keep (the dialog owns the options object
+ * outright), the cut — keep, or any create-mode input, a
  * picked face flipping `needsPicks` — and the optional target list mixing
  * `verbatim` keeps with re-picked features; an absent list keeps every
  * statement target, an empty one makes the split implicit.
@@ -148,7 +142,7 @@ export function validateSplitEdit(
   const result: StatementEditRequest = base;
   // The cut defaults to keep; the resolution pass rewrites it (and fills
   // the targets) from the request fields below once producers exist.
-  edit.split = { plane: { kind: 'keep' }, keep: options.keep, offset: options.offset };
+  edit.split = { plane: { kind: 'keep' }, keep: options.keep };
 
   const raw = body?.plane;
   if (raw === undefined || raw === null || raw?.kind === 'keep') {

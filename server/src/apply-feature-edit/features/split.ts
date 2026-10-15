@@ -2,12 +2,11 @@
 
 import type { TSNode } from '../../code-editor/index.ts';
 import type { SolvedEmissionTarget } from '../../../../lib/dist/selection/sketch-target.js';
-import { anyValueArg, objectLiteralEntries, resolveRepeatTargetRef, stringArgValue } from '../ast/args.ts';
+import { objectLiteralEntries, resolveRepeatTargetRef, stringArgValue } from '../ast/args.ts';
 import { renderRepeatPlaneExpr, type RepeatEditTargetSource, type RepeatPlaneSpec } from './repeat.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import { isCopyTargetProducer, isPlaneProducer, isSketchProducer } from '../producers/predicates.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
-import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
 
 export type SplitKeep = 'both' | 'front' | 'back';
 export const SPLIT_KEEPS: readonly SplitKeep[] = ['both', 'front', 'back'];
@@ -31,8 +30,8 @@ export type SplitEditPlane = { kind: 'keep' } | SplitPlaneSpec;
 
 /**
  * How a split statement is rendered and placed:
- * `split(<cut>[, { keep, offset }], …targets)` — the default `both` with no
- * offset renders no options object. Targets are the solid-bearing feature
+ * `split(<cut>[, { keep }], …targets)` — the default `both` renders no
+ * options object. Targets are the solid-bearing feature
  * statements being cut, each bound to a variable (featureType `feature`
  * producers); an empty list is the implicit split of every solid in scope.
  * The statement lands at the end of its producers' scope — at the end of
@@ -42,22 +41,13 @@ export type SplitEditOptions = {
   plane: SplitPlaneSpec;
   /** The pieces the split keeps. */
   keep: SplitKeep;
-  /** Distance along the plane normal; null renders no option. */
-  offset: ValueExpr | null;
   /** The features being split, in argument order — bound producers; empty splits every solid. */
   targets: { producer: number }[];
 };
 
-/** The options-object argument: `{ keep: 'front', offset: 5 }`, or nothing when both are defaults. */
-export function renderSplitOptionsArg(keep: SplitKeep, offset: ValueExpr | null): string {
-  const entries: string[] = [];
-  if (keep !== 'both') {
-    entries.push(`keep: '${keep}'`);
-  }
-  if (offset !== null && offset !== 0) {
-    entries.push(`offset: ${formatValue(offset)}`);
-  }
-  return entries.length > 0 ? `{ ${entries.join(', ')} }` : '';
+/** The options-object argument: `{ keep: 'front' }`, or nothing for the default. */
+export function renderSplitOptionsArg(keep: SplitKeep): string {
+  return keep !== 'both' ? `{ keep: '${keep}' }` : '';
 }
 
 /**
@@ -67,11 +57,11 @@ export function renderSplitOptionsArg(keep: SplitKeep, offset: ValueExpr | null)
  * previewed text is exactly what the transform writes.
  */
 export function renderSplitStatement(
-  so: Pick<SplitEditOptions, 'keep' | 'offset'>,
+  so: Pick<SplitEditOptions, 'keep'>,
   planeExpr: string,
   targetExprs: string[],
 ): string {
-  const options = renderSplitOptionsArg(so.keep, so.offset);
+  const options = renderSplitOptionsArg(so.keep);
   return `split(${[planeExpr, ...(options ? [options] : []), ...targetExprs].join(', ')})`;
 }
 
@@ -130,19 +120,17 @@ export function validSplitPlane(
   return plane.kind === 'expression' && typeof plane.expression === 'string' && plane.expression.trim() !== '';
 }
 
-export function validSplitOptions(so: unknown): so is Pick<SplitEditOptions, 'keep' | 'offset'> {
-  const s = so as Pick<SplitEditOptions, 'keep' | 'offset'> | undefined;
-  return s !== undefined && s !== null
-    && validSplitKeep(s.keep)
-    && (s.offset === null || validValueExpr(s.offset));
+export function validSplitOptions(so: unknown): so is Pick<SplitEditOptions, 'keep'> {
+  const s = so as Pick<SplitEditOptions, 'keep'> | undefined;
+  return s !== undefined && s !== null && validSplitKeep(s.keep);
 }
 
 /**
  * A `split(<cut>[, options], …targets)` statement's dialog-editable
  * reading. The cut and target expressions are preserved verbatim; the
- * options object must be a plain literal of `keep` (a string literal) and
- * `offset` (a value) — anything else is a shape the dialog would silently
- * drop on a rewrite, so it refuses. An argument-less target list is legal —
+ * options object must be a plain literal of `keep` (a string literal) —
+ * anything else is a shape the dialog would silently drop on a rewrite, so
+ * it refuses. An argument-less target list is legal —
  * an implicit split cuts every solid in scope — and reads as the empty list.
  */
 export function parseSplitChain(
@@ -154,7 +142,6 @@ export function parseSplitChain(
     return { error: 'the split has fewer arguments than the dialog understands' };
   }
   let keep: SplitKeep = 'both';
-  let offset: ValueExpr | null = null;
   let rest = args.slice(1);
   if (rest.length > 0 && rest[0].type === 'object') {
     const entries = objectLiteralEntries(rest[0]);
@@ -168,12 +155,6 @@ export function parseSplitChain(
           return { error: "the split keep option is not 'both', 'front' or 'back' — edit it in the source" };
         }
         keep = value;
-      } else if (key === 'offset') {
-        const value = anyValueArg(node);
-        if (value === null) {
-          return { error: 'the split offset is not a plain number or expression — edit it in the source' };
-        }
-        offset = value;
       } else {
         return { error: `the split option '${key}' has no dialog — edit it in the source` };
       }
@@ -185,7 +166,6 @@ export function parseSplitChain(
       feature: 'split',
       planeText: args[0].text,
       keep,
-      offset,
       targetTexts: rest.map(n => n.text),
       targetRefs: rest.map(n => resolveRepeatTargetRef(n, start)),
     },
@@ -201,7 +181,7 @@ export function parseSplitChain(
  * expression) — and the target list (`verbatim` keeps by position,
  * re-picked features by bound producer; an absent list keeps every
  * statement target, an empty one makes the split implicit). The options
- * object is rewritten wholesale from `keep` and `offset`. Selector parts
+ * object is rewritten wholesale from `keep`. Selector parts
  * must be covered exactly once — for a split the cut is the only input
  * that can claim one.
  */
@@ -211,7 +191,7 @@ export function renderEditedSplit(
   varFor: (producer: number) => string | null,
 ): { statement: string } | { error: string } {
   const opts = spec.edit?.split;
-  if (!opts || !validSplitOptions({ keep: opts.keep, offset: opts.offset })) {
+  if (!opts || !validSplitOptions({ keep: opts.keep })) {
     return { error: 'malformed split edit spec' };
   }
   const usedParts = new Set<number>();

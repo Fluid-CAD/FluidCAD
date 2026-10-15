@@ -3,33 +3,27 @@ import { ChoiceTabs } from './panel-controls';
 import { PlaneOption } from './plane-bases';
 import { PlaneSelection, PlaneSlotControl } from './plane-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
-import { NewVariable, SplitKeepSide, ValueExpr } from '../../api';
-import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
-import { VariableInfo } from '../../ui/expression-core';
+import { SplitKeepSide } from '../../api';
 import { iconUrl } from '../../ui/icon-url';
 
 /** The slot picks land in — the one last clicked (the sweep/loft idiom). */
 export type SplitArmedSlot = 'targets' | 'plane';
 
-/** Validated form values, or the message to show when a field is invalid. */
-export type SplitValues =
-  | {
-      /** The pieces the split keeps. */
-      keep: SplitKeepSide;
-      /** The plane offset along its normal; null when the field is empty. */
-      offset: ValueExpr | null;
-      newVariables?: NewVariable[];
-    }
-  | { error: string };
+/** The form values — the only field is the side to keep. */
+export type SplitValues = {
+  /** The pieces the split keeps. */
+  keep: SplitKeepSide;
+};
 
 /**
  * The split dialog: a Both / Front / Back tab row (which pieces stay — the
  * normal side is "front"), the cut slot — an origin-plane quad, a plane
  * feature, a picked planar face, or a sketched line picked in the viewport
- * (the plane it would sweep out of its sketch) — the solids slot, filled
+ * (the plane it would sweep out of its sketch) — and the solids slot, filled
  * from whole-solid viewport picks or timeline rows and left empty to split
- * every solid in scope, and the offset field. Exactly one slot is ARMED at a
- * time — clicked to activate, marked by the primary border — and the
+ * every solid in scope. The cut is where the plane is: moving it is the
+ * Plane tool's job, so there is no offset field. Exactly one slot is ARMED
+ * at a time — clicked to activate, marked by the primary border — and the
  * viewer's pick channels follow it. Pure DOM + form state — the service owns
  * scene data, the picked entities, previews, and the apply call.
  */
@@ -47,7 +41,6 @@ export class SplitPanel extends FeaturePanel {
   private tabs: ChoiceTabs<SplitKeepSide>;
   private targetsSlot: PickSlot;
   private planeSlot: PlaneSlotControl;
-  private offsetField: ExpressionField;
 
   constructor(container: HTMLElement) {
     super(container, {
@@ -58,11 +51,6 @@ export class SplitPanel extends FeaturePanel {
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="plane-slot"></div>
         <div data-role="targets-slot"></div>
-        <label class="flex flex-col gap-1.5" title="Move the cut plane along its normal before cutting; empty cuts at the plane itself">
-          <span class="text-base-content/70">Offset</span>
-          <input data-role="offset" type="number" step="1" placeholder="0"
-            class="input input-sm input-bordered w-full text-xs" />
-        </label>
       `,
     });
 
@@ -84,13 +72,6 @@ export class SplitPanel extends FeaturePanel {
     this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Solids', multiple: true });
     this.targetsSlot.onArm = () => this.armSlot('targets');
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
-
-    this.offsetField = this.enhance('offset');
-  }
-
-  /** The variables the offset field's dropdown offers. */
-  setScopeVariables(variables: VariableInfo[]): void {
-    this.offsetField.setVariables(variables);
   }
 
   show(): void {
@@ -99,7 +80,6 @@ export class SplitPanel extends FeaturePanel {
     this.shell.setTitle(null);
     this.tabs.setValue('both');
     this.planeSlot.reset();
-    this.offsetField.setValue('');
     this.setTargets([]);
     // The cut is the one thing a split needs — its slot opens armed, taking
     // planes, faces and sketch lines right away; the solids are optional.
@@ -116,14 +96,12 @@ export class SplitPanel extends FeaturePanel {
    */
   showEdit(state: {
     keep: SplitKeepSide;
-    offset: ValueExpr | null;
     /** Keep-chip label for the statement's cut. */
     planeLabel: string;
   }): void {
     this.shell.setTitle('Edit split');
     this.tabs.setValue(state.keep);
     this.planeSlot.seedKeep(state.planeLabel);
-    this.offsetField.setValue(state.offset ?? '');
     this.setTargets([]);
     this.armSlot('targets');
     this.shell.show();
@@ -178,18 +156,7 @@ export class SplitPanel extends FeaturePanel {
   }
 
   values(): SplitValues {
-    const offset = this.offsetField.read();
-    if ('error' in offset) {
-      if (offset.error !== 'empty') {
-        return { error: offset.error };
-      }
-      return { keep: this.tabs.value, offset: null };
-    }
-    return {
-      keep: this.tabs.value,
-      offset: typeof offset.value === 'number' && offset.value === 0 ? null : offset.value,
-      newVariables: collectNewVariables([offset]),
-    };
+    return { keep: this.tabs.value };
   }
 
   /**

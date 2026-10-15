@@ -15,7 +15,7 @@ import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
-import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
+import { OptionRelabeler } from './option-relabeler';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import {
   PLANE_UNAVAILABLE_MESSAGE, collectPlaneOptions, labelWithPlaneNames, PlaneOption,
@@ -71,7 +71,7 @@ function sourceStatement(slot: SourceSlotRef | undefined | null): SketchSourceRe
  * timeline rows, or left empty to split every solid in scope. A translucent
  * ghost draws the cut plane through the bodies as it is dialled in — and,
  * when one side is dropped, the pieces that go in the cut's red. Apply
- * writes `split(<cut>[, { keep, offset }], …)` — the re-render is the
+ * writes `split(<cut>[, { keep }], …)` — the re-render is the
  * preview, editor undo the rollback.
  */
 export class SplitFeatureService {
@@ -388,10 +388,8 @@ export class SplitFeatureService {
     this.syncButton();
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
-    void this.refreshScopeVariables();
     this.panel.showEdit({
       keep: parsed.keep,
-      offset: parsed.offset,
       planeLabel: parsed.planeText,
     });
     this.syncViewport();
@@ -413,7 +411,6 @@ export class SplitFeatureService {
       this.sketchUI.suspend();
     }
     this.syncButton();
-    void this.refreshScopeVariables();
     this.panel.show();
     if (seeded) {
       this.seedFromSelection(seeded);
@@ -698,12 +695,6 @@ export class SplitFeatureService {
     this.runner.schedulePreview();
   }
 
-  private async refreshScopeVariables(): Promise<void> {
-    const line = this.editTarget?.line ?? null;
-    await refreshScopeVariables(line, this.panel,
-      () => this.armed && (this.editTarget?.line ?? null) === line);
-  }
-
   // -------------------------------------------------------------------------
   // Live geometry ("ghost")
   // -------------------------------------------------------------------------
@@ -716,9 +707,6 @@ export class SplitFeatureService {
    */
   private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
     const values = this.panel.values();
-    if ('error' in values) {
-      return null;
-    }
     const targets = this.ghostTargets();
     if (!targets) {
       return null;
@@ -730,7 +718,6 @@ export class SplitFeatureService {
     const request: SplitGhostRequest = {
       feature: 'split',
       keep: values.keep,
-      offset: values.offset,
       targets,
       plane,
       exclude: this.editTarget
@@ -807,9 +794,6 @@ export class SplitFeatureService {
 
   private buildRequest(): SplitApplyOptions | { error: string } {
     const values = this.panel.values();
-    if ('error' in values) {
-      return values;
-    }
     const filePath = this.hooks.filePath();
     if (!filePath) {
       return { error: 'Open a model file first.' };
@@ -826,8 +810,7 @@ export class SplitFeatureService {
       return { error: 'Pick the cut — a plane, a face or a sketch line.' };
     }
     return {
-      targets, plane: plane as SplitPlaneRef, keep: values.keep, offset: values.offset,
-      filePath, newVariables: values.newVariables,
+      targets, plane: plane as SplitPlaneRef, keep: values.keep, filePath,
     };
   }
 
@@ -840,9 +823,6 @@ export class SplitFeatureService {
    */
   private buildEditRequest(): SplitEditOptions | { error: string } {
     const values = this.panel.values();
-    if ('error' in values) {
-      return values;
-    }
     const targets: SplitEditTargetRef[] = this.targets.map(t => t.kind === 'keep'
       ? { kind: 'verbatim' as const, sourceIndex: t.sourceIndex }
       : { kind: 'feature' as const, filePath: t.option.filePath, line: t.option.line, column: t.option.column });
@@ -853,8 +833,6 @@ export class SplitFeatureService {
     return {
       plane,
       keep: values.keep,
-      offset: values.offset,
-      newVariables: values.newVariables,
       targets,
       expectedStatement: this.session.expectedStatement,
       before: plane.kind === 'face' ? this.session.boundary ?? undefined : undefined,

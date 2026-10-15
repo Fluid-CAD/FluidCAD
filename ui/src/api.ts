@@ -843,8 +843,6 @@ export type SplitGhostRequest = {
   feature: 'split';
   /** The pieces the split keeps. */
   keep: 'both' | 'front' | 'back';
-  /** Distance the plane is moved along its normal; null when the field is empty. */
-  offset: ValueExpr | null;
   /** The solid-bearing statements being split, by call site; empty for every solid in the scene. */
   targets: { filePath: string; line: number }[];
   /** The plane to cut along, or the sketched line seeding it. */
@@ -3187,12 +3185,8 @@ export type SplitApplyOptions = {
   plane: SplitPlaneRef;
   /** The pieces the split keeps. */
   keep: SplitKeepSide;
-  /** Distance the plane is moved along its normal; null for none. */
-  offset: ValueExpr | null;
   /** The file the statement lands in. */
   filePath: string;
-  /** Declarations the dialog's offset field committed (`myVar = 5`). */
-  newVariables?: NewVariable[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -3209,9 +3203,7 @@ export async function applySplit(options: SplitApplyOptions): Promise<ApplyFeatu
     targets: options.targets,
     plane: options.plane,
     keep: options.keep,
-    offset: options.offset,
     filePath: options.filePath,
-    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }
@@ -3739,8 +3731,6 @@ export type ParsedFeatureStatement =
       planeText: string;
       /** The pieces the statement keeps; `both` when the option is absent. */
       keep: SplitKeepSide;
-      /** The plane offset along its normal; null when the option is absent. */
-      offset: ValueExpr | null;
       /** Trailing target texts, verbatim; empty splits every solid in scope. */
       targetTexts: string[];
       /**
@@ -4378,9 +4368,6 @@ export type SplitEditOptions = EditSessionFields & {
   /** The cut; `keep` re-emits the statement's own expression. */
   plane: SplitEditPlaneRef;
   keep: SplitKeepSide;
-  offset: ValueExpr | null;
-  /** Declarations the dialog's offset field committed (`myVar = 5`). */
-  newVariables?: NewVariable[];
   /** Full replacement target list; omitted keeps the statement's own, empty makes the split implicit. */
   targets?: SplitEditTargetRef[];
   preview?: boolean;
@@ -4399,9 +4386,7 @@ export async function applySplitEdit(
     before: options.before,
     plane: options.plane,
     keep: options.keep,
-    offset: options.offset,
     targets: options.targets,
-    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }

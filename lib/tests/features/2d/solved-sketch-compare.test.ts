@@ -5,7 +5,7 @@ import { SceneCompare } from "../../../rendering/scene-compare.js";
 import { SceneObject } from "../../../common/scene-object.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
-import { line, offset } from "../../../core/2d/index.js";
+import { line, offset, project, circle } from "../../../core/2d/index.js";
 import { Offset } from "../../../features/2d/offset.js";
 import { Edge } from "../../../common/edge.js";
 import { getBoundingBoxOfShapes } from "../../utils.js";
@@ -13,6 +13,7 @@ import {
   coincident, horizontal, vertical, fix, distance,
 } from "../../../core/constraints/index.js";
 import { Scene } from "../../../rendering/scene.js";
+import { edge } from "../../../filters/index.js";
 
 function declareModel(width: number) {
   sketch('xy', () => {
@@ -152,5 +153,36 @@ describe("solved sketch cache atomicity (SceneCompare)", () => {
     expect(newScene.isCached(sketchObj)).toBe(false);
     const children = sketchObj.getChildren();
     expect(children.every(c => !newScene.isCached(c))).toBe(true);
+  });
+
+  it("a cached constraint targeting a projected edge keeps its resolved spec and id", () => {
+    // Constraints on projected references register deferred: placeholder
+    // ids until the sketch's pre-solve pass resolves them. A cached sketch
+    // subtree never re-runs that pass, so the resolved form must survive
+    // the state transfer — otherwise the statement serializes its
+    // placeholder spec with constraintId -1 and the UI draws no dimension.
+    const declare = () => {
+      sketch('xy', () => { circle([0, 0], 20); });
+      const e = extrude(10);
+      sketch(e.endFaces(), () => {
+        const prj = project(e.endEdges(edge().circle()));
+        const l = line([30, 0], [30, 20]);
+        distance(l, prj.center(), 30);
+      });
+    };
+    declare();
+    render();
+    const previousScene = getSceneManager().currentScene;
+    const fresh = byUniqueType(previousScene, 'constraint-distance')[0].serialize() as { constraintId: number; spec: { b: { entity: number } } };
+    expect(fresh.constraintId).toBeGreaterThanOrEqual(0);
+    expect(fresh.spec.b.entity).toBeGreaterThanOrEqual(0);
+
+    const newScene = getSceneManager().startScene();
+    declare();
+    SceneCompare.compare(previousScene, newScene);
+
+    const cachedObj = byUniqueType(newScene, 'constraint-distance')[0];
+    expect(newScene.isCached(cachedObj)).toBe(true);
+    expect(cachedObj.serialize()).toEqual(fresh);
   });
 });

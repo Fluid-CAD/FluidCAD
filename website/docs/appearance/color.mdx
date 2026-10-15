@@ -44,6 +44,22 @@ select(face().onPlane("xy", 30))
 color("tomato")                // repaint just the top face
 ```
 
+## Colour never consumes a selection
+
+A colour changes no geometry, so it takes nothing away from the model. The solid stays with the feature that built it, and a selection you pass to `color()` is still there for the next feature:
+
+```js
+const top = select(face().top())
+color("orange", top)           // paints the top face
+fillet(2, top)                 // the same selection, still usable
+```
+
+A bare `color()` claims the last selection like any other feature, so a bare `fillet(2)` written after it starts from no selection rather than inheriting the painted faces.
+
+`color(value, object)` paints the object's bodies as they stand at that statement. If a fillet or a boolean has already taken the object's solid, the paint lands on the body those features made of it — `color("steelblue", body)` after `fillet(2, body.endEdges())` paints the filleted body, arc faces included.
+
+When two statements paint the same face, the **last `color()` wins**. Scrubbing the timeline follows the same rule: stop on the row before a paint and the body is shown unpainted; stop between two paints on one face and the earlier colour is shown.
+
 ## Colours survive later features
 
 Paint a face, then keep modelling: fillet, chamfer, fuse, cut and the rest carry colours forward onto the faces they produce.

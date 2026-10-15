@@ -68,7 +68,7 @@ select(edge().verticalTo("xy"))
 fillet(3)
 ```
 
-`select()` finds all matching geometry in the scene and stores it as the **last selection**. The next operation that needs a selection (fillet, chamfer, shell, color …) uses it and consumes it.
+`select()` finds all matching geometry in the scene and stores it as the **last selection**. The next operation that needs a selection (fillet, chamfer, shell, color …) uses it and consumes it. The one exception is [`color()`](/docs/appearance/color), which changes no geometry: it takes the selection as its target but leaves it intact, so a selection passed to `color()` can still be passed to a later feature.
 
 ## Edge filters
 

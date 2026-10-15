@@ -1,7 +1,7 @@
 ---
 id: api/color
 title: color(value, selection?)
-summary: Paints a face, edge, or solid. Accepts CSS color strings (named, hex, rgb). Without a target, paints the last selection, or every face in the current context when there is no selection.
+summary: Paints faces or a whole object. Accepts CSS color strings (named, hex, rgb). Without a target, paints the last selection, or every face in the current context when there is no selection. Changes no geometry and never consumes a selection; the last color() wins per face.
 tags: [api, utility, appearance]
 symbols: [color]
 seeAlso: [api/select, api/face-filter]
@@ -21,6 +21,16 @@ With no explicit target, paints the last selection — pair with
 `select(...)` or a direct accessor like `e.endFaces()`. When there is no
 selection at all, it paints every face in the current context, exactly as if
 you had written `select(face())` first.
+
+A colour changes no geometry, so `color()` holds no solid and never consumes
+a selection: `const top = select(face().top()); color("red", top);
+fillet(2, top)` fillets the same faces (a bare `color()` still claims the
+last selection, so a bare `fillet(2)` after it starts from none).
+`color(value, obj)` paints the object's bodies as they stand at the
+statement — after a fillet or boolean that already took `obj`'s solid, the
+paint lands on the body those features made. When two statements paint one
+face, the last `color()` in scope wins; rolling the timeline back to before a
+paint shows the same body unpainted.
 
 ## Example
 

@@ -18,7 +18,8 @@ select(...filters: (FaceFilter | EdgeFilter)[])
 Each filter contributes candidates; the final selection is the **union**
 across all filter arguments (whereas chained calls within a single
 filter — `.line()` then `.onPlane(...)` — are ANDed). The selection is
-stored on the scene; the next op that takes a selection consumes it.
+stored on the scene; the next op that takes a selection consumes it, except
+`color()`, which paints the selection and leaves it intact for a later op.
 
 For accessor-driven selections off a specific feature (e.g., the top
 faces of one extrude), use the direct accessor instead —

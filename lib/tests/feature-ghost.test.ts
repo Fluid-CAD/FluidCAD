@@ -36,7 +36,7 @@ import {
   Mirror2DGhostRequest,
   Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, MirrorGhostRequest,
   OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, HoleGhostRequest, RotateGhostRequest,
-  SplitGhostRequest, SweepGhostRequest,
+  GhostPlaneRef, SplitGhostRequest, SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { getSceneManager } from "../scene-manager.js";
@@ -3905,7 +3905,6 @@ describe("feature ghost — split", () => {
   const SPLIT_BASE: Omit<SplitGhostRequest, 'targets'> = {
     feature: 'split',
     keep: 'both',
-    offset: null,
     plane: { kind: 'standard', plane: 'yz' },
   };
 
@@ -3933,6 +3932,13 @@ describe("feature ghost — split", () => {
     return solid;
   }
 
+  /** A `plane('yz', x)` statement addressable at `line` — the cut moved to x. */
+  function locatedCut(line: number, x: number): GhostPlaneRef {
+    const datum = plane("yz", x) as unknown as SceneObject;
+    datum.setSourceLocation({ filePath: FILE, line, column: 0 });
+    return { kind: 'plane', filePath: FILE, line };
+  }
+
   function solidsOf(result: FeatureGhostResult) {
     if (!result.ok) {
       throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
@@ -3942,9 +3948,10 @@ describe("feature ghost — split", () => {
 
   it("draws the cut plane through the target and nothing else when both sides stay", () => {
     locatedBox(5);
+    const cut = locatedCut(7, 5);
     const scene = render();
 
-    const result = splitGhost(scene, [5], { offset: 5 });
+    const result = splitGhost(scene, [5], { plane: cut });
 
     const solids = solidsOf(result);
     expect(solids).toHaveLength(1);
@@ -3964,9 +3971,10 @@ describe("feature ghost — split", () => {
 
   it("paints the dropped side red when one side is kept", () => {
     locatedBox(5);
+    const cut = locatedCut(7, 5);
     const scene = render();
 
-    const result = splitGhost(scene, [5], { offset: 5, keep: 'front' });
+    const result = splitGhost(scene, [5], { plane: cut, keep: 'front' });
 
     const solids = solidsOf(result);
     expect(solids).toHaveLength(2);
@@ -3981,9 +3989,10 @@ describe("feature ghost — split", () => {
     locatedBox(5);
     sketch("xy", () => { testRect(20, 20, { at: [0, 40] }); });
     extrude(10).new();
+    const cut = locatedCut(9, 10);
     const scene = render();
 
-    const result = splitGhost(scene, [], { offset: 10, keep: 'back' });
+    const result = splitGhost(scene, [], { plane: cut, keep: 'back' });
 
     // Both boxes straddle x = 10: one dropped piece each.
     const solids = solidsOf(result);

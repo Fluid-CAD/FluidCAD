@@ -170,7 +170,7 @@ export interface ISection extends ISceneObject {
  * reads all of them.
  */
 export interface ISplit extends ISceneObject {
-  /** The cut plane as built — the datum's plane moved by the `offset` option (origin, normal, x-direction). */
+  /** The cut plane as built (origin, normal, x-direction). */
   getPlane(): Plane;
 }
 

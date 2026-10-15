@@ -25,8 +25,6 @@ export type SplitKeep = 'both' | SplitSide;
 export type SplitOptions = {
   /** The pieces to keep: `'both'` (the default) leaves every piece in the scene; `'front'` / `'back'` keep one side only. */
   keep?: SplitKeep;
-  /** Distance the cut plane is moved along its normal before the split (document units). */
-  offset?: number;
 };
 
 export const SPLIT_KEEP_VALUES: readonly SplitKeep[] = ['both', 'front', 'back'];
@@ -60,10 +58,6 @@ export class Split extends SceneObject implements ISplit {
     return this.options.keep ?? 'both';
   }
 
-  get offset(): number {
-    return this.options.offset ?? 0;
-  }
-
   override validate() {
     if (!this.targetObjects) {
       return;
@@ -91,15 +85,12 @@ export class Split extends SceneObject implements ISplit {
     if (this.plane instanceof PlaneFromSketchLine) {
       this.plane.line.sketch?.removeShapes(this);
     }
-    let plane = this.plane.getPlane();
+    const plane = this.plane.getPlane();
     if (!plane) {
       // An inline datum (a picked face, a seed line) has no row of its own:
       // its failure is reported here, on the statement that named it.
       const cause = this.plane.getError();
       throw new BuildError(cause ?? "split: the plane it names did not build.");
-    }
-    if (this.offset !== 0) {
-      plane = plane.translateAlongNormal(this.offset);
     }
     this.setState('plane', plane);
 
@@ -125,7 +116,7 @@ export class Split extends SceneObject implements ISplit {
     if (splitCount === 0) {
       this.setError(
         "split: the plane crosses none of the solids — nothing was split.\n" +
-        "Hint: move the plane (an offset, another face) so it passes through the body, " +
+        "Hint: move the plane (plane(base, offset), another face) so it passes through the body, " +
         "or pick the solid it should cut as a target.",
       );
     }
@@ -156,7 +147,7 @@ export class Split extends SceneObject implements ISplit {
     return heldSolidsOf(objects).map(({ holder, solid }) => ({ holder, shape: solid }));
   }
 
-  /** The cut plane as built — the datum's plane moved by `offset`. */
+  /** The cut plane as built. */
   getPlane(): Plane {
     return this.getState('plane') as Plane;
   }
@@ -193,7 +184,7 @@ export class Split extends SceneObject implements ISplit {
         return false;
       }
     }
-    return this.keep === other.keep && this.offset === other.offset;
+    return this.keep === other.keep;
   }
 
   getType(): string {
@@ -208,7 +199,6 @@ export class Split extends SceneObject implements ISplit {
     const plane = this.getPlane();
     return {
       keep: this.keep,
-      offset: this.offset,
       origin: plane ? [plane.origin.x, plane.origin.y, plane.origin.z] : [0, 0, 0],
       normal: plane ? [plane.normal.x, plane.normal.y, plane.normal.z] : [0, 0, 1],
     };

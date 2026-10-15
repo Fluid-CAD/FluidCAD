@@ -94,22 +94,9 @@ describe("split", () => {
       expect(bbox.maxX).toBeCloseTo(0, 5);
     });
 
-    it("moves the plane by the offset before cutting", () => {
-      box();
-      const s = split("yz", { offset: 5 }) as unknown as Split;
-
-      render();
-
-      const pieces = s.getShapes();
-      expect(pieces.length).toBe(2);
-      expect(ShapeOps.getBoundingBox(pieces[0]).minX).toBeCloseTo(5, 5);
-      expect(ShapeOps.getBoundingBox(pieces[1]).maxX).toBeCloseTo(5, 5);
-      expect(s.getPlane().origin.x).toBeCloseTo(5, 9);
-    });
-
     it("leaves a solid the plane misses untouched and flags the statement", () => {
       const e = box();
-      const s = split("yz", { offset: 100 }) as unknown as Split;
+      const s = split(plane("yz", 100)) as unknown as Split;
 
       const scene = render();
 
@@ -299,7 +286,7 @@ describe("split", () => {
       expect(zs[3]).toBeCloseTo(10, 5);
     });
 
-    it("keeps one side and offsets along the seeded plane's normal", () => {
+    it("keeps one side of the seeded plane", () => {
       box();
       let seed: any;
       sketch("xy", () => {
@@ -308,13 +295,13 @@ describe("split", () => {
         fix(seed.start(), [0, -40]);
         distance(seed.start(), seed.end(), 80);
       });
-      const s = split(seed, { keep: 'back', offset: -5 }) as unknown as Split;
+      const s = split(seed, { keep: 'back' }) as unknown as Split;
 
       render();
 
       const pieces = s.getShapes();
       expect(pieces.length).toBe(1);
-      expect(ShapeOps.getBoundingBox(pieces[0]).maxX).toBeCloseTo(-5, 5);
+      expect(ShapeOps.getBoundingBox(pieces[0]).maxX).toBeCloseTo(0, 5);
       expect(ShapeOps.getBoundingBox(pieces[0]).minX).toBeCloseTo(-20, 5);
     });
 
@@ -356,9 +343,9 @@ describe("split", () => {
       expect(() => split("yz", { keep: 'left' } as any)).toThrow(/keep must be/);
     });
 
-    it("rejects a non-finite offset", () => {
+    it("points an offset option at the plane itself", () => {
       box();
-      expect(() => split("yz", { offset: Number.NaN })).toThrow(/offset must be/);
+      expect(() => split("yz", { offset: 5 } as any)).toThrow(/no offset option/);
     });
 
     it("rejects an unknown option", () => {

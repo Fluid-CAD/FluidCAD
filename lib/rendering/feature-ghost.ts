@@ -451,8 +451,6 @@ export type SplitGhostRequest = {
   feature: 'split';
   /** The pieces the split keeps. */
   keep: 'both' | 'front' | 'back';
-  /** Distance the plane is moved along its normal; null when the field is empty. */
-  offset: number | null;
   /** The solid-bearing statements being split, by call site; empty for every solid in the scene. */
   targets: { filePath: string; line: number }[];
   /** The plane to cut along, or the sketched line seeding it. */
@@ -2242,7 +2240,7 @@ function buildMirrorGhost(
 
 /**
  * The split branch. The plane resolves the way a mirror's does — plus the
- * seed line's own form — and is moved by the offset; the targets read
+ * seed line's own form; the targets read
  * through {@link copyTargetSolids} (every solid of the scene when the
  * statement names none), so the body a later feature took is read as that
  * feature left it, and in the edit dialog `exclude` keeps the applied split —
@@ -2259,11 +2257,10 @@ function buildSplitGhost(
 ): FeatureGhostResult {
   const scratch: Shape[] = [];
   try {
-    const base = resolveGhostPlane(scene, request.plane, scratch);
-    if (!base) {
+    const plane = resolveGhostPlane(scene, request.plane, scratch);
+    if (!plane) {
       return { ok: false, reason: 'That cut plane is not in the rendered scene.' };
     }
-    const plane = request.offset ? base.translateAlongNormal(request.offset) : base;
 
     let solids: Shape[];
     if (request.targets.length === 0) {

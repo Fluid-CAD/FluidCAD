@@ -23,10 +23,11 @@ interface SplitFunction {
    *     split(p, boss);                                // one body, at a plane() statement
    *     split(select(face().onPlane('xy', 30)));       // at a planar face
    *     split('yz', { keep: 'front' }, body);          // keep the normal side only
-   *     split('xy', { offset: 12 });                   // 12 above XY
+   *     split(plane('xy', 12));                        // 12 above XY
    *
    * `keep` drops the pieces on one side — `front` is the side the plane
-   * normal points to. `offset` moves the plane along its normal first.
+   * normal points to. To cut away from a plane, offset the plane itself
+   * (`plane('xy', 12)`, `plane(select(face()…), -8)`).
    *
    * @param plane - An origin plane (`'xy'`, `'xz'`, `'yz'`), a `plane()` statement, or a planar face selection.
    * @param targets - The solids to split; none for every solid in scope.
@@ -35,7 +36,7 @@ interface SplitFunction {
   /**
    * Splits solids with a plane, with options.
    * @param plane - An origin plane (`'xy'`, `'xz'`, `'yz'`), a `plane()` statement, or a planar face selection.
-   * @param options - `keep` (`'both'`, `'front'`, `'back'`) and `offset` along the normal.
+   * @param options - `keep` (`'both'`, `'front'`, `'back'`).
    * @param targets - The solids to split; none for every solid in scope.
    */
   (plane: PlaneLike | IPlane | ISceneObject, options: SplitOptions, ...targets: ISceneObject[]): ISplit;
@@ -58,7 +59,7 @@ interface SplitFunction {
   /**
    * Splits solids along a sketched line, with options.
    * @param line - A `line()` of a sketch.
-   * @param options - `keep` (`'both'`, `'front'`, `'back'`) and `offset` along the plane normal (line direction × sketch normal).
+   * @param options - `keep` (`'both'`, `'front'`, `'back'`); `front` is the side of line direction × sketch normal.
    * @param targets - The solids to split; none for every solid in scope.
    */
   (line: IGeometry, options: SplitOptions, ...targets: ISceneObject[]): ISplit;
@@ -73,24 +74,22 @@ function validateOptions(options: unknown): SplitOptions {
     return {};
   }
   if (!isOptionsBag(options)) {
-    throw new Error(`split(): the options are an object { keep?, offset? } (got ${options === null ? 'null' : typeof options}).`);
+    throw new Error(`split(): the options are an object { keep? } (got ${options === null ? 'null' : typeof options}).`);
   }
-  const { keep, offset } = options as SplitOptions;
+  const { keep } = options as SplitOptions;
   if (keep !== undefined && !SPLIT_KEEP_VALUES.includes(keep)) {
     throw new Error(`split(): keep must be 'both', 'front' or 'back' (got ${JSON.stringify(keep)}).`);
   }
-  if (offset !== undefined && (typeof offset !== 'number' || !Number.isFinite(offset))) {
-    throw new Error(`split(): offset must be a finite number (got ${JSON.stringify(offset)}).`);
-  }
   for (const key of Object.keys(options)) {
-    if (key !== 'keep' && key !== 'offset') {
-      throw new Error(`split(): unknown option '${key}' — the options are { keep?, offset? }.`);
+    if (key !== 'keep') {
+      throw new Error(
+        key === 'offset'
+          ? "split(): there is no offset option — offset the plane itself: split(plane('xy', 12)) or split(plane(face, -8))."
+          : `split(): unknown option '${key}' — the options are { keep? }.`,
+      );
     }
   }
-  return {
-    ...(keep !== undefined ? { keep } : {}),
-    ...(offset !== undefined ? { offset } : {}),
-  };
+  return keep !== undefined ? { keep } : {};
 }
 
 /**

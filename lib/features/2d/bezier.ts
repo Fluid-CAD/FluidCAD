@@ -1,6 +1,7 @@
 import { Geometry } from "../../oc/geometry.js";
 import { Point, Point2D } from "../../math/point.js";
 import type { Edge } from "../../common/edge.js";
+import type { LazyVertex } from "../lazy-vertex.js";
 import { ControlPointCurve, type ControlPointSource } from "./control-point-curve.js";
 
 export type { ControlPointSource };
@@ -24,6 +25,10 @@ export class BezierCurve extends ControlPointCurve {
       // The edge holds its own handle to the curve.
       bezierCurve.delete();
     }
+  }
+
+  protected newInstance(controlPoints: LazyVertex[], literalIndices: number[]): ControlPointCurve {
+    return new BezierCurve(controlPoints, literalIndices);
   }
 
   getType(): string {

@@ -3,8 +3,41 @@ import { ICON_EYE, ICON_EYE_OFF, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL } from '
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { AccordionSection } from './accordion-section';
 import { iconUrl } from './icon-url';
+import { findEnclosingPartRow, sourceLocKey } from '../helpers/scene-utils';
 
+/** One listed shape: its action handle, its `<Type> <n>` label and the row that holds it. */
+type ShapeRow = {
+  shapeId: string;
+  shapeType: string;
+  label: string;
+  holderName: string;
+};
+
+/** One collapsible group: a part row, or the fixed "Model" for part-less shapes. */
+type ShapeGroup = {
+  /** Survives renders: the part's source-location key, or {@link ShapesPanel.MODEL_GROUP_KEY}. */
+  key: string;
+  title: string;
+  rows: ShapeRow[];
+};
+
+/**
+ * The Shapes section of the docked column: every non-meta shape the render
+ * produced, grouped by the part that holds it (part-less shapes under
+ * "Model"), each row `<Type> <n>` — n counted per part and per shape type in
+ * timeline order — over the feature that holds it ("from Extrude 2").
+ *
+ * The number is a label, never an identity: the eye and the row menu act on
+ * `data-shape-id`, which the viewer translates per render (lineage keys keep
+ * a hidden or faded body hidden or faded through later features and edits).
+ * Collapsed groups are remembered by the part row's source location, so a
+ * re-render keeps them folded.
+ */
 export class ShapesPanel extends AccordionSection {
+  /** Group key of the shapes no part holds. */
+  static readonly MODEL_GROUP_KEY = 'model';
+  private static readonly MODEL_GROUP_TITLE = 'Model';
+
   private panel: HTMLElement;
   private sceneObjects: SceneObjectRender[] = [];
   private collapsedGroups = new Set<string>();
@@ -49,55 +82,102 @@ export class ShapesPanel extends AccordionSection {
     this.render();
   }
 
-  private render(): void {
-    const groups = new Map<string, { shapeId: string; shapeType: string; sceneObjectName: string }[]>();
+  /**
+   * The groups in display order: "Model" first when it has shapes, then one
+   * group per part in timeline order of the part rows. Ordinals restart per
+   * group and per shape type, counting holders in timeline order and shapes
+   * in their holder's order.
+   */
+  private buildGroups(): ShapeGroup[] {
+    const partGroups = new Map<string, ShapeGroup>();
+    const model: ShapeGroup = { key: ShapesPanel.MODEL_GROUP_KEY, title: ShapesPanel.MODEL_GROUP_TITLE, rows: [] };
+    const ordinals = new Map<string, number>();
 
     for (const obj of this.sceneObjects) {
-      for (const shape of obj.sceneShapes) {
-        if (shape.isMetaShape) {
-          continue;
-        }
+      const shapes = (obj.sceneShapes ?? []).filter((shape) => !shape.isMetaShape);
+      if (shapes.length === 0) {
+        continue;
+      }
+      const part = obj.type === 'part' ? obj : findEnclosingPartRow(obj, this.sceneObjects);
+      const group = part ? ShapesPanel.groupFor(part, partGroups) : model;
+      for (const shape of shapes) {
         const type = shape.shapeType || 'unknown';
-        if (!groups.has(type)) {
-          groups.set(type, []);
-        }
-        groups.get(type)!.push({
+        const ordinalKey = `${group.key}\0${type}`;
+        const ordinal = (ordinals.get(ordinalKey) ?? 0) + 1;
+        ordinals.set(ordinalKey, ordinal);
+        group.rows.push({
           shapeId: shape.shapeId || '',
           shapeType: type,
-          sceneObjectName: obj.name,
+          label: `${ShapesPanel.capitalize(type)} ${ordinal}`,
+          holderName: obj.name ?? '',
         });
       }
     }
 
+    const groups = [...partGroups.values()];
+    if (model.rows.length > 0) {
+      groups.unshift(model);
+    }
+    return groups;
+  }
+
+  /** The group of a part row, created on first use (insertion order = timeline order). */
+  private static groupFor(part: SceneObjectRender, groups: Map<string, ShapeGroup>): ShapeGroup {
+    const key = ShapesPanel.partGroupKey(part);
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, title: part.name ?? 'Part', rows: [] };
+      groups.set(key, group);
+    }
+    return group;
+  }
+
+  /**
+   * A part row's identity across renders: its source location (plus the
+   * occurrence for a part made in a loop); a row without one falls back to
+   * its scene id, which lives one render.
+   */
+  private static partGroupKey(part: SceneObjectRender): string {
+    const loc = part.sourceLocation;
+    if (!loc) {
+      return `id:${part.id ?? ''}`;
+    }
+    const base = sourceLocKey(loc);
+    return loc.occurrence != null ? `${base}#${loc.occurrence}` : base;
+  }
+
+  private static capitalize(text: string): string {
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  private static escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private render(): void {
     let html = '';
 
-    for (const [type, shapes] of groups) {
-      const capitalized = type.charAt(0).toUpperCase() + type.slice(1);
-      const isCollapsed = this.collapsedGroups.has(type);
+    for (const group of this.buildGroups()) {
+      const isCollapsed = this.collapsedGroups.has(group.key);
       const rotation = isCollapsed ? '' : 'rotate-90';
 
       html += `
-        <div class="flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70 font-medium" data-shape-group="${type}">
+        <div class="flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70 font-medium" data-shape-group="${ShapesPanel.escapeHtml(group.key)}">
           <span class="flex items-center justify-center w-5 h-5 opacity-50 hover:opacity-100 transition-transform ${rotation}">
             ${ICON_CHEVRON_RIGHT}
           </span>
-          <span>${capitalized}</span>
-          <span class="text-base-content/40 ml-1">${shapes.length}</span>
+          <span class="truncate">${ShapesPanel.escapeHtml(group.title)}</span>
+          <span class="text-base-content/40 ml-1">${group.rows.length}</span>
         </div>
       `;
 
       if (!isCollapsed) {
-        const nameTotals = new Map<string, number>();
-        for (const shape of shapes) {
-          nameTotals.set(shape.sceneObjectName, (nameTotals.get(shape.sceneObjectName) ?? 0) + 1);
-        }
-        const nameCounts = new Map<string, number>();
-        for (let i = 0; i < shapes.length; i++) {
-          const shape = shapes[i];
-          const nameIndex = (nameCounts.get(shape.sceneObjectName) ?? 0) + 1;
-          nameCounts.set(shape.sceneObjectName, nameIndex);
-          const total = nameTotals.get(shape.sceneObjectName) ?? 1;
-          const label = total > 1 ? `${shape.sceneObjectName} ${nameIndex}` : shape.sceneObjectName;
+        for (const shape of group.rows) {
           const isSelected = this.selectedIds.has(shape.shapeId);
           const selectedClass = isSelected ? ' bg-primary/10' : '';
           const hidden = this.isShapeHidden(shape.shapeId);
@@ -106,9 +186,12 @@ export class ShapesPanel extends AccordionSection {
           const eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${shape.shapeId}">${eyeIcon}</button>`;
           const dotsBtn = `<button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${shape.shapeId}">${ICON_DOTS_VERTICAL}</button>`;
           html += `
-            <div class="group flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70${selectedClass}" data-shape-id="${shape.shapeId}" data-shape-type="${shape.shapeType}">
-              <img src="${iconUrl(shape.shapeType)}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
-              <span class="truncate">${label}</span>
+            <div class="group flex items-center gap-2 pl-9 pr-3 py-1 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/70 leading-tight${selectedClass}" data-shape-id="${shape.shapeId}" data-shape-type="${shape.shapeType}">
+              <img src="${iconUrl(shape.shapeType)}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain shrink-0" alt="" />
+              <span class="min-w-0 flex-1">
+                <span class="block truncate" data-shape-label>${ShapesPanel.escapeHtml(shape.label)}</span>
+                <span class="block truncate text-xs text-base-content/50" data-shape-from>from ${ShapesPanel.escapeHtml(shape.holderName)}</span>
+              </span>
               ${eyeBtn}
               ${dotsBtn}
             </div>
@@ -122,11 +205,11 @@ export class ShapesPanel extends AccordionSection {
 
     this.body.querySelectorAll<HTMLElement>('[data-shape-group]').forEach((el) => {
       el.addEventListener('click', () => {
-        const type = el.dataset.shapeGroup!;
-        if (this.collapsedGroups.has(type)) {
-          this.collapsedGroups.delete(type);
+        const key = el.dataset.shapeGroup!;
+        if (this.collapsedGroups.has(key)) {
+          this.collapsedGroups.delete(key);
         } else {
-          this.collapsedGroups.add(type);
+          this.collapsedGroups.add(key);
         }
         this.render();
       });

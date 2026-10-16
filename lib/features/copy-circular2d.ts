@@ -36,6 +36,15 @@ export class CopyCircular2D extends Copy2DBase {
     this.stampDuplicates(objects, layout.duplicates);
   }
 
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    // An accessor-valued center (`c.center()`) re-points at the cloned
+    // owner; a literal gets its own vertex.
+    const center = (remap.get(this.center) ?? this.center.createCopy(remap)) as LazyVertex;
+    const copy = new CopyCircular2D(center, this.options, this.remapTargets(remap));
+    this.copyRegistrationTo(copy);
+    return copy;
+  }
+
   /**
    * Rotation steps about the center: the original is slot 0, step i is
    * slot i. Shared by build() (stamping) and the statement-time

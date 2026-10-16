@@ -10,6 +10,7 @@
 import { Point2D } from "../../math/point.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import type { Edge } from "../../common/edge.js";
+import type { SceneObject } from "../../common/scene-object.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { StatementAnchors, AnchorPointRef } from "./solved/anchors.js";
 import { SolvedPointRef } from "./solved/refs.js";
@@ -40,6 +41,10 @@ export abstract class ControlPointCurve extends GeometrySceneObject {
 
   /** The kernel edge the solved points (sketch space, ≥ 2) define. */
   protected abstract buildEdge(points: Point2D[]): Edge;
+
+  /** A fresh, unregistered curve of this statement's kind — createCopy
+   * fills in the solver state. */
+  protected abstract newInstance(controlPoints: LazyVertex[], literalIndices: number[]): ControlPointCurve;
 
   /**
    * Called by the command factory right after addSceneObject: every literal
@@ -176,6 +181,24 @@ export abstract class ControlPointCurve extends GeometrySceneObject {
     }
 
     this.addShape(this.buildEdge(points));
+  }
+
+  /**
+   * Clone support (repeat / copy of the enclosing sketch): the copy shares
+   * the original's anchor registration — same solver context, same point
+   * entity ids — so it reads the same solved positions and the clone's
+   * transform places the result (the rail every solved entity's copy
+   * rides). An accessor-valued control point (`l.end()`) is re-pointed at
+   * the cloned owner through `remap`, never shared with the original.
+   */
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const controlPoints = this.controlPoints.map(cp =>
+      (remap.get(cp) ?? cp.createCopy(remap)) as LazyVertex,
+    );
+    const copy = this.newInstance(controlPoints, [...this.literalIndices]);
+    copy.anchorIndexOf = new Map(this.anchorIndexOf);
+    this.anchors.copyTo(copy.anchors);
+    return copy;
   }
 
   compareTo(other: ControlPointCurve): boolean {

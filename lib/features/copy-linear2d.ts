@@ -36,6 +36,17 @@ export class CopyLinear2D extends Copy2DBase {
     this.stampDuplicates(objects, layout.duplicates);
   }
 
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    // A sketch-owned axis (`xAxis()`, an axis from a solved line) is cloned
+    // with the sketch — follow it; a world axis is a value.
+    const axes = this.axes.map(a =>
+      a instanceof AxisObjectBase ? (remap.get(a) as AxisObjectBase | undefined) ?? a : a,
+    );
+    const copy = new CopyLinear2D(axes, this.options, this.remapTargets(remap));
+    this.copyRegistrationTo(copy);
+    return copy;
+  }
+
   /**
    * Grid slots linearize the position tuple axis-major (axis 0 slowest),
    * matching the generation order below. The original block sits at ITS

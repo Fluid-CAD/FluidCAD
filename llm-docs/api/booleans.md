@@ -22,6 +22,10 @@ common(...objects)                     // intersection
 The no-argument forms operate on the implicit last objects in scope; the
 explicit forms operate on the arguments you pass. These are 3D-only —
 inside a sketch they throw (the 2D booleans were removed).
+
+A named operand stands for the body it built wherever later features
+left it: `subtract(e, tool)` after a fillet or a move of `e` cuts the
+body as it is now (see [[concepts/scene-graph]]).
 Most modeling work can rely on auto-fusion (touching solids merge
 automatically and `.remove()` chained on `extrude` already covers
 subtraction). Reach for these when:

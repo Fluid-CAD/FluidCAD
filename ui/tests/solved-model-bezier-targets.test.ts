@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  bezierViewForShape, buildSolvedSketchModel, pickForEntity,
+  curveViewForShape, buildSolvedSketchModel, pickForEntity,
 } from '../src/sketch-solver-client/model';
 import type { SceneObjectRender } from '../src/types';
 
@@ -58,17 +58,17 @@ function payload(): { sketch: SceneObjectRender; objects: SceneObjectRender[] } 
   return { sketch, objects: [sketch, bezier, line] };
 }
 
-describe('bezierViewForShape / pickForEntity', () => {
+describe('curveViewForShape / pickForEntity', () => {
   const { sketch, objects } = payload();
   const model = buildSolvedSketchModel(sketch, objects)!;
 
   it('resolves the curve shape to its bezier statement, never a meta shape or an entity edge', () => {
-    const view = bezierViewForShape(model, 'curve');
+    const view = curveViewForShape(model, 'curve');
     expect(view?.obj.id).toBe('bz1');
     expect(view?.sources).toEqual(CONTROLS.map((_, i) => ({ entityId: i, role: null })));
-    expect(bezierViewForShape(model, 'meta')).toBeUndefined();
-    expect(bezierViewForShape(model, 'line-edge')).toBeUndefined();
-    expect(bezierViewForShape(model, 'nope')).toBeUndefined();
+    expect(curveViewForShape(model, 'meta')).toBeUndefined();
+    expect(curveViewForShape(model, 'line-edge')).toBeUndefined();
+    expect(curveViewForShape(model, 'nope')).toBeUndefined();
   });
 
   it('names a control point through its anchor entity view — the bezier line + pointIndex', () => {

@@ -1,6 +1,6 @@
 import { SceneObject } from "../common/scene-object.js";
 import { FileImport } from "../io/file-import.js";
-import { OcIO } from "../oc/io.js";
+import { ScaleOps } from "../oc/scale-ops.js";
 import { parseLengthUnit, unitFactor } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import type { LoadOptions } from "../core/interfaces.js";
@@ -55,7 +55,7 @@ export class LoadFile extends SceneObject {
   }
 
   build() {
-    const shapes = FileImport.deserializeShapesWithMetadata(this.fileName, {
+    const imported = FileImport.deserializeShapesWithMetadata(this.fileName, {
       noColors: this._noColors,
       include: this._include,
       exclude: this._exclude.size > 0 ? this._exclude : undefined,
@@ -65,7 +65,14 @@ export class LoadFile extends SceneObject {
     // (mm into mm) returns the shapes untouched, keeping existing projects
     // bit-identical.
     const factor = unitFactor(this.assetUnit(), this.getUnit());
-    this.addShapes(OcIO.scaleSolids(shapes, factor));
+    // The sidecar's colours are this statement's paint: it holds the solids
+    // and is the author of their colours.
+    for (const { solid, colors } of ScaleOps.scaleColoredSolids(imported, factor)) {
+      this.addShape(solid);
+      for (const { face, color } of colors) {
+        this.recordFaceColor(solid, face, color, this);
+      }
+    }
   }
 
   compareTo(other: LoadFile): boolean {

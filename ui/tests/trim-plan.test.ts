@@ -42,7 +42,7 @@ function constraint(line: number, spec: Record<string, unknown>): SolvedConstrai
 function makeModel(entities: SolvedEntityView[], constraints: SolvedConstraintView[] = []): SolvedSketchModel {
   return {
     entities: new Map(entities.map(e => [e.entityId, e])),
-    beziers: new Map(),
+    curves: new Map(),
     constraints,
     hasDatums: true,
   } as unknown as SolvedSketchModel;

@@ -90,7 +90,7 @@ export type EditorDirtyStateMessage = {
 export type EditorHelloMessage = {
   type: 'editor-hello';
   /** `monaco` arrives over the UI WebSocket rather than IPC — same message. */
-  editor: 'vscode' | 'neovim' | 'monaco';
+  editor: string;
   capabilities: { undoRedo: boolean };
 };
 
@@ -219,6 +219,22 @@ export type SerializedAssemblyConnector = {
   copy?: { slot: number; seedId: string };
 };
 
+/**
+ * One `relation()` statement: a gear or rack-and-pinion coupling between the
+ * free motions of two mates, by their ids. Absent on engines predating it.
+ */
+export type SerializedAssemblyRelation = {
+  relationId: string;
+  name?: string;
+  owner: string;
+  type: 'gear' | 'rack-and-pinion';
+  mateA: string;
+  mateB: string;
+  ratio: number;
+  reverse: boolean;
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
 export type SerializedAssembly = {
   instances: SerializedAssemblyInstance[];
   mates: SerializedAssemblyMate[];
@@ -226,6 +242,8 @@ export type SerializedAssembly = {
   connectors?: SerializedAssemblyConnector[];
   /** Absent on engines predating `replicate()`. */
   replicates?: SerializedAssemblyReplicate[];
+  /** Absent on engines predating `relation()`. */
+  relations?: SerializedAssemblyRelation[];
 };
 
 export type SceneRenderedMessage = {
@@ -325,8 +343,8 @@ export type GotoSourceMessage = {
   /**
    * False for a passive navigation (a timeline row click): move the caret,
    * but never pop a hidden editor open. Hosts where the editor *is* the
-   * window — VS Code, Neovim — have nothing to reveal and ignore it; only
-   * the in-page host, whose editor is a pane beside the scene, honors it.
+   * window have nothing to reveal and ignore it; only the in-page host,
+   * whose editor is a pane beside the scene, honors it.
    * Omitted means the caller is an explicit "show me the code".
    */
   revealEditor?: boolean;
@@ -507,6 +525,14 @@ export type UISceneRenderedMessage = {
    * `index` numbering as `result`; absent on error replays.
    */
   objectWarnings?: ObjectBuildWarning[];
+  /**
+   * Frame the whole model once this scene is on screen. Set on renders an
+   * agent asked for through the MCP write tools (`POST /api/render` with
+   * `fitView`): the person watching the modeling sees each edit land in
+   * frame. Never set on the page's own live-updates — the camera stays
+   * where the user put it while they type.
+   */
+  fitView?: boolean;
 };
 
 export type UIHighlightShapeMessage = {
@@ -563,6 +589,8 @@ export type ScreenshotView =
   | { kind: 'current' }
   | { kind: 'named'; name: NamedView }
   | { kind: 'orbit-from-current'; azimuthDeg: number; elevationDeg: number }
+  /** Looks at the capture's `section` from the removed half: tilted off the cut normal, or square-on with `straight`. */
+  | { kind: 'section'; straight?: boolean }
   | { kind: 'look-from'; eye: [number, number, number]; target?: [number, number, number] };
 
 /**

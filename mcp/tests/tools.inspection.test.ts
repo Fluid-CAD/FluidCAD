@@ -715,6 +715,16 @@ describe('inspection tools (over MCP)', () => {
       for (const name of ['get_scene_summary', 'get_shape_properties', 'get_face_properties', 'get_edge_properties']) {
         expect(byName.get(name)).toContain('`unit`');
       }
+      // The agent learns from the surface alone that names are optional
+      // labels, that shape ids are per render and that lineageKey / label +
+      // part are how to find a body again.
+      expect(byName.get('get_scene_summary')).toContain('`hasCustomName`');
+      expect(byName.get('get_scene_summary')).toContain('`lineageKey`');
+      expect(byName.get('get_scene_summary')).toContain('optional');
+      expect(byName.get('list_shapes')).toContain('lineageKey');
+      expect(byName.get('list_shapes')).toContain('`label`');
+      const shapeIdSchema = JSON.stringify(tools.tools.find((t) => t.name === 'get_shape_properties')!.inputSchema);
+      expect(shapeIdSchema).toContain('lineageKey');
       expect(byName.get('pack_model')).toContain('`unit`');
       expect(byName.get('pack_model')).toContain('schemaVersion 3');
     } finally {

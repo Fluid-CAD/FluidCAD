@@ -3,6 +3,7 @@ import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
+import type { SketchImageEdit } from '../code-editor/index.ts';
 import { MaterialCatalog } from '../material-catalog.ts';
 import { MoveToPart } from '../move-to-part.ts';
 import { PartRename } from '../part-rename.ts';
@@ -12,6 +13,61 @@ import { RemoveFeature } from '../remove-feature.ts';
 import { WorkspaceConnectorReads } from '../hole-connectors.ts';
 import { WorkspaceScripts } from '../workspace-scripts.ts';
 import { TimelineBreakpoint } from '../timeline-breakpoint.ts';
+
+/** A finite number, or undefined for an absent optional field. */
+function optionalFinite(value: unknown): number | undefined | false {
+  if (value === undefined) {
+    return undefined;
+  }
+  return typeof value === 'number' && Number.isFinite(value) ? value : false;
+}
+
+/**
+ * The Image tool's record as the route accepts it: a non-empty path, a
+ * positive width and/or height, and well-formed optional centre, angle and
+ * opacity (0…1) — the same rules the lib applies to the written statement, so
+ * a rejected edit never reaches the host.
+ */
+function isSketchImageEdit(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const v = value as Record<string, unknown>;
+  if (typeof v.src !== 'string' || v.src.trim() === '') {
+    return false;
+  }
+  const width = optionalFinite(v.width);
+  const height = optionalFinite(v.height);
+  if (width === false || height === false || (width === undefined && height === undefined)) {
+    return false;
+  }
+  if ((width !== undefined && width <= 0) || (height !== undefined && height <= 0)) {
+    return false;
+  }
+  if (v.at !== undefined && !(Array.isArray(v.at) && v.at.length === 2 && v.at.every((n) => typeof n === 'number' && Number.isFinite(n)))) {
+    return false;
+  }
+  if (optionalFinite(v.angle) === false) {
+    return false;
+  }
+  const opacity = optionalFinite(v.opacity);
+  if (opacity === false || (opacity !== undefined && (opacity < 0 || opacity > 1))) {
+    return false;
+  }
+  return true;
+}
+
+/** The validated record with only the fields the writer knows. */
+function sketchImageEditOf(value: Record<string, any>): SketchImageEdit {
+  return {
+    src: String(value.src).trim(),
+    ...(value.width !== undefined ? { width: value.width } : {}),
+    ...(value.height !== undefined ? { height: value.height } : {}),
+    ...(value.at !== undefined ? { at: [value.at[0], value.at[1]] as [number, number] } : {}),
+    ...(value.angle !== undefined ? { angle: value.angle } : {}),
+    ...(value.opacity !== undefined ? { opacity: value.opacity } : {}),
+  };
+}
 
 export function createTimelineRouter(
   fluidCadServer: FluidCadServer,
@@ -237,6 +293,39 @@ export function createTimelineRouter(
       parts: [],
       imports: [],
       sketchClosed: { sourceLine: sourceLocation.line, closed },
+    };
+    await options.dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // The sketch toolbar's Image tool: a new picture in a sketch body
+  // (`sketch` + an image record), or the `image()` statement at `target`
+  // rewritten. (A picture is deleted from its timeline row, through the
+  // generic remove-statement route.) Acked through the dispatcher
+  // like set-sketch-closed so the tool can close on the re-render that
+  // shows the picture from code.
+  router.post('/sketch-image', async (req, res) => {
+    const { sketch, target, image } = req.body ?? {};
+    const isLocation = (loc: any) => !!loc && typeof loc.filePath === 'string' && typeof loc.line === 'number';
+    const creating = isLocation(sketch) && target === undefined && isSketchImageEdit(image);
+    const editing = isLocation(target) && sketch === undefined && isSketchImageEdit(image);
+    if (!creating && !editing) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    if (!options.dispatcher) {
+      res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
+      return;
+    }
+    const record = sketchImageEditOf(image);
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: creating ? sketch.filePath : target.filePath,
+      producers: [],
+      parts: [],
+      imports: [],
+      sketchImage: creating
+        ? { sketchLine: sketch.line, image: record }
+        : { imageLine: target.line, image: record },
     };
     await options.dispatcher.dispatch(res, spec, { success: true });
   });

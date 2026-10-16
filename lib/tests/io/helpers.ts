@@ -8,6 +8,8 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import { testRect } from "../helpers/profiles.js";
 import { render } from "../setup.js";
+import { coloredSolids } from "../utils.js";
+import type { ColoredSolid } from "../../common/colored-solid.js";
 
 export type Bounds = { min: [number, number, number]; max: [number, number, number] };
 
@@ -22,6 +24,11 @@ export function sceneSolids(): Solid[] {
     }
   }
   return solids;
+}
+
+/** `solids` with the colours their holders in the current scene resolve — the export's input. */
+export function exportable(solids: Solid[]): ColoredSolid[] {
+  return coloredSolids(getCurrentScene(), solids);
 }
 
 /** An axis-aligned `size`³ box at the origin, built and rendered in the current scene. */

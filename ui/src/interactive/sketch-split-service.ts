@@ -19,7 +19,7 @@ export type SketchSplitRail = SketchClickOpRail & {
  *
  * What splits: a `line()` into two lines, an `arc()` into two arcs around
  * the same center, a `circle()` into one full-turn arc. What refuses, with
- * a toast: text, beziers, ellipses (not yet), points, projected references,
+ * a toast: text, beziers, splines, ellipses (not yet), points, projected references,
  * copy and mirror images, looped statements, and a click on a vertex.
  *
  * The cut point snaps to a line's midpoint, an arc's midpoint and a

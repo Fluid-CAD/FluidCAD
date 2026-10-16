@@ -199,6 +199,14 @@ export class TimelinePanel {
   isRowShown?: (obj: SceneObjectRender) => boolean;
   onToggleRowShown?: (obj: SceneObjectRender) => void;
 
+  /**
+   * The eye on an `image()` row: whether the viewer hides its reference
+   * picture, and the toggle. View state only — the file never changes.
+   * Unset, image rows carry no eye.
+   */
+  isImageHidden?: (obj: SceneObjectRender) => boolean;
+  onToggleImageHidden?: (obj: SceneObjectRender) => void;
+
 
   /**
    * A row was double-clicked (the enter-breakpoint gesture). Fired after the
@@ -964,7 +972,10 @@ export class TimelinePanel {
         const obj = this.sceneObjects[index];
         if ((e.target as HTMLElement).closest('[data-show-eye]')) {
           // The eye is its own control: no rollback, no selection change.
-          if (obj) {
+          if (obj?.type === 'image') {
+            this.onToggleImageHidden?.(obj);
+            this.renderTimeline();
+          } else if (obj) {
             this.onToggleRowShown?.(obj);
 
             this.renderTimeline();
@@ -1455,7 +1466,13 @@ export class TimelinePanel {
     // is likewise a reference, not geometry — dimming it would read as
     // "consumed" about something nothing can consume. A region declaration
     // is a name for a pick, with no shapes of its own, so it stays lit too.
-    const isInvisible = obj.visible === false && !isConstraintRow(obj) && !isRegionRow(obj) && obj.type !== 'exposed';
+    // An image row has no shapes either; it dims only while its eye hides
+    // the picture.
+    const isImageRow = obj.type === 'image';
+    const isImageHidden = !unevaluated && isImageRow && this.isImageHidden?.(obj) === true;
+    const isInvisible = isImageRow
+      ? isImageHidden
+      : obj.visible === false && !isConstraintRow(obj) && !isRegionRow(obj) && obj.type !== 'exposed';
     const isTopLevel = depth === 0;
     const isActivePart = !unevaluated && isTopLevel && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
     const isSelected = this.selectedIndices.has(index);
@@ -1539,6 +1556,14 @@ export class TimelinePanel {
       const eyeIcon = shown ? ICON_EYE : ICON_EYE_OFF;
       const eyeVisibility = shown ? 'opacity-100 text-base-content/70' : 'opacity-0 group-hover:opacity-100 text-base-content/40';
       const eyeTitle = shown ? `Hide the ${obj.type} again` : `Show the ${obj.type} (a feature used it)`;
+      eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-show-eye="${index}" title="${eyeTitle}">${eyeIcon}</button>`;
+    } else if (!unevaluated && isImageRow && obj.sourceLocation && this.onToggleImageHidden) {
+      // An image is shown by default, so the shapes panel's convention
+      // applies as is: a hidden one wears its crossed eye always, a shown
+      // one reveals the eye on hover.
+      const eyeIcon = isImageHidden ? ICON_EYE_OFF : ICON_EYE;
+      const eyeVisibility = isImageHidden ? 'opacity-100 text-base-content/70' : 'opacity-0 group-hover:opacity-100 text-base-content/40';
+      const eyeTitle = isImageHidden ? 'Show the reference image' : 'Hide the reference image';
       eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-show-eye="${index}" title="${eyeTitle}">${eyeIcon}</button>`;
     }
 
@@ -1906,44 +1931,85 @@ export class TimelinePanel {
 
   /**
    * Swap the row context menu's content for an inline rename input. The
-   * input edits the feature's chained `.name('…')`: Enter commits (an empty
-   * value clears the chain, reverting to the default name), Escape or the
-   * menu's click-outside handler dismisses without committing. A part is
-   * renamed in its `part('…', …)` statement instead, and its variable with it.
+   * input starts on the row's current name — the custom `.name('…')` or the
+   * default `<Type> <n>` label the lib assigned — selected, so typing
+   * replaces it. Enter commits a changed, non-empty name: a feature's chained
+   * `.name('…')` is written or edited in place; a part is renamed in its
+   * `part('…', …)` statement instead, and its variable with it. An empty
+   * value or the unchanged name just closes: nothing is sent, the name stays
+   * (clearing a name is a code edit, not a rename). Names are unique per
+   * file: a name another row already holds keeps the input open with the
+   * clash under it and sends nothing — the server refuses the same clash
+   * with a toast when the panel's list is stale. Escape or the menu's
+   * click-outside handler dismisses without committing.
    */
   private showRenameInput(dropdown: HTMLDivElement, obj: SceneObjectRender): void {
-    const type = obj.type ?? '';
-    const defaultName = type ? type.charAt(0).toUpperCase() + type.slice(1) : 'Feature';
-    const currentName = obj.hasCustomName ? (obj.name ?? '') : '';
+    const currentName = obj.name ?? '';
 
     dropdown.innerHTML = `
       <div class="p-1.5 w-[180px]">
         <input data-ref="rename-input" type="text" spellcheck="false"
           class="input input-xs input-bordered w-full bg-transparent"
-          placeholder="${this.escapeHtml(defaultName)}" />
+          placeholder="${this.escapeHtml(currentName)}" />
+        <div data-ref="rename-error" class="hidden mt-1 text-xs text-error leading-tight"></div>
       </div>
     `;
 
     const input = dropdown.querySelector<HTMLInputElement>('[data-ref="rename-input"]')!;
+    const error = dropdown.querySelector<HTMLElement>('[data-ref="rename-error"]')!;
     input.value = currentName;
     input.focus();
     input.select();
+
+    input.addEventListener('input', () => {
+      input.classList.remove('input-error');
+      error.classList.add('hidden');
+    });
 
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
         const next = input.value.trim();
-        if (next !== currentName) {
-          if (obj.type === 'part' && next) {
-            void this.client.editor?.renamePart(obj.sourceLocation!, next);
-          } else {
-            this.client.editor?.renameFeature(obj.sourceLocation!, next || null);
-          }
+        if (!next || next === currentName) {
+          this.closeDropdown();
+          return;
+        }
+        const clash = this.findNameClash(next, obj);
+        if (clash) {
+          input.classList.add('input-error');
+          error.textContent = `'${next}' is already used by ${clash.name ?? 'another row'}`;
+          error.classList.remove('hidden');
+          return;
+        }
+        if (obj.type === 'part') {
+          void this.client.editor?.renamePart(obj.sourceLocation!, next);
+        } else {
+          this.client.editor?.renameFeature(obj.sourceLocation!, next);
         }
         this.closeDropdown();
       } else if (e.key === 'Escape') {
         this.closeDropdown();
       }
+    });
+  }
+
+  /**
+   * The row in the same file that already carries `name` — a custom
+   * `.name('…')` or a part's name — other than the row being renamed. Default
+   * `<Type> <n>` labels never clash: the lib renumbers them past a custom
+   * name. Undefined when the name is free as far as this render knows.
+   */
+  private findNameClash(name: string, obj: SceneObjectRender): SceneObjectRender | undefined {
+    const file = obj.sourceLocation?.filePath;
+    return this.sceneObjects.find((row) => {
+      if (row === obj || row.name !== name) {
+        return false;
+      }
+      if (!row.hasCustomName && row.type !== 'part') {
+        return false;
+      }
+      const rowFile = row.sourceLocation?.filePath;
+      return file == null || rowFile == null || rowFile === file;
     });
   }
 

@@ -1,6 +1,6 @@
 import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { ShapeType } from "./shape-type.js";
-import { SceneObjectMesh } from "../rendering/scene.js";
+import type { ShapeMeshPieces } from "../rendering/mesh-pieces.js";
 import { Matrix4 } from "../math/matrix4.js";
 import type { ResolvedHelixGeometry } from "../math/helix-geometry.js";
 
@@ -35,9 +35,8 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   provenance?: string;
   id: string;
 
-  colorMap: Array<{ shape: TopoDS_Shape; color: string }> = [];
-
-  private meshes: SceneObjectMesh[]
+  /** The renderer's scope-free geometry cache — see `ShapeMeshPieces`. */
+  private meshPieces: ShapeMeshPieces | null = null;
   private _meshSource: { shape: Shape; matrix: Matrix4 } | null = null;
   private _released: boolean = false;
   /** Independently owned native handles: rewrapped/cached paths do not depend on a source wrapper's lifetime. */
@@ -149,8 +148,8 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   /**
    * Reclaim the OC (WASM) memory behind this wrapper as part of scene
    * invalidation. `retainedRaw` holds raw handles still referenced by
-   * surviving wrappers — `Solid.copy()` and `colorMap` entries share raw
-   * handles across wrappers, so those are skipped. `deletedRaw` dedupes
+   * surviving wrappers — `Solid.copy()` shares its raw handle with the
+   * original, so those are skipped. `deletedRaw` dedupes
    * handles shared between dying wrappers. Cached sub-shape wrappers are
    * not released here: the scene-disposal walker reaches them through
    * `getLinkedShapes()` and releases each exactly once.
@@ -164,9 +163,8 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     this._helixEdges = [];
     this._renderSeams = [];
     this.shape = null;
-    this.meshes = null;
+    this.meshPieces = null;
     this._meshSource = null;
-    this.colorMap = [];
   }
 
   /** Raw OC handles this wrapper points at — the dedup keys for `release`. */
@@ -176,9 +174,6 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     }
     if (this.shape) {
       out.add(this.shape);
-    }
-    for (const entry of this.colorMap) {
-      out.add(entry.shape);
     }
     for (const entry of this._helixEdges) out.add(entry.edge);
     for (const edge of this._renderSeams) out.add(edge);
@@ -195,9 +190,6 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
 
   protected deleteOwnedHandles(retainedRaw: ReadonlySet<object>, deletedRaw: Set<object>): void {
     Shape.deleteRawHandle(this.shape, retainedRaw, deletedRaw);
-    for (const entry of this.colorMap) {
-      Shape.deleteRawHandle(entry.shape, retainedRaw, deletedRaw);
-    }
     for (const entry of this._helixEdges) Shape.deleteRawHandle(entry.edge, retainedRaw, deletedRaw);
     for (const edge of this._renderSeams) Shape.deleteRawHandle(edge, retainedRaw, deletedRaw);
   }
@@ -255,12 +247,12 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     return this.isGuideFlag;
   }
 
-  getMeshes(): SceneObjectMesh[] {
-    return this.meshes;
+  getMeshPieces(): ShapeMeshPieces | null {
+    return this.meshPieces;
   }
 
-  setMeshes(meshes: SceneObjectMesh[]) {
-    this.meshes = meshes;
+  setMeshPieces(pieces: ShapeMeshPieces | null) {
+    this.meshPieces = pieces;
   }
 
   setMeshSource(source: Shape, matrix: Matrix4) {
@@ -269,36 +261,6 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
 
   getMeshSource(): { shape: Shape; matrix: Matrix4 } | null {
     return this._meshSource;
-  }
-
-  setColor(face: TopoDS_Shape, color: string) {
-    if (this.isEdge()) {
-      throw new Error("Cannot set color on edge shape");
-    }
-
-    if (this.isWire()) {
-      throw new Error("Cannot set color on wire shape");
-    }
-
-    if (this.isVertex()) {
-      throw new Error("Cannot set color on vertex shape");
-    }
-
-    const existing = this.colorMap.findIndex(c => c.shape.IsSame(face));
-    if (existing >= 0) {
-      this.colorMap[existing] = { shape: face, color };
-    } else {
-      this.colorMap.push({ shape: face, color });
-    }
-  }
-
-  getColor(face: TopoDS_Shape): string | undefined {
-    const entry = this.colorMap.find(c => c.shape.IsSame(face));
-    return entry?.color;
-  }
-
-  hasColors() {
-    return this.colorMap.length > 0;
   }
 
   copy(): Shape {

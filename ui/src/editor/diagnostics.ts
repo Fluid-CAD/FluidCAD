@@ -3,8 +3,7 @@ import type { WorkspaceModels } from './models';
 import type { SceneObjectRender } from '../types';
 
 /**
- * Build failures as editor markers. Ported from
- * `extension/vscode/src/diagnostics.ts`; two sources, same as there:
+ * Build failures as editor markers, from two sources:
  *
  * - the `compileError` on `scene-rendered` — the module didn't run at all,
  * - per-object `objectErrors` — the module ran and one feature failed to

@@ -22,6 +22,12 @@ const REPEAT_TARGET_CALLEES = new Set([
   'fillet', 'chamfer', 'draft', 'cylinder', 'sphere', 'helix',
   'fuse', 'subtract', 'common', 'mirror', 'translate', 'rotate',
   'repeat', 'copy', 'load', 'part', 'select',
+  // A split holds the pieces it made, so it is the body a later target pick
+  // lands on when it is the last feature to touch that body. A colour is
+  // not here: `color()` writes face-colour records on the holder of the
+  // painted solid and holds nothing itself, so a pick on a painted body
+  // attributes to the feature that built it, never to the paint.
+  'split',
 ]);
 
 /**
@@ -47,6 +53,7 @@ export const SKETCH_PRODUCER_CALLEES: Record<string, string[]> = {
   ellipse: ['ellipse'],
   arc: ['arc'],
   bezier: ['bezier'],
+  spline: ['spline'],
   offset: ['offset'],
   projection: ['project'],
   intersect: ['intersect'],

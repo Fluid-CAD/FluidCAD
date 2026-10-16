@@ -11,8 +11,11 @@ import { RoundedRectTool } from './tools/rounded-rect-tool';
 import { SlotTool } from './tools/slot-tool';
 import { PolylineTool } from './tools/polyline';
 import { BezierTool } from './tools/bezier-tool';
+import { SplineTool } from './tools/spline-tool';
 import { PolygonTool } from './tools/polygon-tool';
 import { TextTool } from './tools/text-tool';
+import { ReferenceImageTool } from './tools/reference-image-tool';
+import { ReferenceImageController } from '../scene/reference-image-controller';
 import { SolvedDragHandler } from './drag-move-handler/solved-drag-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { SnapManager } from '../snapping/snap-manager';
@@ -122,6 +125,15 @@ export class SketchToolbarService {
    * whenever an edit may have shifted earlier lines. */
   private pendingEmissions: PendingEmission[] = [];
   private activeDrawingTool: SketchTool | null = null;
+  /**
+   * The `image()` statement the Image tool re-opens (a timeline
+   * double-click), or null when the tool places a new picture. Kept while
+   * the tool is the armed one, so a re-render that re-creates it re-opens
+   * the same statement.
+   */
+  private imageEditTarget: { filePath: string; line: number; column: number } | null = null;
+  /** The re-open waits for its sketch: armed by the render that makes it the active sketch. */
+  private imageEditPending = false;
   /** Solver-driven drag (P4). */
   private activeSolvedDragHandler: SolvedDragHandler | null = null;
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
@@ -173,7 +185,7 @@ export class SketchToolbarService {
     const sketchGroup = navbar.addGroup('sketch', { visible: false, exclusive: true });
     this.toolbar = new SketchToolbar(
       sketchGroup,
-      (toolId) => this.handleToolSelect(toolId),
+      (toolId) => this.selectFromToolbar(toolId),
       (visible) => navbar.setGroupVisible('sketch', visible),
       () => this.handleGuidePress(),
       this.shortcuts,
@@ -336,6 +348,42 @@ export class SketchToolbarService {
       }
     }
     return null;
+  }
+
+  /**
+   * Re-open the Image tool on the `image()` statement at `target` (timeline
+   * double-click on a picture's row). The picture lives in a sketch body,
+   * so the tool arms once that sketch is the one being edited — now, when
+   * it already is, or on the render that brings it in.
+   */
+  enterImageEdit(target: { filePath: string; line: number; column: number }): void {
+    this.handleToolSelect(null);
+    this.imageEditTarget = target;
+    this.imageEditPending = true;
+    this.armPendingImageEdit(this.viewer.currentSceneObjects);
+  }
+
+  /** Arm the pending Image re-open when its statement is a picture of the active sketch. */
+  private armPendingImageEdit(sceneObjects: SceneObjectRender[]): void {
+    const target = this.imageEditTarget;
+    if (!this.imageEditPending || !target || !this.activeSketchInfo) {
+      return;
+    }
+    const key = ReferenceImageController.keyOf(target);
+    const row = sceneObjects.find(o => o.type === 'image' && o.sourceLocation
+      && ReferenceImageController.keyOf(o.sourceLocation) === key);
+    if (!row || row.parentId !== this.activeSketchInfo.sketchObj.id) {
+      return;
+    }
+    this.imageEditPending = false;
+    this.handleToolSelect('image');
+  }
+
+  /** A toolbar button or shortcut: the Image tool armed this way places a new picture. */
+  private selectFromToolbar(toolId: ToolId | null): void {
+    this.imageEditTarget = null;
+    this.imageEditPending = false;
+    this.handleToolSelect(toolId);
   }
 
   /**
@@ -581,6 +629,7 @@ export class SketchToolbarService {
         // (or one that just regained its sketch) gets them back.
         this.activateDragHandler();
       }
+      this.armPendingImageEdit(sceneObjects);
 
       // After the handlers have digested the new scene (ids change every
       // render): refresh the constraint bar. No selection exists while a
@@ -594,8 +643,7 @@ export class SketchToolbarService {
       this.dofStatus.update(computeSketchDofState(buildSolvedSketchModel(lastRoot, sceneObjects)));
     } else {
       if (this.activeDrawingTool) {
-        this.activeDrawingTool.deactivate();
-        this.activeDrawingTool = null;
+        this.deactivateDrawingTool();
       }
       for (const service of Object.values(this.opServices)) {
         // An edit dialog opens before its sketch renders — the double-click's
@@ -766,11 +814,11 @@ export class SketchToolbarService {
       }
       : null;
 
-    // bezier and text create through the LEGACY insert rail on purpose: their
-    // statements are anchor-point statements (P8), not solved emission
-    // entities — insertGeometryCall places text in the derived-ops tail and
-    // bezier in the geometry region, and both are solver-backed after the
-    // re-render (draggable anchors, constraint targets).
+    // bezier, spline and text create through the LEGACY insert rail on
+    // purpose: their statements are anchor-point statements (P8), not solved
+    // emission entities — insertGeometryCall places text in the derived-ops
+    // tail and the curves in the geometry region, and all are solver-backed
+    // after the re-render (draggable anchors, constraint targets).
     const applySolvedContext = (tool: SketchTool | null): SketchTool | null => {
       tool?.setSolvedContext(solvedCtx);
       return tool;
@@ -808,6 +856,13 @@ export class SketchToolbarService {
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
       }
+      case 'spline': {
+        // Same rail as the bezier: the spline is an anchor-point statement
+        // whose fit points are its anchors (coincident on sp.point(i)).
+        const tool = applySolvedContext(new SplineTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars))!;
+        tool.onSceneUpdate(sceneObjects, sketchId);
+        return tool;
+      }
       case 'rect':
         return applySolvedContext(new RectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.rectCenteredChecked));
       case 'rounded-rect':
@@ -821,6 +876,20 @@ export class SketchToolbarService {
         // dialog session, onSceneUpdate would otherwise never fire.
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
+      }
+      case 'image': {
+        // The reference picture dialog: edits preview on the viewer's quad,
+        // Apply writes an `image()` statement into the sketch body (or
+        // rewrites the re-opened one) — no geometry emission.
+        if (!this.activeSketchInfo) {
+          return null;
+        }
+        return new ReferenceImageTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, {
+          host: this.viewer.referenceImage,
+          sketchLocation: this.activeSketchInfo.sourceLocation,
+          target: this.imageEditTarget,
+          onRequestExit: () => this.handleToolSelect(null),
+        });
       }
       default:
         return null;
@@ -941,6 +1010,8 @@ export class SketchToolbarService {
         ? { newVariables: request.newVariables } : {}),
       ...(request.removals && request.removals.length > 0
         ? { removals: request.removals } : {}),
+      ...(request.settle && request.settle.length > 0
+        ? { settle: request.settle } : {}),
     });
     if (!result.success) {
       if (opts.toast) {
@@ -1028,9 +1099,14 @@ export class SketchToolbarService {
       return;
     }
 
+    if (toolId !== 'image') {
+      // Any other tool (or none) ends a re-open: the next Image places a new picture.
+      this.imageEditTarget = null;
+      this.imageEditPending = false;
+    }
+
     if (this.activeDrawingTool) {
-      this.activeDrawingTool.deactivate();
-      this.activeDrawingTool = null;
+      this.deactivateDrawingTool();
     }
 
     // Project and Intersect share the projection service; switching between
@@ -1082,6 +1158,22 @@ export class SketchToolbarService {
 
     tool.activate();
     this.activeDrawingTool = tool;
+    if (tool.docksDialog) {
+      this.onOpDialogToggle?.(true);
+    }
+  }
+
+  /** Drop the active drawing tool, giving the sketch dialog its dock back if the tool took it. */
+  private deactivateDrawingTool(): void {
+    const tool = this.activeDrawingTool;
+    if (!tool) {
+      return;
+    }
+    tool.deactivate();
+    this.activeDrawingTool = null;
+    if (tool.docksDialog) {
+      this.onOpDialogToggle?.(false);
+    }
   }
 
   /** Transient toast under the navbar (mirrors main.ts's edit-refusal toast). */

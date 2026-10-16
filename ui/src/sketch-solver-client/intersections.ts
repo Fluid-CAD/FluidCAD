@@ -1,14 +1,14 @@
 // Sketch-local crossings between solved entities — the cut points the
 // Trim tool bounds a segment with. Lines, arcs and circles meet
-// analytically; an ellipse or a bezier curve is walked as a fine polyline,
+// analytically; an ellipse, a bezier or a spline is walked as a fine polyline,
 // so a crossing with one is exact to that polyline's chord error. Contact
 // is judged at the source's own resolution: the literals hold two
 // decimals, so an end the tools wrote onto another edge can miss it by
 // half a hundredth and must still count as touching it.
 
-import type { SolvedBezierView, SolvedEntityView, SolvedSketchModel } from './model';
-import { bezierControlPoints } from './model';
-import { angleWithinSweep, arcSweep, tessellateBezier, tessellateSolvedEntity } from './tessellate';
+import type { SolvedCurveView, SolvedEntityView, SolvedSketchModel } from './model';
+import { curveControlPoints } from './model';
+import { angleWithinSweep, arcSweep, tessellateCurve, tessellateSolvedEntity } from './tessellate';
 import { add, dist, norm, scale, sub, type Vec2 } from './resolve';
 
 /**
@@ -33,7 +33,7 @@ type Circle = Extract<Curve, { kind: 'circle' }>;
 /** Where another curve crosses or touches the target, and what crosses there. */
 export type Crossing = {
   point: Vec2;
-  /** The entity crossing there; null for a bezier curve. */
+  /** The entity crossing there; null for a bezier or spline curve. */
   entityId: number | null;
   /** Set when the crossing sits at that entity's own start or end — a T-junction. */
   role?: 'start' | 'end';
@@ -63,9 +63,9 @@ export function curveOf(view: SolvedEntityView): Curve | null {
   }
 }
 
-/** The curve a bezier statement draws, through its current control points. */
-export function bezierCurve(model: SolvedSketchModel, bezier: SolvedBezierView): Curve | null {
-  const points = tessellateBezier(bezierControlPoints(model, bezier), CURVE_SEGMENTS);
+/** The curve a bezier/spline statement draws, through its current control points. */
+export function statementCurve(model: SolvedSketchModel, view: SolvedCurveView): Curve | null {
+  const points = tessellateCurve(view.kind, curveControlPoints(model, view), CURVE_SEGMENTS);
   return points ? { kind: 'polyline', points } : null;
 }
 
@@ -111,8 +111,8 @@ export function entityIntersections(target: SolvedEntityView, model: SolvedSketc
       found.push({ point, entityId: other.entityId, ...endRoleAt(other, point) });
     }
   }
-  for (const bezier of model.beziers.values()) {
-    const c = bezierCurve(model, bezier);
+  for (const view of model.curves.values()) {
+    const c = statementCurve(model, view);
     if (!c) {
       continue;
     }

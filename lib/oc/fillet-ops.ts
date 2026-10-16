@@ -1,7 +1,6 @@
-import type { gp_Pln, TopoDS_Edge, TopoDS_Wire } from "ocjs-fluidcad";
+import type { BRepBuilderAPI_MakeShape, gp_Pln, TopoDS_Edge, TopoDS_Wire } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
-import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { Solid } from "../common/solid.js";
@@ -9,7 +8,7 @@ import { Wire } from "../common/wire.js";
 import { Plane } from "../math/plane.js";
 import { WireOps } from "./wire-ops.js";
 import { rad } from "../helpers/math-helpers.js";
-import { ColorTransfer } from "./color-transfer.js";
+import { ColorTransfer, type CarriedColor, type SourceColors } from "./color-transfer.js";
 import { Explorer } from "./explorer.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import { RenderSeams } from "./render-seams.js";
@@ -18,11 +17,14 @@ export type FilletResult = {
   solids: Solid[];
   /** Maker history against the input solid — the caller records provenance. */
   history: ShapeHistory;
+  /** The source's colours carried (and bled) onto the results — the caller records them. */
+  colors: CarriedColor[];
 };
 
 export class FilletOps {
-  static makeFillet(solid: Shape, edges: Edge[], radius: number): FilletResult {
+  static makeFillet(source: SourceColors, edges: Edge[], radius: number): FilletResult {
     const oc = getOC();
+    const solid = source.shape;
     const maker = new oc.BRepFilletAPI_MakeFillet(solid.getShape(), oc.ChFi3d_FilletShape.ChFi3d_Rational);
 
     for (const edge of edges) {
@@ -41,15 +43,15 @@ export class FilletOps {
     const result = maker.Shape();
     const solids = FilletOps.wrapResultSolids(result);
     solids.forEach(target => RenderSeams.throughHistory(target, [solid], maker));
-    ColorTransfer.applyThroughMaker([solid], solids, maker);
-    ColorTransfer.applyBleeding([solid], solids, maker);
+    const colors = FilletOps.carryColors(source, solids, maker);
     const history = ShapeHistoryTracker.collect(maker, [solid]);
     maker.delete();
-    return { solids, history };
+    return { solids, history, colors };
   }
 
-  static makeChamfer(solid: Shape, edges: Edge[], distance: number): FilletResult {
+  static makeChamfer(source: SourceColors, edges: Edge[], distance: number): FilletResult {
     const oc = getOC();
+    const solid = source.shape;
     const maker = new oc.BRepFilletAPI_MakeChamfer(solid.getShape());
 
     for (const edge of edges) {
@@ -68,11 +70,17 @@ export class FilletOps {
     const result = maker.Shape();
     const solids = FilletOps.wrapResultSolids(result);
     solids.forEach(target => RenderSeams.throughHistory(target, [solid], maker));
-    ColorTransfer.applyThroughMaker([solid], solids, maker);
-    ColorTransfer.applyBleeding([solid], solids, maker);
+    const colors = FilletOps.carryColors(source, solids, maker);
     const history = ShapeHistoryTracker.collect(maker, [solid]);
     maker.delete();
-    return { solids, history };
+    return { solids, history, colors };
+  }
+
+  /** The source's colours through the maker, then bled onto the blend faces (see ColorTransfer). */
+  private static carryColors(source: SourceColors, solids: Solid[], maker: BRepBuilderAPI_MakeShape): CarriedColor[] {
+    const colors = ColorTransfer.applyThroughMaker([source], solids, maker);
+    colors.push(...ColorTransfer.applyBleeding([source], solids, maker, undefined, colors));
+    return colors;
   }
 
   private static wrapResultSolids(result: any): Solid[] {
@@ -84,8 +92,9 @@ export class FilletOps {
     return solidRaws.map(r => Solid.fromTopoDSSolid(Explorer.toSolid(r)));
   }
 
-  static makeChamferTwoDistances(solid: Shape, edges: Edge[], distance1: number, distance2: number, faces: Face[], isAngle: boolean = false): FilletResult {
+  static makeChamferTwoDistances(source: SourceColors, edges: Edge[], distance1: number, distance2: number, faces: Face[], isAngle: boolean = false): FilletResult {
     const oc = getOC();
+    const solid = source.shape;
     const maker = new oc.BRepFilletAPI_MakeChamfer(solid.getShape());
 
     for (let i = 0; i < edges.length; i++) {
@@ -113,11 +122,10 @@ export class FilletOps {
     const result = maker.Shape();
     const solids = FilletOps.wrapResultSolids(result);
     solids.forEach(target => RenderSeams.throughHistory(target, [solid], maker));
-    ColorTransfer.applyThroughMaker([solid], solids, maker);
-    ColorTransfer.applyBleeding([solid], solids, maker);
+    const colors = FilletOps.carryColors(source, solids, maker);
     const history = ShapeHistoryTracker.collect(maker, [solid]);
     maker.delete();
-    return { solids, history };
+    return { solids, history, colors };
   }
 
   static fillet2d(shape: Wire | Edge, plane: Plane, radius: number): Wire {

@@ -1,6 +1,6 @@
 // The apply-feature-edit entry point: dispatches a spec to its transform and sweeps orphaned selections.
 
-import { setPartMaterial, setSectionOptions, setSketchClosed } from '../../code-editor/index.ts';
+import { insertSketchImage, setPartMaterial, setSectionOptions, setSketchClosed, setSketchImage } from '../../code-editor/index.ts';
 import { applySketchConstraint } from '../../sketch-constraint-edit.ts';
 import { SketchSplit } from '../../sketch-split.ts';
 import { SketchTrim } from '../../sketch-trim.ts';
@@ -18,6 +18,7 @@ import { RemoveFeature } from '../../remove-feature.ts';
 import { OrphanedSelections } from '../../orphaned-selections.ts';
 import { applyInsertPartEdit } from '../../part-catalog/insert-edit.ts';
 import { applyAssemblyExportEdit, applyConnectorPropsEdit } from '../../assembly-mate-edit.ts';
+import { applyAssemblyRelationEdit } from '../../assembly-relation-edit.ts';
 import { applyAssemblyReplicateEdit } from '../../assembly-replicate-edit.ts';
 import {
   applyAssemblyConnectorCopyWithDecls,
@@ -32,6 +33,7 @@ import { applyNewPart } from './new-part.ts';
 import { applyStatementEdit } from './statement-edit.ts';
 import { LoftConnections } from '../loft-connections.ts';
 import { HolePlacements } from '../hole-placements.ts';
+import { SplitSeeds } from '../split-seeds.ts';
 import { RegionDeclarations } from '../region-declarations.ts';
 import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
 
@@ -81,6 +83,18 @@ async function applyFeatureEditTransform(
   // renders their names — one atomic write, like the loft exports.
   if (spec.feature === 'hole' && HolePlacements.needsStaging(spec)) {
     const staged = await HolePlacements.prepare(code, spec, applyFeatureEdit);
+    if ('error' in staged) {
+      return { newCode: code, error: staged.error };
+    }
+    const result = await applyFeatureEditTransform(staged.code, staged.spec);
+    return result.error ? { newCode: code, error: result.error } : result;
+  }
+
+  // A split seeded by a sketched line exports the line from its sketch
+  // first (`s.geometries.l`), then the statement renders the name — one
+  // atomic write, like the hole's sketch point placements.
+  if (SplitSeeds.needsStaging(spec)) {
+    const staged = await SplitSeeds.prepare(code, spec);
     if ('error' in staged) {
       return { newCode: code, error: staged.error };
     }
@@ -152,6 +166,12 @@ async function applyFeatureEditTransform(
   if (spec.sketchClosed) {
     return setSketchClosed(code, spec.sketchClosed.sourceLine, spec.sketchClosed.closed);
   }
+  if (spec.sketchImage) {
+    const edit = spec.sketchImage;
+    return 'sketchLine' in edit
+      ? insertSketchImage(code, edit.sketchLine, edit.image)
+      : setSketchImage(code, edit.imageLine, edit.image);
+  }
   if (spec.partMaterial) {
     return setPartMaterial(code, spec.partMaterial.sourceLine, spec.partMaterial.material);
   }
@@ -188,6 +208,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.assemblyExport) {
     return applyAssemblyExportEdit(code, spec.assemblyExport);
+  }
+  if (spec.assemblyRelation) {
+    return applyAssemblyRelationEdit(code, spec.assemblyRelation);
   }
   if (spec.edit) {
     return applyStatementEdit(code, spec);

@@ -104,11 +104,10 @@ export function findLibIdentityMismatch(
     return null;
   }
 
-  // The bare specifier `fluidcad` doesn't always name the kernel. This repo's
-  // own npm workspaces symlink `node_modules/fluidcad` to the VS Code
-  // extension, which shares the package name — resolving that is not a second
-  // copy of the library, it's a different package. Only a root that actually
-  // carries `lib/dist/index.js` counts, and it has to be a *different* one.
+  // The bare specifier `fluidcad` doesn't always name the kernel: another
+  // package can share the name, and resolving that is not a second copy of the
+  // library. Only a root that actually carries `lib/dist/index.js` counts, and
+  // it has to be a *different* one.
   const workspaceLib = realpathOrNull(path.join(workspaceRoot, 'lib', 'dist', 'index.js'));
   if (!workspaceLib || workspaceLib === serverLib) {
     return null;

@@ -2,6 +2,7 @@ import * as fs from "fs";
 import { join, resolve, sep } from "path";
 import { Shape } from "../common/shape.js";
 import { OcIO } from "../oc/io.js";
+import type { ColoredSolid, FaceColor } from "../common/colored-solid.js";
 import { getSceneManager } from "../scene-manager.js";
 import { Solid } from "../common/solid.js";
 import { isLengthUnit } from "../units/units.js";
@@ -134,17 +135,10 @@ export class FileImport {
     const solids: Solid[] = [];
     const colorData: SolidColorData[] = [];
 
+    // Geometry goes to the .brep, colours to the sidecar by face index: the
+    // asset carries them apart, and `load` records them on itself.
     for (const entry of solidEntries) {
-      const solid = entry.shape;
-      const faces = OcIO.findFaces(solid);
-
-      for (const fc of entry.faceColors) {
-        if (fc.faceIndex < faces.length) {
-          solid.setColor(faces[fc.faceIndex].getShape(), fc.color);
-        }
-      }
-
-      solids.push(solid);
+      solids.push(entry.shape);
       colorData.push({ faces: entry.faceColors });
     }
 
@@ -236,10 +230,15 @@ export class FileImport {
     return 'mm';
   }
 
+  /**
+   * The asset's solids with the sidecar's colours resolved to their faces
+   * (none with `noColors`). The caller (`load`) holds the solids and records
+   * the colours as its own paint.
+   */
   static deserializeShapesWithMetadata(
     fileName: string,
     options?: { noColors?: boolean; include?: Set<number>; exclude?: Set<number> },
-  ): Solid[] {
+  ): ColoredSolid[] {
     // Read geometry from .brep
     const brepFileName = fileName.replace(/\.(step|stp|brep)$/i, '');
     const shapes = FileImport.deserializeShapes(brepFileName);
@@ -258,8 +257,8 @@ export class FileImport {
     const include = options?.include;
     const exclude = options?.exclude;
 
-    // Build Solid objects, filter by original index, and apply colors by face index.
-    const solids: Solid[] = [];
+    // Build Solid objects, filter by original index, and resolve colors by face index.
+    const solids: ColoredSolid[] = [];
     for (let solidIndex = 0; solidIndex < shapes.length; solidIndex++) {
       if (include && !include.has(solidIndex)) {
         continue;
@@ -269,17 +268,18 @@ export class FileImport {
       }
 
       const solid = shapes[solidIndex];
+      const colors: FaceColor[] = [];
       const solidColors = colorData[solidIndex];
       if (solidColors) {
         const faces = OcIO.findFaces(solid);
         for (const entry of solidColors.faces) {
           if (entry.faceIndex < faces.length) {
-            solid.setColor(faces[entry.faceIndex].getShape(), entry.color);
+            colors.push({ face: faces[entry.faceIndex], color: entry.color });
           }
         }
       }
 
-      solids.push(solid);
+      solids.push({ solid, colors });
     }
 
     console.log(`Deserialized ${solids.length} solids with color metadata`);

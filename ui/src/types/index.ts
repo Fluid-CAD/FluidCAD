@@ -29,6 +29,25 @@ export type PlaneData = {
 };
 
 /**
+ * A reference picture as an `image(src, options)` statement in a sketch
+ * body wrote it, resolved by the lib: `src` is relative to the model file;
+ * sizes and the centre are document units on the sketch plane; whichever
+ * of `width` / `height` is absent follows the picture's pixel aspect ratio.
+ * Carried on the image row's `object.image`, beside the sketch's frame in
+ * `object.plane`.
+ */
+export type SketchImageData = {
+  src: string;
+  width?: number;
+  height?: number;
+  at: [number, number];
+  /** Degrees, counter-clockwise about the plane normal. */
+  angle: number;
+  /** 0 = invisible … 1 = solid. */
+  opacity: number;
+};
+
+/**
  * Where a connector copy sits: the pattern slot the `copy()` statement put it
  * at, and the scene id of the connector it copies (its seed). Code names the
  * copy `<seed name>.instance(<slot>)`.
@@ -109,6 +128,8 @@ export type ObjectType =
   | 'sketch'
   | 'plane'
   | 'axis'
+  /** A reference picture inside a sketch body — `image(src, options)`. */
+  | 'image'
   /** A saved section view — never a timeline row. */
   | 'section'
   // Selection overlay
@@ -134,6 +155,8 @@ export type ObjectType =
   | 'draft'
   | 'thickness'
   | 'mirror'
+  /** A 3D `split(plane | line, …)` — parts solids at a plane. */
+  | 'split'
   | 'linear-pattern'
   // 3D copies — `copy('linear' | 'circular', …)`, and `copy(pattern, …)`
   // following a repeat
@@ -245,6 +268,8 @@ export type SubSelection =
 
 export type SceneObjectPart = {
   shapeId?: string;
+  /** A solid's identity across renders (lib BodyLineage); absent on everything but solids. */
+  lineageKey?: string;
   /** Packed xyz per topological vertex, before any assembly instance pose. */
   vertices?: number[];
   /** Vertex indices belonging to each face, in the viewport's topology order. */
@@ -527,6 +552,8 @@ export type SerializedAssemblyOccurrence = {
 
 export type SerializedAssemblyMate = {
   mateId: string;
+  /** The authored `.name('…')`, when the statement has one. */
+  name?: string;
   /** Scope the mate() statement ran in: "" (or absent) for the open file. */
   owner?: string;
   type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot' | 'tangent';
@@ -544,6 +571,25 @@ export type SerializedAssemblyMate = {
   sourceLocation?: { filePath: string; line: number; column: number };
   /** Present on a replicated mate: its statement is the `replicate()` call; edit the seed mate instead. */
   replica?: ReplicaTag;
+};
+
+/**
+ * One `relation()` statement: a gear or rack-and-pinion coupling between
+ * the free motions of two mates, by their ids. `ratio` is positive — gear:
+ * turns of B per turn of A; rack-and-pinion: B's travel per revolution of
+ * A — and `reverse` carries the sense.
+ */
+export type SerializedAssemblyRelation = {
+  relationId: string;
+  name?: string;
+  /** Scope the relation() statement ran in: "" for the open file. */
+  owner: string;
+  type: 'gear' | 'rack-and-pinion';
+  mateA: string;
+  mateB: string;
+  ratio: number;
+  reverse: boolean;
+  sourceLocation?: { filePath: string; line: number; column: number };
 };
 
 /**
@@ -574,6 +620,8 @@ export type SerializedAssembly = {
   connectors?: SerializedAssemblyConnector[];
   /** Absent on engines predating `replicate()`. */
   replicates?: SerializedAssemblyReplicate[];
+  /** Absent on engines predating `relation()`. */
+  relations?: SerializedAssemblyRelation[];
 };
 
 /**

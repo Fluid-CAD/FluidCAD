@@ -27,8 +27,8 @@ import { isFluidScriptFile } from '../file-kind.ts';
  * those projects back to the network.
  *
  * Branch 1 preserves today's behaviour exactly: every project that already
- * works with the VS Code extension keeps working, byte for byte, because it
- * keeps running the engine its own `node_modules` holds.
+ * works with `fluidcad serve` keeps working, byte for byte, because it keeps
+ * running the engine its own `node_modules` holds.
  */
 
 export type EngineSource = 'project' | 'cache' | 'builtin' | 'downloaded';

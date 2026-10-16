@@ -31,7 +31,8 @@ import { isFollowCopyForm } from './apply-feature-edit/features/copy.ts';
  * - deleting an `insert()` bound to a name also deletes every `mate()` that
  *   references that name (either side, through `.parts` chains included),
  *   every `replicate()` whose seed is that name, and every replicate row
- *   that points at it; a replicate left with no rows goes too. Names a
+ *   that points at it; a replicate left with no rows goes too — and, through
+ *   those mates, every `relation()` coupling one of them. Names a
  *   removed replicate bound (`const [cyl2] = replicate(…)`) are swept the
  *   same way, so mates on a replica of the deleted part vanish with it;
  * - deleting a `mate()` drops the column its outer side occupied from every
@@ -51,8 +52,8 @@ export async function removeStatementWithAssemblySweep(
   sourceLine: number,
 ): Promise<CodeEditResult> {
   // Nothing in the file can refer to what the statement made: no mate, no
-  // replicate, and no copy() of a connector or its copies.
-  if (!/\b(?:mate|replicate|copy)\s*\(/.test(code)) {
+  // replicate, no relation, and no copy() of a connector or its copies.
+  if (!/\b(?:mate|replicate|copy|relation)\s*\(/.test(code)) {
     return removeStatement(code, sourceLine);
   }
   const parser = await getJavaScriptParser();
@@ -66,12 +67,14 @@ export async function removeStatementWithAssemblySweep(
   const kind = baseCallName(base);
   let binding: string | null = null;
   let mateSides: [string, string] | null = null;
+  let mateBinding: string | null = null;
   let connectorBinding: string | null = null;
   let copySeeds: string[] = [];
   if (kind === 'insert') {
     binding = declaredName(statement);
   } else if (kind === 'mate') {
     mateSides = mateSideTexts(code, base);
+    mateBinding = declaredName(statement);
   } else if (kind === 'connector') {
     connectorBinding = declaredName(statement);
   } else if (kind === 'copy') {
@@ -81,11 +84,18 @@ export async function removeStatementWithAssemblySweep(
   if (binding !== null) {
     return { newCode: await sweepBinding(removed.newCode, binding) };
   }
-  if (mateSides !== null) {
-    const dropped = await dropReplicateColumns(removed.newCode, mateSides);
-    let working = dropped.code;
-    for (const orphan of dropped.bindings) {
-      working = await sweepBinding(working, orphan);
+  if (kind === 'mate') {
+    // A relation couples the mate through its binding — a bare mate() has
+    // none and nothing can name it.
+    let working = mateBinding !== null
+      ? await sweepRelationsMentioning(removed.newCode, mateBinding)
+      : removed.newCode;
+    if (mateSides !== null) {
+      const dropped = await dropReplicateColumns(working, mateSides);
+      working = dropped.code;
+      for (const orphan of dropped.bindings) {
+        working = await sweepBinding(working, orphan);
+      }
     }
     return { newCode: working };
   }
@@ -185,6 +195,29 @@ async function sweepMatesWhere(code: string, matches: (statement: TSNode) => boo
       return working;
     }
     const result = await removeStatementWithAssemblySweep(working, doomed.statement.startPosition.row + 1);
+    if (result.newCode === working) {
+      return working;
+    }
+    working = result.newCode;
+  }
+}
+
+/**
+ * Remove every `relation()` statement that names `binding` (a deleted
+ * mate's), last first so earlier lines stay valid. Relations bind nothing
+ * other statements reference, so there is nothing further to sweep.
+ */
+async function sweepRelationsMentioning(code: string, binding: string): Promise<string> {
+  const parser = await getJavaScriptParser();
+  let working = code;
+  for (;;) {
+    const doomed = allBaseStatements(parser.parse(working), 'relation')
+      .filter(r => statementMentions(r.statement, binding))
+      .pop();
+    if (!doomed) {
+      return working;
+    }
+    const result = await removeStatement(working, doomed.statement.startPosition.row + 1);
     if (result.newCode === working) {
       return working;
     }

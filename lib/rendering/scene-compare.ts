@@ -17,6 +17,7 @@ const ACTOR_RECORD_KEYS: { key: string; actorField: string }[] = [
   { key: 'modifiedEdges', actorField: 'modifiedBy' },
   { key: 'removedFaces', actorField: 'removedBy' },
   { key: 'removedEdges', actorField: 'removedBy' },
+  { key: 'faceColors', actorField: 'setBy' },
 ];
 
 export class SceneCompare {

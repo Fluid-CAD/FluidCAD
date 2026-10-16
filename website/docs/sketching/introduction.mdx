@@ -14,7 +14,8 @@ Every solid starts as a flat drawing on a plane. A sketch holds that drawing: li
 
 1. Click **Sketch** on the toolbar. The Sketch dialog docks on the right with one **Face / Plane** slot.
 2. Click where the drawing should go: one of the three origin plane quads shown in the viewport, a planar face of an existing solid, or a plane row in the timeline. The first pick is the action — the `sketch()` statement is written and the sketch opens, with the camera looking straight at the plane.
-3. Draw with the sketch toolbar that appears above the viewport. To turn the drawing into a solid, click **Extrude**, **Revolve** or another 3D operation on the toolbar: its dialog opens with this sketch already in its profile slot, and applying it takes the sketch off the screen (a later feature can still pick it — see [Reusable objects](/docs/extra/reusable-objects)). To leave the drawing as it is, click the green **Finish Sketch** button: it appends `.close()` to the `sketch()` statement, which ends sketch mode without consuming the sketch. Double-clicking the sketch in the timeline reopens it and takes the chain off again.
+3. Draw with the sketch toolbar that appears above the viewport. When the drawing is done, click the green **Finish Sketch** button: it appends `.close()` to the `sketch()` statement, which ends sketch mode without consuming the sketch, and the normal toolbar comes back. Double-clicking the sketch in the timeline reopens it and takes the chain off again.
+4. To turn the drawing into a solid, click **Extrude**, **Revolve** or another 3D operation on that toolbar: its dialog opens with this sketch already in its profile slot, and applying it takes the sketch off the screen (a later feature can still pick it — see [Reusable objects](/docs/extra/reusable-objects)).
 
 The chip in the dialog names the picked target. Its ✕ leaves the sketch view so a different face or plane can be picked; the statement moves onto the new target in place. **Cancel** deletes the sketch statement — only if this dialog wrote it.
 
@@ -68,7 +69,7 @@ Coordinates inside a face sketch are 2D coordinates on the face's plane. The ori
 
 The face keeps working as a sketch plane even if a later feature reshapes or removes it: the plane's position and orientation are remembered.
 
-A face of another part works too: from inside a part, or at the file's top level with no part active, clicking a face that belongs to a different part writes an `expose()` for it into that part and sketches on the reference, `sketch(lid.features.g1, () => { ... })`. The sketch stays where you are working. The other part must be declared above the sketch and bound to a `const`.
+A face of another part works too: from inside a part, or at the file's top level with no part active, clicking a face that belongs to a different part writes an `expose()` for it into that part and sketches on the reference, `sketch(lid.features.g1, () => { ... })`. The sketch stays where you are working. The other part must be declared above the sketch and bound to a `const`, and it must not already build from the part you are in: two parts can't read each other's geometry, so a face of a part that sketches on yours is refused with the chain between them named.
 
 ### Planes from an edge
 
@@ -103,12 +104,18 @@ The **Auto-constraints** group belongs to the constraints story — what gets in
 
 ![The sketch toolbar](/img/docs/ui/sketch-toolbar.png)
 
-The sketch toolbar holds the drawing tools ([Line, Polyline, Bezier, Circle, Polygon, Rectangle, arcs, Slot, Text](/docs/sketching/primitives/line)) and the [tools that work on drawn geometry](/docs/sketching/tools/offset) (Fillet, Offset, Split, Trim, Project, Intersect, Copy, Mirror). A few conventions apply to all of them:
+The sketch toolbar holds the drawing tools ([Line, Polyline, Bezier, Spline, Circle, Polygon, Rectangle, arcs, Slot, Text](/docs/sketching/primitives/line)) and the [tools that work on drawn geometry](/docs/sketching/tools/offset) (Fillet, Offset, Split, Trim, Project, Intersect, Copy, Mirror). A few conventions apply to all of them:
 
 - **Coordinate pill.** Every tool's anchor point shows an **X / Y** pill. Type a value to place the point exactly, <kbd>Tab</kbd> between the fields; expressions and `param()` names are accepted. A typed coordinate is written literally into the statement and does not constrain the point — add a `fix` or a dimension if it must stay there. A body point carries the shape's own dimension instead (a circle's diameter, a line's length); only a typed value becomes a dimension constraint, a click merely places it.
 - **Guide latch.** With the **Guide** button latched, everything you draw gets `.guide()` — construction geometry that is excluded from the profile. See [Guides](/docs/sketching/tools/guides).
 - <kbd>Esc</kbd> leaves the active tool. Typed coordinates clear first, then the tool.
 - **Dragging.** Geometry that still has freedom can be dragged; the solver re-solves live while you drag, honouring every constraint.
+
+## Reference image
+
+Click **Image** on the sketch toolbar to place a drawing, photo or scan behind your sketch geometry. Drag to position it, resize or rotate it with the handles, and use **Calibrate…** to set its scale from a known dimension. The picture has its own **Image** row under the sketch in the timeline.
+
+See [Reference Image](/docs/sketching/tools/reference-image) for the illustrated walkthrough, calibration steps and editing controls.
 
 ## Keyboard shortcuts
 
@@ -120,6 +127,7 @@ Every drawing tool and every constraint button has a letter shortcut, shown in i
 | Circle | <kbd>c</kbd> | Center arc | <kbd>ca</kbd> |
 | Three-point arc | <kbd>a</kbd> | Rectangle | <kbd>r</kbd> |
 | Polygon | <kbd>p</kbd> | Bezier | <kbd>b</kbd> |
+| Spline | <kbd>sl</kbd> | | |
 | Text | <kbd>x</kbd> | Fillet | <kbd>f</kbd> |
 | Offset | <kbd>o</kbd> | Project | <kbd>pj</kbd> |
 | Intersect | <kbd>ix</kbd> | Copy | <kbd>cp</kbd> |

@@ -4,6 +4,7 @@ import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Solid } from "../common/shapes.js";
 import { requireShapes } from "../common/operand-check.js";
+import { liveOperandShapes } from "../helpers/live-solids.js";
 
 export class Subtract extends SceneObject {
 
@@ -18,23 +19,27 @@ export class Subtract extends SceneObject {
 
   build(context: BuildSceneObjectContext) {
     const p = context.getProfiler();
-    const stock = this.solid1.getShapes();
-    const toBeRemoved = this.solid2.getShapes();
+    // Each operand's body as the features since left it, with its holder
+    // (liveOperandShapes) — the holder is what loses it to the cut.
+    const stock = liveOperandShapes(this.solid1);
+    const toBeRemoved = liveOperandShapes(this.solid2);
 
-    const stockCompound = ShapeOps.makeCompound(stock);
-    const toBeRemovedCompound = ShapeOps.makeCompound(toBeRemoved);
+    const stockCompound = ShapeOps.makeCompound(stock.map(held => held.shape));
+    const toBeRemovedCompound = ShapeOps.makeCompound(toBeRemoved.map(held => held.shape));
 
     const result = p.record('Cut solids', () => BooleanOps.cutShapes(stockCompound, toBeRemovedCompound));
     const shapes = Explorer.findShapes(result.getShape(), Explorer.getOcShapeType("solid"));
 
     const newShapes = shapes.map(s => ShapeOps.cleanShapeRaw(s)).map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
 
-    for (const shape of toBeRemoved) {
-      this.solid2.removeShape(shape, this);
+    // The tool is cut away entirely — nothing is made of it; the stock
+    // becomes the cut result.
+    for (const { holder, shape } of toBeRemoved) {
+      holder.removeShape(shape, this, []);
     }
 
-    for (const shape of stock) {
-      this.solid1.removeShape(shape, this);
+    for (const { holder, shape } of stock) {
+      holder.removeShape(shape, this, newShapes);
     }
 
     this.addShapes(newShapes);

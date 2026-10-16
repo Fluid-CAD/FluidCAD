@@ -104,14 +104,16 @@ export class Fillet extends SceneObject {
 
       edges = edges.filter(e => !targetEdges.includes(e));
 
+      const obj = sceneShapeObjectMap.get(shape);
+      const colors = obj.getFaceColors(solid);
       try {
-        const { solids: newSolids, history } = FilletOps.makeFillet(solid, targetEdges, this.radius);
+        const { solids: newSolids, history, colors: carried } = FilletOps.makeFillet({ shape: solid, colors }, targetEdges, this.radius);
 
-        const obj = sceneShapeObjectMap.get(shape);
         removedShapes.push({ shape: solid, owner: obj, successors: newSolids });
         if (obj) {
           recordModifierHistory(history, obj, this);
         }
+        this.recordCarriedColors(carried);
 
         for (const newSolid of newSolids) {
           addedShapes.push(newSolid);
@@ -126,6 +128,8 @@ export class Fillet extends SceneObject {
           "too large for the adjacent geometry. The solid was left unfilleted."
         );
         continue;
+      } finally {
+        colors.delete();
       }
     }
 

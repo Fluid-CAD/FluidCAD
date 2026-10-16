@@ -52,7 +52,7 @@ export function setupMonaco(): typeof monaco {
   };
 
   // Mirrors the `jsconfig.json` that `fluidcad init` scaffolds, so the editor
-  // in the page and the editor in VS Code agree about the same file.
+  // in the page and an external editor agree about the same file.
   javascriptDefaults.setCompilerOptions({
     allowJs: true,
     checkJs: true,

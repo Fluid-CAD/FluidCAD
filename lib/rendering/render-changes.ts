@@ -1,6 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 import type { Scene } from "./scene.js";
 import { Sketch } from "../features/2d/sketch.js";
+import { DefaultNames } from "./default-names.js";
 import { ShapeInterference } from "../oc/shape-interference.js";
 import type { WorldBounds } from "../oc/shape-interference.js";
 import { EntitySummaryBuilder } from "../oc/measure/entity-summary.js";
@@ -94,13 +95,14 @@ export class RenderChangeTracker {
    * no compare runs and everything is built again.
    */
   captureBefore(oldScene: Scene, matched: ReadonlyMap<SceneObject, SceneObject>): void {
+    const labels = DefaultNames.labelsFor(oldScene.getTimelineObjects());
     for (const obj of oldScene.getAllSceneObjects()) {
       if (matched.has(obj) || !RenderChangeTracker.isListed(obj)) {
         continue;
       }
       this.previous.push({
         key: RenderChangeTracker.identityKey(obj),
-        ...RenderChangeTracker.identity(obj),
+        ...RenderChangeTracker.identity(obj, labels),
         bounds: RenderChangeTracker.solidBounds(obj),
       });
     }
@@ -127,6 +129,7 @@ export class RenderChangeTracker {
     const rebuilt: RenderChangeEntry[] = [];
     const added: RenderChangeEntry[] = [];
     let reused = 0;
+    const labels = DefaultNames.labelsFor(scene.getTimelineObjects());
     for (const obj of scene.getAllSceneObjects()) {
       if (!RenderChangeTracker.isListed(obj)) {
         continue;
@@ -136,7 +139,7 @@ export class RenderChangeTracker {
         continue;
       }
       const entry: RenderChangeEntry = {
-        ...RenderChangeTracker.identity(obj),
+        ...RenderChangeTracker.identity(obj, labels),
         shapes: obj.getAddedShapes().length,
       };
       const after = RenderChangeTracker.solidBounds(obj);
@@ -222,13 +225,14 @@ export class RenderChangeTracker {
     return `type:${obj.getUniqueType()}`;
   }
 
-  private static identity(obj: SceneObject): {
+  /** The row as the timeline lists it — `labels` are the scene's default labels (DefaultNames), the same the render emits. */
+  private static identity(obj: SceneObject, labels: ReadonlyMap<SceneObject, string>): {
     sceneObjectId: string; name: string; kind: string; sourceLocation?: RenderChangeLocation;
   } {
     const location = obj.getSourceLocation();
     return {
       sceneObjectId: obj.id,
-      name: obj.hasCustomName() ? obj.getName() : obj.getDisplayType(),
+      name: DefaultNames.labelFor(obj, labels),
       kind: obj.getType(),
       ...(location ? { sourceLocation: { filePath: location.filePath, line: location.line, column: location.column } } : {}),
     };

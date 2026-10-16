@@ -42,6 +42,7 @@ import { RepeatFeatureService } from './interactive/create-feature/repeat-servic
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { MirrorFeatureService } from './interactive/create-feature/mirror-service';
 import { RotateFeatureService } from './interactive/create-feature/rotate-service';
+import { SplitFeatureService } from './interactive/create-feature/split-service';
 import { ConnectorFeatureService } from './interactive/create-feature/connector-service';
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
@@ -52,15 +53,16 @@ import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
-import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector } from './types';
+import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
-import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey } from './helpers/scene-utils';
+import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey, findActiveSketch } from './helpers/scene-utils';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { SectionViewService } from './interactive/section-view/section-view-service';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
+import { AssemblyRelationService } from './interactive/assembly-relation/relation-service';
 import { AssemblyReplicateService } from './interactive/assembly-replicate/replicate-service';
 import { normalizeAssemblyPayload } from './scene/assembly-payload';
 import { seedHasMates } from './interactive/assembly-replicate/replicate-columns';
@@ -81,19 +83,15 @@ import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
 import type { LengthUnit } from './units/units';
-import { installHostKeyboardBridge } from './keyboard-bridge';
 import { installDesktopMenu } from './desktop';
 import type { EditorSurface } from './editor';
-
-installHostKeyboardBridge();
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
 
 /**
  * Whether this page hosts the code editor. `?editor=0` is the explicit switch
- * the hub's embedded viewer and the VS Code webview use; an iframe is the
- * implicit one, since a page embedded in a real editor must not fight it for
- * the same buffer (`docs/desktop/05-editor-surface-design.md`).
+ * the hub's embedded viewer uses; an iframe is the implicit one, since a page
+ * embedded in another host must not fight it for the same buffer (`docs/desktop/05-editor-surface-design.md`).
  */
 const editorSurfaceEnabled =
   new URLSearchParams(window.location.search).get('editor') !== '0' &&
@@ -287,6 +285,11 @@ const measureController = new MeasureController(
   },
 );
 measureController.onNotice = (message) => showToast(message);
+viewer.referenceImage.onStatus = (message) => {
+  if (message) {
+    showToast(message);
+  }
+};
 // The whole-assembly export ships the same live poses measure does — the
 // browser-side solver owns them, the server only knows the statement pose.
 const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext, {
@@ -574,6 +577,31 @@ function buildAssemblyRail(): LeftRail {
         viewer.highlightMate(mate);
         animateBar.open({ mateId: id, kind: state.kind, limits: mate.options?.limits });
       },
+      // Relation rows: the two coupled joints highlight together; the ⋮
+      // menu edits the statement in the relation dialog or drops it.
+      onSelectRelation: (id) => {
+        parts.setSelected(null);
+        const relation = findRelation(id);
+        if (!relation) return;
+        viewer.highlightMates(relationMates(relation));
+      },
+      onShowRelationInSource: (id) => {
+        const relation = findRelation(id);
+        if (relation?.sourceLocation) {
+          gotoSource(relation.sourceLocation);
+        }
+      },
+      onEditRelation: (id) => {
+        const relation = findRelation(id);
+        if (!relation?.sourceLocation || relation.owner) return;
+        assemblyRelationService.beginEdit(relation);
+      },
+      onDeleteRelation: (id) => {
+        const relation = findRelation(id);
+        if (!relation?.sourceLocation || relation.owner) return;
+        // Drops the whole `relation(...)` statement; nothing references it.
+        removeFeature(relation.sourceLocation);
+      },
     },
   );
   const dragReadout = new DragReadout(container);
@@ -645,6 +673,8 @@ function ensureRailFor(kind: 'part' | 'assembly'): LeftRail {
 
 let lastAssemblyPayload: SerializedAssembly | null = null;
 let lastFailedMateIds = new Set<string>();
+/** Relations the last solve could not hold — the joints panel's red dots on relation rows. */
+let lastFailedRelationIds = new Set<string>();
 /** partId → template serialize payload ({ name, params, paramValues }) of the last assembly render. */
 const lastPartTemplates = new Map<string, any>();
 
@@ -685,6 +715,17 @@ function findOccurrence(occurrenceId: string) {
 
 function findMate(mateId: string) {
   return lastAssemblyPayload?.mates.find(m => m.mateId === mateId);
+}
+
+function findRelation(relationId: string) {
+  return lastAssemblyPayload?.relations?.find(r => r.relationId === relationId);
+}
+
+/** The two mates a relation couples, as the viewport highlights them (a missing side is skipped). */
+function relationMates(relation: SerializedAssemblyRelation): SerializedAssemblyMate[] {
+  return [relation.mateA, relation.mateB]
+    .map(findMate)
+    .filter((m): m is SerializedAssemblyMate => m !== undefined);
 }
 
 /** The replicate statement that produced a replica record (by its tag), or undefined. */
@@ -761,13 +802,24 @@ function applyAssemblyToRail(rail: LeftRail & { kind: 'assembly' }, assembly: Se
       lastFailedMateIds.delete(id);
     }
   }
+  for (const id of [...lastFailedRelationIds]) {
+    if (!assembly.relations?.find(r => r.relationId === id)) {
+      lastFailedRelationIds.delete(id);
+    }
+  }
   const rendered: RenderedInstance[] = assembly.instances.map(i => ({
     ...i,
     visible: rail.instanceVisibility.get(i.instanceId) ?? true,
   }));
   rail.parts.update(rendered, assembly.occurrences ?? []);
   rail.connectors.update(assembly.connectors ?? []);
-  rail.joints.update(matesWithStatus(assembly.mates, lastFailedMateIds), rendered, assembly.connectors ?? []);
+  rail.joints.update(
+    matesWithStatus(assembly.mates, lastFailedMateIds),
+    rendered,
+    assembly.connectors ?? [],
+    assembly.relations ?? [],
+    lastFailedRelationIds,
+  );
   // The animated mate vanished from the source (deleted / renamed) — the
   // bar would keep driving a ghost.
   const animated = rail.animateBar.mateId();
@@ -923,8 +975,7 @@ const partTool = new PartToolButton(navbar, {
  * on the sketch-mode manager (sketch-toolbar-service) — this one carries
  * modifier combos only, so the two never contend for a key. Undo/Redo bind
  * only while the editor host has declared the capability: without it the
- * keys are not consumed, so the host bridge (VSCode) still sees them. A
- * focused field — the code editor included — keeps its native history.
+ * keys are not consumed and keep their browser meaning. A focused field — the code editor included — keeps its native history.
  */
 const globalShortcuts = new ShortcutManager();
 const historyAvailable = () => historyToolbar.isAvailable;
@@ -987,6 +1038,7 @@ new AssemblyToolbar(navbar, {
   // The service is constructed later (it needs the gizmo driver); toolbar
   // clicks only ever fire after startup completes.
   onMate: (type) => assemblyMateService.enter(type),
+  onRelation: (type) => assemblyRelationService.enter(type),
   onReplicate: () => {
     const inst = toolSelectedInstanceId ? findInstance(toolSelectedInstanceId) : undefined;
     if (!inst) {
@@ -1008,22 +1060,26 @@ const projectionService = new ProjectionPickService(container, viewer);
 // keep the sketch toolbar pinned in place — the bar stays on the sketch tools
 // until the feature is applied — even though the dialog suspends sketch editing
 // so the free 3D view can be picked. Derived from the dialogs' own suspend
-// state: these services suspend only when armed from an active sketch, so a
+// state: a create arming suspends only from an active sketch, so a
 // suspended-and-still-armed one means the finishing flow is live. On apply the
 // service disarms (isActive false) before it resumes, so this reads false at
 // that point and the bar hands off to the 3D toolbar; on cancel it resumes the
-// sketch. (The modify service's sketch-on-face / New Sketch flow keeps the
-// plain hooks — starting a new sketch does drop the bar.)
+// sketch. An EDIT session (timeline double-click) suspends unconditionally —
+// its rollback owns the view, no sketch is being finished — so it never pins.
+// (The modify service's sketch-on-face / New Sketch flow keeps the plain hooks
+// — starting a new sketch does drop the bar.)
+const finishingSketch = (service: { isActive: boolean; isEditing: boolean; sketchUISuspended: boolean }) =>
+  service.isActive && !service.isEditing && service.sketchUISuspended;
 const syncKeepToolbar = () => sketchService.setKeepToolbar(
-  (extrudeService.isActive && extrudeService.sketchUISuspended)
-  || (ribService.isActive && ribService.sketchUISuspended)
-  || (holeService.isActive && holeService.sketchUISuspended)
-  || (revolveService.isActive && revolveService.sketchUISuspended)
-  || (sweepService.isActive && sweepService.sketchUISuspended)
-  || (loftService.isActive && loftService.sketchUISuspended)
-  || (wrapService.isActive && wrapService.sketchUISuspended)
-  || (planeService.isActive && planeService.sketchUISuspended)
-  || (connectorService.isActive && connectorService.sketchUISuspended),
+  finishingSketch(extrudeService)
+  || finishingSketch(ribService)
+  || finishingSketch(holeService)
+  || finishingSketch(revolveService)
+  || finishingSketch(sweepService)
+  || finishingSketch(loftService)
+  || finishingSketch(wrapService)
+  || finishingSketch(planeService)
+  || finishingSketch(connectorService),
 );
 // The Sketch button (create group) stays visible while a create dialog is
 // up — it disables instead. Recomputed on every dialog arm/disarm, alongside
@@ -1033,10 +1089,28 @@ const syncSketchButtonBlocked = () => {
     extrudeService.isActive || ribService.isActive || holeService.isActive || revolveService.isActive
     || sweepService.isActive || loftService.isActive || wrapService.isActive
     || helixService.isActive || repeatService.isActive || copyService.isActive
-    || mirrorService.isActive || rotateService.isActive || connectorService.isActive
+    || mirrorService.isActive || rotateService.isActive || splitService.isActive || connectorService.isActive
     || booleanService.isActive || planeService.isActive,
   );
   syncKeepToolbar();
+  syncEditFreeze();
+};
+// A feature edit session (timeline double-click) owns the view: it rolls the
+// model back to just before the edited statement, and at that rollback every
+// idle service hides its tools — a rolled-back model offers none to add. The
+// bar keeps the full model's tools instead, frozen and inert, until the
+// session ends and a full render lands (runSceneServices unfreezes there).
+// Only the freeze is driven from the services' armed flips; the unfreeze
+// waits for that render so the bar never flashes the rolled-back layout.
+const featureEditOpen = () =>
+  [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService,
+    helixService, repeatService, copyService, mirrorService, rotateService, splitService, booleanService, planeService, connectorService,
+  ].some(service => service.isEditing)
+  || textEditService.isActive;
+const syncEditFreeze = () => {
+  if (featureEditOpen()) {
+    navbar.freeze();
+  }
 };
 // The create dialogs' shared sketch-UI suspend/resume: recompute the pin first
 // (so it is set before the suspended empty scene would hide the bar), then
@@ -1070,6 +1144,8 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1100,6 +1176,8 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1128,6 +1206,8 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1156,6 +1236,8 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1185,6 +1267,8 @@ const wrapService = new WrapFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1215,6 +1299,8 @@ const helixService = new HelixFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1244,6 +1330,8 @@ const ribService = new RibFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1274,6 +1362,8 @@ const holeService = new HoleFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1313,6 +1403,8 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     const entities = [...measureController.selection];
@@ -1332,6 +1424,7 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
 // it never takes viewer or timeline picks, so it sits outside the create
 // group and the intercept chain.
 const textEditService = new TextEditService(container, viewer, {
+  onActiveChange: () => syncEditFreeze(),
   onEnter: () => {
     projectionService.exit({ resume: 'lazy' });
     modifyService.exit();
@@ -1348,6 +1441,8 @@ const textEditService = new TextEditService(container, viewer, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -1369,7 +1464,7 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     || sweepService.handleTimelinePick(obj) || wrapService.handleTimelinePick(obj)
     || loftService.handleTimelinePick(obj) || helixService.handleTimelinePick(obj)
     || repeatService.handleTimelinePick(obj) || copyService.handleTimelinePick(obj)
-    || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj)
+    || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj) || splitService.handleTimelinePick(obj)
     || booleanService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
   // Part rows don't navigate: a click makes that part the active part — new
   // statements land inside its callback body instead of at top level — and
@@ -1399,6 +1494,16 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     }
     const key = sourceLocKey(obj.sourceLocation);
     viewer.setShown(key, !viewer.isShown(key));
+  };
+  // The eye on an `image()` row: whether its reference picture draws. View
+  // state like the one above, never written to the file.
+  panel.isImageHidden = (obj) => obj.sourceLocation !== undefined && viewer.isImageHidden(sourceLocKey(obj.sourceLocation));
+  panel.onToggleImageHidden = (obj) => {
+    if (!obj.sourceLocation) {
+      return;
+    }
+    const key = sourceLocKey(obj.sourceLocation);
+    viewer.setImageHidden(key, !viewer.isImageHidden(key));
   };
 
   // Connector / exposed rows are references, not modeling steps: a click
@@ -1445,16 +1550,19 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   // while another sketch is being edited. (A workspace kernel new enough to
   // flag its internal objects leaves that row out of the timeline entirely.)
   panel.isFeatureEditable = (obj) =>
-    obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
+    (obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
     && !SceneIndex.isConnectorCopy(obj)
-    && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects));
+    && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects)))
+    || isImageRowEditable(obj);
   // A 2D offset row's edit pauses the build BEFORE its statement (see
   // openFeatureEditor), so its double-click defers the generic breakpoint. A
   // closed sketch row defers it too: its `.close()` must come off first, or
   // the paused build would end in a finished sketch and enter nothing.
+  // A picture row pauses after its whole sketch, not after its own
+  // statement at the top of the body (see enterImageEdit).
   panel.managesOwnBreakpoint = (obj) =>
     (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type)) || isCopy2DRow(obj) || isMirror2DRow(obj)
-    || (obj.type === 'sketch' && obj.closed === true);
+    || (obj.type === 'sketch' && obj.closed === true) || obj.type === 'image';
 }
 
 /** Rows whose edit dialog pauses the build before its own statement. */
@@ -1488,7 +1596,7 @@ function isMirror2DRow(obj: SceneObjectRender): boolean {
  */
 const EDITABLE_ROW_TYPES = new Set([
   'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'shell', 'fillet', 'chamfer', 'text',
-  'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror', 'rotate',
+  'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror', 'rotate', 'split',
   // A copy row opens the Copy dialog — a connector copy row too, filed with
   // its part's connectors in the timeline; a copy that follows a repeat
   // (`copy(holes, bolt)`) opens it on "Along a repeat".
@@ -1538,6 +1646,10 @@ function sketchLocKey(loc: { filePath: string; line: number; column: number }): 
 async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise<void> {
   if (obj.type === 'sketch' && obj.sourceLocation) {
     await enterSketchEdit(obj.sourceLocation, obj.closed === true);
+    return;
+  }
+  if (obj.type === 'image' && obj.sourceLocation) {
+    await enterImageEdit(obj);
     return;
   }
   // A connector copy shares its copy statement's call site but is no
@@ -1631,6 +1743,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     // `repeat('rotate', …)` rows parse as feature 'repeat' above, so only
     // `rotate()` rows reach here.
     rotateService.enterEdit(target, parsed, info);
+  } else if (parsed.feature === 'split') {
+    splitService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'boolean') {
     booleanService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'plane') {
@@ -1692,6 +1806,41 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
 }
 
 /**
+ * A picture row edits inside its own sketch: it opens while no sketch is
+ * being edited, or while its own is — never over another sketch's session.
+ */
+function isImageRowEditable(obj: SceneObjectRender): boolean {
+  if (obj.type !== 'image' || !obj.sourceLocation) {
+    return false;
+  }
+  return !viewer.isSketchMode || findActiveSketch(viewer.currentSceneObjects)?.id === obj.parentId;
+}
+
+/**
+ * Re-open a reference picture: its `image()` statement sits at the top of
+ * a sketch body, so the sketch opens for editing — paused after the whole
+ * sketch, its lines on screen to align the picture against — and the
+ * sketch toolbar's Image tool arms on the statement once the sketch is in
+ * (at once when it already is the one being edited).
+ */
+async function enterImageEdit(obj: SceneObjectRender): Promise<void> {
+  const sketch = SceneIndex.of(viewer.currentSceneObjects).parent(obj);
+  if (sketch?.type !== 'sketch' || !sketch.sourceLocation) {
+    showEditRefusal('this picture is not inside a sketch.');
+    return;
+  }
+  closeFeatureDialogs();
+  const editing = viewer.isSketchMode && findActiveSketch(viewer.currentSceneObjects)?.id === sketch.id;
+  if (!editing) {
+    if (sketch.closed !== true) {
+      addBreakpoint(sketch.sourceLocation);
+    }
+    await enterSketchEdit(sketch.sourceLocation, sketch.closed === true);
+  }
+  sketchService.enterImageEdit(obj.sourceLocation!);
+}
+
+/**
  * Pause the build just before a sketch-body statement: the breakpoint goes
  * after the previous statement in the same sketch, so the paused sketch shows
  * what that statement's arguments see. The statement itself shifts down with
@@ -1739,6 +1888,7 @@ function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
   copyService.exit();
   mirrorService.exit();
   rotateService.exit();
+  splitService.exit();
   booleanService.exit();
   connectorService.exit();
   planeService.exit();
@@ -2021,6 +2171,7 @@ sketchService.onConstraintPick = (pick) => {
   }
 };
 const modifyService = new ModifyPickService(container, viewer, navbar, {
+  onActiveChange: () => syncEditFreeze(),
   // Hand the current highlight over as the tool's initial input: whatever the
   // user already clicked (measure owns that selection) seeds the pick set.
   onEnter: () => {
@@ -2037,6 +2188,8 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2083,6 +2236,8 @@ const repeatService = new RepeatFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2120,6 +2275,8 @@ const copyService = new CopyFeatureService(container, viewer, navbar, {
     repeatService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2159,6 +2316,8 @@ const mirrorService = new MirrorFeatureService(container, viewer, navbar, {
     repeatService.exit();
     copyService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2211,8 +2370,47 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
 });
+// Constructed after the rotate service so the three transform tools sit
+// together in one group (…, Repeat, Copy, | Mirror, Rotate, Split).
+const splitService = new SplitFeatureService(container, viewer, navbar, {
+  // The current selection seeds the dialog: every selected face/edge
+  // resolves to its owning solid, opening as a target chip, and a pending
+  // plane fills the cut slot. Captured before the exits below clear it.
+  onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
+    modifyService.displaceSketchSession();
+    const pendingPlaneShapeId = modifyService.pendingPlane;
+    modifyService.exit();
+    extrudeService.exit();
+    ribService.exit();
+    holeService.exit();
+    revolveService.exit();
+    helixService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
+    repeatService.exit();
+    copyService.exit();
+    mirrorService.exit();
+    rotateService.exit();
+    booleanService.exit();
+    connectorService.exit();
+    planeService.exit();
+    const seed = [...measureController.selection];
+    textEditService.exit();
+    measureController.clearSelection();
+    modifyService.clearPendingPlane();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+    return { seed, pendingPlaneShapeId };
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+  filePath: () => currentSceneAbsPath,
+});
 // Constructed after the transform services so its own navbar group registers
-// after theirs (…, | Mirror, Rotate, | separator |, Boolean).
+// after theirs (…, | Mirror, Rotate, Split, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: every selected face/edge
   // resolves to its owning solid, opening as a target chip. Captured before
@@ -2234,6 +2432,8 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
@@ -2274,6 +2474,8 @@ const connectorService = new ConnectorFeatureService(container, viewer, navbar, 
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     planeService.exit();
     textEditService.exit();
@@ -2321,7 +2523,7 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
   // it, and a session re-assert would fight the view the user asked for.
-  for (const service of [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService, connectorService]) {
+  for (const service of [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, splitService, booleanService, planeService, connectorService]) {
     if (service.isEditing) {
       service.exit({ editEnd: 'continue' });
     }
@@ -2443,6 +2645,8 @@ const sectionViewService = new SectionViewService(container, viewer, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+  splitService.exit();
+    splitService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2477,10 +2681,11 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
     viewer.clearHighlight();
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
-    // One picking dialog at a time: a replicate or copy session yields to
-    // the mate dialog (and vice versa below).
+    // One picking dialog at a time: a replicate, copy or relation session
+    // yields to the mate dialog (and vice versa below).
     assemblyReplicateService.exit();
     assemblyConnectorCopyService.exit();
+    assemblyRelationService.exit();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -2511,6 +2716,32 @@ const connectorPropsEditor = new ConnectorPropsEditor(container, viewer, {
   onRenamed: (slot, newName) => assemblyMateService.noteConnectorRenamed(slot, newName),
 });
 
+// The relation dialog: a toolbar Gear / Rack button opens it armed for
+// joint picking — rows of the Joints panel, or parts in the viewport — and
+// apply writes the relation() statement via /api/assembly-relation.
+const assemblyRelationService = new AssemblyRelationService(container, viewer, {
+  getAssembly: () => lastAssemblyPayload,
+  onEnter: () => {
+    assemblyGizmo.handleSelection(null);
+    viewer.clearHighlight();
+    viewer.clearInstanceHighlight();
+    selectionInfoOverlay.hide();
+    // One picking dialog at a time.
+    assemblyMateService.exit();
+    assemblyReplicateService.exit();
+    assemblyConnectorCopyService.exit();
+    assemblyConnectorService.exit();
+    if (currentRail?.kind === 'assembly') {
+      currentRail.joints.setPickMode((mate) => assemblyRelationService.pickMate(mate.mateId), 'Click a joint to pick it for the relation');
+    }
+  },
+  onExit: () => {
+    if (currentRail?.kind === 'assembly') {
+      currentRail.joints.setPickMode(null);
+    }
+  },
+});
+
 // The assembly-connector dialog: the toolbar's Connector button opens it in
 // create mode; rail rows and mate-chip pens open it in edit mode. Apply
 // writes the connector() statement via /api/assembly-connector.
@@ -2523,6 +2754,7 @@ const assemblyConnectorService = new AssemblyConnectorService(container, viewer,
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
     assemblyConnectorCopyService.exit();
+    assemblyRelationService.exit();
   },
 });
 
@@ -2541,6 +2773,7 @@ const assemblyConnectorCopyService = new AssemblyConnectorCopyService(container,
     assemblyMateService.exit();
     assemblyReplicateService.exit();
     assemblyConnectorService.exit();
+    assemblyRelationService.exit();
   },
   // The rail's rows pick for the armed slot: a copy's row only as the axis
   // (a copy is never copied again), so it sits inert while targets are picked.
@@ -2572,6 +2805,7 @@ const assemblyReplicateService = new AssemblyReplicateService(container, viewer,
     selectionInfoOverlay.hide();
     assemblyMateService.exit();
     assemblyConnectorCopyService.exit();
+    assemblyRelationService.exit();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -2592,8 +2826,11 @@ viewer.setSolverUpdateHandler((output) => {
   // drag the solver fires per pointermove (1000+ Hz on modern mice) — a
   // full panel re-render every event pegs the CPU.
   const newFailed = new Set(output.failed);
-  const failedChanged = failedSetsDiffer(lastFailedMateIds, newFailed);
+  const newFailedRelations = new Set(output.failedRelations ?? []);
+  const failedChanged = failedSetsDiffer(lastFailedMateIds, newFailed)
+    || failedSetsDiffer(lastFailedRelationIds, newFailedRelations);
   lastFailedMateIds = newFailed;
+  lastFailedRelationIds = newFailedRelations;
   // Misclosure per failing mate ("6.0 mm gap along Y") — the joints panel
   // shows it on the inconsistent rows, patching text in place per frame.
   const failureDetails = new Map(
@@ -2610,6 +2847,8 @@ viewer.setSolverUpdateHandler((output) => {
       matesWithStatus(lastAssemblyPayload.mates, lastFailedMateIds),
       rendered,
       lastAssemblyPayload.connectors ?? [],
+      lastAssemblyPayload.relations ?? [],
+      lastFailedRelationIds,
     );
   }
   currentRail.joints.setFailureDetails(failureDetails);
@@ -2673,6 +2912,7 @@ const createDialogPicking = () =>
   || copyService.isPicking
   || mirrorService.isPicking
   || rotateService.isPicking
+  || splitService.isPicking
   || connectorService.isPicking
   || booleanService.isPicking
   || planeService.isPicking
@@ -2682,7 +2922,8 @@ viewer.setContextMenuHandler((shapeId, sub, clientX, clientY, instanceId) => {
   if (currentRail?.kind === 'assembly') {
     // The multi-select menu over an instance's face/edge; members inherit
     // the seed's instance. Nothing while the mate dialog owns the viewport.
-    if (!assemblyMateService.isPicking && !assemblyReplicateService.isPicking && !assemblyConnectorCopyService.isPicking) {
+    if (!assemblyMateService.isPicking && !assemblyReplicateService.isPicking
+      && !assemblyConnectorCopyService.isPicking && !assemblyRelationService.isPicking) {
       measureController.handleContextMenu(shapeId, sub, clientX, clientY, instanceId);
     }
     return;
@@ -2725,6 +2966,11 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
     // its slots; nothing below (gizmo attach, face highlight) may run.
     if (assemblyMateService.isPicking) {
       assemblyMateService.handleClick(shapeId, sub, instanceId, modifiers);
+      return;
+    }
+    // The armed relation dialog: a click on a part offers its joints.
+    if (assemblyRelationService.isPicking) {
+      assemblyRelationService.handleClick(shapeId, sub, instanceId, modifiers);
       return;
     }
     // Likewise the armed replicate dialog (or its seed pick).
@@ -2795,6 +3041,9 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
         || sweepService.handleSketchPick(shapeId)
         || wrapService.handleSketchPick(shapeId)
         || loftService.handleSketchPick(shapeId)
+        // The split dialog's cut slot takes one sketched line as the seed of
+        // the plane it sweeps out of its sketch.
+        || splitService.handleSketchPick(shapeId)
         // The plane dialog's From-edge type takes a single-curve sketch as
         // the edge its plane is normal to.
         || planeService.handleSketchPick(shapeId);
@@ -2837,6 +3086,10 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
       }
       if (mirrorService.isPlanePicking) {
         mirrorService.handlePlanePick(shapeId);
+        return;
+      }
+      if (splitService.isPlanePicking) {
+        splitService.handlePlanePick(shapeId);
         return;
       }
       if (planeService.isPlanePicking) {
@@ -2908,6 +3161,12 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // solid as a target, or (plane slot armed) a face is the mirror plane.
   if (mirrorService.isPicking) {
     mirrorService.handleClick(shapeId, sub);
+    return;
+  }
+  // The armed split dialog owns clicks — a face or edge selects its whole
+  // solid as a target, or (cut slot armed) a face is the cut plane.
+  if (splitService.isPicking) {
+    splitService.handleClick(shapeId, sub);
     return;
   }
   // The armed section dialog owns clicks — a face is the cut plane.
@@ -3159,7 +3418,7 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
       || sweepService.sketchUISuspended || wrapService.sketchUISuspended
       || loftService.sketchUISuspended || repeatService.sketchUISuspended
       || copyService.sketchUISuspended || mirrorService.sketchUISuspended
-      || rotateService.sketchUISuspended || booleanService.sketchUISuspended
+      || rotateService.sketchUISuspended || splitService.sketchUISuspended || booleanService.sketchUISuspended
       || planeService.sketchUISuspended || extrudeService.sketchUISuspended
       || ribService.sketchUISuspended || holeService.sketchUISuspended || sectionViewService.sketchUISuspended
       || revolveService.sketchUISuspended || helixService.sketchUISuspended
@@ -3189,10 +3448,20 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
   copyService.handleSceneRendered(result, renderStop, isRollback);
   mirrorService.handleSceneRendered(result, renderStop, isRollback);
   rotateService.handleSceneRendered(result, renderStop, isRollback);
+  splitService.handleSceneRendered(result, renderStop, isRollback);
   connectorService.handleSceneRendered(result, renderStop, isRollback);
   booleanService.handleSceneRendered(result, renderStop, isRollback);
   planeService.handleSceneRendered(result, renderStop, isRollback);
   textEditService.handleSceneRendered(result, renderStop, isRollback);
+  // A full render with no edit session open is the bar's resting state:
+  // release a freeze the last session left (its exit scheduled this render)
+  // and remember the layout for the next one. A full render that lands
+  // mid-session is transient — the session re-asserts its rollback — so
+  // the bar stays frozen on the layout it captured before.
+  if (!isRollback && !featureEditOpen()) {
+    navbar.unfreeze();
+    navbar.captureLayout();
+  }
 }
 
 /**
@@ -3317,6 +3586,14 @@ function applySceneRendered(msg: any): void {
         }
       }
     }
+    // A render an agent asked to be framed (the MCP write tools): whoever is
+    // watching the modeling sees the edit land in frame, instead of off-screen
+    // or at the zoom of a detail they were looking at. Snapped, not flown — the
+    // scene-applied ack goes out right after this, and an agent's screenshot
+    // on that ack must find the camera settled.
+    if (msg.fitView === true) {
+      viewer.fitView({}, { transition: false });
+    }
     // The render wipes the viewer selection and the timeline clears its
     // pick highlight in update() below — a pre-render explain response
     // must not repaint it.
@@ -3379,6 +3656,7 @@ function applySceneRendered(msg: any): void {
     assemblyConnectorService.handleSceneRendered(sceneKind);
     assemblyReplicateService.handleSceneRendered(sceneKind);
     assemblyConnectorCopyService.handleSceneRendered(sceneKind);
+    assemblyRelationService.handleSceneRendered(sceneKind);
     if (msg.params !== undefined) {
       (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? []);
     }

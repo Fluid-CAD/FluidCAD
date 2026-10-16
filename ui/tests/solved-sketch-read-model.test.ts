@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  bezierControlPoints,
+  curveControlPoints,
   buildSolvedSketchModel,
   computeSketchDofState,
   isSolvedSketch,
@@ -817,7 +817,7 @@ describe('anchor-point entities (P8) and the ellipse entity', () => {
     // All statements share the bezier object so its sourceLocation rides picks.
     expect(cp0.obj).toBe(bezierObj);
     // The curve itself joins as a derived view over its control polygon.
-    const curve = model.beziers.get(bezierObj.id)!;
+    const curve = model.curves.get(bezierObj.id)!;
     expect(curve.points).toEqual([[0, 0], [50, 50], [100, 0]]);
     expect(curve.sources).toEqual([null, null, null]);
   });
@@ -841,14 +841,14 @@ describe('anchor-point entities (P8) and the ellipse entity', () => {
       controlSources: [{ entityId: 0, role: 'end' }, { entityId: 1, role: null }, null],
     });
     const model = buildSolvedSketchModel(sketchObj(solver), [sketchObj(solver), lineObj, bezierObj])!;
-    const curve = model.beziers.get(bezierObj.id)!;
+    const curve = model.curves.get(bezierObj.id)!;
     expect(curve.sources).toEqual([{ entityId: 0, role: 'end' }, { entityId: 1, role: null }, null]);
-    expect(bezierControlPoints(model, curve)).toEqual([[50, 0], [75, 30], [100, 0]]);
+    expect(curveControlPoints(model, curve)).toEqual([[50, 0], [75, 30], [100, 0]]);
 
     // A live drag mutates the views in place; the curve follows.
     model.entities.get(0)!.end = [60, 5];
     model.entities.get(1)!.point = [70, 40];
-    expect(bezierControlPoints(model, curve)).toEqual([[60, 5], [70, 40], [100, 0]]);
+    expect(curveControlPoints(model, curve)).toEqual([[60, 5], [70, 40], [100, 0]]);
   });
 
   // An ellipse's semi-radii are dimensioned like a circle's radius, one

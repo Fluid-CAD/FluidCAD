@@ -1,0 +1,45 @@
+---
+sidebar_position: 6
+title: "Spline"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import primitiveSpline from '!!raw-loader!../_examples/primitive-spline.js';
+
+# Spline
+
+A smooth curve that passes **through** the points you click, in order — for traced outlines, cam profiles and any free-form side where you know points on the curve. A [bezier](/docs/sketching/primitives/bezier) is shaped by handles that pull it; a spline goes exactly through its points.
+
+## In the viewport
+
+1. Click **Spline** on the sketch toolbar.
+2. Click the points the curve should pass through, in order: the start, every point along the way, then the end. Each click adds one point to the statement, and the curve preview updates as you go.
+3. <kbd>Esc</kbd> ends the curve.
+
+A point that snaps onto an existing vertex gets a coincident written for it. Once drawn, every point is a dot you can drag; the curve re-solves and redraws as it moves.
+
+<ExplainedCode code={primitiveSpline} fileName="cam.part.js" />
+
+## By hand
+
+```js
+spline(p0, p1, ..., pn)
+```
+
+The first point is the start and the last the end; the curve passes through every point between. The curve is a cubic interpolating B-spline, continuous in curvature, parameterized by chord length — moving one point reshapes it smoothly around that point. Two points draw a straight segment, three a quadratic curve.
+
+A point can also be another entity's accessor (`l.end()`), in which case the curve rides that point. Two consecutive points at the same position are an error.
+
+## Accessors
+
+| Accessor | Meaning |
+|---|---|
+| `s.point(i)` | The i-th point, 0-based — `point(0)` is the start |
+| `s.start()` | Same as `point(0)` |
+| `s.end()` | The last point |
+
+:::note
+The curve itself is not a solver entity. Its points are: constrain `s.point(i)`, `s.start()` and `s.end()` and the solve reshapes the curve. `tangent`, `distance` and the other entity-level constraints do not accept a spline.
+:::
+
+The Mirror tool mirrors a spline point by point; Offset writes an `offset()` statement for a selection holding one; Trim and Split do not cut a spline, though it counts as a crossing for the edges it meets.

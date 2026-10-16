@@ -26,7 +26,7 @@ function modelWith(entities: SolvedEntityView[]): SolvedSketchModel {
     plane: {} as any,
     solver: null,
     entities: new Map(entities.map(e => [e.entityId, e])),
-    beziers: new Map(),
+    curves: new Map(),
     constraints: [],
     hasDatums: false,
     conflictingEntityIds: new Set(),

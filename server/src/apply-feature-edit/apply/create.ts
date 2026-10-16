@@ -1,6 +1,7 @@
 // The generic create path: validate, bind producers, render and land the statement.
 
 import {
+  declarationImports,
   declareParamStatements,
   declareParamStatementsFor,
   ensureSymbolImport,
@@ -21,11 +22,13 @@ import { renderLoftConnections } from '../features/loft.ts';
 import type { MirrorAxisSpec } from '../features/mirror.ts';
 import { renderPlaneBaseExprs, renderPlaneStatement, validPlaneRotationAxes } from '../features/plane.ts';
 import { renderSectionPlaneExpr, renderSectionStatement, validSectionOptions } from '../features/section.ts';
+import { renderSplitPlaneExpr, renderSplitStatement, validSplitOptions, validSplitPlane } from '../features/split.ts';
 import { PROJECTION_OPS } from '../features/projection.ts';
 import type { RepeatAxisSpec, RepeatPlaneSpec } from '../features/repeat.ts';
 import { validTextStatementOptions } from '../features/text.ts';
 import { validHoleFasten, validHoleOptions, validHolePlacementSlot } from '../features/hole.ts';
 import { appendTopLevelStatement, declarationsBefore, resolveInsertion } from '../insertion.ts';
+import { FeatureNames } from '../../feature-names.ts';
 import { allocateNames, resolveProducerBindings } from '../producers/bindings.ts';
 import {
   isAxisProducer,
@@ -460,6 +463,48 @@ export async function applyCreateEdit(
         spec.newVariables,
       );
     }
+  } else if (spec.feature === 'split') {
+    // Every target is a bound feature producer (solids, like a mirror's) —
+    // none for the implicit split of every solid; the cut is a standard
+    // plane, a plane producer, a picked face's own selector part, or a seed
+    // line already staged into its sketch export (an unstaged seed never
+    // reaches here — see SplitSeeds). Every part must belong to exactly one
+    // input, and for a split that input can only be the cut.
+    const so = spec.split;
+    const targets = so?.targets ?? [];
+    const selectorParts: number[] = [];
+    const claimPart = (part: number): boolean => {
+      if (!Number.isInteger(part) || part < 0 || part >= spec.parts.length) {
+        return false;
+      }
+      selectorParts.push(part);
+      return true;
+    };
+    const valid = so !== undefined
+      && validSplitOptions(so)
+      && Array.isArray(targets)
+      && targets.every(t => isCopyTargetProducer(spec, t.producer))
+      && new Set(targets.map(t => t.producer)).size === targets.length
+      && so.plane?.kind !== 'sketchEdge'
+      && validSplitPlane(spec, so.plane, claimPart)
+      && selectorParts.length === spec.parts.length
+      && new Set(selectorParts).size === selectorParts.length;
+    if (!valid) {
+      return { newCode: code, error: 'malformed split edit spec' };
+    }
+    // A standard-plane split of every solid references no existing
+    // statement: it appends at the end of the active part's body (or the
+    // file), after the last feature — the bodies it cuts are the ones built
+    // before it.
+    if (spec.producers.length === 0 && spec.parts.length === 0) {
+      return appendTopLevelStatement(
+        code,
+        () => renderSplitStatement(so, renderSplitPlaneExpr(so.plane, spec.parts, () => null), []),
+        'split',
+        spec.newVariables,
+        spec.activePart,
+      );
+    }
   } else if (spec.feature === 'rotate') {
     // Every target is a bound feature producer (solids, like a copy's); a
     // picked axis edge references its own selector part, and every part must
@@ -593,6 +638,10 @@ export async function applyCreateEdit(
     return { newCode: code, error: insertion.error };
   }
   let statementText = buildStatement(spec, bindings, insertion.indent, extras.foreignArgs ?? []);
+  // The row's name, written with the statement (D2): "<DisplayType> <n>"
+  // past every such name the file holds. Nothing inside a sketch body and
+  // no callee without a display type takes one.
+  statementText += FeatureNames.chainFor(tree, statementCallee(spec), insertion.index);
   let useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
 
   type Edit = { index: number; text: string };
@@ -671,8 +720,8 @@ export async function applyCreateEdit(
       imports.add(symbol);
     }
   }
-  if (declsResult.paramDecls.length > 0) {
-    imports.add('param');
+  for (const symbol of declarationImports(declsResult.paramDecls)) {
+    imports.add(symbol);
   }
   for (const symbol of imports) {
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
@@ -724,7 +773,9 @@ export async function landNewVariableDecls(
     // declarations went in above it; the import comes last so it cannot
     // shift that line first.
     working = await declareParamStatementsFor(working, sourceLine, declsResult.paramDecls);
-    working = await ensureSymbolImport(working, 'param');
+    for (const symbol of declarationImports(declsResult.paramDecls)) {
+      working = await ensureSymbolImport(working, symbol);
+    }
   }
   return { newCode: working };
 }

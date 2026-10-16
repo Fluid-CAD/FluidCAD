@@ -231,6 +231,8 @@ export class ModifyPickService {
     private navbar: Navbar,
     private hooks: {
       onEnter?: () => SelectedEntity[] | void;
+      /** A feature armed or exited (an edit session opening or closing included). */
+      onActiveChange?: () => void;
       /** Sketch-on-face armed while a sketch is edited — release the sketch UI. */
       onSuspendSketchUI?: () => void;
       /** The suspension ended without an apply — restore the sketch UI. */
@@ -1987,6 +1989,8 @@ export class ModifyPickService {
     // extrude/sweep/loft dialog, or this service's own fillet/chamfer/shell.
     this.buttons.get('sketch')!.setDisabled(this.createDialogActive
       || (this.feature !== null && this.feature !== 'sketch'));
+    // Every armed flip lands here — an opening edit session freezes the bar.
+    this.hooks.onActiveChange?.();
   }
 
 }

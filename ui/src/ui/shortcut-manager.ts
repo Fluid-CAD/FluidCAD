@@ -1,4 +1,4 @@
-import { isEditableTarget } from '../keyboard-bridge';
+import { isEditableTarget } from '../editable-target';
 
 /**
  * Keyboard shortcuts for one scope of the UI.

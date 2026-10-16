@@ -14,6 +14,7 @@ import { PlaneData } from '../../types';
 import { SnapType } from '../../snapping/types';
 import { trackPixelsPerWorld } from '../../meshes/screen-scale';
 import { createPointMarker } from '../../meshes/point-marker';
+import { tessellateSpline } from '../../sketch-solver-client/tessellate';
 
 export const START_POINT_COLOR = 0x22cc66;
 export const GUIDE_COLOR = 0xb0b0b0;
@@ -373,6 +374,31 @@ export function addDashedBezier(
     verts[i * 3 + 2] = w.z;
   }
 
+  addDashedPolyline(previewGroup, verts, renderOrder);
+}
+
+/**
+ * The interpolating spline through `points`, dashed — the Spline tool's
+ * preview, tessellated by the same evaluator the live drag uses so the
+ * preview and the drawn curve agree. Nothing below two distinct points.
+ */
+export function addDashedSpline(
+  previewGroup: Group,
+  points: [number, number][],
+  plane: PlaneData,
+  renderOrder = 3,
+): void {
+  const polyline = tessellateSpline(points, BEZIER_SEGMENTS);
+  if (!polyline) {
+    return;
+  }
+  const verts = new Float32Array(polyline.length * 3);
+  for (const [i, pt] of polyline.entries()) {
+    const w = localToWorld(pt, plane);
+    verts[i * 3] = w.x;
+    verts[i * 3 + 1] = w.y;
+    verts[i * 3 + 2] = w.z;
+  }
   addDashedPolyline(previewGroup, verts, renderOrder);
 }
 

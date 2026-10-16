@@ -144,6 +144,11 @@ export class ForeignPickResolver {
     // is exposed on its own.
     const keptChains = chains.filter(c => c.members.every(m => !foreignKeys.has(pickKey(m))));
 
+    const loop = this.dependencyLoop(classified.foreign, consumer);
+    if (loop) {
+      return loop;
+    }
+
     const donors = new Map<string, ResolvedDonor>();
     const refs: ForeignExposureRef[] = [];
     const expressions: string[] = [];
@@ -197,6 +202,45 @@ export class ForeignPickResolver {
       expressions.push(`${resolved.ident}.features.${name}`);
     }
     return { ok: true, local, chains: keptChains, refs, expressions, picks: summaries, pickRefs, crossFileCreates };
+  }
+
+  /**
+   * The refusal for a donor that already builds from the consumer part:
+   * reading it back would make the two parts depend on each other, a loop
+   * the engine refuses at the next build (GH #82). Checked once per donor;
+   * a consumer at the file's top level is read by no part, so nothing can
+   * loop through it.
+   */
+  private dependencyLoop(
+    foreign: { pick: Pick; donor: Donor }[],
+    consumer: ReferenceConsumer,
+  ): { ok: false; status: 422; reason: string; pick: Pick } | null {
+    if (!consumer.part) {
+      return null;
+    }
+    const checked = new Set<string>();
+    for (const { pick, donor } of foreign) {
+      const key = `${normalizePath(donor.filePath)}:${donor.line}:${donor.column}`;
+      if (checked.has(key)) {
+        continue;
+      }
+      checked.add(key);
+      const chain = this.server.resolvePartDependency?.(donor, consumer.part);
+      if (!chain || chain.length === 0) {
+        continue;
+      }
+      const consumerName = chain[chain.length - 1];
+      const via = chain.length > 2 ? ` through ${chain.slice(1, -1).map(n => `"${n}"`).join(', ')}` : '';
+      return {
+        ok: false,
+        status: 422,
+        pick,
+        reason: `"${donor.partName}" already builds from "${consumerName}"${via} `
+          + `(${chain.join(' → ')}), so "${consumerName}" can't use its geometry — the two parts would `
+          + `depend on each other. Sketch on it from "${donor.partName}", or from the file's top level.`,
+      };
+    }
+    return null;
   }
 
   /**

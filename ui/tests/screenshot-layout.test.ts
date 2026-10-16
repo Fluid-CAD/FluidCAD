@@ -50,6 +50,11 @@ describe('MultiViewLayout.labelFor', () => {
     expect(MultiViewLayout.labelFor({ kind: 'look-from', eye: [10, -10, 10], target: [0, 0, 0] })).toBe('look-from [10, -10, 10]');
   });
 
+  it('names the section view, square-on when straight', () => {
+    expect(MultiViewLayout.labelFor({ kind: 'section' })).toBe('section');
+    expect(MultiViewLayout.labelFor({ kind: 'section', straight: true })).toBe('section (square-on)');
+  });
+
   it('spells an orbit view with signed angles', () => {
     expect(MultiViewLayout.labelFor({ kind: 'orbit-from-current', azimuthDeg: 30, elevationDeg: -15.55 })).toBe('orbit az +30° el -15.6°');
   });

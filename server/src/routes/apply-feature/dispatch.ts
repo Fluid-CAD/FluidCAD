@@ -18,6 +18,7 @@ import { handleRepeat } from './handlers/repeat.ts';
 import { handleCopy } from './handlers/copy.ts';
 import { handleMirror } from './handlers/mirror.ts';
 import { handleSection } from './handlers/section.ts';
+import { handleSplit } from './handlers/split.ts';
 import { handleRotate } from './handlers/rotate.ts';
 import { handleBoolean } from './handlers/boolean.ts';
 import { handlePlaneSketch } from './handlers/plane-sketch.ts';
@@ -193,6 +194,13 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
 
     if (feature === 'boolean') {
       await handleBoolean(ctx, req, res);
+      return;
+    }
+
+    // A split parts solids at a plane (the mirror's plane inputs, or a
+    // sketched line exported from its sketch), keeping one side or both.
+    if (feature === 'split') {
+      await handleSplit(ctx, req, res);
       return;
     }
 

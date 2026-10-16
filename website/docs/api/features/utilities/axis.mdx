@@ -1,12 +1,12 @@
 ---
 sidebar_position: 5
 title: "axis"
-description: "Creates an axis from a direction vector."
+description: "Creates an axis datum on a world axis."
 ---
 
 # axis()
 
-Creates an axis from a direction vector.
+Creates an axis datum on a world axis.
 
 **Returns**: [**`Axis`**](/docs/api/types/axis)
 
@@ -16,11 +16,11 @@ Creates an axis from a direction vector.
 axis(axis: AxisLike): Axis
 ```
 
-Creates an axis from a direction vector.
+Creates an axis datum on a world axis.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `axis` | [AxisLike](/docs/api/types/axis-like) | The direction vector or standard axis |
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The world axis: `"x"`, `"y"` or `"z"` |
 
 ---
 
@@ -28,12 +28,12 @@ Creates an axis from a direction vector.
 axis(axis: AxisLike, options: AxisTransformOptions): Axis
 ```
 
-Creates an axis from a direction vector with transform options.
+Creates an axis datum on a world axis, moved and tilted by the transform options.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `axis` | [AxisLike](/docs/api/types/axis-like) | The direction vector or standard axis |
-| `options` | AxisTransformOptions | Transform options (offset, flip, etc.) |
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The world axis: `"x"`, `"y"` or `"z"` |
+| `options` | AxisTransformOptions | Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes |
 
 ---
 
@@ -58,7 +58,7 @@ Creates an axis from a scene object's edge with transform options.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `source` | [SceneObject](/docs/api/types/scene-object) | The scene object whose edge defines the axis |
-| `options` | AxisTransformOptions | Transform options (offset, flip, etc.) |
+| `options` | AxisTransformOptions | Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes |
 
 ---
 
@@ -71,7 +71,7 @@ Transforms an existing axis with options.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `axis` | [Axis](/docs/api/types/axis) | The existing axis to transform |
-| `options` | AxisTransformOptions | Transform options (offset, flip, etc.) |
+| `options` | AxisTransformOptions | Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes |
 
 ---
 
@@ -79,13 +79,13 @@ Transforms an existing axis with options.
 axis(a1: AxisLike, a2: AxisLike, options?: AxisTransformOptions): Axis
 ```
 
-Creates an axis midway between two direction vectors.
+Creates an axis midway between two world axes.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `a1` | [AxisLike](/docs/api/types/axis-like) | The first direction vector or standard axis |
-| `a2` | [AxisLike](/docs/api/types/axis-like) | The second direction vector or standard axis |
-| `options` | AxisTransformOptions | Transform options (offset, flip, etc.) *(optional)* |
+| `a1` | [AxisLike](/docs/api/types/axis-like) | The first world axis: `"x"`, `"y"` or `"z"` |
+| `a2` | [AxisLike](/docs/api/types/axis-like) | The second world axis: `"x"`, `"y"` or `"z"` |
+| `options` | AxisTransformOptions | Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes *(optional)* |
 
 ---
 
@@ -99,4 +99,4 @@ Creates an axis midway between two existing Axis objects.
 |-----------|------|-------------|
 | `a1` | [Axis](/docs/api/types/axis) | The first Axis object |
 | `a2` | [Axis](/docs/api/types/axis) | The second Axis object |
-| `options` | AxisTransformOptions | Transform options (offset, flip, etc.) *(optional)* |
+| `options` | AxisTransformOptions | Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes *(optional)* |

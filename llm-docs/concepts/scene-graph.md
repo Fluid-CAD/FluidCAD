@@ -28,6 +28,31 @@ rules. The feature tree records both the consumer and what it consumed —
 so swapping a sketch's parameters in source code can be reused without
 re-running everything downstream.
 
+## Feature names are optional
+
+Any feature statement may end in `.name('…')` (`extrude(10).name('Base')`),
+and the FluidCAD UI writes one onto every statement it creates. Code written
+by hand or through MCP may leave it out: an unnamed feature is labelled
+`<Type> <n>` (`Extrude 1`, `Sketch 2`, …) at render time, numbered in file
+order per type, and nothing requires the chain. Names are unique within a
+file — a `.name()` that repeats another statement's name, or a `part()`'s
+name, is refused when set from the UI.
+
+## A variable names a body, not a snapshot
+
+A modifying feature takes the solid it works on: `fillet(3, e.endEdges())`
+removes the extrude's body and holds the filleted one. The variable `e`
+still names that body wherever the features since left it — a later
+`mirror("xz", e)`, `translate(v, e)`, `rotate("x", 90, e)`, `fuse(e, g)`,
+`subtract(e, g)`, `common(e, g)`, `copy(…, e)` or `.scope(e)` reads it
+filleted, moved, or fused into its neighbour, as it is at that point in
+the tree. This is what makes inserting a feature in the middle of a
+script safe (paused at a breakpoint, say): the statements after it keep
+their references. Only a body nothing stands for any more fails: one
+`remove()` took, or a cut consumed entirely. Sub-shape accessors are
+different — `e.sideEdges()` names the edges as the extrude built them, so
+a feature that reshaped those edges leaves the accessor empty.
+
 ## What the agent gets
 
 `get_scene_summary` returns the feature tree projected to a JSON-safe

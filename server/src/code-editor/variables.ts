@@ -8,7 +8,10 @@ import { RenderedProperties, type PropertySourceCall, type RenderedPropertyValue
 import { indentOf, joinLines, resolveSourceRow, splitLines, type CodeEditResult } from './lines.ts';
 import { findEditableCallAt, walkTree } from './nodes.ts';
 import { getParser, type TSNode, type TSTree } from './parser.ts';
-import { declareParamStatementsFor, findPartAt } from './parts.ts';
+import {
+  bareProperties, declarationImports, declareParamStatementsFor, findEnclosingPart, findPartAt,
+  freeIdentifiers, isPartLevelInitializer,
+} from './parts.ts';
 import { findSketchBody, insertGeometryCall } from './statements.ts';
 
 /**
@@ -58,7 +61,8 @@ export type NewVariableDecl = { name: string; initializer: string };
  * so it can re-anchor any sourceLine references inside the body. A `param()`
  * declaration instead lands at the top of the part body the sketch lives in
  * ({@link declareParamStatementsFor}) — inserted (with its import) after the
- * edit, so the edit's sourceLine anchors never shift.
+ * edit, so the edit's sourceLine anchors never shift; a `property()` one
+ * binds the part's bare property of that name the same way.
  *
  * Adopt this wrapper for any new code-edit endpoint that should support
  * "declare variables on the same commit."
@@ -70,8 +74,8 @@ async function withOptionalVariableDeclaration(
   edit: (code: string, lineShift: number) => Promise<CodeEditResult>,
 ): Promise<CodeEditResult> {
   const requested = newVariable === null ? [] : [newVariable].flat();
-  const params = requested.filter((v) => /\bparam\s*\(/.test(v.initializer));
-  const locals = requested.filter((v) => !/\bparam\s*\(/.test(v.initializer));
+  const params = requested.filter((v) => isPartLevelInitializer(v.initializer));
+  const locals = requested.filter((v) => !isPartLevelInitializer(v.initializer));
 
   // Each declaration is inserted at the top of the body, so reversed input
   // order leaves them in input order.
@@ -90,12 +94,12 @@ async function withOptionalVariableDeclaration(
   if (params.length === 0) {
     return result;
   }
-  const withParams = await declareParamStatementsFor(
-    result.newCode,
-    sketchSourceLine,
-    params.map((v) => `const ${v.name} = ${v.initializer};`),
-  );
-  return { ...result, newCode: await ensureSymbolImport(withParams, 'param') };
+  const statements = params.map((v) => `const ${v.name} = ${v.initializer};`);
+  let withParams = await declareParamStatementsFor(result.newCode, sketchSourceLine, statements);
+  for (const symbol of declarationImports(statements)) {
+    withParams = await ensureSymbolImport(withParams, symbol);
+  }
+  return { ...result, newCode: withParams };
 }
 
 export function insertGeometryCallWithVariable(
@@ -121,12 +125,19 @@ export function updateDimensionExpressionWithVariable(
     (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset, dimensionCall));
 }
 
-export type VariableInfo = { name: string; initializer?: string; numeric?: boolean };
+/**
+ * A name an expression field can offer. `unbound` marks a `property()` the
+ * enclosing part publishes without binding a variable — a bare statement,
+ * the way the Parameters panel writes one; its initializer is the whole
+ * call, and a commit that reads the name declares it over that call, which
+ * binds the property (see `bindPropertyInBody`).
+ */
+export type VariableInfo = { name: string; initializer?: string; numeric?: boolean; unbound?: boolean };
 
 /**
- * Whether an initializer is a plain constant, arithmetic expression, or
- * `param()` declaration — the kind of value a numeric input can reference.
- * Feature results (`extrude(...)`),
+ * Whether an initializer is a plain constant, arithmetic expression,
+ * `param()` declaration or `property()` of a numeric value — the kind of
+ * value a numeric input can reference. Feature results (`extrude(...)`),
  * objects, arrays, strings, and functions are not. Local identifiers resolve
  * through `numericByName`; unknown names (globals, imports) pass permissively.
  */
@@ -149,6 +160,10 @@ function isNumericValueNode(node: TSNode, numericByName: Map<string, boolean>): 
       const fn = node.childForFieldName('function');
       if (fn?.type === 'identifier' && fn.text === 'param') {
         return true;
+      }
+      if (fn?.type === 'identifier' && fn.text === 'property') {
+        const value = node.childForFieldName('arguments')?.namedChild(2);
+        return value ? isNumericValueNode(value, numericByName) : false;
       }
       const isMathCall = fn?.type === 'member_expression'
         && fn.childForFieldName('object')?.text === 'Math';
@@ -239,6 +254,13 @@ function propertyInitializer(value: RenderedPropertyValue): string {
  * reads it, numeric when the value is a number. A definition's are not
  * offered to a statement inside that definition's own body: reading them
  * there would materialize the part that is being built.
+ *
+ * The enclosing part's own `property()` declarations are offered by name
+ * too, bound or not. A bare one (`property('Label', 'name', value);`, as
+ * the panel writes it) is marked `unbound`: the first commit that reads
+ * it binds the declaration and moves it up to where the statement can
+ * read it, so only one whose value reads names visible at the row — the
+ * names that body can supply above the statement — is offered.
  */
 function collectVariablesInScope(
   tree: TSTree,
@@ -377,6 +399,24 @@ function collectVariablesInScope(
         collectDeclarators(stmt);
       }
     }
+  }
+
+  const part = findEnclosingPart(tree, sketchRow);
+  for (const bare of part ? bareProperties(part.body) : []) {
+    if (seen.has(bare.name) || !bare.value) {
+      continue;
+    }
+    const reads = [...freeIdentifiers(bare.value)];
+    if (!reads.every((name) => name === 'Math' || seen.has(name))) {
+      continue;
+    }
+    seen.add(bare.name);
+    variables.push({
+      name: bare.name,
+      initializer: bare.call.text,
+      numeric: isNumericValueNode(bare.value, numericByName),
+      unbound: true,
+    });
   }
 
   return variables;

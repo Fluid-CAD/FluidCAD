@@ -1,4 +1,4 @@
-import type { Solid } from "../../common/solid.js";
+import type { ColoredSolid } from "../../common/colored-solid.js";
 import type { LengthUnit } from "../../units/units.js";
 import type { Pose } from "../../math/pose.js";
 
@@ -13,8 +13,8 @@ export type AssemblyExportPose = Pose & { instanceId: string };
 export type AssemblyExportPart = {
   partId: string;
   name: string;
-  /** The template's exportable solids, in the part's own frame. */
-  solids: Solid[];
+  /** The template's exportable solids, in the part's own frame, each with its resolved colours. */
+  solids: ColoredSolid[];
 };
 
 /**

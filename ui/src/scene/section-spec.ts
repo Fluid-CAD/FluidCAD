@@ -144,6 +144,42 @@ export class SectionPlaneMath {
     };
   }
 
+  /**
+   * How far a section view stands off the cut plane's normal: the eye
+   * direction is `removed + TILT·up + TILT·side`, about 32° off square-on,
+   * so the cut face dominates the picture while the kept half's depth
+   * still reads.
+   */
+  static readonly VIEW_TILT = 0.45;
+
+  /**
+   * The eye direction (from the scene centre toward the camera) that looks
+   * at the cut: from the removed half, where the cut face points. Square-on
+   * (`straight`) is a drawing's section view — the plane's normal itself;
+   * otherwise the view tilts toward world up and to the right of it, like
+   * an isometric does, so a bore's depth and the walls around it show. A
+   * cut whose normal is vertical tilts toward the front instead (there is
+   * no up to tilt to), which is the iso-ftr octant for a cut from above.
+   */
+  static viewDirection(section: ResolvedSection, straight = false): Vec3Tuple {
+    const removed = section.removedDirection;
+    if (straight) {
+      return removed;
+    }
+    const worldUp: Vec3Tuple = [0, 0, 1];
+    const upward = SectionPlaneMath.rejectFrom(worldUp, removed);
+    const up = SectionPlaneMath.length(upward) > 1e-6
+      ? SectionPlaneMath.unit(upward)
+      : SectionPlaneMath.unit(SectionPlaneMath.rejectFrom([0, -1, 0], removed));
+    const side = SectionPlaneMath.cross(removed, up);
+    const tilt = SectionPlaneMath.VIEW_TILT;
+    return SectionPlaneMath.unit([
+      removed[0] + tilt * (up[0] + side[0]),
+      removed[1] + tilt * (up[1] + side[1]),
+      removed[2] + tilt * (up[2] + side[2]),
+    ]);
+  }
+
   /** Signed distance from the cut plane, positive on the kept side. */
   static signedDistance(section: ResolvedSection, p: Vec3Tuple): number {
     return SectionPlaneMath.dot(section.clipPlane.normal, p) + section.clipPlane.constant;
@@ -176,5 +212,19 @@ export class SectionPlaneMath {
 
   static negate(v: Vec3Tuple): Vec3Tuple {
     return [-v[0], -v[1], -v[2]];
+  }
+
+  static cross(a: Vec3Tuple, b: Vec3Tuple): Vec3Tuple {
+    return [
+      a[1] * b[2] - a[2] * b[1],
+      a[2] * b[0] - a[0] * b[2],
+      a[0] * b[1] - a[1] * b[0],
+    ];
+  }
+
+  /** The component of `v` perpendicular to the unit vector `axis`. */
+  static rejectFrom(v: Vec3Tuple, axis: Vec3Tuple): Vec3Tuple {
+    const along = SectionPlaneMath.dot(v, axis);
+    return [v[0] - axis[0] * along, v[1] - axis[1] * along, v[2] - axis[2] * along];
   }
 }

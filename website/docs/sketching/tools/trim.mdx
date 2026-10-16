@@ -17,7 +17,7 @@ Trim removes the part of a sketch edge you click: the stretch between the neares
 3. Click, and that part goes.
 4. The tool stays armed, so click the next edge for the next trim. <kbd>Esc</kbd> leaves the tool.
 
-A crossing is where another sketch entity crosses or touches the edge: lines, arcs, circles, ellipses, bezier curves, guides, projected references and copy or mirror images all count, and so does a tangency. The sketch's own origin axes do not, and neither does a corner where the edge's own end meets another edge. If nothing crosses on one side of the click, the part runs to that end of the edge. If nothing crosses at all, the whole edge is deleted. On a circle, the part is the arc between the crossing before and the crossing after the click; a circle with fewer than two crossings is deleted whole.
+A crossing is where another sketch entity crosses or touches the edge: lines, arcs, circles, ellipses, bezier curves, splines, guides, projected references and copy or mirror images all count, and so does a tangency. The sketch's own origin axes do not, and neither does a corner where the edge's own end meets another edge. If nothing crosses on one side of the click, the part runs to that end of the edge. If nothing crosses at all, the whole edge is deleted. On a circle, the part is the arc between the crossing before and the crossing after the click; a circle with fewer than two crossings is deleted whole.
 
 The tool does not write a `trim()` call. It rewrites the source: the entity's statement is rewritten in place, and argument expressions the trim did not touch stay verbatim, so `line([0, 0], [w, h])` trimmed at its end becomes `line([0, 0], [10, 0])`. When the middle of an edge goes, the statement keeps the first piece under its old variable name, so every `.start()` and `.center()` reference to it stays valid, and a new `const` for the last piece is inserted right after it, under the next free name.
 
@@ -54,7 +54,7 @@ const c1 = arc(Q, P, [0, 0]);
 
 Every constraint that referenced the edge is kept where it still makes sense.
 
-- Each new end is pinned to the edge that cut it: `coincident(l7.end(), c2)` where the circle crossed the line, `coincident(l7.end(), l6.end())` where the cut sits at that edge's own end. The trimmed edge stays attached to what it was cut against, and trimming the cutting edge later finds the very same point; that later trim pins end to end and drops the point-on-curve pin it supersedes. Bezier curves and ellipses cut without pinning.
+- Each new end is pinned to the edge that cut it: `coincident(l7.end(), c2)` where the circle crossed the line, `coincident(l7.end(), l6.end())` where the cut sits at that edge's own end. The trimmed edge stays attached to what it was cut against, and trimming the cutting edge later finds the very same point; that later trim pins end to end and drops the point-on-curve pin it supersedes. Bezier curves, splines and ellipses cut without pinning.
 - A point that survives keeps its references: `.start()` stays on the first piece, `.end()` moves to the last piece, `.center()` stays.
 - A point that vanished with the removed part — the trimmed-off end, the `.mid()` of the whole line, every point of a deleted edge — takes its constraints with it: `coincident(l1.end(), l2.start())` goes when l1's end is trimmed away, and so does `distance(l1.start(), l1.end(), 40)`. Geometry drawn from such a point keeps its place as a literal: `line(l1.end(), [50, 50])` becomes `line([40, 0], [50, 50])`. The neighbour's point is free from then on, so the DOF count rises until you constrain it again.
 - On a **line**, `horizontal`, `vertical`, `parallel`, `perpendicular`, `angle`, `collinear` and `fix` stay on the first piece and are copied onto a second surviving piece. A point-on-line `coincident`, a `tangent` or a `distance` to the line goes to whichever piece it touches, and is deleted if it touched the removed part. `equal` (length), `symmetric` and a `midpoint` of the line are deleted.
@@ -67,7 +67,7 @@ A deleted edge listed in a derived operation's array (`mirror([l1, l2], …)`) i
 
 The tool says why in a toast:
 
-- Text, bezier curves and ellipses (ellipses: not yet). They do act as crossings for other edges.
+- Text, bezier curves, splines and ellipses (ellipses: not yet). They do act as crossings for other edges.
 - Points.
 - Projected and intersected references.
 - Copy and mirror images: trim the source edge instead, and the image follows.

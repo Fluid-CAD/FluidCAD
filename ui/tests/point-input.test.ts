@@ -339,3 +339,26 @@ describe('PointInput escape', () => {
     expect(h.input.handleEscape()).toBe(false);
   });
 });
+
+describe('PointInput late variable list', () => {
+  // The tool's scope read queues behind a recompute (a parameter edit just
+  // triggered one), so the pill opens with no list and the read lands while
+  // the user is already typing a name.
+  it('completes a name typed before the variables arrived', () => {
+    const h = mount({ variables: [] });
+    type(h.x, 'wi');
+    const rows = () => Array.from(h.container.querySelectorAll('[data-idx]'), (el) => el.textContent);
+    expect(rows().some((r) => r?.includes('width'))).toBe(false);
+
+    h.input.setVariables(VARS);
+
+    expect(rows().some((r) => r?.includes('width'))).toBe(true);
+  });
+
+  it('is inert while the pill is hidden', () => {
+    const h = mount({ variables: [] });
+    h.input.hide();
+    h.input.setVariables(VARS);
+    expect(h.container.querySelectorAll('[data-idx]')).toHaveLength(0);
+  });
+});

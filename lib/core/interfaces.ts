@@ -165,6 +165,16 @@ export interface ISection extends ISceneObject {
 }
 
 /**
+ * A split — what `split()` returns. The pieces it made of the solids the
+ * plane crossed are its shapes; a feature naming the split as a target
+ * reads all of them.
+ */
+export interface ISplit extends ISceneObject {
+  /** The cut plane as built (origin, normal, x-direction); null when the cut is a sketched curve's sheet, which has no plane. */
+  getPlane(): Plane | null;
+}
+
+/**
  * An axis datum in the scene — what `axis()` returns. `getAxis()`
  * plays the same structural role here as `getPlane()` does on `IPlane`.
  */
@@ -441,6 +451,23 @@ export interface IBezier extends IGeometry {
   end(): LazyVertex;
 }
 
+/**
+ * A spline statement: a smooth curve through its points. Inside a sketch
+ * every point given as a literal is a solver point entity — constraints
+ * target `.point(i)` (or `.start()`/`.end()`) and the solve reshapes the
+ * curve. A point given as another entity's accessor (e.g. `l.end()`) is
+ * that entity's point; `.point(i)` returns the original reference.
+ */
+export interface ISpline extends IGeometry {
+  /** Returns the i-th fit point (0-based; 0 is the start, the last index
+   * is the end) as a lazy vertex / constraint target. */
+  point(index: number): LazyVertex;
+  /** Returns the curve's start point — `point(0)`. */
+  start(): LazyVertex;
+  /** Returns the curve's end point — `point(n - 1)`. */
+  end(): LazyVertex;
+}
+
 /** A distance dimension statement in a constraint-mode sketch. */
 export interface IDistance extends ISceneObject {
   /**
@@ -681,14 +708,17 @@ export interface IExtrude extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
-   * Applies a draft (taper) angle to the extrusion walls.
+   * Applies a draft (taper) angle to the extrusion walls. Positive angles flare the
+   * walls outward as the extrusion rises, so the end face is larger than the profile;
+   * negative angles taper them inward.
    * @param value - A single angle for uniform draft, or a `[start, end]` tuple for asymmetric draft.
    */
   draft(value: NumberParam | [NumberParam, NumberParam]): this;
 
   /**
-   * Offsets the end face by a specified distance along the extrusion direction.
-   * @param value - The offset distance.
+   * Pulls the end face back toward the sketch plane by a specified distance. A positive
+   * value stops short of the distance (or of the target face); a negative value overshoots it.
+   * @param value - The offset distance. Positive = shorter, negative = longer.
    */
   endOffset(value: NumberParam): this;
 
@@ -744,8 +774,9 @@ export interface ICut extends ISceneObject {
   draft(value: NumberParam | [NumberParam, NumberParam]): this;
 
   /**
-   * Offsets the cut end face by a specified distance along the cut direction.
-   * @param value - The offset distance.
+   * Pulls the cut end face back toward the sketch plane by a specified distance. A positive
+   * value stops short of the depth (or of the target face); a negative value overshoots it.
+   * @param value - The offset distance. Positive = shallower, negative = deeper.
    */
   endOffset(value: NumberParam): this;
 

@@ -1,63 +1,167 @@
-import type { BRepBuilderAPI_MakeShape, TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
+import type { BRepBuilderAPI_MakeShape, TopAbs_ShapeEnum, TopoDS_Shape, TopTools_IndexedMapOfShape, TopTools_MapOfShape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { ShapeOps } from "./shape-ops.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
+import { FaceColorView } from "../common/face-color-view.js";
+import type { SceneObject } from "../common/scene-object.js";
 import type { CleanShapeLineage } from "./shape-ops.js";
 
+/** A shape an operation consumes, with the colours its holder resolves for it. */
+export type SourceColors = { shape: Shape; colors: FaceColorView };
+
 /**
- * Walk each source shape's `colorMap`, find where each colored face ended up in
- * the result shapes via `maker.Modified()` (falling back to the unchanged face
- * if `!IsDeleted`), and apply the color to whichever result shape now owns it.
+ * A colour an operation carried onto a face of one of its results, with the
+ * statement that painted the source face it came from. The feature holding
+ * `shape` records it (`SceneObject.recordCarriedColors`).
+ */
+export type CarriedColor = { shape: Shape; face: Face; color: string; setBy: SceneObject };
+
+type Paint = { raw: TopoDS_Shape; color: string; setBy: SceneObject };
+
+/**
+ * The colours one pass places on one result shape, keyed by raw face
+ * (`IsSame`). Seeds are what earlier passes carried and are answered but not
+ * reported; `set` is what this pass adds — reported once per face, the last
+ * write winning, as a wrapper's colour map once did. Owns native memory.
+ */
+class ResultColors {
+  private readonly faces: TopTools_MapOfShape;
+  private readonly keys: TopTools_IndexedMapOfShape;
+  private readonly seeded = new Map<number, Paint>();
+  private readonly placed = new Map<number, Paint>();
+
+  constructor(readonly shape: Shape, seeds: ReadonlyArray<CarriedColor>) {
+    const oc = getOC();
+    const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
+    this.faces = new oc.TopTools_MapOfShape();
+    for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
+      this.faces.Add(raw);
+    }
+    this.keys = new oc.TopTools_IndexedMapOfShape();
+    for (const seed of seeds) {
+      if (seed.shape === shape) {
+        this.seeded.set(this.keys.Add(seed.face.getShape()), { raw: seed.face.getShape(), color: seed.color, setBy: seed.setBy });
+      }
+    }
+  }
+
+  /** Whether `raw` is a face of this result. */
+  has(raw: TopoDS_Shape): boolean {
+    return this.faces.Contains(raw);
+  }
+
+  /** The colour already on `raw` — carried in or placed by this pass. */
+  get(raw: TopoDS_Shape): Paint | undefined {
+    const key = this.keys.FindIndex(raw);
+    if (key === 0) {
+      return undefined;
+    }
+    return this.placed.get(key) ?? this.seeded.get(key);
+  }
+
+  set(raw: TopoDS_Shape, color: string, setBy: SceneObject): void {
+    this.placed.set(this.keys.Add(raw), { raw, color, setBy });
+  }
+
+  /** What this pass placed, as records for the result's holder. */
+  carried(): CarriedColor[] {
+    const out: CarriedColor[] = [];
+    for (const paint of this.placed.values()) {
+      out.push({
+        shape: this.shape,
+        face: Face.fromTopoDSFace(Explorer.toFace(paint.raw)),
+        color: paint.color,
+        setBy: paint.setBy,
+      });
+    }
+    return out;
+  }
+
+  delete(): void {
+    this.faces.delete();
+    this.keys.delete();
+    this.seeded.clear();
+    this.placed.clear();
+  }
+}
+
+/**
+ * Carries face colours through kernel operations: for each painted source
+ * face, finds where it ended up in the result shapes via `maker.Modified()`
+ * (falling back to the unchanged face if `!IsDeleted`) and reports the
+ * colour on whichever result shape now owns it, author kept.
  *
- * Works for any `BRepBuilderAPI_MakeShape`-derived maker — fuse, cut, fillet,
- * chamfer, transform, etc.
+ * Colours are read from the sources' holders (`SourceColors`, built with
+ * `SceneObject.getFaceColors`) and returned as `CarriedColor` records for
+ * the feature holding the results to write; nothing here touches a shape.
+ * Works for any `BRepBuilderAPI_MakeShape`-derived maker — fuse, cut,
+ * fillet, chamfer, transform, etc.
  */
 export class ColorTransfer {
+  /** `shape` with no colours — for scratch inputs (ghosts, tests) the ops' signatures still ask for. */
+  static plain(shape: Shape): SourceColors {
+    return { shape, colors: new FaceColorView([]) };
+  }
+
+  /**
+   * A view over the colours `carried` placed on `shape` — how a pass
+   * chained after another (a cleanup after a maker) reads its input. The
+   * caller deletes it.
+   */
+  static viewOf(carried: ReadonlyArray<CarriedColor>, shape: Shape): FaceColorView {
+    return new FaceColorView(carried.filter(c => c.shape === shape));
+  }
+
   static applyThroughMaker(
-    sources: Shape[],
+    sources: SourceColors[],
     results: Shape[],
     maker: BRepBuilderAPI_MakeShape,
     remapFace?: (raw: TopoDS_Shape) => TopoDS_Shape[],
-  ) {
+  ): CarriedColor[] {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
+    if (sources.every(source => source.colors.isEmpty())) {
+      return [];
+    }
 
-    for (const source of sources) {
-      if (!source.hasColors()) {
-        continue;
-      }
+    const placed = results.map(result => new ResultColors(result, []));
+    try {
+      for (const source of sources) {
+        for (const entry of source.colors.entries()) {
+          const raw = entry.face.getShape();
+          const modifiedRaws = ShapeOps.shapeListToArray(maker.Modified(raw))
+            .filter(s => s.ShapeType() === FACE);
 
-      for (const entry of source.colorMap) {
-        const modifiedRaws = ShapeOps.shapeListToArray(maker.Modified(entry.shape))
-          .filter(s => s.ShapeType() === FACE);
+          let targets: TopoDS_Shape[];
+          if (modifiedRaws.length > 0) {
+            targets = modifiedRaws;
+          } else if (!maker.IsDeleted(raw)) {
+            targets = [raw];
+          } else {
+            continue;
+          }
 
-        let targets: TopoDS_Shape[];
-        if (modifiedRaws.length > 0) {
-          targets = modifiedRaws;
-        } else if (!maker.IsDeleted(entry.shape)) {
-          targets = [entry.shape];
-        } else {
-          continue;
-        }
+          // A post-maker cleanup (UnifySameDomain) may rebuild faces again;
+          // `remapFace` chains the maker's output onto the final faces so the
+          // IsSame search below still lands.
+          if (remapFace) {
+            targets = targets.flatMap(remapFace);
+          }
 
-        // A post-maker cleanup (UnifySameDomain) may rebuild faces again;
-        // `remapFace` chains the maker's output onto the final faces so the
-        // IsSame search below still lands.
-        if (remapFace) {
-          targets = targets.flatMap(remapFace);
-        }
-
-        for (const target of targets) {
-          for (const result of results) {
-            const faces = Explorer.findShapes(result.getShape(), FACE);
-            if (faces.some(f => f.IsSame(target))) {
-              result.setColor(target, entry.color);
-              break;
+          for (const target of targets) {
+            const owner = placed.find(result => result.has(target));
+            if (owner) {
+              owner.set(target, entry.color, entry.setBy);
             }
           }
         }
+      }
+      return placed.flatMap(result => result.carried());
+    } finally {
+      for (const result of placed) {
+        result.delete();
       }
     }
   }
@@ -85,16 +189,20 @@ export class ColorTransfer {
    *      `sceneSources` (whether modified or unchanged) stay protected from
    *      both passes — those are explicit user choices.
    *
-   * Call AFTER `applyThroughMaker` so the colored seeds are in place.
+   * Call AFTER `applyThroughMaker`, handing its output in as `seeds`: the
+   * colours already on the results, which bleeding spreads from and never
+   * overwrites. A bled colour carries the author of the seed it spread
+   * from. Returns only what this pass added.
    */
   static applyBleeding(
-    sceneSources: Shape[],
+    sceneSources: SourceColors[],
     results: Shape[],
     maker: BRepBuilderAPI_MakeShape,
     remapFace?: (raw: TopoDS_Shape) => TopoDS_Shape[],
-  ) {
-    if (!sceneSources.some(s => s.hasColors())) {
-      return;
+    seeds: ReadonlyArray<CarriedColor> = [],
+  ): CarriedColor[] {
+    if (sceneSources.every(source => source.colors.isEmpty())) {
+      return [];
     }
 
     const oc = getOC();
@@ -108,7 +216,7 @@ export class ColorTransfer {
 
     const protectedFaces = new oc.TopTools_MapOfShape();
     for (const scene of sceneSources) {
-      for (const inputFace of Explorer.findShapes(scene.getShape(), FACE)) {
+      for (const inputFace of Explorer.findShapes(scene.shape.getShape(), FACE)) {
         const modified = ShapeOps.shapeListToArray(maker.Modified(inputFace))
           .filter(s => s.ShapeType() === FACE);
         if (modified.length > 0) {
@@ -123,21 +231,23 @@ export class ColorTransfer {
       }
     }
 
+    const bled: CarriedColor[] = [];
     for (const result of results) {
+      const placed = new ResultColors(result, seeds);
       const allFaces = Explorer.findShapes(result.getShape(), FACE);
 
       // ── Pass 1: lineage via Generated(edge|vertex) ──
       const lineageResolved = new oc.TopTools_MapOfShape();
 
       for (const scene of sceneSources) {
-        const sceneFaces = Explorer.findShapes(scene.getShape(), FACE);
+        const sceneFaces = Explorer.findShapes(scene.shape.getShape(), FACE);
 
         for (const subType of [EDGE, VERTEX] as TopAbs_ShapeEnum[]) {
           // Cache scene-face → contained subshapes so we can find which faces
           // own a given edge/vertex without re-walking each time.
           const sceneFaceSubs = sceneFaces.map(f => Explorer.findShapes(f, subType));
 
-          for (const sub of Explorer.findShapes(scene.getShape(), subType)) {
+          for (const sub of Explorer.findShapes(scene.shape.getShape(), subType)) {
             const generatedFaces = toFinal(ShapeOps.shapeListToArray(maker.Generated(sub))
               .filter(s => s.ShapeType() === FACE));
             if (generatedFaces.length === 0) {
@@ -149,28 +259,28 @@ export class ColorTransfer {
             // fillet on a vertical box edge (owned only by uncolored sides)
             // stays uncolored even though the new fillet face touches a
             // colored top via adjacency.
-            let pickedColor: string | undefined;
+            let picked: { color: string; setBy: SceneObject } | undefined;
             for (let i = 0; i < sceneFaces.length; i++) {
               if (!sceneFaceSubs[i].some(s => s.IsSame(sub))) {
                 continue;
               }
-              const c = scene.getColor(sceneFaces[i]);
-              if (c) {
-                pickedColor = c;
+              const entry = scene.colors.entryOf(sceneFaces[i]);
+              if (entry) {
+                picked = entry;
                 break;
               }
             }
 
             for (const g of generatedFaces) {
-              if (!allFaces.some(rf => rf.IsSame(g))) {
+              if (!placed.has(g)) {
                 continue;
               }
               if (protectedFaces.Contains(g)) {
                 continue;
               }
               lineageResolved.Add(g);
-              if (pickedColor && !result.getColor(g)) {
-                result.setColor(g, pickedColor);
+              if (picked && !placed.get(g)) {
+                placed.set(g, picked.color, picked.setBy);
               }
             }
           }
@@ -191,7 +301,7 @@ export class ColorTransfer {
           if (lineageResolved.Contains(face)) {
             continue;
           }
-          if (result.getColor(face)) {
+          if (placed.get(face)) {
             continue;
           }
 
@@ -205,9 +315,9 @@ export class ColorTransfer {
             if (!adjacent) {
               continue;
             }
-            const otherColor = result.getColor(allFaces[j]);
-            if (otherColor) {
-              result.setColor(face, otherColor);
+            const other = placed.get(allFaces[j]);
+            if (other) {
+              placed.set(face, other.color, other.setBy);
               changed = true;
               break;
             }
@@ -216,9 +326,12 @@ export class ColorTransfer {
       }
 
       lineageResolved.delete();
+      bled.push(...placed.carried());
+      placed.delete();
     }
 
     protectedFaces.delete();
+    return bled;
   }
 
   /**
@@ -226,17 +339,92 @@ export class ColorTransfer {
    * cleanup's `BRepTools_History` onto the post-clean result. Use this when an
    * op is chained as `maker → cleanShape` — first apply `applyThroughMaker` to
    * move colors from the original source onto the pre-clean result, then call
-   * this to chain them through the cleanup's UnifySameDomain history.
+   * this (reading that output through `viewOf`) to chain them through the
+   * cleanup's UnifySameDomain history.
    */
-  static applyThroughCleanup(source: Shape, cleanup: CleanShapeLineage) {
-    for (const entry of source.colorMap) {
-      const preFace = Face.fromTopoDSFace(Explorer.toFace(entry.shape));
-      const postFaces = cleanup.remapFace(preFace);
+  static applyThroughCleanup(source: SourceColors, cleanup: CleanShapeLineage): CarriedColor[] {
+    const carried: CarriedColor[] = [];
+    for (const entry of source.colors.entries()) {
+      const postFaces = cleanup.remapFace(entry.face);
       if (!postFaces) {
         continue;
       }
       for (const postFace of postFaces) {
-        cleanup.shape.setColor(postFace.getShape(), entry.color);
+        carried.push({ shape: cleanup.shape, face: postFace, color: entry.color, setBy: entry.setBy });
+      }
+    }
+    return carried;
+  }
+
+  /**
+   * Cut-path color propagation: each stock solid read through the boolean
+   * that ran against it (`makerOf`), chained through UnifySameDomain's
+   * history via the `cleanups[]` remapFace callbacks so colors land on the
+   * actual post-clean faces in `cleanedShapes`.
+   */
+  static applyThroughCut(
+    sources: SourceColors[],
+    cleanedShapes: Shape[],
+    makerOf: (stockShape: Shape) => BRepBuilderAPI_MakeShape,
+    cleanups: CleanShapeLineage[],
+  ): CarriedColor[] {
+    const oc = getOC();
+    const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
+    if (sources.every(source => source.colors.isEmpty())) {
+      return [];
+    }
+
+    const placed = cleanedShapes.map(cleaned => new ResultColors(cleaned, []));
+    try {
+      for (const source of sources) {
+        if (source.colors.isEmpty()) {
+          continue;
+        }
+
+        const maker = makerOf(source.shape);
+        for (const entry of source.colors.entries()) {
+          const raw = entry.face.getShape();
+          const modifiedRaws = ShapeOps.shapeListToArray(maker.Modified(raw))
+            .filter(s => s.ShapeType() === FACE);
+
+          let preCleanFaces: Face[];
+          if (modifiedRaws.length > 0) {
+            preCleanFaces = modifiedRaws.map(r => Face.fromTopoDSFace(Explorer.toFace(r)));
+          } else if (!maker.IsDeleted(raw)) {
+            preCleanFaces = [Face.fromTopoDSFace(Explorer.toFace(raw))];
+          } else {
+            continue;
+          }
+
+          // Chain through each cleanup's UnifySameDomain lineage
+          const postCleanFaces: Face[] = [];
+          for (const preFace of preCleanFaces) {
+            let matched = false;
+            for (const cleanup of cleanups) {
+              const remapped = cleanup.remapFace(preFace);
+              if (remapped !== null) {
+                postCleanFaces.push(...remapped);
+                matched = true;
+                break;
+              }
+            }
+            if (!matched) {
+              postCleanFaces.push(preFace);
+            }
+          }
+
+          for (const postFace of postCleanFaces) {
+            const owner = placed.find(result => result.has(postFace.getShape()));
+            if (owner) {
+              owner.set(postFace.getShape(), entry.color, entry.setBy);
+            }
+          }
+        }
+      }
+      return placed.flatMap(result => result.carried());
+    } finally {
+      for (const result of placed) {
+        result.delete();
       }
     }
   }

@@ -1,5 +1,6 @@
 // The apply-feature-edit request and result contracts shared by every host and route.
 
+import type { SketchImageEdit } from '../code-editor/index.ts';
 import type { SketchConstraintEditSpec } from '../sketch-constraint-edit.ts';
 import type { SketchSplitSpec } from '../sketch-split.ts';
 import type { SketchTrimSpec } from '../sketch-trim.ts';
@@ -25,6 +26,7 @@ import type {
   ConnectorPropsEditSpec,
 } from '../assembly-mate-edit.ts';
 import type { AssemblyReplicateEditSpec } from '../assembly-replicate-edit.ts';
+import type { AssemblyRelationEditSpec } from '../assembly-relation-edit.ts';
 import type { BooleanEditOptions, BooleanKind } from './features/boolean.ts';
 import type { ChamferEditOptions } from './features/chamfer.ts';
 import type { ConnectorAnchorSpec, ConnectorEditOptions, ConnectorRotateAxis } from './features/connector.ts';
@@ -41,6 +43,7 @@ import type {
 } from './features/loft.ts';
 import type { MirrorAxisSpec, MirrorEditOptions } from './features/mirror.ts';
 import type { SectionEditOptions } from './features/section.ts';
+import type { SplitEditOptions, SplitEditPlane } from './features/split.ts';
 import type { OffsetEditOptions } from './features/offset.ts';
 import type { PlaneEditBase, PlaneEditOptions, PlaneValueOptions } from './features/plane.ts';
 import type { ProjectEditOptions } from './features/projection.ts';
@@ -67,7 +70,7 @@ import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -135,6 +138,8 @@ export type ApplyFeatureEditSpec = {
   mirror?: MirrorEditOptions;
   /** Section-only payload; `parts` (if any) render the plane selector. */
   section?: SectionEditOptions;
+  /** Split-only payload; `parts` (if any) render the plane selector, a seed line is staged into an expression first. */
+  split?: SplitEditOptions;
   /** Rotate-only payload; `parts` (if any) render the axis-edge selector. */
   rotate?: RotateEditOptions;
   /** Boolean-only payload (fuse/subtract/common); no selector parts. */
@@ -347,6 +352,13 @@ export type ApplyFeatureEditSpec = {
    */
   assemblyReplicate?: AssemblyReplicateEditSpec;
   /**
+   * Relation-dialog statement write: append a `relation(type, mateA,
+   * mateB, ratio)` statement in the mates' scope, or re-render the one at
+   * its source line. Rides the same round trip as `assemblyMate`; every
+   * other spec field is ignored.
+   */
+  assemblyRelation?: AssemblyRelationEditSpec;
+  /**
    * Part-tool statement write: append `part('<name>', () => {})` at top
    * level, the name auto-allocated past every part name already in the file
    * when absent. Rides the same round trip as `insertPart`; every other
@@ -373,6 +385,12 @@ export type ApplyFeatureEditSpec = {
    * edit after it; every other spec field is ignored.
    */
   sketchClosed?: SketchClosedEditSpec;
+  /**
+   * The sketch Image tool's commit — write a new `image(…)` statement into
+   * a sketch body, or rewrite an existing one — alone on its round
+   * trip like `sketchClosed`; every other spec field is ignored.
+   */
+  sketchImage?: SketchImageEditSpec;
   /**
    * The part row menu's "Set material…" chain edit, alone on its round
    * trip like `sketchClosed`; every other spec field is ignored.
@@ -756,6 +774,22 @@ export type FeatureStatementEditTarget = {
     targets?: RepeatEditTargetSource[];
   };
   /**
+   * Split options. The cut slot carries a keep entry that re-reads the
+   * statement's own cut text at apply time; a re-sourced cut renders from
+   * producers/parts like create mode, a seed line staged into its sketch
+   * export first. The target list mixes `verbatim` keeps with re-picked
+   * feature statements; an absent list keeps every statement target, an
+   * empty one makes the split implicit. `keep` rewrites the options object
+   * wholesale.
+   */
+  split?: {
+    /** The cut; `keep` re-emits the statement's own expression. */
+    plane?: SplitEditPlane;
+    keep: SplitEditOptions['keep'];
+    /** Full replacement target list; absent keeps the statement's targets. */
+    targets?: RepeatEditTargetSource[];
+  };
+  /**
    * Rotate options. The axis slot carries a keep entry that re-reads the
    * statement's own axis text at apply time; a re-sourced axis renders from
    * producers/parts like create mode. The angle and the copy flag rewrite
@@ -817,6 +851,23 @@ export type SketchClosedEditSpec = {
   sourceLine: number;
   closed: boolean;
 };
+
+/**
+ * The sketch Image tool's commit: a new picture in the sketch at
+ * `sketchLine` (see {@link insertSketchImage}), or the `image()` statement
+ * at `imageLine` rewritten (see {@link setSketchImage}).
+ */
+export type SketchImageEditSpec =
+  | {
+    /** The sketch statement's 1-based source line. */
+    sketchLine: number;
+    image: SketchImageEdit;
+  }
+  | {
+    /** The `image()` statement's 1-based source line. */
+    imageLine: number;
+    image: SketchImageEdit;
+  };
 
 /** The section arrow's offset commit: see {@link setSectionOptions}. */
 export type SectionOptionsEditSpec = {

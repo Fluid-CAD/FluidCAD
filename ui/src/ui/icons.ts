@@ -1,4 +1,5 @@
 import iconAutoFit from '@tabler/icons/outline/arrow-autofit-content.svg?raw';
+import iconPhoto from '@tabler/icons/outline/photo.svg?raw';
 import iconOrthographic from '@tabler/icons/outline/perspective-off.svg?raw';
 import iconPerspective from '@tabler/icons/outline/perspective.svg?raw';
 import iconGrid from '@tabler/icons/outline/grid-4x4.svg?raw';
@@ -87,6 +88,7 @@ export const ICON_CENTER_ARC = iconArc3dCenterPoint;
 export const ICON_THREE_POINT_ARC = iconArc3d;
 export const ICON_RECT = iconRectangle;
 export const ICON_TEXT = iconTypography;
+export const ICON_IMAGE = iconPhoto;
 export const ICON_PENCIL = iconPencil;
 /** "Show in source" — jump from a panel row to the statement that made it. */
 export const ICON_CODE = iconCode;
@@ -111,7 +113,9 @@ export const ICON_POLYLINE = '<svg width="24" height="24" viewBox="0 0 24 24" fi
 
 export const ICON_BEZIER = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19 C 8 5, 16 5, 21 19"/><circle cx="3" cy="19" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="19" r="1.5" fill="currentColor" stroke="none"/></svg>';
 
-export const ICON_CHEVRON_RIGHT = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
+export const ICON_SPLINE = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18 C 6 6, 10 6, 12 12 S 18 18, 21 6"/><circle cx="3" cy="18" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="21" cy="6" r="1.5" fill="currentColor" stroke="none"/></svg>';
+
+export const ICON_CHEVRON_RIGHT ='<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
 export const ICON_CHEVRON_DOWN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
 
 /** Toolbar scroll arrows — stroked chevrons, distinct from the filled

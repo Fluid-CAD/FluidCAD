@@ -4,7 +4,7 @@ title: bezier(...points)
 summary: Free-form bezier curve. The first point is the explicit start, the last is the endpoint; points in between are control points (degree = args − 1).
 tags: [api, 2d, primitive, curve]
 symbols: [bezier]
-seeAlso: [api/arc, api/line]
+seeAlso: [api/spline, api/arc, api/line]
 ---
 
 # bezier
@@ -52,4 +52,5 @@ sketch("xy", () => {
 extrude(4);
 ```
 
-See [[api/arc]] for circular curves with exact radii.
+See [[api/spline]] for a smooth curve THROUGH given points (no handles),
+and [[api/arc]] for circular curves with exact radii.

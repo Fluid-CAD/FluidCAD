@@ -1,7 +1,9 @@
 import { Shape } from "../common/shape.js";
+import type { FaceColorView } from "../common/face-color-view.js";
 import { Vertex } from "../common/vertex.js";
 import { Explorer } from "../oc/explorer.js";
-import { renderSolid } from "./render-solid.js";
+import { renderSolidPieces } from "./render-solid.js";
+import { MeshPieces, type ShapeMeshPieces } from "./mesh-pieces.js";
 import { renderFace } from "./render-face.js";
 import { renderWire } from "./render-wire.js";
 import { renderEdge } from "./render-edge.js";
@@ -32,13 +34,28 @@ export class MeshBuilder {
     return resolveRenderMeshConfig(shape, this.quality, unit);
   }
 
-  build(shapeObj: Shape, unit: LengthUnit = getActiveUnit()) {
+  /**
+   * Meshes `shapeObj` for one pass. `colors` is the face-colour view of a
+   * solid (its holder's `getFaceColors`); without one — ghosts, scratch
+   * shapes — the solid is meshed unpainted.
+   */
+  build(shapeObj: Shape, unit: LengthUnit = getActiveUnit(), colors?: FaceColorView): SceneObjectMesh[] | null {
+    const pieces = this.buildPieces(shapeObj, unit);
+    return pieces ? MeshPieces.group(pieces, colors, shapeObj) : null;
+  }
+
+  /**
+   * The scope-free geometry of `shapeObj` — what the renderer caches on the
+   * wrapper and groups by colour on every pass: a solid's face pieces and
+   * edge meshes; the plain meshes of anything else.
+   */
+  buildPieces(shapeObj: Shape, unit: LengthUnit = getActiveUnit()): ShapeMeshPieces | null {
     const shape = shapeObj.getShape();
 
     let result: SceneObjectMesh[] | SceneObjectMesh | null = null;
 
     if (Explorer.isSolid(shape)) {
-      result = renderSolid(shapeObj, this.resolveConfig(shapeObj, unit));
+      return renderSolidPieces(shapeObj, this.resolveConfig(shapeObj, unit));
     }
     else if (Explorer.isFace(shape)) {
       result = renderFace(shapeObj, 0, this.resolveConfig(shapeObj, unit));
@@ -67,8 +84,7 @@ export class MeshBuilder {
     }
 
     if (result) {
-      const meshes = Array.isArray(result) ? result : [result];
-      return meshes;
+      return MeshPieces.ofMeshes(Array.isArray(result) ? result : [result]);
     }
 
     return null;

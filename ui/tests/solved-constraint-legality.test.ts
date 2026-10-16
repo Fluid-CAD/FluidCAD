@@ -296,7 +296,7 @@ const model: SolvedSketchModel = {
   constrainedEntityIds: new Set(),
   referenceProducers: new Map(),
   derivedProducers: new Map(),
-  beziers: new Map(),
+  curves: new Map(),
   dof: null,
   outcome: null,
   fullyConstrained: false,

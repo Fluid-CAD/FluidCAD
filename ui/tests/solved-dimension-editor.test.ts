@@ -76,7 +76,7 @@ describe('SolvedDimensionEditor', () => {
     const { editor, input, enter, paramBtn } = mount(variables);
     editor.show(constraint(), 0, 0);
     await flush();
-    variables.resolve([{ name: 'wall', initializer: 'param("wall", 3)' }]);
+    variables.resolve([{ name: 'wall', initializer: "param('wall', 3)" }]);
     await flush();
 
     // Retyping the same name — no longer the untouched seed — still resolves
@@ -91,7 +91,7 @@ describe('SolvedDimensionEditor', () => {
   it('still declares a genuinely new name typed over the seed', async () => {
     vi.mocked(getDimensionExpression).mockResolvedValue({ expression: 'wall' });
     const variables = deferred<VariableInfo[]>();
-    variables.resolve([{ name: 'wall', initializer: 'param("wall", 3)' }]);
+    variables.resolve([{ name: 'wall', initializer: "param('wall', 3)" }]);
     const { editor, input, enter } = mount(variables);
     editor.show(constraint(), 0, 0);
     await flush();
@@ -100,7 +100,7 @@ describe('SolvedDimensionEditor', () => {
     input().dispatchEvent(new Event('input'));
     enter();
     expect(vi.mocked(updateDimensionExpression)).toHaveBeenCalledWith(
-      'lip', LOC, 4, { name: 'lip', initializer: 'param("lip", 3)' }, 0, 'distance',
+      'lip', LOC, 4, { name: 'lip', initializer: "param('lip', 3)" }, 0, 'distance',
     );
   });
 

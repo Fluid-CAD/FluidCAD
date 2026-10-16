@@ -20,6 +20,7 @@ export type FeatureGhostRequest =
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
+  | SplitGhostRequest
   | RotateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
@@ -295,6 +296,8 @@ export type CopyGhostRequest = {
   skip?: number[][];
   /** Pattern only: the `repeat()` the copies follow, by call site. */
   pattern?: { filePath: string; line: number };
+  /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -309,6 +312,24 @@ export type MirrorGhostRequest = {
   targets: { filePath: string; line: number }[];
   /** The plane to mirror across. */
   plane: GhostPlaneRef;
+  /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
+ * The split — the cut plane `split()` would part the bodies along, sized to
+ * them, plus the pieces a dropped side loses, in the cut's red.
+ */
+export type SplitGhostRequest = {
+  feature: 'split';
+  /** The pieces the split keeps. */
+  keep: 'both' | 'front' | 'back';
+  /** The solid-bearing statements being split, by call site; empty for every solid in the scene. */
+  targets: { filePath: string; line: number }[];
+  /** The plane to cut along, or the sketched edge seeding the cut. */
+  plane: GhostPlaneRef;
+  /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -323,6 +344,8 @@ export type RotateGhostRequest = {
   axis: GhostAxisRef;
   /** The rotation angle in degrees. */
   angle: number;
+  /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -334,7 +357,9 @@ export type RotateGhostRequest = {
 export type GhostPlaneRef =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'plane'; filePath: string; line: number }
-  | { kind: 'face'; shapeId: string; index: number };
+  | { kind: 'face'; shapeId: string; index: number }
+  /** A sketched edge by its statement's call site inside its sketch — the split's seed (a line's plane, a curve's sheet). */
+  | { kind: 'sketchEdge'; filePath: string; line: number; column?: number };
 
 /**
  * The construction plane. Like the helix it neither adds nor removes material

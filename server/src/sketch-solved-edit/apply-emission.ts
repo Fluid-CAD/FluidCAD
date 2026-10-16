@@ -1,7 +1,9 @@
 // Applying a solved emission: hoist the targets to bindings and append the statement to the sketch body.
 
 import {
+  declarationImports,
   declareParamStatementsFor,
+  isPartLevelInitializer,
   declareSketchVariable,
   ensureSymbolImport,
   findEditableCallAt,
@@ -30,6 +32,7 @@ import {
   type SolvedEmissionSpec,
 } from './emission-spec.ts';
 import { DATUM_COMMANDS, solvedTargetCallee, targetError } from './emission-targets.ts';
+import { settleSketchPositions } from '../sketch-entity-rewrite.ts';
 
 export async function applySolvedEmission(
   code: string,
@@ -85,9 +88,15 @@ export async function applySolvedEmission(
   // re-anchored by the shift. `param()` initializers instead land at top
   // level after the whole edit, so nothing here moves.
   const requestedVars = spec.newVariables ?? [];
-  const paramVars = requestedVars.filter(v => /\bparam\s*\(/.test(v.initializer));
-  const localVars = requestedVars.filter(v => !/\bparam\s*\(/.test(v.initializer));
-  let working = code;
+  const paramVars = requestedVars.filter(v => isPartLevelInitializer(v.initializer));
+  const localVars = requestedVars.filter(v => !isPartLevelInitializer(v.initializer));
+  // The settle rewrites literals in place (never the line count), so every
+  // line-addressed target and removal still points at its statement.
+  const settled = await settleSketchPositions(code, spec.settle);
+  if ('error' in settled) {
+    return refuse(code, settled.error);
+  }
+  let working = settled.code;
   let lineShift = 0;
   for (const v of [...localVars].reverse()) {
     const declared = await declareSketchVariable(working, spec.sketchLine, v.name, v.initializer);
@@ -357,8 +366,8 @@ export async function applySolvedEmission(
   for (const kind of new Set(spec.constraints.map(c => c.kind))) {
     result = await ensureSymbolImport(result, kind, 'fluidcad/constraints');
   }
-  if (paramVars.length > 0) {
-    result = await ensureSymbolImport(result, 'param');
+  for (const symbol of declarationImports(paramVars.map(v => v.initializer))) {
+    result = await ensureSymbolImport(result, symbol);
   }
 
   // Imports and param declarations only ever add lines ABOVE the sketch —

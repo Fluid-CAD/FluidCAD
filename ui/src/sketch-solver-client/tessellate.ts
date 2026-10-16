@@ -3,8 +3,11 @@
 // solver's params every frame, bypassing the kernel's OCC tessellation
 // until the write-back lands and the real render replaces everything.
 
-import type { SolvedEntityView } from './model';
+import type { CurveKind, SolvedEntityView } from './model';
 import type { Vec2 } from './resolve';
+import {
+  evaluateBSpline, interpolateBSpline2d, type BSpline2dData, type BSplineCurveData,
+} from '../../../lib/math/bspline-interpolation.js';
 
 const CIRCLE_SEGMENTS = 64;
 const ARC_SEGMENTS = 48;
@@ -157,6 +160,46 @@ export function tessellateBezier(controls: Vec2[], segments: number): Vec2[] | n
   points[0] = controls[0];
   points[segments] = controls[controls.length - 1];
   return points;
+}
+
+/**
+ * Polyline along the interpolating spline through `points` — the cubic
+ * B-spline the kernel builds from the same points (`lib/math/
+ * bspline-interpolation`), `segments + 1` samples uniform in the curve's
+ * chord-length parameter. Null below two distinct points — no curve yet
+ * (and none buildable: the statement reports the error).
+ */
+export function tessellateSpline(points: Vec2[], segments: number): Vec2[] | null {
+  if (points.length < 2 || segments < 1) {
+    return null;
+  }
+  let data: BSpline2dData;
+  try {
+    data = interpolateBSpline2d(points.map(([x, y]) => ({ x, y })));
+  } catch {
+    return null;
+  }
+  const curve: BSplineCurveData = {
+    poles: data.poles.map(p => [p.x, p.y]),
+    knots: data.knots,
+    multiplicities: data.multiplicities,
+    degree: data.degree,
+  };
+  const first = data.knots[0];
+  const last = data.knots[data.knots.length - 1];
+  const result: Vec2[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const [x, y] = evaluateBSpline(curve, first + ((last - first) * i) / segments);
+    result.push([x, y]);
+  }
+  result[0] = points[0];
+  result[segments] = points[points.length - 1];
+  return result;
+}
+
+/** The polyline a point-driven curve of `kind` draws through `points`. */
+export function tessellateCurve(kind: CurveKind, points: Vec2[], segments: number): Vec2[] | null {
+  return kind === 'spline' ? tessellateSpline(points, segments) : tessellateBezier(points, segments);
 }
 
 function bezierPointAt(controls: Vec2[], t: number): Vec2 {

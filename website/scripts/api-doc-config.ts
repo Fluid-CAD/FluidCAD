@@ -80,7 +80,8 @@ export const features: FeatureEntry[] = [
   { name: 'circle', displayName: 'circle', category: '2d', sourceFile: 'core/2d/circle.ts', interfaceName: 'CircleFunction', returnType: 'ISolvedCircle', relatedGuide: '/docs/sketching/primitives/line', sidebarPosition: 3 },
   { name: 'ellipse', displayName: 'ellipse', category: '2d', sourceFile: 'core/2d/ellipse.ts', interfaceName: 'EllipseFunction', returnType: 'IEllipse', relatedGuide: '/docs/sketching/primitives/line', sidebarPosition: 4 },
   { name: 'point', displayName: 'point', category: '2d', sourceFile: 'core/2d/point.ts', interfaceName: 'PointFunction', returnType: 'IGeometry', sidebarPosition: 5 },
-  { name: 'bezier', displayName: 'bezier', category: '2d', sourceFile: 'core/2d/bezier.ts', interfaceName: 'BezierFunction', returnType: 'IBezier', sidebarPosition: 8 },
+  { name: 'bezier', displayName: 'bezier', category: '2d', sourceFile: 'core/2d/bezier.ts', interfaceName: 'BezierFunction', returnType: 'IBezier', relatedGuide: '/docs/sketching/primitives/bezier', sidebarPosition: 8 },
+  { name: 'spline', displayName: 'spline', category: '2d', sourceFile: 'core/2d/spline.ts', interfaceName: 'SplineFunction', returnType: 'ISpline', relatedGuide: '/docs/sketching/primitives/spline', sidebarPosition: 8.5 },
   { name: 'text', displayName: 'text', category: '2d', sourceFile: 'core/2d/text.ts', interfaceName: 'TextFunction', returnType: 'IText', relatedGuide: '/docs/sketching/compound/text', sidebarPosition: 9 },
   // 2D Sketching — Datums (fixed constraint targets)
   { name: 'origin', displayName: 'origin', category: '2d', sourceFile: 'core/2d/datum.ts', interfaceName: null, constName: 'origin', returnType: 'SketchDatum', sidebarPosition: 10 },
@@ -89,6 +90,8 @@ export const features: FeatureEntry[] = [
   // 2D Sketching — Region declarations (what a 3D operation's .region() names)
   { name: 'region', displayName: 'region', category: '2d', sourceFile: 'core/2d/region.ts', interfaceName: 'RegionFunction', returnType: 'ISceneObject', relatedGuide: '/docs/3d-operations/extrude#region-picking', sidebarPosition: 13 },
   { name: 'far', displayName: 'far', category: '2d', sourceFile: 'core/2d/region.ts', interfaceName: null, functionName: 'far', returnType: 'IRegionSide', relatedGuide: '/docs/3d-operations/extrude#region-picking', sidebarPosition: 14 },
+  // 2D Sketching — Reference pictures (editor-only, no geometry)
+  { name: 'image', displayName: 'image', category: '2d', sourceFile: 'core/2d/image.ts', interfaceName: 'ImageFunction', returnType: 'ISceneObject', relatedGuide: '/docs/sketching/tools/reference-image', sidebarPosition: 15 },
   // 2D Sketching — Advanced Operations
   { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IOffset', relatedGuide: '/docs/sketching/tools/offset', sidebarPosition: 23 },
 
@@ -112,6 +115,7 @@ export const features: FeatureEntry[] = [
   { name: 'wrap', displayName: 'wrap', category: '3d', sourceFile: 'core/wrap.ts', interfaceName: 'WrapFunction', returnType: 'IWrap', relatedGuide: '/docs/3d-operations/wrap', sidebarPosition: 17 },
   { name: 'helix', displayName: 'helix', category: '3d', sourceFile: 'core/helix.ts', interfaceName: 'HelixFunction', returnType: 'IHelix', relatedGuide: '/docs/3d-operations/helix', sidebarPosition: 18 },
   { name: 'hole', displayName: 'hole', category: '3d', sourceFile: 'core/hole.ts', interfaceName: 'HoleFunction', returnType: 'IHole', relatedGuide: '/docs/3d-operations/hole', sidebarPosition: 19 },
+  { name: 'split', displayName: 'split', category: '3d', sourceFile: 'core/split.ts', interfaceName: 'SplitFunction', returnType: 'ISplit', relatedGuide: '/docs/3d-operations/split', sidebarPosition: 20 },
 
   // Transforms
   { name: 'translate', displayName: 'translate', category: 'transforms', sourceFile: 'core/translate.ts', interfaceName: 'TranslateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 1 },
@@ -141,6 +145,7 @@ export const features: FeatureEntry[] = [
   { name: 'insert', displayName: 'insert', category: 'assembly', sourceFile: 'core/insert.ts', interfaceName: null, functionName: 'insert', returnType: 'Instance | Occurrence', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 7 },
   { name: 'mate', displayName: 'mate', category: 'assembly', sourceFile: 'core/mate.ts', interfaceName: null, functionName: 'mate', returnType: 'MateBuilder', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 8 },
   { name: 'replicate', displayName: 'replicate', category: 'assembly', sourceFile: 'core/replicate.ts', interfaceName: null, functionName: 'replicate', returnType: 'Instance[] | Occurrence[]', relatedGuide: '/docs/assembly/replicate', sidebarPosition: 9 },
+  { name: 'relation', displayName: 'relation', category: 'assembly', sourceFile: 'core/relation.ts', interfaceName: null, functionName: 'relation', returnType: 'RelationBuilder', relatedGuide: '/docs/assembly/gear', sidebarPosition: 10 },
   { name: 'unit', displayName: 'unit', category: 'utilities', sourceFile: 'core/unit.ts', interfaceName: null, returnType: 'void', relatedGuide: '/docs/extra/units', sidebarPosition: 10 },
 ];
 
@@ -156,6 +161,7 @@ export const types: TypeEntry[] = [
   { name: 'ISolvedCircle', displayName: 'SolvedCircle', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 5.3 },
   { name: 'IEllipse', displayName: 'Ellipse', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 5.35 },
   { name: 'IBezier', displayName: 'Bezier', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 5.36 },
+  { name: 'ISpline', displayName: 'Spline', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 5.37 },
   { name: 'IReference', displayName: 'Reference', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 5.4 },
   { name: 'IReferenceEntity', displayName: 'ReferenceEntity', sourceFile: 'core/interfaces.ts', sidebarPosition: 5.5 },
   { name: 'IDistance', displayName: 'Distance', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 5.6 },
@@ -180,6 +186,7 @@ export const types: TypeEntry[] = [
   { name: 'IOffsetEdge', displayName: 'OffsetEdge', sourceFile: 'core/interfaces.ts', extendsType: 'ISelect', sidebarPosition: 32.1 },
   { name: 'IPlane', displayName: 'Plane', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18 },
   { name: 'ISection', displayName: 'Section', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18.5 },
+  { name: 'ISplit', displayName: 'Split', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12.9 },
   { name: 'IAxis', displayName: 'Axis', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 19 },
   { name: 'ISelect', displayName: 'Select', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 20 },
   { name: 'IConnector', displayName: 'Connector', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 21 },
@@ -352,6 +359,9 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IOffset': 'Offset',
   'IOffsetEdge': 'OffsetEdge',
   'IPlane': 'Plane',
+  'ISection': 'Section',
+  'ISplit': 'Split',
+  'IMirror': 'Mirror',
   'ISketch': 'Sketch',
   'IAxis': 'Axis',
   'ISelect': 'Select',
@@ -373,6 +383,7 @@ export const typeDisplayNameMap: Record<string, string> = {
   'ISolvedCircle': 'SolvedCircle',
   'IEllipse': 'Ellipse',
   'IBezier': 'Bezier',
+  'ISpline': 'Spline',
   'IReference': 'Reference',
   'IReferenceEntity': 'ReferenceEntity',
   'IDistance': 'Distance',

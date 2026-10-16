@@ -21,6 +21,12 @@ Two consumers read it:
 2. Click **+** and choose **New property**. The dialog asks for a **Label**, the **Part** and a **Value**. The **Name** the code reads the property by is derived from the label as you type (`Pocket diameter` gives `pocketDiameter`) and cannot be edited on its own. The value is an expression: type a parameter's name to see what is in scope, and combine them as in `width - 2 * wall`.
 3. Save. The `property()` call is written at the end of that part's body, after the geometry, and the panel lists it under **Properties** with the value the render computed. The pencil on the row edits or deletes the declaration.
 
+### In an expression input
+
+A property is also a value the part itself can use. Every [expression input](./param#in-an-expression-input) of the part — a dimension in the sketcher, a field in a feature dialog — lists the part's properties in its dropdown next to the parameters, each with a **Pr** chip, and the ghost preview evaluates them like any other value. Pick `pocketDiameter` for a circle's diameter and the sketch follows the property.
+
+A property declared from the panel is a statement on its own at the end of the part body, after the geometry, so nothing above it can read it. The first commit that uses one rewrites the declaration as `const pocketDiameter = property('Pocket diameter', 'pocketDiameter', width - 2 * wall);` and moves it up: after the parameters, or after the last declaration its value reads, so the statement that uses it comes after it. The declaration keeps its label, its value and any comment on its line; from then on it is an ordinary variable and the dropdown offers it as one. Use a property on its own before combining two in one field, and before declaring a new name over it. A property whose value reads a local declared below the statement being edited is not offered there — there is nowhere above the statement to move it to.
+
 Renaming a property follows the new name through every `.properties.<name>` read of it, in this file and in every file that imports the part, and renames a variable the declaration binds (`const w = property('W', 'w', …)`) after it. Deleting a property puts its value in place of every read. A value over the part's own parameters (`width - 2 * wall`) means nothing in another part or assembly, so a property read there cannot be deleted until those reads are rewritten by hand; the dialog names them. A plain value (`property('Bolt count', 'boltCount', 4)`) is inlined anywhere.
 
 ## In code

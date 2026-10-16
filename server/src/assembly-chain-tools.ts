@@ -249,7 +249,7 @@ function describeCall(base: string): string {
 export async function resolveStatementBinding(
   code: string,
   line: number,
-  expectedBase: 'insert' | 'connector' | 'replicate',
+  expectedBase: 'insert' | 'connector' | 'replicate' | 'mate',
   preferredName?: string,
 ): Promise<{ newCode: string; name: string } | { error: string }> {
   const parser = await getJavaScriptParser();
@@ -486,9 +486,9 @@ export function expressionRoot(expression: string): string {
   return match ? match[0] : expression;
 }
 
-/** Consecutive mate()/replicate() statements group without blank separators between them. */
+/** Consecutive mate()/replicate()/relation() statements group without blank separators between them. */
 export function isAssemblyStatementRow(line: string): boolean {
-  return /^\s*(?:const\s+[\w$[\], ]+\s*=\s*)?(?:mate|replicate)\s*\(/.test(line);
+  return /^\s*(?:const\s+[\w$[\], ]+\s*=\s*)?(?:mate|replicate|relation)\s*\(/.test(line);
 }
 
 /** Append the statement after the last top-level statement, insert-edit style. */
@@ -625,6 +625,33 @@ export function insertStatementAfter(code: string, node: TSNode, statement: stri
   const indent = indentOf(lines, node.startPosition.row);
   lines.splice(node.endPosition.row + 1, 0, ...statement.split('\n').map(l => `${indent}${l}`));
   return joinLines(lines);
+}
+
+/**
+ * The statement directly in `scope` that declares the binding of the chain
+ * starting on `line` — the anchor statement itself, or the scope-level
+ * statement wrapping it (an `export const …`) — or null when the chain is
+ * missing or lives outside `scope`. A created statement that dereferences
+ * the binding must land BELOW this statement, whatever else decides its row:
+ * a `const` is in its temporal dead zone until its declaration runs.
+ */
+export function scopeStatementOfAnchor(tree: TSTree, scope: TSNode, line: number): TSNode | null {
+  const chain = findChainAt(tree, line);
+  if (!chain) {
+    return null;
+  }
+  return scope.namedChildren.find(c => c.startIndex <= chain.startIndex && c.endIndex >= chain.endIndex) ?? null;
+}
+
+/** The latest-ending of `statements` (nulls skipped), or null when there is none. */
+export function latestStatement(statements: (TSNode | null)[]): TSNode | null {
+  let latest: TSNode | null = null;
+  for (const statement of statements) {
+    if (statement && (!latest || statement.endIndex > latest.endIndex)) {
+      latest = statement;
+    }
+  }
+  return latest;
 }
 
 /**

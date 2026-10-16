@@ -3,8 +3,9 @@ export type {
   IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IText,
   IConnector, IPart, ILoadFile, LoadOptions,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap,
-  IRepeat, IRepeatInstance, IRegionTarget, IRegionSide, ISection,
+  IRepeat, IRepeatInstance, IRegionTarget, IRegionSide, ISection, ISplit,
 } from "./interfaces.js";
+export type { SketchImageOptions, SketchImageSpec } from "../features/2d/sketch-image.js";
 export { default as axis } from "./axis.js";
 export { default as plane } from "./plane.js";
 export { default as sketch } from "./sketch.js";
@@ -41,9 +42,11 @@ export { default as connector } from "./connector.js";
 export { default as expose } from "./expose.js";
 export { default as property } from "./property.js";
 export { default as section, type SectionOptions } from "./section.js";
+export { default as split, type SplitOptions, type SplitKeep, type SplitSide } from "./split.js";
 export { default as insert } from "./insert.js";
 export { default as mate } from "./mate.js";
 export { default as replicate } from "./replicate.js";
+export { default as relation } from "./relation.js";
 export * from "./2d/index.js";
 export { breakpoint } from "./breakpoint.js";
 export { default as param, type ParamType, type ParamOptionsMap, type NumberParamOptions, type SliderParamOptions, type SelectParamOptions, type CheckboxParamOptions, type TextParamOptions, type NumberParam, type StringParam, type BooleanParam, type ParamValue, resolveParam, isNumberParam, isBooleanParam } from "./param.js";

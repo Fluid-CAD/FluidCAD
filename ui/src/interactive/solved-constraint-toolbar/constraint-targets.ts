@@ -63,7 +63,7 @@ export function constraintTargetFor(p: SolvedPick): SketchConstraintTargetParam 
       ...(p.sourceLocation?.occurrence !== undefined
         ? { occurrence: p.sourceLocation.occurrence } : {}),
       featureType: p.anchor.owner,
-      ...(p.anchor.owner === 'bezier' ? { pointIndex: p.anchor.pointIndex } : {}),
+      ...(p.anchor.owner === 'bezier' || p.anchor.owner === 'spline' ? { pointIndex: p.anchor.pointIndex } : {}),
     };
   }
   if (p.reference !== undefined) {

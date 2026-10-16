@@ -1,6 +1,6 @@
 // The solved emission request and result contracts.
 
-import type { NewVariableDecl } from '../code-editor/index.ts';
+import type { NewVariableDecl, SketchPositionEdit } from '../code-editor/index.ts';
 import type { SolvedGeometryKind } from '../sketch-symbols.ts';
 import type { SolvedEmissionTarget } from '../../../lib/dist/selection/sketch-target.js';
 
@@ -43,6 +43,16 @@ export type SolvedEmissionSpec = {
    * whole emission.
    */
   removals?: { line: number }[];
+  /**
+   * The sketch's drifted literals and their solved positions (the drag
+   * write-back's batch), written first so the emission lands in a sketch
+   * already at rest. A tool whose guesses come from the SOLVED geometry and
+   * whose constraints lock a side from those guesses (the Offset tool's
+   * offsetFrom) sends this, so the side is read against the sketch the user
+   * saw and never against a literal that drifted under an earlier
+   * dimension. See `settleSketchPositions`.
+   */
+  settle?: SketchPositionEdit[];
 };
 
 export type SolvedEmissionResult = {

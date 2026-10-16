@@ -21,7 +21,7 @@ let workspace: string;
 let fakeServer: http.Server | null = null;
 let fakePort = 0;
 let dirtyFiles: { path: string; lastModifiedMs: number }[] = [];
-let renderRequests: { filePath: string; code: string; changes?: boolean }[] = [];
+let renderRequests: { filePath: string; code: string; changes?: boolean; fitView?: boolean }[] = [];
 // Default outcome for the fake `/api/render`. Tests can override per-case.
 let renderResponse: { status: number; body: unknown } = {
   status: 200,
@@ -77,6 +77,7 @@ function startFakeServer(): Promise<number> {
               filePath: parsed.filePath,
               code: parsed.code,
               ...(parsed.changes !== undefined ? { changes: parsed.changes } : {}),
+              ...(parsed.fitView !== undefined ? { fitView: parsed.fitView } : {}),
             });
           } catch {
             // fall through — request capture is best-effort
@@ -239,6 +240,13 @@ describe('write_file', () => {
     expect(renderRequests[0].code).toBe('sphere(5);');
     expect(renderRequests[0].filePath).toBe(path.join(workspace, 'new.fluid.js'));
     expect(result.data.render).toMatchObject({ state: 'rendered', version: 1 });
+  });
+
+  // The agent's edit is watched from the viewport: every write asks the
+  // pages to frame the model once the render is on screen.
+  it('asks /api/render to frame the model on screen', async () => {
+    await writeFile({ path: 'framed.fluid.js', content: 'sphere(5);' });
+    expect(renderRequests[0].fitView).toBe(true);
   });
 
   // The change summary is asked for by default, so an agent sees what its

@@ -22,7 +22,7 @@ import {
   type PolygonMode,
 } from './solved-emission';
 import type { SolvedVertexRef } from '../../snapping/types';
-import { ExpressionInput, CommitResult } from '../../ui/expression-input';
+import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
 import {
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
@@ -86,6 +86,10 @@ export class PolygonTool extends SketchTool {
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
+  }
+
+  protected override onVariablesLoaded(variables: VariableInfo[]): void {
+    this.expressionInput.setVariables(variables);
   }
 
   protected onActivate(): void {

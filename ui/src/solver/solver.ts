@@ -18,10 +18,11 @@
 
 import { Vector3 } from 'three';
 import { buildMateGraph, type MateGraph } from './graph.js';
-import { residual } from './joint-model.js';
+import { FAILED_MATE_EPS, residual } from './joint-model.js';
 import { contactResidualMaxAbs, resolveContact } from './contact-model.js';
 import { connectorMateFailure, contactMateFailure } from './mate-gap.js';
-import { applyLoopRelaxations } from './loop-relaxation.js';
+import { applyLoopRelaxations, type LoopRelaxation } from './loop-relaxation.js';
+import { RelationModel, type RelationBaseline } from './relation-model.js';
 import type { BodyState, MateFailure, SolverInput, SolverOutput } from './types.js';
 import {
   applyTreeFixups,
@@ -31,17 +32,6 @@ import {
   countTreeFreeDof,
 } from './warm-start.js';
 
-// Post-solve consistency threshold on each mate's residual ∞-norm.
-// Deliberately loose so the joints-panel red dots don't flicker per
-// pixel of drag: during a partially-radial drag on a closed loop, the
-// LM's small drag weight legitimately leaves closure gaps up to
-// ~0.1 mm (the rhombus regression's own acceptance bound), so the
-// threshold sits just above that equilibrium. Anything past it is a
-// genuine closure gap (unreachable geometry, conflicting grounds)
-// rather than drag compromise. Translation rows are mm; revisit after
-// stage D's joint-space LM tightens the during-drag equilibrium.
-const FAILED_MATE_EPS = 0.1;
-
 export class Solver {
   /**
    * Solve the assembly. Synchronous and pure-JS — every pose is
@@ -50,7 +40,15 @@ export class Solver {
    */
   solve(input: SolverInput): SolverOutput {
     // Partition the mate graph and pick a spanning tree per component.
-    const graph = buildMateGraph(input.bodies, input.mates, input.draggedInstanceId);
+    const graph = buildMateGraph(input.bodies, input.mates, input.draggedInstanceId, input.relations ?? []);
+
+    // Relation baselines are the INPUT poses — measured before the
+    // warm-start moves anything, so each relation couples this solve's
+    // motion (see relation-model.ts for why the coupling is incremental).
+    const relationBaselines = RelationModel.baselines(
+      graph.components.flatMap(c => c.relations),
+      new Map(input.bodies.map(b => [b.instanceId, b])),
+    );
 
     // Precompute fastened-cluster membership once per solve. Without
     // this, every non-fastened tree edge's drag helper recomputes its
@@ -63,6 +61,7 @@ export class Solver {
       draggedCursorWorld: input.draggedCursorWorld,
       draggedGrabLocal: input.draggedGrabLocal,
       drivenJoint: input.drivenJoint,
+      relationCoupled: RelationModel.coupledParams(graph.components.flatMap(c => c.relations)),
     };
 
     applyTreeWarmStarts(input.bodies, graph.components, input.mates, drag, fastenedClusters);
@@ -71,7 +70,7 @@ export class Solver {
     // the closure manifold and propagates a dragged chain's IK. Returns
     // each closure component's loop DOF (joint variables minus the rank
     // of the closure Jacobian at the solution).
-    const loopDof = applyLoopRelaxations(input.bodies, graph.components, drag);
+    const relaxations = applyLoopRelaxations(input.bodies, graph.components, drag, relationBaselines);
 
     // DOF accounting, per component: closure components use the
     // rank-based loop DOF (a 4-bar reads 1, not 3 — its closure eats
@@ -81,7 +80,7 @@ export class Solver {
     // tree followers.
     let dof = 0;
     graph.components.forEach((component, i) => {
-      const ld = loopDof[i];
+      const ld = relaxations[i].dof;
       if (ld !== null) {
         dof += ld;
       } else {
@@ -99,6 +98,8 @@ export class Solver {
       dof,
       failed: [],
       failures: [],
+      failedRelations: [],
+      contradictedRelations: relaxations.flatMap(r => r.contradicted),
     };
 
     // Drag target: a dragged body whose position the warm-start didn't
@@ -126,9 +127,55 @@ export class Solver {
     // joints-panel red dots.
     out.failures = collectFailedMates(input, out);
     out.failed = out.failures.map(f => f.mateId);
-    out.result = out.failed.length > 0 ? 'inconsistent' : 'okay';
+    out.failedRelations = collectFailedRelations(graph, input, out, relationBaselines, relaxations);
+    out.result = out.failed.length > 0 || out.failedRelations.length > 0 ? 'inconsistent' : 'okay';
     return out;
   }
+}
+
+/**
+ * Every relation the solve could not hold:
+ *   - relations whose ratios contradict the others around a cycle, which
+ *     the relaxation dropped (reported on every solve, moving or not);
+ *   - exactly-solved relations a limit held off their ratio (a driver
+ *     asking a limited follower past its bound);
+ *   - every other relation whose sides did not move in ratio, measured at
+ *     the OUTPUT poses against the input baseline — a weighted relation
+ *     the LM could not turn together with a fastened or loop mate.
+ * Exactly-solved relations are trusted, not re-measured: the incremental
+ * measure cannot follow a side past half a turn in one solve. Relations
+ * the graph dropped never reached the solver and are reported upstream.
+ */
+function collectFailedRelations(
+  graph: MateGraph,
+  input: SolverInput,
+  out: SolverOutput,
+  baselines: Map<string, RelationBaseline>,
+  relaxations: LoopRelaxation[],
+): string[] {
+  const relations = graph.components.flatMap(c => c.relations);
+  if (relations.length === 0) return [];
+  const dropped = new Set(relaxations.flatMap(r => [...r.contradicted, ...r.blocked]));
+  const exact = new Set(relaxations.flatMap(r => r.exact));
+  const solvedById = new Map(out.bodies.map(b => [b.instanceId, b]));
+  const atOutput = new Map<string, BodyState>();
+  for (const body of input.bodies) {
+    const solved = solvedById.get(body.instanceId);
+    if (solved) {
+      atOutput.set(body.instanceId, { ...body, position: solved.position, quaternion: solved.quaternion });
+    }
+  }
+  const failed: string[] = [];
+  for (const relation of relations) {
+    if (dropped.has(relation.record.relationId)) {
+      failed.push(relation.record.relationId);
+      continue;
+    }
+    if (exact.has(relation.record.relationId)) continue;
+    const r = RelationModel.residual(relation, atOutput, baselines);
+    if (r !== null && Math.abs(r) > FAILED_MATE_EPS) failed.push(relation.record.relationId);
+  }
+  return failed;
 }
 
 /**
@@ -282,4 +329,18 @@ function resolveDragTarget(input: SolverInput): Vector3 | null {
  */
 export function isUsableSolution(out: SolverOutput): boolean {
   return out.result === 'okay';
+}
+
+/**
+ * Whether a drag frame's poses may be applied: the solve satisfied every
+ * mate and relation, or the only failures are relations whose ratios
+ * contradict the others around a cycle. Those are a static authoring error
+ * reported on every solve — the rest of the solve is exact without them —
+ * so refusing every frame for them would freeze the whole assembly.
+ */
+export function isAcceptableDragFrame(out: SolverOutput): boolean {
+  if (out.result === 'okay') return true;
+  if (out.result !== 'inconsistent' || out.failed.length > 0) return false;
+  const contradicted = new Set(out.contradictedRelations);
+  return out.failedRelations.every(id => contradicted.has(id));
 }

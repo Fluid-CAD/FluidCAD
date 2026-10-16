@@ -1,14 +1,16 @@
 // Rendering the `const` declarations a spec's new variables land with.
 
-import { isExpressionText } from '../../code-editor/index.ts';
+import { isExpressionText, isPartLevelInitializer } from '../../code-editor/index.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 
 /**
  * The `const <name> = <initializer>` lines `spec.newVariables` asks for —
  * validated to safe shapes, deduplicated, and filtered against names the
  * file already declares so a re-apply stays idempotent. Declarations whose
- * initializer calls `param()` come back separately in `paramDecls` — those
- * land at the top of the part body, not before the statement.
+ * initializer calls `param()` or `property()` come back separately in
+ * `paramDecls` — those land in the part body (a `param()` at its top, a
+ * `property()` binding the part's bare property of that name), not before
+ * the statement.
  */
 export function renderNewVariableDecls(
   code: string,
@@ -34,7 +36,7 @@ export function renderNewVariableDecls(
     if (new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\b`).test(code)) {
       continue;
     }
-    const target = /\bparam\s*\(/.test(nv.initializer) ? paramDecls : decls;
+    const target = isPartLevelInitializer(nv.initializer) ? paramDecls : decls;
     target.push(`const ${nv.name} = ${nv.initializer.trim()}${semicolon ? ';' : ''}`);
   }
   return { decls, paramDecls };

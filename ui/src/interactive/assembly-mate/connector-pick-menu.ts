@@ -10,8 +10,10 @@ export type ConnectorPickMenuItem = {
 /**
  * The "which connector?" popover a mate-dialog click opens when several
  * gizmos sit under the cursor — an assembly connector placed exactly on a
- * part connector. Hovering a row highlights that gizmo; clicking one picks
- * it. Escape, a click elsewhere, or a wheel gesture dismiss it.
+ * part connector — and, retitled, the relation dialog's "which joint?" for
+ * a part carrying several joints. Hovering a row highlights that gizmo;
+ * clicking one picks it. Escape, a click elsewhere, or a wheel gesture
+ * dismiss it.
  */
 export class ConnectorPickMenu {
   private el: HTMLDivElement | null = null;
@@ -23,13 +25,19 @@ export class ConnectorPickMenu {
     return this.el !== null;
   }
 
-  show(clientX: number, clientY: number, items: ConnectorPickMenuItem[], onLeave: () => void): void {
+  show(
+    clientX: number,
+    clientY: number,
+    items: ConnectorPickMenuItem[],
+    onLeave: () => void,
+    title = 'Which connector?',
+  ): void {
     this.close();
     const el = document.createElement('div');
     el.className = MENU_CLASS;
     el.setAttribute('role', 'menu');
     el.dataset.role = 'connector-pick-menu';
-    el.innerHTML = `<div class="${MENU_HEADER_CLASS}">Which connector?</div>`
+    el.innerHTML = `<div class="${MENU_HEADER_CLASS}">${escapeHtml(title)}</div>`
       + items.map((item, i) =>
         `<button type="button" role="menuitem" class="${MENU_ROW_CLASS}" data-index="${i}">${escapeHtml(item.label)}</button>`,
       ).join('');

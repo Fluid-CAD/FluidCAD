@@ -108,6 +108,7 @@ const seeAlsoByDisplay: Record<string, string[]> = {
   Loft: ['api/loft', 'api/types/boolean-operation'],
   Sweep: ['api/sweep', 'api/types/boolean-operation'],
   Mirror: ['api/mirror', 'api/types/boolean-operation'],
+  Split: ['api/split', 'api/plane'],
   Common: ['api/booleans'],
   Shell: ['api/shell'],
   Draft: ['api/draft'],

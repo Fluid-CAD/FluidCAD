@@ -9,5 +9,6 @@ export { createApplyFeatureRouter, type ApplyFeatureRouterOptions } from './rout
 export { makeSynthesisOptionsForFile } from './synthesis.ts';
 export { MAX_COPY_TARGETS } from './validate/copy.ts';
 export { MAX_MIRROR_TARGETS } from './validate/mirror.ts';
+export { MAX_SPLIT_TARGETS, type SplitPlaneInput } from './validate/split.ts';
 export { MAX_REPEAT_TARGETS } from './validate/repeat.ts';
 export { MAX_ROTATE_TARGETS } from './validate/rotate.ts';

@@ -19,7 +19,7 @@ The server is transport-agnostic. It currently ships a stdio transport via
                   │ HTTP + WS
                   ▼
        running FluidCAD server            (the workspace you started with `fluidcad serve`
-                                           or by opening a .fluid.js file in VSCode)
+                                           or opened in the desktop app)
 ```
 
 The MCP process is a thin proxy. It does not run OpenCascade itself — it
@@ -115,25 +115,46 @@ For a globally installed `fluidcad`, replace `npx -y fluidcad mcp` with
 `fluidcad mcp` in any of the configs above (the opencode `command` array
 becomes `["fluidcad", "mcp"]`).
 
-### Install the FluidCAD skills
+### The FluidCAD skills
 
-Install the companion skills so agents follow the FluidCAD workflow:
+The server ships the companion skills and serves them to the agent, so no
+install is needed. It implements the MCP Skills Extension
+([SEP-2640](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2640),
+`io.modelcontextprotocol/skills`): every skill file is a resource at
+`skill://<name>/<path>` (`skill://fluidcad/SKILL.md`,
+`skill://fluidcad/references/traps.md`, ...), `skills/list` and `skills/get`
+publish each skill's frontmatter and a sha256 manifest of its files, and
+`resources/directory/read` lists a skill directory. A host that supports the
+extension shows the served skills next to its local ones and loads them on
+demand.
+
+For every other client, the server's startup instructions point at
+`skill://fluidcad/SKILL.md` and the `list_skills` / `read_skill(name, file)`
+tools return the skills and their `references/` files, always at the version
+matching the server.
+
+Clients with native skill support (Claude Code, opencode, ...) can still
+install them as skills, which adds automatic triggering from the skill
+description:
 
 ```bash
 npx skills add Fluid-CAD/FluidCAD
 ```
 
-Three skills ship with the repo, under `mcp/skills/`:
+An installed copy is frozen at install time; re-run the command after
+upgrading `fluidcad` to keep it in step with the served version.
 
-- **FluidCAD** — the core modeling loop: read the docs, plan, write the file,
+Three skills ship with the package, under `mcp/skills/`:
+
+- **fluidcad** — the core modeling loop: read the docs, plan, write the file,
   check the render, resolve filters before writing them, verify with
   screenshots and measurements. Its `references/` folder holds task-specific
   guidance the agent loads on demand (traps, repair loop, verification and
   report, modifying an existing model, sketching, handoff).
-- **FluidCAD-from-drawing** — layered on top, for building a part from a 2D
+- **fluidcad-from-drawing** — layered on top, for building a part from a 2D
   engineering drawing, blueprint, dimension sheet, or an image without
   dimensions.
-- **FluidCAD-assembly** — layered on top, for multi-part models: `.part.js`
+- **fluidcad-assembly** — layered on top, for multi-part models: `.part.js`
   files with `param()` / `connector()` / `expose()`, `.assembly.js` files with
   `insert()` / `mate()` / `replicate()`, STEP parts, units, and assembly export.
 
@@ -145,8 +166,8 @@ frontmatter matches the server name registered above.
 
 ## Use it
 
-1. Open a workspace in FluidCAD — either through the VSCode/Neovim extension,
-   or with `fluidcad serve --workspace /path/to/project`. The server registers
+1. Open a workspace in FluidCAD — either in the desktop app, or with
+   `fluidcad serve --workspace /path/to/project`. The server registers
    itself in `~/.fluidcad/instances.json` on startup.
 2. Start a conversation in your MCP client. The agent should call
    `list_workspaces` first to find your workspace, then pass that path to
@@ -259,6 +280,7 @@ You should see two JSON-RPC responses on stdout: the `initialize` reply and a
 | --------------- | --------------------------------------------------------------------- |
 | Discovery       | `list_workspaces`                                                     |
 | Docs            | `list_docs`, `read_doc`, `search_docs`, `get_api_signature`, `get_type_definition` |
+| Skills          | `list_skills`, `read_skill` (plus SEP-2640 `skills/list`, `skills/get`, `skill://` resources) |
 | Inspection      | `get_scene_summary`, `list_shapes`, `get_shape_properties`, `get_face_properties`, `get_edge_properties`, `get_compile_error`, `hit_test`, `resolve_selection`, `measure`, `validate` |
 | Visual          | `screenshot`, `screenshot_multi`, `screenshot_shape`, `get_camera_state` |
 | Coordination    | `wait_for_idle`                                                       |
@@ -286,9 +308,12 @@ mcp/
 │   ├── discovery.ts     # read-only access to ~/.fluidcad/instances.json
 │   ├── client.ts        # HTTP/WS helpers for talking to the FluidCAD server
 │   ├── docs-index.ts    # frontmatter-driven in-memory doc index
-│   ├── resources.ts     # MCP resource registration for llm-docs/
+│   ├── skills-index.ts  # in-memory index over mcp/skills/ (frontmatter, digests)
+│   ├── skills-extension.ts # SEP-2640: skills/list, skills/get, resources/directory/read
+│   ├── resources.ts     # MCP resource registration for llm-docs/ and skill://
 │   ├── tools/           # one file per tool category
 │   └── types.ts
+├── skills/              # fluidcad, fluidcad-from-drawing, fluidcad-assembly (served + installable)
 ├── tests/               # vitest, undici MockAgent
 └── package.json
 ```

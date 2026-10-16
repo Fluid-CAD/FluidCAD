@@ -4,12 +4,13 @@ import * as os from "os";
 import { join } from "path";
 import { setupOC, render } from "../setup.js";
 import { getUnitRegistry } from "../../units/registry.js";
-import { getSceneManager } from "../../scene-manager.js";
+import { getSceneManager, getCurrentScene } from "../../scene-manager.js";
+import { colorOf, faceColorEntriesOf, faceColorsOf, holderOf } from "../utils.js";
 import { FileExport } from "../../io/file-export.js";
 import { FileImport, setAssetProvider } from "../../io/file-import.js";
 import load from "../../core/load.js";
 import color from "../../core/color.js";
-import { sceneSolids, volumeOf } from "./helpers.js";
+import { sceneSolids, volumeOf, exportable } from "./helpers.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import { testRect } from "../helpers/profiles.js";
@@ -62,9 +63,9 @@ describe("load() units", () => {
     const body = extrude(10);
     color("#3366cc", body);
     render();
-    const solids = sceneSolids().filter(s => s.colorMap.length > 0);
+    const solids = sceneSolids().filter(s => faceColorsOf(getCurrentScene(), s).size > 0);
     expect(solids.length).toBe(1);
-    stepBytes = new TextEncoder().encode(FileExport.exportShapes(solids, { format: "step" }).data as string);
+    stepBytes = new TextEncoder().encode(FileExport.exportShapes(exportable(solids), { format: "step" }).data as string);
     getSceneManager().startScene();
   });
 
@@ -144,10 +145,15 @@ describe("load() units", () => {
     const [solid] = loadedSolids();
     const faces = solid.getFaces();
     expect(faces.length).toBe(6);
-    expect(solid.colorMap.length).toBe(6);
+    const scene = getCurrentScene();
+    expect(faceColorsOf(scene, solid).size).toBe(6);
     for (const face of faces) {
-      expect(solid.getColor(face.getShape())).toBe("#3366cc");
+      expect(colorOf(scene, solid, face)).toBe("#3366cc");
     }
+    // The load statement is the author of an asset's colours.
+    const statement = holderOf(scene, solid);
+    expect(statement.getType()).toBe("load");
+    expect(faceColorEntriesOf(scene, solid).every(entry => entry.setBy === statement)).toBe(true);
   });
 
   it("rebuilds when the document's unit changes", () => {

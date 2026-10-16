@@ -16,6 +16,8 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
 import { MirrorShape } from "../features/mirror-shape.js";
+import { Split } from "../features/split.js";
+import { CutterFromSketchEdge } from "../features/cutter-from-sketch-edge.js";
 import { Rotate } from "../features/rotate.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
 import { PlaneMiddleRenderable } from "../features/plane-mid.js";
@@ -116,6 +118,13 @@ export type FeatureSources =
    * targets, reflecting the last feature — reports an empty target list.
    */
   | { feature: 'mirror'; targets: SourceSlot[]; plane: SourceSlot }
+  /**
+   * A `split(plane | line, …)`: the solids it cuts, by call site — empty for
+   * an implicit split of every solid in scope — plus the cut: a plane the way
+   * a mirror's resolves, or the sketched line seeding it, by the line's call
+   * site.
+   */
+  | { feature: 'split'; targets: SourceSlot[]; plane: SourceSlot }
   /**
    * A standalone `rotate(axis, angle, …)`: the solids it turns, by call site,
    * plus the axis it turns them around. A world-axis literal is `opaque` as
@@ -291,6 +300,14 @@ export function resolveFeatureSources(
         feature: 'mirror',
         targets: resolver.statementSlots(feature.targetObjects),
         plane: resolver.planeSlot(feature.plane),
+      };
+    }
+    if (feature instanceof Split) {
+      return {
+        ok: true,
+        feature: 'split',
+        targets: resolver.statementSlots(feature.targetObjects),
+        plane: resolver.splitPlaneSlot(feature.cut),
       };
     }
     // The standalone rotate — `rotate(axis, angle, …)`, the transform, not
@@ -470,6 +487,18 @@ class SourceResolver {
       return this.entitiesSlot([obj.sourceObject]);
     }
     return OPAQUE;
+  }
+
+  /**
+   * A split's cut: a sketched edge seeding it — a line's plane, a curve's
+   * sheet — resolves to the edge's own statement inside the sketch, by call
+   * site; any other plane resolves as a mirror's does.
+   */
+  splitPlaneSlot(obj: PlaneObjectBase | CutterFromSketchEdge): SourceSlot {
+    if (obj instanceof CutterFromSketchEdge) {
+      return this.callSiteSlot(obj.geometry);
+    }
+    return this.planeSlot(obj);
   }
 
   /**

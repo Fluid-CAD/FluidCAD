@@ -3,7 +3,7 @@ import {
   buildMirrorEmission, mirrorTargetsFor, reflectAngleDeg, reflectPoint, type MirrorTarget,
 } from '../src/interactive/tools/mirror-emission';
 import type { SolvedPick } from '../src/interactive/sketch-hover-select-handler';
-import type { SolvedBezierView, SolvedEntityView, SolvedSketchModel } from '../src/sketch-solver-client/model';
+import type { SolvedCurveView, SolvedEntityView, SolvedSketchModel } from '../src/sketch-solver-client/model';
 import type { SceneObjectRender } from '../src/types';
 
 // The constraint-native Mirror tool: reflected geometry statements plus
@@ -18,10 +18,10 @@ function obj(id: string, line: number, uniqueType: string, guide = false): Scene
   } as unknown as SceneObjectRender;
 }
 
-function modelOf(views: SolvedEntityView[], beziers: SolvedBezierView[] = []): SolvedSketchModel {
+function modelOf(views: SolvedEntityView[], beziers: SolvedCurveView[] = []): SolvedSketchModel {
   return {
     entities: new Map(views.map(v => [v.entityId, v])),
-    beziers: new Map(beziers.map(b => [b.obj.id, b])),
+    curves: new Map(beziers.map(b => [b.obj.id, b])),
     constraints: [], hasDatums: true, solver: null,
   } as unknown as SolvedSketchModel;
 }
@@ -58,7 +58,8 @@ const bezierObj = obj('bz', 9, 'bezier-3');
 const bezierAnchor = (entityId: number, pointIndex: number, point: [number, number]): SolvedEntityView => ({
   entityId, kind: 'point', obj: bezierObj, point, anchor: { owner: 'bezier', pointIndex },
 });
-const bezierView: SolvedBezierView = {
+const bezierView: SolvedCurveView = {
+  kind: 'bezier',
   obj: bezierObj,
   points: [[0, 0], [5, 5], [999, 999]],
   sources: [{ entityId: 10, role: null }, { entityId: 11, role: null }, { entityId: 0, role: 'end' }],
@@ -173,7 +174,7 @@ describe('buildMirrorEmission', () => {
 
   it('mirrors a bezier as a reflected bezier() + one point-pair symmetric per control point', () => {
     const plan = buildMirrorEmission({
-      targets: [{ bezier: bezierView }, { pick: edgePick(lineView) }],
+      targets: [{ curve: bezierView }, { pick: edgePick(lineView) }],
       model: bezierModel,
       axis: { kind: 'pick', pick: edgePick(axisView) },
     });
@@ -203,25 +204,25 @@ describe('buildMirrorEmission', () => {
 
   it('dedupes a bezier picked twice and refuses one with a control point of no solver identity or a single point', () => {
     const twice = buildMirrorEmission({
-      targets: [{ bezier: bezierView }, { bezier: bezierView }],
+      targets: [{ curve: bezierView }, { curve: bezierView }],
       model: bezierModel,
       axis: { kind: 'datum', axis: 'x' },
     });
     expect(twice.ok && twice.count).toBe(1);
 
-    const foreign: SolvedBezierView = { ...bezierView, sources: [bezierView.sources[0], null, bezierView.sources[2]] };
+    const foreign: SolvedCurveView = { ...bezierView, sources: [bezierView.sources[0], null, bezierView.sources[2]] };
     expect(buildMirrorEmission({
-      targets: [{ bezier: foreign }], model: bezierModel, axis: { kind: 'datum', axis: 'x' },
+      targets: [{ curve: foreign }], model: bezierModel, axis: { kind: 'datum', axis: 'x' },
     })).toMatchObject({ ok: false, reason: expect.stringMatching(/control point 2 .* no solver identity/) });
 
-    const mid: SolvedBezierView = { ...bezierView, sources: [bezierView.sources[0], bezierView.sources[1], { entityId: 0, role: 'mid' }] };
+    const mid: SolvedCurveView = { ...bezierView, sources: [bezierView.sources[0], bezierView.sources[1], { entityId: 0, role: 'mid' }] };
     expect(buildMirrorEmission({
-      targets: [{ bezier: mid }], model: bezierModel, axis: { kind: 'datum', axis: 'x' },
+      targets: [{ curve: mid }], model: bezierModel, axis: { kind: 'datum', axis: 'x' },
     })).toMatchObject({ ok: false, reason: expect.stringMatching(/control point 3 .* midpoint/) });
 
-    const single: SolvedBezierView = { obj: obj('bz1', 12, 'bezier-1'), points: [[3, 3]], sources: [null] };
+    const single: SolvedCurveView = { kind: 'bezier', obj: obj('bz1', 12, 'bezier-1'), points: [[3, 3]], sources: [null] };
     expect(buildMirrorEmission({
-      targets: [{ bezier: single }], model: bezierModel, axis: { kind: 'datum', axis: 'x' },
+      targets: [{ curve: single }], model: bezierModel, axis: { kind: 'datum', axis: 'x' },
     })).toMatchObject({ ok: false, reason: expect.stringMatching(/single control point/) });
   });
 });
@@ -233,7 +234,7 @@ describe('mirrorTargetsFor', () => {
       edgePick(lineView),
     ];
     const resolved = mirrorTargetsFor(['s-bz', 's-l', 's-offset-edge'], picks, bezierModel);
-    expect(resolved.targets).toEqual([{ bezier: bezierView }, { pick: edgePick(lineView) }]);
+    expect(resolved.targets).toEqual([{ curve: bezierView }, { pick: edgePick(lineView) }]);
     expect(resolved.unresolved).toEqual(['s-offset-edge']);
     // No model yet (sketch not rendered): a bezier cannot resolve.
     expect(mirrorTargetsFor(['s-bz'], picks, null)).toEqual({ targets: [], unresolved: ['s-bz'] });

@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from 'vite';
 import fs from 'fs';
 import path from 'path';
 import tailwindcss from '@tailwindcss/vite';
+import { buildLogger } from './build-logger.ts';
 
 /**
  * The desktop app's start screen (`ui/start.html` → `ui/dist-start/`), built
@@ -84,10 +85,12 @@ function startImportDenylist(): Plugin {
 
 export default defineConfig({
   root: UI_ROOT,
+  customLogger: buildLogger(),
   publicDir: false,
   plugins: [tailwindcss(), startPublicFiles(), startImportDenylist()],
   build: {
     outDir: 'dist-start',
+    reportCompressedSize: false,
     emptyOutDir: true,
     rolldownOptions: {
       input: path.resolve(UI_ROOT, 'start.html'),

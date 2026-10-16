@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest';
 import {
+  Box3,
   BoxGeometry,
   Group,
   Material,
@@ -14,7 +15,7 @@ import {
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
-import { SectionCaps, SectionController, SectionPlaneMath, SectionPlanes } from '../src/scene/section-controller';
+import { SectionCaps, SectionController, SectionPlaneMath, SectionPlanes, SectionStyles } from '../src/scene/section-controller';
 import { geometryBoundsOf } from '../src/scene/scene-geometry-bounds';
 
 /** A solid the way SolidMesh builds one: an `isSolid` group holding a face-mesh group holding the mesh. */
@@ -400,5 +401,19 @@ describe('draw order under grouped models', () => {
       expect(marker.matrixWorld.equals(body.mesh.matrixWorld)).toBe(true);
     }
     expect(caps(root)[0].parent).toBe(group);
+  });
+});
+
+describe('SectionStyles.viewer', () => {
+  it('is the viewport look — distinct colours, hatched at ninety lines per scene diagonal', () => {
+    const box = new Box3(new Vector3(0, 0, 0), new Vector3(30, 40, 0));
+    expect(SectionStyles.viewer(box)).toEqual({ distinctColors: true, hatch: true, hatchSpacing: 50 / SectionStyles.HATCH_LINES_PER_DIAGONAL });
+    expect(SectionStyles.HATCH_LINES_PER_DIAGONAL).toBe(90);
+  });
+
+  it('falls back to the default diagonal with nothing to measure', () => {
+    const fallback = SectionStyles.DEFAULT_DIAGONAL / SectionStyles.HATCH_LINES_PER_DIAGONAL;
+    expect(SectionStyles.viewer(null).hatchSpacing).toBeCloseTo(fallback, 9);
+    expect(SectionStyles.viewer(new Box3()).hatchSpacing).toBeCloseTo(fallback, 9);
   });
 });

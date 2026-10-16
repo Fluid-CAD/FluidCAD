@@ -1,6 +1,6 @@
 {
   "name": "fluidcad",
-  "version": "0.0.46",
+  "version": "0.0.47",
   "description": "Parametric CAD modeling library using javascript",
   "author": "Marwan Aouida <contact@marwan.dev>",
   "license": "MIT",
@@ -20,9 +20,6 @@
     "stl"
   ],
   "type": "module",
-  "workspaces": [
-    "extension/vscode"
-  ],
   "bin": {
     "fluidcad": "./bin/fluidcad.js"
   },
@@ -38,6 +35,7 @@
     "launcher/dist/",
     "!launcher/dist/**/*.map",
     "mcp/dist/",
+    "mcp/skills/",
     "bin/",
     "llm-docs/"
   ],
@@ -76,7 +74,7 @@
     "typecheck": "tsc -b",
     "test": "vitest",
     "test:features": "vitest run lib/tests/features/",
-    "bump": "npx bumpp patch package.json package-lock.json extension/vscode/package.json shell/package.json shell/package-lock.json mcp/package.json --no-tag --no-push",
+    "bump": "npx bumpp patch package.json package-lock.json shell/package.json shell/package-lock.json mcp/package.json --no-tag --no-push",
     "release": "git tag -a \"v$npm_package_version\" -m \"chore: release v$npm_package_version\" && git push --follow-tags"
   },
   "dependencies": {
@@ -84,7 +82,7 @@
     "chokidar": "^5.0.0",
     "color-name": "^2.1.0",
     "commander": "^14.0.3",
-    "esbuild": "^0.27.7",
+    "esbuild": "^0.28.2",
     "express": "^5.2.1",
     "fontkit": "^2.0.4",
     "get-system-fonts": "^2.0.2",
@@ -116,7 +114,7 @@
     "js-yaml": "^4.1.1",
     "jsdom": "^29.1.1",
     "lodash": "^4.17.21",
-    "monaco-editor": "^0.56.0",
+    "monaco-editor": "^0.57.0",
     "prettier": "^3.5.3",
     "tailwindcss": "^4.2.2",
     "three": "^0.180.0",

@@ -15,50 +15,70 @@ import { Color } from "../../features/color.js";
 import { Extrude } from "../../features/extrude.js";
 import { Fuse } from "../../features/fuse.js";
 import { Shell } from "../../features/shell.js";
+import { Face } from "../../common/face.js";
 import { Solid } from "../../common/solid.js";
+import { Scene } from "../../rendering/scene.js";
 import { testRect } from "../helpers/profiles.js";
+import { colorOf, faceColorEntriesOf, faceColorsOf, holderOf } from "../utils.js";
 
-function hasRed(solid: Solid): boolean {
-  return solid.colorMap.length > 0 && solid.colorMap.some(e => e.color === '#ff0000');
+function colorsOf(scene: Scene, solid: Solid): string[] {
+  return [...faceColorsOf(scene, solid).values()];
+}
+
+function hasRed(scene: Scene, solid: Solid): boolean {
+  return colorsOf(scene, solid).some(c => c === '#ff0000');
 }
 
 describe("color preservation through operations (Phase 3 lineage)", () => {
   setupOC();
 
-  it("Solid.copy() preserves colorMap", () => {
+  it("Solid.copy() shares the faces, so the holder's view answers for the copy's faces", () => {
     sketch("xy", () => {
         testRect(100, 50);
       });
-    extrude(30);
+    const e = extrude(30) as Extrude;
 
     select(face().onPlane("xy", 30));
-    const c = color("red") as Color;
-    render();
+    color("red");
+    const scene = render();
 
-    const colored = c.getShapes()[0] as Solid;
-    expect(colored.colorMap.length).toBeGreaterThan(0);
+    // The paint is a record on the extrude: it keeps its body.
+    const colored = e.getShapes()[0] as Solid;
+    expect(faceColorsOf(scene, colored).size).toBeGreaterThan(0);
 
-    const copied = (colored as Solid).copy() as Solid;
-    expect(copied.colorMap.length).toBe(colored.colorMap.length);
-    expect(copied.colorMap[0].color).toBe(colored.colorMap[0].color);
+    // The copy is a new wrapper over the same raw handle: its faces are
+    // IsSame with the original's, so the records resolve through them.
+    const copied = colored.copy() as Solid;
+    const view = holderOf(scene, colored).getFaceColors(colored);
+    try {
+      const painted = copied.getFaces().filter(f => view.get(f.getShape()) !== undefined);
+      expect(painted).toHaveLength(1);
+      expect(view.get(painted[0].getShape())).toBe('#ff0000');
+    } finally {
+      view.delete();
+    }
   });
 
-  it("setColor replaces an existing color for the same face", () => {
+  it("a colour carried through a fillet keeps the color statement as its author", () => {
     sketch("xy", () => {
-        testRect(40, 40);
+        circle([0, 0], 40);
       });
-    const e = extrude(10) as Extrude;
-    render();
+    const e = extrude(50) as Extrude;
 
-    const solid = e.getShapes()[0] as Solid;
-    const topFace = solid.getFaces().find(f => f.getPlane().origin.z >= 9.99);
-    expect(topFace).toBeDefined();
+    select(face().onPlane("xy", 50));
+    const c = color("orange") as Color;
 
-    solid.setColor(topFace!.getShape(), '#ff0000');
-    solid.setColor(topFace!.getShape(), '#00ff00');
+    const f = fillet(5, e.endFaces()) as unknown as { getShapes(): Solid[] };
+    const scene = render();
 
-    expect(solid.colorMap).toHaveLength(1);
-    expect(solid.colorMap[0].color).toBe('#00ff00');
+    const filleted = f.getShapes()[0] as Solid;
+    expect(holderOf(scene, filleted)).toBe(f);
+    const entries = faceColorEntriesOf(scene, filleted);
+    expect(entries.length).toBeGreaterThan(0);
+    // The fillet records what it carried (and bled) — as the painter's.
+    for (const entry of entries) {
+      expect(entry.setBy).toBe(c);
+    }
   });
 
   it("color survives a fuse with an overlapping extrude", () => {
@@ -75,14 +95,14 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
         testRect(20, 20);
       });
     const top = extrude(15) as Extrude;
-    render();
+    const scene = render();
 
     // The top face of the base was modified by the fuse (it got a hole where
     // the second extrude starts). The color should have transferred to the
     // post-fusion face(s).
     const finalSolid = top.getShapes()[0] as Solid;
     expect(finalSolid).toBeDefined();
-    expect(hasRed(finalSolid)).toBe(true);
+    expect(hasRed(scene, finalSolid)).toBe(true);
   });
 
   it("color survives a cut (UnifySameDomain chained lineage)", () => {
@@ -100,13 +120,13 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
         testRect(20, 20);
       });
     const cut = extrude(10).remove() as Extrude;
-    render();
+    const scene = render();
 
     // The cut modified the top face; the top face's color should transfer
     // to the post-cut face(s).
     const finalSolid = cut.getShapes()[0] as Solid;
     expect(finalSolid).toBeDefined();
-    expect(hasRed(finalSolid)).toBe(true);
+    expect(hasRed(scene, finalSolid)).toBe(true);
   });
 
   it("color is not propagated when the colored face is fully removed", () => {
@@ -124,12 +144,12 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
         testRect(10, 40, { at: [25, 0] });
       });
     const cut = extrude(10).remove() as Extrude;
-    render();
+    const scene = render();
 
     // At least one of the surviving faces should be red (propagated from the
     // split bottom face).
     const finalSolids = cut.getShapes() as Solid[];
-    const anyRed = finalSolids.some(hasRed);
+    const anyRed = finalSolids.some(solid => hasRed(scene, solid));
     expect(anyRed).toBe(true);
   });
 
@@ -143,14 +163,14 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     color("orange");
 
     const f = fillet(5, e.endFaces()) as unknown as { getShapes(): Solid[] };
-    render();
+    const scene = render();
 
     // The color op is followed by a fillet on the top edge. The fillet must
     // propagate the orange color from the pre-fillet top face to the
     // post-fillet top face.
     const filleted = f.getShapes()[0] as Solid;
     expect(filleted).toBeDefined();
-    const hasOrange = filleted.colorMap.some(e => e.color === '#ffa500');
+    const hasOrange = colorsOf(scene, filleted).some(c => c === '#ffa500');
     expect(hasOrange).toBe(true);
   });
 
@@ -167,7 +187,7 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
       circle([50, 0], 40);
     });
     const e = extrude(25) as Extrude;
-    render();
+    const scene = render();
 
     const result = e.getShapes()[0] as Solid;
     expect(result).toBeDefined();
@@ -176,11 +196,11 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     // into it. (Faces from the original colored cylinder that the user left
     // uncolored, e.g. its top and bottom, still propagate as uncolored — the
     // bleed only applies to faces that came from tool inputs / new geometry.)
-    const facesWithColor = result.colorMap.length;
+    const colors = colorsOf(scene, result);
     // At minimum, the cylinder2's surviving side face should be red — that's
     // the new face the user expects to inherit.
-    expect(facesWithColor).toBeGreaterThan(1);
-    expect(result.colorMap.every(e => e.color === '#ff0000')).toBe(true);
+    expect(colors.length).toBeGreaterThan(1);
+    expect(colors.every(c => c === '#ff0000')).toBe(true);
   });
 
   it("color bleeds: a filleted edge's new arc face inherits color from its neighbor", () => {
@@ -193,12 +213,12 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     color("orange");
 
     const f = fillet(5, e.endFaces()) as unknown as { getShapes(): Solid[] };
-    render();
+    const scene = render();
 
     const filleted = f.getShapes()[0] as Solid;
     // The arc face created by the fillet should also be orange via bleeding
     // from its adjacent (orange) top face.
-    const orangeFaces = filleted.colorMap.filter(e => e.color === '#ffa500');
+    const orangeFaces = colorsOf(scene, filleted).filter(c => c === '#ffa500');
     expect(orangeFaces.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -215,12 +235,12 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     color("orange", e.endFaces());
 
     const f = fillet(10, e.sideEdges()) as unknown as { getShapes(): Solid[] };
-    render();
+    const scene = render();
 
     const filleted = f.getShapes()[0] as Solid;
     // Only the (Modified) top face should still be orange. The fillet faces
     // came from side edges (uncolored), and the bottom was never colored.
-    const orangeCount = filleted.colorMap.filter(e => e.color === '#ffa500').length;
+    const orangeCount = colorsOf(scene, filleted).filter(c => c === '#ffa500').length;
     expect(orangeCount).toBe(1);
   });
 
@@ -234,11 +254,11 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     color("orange");
 
     const ch = chamfer(5, e.endFaces()) as unknown as { getShapes(): Solid[] };
-    render();
+    const scene = render();
 
     const chamfered = ch.getShapes()[0] as Solid;
     expect(chamfered).toBeDefined();
-    const hasOrange = chamfered.colorMap.some(e => e.color === '#ffa500');
+    const hasOrange = colorsOf(scene, chamfered).some(c => c === '#ffa500');
     expect(hasOrange).toBe(true);
   });
 
@@ -257,12 +277,13 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     extrude(25).new();
 
     const f = fuse() as Fuse;
-    render();
+    const scene = render();
 
     const result = f.getShapes()[0] as Solid;
     expect(result).toBeDefined();
-    expect(result.colorMap.length).toBeGreaterThan(0);
-    expect(result.colorMap.every(e => e.color === '#ff0000')).toBe(true);
+    const colors = colorsOf(scene, result);
+    expect(colors.length).toBeGreaterThan(0);
+    expect(colors.every(c => c === '#ff0000')).toBe(true);
   });
 
   it("explicit fuse(): first input is uncolored → result has no color even if other inputs are colored", () => {
@@ -281,13 +302,13 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     color("red");
 
     const f = fuse() as Fuse;
-    render();
+    const scene = render();
 
     const result = f.getShapes()[0] as Solid;
     expect(result).toBeDefined();
     // First input has no color → result inherits no color, even though
     // another input was red.
-    expect(result.colorMap).toEqual([]);
+    expect(colorsOf(scene, result)).toEqual([]);
   });
 
   it("shell preserves colored side faces and does not paint the new internal walls", () => {
@@ -301,7 +322,7 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     color("orange", e.sideFaces());
 
     const sh = shell(-2, e.endFaces()) as Shell;
-    render();
+    const scene = render();
 
     const result = sh.getShapes()[0] as Solid;
     expect(result).toBeDefined();
@@ -310,14 +331,14 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     // outer side walls should still be orange (history-mapped through
     // BRepOffsetAPI_MakeThickSolid). Internal walls are new geometry — the
     // user only colored the outside, so they must NOT be painted.
-    const orangeFaces = result.colorMap.filter(e => e.color === '#ffa500');
+    const orangeFaces = colorsOf(scene, result).filter(c => c === '#ffa500');
     expect(orangeFaces.length).toBeGreaterThan(0);
 
     // None of the shell's internal faces should carry the orange color.
-    const internalFaces = sh.getState('internal-faces') as { getShape(): any }[] || [];
+    const internalFaces = (sh.getState('internal-faces') as Face[]) || [];
     expect(internalFaces.length).toBeGreaterThan(0);
     for (const f of internalFaces) {
-      expect(result.getColor(f.getShape())).toBeUndefined();
+      expect(colorOf(scene, result, f)).toBeUndefined();
     }
   });
 });

@@ -27,6 +27,10 @@ sketch, reflects solids across a plane. The 3D form returns `Mirror`
 (extends `BooleanOperation`) and supports `.exclude(...objects)` to
 skip specific objects.
 
+A named 3D target stands for the body it built wherever later features
+left it: after `const e = extrude(30); fillet(3, e.endEdges());` the call
+`mirror("xz", e)` reflects the filleted body (see [[concepts/scene-graph]]).
+
 **`"x"` is the world X axis, even inside a sketch.** To mirror across
 the sketch plane's own X, use the sketch datum: `mirror(xAxis(), g)`.
 See [[concepts/coordinate-system]] for the full convention.

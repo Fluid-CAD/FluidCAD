@@ -15,13 +15,15 @@ import repeat from "../core/repeat.js";
 import hole from "../core/hole.js";
 import color from "../core/color.js";
 import copy from "../core/copy.js";
+import translate from "../core/translate.js";
+import rotate from "../core/rotate.js";
 import shell from "../core/shell.js";
 import part from "../core/part.js";
 import connector from "../core/connector.js";
 import select from "../core/select.js";
 import { face } from "../filters/index.js";
 import { Connector } from "../features/connector.js";
-import { bezier, circle, line } from "../core/2d/index.js";
+import { arc, bezier, circle, line } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
@@ -34,12 +36,12 @@ import {
   Mirror2DGhostRequest,
   Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, MirrorGhostRequest,
   OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, HoleGhostRequest, RotateGhostRequest,
-  SweepGhostRequest,
+  GhostPlaneRef, SplitGhostRequest, SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { getSceneManager } from "../scene-manager.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
-import { horizontal } from "../core/constraints/index.js";
+import { horizontal, vertical, fix, distance } from "../core/constraints/index.js";
 import { testRect } from "./helpers/profiles.js";
 import { runFluid, FLUID_FILE } from "./helpers/run-fluid.js";
 import { buildSketchRegions } from "../rendering/sketch-regions.js";
@@ -1458,11 +1460,14 @@ describe("feature ghost — repeat", () => {
   });
 
   /**
-   * A colour takes the plate in and hands it back the same shape. Repeated
-   * alongside the hole it adds no material and takes none away, and it is told
-   * apart by measuring the two solids — never by cutting one against its twin.
+   * A colour holds nothing and takes nothing: `color("red", plate)` is a
+   * reference to the plate's extrude, so repeating the colour row clones that
+   * extrude with it (its dependency closure, exactly as a translate's would)
+   * and the instance stamps the plate as material it adds — built from
+   * nothing inside the chain, so no boolean is spent on it — next to the
+   * hole's removal.
    */
-  it("draws nothing for a body a target handed back unchanged", () => {
+  it("stamps the body a colour names as added, with no boolean spent on it", () => {
     const { plate, post } = plateAndPost();
     const drilled = hole(6, post.endFaces().center()).depth(10) as unknown as SceneObject;
     drilled.setSourceLocation({ filePath: FILE, line: 13, column: 0 });
@@ -1476,16 +1481,22 @@ describe("feature ghost — repeat", () => {
       result = repeatGhost(scene, [13, 17], {
         directions: [{ count: 2, offset: 60, length: null }],
       });
-      // The hole's two, and none for the painted plate.
+      // The hole's two, and none for the plate.
       expect(cuts).toHaveBeenCalledTimes(2);
     } finally {
       cuts.mockRestore();
     }
 
     const solids = solidsOf(result);
-    expect(solids).toHaveLength(1);
-    expect(solids[0].kind).toBe('remove');
-    const box = extent(solids[0]);
+    expect(solids.map(s => s.kind).sort()).toEqual(['add', 'remove']);
+    // The plate, moved 60.
+    const added = extent(solids.find(s => s.kind === 'add')!);
+    expect(added.minX).toBeCloseTo(-40, 1);
+    expect(added.maxX).toBeCloseTo(160, 1);
+    expect(added.minZ).toBeCloseTo(0, 3);
+    expect(added.maxZ).toBeCloseTo(20, 3);
+    // The hole alone, in the post's top.
+    const box = extent(solids.find(s => s.kind === 'remove')!);
     expect(box.minX).toBeCloseTo(57, 1);
     expect(box.maxX).toBeCloseTo(63, 1);
     expect(box.minZ).toBeCloseTo(60, 3);
@@ -2009,18 +2020,20 @@ describe("feature ghost — copy", () => {
   });
 
   /**
-   * The edit dialog's own blind spot: a copy takes its targets' shapes over
-   * (`CopyBase.build`), so re-previewing the statement being edited finds
-   * them already consumed — by itself. Re-reading as if no removal applied
-   * brings the body back, and without it editing any copy would draw nothing.
+   * The edit dialog: a copy takes its targets' shapes over (`CopyBase.build`),
+   * so re-previewing the statement being edited finds them held by the copy
+   * itself — followed there, the ghost would stamp every clone. `exclude`
+   * names the statement, and the target reads as of just before it.
    */
   it("clones a target the copy being edited already took over", () => {
     const box = locatedBox(5);
-    copy("linear", "x", { count: 2, offset: 200 }, box as never);
+    const edited = copy("linear", "x", { count: 2, offset: 200 }, box as never) as unknown as SceneObject;
+    edited.setSourceLocation({ filePath: FILE, line: 7, column: 0 });
     const scene = render();
 
     const result = copyGhost(scene, [5], {
       directions: [{ count: 2, offset: 40, length: null }],
+      exclude: { filePath: FILE, line: 7 },
     });
 
     // The target's own body at its own place, not the copy's clone at x 200.
@@ -2701,6 +2714,42 @@ describe("feature ghost — rib", () => {
       const wall = bounds(result);
       // The proper gusset: full 5-thickness slab under the spine, inside the
       // cavity — never buried in the wall (x < -46) or under the floor (z < 4).
+      expect(wall.maxY - wall.minY).toBeGreaterThan(4.9);
+      expect(wall.minX).toBeGreaterThanOrEqual(-46 - 0.1);
+      expect(wall.minZ).toBeGreaterThanOrEqual(4 - 0.1);
+    }
+  });
+
+  /**
+   * The same edit, with the rib scoped to the box: the box's body was taken
+   * by the shell and the fillet before the rib, so the scope follows it there
+   * (as the build's `resolveFusionStock` does) and stops before the edited
+   * rib — the cavity body, not the box's long-gone original and not nothing.
+   */
+  it("edit mode: a scoped body is followed to where the features before the statement left it", () => {
+    sketch("top", () => {
+        testRect(100, 50, { at: [-50, -25] });
+      });
+    const box = extrude(30) as unknown as SceneObject;
+    box.setSourceLocation({ filePath: FILE, line: 5, column: 0 });
+    const sh = shell(-4, (box as any).endFaces());
+    fillet(2, (sh as any).internalEdges());
+    locatedSketch(15, () => {
+      line([-46, 20], [-46 + 20 * Math.cos(Math.PI / 4), 20 - 20 * Math.sin(Math.PI / 4)]);
+    }, 'xz');
+    const r = rib(5).parallel() as unknown as SceneObject;
+    r.setSourceLocation({ filePath: FILE, line: 20, column: 0 });
+    const scene = render();
+
+    const result = ribGhost(scene, 15, {
+      parallel: true,
+      scope: [{ filePath: FILE, line: 5 }],
+      exclude: { filePath: FILE, line: 20 },
+    });
+    expect(refusal(result)).toBe('');
+    if (result.ok) {
+      expect(result.solids).toHaveLength(1);
+      const wall = bounds(result);
       expect(wall.maxY - wall.minY).toBeGreaterThan(4.9);
       expect(wall.minX).toBeGreaterThanOrEqual(-46 - 0.1);
       expect(wall.minZ).toBeGreaterThanOrEqual(4 - 0.1);
@@ -3449,6 +3498,46 @@ describe("feature ghost — mirror", () => {
     expect(box.maxZ).toBeCloseTo(0, 3);
   });
 
+  /**
+   * A named target stands for the body it built wherever later features
+   * left it (the build's `liveOperandShapes`), and creating lands the
+   * statement after everything — so a target a later move took is read
+   * where the move put it.
+   */
+  it("reflects a target as a later move left it", () => {
+    const box = locatedBox(5);
+    translate([0, 0, 100], box as never);
+    const scene = render();
+
+    const result = mirrorGhost(scene, [5]);
+
+    // The moved box stands z 100…110; its mirror across xy hangs −110…−100.
+    expect(solidsOf(result)).toHaveLength(1);
+    const b = bounds(result, 0);
+    expect(b.minZ).toBeCloseTo(-110, 3);
+    expect(b.maxZ).toBeCloseTo(-100, 3);
+  });
+
+  /**
+   * The edit dialog: the statement being re-authored sits in the scene with
+   * everything after it. `exclude` names it, and the targets read as of just
+   * before it — a later move never reaches the preview.
+   */
+  it("edit mode: reads a target as of before the edited statement via `exclude`", () => {
+    const box = locatedBox(5);
+    const moved = translate([0, 0, 100], box as never) as unknown as SceneObject;
+    moved.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+
+    const result = mirrorGhost(scene, [5], { exclude: { filePath: FILE, line: 9 } });
+
+    // The box as it stood before line 9: z 0…10, mirrored to −10…0.
+    expect(solidsOf(result)).toHaveLength(1);
+    const b = bounds(result, 0);
+    expect(b.minZ).toBeCloseTo(-10, 3);
+    expect(b.maxZ).toBeCloseTo(0, 3);
+  });
+
   it("stamps every target into the one reflected instance", () => {
     locatedBox(5);
     locatedBox(7, () => { testRect(20, 20, { at: [40, 0] }); });
@@ -3650,6 +3739,43 @@ describe("feature ghost — rotate", () => {
     expect(box.maxZ).toBeCloseTo(10, 3);
   });
 
+  /**
+   * The edit dialog: the applied rotate has already turned its target's body,
+   * and following the body there would turn it a second time. `exclude`
+   * names the statement, so the target reads as it stood before it.
+   */
+  it("edit mode: reads a target as of before the edited rotate via `exclude`", () => {
+    const box = locatedBox(5);
+    const turned = rotate("z", 90, box as never) as unknown as SceneObject;
+    turned.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+
+    const result = rotateGhost(scene, [5], { exclude: { filePath: FILE, line: 9 } });
+
+    // The box as it stood before line 9 (x 0…20, y 0…20), turned once by the
+    // ghost's own quarter turn: x −20…0, y 0…20 — not turned twice.
+    expect(solidsOf(result)).toHaveLength(1);
+    const b = bounds(result, 0);
+    expect(b.minX).toBeCloseTo(-20, 3);
+    expect(b.maxX).toBeCloseTo(0, 3);
+    expect(b.minY).toBeCloseTo(0, 3);
+    expect(b.maxY).toBeCloseTo(20, 3);
+  });
+
+  it("turns a target as a later move left it", () => {
+    const box = locatedBox(5);
+    translate([100, 0, 0], box as never);
+    const scene = render();
+
+    const result = rotateGhost(scene, [5]);
+
+    // The moved box spans x 100…120, y 0…20; a quarter turn around z carries
+    // it to x −20…0, y 100…120.
+    const b = bounds(result, 0);
+    expect(b.minY).toBeCloseTo(100, 3);
+    expect(b.maxY).toBeCloseTo(120, 3);
+  });
+
   it("stamps every target into the one turned instance", () => {
     locatedBox(5);
     locatedBox(7, () => { testRect(20, 20, { at: [40, 0] }); });
@@ -3780,4 +3906,173 @@ describe("feature ghost — rotate", () => {
     }
     throw new Error('no vertical edge in the scene');
   }
+});
+
+describe("feature ghost — split", () => {
+  setupOC();
+
+  const SPLIT_BASE: Omit<SplitGhostRequest, 'targets'> = {
+    feature: 'split',
+    keep: 'both',
+    plane: { kind: 'standard', plane: 'yz' },
+  };
+
+  function splitGhost(
+    scene: Scene,
+    lines: number[],
+    overrides: Partial<SplitGhostRequest> = {},
+  ): FeatureGhostResult {
+    return buildFeatureGhost(
+      scene,
+      {
+        ...SPLIT_BASE,
+        ...overrides,
+        targets: lines.map(line => ({ filePath: FILE, line })),
+      },
+      DEFAULT_MESH_CONFIG,
+    );
+  }
+
+  /** A 20 × 20 × 10 box at x 0…20, built by an `extrude()` addressable at `line`. */
+  function locatedBox(line: number): SceneObject {
+    sketch("xy", () => { testRect(20, 20); });
+    const solid = extrude(10).new() as unknown as SceneObject;
+    solid.setSourceLocation({ filePath: FILE, line, column: 0 });
+    return solid;
+  }
+
+  /** A `plane('yz', x)` statement addressable at `line` — the cut moved to x. */
+  function locatedCut(line: number, x: number): GhostPlaneRef {
+    const datum = plane("yz", x) as unknown as SceneObject;
+    datum.setSourceLocation({ filePath: FILE, line, column: 0 });
+    return { kind: 'plane', filePath: FILE, line };
+  }
+
+  function solidsOf(result: FeatureGhostResult) {
+    if (!result.ok) {
+      throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
+    }
+    return result.solids;
+  }
+
+  it("draws the cut plane through the target and nothing else when both sides stay", () => {
+    locatedBox(5);
+    const cut = locatedCut(7, 5);
+    const scene = render();
+
+    const result = splitGhost(scene, [5], { plane: cut });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    expect(solids[0].kind).toBeUndefined();
+    expect(solids[0].plane).toBeDefined();
+    expect(solids[0].plane!.normal.x).toBeCloseTo(1, 6);
+    expect(solids[0].plane!.center.x).toBeCloseTo(5, 6);
+    // The quad — an unlabeled face triangulation, as the plane ghost's — reaches past the box on every side.
+    const vertices = solids[0].meshes[0].vertices;
+    const xs = vertices.filter((_, i) => i % 3 === 0);
+    const ys = vertices.filter((_, i) => i % 3 === 1);
+    expect(Math.min(...xs)).toBeCloseTo(5, 3);
+    expect(Math.max(...xs)).toBeCloseTo(5, 3);
+    expect(Math.min(...ys)).toBeLessThan(0);
+    expect(Math.max(...ys)).toBeGreaterThan(20);
+  });
+
+  it("paints the dropped side red when one side is kept", () => {
+    locatedBox(5);
+    const cut = locatedCut(7, 5);
+    const scene = render();
+
+    const result = splitGhost(scene, [5], { plane: cut, keep: 'front' });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(2);
+    expect(solids[1].kind).toBe('remove');
+    // The back piece — x 0…5 — is what goes.
+    const dropped = bounds(result, 1);
+    expect(dropped.minX).toBeCloseTo(0, 3);
+    expect(dropped.maxX).toBeCloseTo(5, 3);
+  });
+
+  it("reads every solid of the scene when the statement names none", () => {
+    locatedBox(5);
+    sketch("xy", () => { testRect(20, 20, { at: [0, 40] }); });
+    extrude(10).new();
+    const cut = locatedCut(9, 10);
+    const scene = render();
+
+    const result = splitGhost(scene, [], { plane: cut, keep: 'back' });
+
+    // Both boxes straddle x = 10: one dropped piece each.
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(3);
+    expect(solids.filter(solid => solid.kind === 'remove')).toHaveLength(2);
+  });
+
+  it("seeds the plane from a sketched line", () => {
+    locatedBox(5);
+    let seed: SceneObject | undefined;
+    const s = locatedSketch(9, () => {
+      const l = line([6, -40], [6, 40]).guide();
+      vertical(l);
+      fix(l.start(), [6, -40]);
+      distance(l.start(), l.end(), 80);
+      seed = l as unknown as SceneObject;
+    });
+    void s;
+    seed!.setSourceLocation({ filePath: FILE, line: 10, column: 12 });
+    const scene = render();
+
+    const result = splitGhost(scene, [5], { plane: { kind: 'sketchEdge', filePath: FILE, line: 10 }, keep: 'back' });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(2);
+    expect(solids[0].plane!.normal.x).toBeCloseTo(1, 6);
+    expect(solids[0].plane!.center.x).toBeCloseTo(6, 6);
+    // Front (+x) is dropped: the red piece spans x 6…20.
+    const dropped = bounds(result, 1);
+    expect(dropped.minX).toBeCloseTo(6, 3);
+    expect(dropped.maxX).toBeCloseTo(20, 3);
+  });
+
+  it("draws a curved seed's sheet and the piece it drops", () => {
+    locatedBox(5);
+    let seed: SceneObject | undefined;
+    // An arc through the box bulging from the left: it reaches x = 16.6 at
+    // y = 10 (the box's middle) and crosses the box's long faces at 15.7.
+    locatedSketch(9, () => {
+      const a = arc([0, -30], [0, 50], [-40, 10]).guide();
+      fix(a.start(), [0, -30]);
+      fix(a.end(), [0, 50]);
+      fix(a.center(), [-40, 10]);
+      seed = a as unknown as SceneObject;
+    });
+    seed!.setSourceLocation({ filePath: FILE, line: 10, column: 12 });
+    const scene = render();
+
+    const result = splitGhost(scene, [5], { plane: { kind: 'sketchEdge', filePath: FILE, line: 10 }, keep: 'back' });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(2);
+    // The tool is the sheet itself — curved, so its vertices spread in x —
+    // with its arrow on the arc nearest the box's centre, pointing right.
+    const xs = solids[0].meshes[0].vertices.filter((_, i) => i % 3 === 0);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(1);
+    expect(solids[0].plane!.normal.x).toBeCloseTo(1, 2);
+    expect(solids[0].plane!.center.x).toBeCloseTo(16.6, 0);
+    // Front (+x, to the arc's right) is dropped: the red piece is the sliver past the arc.
+    expect(solids[1].kind).toBe('remove');
+    const dropped = bounds(result, 1);
+    expect(dropped.minX).toBeCloseTo(15.7, 0);
+    expect(dropped.maxX).toBeCloseTo(20, 1);
+  });
+
+  it("refuses targets and planes the scene does not hold", () => {
+    locatedBox(5);
+    const scene = render();
+
+    expect(splitGhost(scene, [99]).ok).toBe(false);
+    expect(splitGhost(scene, [5], { plane: { kind: 'plane', filePath: FILE, line: 99 } }).ok).toBe(false);
+    expect(splitGhost(scene, [5], { plane: { kind: 'sketchEdge', filePath: FILE, line: 99 } }).ok).toBe(false);
+  });
 });

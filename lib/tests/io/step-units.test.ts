@@ -5,7 +5,7 @@ import { getUnitRegistry } from "../../units/registry.js";
 import { FileExport } from "../../io/file-export.js";
 import { OcIO } from "../../oc/io.js";
 import { parseStepFileUnits } from "../../oc/step-units.js";
-import { box, boundsOf, readStepBack, sceneSolids } from "./helpers.js";
+import { box, boundsOf, readStepBack, sceneSolids, exportable } from "./helpers.js";
 
 const INCH_HEADER = `
 ISO-10303-21;
@@ -30,7 +30,7 @@ describe("STEP export units", () => {
       const solids = box(1);
       expect(boundsOf(solids[0].getShape()).max).toEqual([1, 1, 1]);
 
-      const step = FileExport.exportShapes(solids, { format: "step", unit: "in", includeColors }).data as string;
+      const step = FileExport.exportShapes(exportable(solids), { format: "step", unit: "in", includeColors }).data as string;
 
       const back = boundsOf(readStepBack(step));
       expect(back.min).toEqual([0, 0, 0]);
@@ -44,11 +44,11 @@ describe("STEP export units", () => {
 
   it("leaves an mm export unchanged", () => {
     const solids = box(10);
-    const step = FileExport.exportShapes(solids, { format: "step", unit: "mm" }).data as string;
+    const step = FileExport.exportShapes(exportable(solids), { format: "step", unit: "mm" }).data as string;
     expect(boundsOf(readStepBack(step)).max).toEqual([10, 10, 10]);
 
     // No unit at all still means mm, as before units existed.
-    const plain = FileExport.exportShapes(solids, { format: "step" }).data as string;
+    const plain = FileExport.exportShapes(exportable(solids), { format: "step" }).data as string;
     expect(boundsOf(readStepBack(plain)).max).toEqual([10, 10, 10]);
   });
 

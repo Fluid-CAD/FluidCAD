@@ -8,10 +8,11 @@ import type { ParsedPlaneBase, PlaneRotationAxes } from '../features/plane.ts';
 import type { ProjectionOp } from '../features/projection.ts';
 import type { ShellJoinKind } from '../features/shell.ts';
 import type { ParsedHole } from '../features/hole.ts';
+import type { SplitKeep } from '../features/split.ts';
 import type { RegionName, ValueExpr } from '../value-expr.ts';
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split';
 
 /**
  * A statement's parsed `.scope(…)` chain, shared by every feature that
@@ -330,6 +331,22 @@ export type ParsedFeatureStatement =
     targetRefs: ({ line: number; column: number } | null)[];
   }
   | {
+    feature: 'split';
+    /** The cut argument text — a plane or a seed edge — verbatim. */
+    planeText: string;
+    /** The pieces the statement keeps; `both` when the option is absent. */
+    keep: SplitKeep;
+    /** Trailing target texts, verbatim; empty splits every solid in scope. */
+    targetTexts: string[];
+    /**
+     * Per-target source location of the feature statement a plain-identifier
+     * target references, or null when the expression doesn't resolve to one.
+     * Same length as `targetTexts`; lets the edit dialog seed targets as
+     * their timeline rows.
+     */
+    targetRefs: ({ line: number; column: number } | null)[];
+  }
+  | {
     feature: 'rotate';
     /** Rotation axis argument text, verbatim. */
     axisText: string;
@@ -407,6 +424,7 @@ export const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   // The 3D `rotate(axis, angle, …)` only — the 2D in-sketch form shares the
   // callee the same way, and the client gates its rows by uniqueType too.
   rotate: 'rotate',
+  split: 'split',
   fuse: 'boolean',
   subtract: 'boolean',
   common: 'boolean',
@@ -418,6 +436,50 @@ export const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   project: 'project',
   intersect: 'project',
   connector: 'connector',
+};
+
+/**
+ * The lib's `getDisplayType()` per callee the create path writes — the
+ * first half of every default row label ("Extrude 3") and of every name the
+ * UI writes into a new statement (`.name('Extrude 3')`, see FeatureNames).
+ * The capitalised callee, except where the lib's type is not the callee:
+ * every `repeat(…)` form is a `RepeatBase` ("Repeat", lib/features/
+ * repeat-base.ts) and every `copy(…)` form a `CopyBase` ("Copy",
+ * copy-base.ts, copy-linear2d.ts, copy-circular2d.ts). `cut` IS its own type
+ * ("Cut"), and the booleans keep theirs ("Fuse", "Subtract", "Common").
+ * `server/tests/feature-names.test.ts` holds this to the lib.
+ *
+ * Callees missing here are never auto-named: a part, a connector, an
+ * exposure and a section name themselves by their first argument; a
+ * `select()`, a region, a constraint, a sketch entity and the in-sketch
+ * derived ops (`offset`, `project`, `intersect`) keep their bare type in
+ * the timeline.
+ */
+export const DISPLAY_TYPE_BY_CALLEE: Record<string, string> = {
+  extrude: 'Extrude',
+  cut: 'Cut',
+  rib: 'Rib',
+  hole: 'Hole',
+  sweep: 'Sweep',
+  loft: 'Loft',
+  shell: 'Shell',
+  fillet: 'Fillet',
+  chamfer: 'Chamfer',
+  revolve: 'Revolve',
+  text: 'Text',
+  wrap: 'Wrap',
+  sketch: 'Sketch',
+  repeat: 'Repeat',
+  copy: 'Copy',
+  mirror: 'Mirror',
+  rotate: 'Rotate',
+  split: 'Split',
+  fuse: 'Fuse',
+  subtract: 'Subtract',
+  common: 'Common',
+  helix: 'Helix',
+  plane: 'Plane',
+  axis: 'Axis',
 };
 
 /**
@@ -458,6 +520,9 @@ export const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // The axis, angle, copy flag and targets are all root-call arguments;
   // `.exclude()`/`.name()` are unrecognized members and survive verbatim.
   rotate: new Set(),
+  // The cut, the options object and the targets are all root-call arguments;
+  // `.name()` and friends are unrecognized members and survive verbatim.
+  split: new Set(),
   // The targets are the root call's arguments; `.name()` and friends are
   // unrecognized members and survive verbatim.
   boolean: new Set(),

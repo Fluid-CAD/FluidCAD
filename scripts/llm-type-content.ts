@@ -100,7 +100,7 @@ extrude(5);
       },
       {
         format: '`Axis`',
-        example: '`axis("x", [0, 10])`',
+        example: '`axis("z", { offsetX: 50 })`',
         description: 'An axis object created with `axis()`.',
         link: 'api/types/axis',
       },

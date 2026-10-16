@@ -3,6 +3,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { requireShapes } from "../common/operand-check.js";
+import { liveOperandShapes } from "../helpers/live-solids.js";
 import { PointResolver } from "./point-resolver.js";
 
 export class Translate extends SceneObject {
@@ -39,9 +40,10 @@ export class Translate extends SceneObject {
       objects = objects.filter(obj => !this._excludedObjects.includes(obj));
     }
 
+    // A named target's body is moved from wherever the features since left
+    // it (liveOperandShapes): the holder loses it, not the variable's object.
     for (const obj of objects) {
-      const shapes = obj.getShapes();
-      for (const shape of shapes) {
+      for (const { holder, shape } of liveOperandShapes(obj)) {
         if (!shape.isSolid()) {
           continue;
         }
@@ -49,11 +51,17 @@ export class Translate extends SceneObject {
         const amount = PointResolver.toWorldVector(this.amount);
 
         const matrix = Matrix4.fromTranslation(amount.x, amount.y, amount.z);
-        const transformed = ShapeOps.transform(shape, matrix);
-        transformed.setMeshSource(shape, matrix);
-        this.addShape(transformed);
-        if (!this.copy) {
-          obj.removeShape(shape, this, [transformed])
+        const colors = holder.getFaceColors(shape);
+        try {
+          const { shape: transformed, colors: carried } = ShapeOps.transformColored({ shape, colors }, matrix);
+          transformed.setMeshSource(shape, matrix);
+          this.addShape(transformed);
+          this.recordCarriedColors(carried);
+          if (!this.copy) {
+            holder.removeShape(shape, this, [transformed]);
+          }
+        } finally {
+          colors.delete();
         }
       }
     }

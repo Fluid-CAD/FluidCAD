@@ -334,6 +334,18 @@ export function extract(
 // reduce closure gaps to sub-millimeter.
 export const ORIENTATION_WEIGHT = 25;
 
+// Post-solve consistency threshold on each mate's (and relation's)
+// residual ∞-norm. Deliberately loose so the joints-panel red dots don't
+// flicker per pixel of drag: during a partially-radial drag on a closed
+// loop, the LM's small drag weight legitimately leaves closure gaps up to
+// ~0.1 mm (the rhombus regression's own acceptance bound), so the
+// threshold sits just above that equilibrium. Anything past it is a
+// genuine closure gap (unreachable geometry, conflicting grounds) rather
+// than drag compromise. Translation rows are mm. The loop relaxation reads
+// it too: an exact-relation solve that leaves a closure past it falls back
+// to the weighted relation rows.
+export const FAILED_MATE_EPS = 0.1;
+
 /**
  * Residual vector for the mate: zero iff the mate is satisfied, one
  * entry per CONSTRAINED component of the joint decomposition. Free
@@ -522,6 +534,11 @@ export type TreeDragInfo = {
   draggedCursorWorld?: Vector3;
   /** Grab point in body-local frame. */
   draggedGrabLocal?: Vector3;
+  /**
+   * mateId → the free scalars a relation couples on that mate. The drag
+   * step leaves them alone (see RelationModel.coupledParams).
+   */
+  relationCoupled?: ReadonlyMap<string, ReadonlySet<'rotZ' | 'slideZ'>>;
 };
 
 const ZERO_DELTA: JointParams = { rotZ: 0, slideZ: 0, x: 0, y: 0 };

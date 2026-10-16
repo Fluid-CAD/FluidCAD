@@ -3,6 +3,8 @@ import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import type { FitMode } from './scene/camera-fit';
 import { DialogViewOffset } from './scene/dialog-view-offset';
 import { SceneModeManager, sketchCameraDistance } from './scene/scene-mode';
+import { ReferenceImageController } from './scene/reference-image-controller';
+import { ReferenceImageLoader } from './scene/reference-image-loader';
 import { worldFromMm } from './units/scene-scale';
 import { sceneUnit } from './units/scene-unit';
 import { GridScaleBar } from './ui/grid-scale-bar';
@@ -21,6 +23,7 @@ import { resolveView, type ScreenshotView } from './screenshot-view';
 import type { EngineClient } from './engine-client';
 import { CentroidIndicator } from './scene/centroid-indicator';
 import { connectorHostHidden } from './scene/connector-host';
+import { LineageShapeState } from './scene/shape-state';
 import { viewerSettings } from './scene/viewer-settings';
 import { themeColors } from './scene/theme-colors';
 import { STANDARD_PLANE_IDS, StandardPlaneId, StandardPlanes } from './scene/standard-planes';
@@ -80,6 +83,8 @@ const HOVER_EDGE_LINE_WIDTH = 2;
 // Sketch wires already render at width 2 — a selected sketch needs the extra
 // width on top of the highlight color to stand out from its neighbors.
 const HIGHLIGHT_SKETCH_WIRE_LINE_WIDTH = 3;
+/** A hovered sketch wire reads like a selected one: the width is what makes it stand out of its sketch. */
+const HOVER_SKETCH_WIRE_LINE_WIDTH = HIGHLIGHT_SKETCH_WIRE_LINE_WIDTH;
 
 export type SelectionModifiers = {
   additive: boolean;
@@ -171,6 +176,8 @@ const SKETCH_GHOST_EDGE_TINT_FACTOR = 0.3;
 export class Viewer {
   private ctx: SceneContext;
   private modeManager: SceneModeManager;
+  /** The sketches' reference pictures: loaded once per path, placed on every render, previewed by the Image tool. */
+  readonly referenceImage: ReferenceImageController;
   private settingsPanel: SettingsPanel;
   private gridScaleBar: GridScaleBar;
   private sceneObjects: SceneObjectRender[] = [];
@@ -359,7 +366,14 @@ export class Viewer {
    */
   private sketchCameraHeld = false;
   private readonly sectionClipper = new SectionClipper();
-  private hiddenShapeIds = new Set<string>();
+  /**
+   * The shapes panel's hidden and transparency state, keyed by lineage so
+   * it survives a render that mints new shape ids; indexed against every
+   * render in {@link applyShapeOverridesAndPrune}. Readers that work on
+   * shape ids ({@link applyConnectorVisibility}, the panel callbacks) go
+   * through its per-render views.
+   */
+  private readonly shapeState = new LineageShapeState();
   /**
    * Consumed sketches, planes and axes drawn anyway, by source-location key
    * (scene ids change every render): the ones the timeline eye showed, and
@@ -367,6 +381,8 @@ export class Viewer {
    * — nothing in the file changes.
    */
   private shownKeys = new Set<string>();
+  /** Source-location keys of the `image()` rows the timeline eye hid. View state only. */
+  private hiddenImageKeys = new Set<string>();
   private revealedKeys = new Set<string>();
   /**
    * Consumed rows a highlight asked for: a dialog lighting up the wires of
@@ -376,7 +392,6 @@ export class Viewer {
    */
   private highlightRevealedKeys = new Set<string>();
 
-  private shapeOpacities = new Map<string, number>();
   private assemblyController: AssemblyController | null = null;
   /**
    * Generic gesture-ownership hooks for overlay tools (the transform
@@ -422,6 +437,7 @@ export class Viewer {
       (point, occluders) => this.isPointVisible(point, occluders, worldFromMm(1e-5)),
       () => this.standardPlanes.pickTargets);
     this.modeManager = new SceneModeManager(this.ctx);
+    this.referenceImage = new ReferenceImageController(this.ctx.scene, new ReferenceImageLoader(), () => this.ctx.requestRender());
     new DialogViewOffset(this.ctx);
     this.settingsPanel = new SettingsPanel(container, client, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
@@ -686,9 +702,14 @@ export class Viewer {
     setBottomRightRowVisible(this.chromeContainer, visible);
   }
 
-  /** Frame the whole model, the way the fit-to-view button does. */
-  fitView(options: Partial<FitPolicy> = {}): void {
-    this.fitViewToScene(options);
+  /**
+   * Frame the whole model, the way the fit-to-view button does. `transition`
+   * false snaps instead of flying: a render an agent asked to be framed is
+   * acknowledged as "on screen" the moment it is applied, and a screenshot
+   * taken on that acknowledgement must not catch the camera mid-flight.
+   */
+  fitView(options: Partial<FitPolicy> = {}, { transition = true }: { transition?: boolean } = {}): void {
+    this.fitViewToScene(options, transition);
   }
 
   /**
@@ -1421,6 +1442,10 @@ export class Viewer {
     if (this.shownKeys.size > 0 && sceneObjects !== this.sceneObjects) {
       this.shownKeys = carryShownKeys(this.shownKeys, this.sceneObjects, sceneObjects);
     }
+    if (this.hiddenImageKeys.size > 0 && sceneObjects !== this.sceneObjects) {
+      this.hiddenImageKeys = carryShownKeys(this.hiddenImageKeys, this.sceneObjects, sceneObjects);
+      this.referenceImage.setHidden(this.hiddenImageKeys);
+    }
     this.sceneObjects = sceneObjects;
     this.lastRenderIsRollback = isRollback;
     this.lastRenderStop = rollbackStop;
@@ -1500,6 +1525,7 @@ export class Viewer {
 
     const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, isRollback, this.shownIds());
     this.ctx.scene.add(mesh);
+    this.syncReferenceImages(sceneObjects);
     this.applyShapeOverridesAndPrune(sceneObjects);
     this.applyConnectorVisibility();
     this.applyConnectorScales();
@@ -1545,6 +1571,11 @@ export class Viewer {
 
   highlightMate(mate: SerializedAssemblyMate): void {
     this.assemblyController?.highlightMate(mate, themeColors.highlightColor.getHex());
+  }
+
+  /** Highlight several mates at once — a relation's two coupled joints. */
+  highlightMates(mates: SerializedAssemblyMate[]): void {
+    this.assemblyController?.highlightMates(mates, themeColors.highlightColor.getHex());
   }
 
   clearInstanceHighlight(): void {
@@ -1665,6 +1696,7 @@ export class Viewer {
 
     this.removeCompiledMesh();
     this.activeSketchId = null;
+    this.referenceImage.sync([]);
     this.modeManager.enterDefaultMode();
     this.settingsPanel.setProjectionLocked(false);
     this.settingsPanel.setFitButtonVisible(true);
@@ -1864,6 +1896,7 @@ export class Viewer {
       return;
     }
     const show = viewerSettings.current.showConnectors;
+    const hiddenShapeIds = this.shapeState.hiddenShapeIds();
     compiled.traverse((child) => {
       if (child.userData.isConnector !== true) {
         return;
@@ -1874,7 +1907,7 @@ export class Viewer {
       child.visible = this.revealAllConnectors
         || this.highlightedConnectorIds.has(child.userData.connectorId)
         || this.pickedConnectorIds.has(child.userData.connectorId)
-        || (show && !connectorHostHidden(child.userData.hostShapeIds, this.hiddenShapeIds));
+        || (show && !connectorHostHidden(child.userData.hostShapeIds, hiddenShapeIds));
     });
   }
 
@@ -2304,12 +2337,14 @@ export class Viewer {
       return;
     }
 
-    // Don't hover-highlight a currently selected face/edge (same instance).
-    const isSelected = this.highlightedEntities.some((entity) =>
+    // Don't hover-highlight a currently selected face/edge (same instance)
+    // or a selected sketch wire (a dialog's picked seed or input sketch).
+    const isSelected = (this.highlightedEntities.some((entity) =>
       entity.shapeId === result.shapeId &&
       entity.sub.type === result.sub?.type &&
       entity.sub.index === result.sub?.index) &&
-      this.highlightedInstanceId === (result.instanceId ?? null);
+      this.highlightedInstanceId === (result.instanceId ?? null))
+      || (result.sub?.type === 'sketch' && this.highlightedSketchWires.includes(result.shapeId));
     if (isSelected) {
       if (this.hoverState) {
         this.clearHover();
@@ -2327,6 +2362,8 @@ export class Viewer {
       this.applyHoverEdge(result.shapeId, result.sub.index, result.instanceId ?? null);
     } else if (result.sub?.type === 'vertex') {
       this.vertexPicking?.setHover({ shapeId: result.shapeId, sub: result.sub, instanceId: result.instanceId });
+    } else if (result.sub?.type === 'sketch') {
+      this.applyHoverSketchWire(result.shapeId);
     } else if (result.sub?.type === 'axis') {
       this.applyHoverAxis(result.shapeId);
     } else if (result.sub?.type === 'plane') {
@@ -2506,6 +2543,33 @@ export class Viewer {
   }
 
   /** Tint a hovered axis line (whole line — axes have no sub-selection). */
+  /**
+   * Tint a hovered sketch wire (the shape under the cursor on the sketch-pick
+   * channel: one sketched line, arc, circle, ellipse or spline) the way a
+   * selected wire is tinted, so an armed dialog shows which edge a click
+   * would take. `clearHover` restores the saved colour and width.
+   */
+  private applyHoverSketchWire(shapeId: string): void {
+    const group = this.findMeshByShapeId(shapeId);
+    if (!group) {
+      return;
+    }
+    group.traverse((obj) => {
+      if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
+        return;
+      }
+      // A selection-highlighted wire (originalColor saved) keeps its tint.
+      if (obj.userData.hoverOriginalColor !== undefined || obj.userData.originalColor !== undefined) {
+        return;
+      }
+      obj.userData.hoverOriginalColor = (obj as any).material.color.getHex();
+      (obj as any).material.color.set(themeColors.highlightColor);
+      obj.userData.hoverOriginalLineWidth = (obj as any).material.linewidth;
+      (obj as any).material.linewidth = HOVER_SKETCH_WIRE_LINE_WIDTH;
+    });
+    this.ctx.requestRender();
+  }
+
   private applyHoverAxis(shapeId: string): void {
     const group = this.findMeshByShapeId(shapeId);
     if (!group) {
@@ -2534,7 +2598,17 @@ export class Viewer {
 
   dispose(): void {
     this.vertexPicking?.dispose();
+    this.referenceImage.dispose();
     this.ctx.dispose();
+  }
+
+  /**
+   * Put the `image()` rows this render shows on screen — the sketch being
+   * edited's in sketch mode, every on-screen sketch's otherwise. Outside
+   * the compiled mesh, so ghosting and the section clip leave them alone.
+   */
+  private syncReferenceImages(sceneObjects: SceneObjectRender[]): void {
+    this.referenceImage.sync(ReferenceImageController.sourcesOf(sceneObjects, this.activeSketchId, this.shownIds()));
   }
 
   // ---------------------------------------------------------------------------
@@ -2580,8 +2654,8 @@ export class Viewer {
    * meta shapes. `overrides` is for a one-off fit — the fit button and the
    * embed protocol's `fit` — and leaves the standing policy alone.
    */
-  private fitViewToScene(overrides: Partial<FitPolicy> = {}): void {
-    this.reframeScene({ ...this.fitPolicy, ...overrides }, true);
+  private fitViewToScene(overrides: Partial<FitPolicy> = {}, transition = true): void {
+    this.reframeScene({ ...this.fitPolicy, ...overrides }, transition);
   }
 
   /**
@@ -2684,6 +2758,7 @@ export class Viewer {
     this.removeCompiledMesh();
     const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, this.lastRenderIsRollback, this.shownIds());
     this.ctx.scene.add(mesh);
+    this.syncReferenceImages(this.sceneObjects);
     this.applyShapeOverridesAndPrune(this.sceneObjects);
     this.applyConnectorVisibility();
     this.applyConnectorScales();
@@ -2700,20 +2775,19 @@ export class Viewer {
     this.ctx.requestRender();
   }
 
+  /** Hide or show a body (the shapes panel's eye); the state follows the body's lineage across renders. */
   setShapeVisibility(shapeId: string, visible: boolean): void {
-    if (visible) {
-      this.hiddenShapeIds.delete(shapeId);
-    } else {
-      this.hiddenShapeIds.add(shapeId);
+    this.shapeState.setHidden(shapeId, !visible);
+    for (const id of this.shapeState.shapeIdsSharing(shapeId)) {
+      this.applyVisibilityForId(id, visible);
     }
-    this.applyVisibilityForId(shapeId, visible);
     this.applyConnectorVisibility();
     this.notifySceneMesh();
     this.ctx.requestRender();
   }
 
   isShapeHidden(shapeId: string): boolean {
-    return this.hiddenShapeIds.has(shapeId);
+    return this.shapeState.isHidden(shapeId);
   }
 
   /** Whether the timeline eye shows this consumed row (by its source-location key). */
@@ -2729,6 +2803,21 @@ export class Viewer {
       this.shownKeys.delete(key);
     }
     this.rebuildSceneMesh();
+  }
+
+  /** Whether the timeline eye hides this `image()` row's picture (by its source-location key). */
+  isImageHidden(key: string): boolean {
+    return this.hiddenImageKeys.has(key);
+  }
+
+  /** The timeline eye on an `image()` row: stop (or resume) drawing its picture. */
+  setImageHidden(key: string, hidden: boolean): void {
+    if (hidden) {
+      this.hiddenImageKeys.add(key);
+    } else {
+      this.hiddenImageKeys.delete(key);
+    }
+    this.referenceImage.setHidden(this.hiddenImageKeys);
   }
 
   /**
@@ -2796,27 +2885,23 @@ export class Viewer {
   }
 
   setShapeTransparency(shapeId: string, opacity: number): void {
-    if (opacity >= 1) {
-      this.shapeOpacities.delete(shapeId);
-    } else {
-      this.shapeOpacities.set(shapeId, opacity);
+    this.shapeState.setOpacity(shapeId, opacity);
+    for (const id of this.shapeState.shapeIdsSharing(shapeId)) {
+      this.applyOpacityForId(id, opacity);
     }
-    this.applyOpacityForId(shapeId, opacity);
     this.notifySceneMesh();
     this.ctx.requestRender();
   }
 
   getShapeTransparency(shapeId: string): number {
-    return this.shapeOpacities.get(shapeId) ?? 1;
+    return this.shapeState.opacityOf(shapeId);
   }
 
   resetAllTransparency(): void {
-    if (this.shapeOpacities.size === 0) {
+    if (!this.shapeState.hasOpacities()) {
       return;
     }
-    const ids = Array.from(this.shapeOpacities.keys());
-    this.shapeOpacities.clear();
-    for (const id of ids) {
+    for (const id of this.shapeState.clearOpacities()) {
       this.applyOpacityForId(id, 1);
     }
     this.ctx.requestRender();
@@ -2850,30 +2935,28 @@ export class Viewer {
     });
   }
 
+  /**
+   * Re-key the panel's hidden / transparency state against this render (a
+   * body keeps its state through new shape ids, a split, a statement moved
+   * along its line; what nothing answers to any more is dropped) and apply
+   * it to the freshly built meshes.
+   */
   private applyShapeOverridesAndPrune(sceneObjects: SceneObjectRender[]): void {
-    const presentIds = new Set<string>();
-    for (const obj of sceneObjects) {
-      if (!obj.sceneShapes) continue;
-      for (const shape of obj.sceneShapes) {
-        if (shape.isMetaShape) continue;
-        if (shape.shapeId) presentIds.add(shape.shapeId);
-      }
+    this.shapeState.adopt(sceneObjects);
+    const hiddenShapeIds = this.shapeState.hiddenShapeIds();
+    const opacities = this.shapeState.opacityByShapeId();
+    if (hiddenShapeIds.size === 0 && opacities.size === 0) {
+      return;
     }
-
-    for (const id of this.hiddenShapeIds) {
-      if (!presentIds.has(id)) this.hiddenShapeIds.delete(id);
-    }
-    for (const id of this.shapeOpacities.keys()) {
-      if (!presentIds.has(id)) this.shapeOpacities.delete(id);
-    }
-
     this.ctx.scene.traverse((child) => {
       const sid = child.userData.shapeId;
-      if (typeof sid !== 'string') return;
-      if (this.hiddenShapeIds.has(sid)) {
+      if (typeof sid !== 'string') {
+        return;
+      }
+      if (hiddenShapeIds.has(sid)) {
         child.visible = false;
       }
-      const opacity = this.shapeOpacities.get(sid);
+      const opacity = opacities.get(sid);
       if (opacity !== undefined) {
         this.applyOpacityToSubtree(child, opacity);
       }

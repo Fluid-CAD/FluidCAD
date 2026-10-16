@@ -144,6 +144,28 @@ describe('/api/sketch/insert-solved', () => {
     expect(relayed).toHaveLength(2);
   });
 
+  it('relays a settle write-back with the emission and refuses a malformed one', async () => {
+    const { status, body } = await post({
+      sketchLine: 4,
+      geometry: [{ kind: 'line', text: 'line([0, 3], [100, 3])' }],
+      constraints: [{ kind: 'offsetFrom', targets: [{ newIndex: 0 }, { line: 5, featureType: 'line' }], valueExpr: '3' }],
+      settle: [{ sourceLine: 5, points: [{ pointIndex: 1, position: [120, 0], expected: [100, 0] }] }],
+    });
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(relayed[0].spec.sketchEmission.settle).toEqual([
+      { sourceLine: 5, points: [{ pointIndex: 1, position: [120, 0], expected: [100, 0] }] },
+    ]);
+
+    expect((await post({
+      sketchLine: 4,
+      geometry: [{ kind: 'line', text: 'line([0, 3], [100, 3])' }],
+      constraints: [],
+      settle: [{ sourceLine: 'five' }],
+    })).status).toBe(400);
+    expect(relayed).toHaveLength(1);
+  });
+
   it('preflights a bad emission to a 422 without relaying', async () => {
     const { status, body } = await post({
       sketchLine: 4,

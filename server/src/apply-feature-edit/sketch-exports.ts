@@ -19,6 +19,7 @@ import {
   targetError,
 } from '../sketch-solved-edit/index.ts';
 import { collectIdentifiers } from '../sketch-names.ts';
+import { SOLVED_ENTITY_CALLEES, SOLVED_GEOMETRY_CALLEES } from '../sketch-symbols.ts';
 import {
   renderSolvedTarget,
   type SketchExportRequest,
@@ -92,7 +93,8 @@ export class SketchExports {
           return { error };
         }
         const entry = SketchExports.openSketch(session, ref.sketch.line);
-        expressions.push(renderSolvedTarget(ref.target, target => SketchExports.exportedName(session, entry, target)));
+        const callees = ref.entities === 'geometry' ? SOLVED_GEOMETRY_CALLEES : SOLVED_ENTITY_CALLEES;
+        expressions.push(renderSolvedTarget(ref.target, target => SketchExports.exportedName(session, entry, target, callees)));
       }
       for (const entry of session.sketches.values()) {
         const edit = SketchExports.returnEdit(session, entry);
@@ -204,8 +206,13 @@ export class SketchExports {
     return true;
   }
 
-  /** `<sketch>.geometries.<key>` for the entity statement a target names, binding and exporting it as needed. */
-  private static exportedName(session: SketchExportSession, entry: SketchExportEntry, target: SolvedEmissionTarget): string {
+  /** `<sketch>.geometries.<key>` for the statement a target names (one of `callees`), binding and exporting it as needed. */
+  private static exportedName(
+    session: SketchExportSession,
+    entry: SketchExportEntry,
+    target: SolvedEmissionTarget,
+    callees: ReadonlySet<string>,
+  ): string {
     if (!Number.isInteger(target.line) || target.line! < 1 || target.occurrence !== undefined) {
       throw new Error('sketch point exports require a single statement outside user loops/helpers — name and return that geometry explicitly');
     }
@@ -223,7 +230,7 @@ export class SketchExports {
     if (!call) {
       throw new Error(`no statement at line ${target.line} — the source changed since the picks were made`);
     }
-    const callee = solvedTargetCallee(call, target);
+    const callee = solvedTargetCallee(call, target, callees);
     const binding = resolveStatement(call);
     if ('error' in binding) {
       throw new Error(binding.error);

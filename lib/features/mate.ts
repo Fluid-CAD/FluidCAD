@@ -6,6 +6,15 @@ import { SourceLocation } from "../common/scene-object.js";
 export class MateBuilder {
   constructor(private readonly mate: AssemblyMate, private readonly scene?: AssemblyScene) {}
 
+  /**
+   * The live record this builder configures — what `relation()` couples.
+   * Internal: user code never needs the record, only the handle.
+   * @internal
+   */
+  getRecord(): AssemblyMate {
+    return this.mate;
+  }
+
   /** Stable authored name, unique among mates in this assembly occurrence. */
   name(name: string): this {
     if (typeof name !== 'string' || !name.trim()) {

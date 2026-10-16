@@ -71,7 +71,7 @@ describe('the declare-as-param toggle', () => {
     expect(button.classList.contains('text-primary')).toBe(true);
     enter();
     expect(commits).toEqual([
-      { expression: 'wall', newVariable: { name: 'wall', initializer: 'param("wall", 3)' } },
+      { expression: 'wall', newVariable: { name: 'wall', initializer: "param('wall', 3)" } },
     ]);
   });
 
@@ -116,14 +116,14 @@ describe('the declare-as-param toggle', () => {
     el.dispatchEvent(new Event('input'));
     button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     expect(field.read()).toEqual({
-      value: 'depth', newVariable: { name: 'depth', initializer: 'param("depth", 40)' },
+      value: 'depth', newVariable: { name: 'depth', initializer: "param('depth', 40)" },
     });
 
     const { open, type, enter, commits } = mountInput();
     open();
     type('lip');
     enter();
-    expect(commits[0].newVariable).toEqual({ name: 'lip', initializer: 'param("lip", 25)' });
+    expect(commits[0].newVariable).toEqual({ name: 'lip', initializer: "param('lip', 25)" });
   });
 });
 
@@ -131,7 +131,7 @@ describe('the suggestion chips', () => {
   // One of each kind, all matching `wall`, so the fresh name `wall` also
   // draws the new-variable offer last.
   const KINDS: VariableInfo[] = [
-    { name: 'wallParam', initializer: 'param("wallParam", 3)' },
+    { name: 'wallParam', initializer: "param('wallParam', 3)" },
     { name: 'wallVar', initializer: '3' },
     { name: 'wallExpr', initializer: 'wallVar * 2' },
   ];
@@ -205,7 +205,7 @@ describe('the P toggle beside a matched name', () => {
     el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
     el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     expect(commits).toEqual([
-      { expression: 'te', newVariable: { name: 'te', initializer: 'param("te", 25)' } },
+      { expression: 'te', newVariable: { name: 'te', initializer: "param('te', 25)" } },
     ]);
   });
 
@@ -221,7 +221,7 @@ describe('the P toggle beside a matched name', () => {
     expect(el.value).toBe('te');
     expect(button.classList.contains('hidden')).toBe(false);
     expect(field.read()).toEqual({
-      value: 'te', newVariable: { name: 'te', initializer: 'param("te", 25)' },
+      value: 'te', newVariable: { name: 'te', initializer: "param('te', 25)" },
     });
     field.destroy();
   });

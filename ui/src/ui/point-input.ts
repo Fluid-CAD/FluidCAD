@@ -4,7 +4,7 @@ import {
   VariableInfo,
 } from './expression-core';
 import { bottomRightRow, BOTTOM_RIGHT_ORDER } from './bottom-right-row';
-import { isEditableTarget } from '../keyboard-bridge';
+import { isEditableTarget } from '../editable-target';
 import { viewportChrome } from './viewport-chrome';
 
 export type { VariableInfo };
@@ -249,6 +249,18 @@ export class PointInput {
     this.renderChrome();
     if (opts.autoFocus) {
       this.focusAxis('x');
+    }
+  }
+
+  /**
+   * The variables the dropdown offers, refreshed while the pill is open —
+   * the tool's scope read lands after the pill was shown when it queued
+   * behind a recompute, and a name typed meanwhile has to complete.
+   */
+  setVariables(variables: VariableInfo[]): void {
+    this.variables = variables;
+    if (this.visible) {
+      this.filterAndRender();
     }
   }
 
@@ -546,7 +558,7 @@ export class PointInput {
     }
 
     if (classified.kind === 'declare') {
-      axis.locked = classified.name;
+      axis.locked = classified.expression;
       axis.newVariable = { name: classified.name, initializer: classified.initializer };
     } else {
       axis.locked = classified.expression;

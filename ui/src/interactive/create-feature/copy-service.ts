@@ -959,6 +959,9 @@ export class CopyFeatureService {
       count: null,
       sweep: null,
       skip: values.kind === 'pattern' ? [] : values.skip,
+      exclude: this.editTarget
+        ? { filePath: this.editTarget.filePath, line: this.editTarget.line }
+        : undefined,
     };
     if (values.kind === 'pattern') {
       // The instances are the repeat's own — the kernel reads them off it.

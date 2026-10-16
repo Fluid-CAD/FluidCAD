@@ -483,6 +483,7 @@ export type FeatureGhostRequest =
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
+  | SplitGhostRequest
   | RotateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
@@ -802,6 +803,12 @@ export type CopyGhostRequest = {
   skip: number[][];
   /** Pattern only: the `repeat()` the copies follow, by call site. */
   pattern?: { filePath: string; line: number };
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -818,6 +825,34 @@ export type MirrorGhostRequest = {
   targets: { filePath: string; line: number }[];
   /** The plane to mirror across. */
   plane: GhostPlaneRef;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
+ * The split on the ghost wire: the cut plane the statement would part the
+ * bodies along, sized to them, plus — when one side is dropped — the pieces
+ * that go, in the cut's red. The kept pieces are never drawn; they are the
+ * geometry already on screen.
+ */
+export type SplitGhostRequest = {
+  feature: 'split';
+  /** The pieces the split keeps. */
+  keep: 'both' | 'front' | 'back';
+  /** The solid-bearing statements being split, by call site; empty for every solid in the scene. */
+  targets: { filePath: string; line: number }[];
+  /** The plane to cut along, or the sketched edge seeding the cut. */
+  plane: GhostPlaneRef;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -834,6 +869,12 @@ export type RotateGhostRequest = {
   axis: GhostAxisRef;
   /** The rotation angle in degrees. */
   angle: ValueExpr;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 /**
@@ -846,7 +887,9 @@ export type RotateGhostRequest = {
 export type GhostPlaneRef =
   | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'plane'; filePath: string; line: number }
-  | { kind: 'face'; shapeId: string; index: number };
+  | { kind: 'face'; shapeId: string; index: number }
+  /** A sketched edge by its statement's call site inside its sketch — the split dialog's seed. */
+  | { kind: 'sketchEdge'; filePath: string; line: number; column?: number };
 
 /**
  * The plane dialog on the ghost wire, and the second feature (after the helix)
@@ -2019,7 +2062,7 @@ export type SketchConstraintTargetParam = {
   occurrence?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
   featureType?: 'line' | 'arc' | 'circle' | 'point' | 'project' | 'intersect' | 'copy' | 'mirror'
-    | 'ellipse' | 'text' | 'bezier';
+    | 'ellipse' | 'text' | 'bezier' | 'spline';
   datum?: 'origin' | 'x-axis' | 'y-axis';
   /**
    * Mirror-image targets: the mirrored statement whose image on the 2D
@@ -2120,7 +2163,7 @@ export type SolvedEmissionTargetParam = {
   occurrence?: number;
   newIndex?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'mirror' | 'ellipse' | 'text' | 'bezier'
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'mirror' | 'ellipse' | 'text' | 'bezier' | 'spline'
     | 'project' | 'intersect';
   datum?: 'origin' | 'x-axis' | 'y-axis';
   /** Mirror-image targets: the mirrored statement (a nested line-addressed
@@ -2142,10 +2185,10 @@ export type SolvedEmissionTargetParam = {
 
 export type SolvedGeometryParam = {
   /** An entity statement — the ellipse included: a solver entity whose
-   * `center` role is its one point accessor — or a bezier, addressed only
-   * through its literal control points (`featureType: 'bezier'` +
-   * `pointIndex` on a `newIndex` target). */
-  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'bezier';
+   * `center` role is its one point accessor — or a bezier/spline,
+   * addressed only through its literal points (`featureType: 'bezier' |
+   * 'spline'` + `pointIndex` on a `newIndex` target). */
+  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'bezier' | 'spline';
   /** Rendered call text without binding or `;` — `line([0, 0], [40, 0])`. */
   text: string;
   guide?: boolean;
@@ -2175,6 +2218,8 @@ export async function insertSolvedGeometry(options: {
    * the constraint bar swaps out a replaced orientation and deletes the
    * coincident(s) behind a vertex pick. */
   removals?: { line: number }[];
+  /** The sketch's drifted literals, settled on their solved positions first. */
+  settle?: SketchPositionEditParam[];
 }): Promise<{
   success: boolean;
   reason?: string;
@@ -3121,6 +3166,49 @@ export async function applyMirror(options: MirrorApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
+/**
+ * The cut of a split request: the mirror's plane shapes, or a sketched edge
+ * — the edge statement's call site inside its sketch plus the sketch
+ * statement's own, so the server can export the edge through the sketch
+ * callback's return value (`s.geometries.l`).
+ * A line seeds a plane; a curve seeds the sheet it sweeps out of the sketch.
+ */
+export type SplitPlaneRef =
+  | RepeatPlaneRef
+  | { kind: 'sketchEdge'; sketch: SketchSourceRef; line: SketchSourceRef };
+
+export type SplitKeepSide = 'both' | 'front' | 'back';
+
+export type SplitApplyOptions = {
+  /** The solid-bearing statements being split (whole-solid picks), in order; empty splits every solid in scope. */
+  targets: SketchSourceRef[];
+  /** The cut — a plane, or a sketched edge seeding one (a line's plane, a curve's sheet). */
+  plane: SplitPlaneRef;
+  /** The pieces the split keeps. */
+  keep: SplitKeepSide;
+  /** The file the statement lands in. */
+  filePath: string;
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a split
+ * statement parting the target solids at a plane. Same endpoint and
+ * response shape as {@link applyFeature}.
+ */
+export async function applySplit(options: SplitApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'split',
+    targets: options.targets,
+    plane: options.plane,
+    keep: options.keep,
+    filePath: options.filePath,
+    preview: options.preview,
+  }, options.signal);
+}
+
 export type RotateApplyOptions = {
   /** The solid-bearing statements being rotated (whole-solid picks), in order. */
   targets: SketchSourceRef[];
@@ -3268,6 +3356,12 @@ export type FeatureSourcesResult =
    * an empty target list.
    */
   | { ok: true; feature: 'mirror'; targets: SourceSlotRef[]; plane: SourceSlotRef }
+  /**
+   * A split: the solids it cuts, by call site — empty for an implicit split
+   * of every solid in scope — plus the cut: a plane the way a mirror's
+   * resolves, or the sketched line seeding it, by the line's call site.
+   */
+  | { ok: true; feature: 'split'; targets: SourceSlotRef[]; plane: SourceSlotRef }
   /**
    * A standalone rotate: the solids it turns, by call site, plus the axis it
    * turns them around. A world-axis literal is `opaque` as it is for a
@@ -3624,6 +3718,21 @@ export type ParsedFeatureStatement =
       /** Mirror plane argument text, verbatim. */
       planeText: string;
       /** Trailing target texts, verbatim; empty mirrors the previous feature. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
+    }
+  | {
+      feature: 'split';
+      /** The cut argument text — a plane or a seed edge — verbatim. */
+      planeText: string;
+      /** The pieces the statement keeps; `both` when the option is absent. */
+      keep: SplitKeepSide;
+      /** Trailing target texts, verbatim; empty splits every solid in scope. */
       targetTexts: string[];
       /**
        * Per-target source location of the statement a plain-identifier target
@@ -4249,6 +4358,40 @@ export type RotateEditTargetRef =
   | { kind: 'verbatim'; sourceIndex: number }
   | ({ kind: 'feature' } & SketchSourceRef);
 
+/** The cut slot of an edited split: keep the statement's own text, or any create-mode cut. */
+export type SplitEditPlaneRef = { kind: 'keep' } | SplitPlaneRef;
+
+export type SplitEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type SplitEditOptions = EditSessionFields & {
+  /** The cut; `keep` re-emits the statement's own expression. */
+  plane: SplitEditPlaneRef;
+  keep: SplitKeepSide;
+  /** Full replacement target list; omitted keeps the statement's own, empty makes the split implicit. */
+  targets?: SplitEditTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the split statement at `edit` in place. */
+export async function applySplitEdit(
+  edit: FeatureEditTarget,
+  options: SplitEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'split',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    plane: options.plane,
+    keep: options.keep,
+    targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
 export type RotateEditOptions = EditSessionFields & {
   /** The rotation axis; `keep` re-emits the statement's own expression. */
   axis: RotateEditAxisRef;
@@ -4734,6 +4877,40 @@ export function setSketchClosed(sourceLocation: SourceLocationParam, closed: boo
 }
 
 /**
+ * The `image()` record the sketch Image tool commits: the path relative to
+ * the model file and the options it holds (`width` and/or `height`
+ * required; a default-valued `at` / `angle` is left out of the written
+ * statement by the server).
+ */
+export type SketchImageEdit = {
+  src: string;
+  width?: number;
+  height?: number;
+  at?: [number, number];
+  angle?: number;
+  opacity?: number;
+};
+
+/**
+ * Write a new `image(…)` statement into the body of the sketch at
+ * `sketch` — the sketch toolbar's Image tool. Acked like
+ * {@link setSketchClosed}: resolves once the host applied the edit, so the
+ * tool closes on the re-render that shows the picture from code.
+ */
+export function addSketchImage(sketch: SourceLocationParam, image: SketchImageEdit): Promise<SetUnitResult> {
+  return postAcked('api/sketch-image', { sketch, image });
+}
+
+/**
+ * Rewrite the `image(…)` statement at `target` — the Image tool re-opened
+ * on a picture from its timeline row (the row's own Remove deletes it).
+ * Acked like {@link addSketchImage}.
+ */
+export function setSketchImage(target: SourceLocationParam, image: SketchImageEdit): Promise<SetUnitResult> {
+  return postAcked('api/sketch-image', { target, image });
+}
+
+/**
  * Set (or, with null, remove) the `.material('id')` chain on the `part(...)`
  * statement at `sourceLocation` — the timeline row menu's Set material….
  * Acked like {@link setSketchClosed}: resolves once the host applied the
@@ -4763,7 +4940,7 @@ export function clearBreakpoints(): void {
  * `revealEditor: false` marks a passive navigation — a timeline row click or
  * a sketch constraint badge click, which is about the scene, not the code. The in-page editor then moves its
  * caret only when the pane is already visible and stays shut otherwise;
- * hosts whose editor is the whole window (VS Code, Neovim) jump regardless.
+ * hosts whose editor is the whole window jump regardless.
  */
 export function gotoSource(
   sourceLocation: SourceLocationParam,
@@ -5487,6 +5664,54 @@ export async function applyAssemblyMate(
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('api/assembly-mate', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath, ...spec }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/** The relation types the solver couples (mirrors the kernel's relation()). */
+export type AssemblyRelationType = 'gear' | 'rack-and-pinion';
+
+/**
+ * One side of a relation statement: the `mate()` statement starting on
+ * `mateLine` (its serialized sourceLocation). The server dereferences the
+ * statement's `const` binding, hoisting one onto a bare `mate(...)`.
+ */
+export type AssemblyRelationMateRef = { mateLine: number };
+
+export type AssemblyRelationPayload = {
+  type: AssemblyRelationType;
+  mateA: AssemblyRelationMateRef;
+  mateB: AssemblyRelationMateRef;
+  /** Gear: turns of B per turn of A. Rack-and-pinion: B's travel per revolution of A. Positive. */
+  ratio: number;
+  /** `.reverse()` — false/absent writes nothing. */
+  reverse?: boolean;
+};
+
+/**
+ * Relation-dialog commit: append a fresh `relation()` statement (`create`)
+ * or re-render an existing one in place (`edit`, addressed by the
+ * statement's serialized sourceLocation line). Failure bodies surface their
+ * reason (preflight refusal, stale line, ack timeout).
+ */
+export async function applyAssemblyRelation(
+  filePath: string,
+  spec:
+    | { create: AssemblyRelationPayload }
+    | { edit: AssemblyRelationPayload & { sourceLine: number } },
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('api/assembly-relation', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath, ...spec }),

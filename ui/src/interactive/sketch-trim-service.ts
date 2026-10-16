@@ -16,7 +16,7 @@ import { buildTrimPlan, trimRefusalFor, trimSegmentOn, type TrimRequest } from '
  *
  * What trims: a `line()`, an `arc()` (into one shorter arc, or two arcs on
  * one circle), a `circle()` (into one arc, or deleted). What refuses, with
- * a toast: text, beziers, ellipses (not yet), points, projected references,
+ * a toast: text, beziers, splines, ellipses (not yet), points, projected references,
  * copy and mirror images, looped statements, and a click on a vertex.
  */
 export class SketchTrimService extends SketchClickOpService<TrimRequest> {

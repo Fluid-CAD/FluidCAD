@@ -59,6 +59,7 @@ export {
   sceneUnitFields,
   type SceneSummary,
   type SceneSummaryObject,
+  type SceneSummaryShape,
   type ShapeList,
   type ShapeListEntry,
 } from './scene-summary.ts';

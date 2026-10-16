@@ -11,7 +11,7 @@ import { EngineScratch } from '../engine/scratch.ts';
 import { pinnedVersions } from '../projects/app-state.ts';
 import { ProjectsRoot } from '../projects/projects-root.ts';
 import { StartApi } from '../start/api.ts';
-import { LauncherAuth, isLoopbackBindAddress } from './auth.ts';
+import { LauncherAuth, hostnameOf, isLoopbackBindAddress } from './auth.ts';
 import { createEngineProxy } from './engine-proxy.ts';
 import { EventStream } from './events.ts';
 import type { LauncherHealth } from './instance.ts';
@@ -57,6 +57,18 @@ export type LauncherServerOptions = {
    * cookie `Secure`.
    */
   publicUrl?: string;
+  /**
+   * No key and no cookie (`--no-auth`): anyone who reaches the server can use
+   * it. Bound beyond loopback, it needs `allowedHosts` (or `publicUrl`), so
+   * that the Host check keeps DNS rebinding out in the cookie's place.
+   */
+  noAuth?: boolean;
+  /**
+   * The host names browsers reach this server by (`--allowed-host`), such as
+   * `cad-server` or `192.0.2.20`: any other Host is refused. Loopback is
+   * always answered, and `publicUrl`'s host is added to the list.
+   */
+  allowedHosts?: string[];
   /** Where the engines' output goes, prefixed with their project's name. */
   log?: (line: string, stream: 'stdout' | 'stderr') => void;
   /**
@@ -75,8 +87,10 @@ export type LauncherServer = {
   exposed: boolean;
   /** The start screen. */
   url: string;
-  /** The start screen with this session's key, which signs a browser in. */
+  /** The start screen with this session's key, which signs a browser in; the start screen itself without auth. */
   loginUrl: string;
+  /** Started with `noAuth`: no key, anyone who reaches it can use it. */
+  noAuth: boolean;
   /** The folder every project lives in, resolved, or null. */
   projectsRoot: string | null;
   /** Every running project's preview, then every engine stopped, then the server closed. */
@@ -183,12 +197,29 @@ export async function startLauncherServer(options: LauncherServerOptions): Promi
   const host = options.host || DEFAULT_HOST;
   const exposed = !isLoopbackBindAddress(host);
   const publicOrigin = options.publicUrl ? publicOriginOf(options.publicUrl) : null;
+  const noAuth = options.noAuth === true;
+  const allowedHosts = (options.allowedHosts ?? []).map((name) => name.trim()).filter((name) => name !== '');
+  if (publicOrigin && (allowedHosts.length > 0 || noAuth)) {
+    allowedHosts.push(new URL(publicOrigin).host);
+  }
+  if (noAuth && exposed && allowedHosts.length === 0) {
+    throw new Error(
+      'Without auth, FluidCAD bound beyond loopback has to know the names it is reached by: ' +
+        'give --allowed-host <name> (or FLUIDCAD_ALLOWED_HOSTS), or --public-url.',
+    );
+  }
   setBuiltinEngineLocation({ kind: 'package', packageRoot });
 
   const log = options.log ?? logToConsole;
   const server = http.createServer();
   const port = await listenOnFreePort(server, options.port, host);
-  const auth = new LauncherAuth(port, { exposed, publicOrigin, secureCookie: publicOrigin?.startsWith('https:') === true });
+  const auth = new LauncherAuth(port, {
+    exposed,
+    publicOrigin,
+    secureCookie: publicOrigin?.startsWith('https:') === true,
+    noAuth,
+    allowedHosts,
+  });
   const events = new EventStream();
   const sessions = new SessionRegistry({
     idFor: (workspacePath) => projectIdFor(workspacePath, projectsRoot),
@@ -233,7 +264,15 @@ export async function startLauncherServer(options: LauncherServerOptions): Promi
   server.on('request', app);
   // The engines' WebSockets, behind the same checks as their pages. Nothing
   // else on this server upgrades: the event stream is plain HTTP.
-  server.on('upgrade', proxy.upgrade);
+  // The upgrade skips express, so the Host check is made here too.
+  server.on('upgrade', (request, socket, head) => {
+    if (!auth.hostAllowed(request.headers.host)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    proxy.upgrade(request, socket, head);
+  });
 
   // The desktop app's launch-time housekeeping, shared cache and all: engines
   // no known project pins, beyond the newest three, and downloads an earlier
@@ -247,7 +286,9 @@ export async function startLauncherServer(options: LauncherServerOptions): Promi
     }
   });
 
-  const url = publicOrigin ? `${publicOrigin}/` : `http://${exposed ? os.hostname() : 'localhost'}:${port}/`;
+  // Bound for other machines, the link names the first allowed host, or else the machine.
+  const machine = allowedHosts[0] ? hostnameOf(allowedHosts[0]) : os.hostname();
+  const url = publicOrigin ? `${publicOrigin}/` : `http://${exposed ? machine : 'localhost'}:${port}/`;
   let closing: Promise<void> | null = null;
   return {
     version,
@@ -255,7 +296,8 @@ export async function startLauncherServer(options: LauncherServerOptions): Promi
     host,
     exposed,
     url,
-    loginUrl: `${url}?token=${auth.token}`,
+    loginUrl: noAuth ? url : `${url}?token=${auth.token}`,
+    noAuth,
     projectsRoot: projectsRoot?.path ?? null,
     close: () =>
       (closing ??= (async () => {

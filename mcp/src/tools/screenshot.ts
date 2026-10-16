@@ -56,7 +56,17 @@ export async function screenshot(input: ScreenshotInput): Promise<ToolResult<Ima
   if (validated.ok === false) {
     return validated;
   }
-  return runScreenshot(input, validated.data, /* multi */ false);
+  const opts: ValidatedOptions = { ...validated.data };
+  // A section with no view asked for is looked at: the user's camera, or a
+  // named view, as often as not faces the kept half and shows no cut at all.
+  if (opts.section && opts.view === undefined) {
+    opts.view = ScreenshotViews.SECTION_DEFAULT;
+  }
+  const problem = ScreenshotViews.sectionViewError(opts.view, undefined, opts.section !== undefined);
+  if (problem) {
+    return err('invalid-input', problem);
+  }
+  return runScreenshot(input, opts, /* multi */ false);
 }
 
 export type ScreenshotMultiInput = WorkspaceArg & ScreenshotOverlayInput & {
@@ -85,6 +95,14 @@ export async function screenshotMulti(
       return err('invalid-input', views);
     }
     opts.views = views;
+  } else if (opts.section) {
+    // The default grid faces away from most cuts; a section is looked at
+    // tilted and square-on instead.
+    opts.views = ScreenshotViews.SECTION_DEFAULT_MULTI;
+  }
+  const problem = ScreenshotViews.sectionViewError(undefined, opts.views, opts.section !== undefined);
+  if (problem) {
+    return err('invalid-input', problem);
   }
   return runScreenshot(input, opts, /* multi */ true);
 }
@@ -142,13 +160,17 @@ export async function screenshotShape(
     const sz = bbox.max[2] - bbox.min[2];
     const diameter = Math.sqrt(sx * sx + sy * sy + sz * sz);
     const distance = Math.max(diameter * margin, 1);
-    // Iso-ftr direction: (1, -1, 1) / sqrt(3).
+    // Iso-ftr direction: (1, -1, 1) / sqrt(3). A section is looked at
+    // instead — the iso vantage faces away from most cuts — framed to the
+    // model, since the cut plane is where the page learns the direction.
     const k = distance / Math.sqrt(3);
-    const view: ScreenshotView = {
-      kind: 'look-from',
-      eye: [cx + k, cy - k, cz + k],
-      target: [cx, cy, cz],
-    };
+    const view: ScreenshotView = overlays.data.section
+      ? ScreenshotViews.SECTION_DEFAULT
+      : {
+        kind: 'look-from',
+        eye: [cx + k, cy - k, cz + k],
+        target: [cx, cy, cz],
+      };
 
     const body: Record<string, unknown> = { view, ...overlays.data };
     if (input.width !== undefined) { body.width = input.width; }

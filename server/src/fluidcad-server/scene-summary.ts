@@ -4,15 +4,38 @@ import type { CompileError } from '../ws-protocol.ts';
 import type { LengthUnit } from '../project-config.ts';
 import type { SceneRenderedData } from './render-types.ts';
 
+/**
+ * One drawn shape of the scene, labelled the way the Shapes panel lists it:
+ * `label` = `<Type> <n>` (n per part and per shape type, timeline order —
+ * "Solid 2"), `part` = the enclosing part's name (null for a shape no part
+ * holds, listed under "Model"). Both are absent on a meta shape (a sketch's
+ * plane quad, a guide), which has no row. `lineageKey` (solids only) is the
+ * body's identity across renders — stable through the agent's own edits,
+ * where `shapeId` is minted afresh whenever the holder rebuilds.
+ */
+export type SceneSummaryShape = {
+  shapeId: string;
+  type: string;
+  label?: string;
+  part?: string | null;
+  lineageKey?: string;
+  isMetaShape?: true;
+};
+
 export type SceneSummaryObject = {
   index: number;
   id: string;
   kind: string;
   uniqueKind: string;
+  /** The display label: the `.name('…')` chain's text, else `<Type> <n>` (see `hasCustomName`). */
   name: string;
+  /** Present (true) when `name` came from a `.name('…')` chain; absent on a default `<Type> <n>` label. */
+  hasCustomName?: boolean;
   params: any;
   sourceLocation?: { filePath: string; line: number; column: number };
   shapeIds: string[];
+  /** The same shapes as `shapeIds`, with their labels, parts and lineage keys. */
+  shapes: SceneSummaryShape[];
   fromCache: boolean;
   hasError: boolean;
   errorMessage?: string;
@@ -71,9 +94,7 @@ export type SceneSummary = {
   compileError: CompileError | null;
 };
 
-export type ShapeListEntry = {
-  shapeId: string;
-  type: string;
+export type ShapeListEntry = SceneSummaryShape & {
   sceneObjectId: string;
 };
 

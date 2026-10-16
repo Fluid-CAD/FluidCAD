@@ -76,6 +76,12 @@ export type SceneManager = {
     scene: any,
     loc: { filePath: string; line: number; column?: number },
   ): any;
+  // Optional: may predate the cross-part dependency-loop guard.
+  resolvePartDependency?(
+    scene: any,
+    from: { filePath: string; line: number; column?: number },
+    to: { filePath: string; line: number; column?: number },
+  ): any;
   // Optional: may predate the tangent mate's contact classification.
   resolveContactPick?(
     scene: any,

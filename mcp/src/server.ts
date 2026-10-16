@@ -54,7 +54,10 @@ import {
   rollbackTo,
 } from './tools/engine.ts';
 import { loadDocsIndex, type DocsIndex } from './docs-index.ts';
-import { registerDocResources } from './resources.ts';
+import { loadSkillsIndex, type SkillsIndex } from './skills-index.ts';
+import { registerSkillsExtension, skillsExtensionCapability } from './skills-extension.ts';
+import { listSkills, readSkill } from './tools/skills.ts';
+import { registerDocResources, registerSkillResources } from './resources.ts';
 import type { ToolResult } from './types.ts';
 
 export const SERVER_NAME = 'FluidCAD';
@@ -80,6 +83,8 @@ function readPackageVersion(): string {
 export type BuildServerOptions = {
   /** Pre-built docs index. Tests use this to inject a custom docs root. */
   docsIndex?: DocsIndex;
+  /** Pre-built skills index. Tests use this to inject a custom skills root. */
+  skillsIndex?: SkillsIndex;
 };
 
 export function buildServer(options: BuildServerOptions = {}): McpServer {
@@ -89,11 +94,24 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       capabilities: {
         tools: {},
         resources: {},
+        // MCP SEP-2640 Skills Extension: skills/list, skills/get and
+        // resources/directory/read over the skill:// resources.
+        extensions: skillsExtensionCapability(),
       },
       instructions: [
         'Drives a running FluidCAD workspace.',
         'Call list_workspaces first to find available workspaces.',
         'Use list_docs/search_docs/read_doc/get_api_signature to learn the API.',
+        '',
+        'The FluidCAD workflow skills ship with this server and always match',
+        'its version. Unless your client has already loaded a FluidCAD skill,',
+        'load skill://fluidcad/SKILL.md before modeling and follow it; add',
+        'skill://fluidcad-from-drawing/SKILL.md when the geometry comes from a',
+        'drawing or image, and skill://fluidcad-assembly/SKILL.md when more',
+        'than one part is involved. Clients without skill support read them',
+        'with read_skill("fluidcad") etc.; a skill\'s supporting files',
+        '(references/*.md, scripts/*) load with read_skill(name, file).',
+        'list_skills lists them all.',
         'When a signature mentions an unfamiliar type (e.g. PlaneLike, AxisLike,',
         'SceneObject, LinearRepeatOptions), call get_type_definition with the',
         'type name to resolve its accepted forms / methods / properties.',
@@ -114,6 +132,11 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'out) or copy() for independent duplicates of a finished shape.',
         'Instances that differ in size are separate statements. Loop only when',
         'none of these can express the geometry.',
+        '',
+        '`.name(\'…\')` on a feature statement is optional: the UI writes it for',
+        'statements it creates, an unnamed feature shows as `<Type> <n>`',
+        '("Extrude 2") in the timeline and in get_scene_summary, and you may',
+        'name the features you want to refer to later.',
         '',
         '`.fluid.js` files MUST import every FluidCAD symbol they use:',
         '  import { sketch, line, extrude } from "fluidcad/core";',
@@ -239,6 +262,42 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   registerDocResources(server, docsIndex);
 
+  const skillsIndex = options.skillsIndex ?? loadSkillsIndex();
+
+  server.registerTool(
+    'list_skills',
+    {
+      title: 'List the FluidCAD workflow skills',
+      description:
+        'Returns every workflow skill bundled with this server (fluidcad, fluidcad-from-drawing, fluidcad-assembly) with its name, trigger description, skill:// uri, and file list. These are the same skills `npx skills add Fluid-CAD/FluidCAD` installs, served at the version matching this server. Use read_skill to load one.',
+      inputSchema: {},
+    },
+    async () => toMcp(listSkills(skillsIndex)),
+  );
+
+  server.registerTool(
+    'read_skill',
+    {
+      title: 'Read a FluidCAD workflow skill',
+      description:
+        'Returns a skill\'s SKILL.md (frontmatter stripped) and its file list, or with `file` one of its supporting files (e.g. "references/traps.md"). Read "fluidcad" before modeling unless your client already loaded the skill; follow it as instructions.',
+      inputSchema: {
+        name: z
+          .string()
+          .min(1)
+          .describe('Skill name from list_skills: "fluidcad", "fluidcad-from-drawing" or "fluidcad-assembly". Case-insensitive.'),
+        file: z
+          .string()
+          .optional()
+          .describe('Path relative to the skill directory, e.g. "references/traps.md". Defaults to SKILL.md.'),
+      },
+    },
+    async ({ name, file }) => toMcp(readSkill(skillsIndex, { name, file })),
+  );
+
+  registerSkillResources(server, skillsIndex);
+  registerSkillsExtension(server, skillsIndex);
+
   const workspaceArg = {
     workspace: z
       .string()
@@ -248,7 +307,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       ),
   };
 
-  const shapeIdArg = z.string().min(1).describe('Shape id from list_shapes or get_scene_summary.');
+  const shapeIdArg = z
+    .string()
+    .min(1)
+    .describe(
+      'Shape id from list_shapes or get_scene_summary. Ids are minted afresh whenever the holding feature rebuilds, so re-read them after an edit; ' +
+      'to find the same body again use its `lineageKey` (stable across your own edits) or its `label` + `part` ("Solid 2" of "Bracket", as the Shapes panel lists it).',
+    );
   const faceIndexArg = z
     .number()
     .int()
@@ -274,7 +339,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get the feature tree for a workspace',
       description:
-        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. Use this before list_shapes when you need feature-tree context.',
+        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. `name` is the object\'s display label — the text of its `.name(\'…\')` chain when `hasCustomName` is true, else the default `<Type> <n>` ("Extrude 2") the timeline shows; `.name()` is optional and the UI writes it for statements it creates. `shapes` lists the same shapes as `shapeIds` with `label` + `part` ("Solid 2" of "Bracket", the Shapes panel\'s row; `part` null = the top-level "Model" group) and, for solids, `lineageKey` — the body\'s identity across renders, stable through your own edits where `shapeId` is not. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. Use this before list_shapes when you need feature-tree context.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await getSceneSummary({ workspace })),
@@ -285,7 +350,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'List all shapes in the current scene',
       description:
-        'Returns a flat list of `{ shapeId, type, sceneObjectId }`. Cheaper than get_scene_summary when you only need ids — use this before calling shape/face/edge property tools.',
+        'Returns a flat list of `{ shapeId, type, sceneObjectId, label, part, lineageKey? }`: `label` + `part` is the row the Shapes panel shows ("Solid 2" of "Bracket"; `part` null = the top-level "Model" group; both absent on a meta shape), `lineageKey` (solids only) stays the same across your own edits where `shapeId` is minted afresh. Cheaper than get_scene_summary when you only need ids — use this before calling shape/face/edge property tools.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await listShapes({ workspace })),
@@ -552,6 +617,10 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         eye: vec3,
         target: vec3.optional(),
       }),
+      z.object({
+        kind: z.literal('section'),
+        straight: z.boolean().optional().describe('Look square-on along the cut normal, like a drawing\'s section A-A. Default false: tilted about 32° toward up and to the right, so the kept half\'s depth reads too.'),
+      }).describe('Looks at the capture\'s `section` from the removed half, where the cut face points — the default whenever a section is given without a view. Needs `section`.'),
     ])
     .describe('Stateless camera view for this screenshot. Does not move the user\'s interactive camera.');
 
@@ -602,17 +671,35 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           z.object({
             origin: vec3.describe('A point on the cut plane, document units.'),
             normal: vec3.describe('The plane normal; it points at the half that is removed.'),
-          }),
+          }).describe('An explicit plane.'),
+          z.object({
+            sceneObjectId: z.string().min(1).describe('The id of a plane() or section() statement, from get_scene_summary.'),
+          }).describe(
+            'The plane a statement built: a plane() feature (its origin and normal), or a section() view — its saved cut, own offset and flip ' +
+            'included; `offset` here moves that cut further and `flip` overrides.',
+          ),
+          z.object({
+            shapeId: shapeIdArg,
+            kind: z.literal('face').optional(),
+            index: z.number().int().nonnegative().describe('Zero-based face index inside the shape.'),
+            instanceId: z.string().min(1).optional().describe('Assembly files only: the inserted instance the face belongs to; the plane is read where the instance sits per its insert() statement.'),
+          }).describe('A planar face by index, as measure addresses it. Its outward normal points away from the solid, so a bare face cut shows the face itself: pass a negative `offset` to cut into the part, or `flip` to keep the outside.'),
+          z.object({
+            expression: z.string().min(1).describe('FluidCAD filter syntax matching exactly one planar face, e.g. face().onPlane("xy", 30); several matches are refused with the candidates listed.'),
+            scope: selectionScopeArg.optional(),
+          }).describe('A planar face by filter expression, scoped as in measure; the same normal rule as a face by index.'),
         ])
-        .describe('The cut plane: a named datum plane or an explicit { origin, normal }, document units.'),
-      offset: z.number().optional().describe('Moves the cut plane along its normal, document units (default 0). { plane: "xy", offset: 10 } cuts at z = 10.'),
+        .describe('The cut plane: a named datum plane, an explicit { origin, normal } (document units), a planar face (by index or filter) or a plane()/section() statement by id.'),
+      offset: z.number().optional().describe('Moves the cut plane along its normal, document units (default 0). { plane: "xy", offset: 10 } cuts at z = 10; on a face, a negative offset cuts into the part.'),
       flip: z.boolean().optional().describe('Keep the other half: the side the normal points at stays and the far side is removed.'),
     })
     .optional()
     .describe(
       'Section (cut-away) view, document units. The model is cut on the plane and the half the normal points at is removed, so the ' +
       'picture shows the cut from the normal\'s side; by default the far half (the side the normal points away from) is kept. Cut ' +
-      'faces are capped in the body\'s colour so solids read solid and holes read hollow; highlights are clipped with the model. ' +
+      'faces are capped as the viewport\'s section view caps them — hatched, each body in its own colour — so solids read solid, ' +
+      'holes read hollow and the bodies of a fit read apart; highlights are clipped with the model. With no `view` the capture looks ' +
+      'at the cut (view kind "section"); a named view can face the kept half and show no cut. ' +
       'Use it when a bore, blind hole, counterbore or wall cannot be seen from outside; grid and axes are not cut.',
     );
   const screenshotOverlayArgs = {
@@ -647,7 +734,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   const measureImageArg = z
     .object({
-      view: screenshotViewArg.optional().describe('Defaults to the iso-ftr named view.'),
+      view: screenshotViewArg.optional().describe('Defaults to the iso-ftr named view, or to the section view when `section` is given.'),
       width: widthArg,
       height: heightArg,
       pixelRatio: z.number().min(1).max(4).optional(),
@@ -691,8 +778,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Capture a PNG of the current scene from a stateless view',
       description:
-        'Renders the current FluidCAD scene to a PNG using a stateless camera view. The user\'s interactive camera is never moved. `view` defaults to the agent\'s last seen camera state — pass a `named` view (e.g. {kind:"named", name:"iso-ftr"}) for "show me from the front-top-right" or `look-from` for a precise vantage. ' +
-        '`highlight` draws faces/edges (by index or filter expression) through occluders, `hide`/`focus` drop or ghost other shapes, `annotations` add labelled lines, `fitTo: "highlight"` frames the highlighted geometry, and `section` cuts the model away on one side of a plane (cut faces capped) to show bores, blind holes and walls. Returns an MCP image content block.',
+        'Renders the current FluidCAD scene to a PNG using a stateless camera view. The user\'s interactive camera is never moved. `view` defaults to the agent\'s last seen camera state — or, with `section`, to the section view that looks at the cut — pass a `named` view (e.g. {kind:"named", name:"iso-ftr"}) for "show me from the front-top-right" or `look-from` for a precise vantage. ' +
+        '`highlight` draws faces/edges (by index or filter expression) through occluders, `hide`/`focus` drop or ghost other shapes, `annotations` add labelled lines, `fitTo: "highlight"` frames the highlighted geometry, and `section` cuts the model away on one side of a plane — a datum, a planar face or a plane() statement — with the cut faces capped and hatched, to show bores, blind holes and walls. Returns an MCP image content block.',
       inputSchema: {
         ...workspaceArg,
         view: screenshotViewArg.optional(),
@@ -721,7 +808,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       title: 'Capture a labelled grid of several views in one PNG',
       description:
         'Renders one PNG with 2-6 views laid out two per row, each cell labelled with its view in the corner. Default views: iso-ftr, its opposite iso-bbl ' +
-        '(two opposed isometrics show every face in at least one cell), top and front. Pass `views` for other vantages (named, look-from, orbit-from-current). ' +
+        '(two opposed isometrics show every face in at least one cell), top and front; with `section` and no `views`, the tilted section view beside the square-on one. ' +
+        'Pass `views` for other vantages (named, look-from, orbit-from-current, section). ' +
         'Use this to "see all sides at once" without several tool calls; the overlay options (highlight, hide, focus, annotations, fitTo, section) apply to every cell. The user\'s interactive camera is never moved.',
       inputSchema: {
         ...workspaceArg,
@@ -730,7 +818,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .min(2)
           .max(6)
           .optional()
-          .describe('The cells\' views, 2-6, row-major two per row. Default: iso-ftr, iso-bbl, top, front.'),
+          .describe('The cells\' views, 2-6, row-major two per row. Default: iso-ftr, iso-bbl, top, front — or, with `section`, {kind:"section"} and {kind:"section", straight:true}.'),
         width: widthArg,
         height: heightArg,
         showGrid: z.boolean().optional(),
@@ -749,7 +837,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Capture a framed iso view of a single shape',
       description:
-        'Fetches the shape\'s bounding box and renders a PNG from an iso vantage point that frames it with a small margin. Useful for "show me this specific feature" requests. Takes the same highlight/hide/focus/annotations/fitTo/section overlays as screenshot.',
+        'Fetches the shape\'s bounding box and renders a PNG from an iso vantage point that frames it with a small margin. Useful for "show me this specific feature" requests. Takes the same highlight/hide/focus/annotations/fitTo/section overlays as screenshot; with `section` the capture looks at the cut (view kind "section", framed to the model) instead of the iso vantage.',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,

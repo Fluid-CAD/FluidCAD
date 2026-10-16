@@ -1,5 +1,5 @@
 import { Scene } from "./rendering/scene.js";
-import { AssemblyScene, SerializedAssemblyConnector, SerializedInstance, SerializedMate, SerializedOccurrence, SerializedReplicate } from "./rendering/assembly-scene.js";
+import { AssemblyScene, SerializedAssemblyConnector, SerializedInstance, SerializedMate, SerializedOccurrence, SerializedRelation, SerializedReplicate } from "./rendering/assembly-scene.js";
 import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
 import { AssemblyCompare } from "./rendering/assembly-compare.js";
@@ -62,6 +62,7 @@ import {
 import {
   PartSite, PickExposureResolution, resolvePickExposure, resolveStatementPart, StatementLoc,
 } from "./selection/expose-lookup.js";
+import { resolvePartDependency } from "./selection/part-dependencies.js";
 import { ContactPickResolution, resolveContactPick } from "./selection/contact-pick.js";
 import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
@@ -76,6 +77,7 @@ import type { ValidateSceneRequest, SceneValidationOutcome } from "./validation/
 import { SceneInterference } from "./validation/scene-interference.js";
 import type { InterferenceMesher, InterferenceRequest, SceneInterferenceOutcome } from "./validation/scene-interference.js";
 import { MeshBuilder } from "./rendering/mesh-builder.js";
+import { ColoredSolids, type ColoredSolid } from "./common/colored-solid.js";
 import type { SceneObjectMesh } from "./rendering/scene.js";
 import type {
   ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickChain, PickRef,
@@ -158,6 +160,7 @@ class SceneManager {
     occurrences: SerializedOccurrence[];
     connectors: SerializedAssemblyConnector[];
     replicates: SerializedReplicate[];
+    relations: SerializedRelation[];
   } | null {
     if (!(scene instanceof AssemblyScene)) {
       return null;
@@ -168,6 +171,7 @@ class SceneManager {
       occurrences: scene.getSerializedOccurrences(),
       connectors: scene.getSerializedAssemblyConnectors(),
       replicates: scene.getSerializedReplicates(),
+      relations: scene.getSerializedRelations(),
     };
   }
 
@@ -393,11 +397,13 @@ class SceneManager {
   }
 
   exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {
-    const solids: Solid[] = [];
+    // Each solid leaves with the colours its holder resolves for it (the
+    // final state, scope-less).
+    const solids: ColoredSolid[] = [];
     for (const obj of scene.getAllSceneObjects()) {
       for (const shape of obj.getAddedShapes()) {
         if (shapeIds.includes(shape.id) && shape.isSolid()) {
-          solids.push(shape as Solid);
+          solids.push(ColoredSolids.fromHolder(obj, shape as Solid));
         }
       }
     }
@@ -506,6 +512,21 @@ class SceneManager {
       return null;
     }
     return resolveStatementPart(scene, loc);
+  }
+
+  /**
+   * Whether the part at `from` builds from the part at `to`, as the chain
+   * of part names between them (`from` first) — null when it does not. The
+   * consumer-side guard of a cross-part pick: a donor that already builds
+   * from the consumer must not be read by it, or the two would depend on
+   * each other and the next build would refuse the loop. Assembly scenes
+   * have no authoring-frame consumer, so they resolve to null.
+   */
+  resolvePartDependency(scene: Scene, from: StatementLoc, to: StatementLoc): string[] | null {
+    if (scene instanceof AssemblyScene) {
+      return null;
+    }
+    return resolvePartDependency(scene, from, to);
   }
 
   /**

@@ -77,6 +77,10 @@ let currentExposureResolution: any;
 let statementPartCalls: unknown[];
 /** Per-test result for the consumer-part lookup; null keeps every pick local. */
 let currentStatementPart: any;
+/** (from, to) site pairs forwarded to the part dependency lookup. */
+let dependencyCalls: unknown[][];
+/** Per-test chain for the part dependency lookup; null means the donor does not build from the consumer. */
+let currentPartDependency: string[] | null;
 /** Picks and chains forwarded to synthesizeApplyFeature, per call. */
 let synthesizeInputs: { picks: unknown; chains: unknown }[];
 
@@ -93,6 +97,10 @@ const fakeServer = {
   resolveStatementPart: (loc: unknown) => {
     statementPartCalls.push(loc);
     return typeof currentStatementPart === 'function' ? currentStatementPart(loc) : currentStatementPart;
+  },
+  resolvePartDependency: (from: unknown, to: unknown) => {
+    dependencyCalls.push([from, to]);
+    return currentPartDependency;
   },
   synthesizeSketchApplyFeature: (
     picks: unknown, feature: string, value: number | string | undefined,
@@ -225,6 +233,8 @@ describe('apply-feature route validation', () => {
     currentExposureResolution = null;
     statementPartCalls = [];
     currentStatementPart = null;
+    dependencyCalls = [];
+    currentPartDependency = null;
     synthesizeInputs = [];
   });
 
@@ -643,6 +653,70 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(422);
       expect(body.reason).toContain('not bound to a const');
       expect(relayed).toHaveLength(0);
+    });
+
+    describe('dependency loops', () => {
+      const DONOR = { partName: 'Donor', filePath: FILE, line: 3, column: 18 };
+
+      beforeEach(() => {
+        currentCode = TWO_PART_CODE;
+        currentFileName = FILE;
+        currentExposureResolution = donorResolution('endFace', ['endFace']);
+      });
+
+      it('refuses a donor that already builds from the active part, before anything is written', async () => {
+        currentPartDependency = ['Donor', 'Consumer'];
+        const { status, body } = await post({
+          feature: 'sketch', entities: [PICK], activePart: ACTIVE,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toBe(
+          '"Donor" already builds from "Consumer" (Donor → Consumer), so "Consumer" can\'t use its geometry — '
+          + 'the two parts would depend on each other. Sketch on it from "Donor", or from the file\'s top level.',
+        );
+        // Asked donor → consumer, in the scene's own site terms.
+        expect(dependencyCalls).toEqual([[expect.objectContaining(DONOR), ACTIVE]]);
+        expect(relayed).toHaveLength(0);
+        expect(synthesizeCalls).toEqual([]);
+      });
+
+      it('refuses the preview the same way, so the dialog never offers the reference', async () => {
+        currentPartDependency = ['Donor', 'Consumer'];
+        const { status, body } = await post({
+          feature: 'sketch', entities: [PICK], activePart: ACTIVE, preview: true,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('would depend on each other');
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('names the parts a longer chain runs through', async () => {
+        currentPartDependency = ['Donor', 'Hinge', 'Latch', 'Consumer'];
+        const { status, body } = await post({
+          feature: 'sketch', entities: [PICK], activePart: ACTIVE,
+        });
+        expect(status).toBe(422);
+        expect(body.reason).toContain('"Donor" already builds from "Consumer" through "Hinge", "Latch" (Donor → Hinge → Latch → Consumer)');
+      });
+
+      it('lets a donor that does not build from the active part through', async () => {
+        currentPartDependency = null;
+        const { status, body } = await post({
+          feature: 'sketch', entities: [PICK], activePart: ACTIVE,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`sketch(p1.features.endFace, () => { ... })`);
+        expect(dependencyCalls).toHaveLength(1);
+        expect(relayed).toHaveLength(1);
+      });
+
+      it('never asks for a consumer at the file\'s top level — no part reads the top level', async () => {
+        currentPartDependency = ['Donor', 'Consumer'];
+        const { status } = await post({ feature: 'sketch', entities: [PICK] });
+        expect(status).toBe(200);
+        expect(dependencyCalls).toEqual([]);
+        expect(relayed).toHaveLength(1);
+      });
     });
   });
 
@@ -5303,6 +5377,246 @@ describe('apply-feature route validation', () => {
     });
   });
 
+  describe('split', () => {
+    const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
+    const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+    const CODE = [
+      "import { sketch, circle, extrude, cut } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { circle([0, 0], 100) })",
+      'extrude(30)',
+      "sketch('xy', () => { circle([0, 0], 10) })",
+      'cut(5)',
+      '',
+    ].join('\n');
+    const SEED_CODE = [
+      "import { sketch, circle, line, extrude } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { circle([0, 0], 100) })",
+      'extrude(30)',
+      "sketch('xy', () => {",
+      '  line([0, -50], [0, 50]).guide()',
+      '})',
+      '',
+    ].join('\n');
+
+    it('rejects a missing file, a bad plane, a bad keep and a duplicate target', async () => {
+      const noFile = await post({ feature: 'split', plane: { kind: 'standard', plane: 'yz' } });
+      expect(noFile.status).toBe(400);
+      expect(noFile.body.error).toContain('filePath');
+
+      const noPlane = await post({ feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1] });
+      expect(noPlane.status).toBe(400);
+      expect(noPlane.body.error).toContain('plane must be');
+
+      const badKeep = await post({
+        feature: 'split', filePath: '/ws/m.fluid.js', plane: { kind: 'standard', plane: 'yz' }, keep: 'left',
+      });
+      expect(badKeep.status).toBe(400);
+      expect(badKeep.body.error).toContain('keep must be');
+
+      const dup = await post({
+        feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1, T1], plane: { kind: 'standard', plane: 'yz' },
+      });
+      expect(dup.status).toBe(400);
+      expect(dup.body.error).toContain('picked twice');
+    });
+
+    it('previews and relays a split of named targets with its options', async () => {
+      currentCode = CODE;
+      const splitBody = {
+        feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1, T2],
+        plane: { kind: 'standard', plane: 'yz' }, keep: 'front',
+      };
+      const preview = await post({ ...splitBody, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe("split('yz', { keep: 'front' }, f, f2)");
+      expect(relayed).toEqual([]);
+
+      const { status, body } = await post(splitBody);
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      const spec = relayed[0].spec;
+      expect(spec.feature).toBe('split');
+      expect(spec.split).toEqual({
+        plane: { kind: 'standard', plane: 'yz' }, keep: 'front',
+        targets: [{ producer: 0 }, { producer: 1 }],
+      });
+      expect(spec.producers).toHaveLength(2);
+      expect(spec.producers.every((p: any) => p.featureType === 'feature' && p.bind)).toBe(true);
+    });
+
+    it('previews an implicit split of every solid with no options object', async () => {
+      currentCode = CODE;
+      const { status, body } = await post({
+        feature: 'split', filePath: '/ws/m.fluid.js', plane: { kind: 'standard', plane: 'xz' }, preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("split('xz')");
+    });
+
+    it('relays the active part for an implicit split, which lands inside the part body', async () => {
+      currentCode = CODE;
+      const splitBody = {
+        feature: 'split', filePath: '/ws/m.fluid.js', plane: { kind: 'standard', plane: 'xz' },
+      };
+      const { status } = await post({ ...splitBody, activePart: { filePath: '/ws/m.fluid.js', line: 3, column: 0 } });
+      expect(status).toBe(200);
+      expect(relayed[0].spec.activePart).toEqual({ line: 3, column: 0 });
+
+      // A part in another file is not where this file's split lands.
+      const other = await post({ ...splitBody, activePart: { filePath: '/ws/other.fluid.js', line: 3, column: 0 } });
+      expect(other.status).toBe(200);
+      expect(relayed[1].spec.activePart).toBeUndefined();
+    });
+
+    it('synthesizes a picked face through the plane kind', async () => {
+      currentCode = CODE;
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'plane',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+          imports: [],
+        },
+        preview: '',
+        args: 'e.endFaces(0)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'split', filePath: '/ws/m.fluid.js', targets: [T2],
+        plane: { kind: 'face', entity: PICK }, keep: 'back',
+      });
+      expect(status).toBe(200);
+      expect(synthesizeCalls).toEqual([{ feature: 'plane', value: undefined }]);
+      expect(body.preview).toContain("split(plane(e.endFaces(0)), { keep: 'back' }, ");
+      expect(relayed[0].spec.split.plane).toEqual({ kind: 'selector', part: 0 });
+      expect(relayed[0].spec.imports).toContain('plane');
+    });
+
+    it('previews a seed line as its sketch export and relays the sketch producer', async () => {
+      currentCode = SEED_CODE;
+      const splitBody = {
+        feature: 'split', filePath: '/ws/m.fluid.js', targets: [T1],
+        plane: {
+          kind: 'sketchEdge',
+          sketch: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
+          line: { filePath: '/ws/m.fluid.js', line: 6, column: 2 },
+        },
+      };
+      const preview = await post({ ...splitBody, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe('split(s.geometries.l1, f)');
+
+      const { status } = await post(splitBody);
+      expect(status).toBe(200);
+      const spec = relayed[0].spec;
+      expect(spec.split.plane).toEqual({ kind: 'sketchEdge', producer: 1, target: { line: 6 } });
+      expect(spec.producers[1]).toMatchObject({ line: 5, column: 0, featureType: 'sketch', bind: true });
+    });
+  });
+
+  describe('split edit', () => {
+    const EDIT_CODE = [
+      "import { sketch, circle, extrude, cut, split } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { circle([0, 0], 100) })",
+      'const e = extrude(30)',
+      "sketch('xy', () => { circle([0, 0], 10) })",
+      'const c = cut(5)',
+      "split('yz', { keep: 'front' }, e)",
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 7, column: 0 };
+
+    it('relays an options change keeping the plane and targets, and previews it', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({ feature: 'split', edit: EDIT, keep: 'back' });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("split('yz', { keep: 'back' }, e)");
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'split',
+        producers: [],
+        parts: [],
+        edit: { line: 7, column: 0, split: { plane: { kind: 'keep' }, keep: 'back' } },
+      });
+      expect(relayed[0].spec.edit.split.targets).toBeUndefined();
+    });
+
+    it('replaces the target list and re-sources the plane', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'split', edit: EDIT, keep: 'back',
+        plane: { kind: 'standard', plane: 'xz' },
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'feature', filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("split('xz', { keep: 'back' }, e, c)");
+      expect(relayed[0].spec.edit.split).toMatchObject({
+        plane: { kind: 'standard', plane: 'xz' },
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+      });
+    });
+
+    it('makes the split implicit with an empty target list', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({ feature: 'split', edit: EDIT, keep: 'both', targets: [] });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("split('yz')");
+    });
+
+    // Re-picking a seed edge on an edit (clearing the chip and clicking the
+    // line again, or picking another line) previews the export the apply
+    // writes — an already exported line keeps its name.
+    it('previews a re-picked seed edge as its sketch export, new or already exported', async () => {
+      currentFileName = '/ws/m.fluid.js';
+      const SEED_EDIT_CODE = [
+        "import { sketch, circle, line, extrude, split } from 'fluidcad/core'",
+        '',
+        "sketch('xy', () => { circle([0, 0], 100) })",
+        'const e = extrude(30)',
+        "const s = sketch('xy', () => {",
+        '  const l1 = line([0, -50], [0, 50]).guide()',
+        '  const l2 = line([-50, 0], [50, 0]).guide()',
+        '  return { l1 };',
+        '})',
+        "split(s.geometries.l1, { keep: 'front' }, e)",
+        '',
+      ].join('\n');
+      currentCode = SEED_EDIT_CODE;
+      const seed = (line: number) => ({
+        kind: 'sketchEdge',
+        sketch: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
+        line: { filePath: '/ws/m.fluid.js', line, column: 2 },
+      });
+      const edit = { filePath: '/ws/m.fluid.js', line: 10, column: 0 };
+
+      const same = await post({ feature: 'split', edit, keep: 'front', plane: seed(6), preview: true });
+      expect(same.status).toBe(200);
+      expect(same.body.preview).toBe("split(s.geometries.l1, { keep: 'front' }, e)");
+
+      const other = await post({ feature: 'split', edit, keep: 'back', plane: seed(7) });
+      expect(other.status).toBe(200);
+      expect(other.body.preview).toBe("split(s.geometries.l2, { keep: 'back' }, e)");
+      expect(relayed[0].spec.edit.split.plane).toEqual({ kind: 'sketchEdge', producer: 0, target: { line: 7 } });
+      expect(relayed[0].spec.producers[0]).toMatchObject({ line: 5, column: 0, featureType: 'sketch', bind: true });
+    });
+
+    it('rejects a bad keep on an edit', async () => {
+      const { status, body } = await post({ feature: 'split', edit: EDIT, keep: 'left' });
+      expect(status).toBe(400);
+      expect(body.error).toContain('keep must be');
+    });
+  });
+
   describe('rotate', () => {
     const EDGE_PICK = { shapeId: 'shape-1', sub: { type: 'edge', index: 0 } };
     const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
@@ -6397,6 +6711,27 @@ describe('apply-feature route validation', () => {
         });
         expect(status).toBe(422);
         expect(body.reason).toContain('not bound to a const');
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('refuses a donor that already builds from the sketch\'s part, on preview and apply alike', async () => {
+        currentExposureResolution = donorResolution('endFace', ['endFace']);
+        currentPartDependency = ['Donor', 'Consumer'];
+        const preview = await post({
+          feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, preview: true,
+        });
+        expect(preview.status).toBe(422);
+        expect(preview.body.reason).toContain('"Donor" already builds from "Consumer"');
+        const apply = await post({
+          feature: 'project', entities: [PICK], sketch: CONSUMER_SKETCH, confirmForeign: true,
+        });
+        expect(apply.status).toBe(422);
+        expect(apply.body.reason).toContain('would depend on each other');
+        // Asked donor → the sketch's own part, resolved from the sketch location.
+        expect(dependencyCalls).toEqual([
+          [expect.objectContaining({ partName: 'Donor', line: 3, column: 18 }), CONSUMER],
+          [expect.objectContaining({ partName: 'Donor', line: 3, column: 18 }), CONSUMER],
+        ]);
         expect(relayed).toHaveLength(0);
       });
 

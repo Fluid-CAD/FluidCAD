@@ -3,6 +3,17 @@ import { fileURLToPath } from 'url';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
+/** `FLUIDCAD_NO_AUTH=1` (or true, yes, on) stands in for `--no-auth`, for containers. */
+function envFlag(name) {
+  return ['1', 'true', 'yes', 'on'].includes((process.env[name] ?? '').trim().toLowerCase());
+}
+
+/** `--allowed-host` may be given more than once; `FLUIDCAD_ALLOWED_HOSTS` adds a comma-separated list. */
+function allowedHostsFrom(opts) {
+  const fromEnv = (process.env.FLUIDCAD_ALLOWED_HOSTS ?? '').split(',');
+  return [...(opts.allowedHost ?? []), ...fromEnv].map((name) => name.trim()).filter((name) => name !== '');
+}
+
 async function runStart(opts) {
   const port = Number(opts.port);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -17,7 +28,10 @@ async function runStart(opts) {
     open: opts.open,
     projectsRoot: opts.projects === undefined ? undefined : resolve(opts.projects),
     host: opts.host,
-    publicUrl: opts.publicUrl,
+    publicUrl: opts.publicUrl ?? (process.env.FLUIDCAD_PUBLIC_URL?.trim() || undefined),
+    // Commander names `--no-auth` `auth`, true unless the flag is given.
+    noAuth: opts.auth === false || envFlag('FLUIDCAD_NO_AUTH'),
+    allowedHosts: allowedHostsFrom(opts),
   });
 }
 
@@ -39,7 +53,17 @@ export function registerStartCommand(program) {
     )
     .option(
       '--public-url <url>',
-      'the origin browsers reach FluidCAD at behind a reverse proxy, such as https://cad.example.com; https makes the session cookie Secure',
+      'the origin browsers reach FluidCAD at behind a reverse proxy, such as https://cad.example.com; https makes the session cookie Secure (or FLUIDCAD_PUBLIC_URL)',
+    )
+    .option(
+      '--no-auth',
+      'no sign-in link: anyone who reaches the start screen can use it (FLUIDCAD_NO_AUTH=1); only for a trusted network',
+    )
+    .option(
+      '--allowed-host <name>',
+      'a host name browsers reach FluidCAD by, such as cad-server or 192.0.2.20; any other is refused (repeatable, or FLUIDCAD_ALLOWED_HOSTS=a,b); required with --no-auth and --host',
+      (name, names) => [...names, name],
+      [],
     )
     .action((opts) => {
       runStart(opts).catch((err) => {

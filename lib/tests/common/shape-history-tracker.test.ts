@@ -5,6 +5,7 @@ import { Primitives } from "../../oc/primitives.js";
 import { Explorer } from "../../oc/explorer.js";
 import { Convert } from "../../oc/convert.js";
 import { FilletOps } from "../../oc/fillet-ops.js";
+import { ColorTransfer } from "../../oc/color-transfer.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import type { TopAbs_ShapeEnum } from "ocjs-fluidcad";
 
@@ -118,7 +119,7 @@ describe("ShapeHistoryTracker", () => {
       const topRim = cyl.getEdges().find(e => e.isClosed() && Math.abs(EdgeOps.getEdgeMidPoint(e).z - 20) < 1e-6);
       expect(topRim).toBeDefined();
 
-      const { history } = FilletOps.makeFillet(cyl, [topRim!], 2);
+      const { history } = FilletOps.makeFillet(ColorTransfer.plain(cyl), [topRim!], 2);
 
       // The wall and the top cap are trimmed by the blend, the bottom cap and
       // its rim come through as they were: the cylinder's, all of them. Only

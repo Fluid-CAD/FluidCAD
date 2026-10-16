@@ -1,0 +1,114 @@
+---
+sidebar_position: 13
+title: "Split"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import splitPlane from '!!raw-loader!./_examples/split-plane.js';
+import splitFront from '!!raw-loader!./_examples/split-front.js';
+import splitBack from '!!raw-loader!./_examples/split-back.js';
+import splitLine from '!!raw-loader!./_examples/split-line.js';
+import splitCircle from '!!raw-loader!./_examples/split-circle.js';
+
+# Split
+
+Split divides a solid along a plane, or along the surface a sketch edge sweeps out of its sketch. Keep both sides as separate solids, or keep just one side to trim the model. Use it to divide a housing or separate a model into pieces for printing. Each new cut face closes the resulting solid.
+
+## In the viewport
+
+1. Finish any open sketch, then click **Split** on the toolbar.
+2. Choose the cut in the **Cut** slot. You can pick an origin plane, a plane feature in the viewport or timeline, a planar face, or a sketch edge: a straight line cuts along the plane it defines, and an arc, circle, ellipse or spline cuts along the curved surface it sweeps. The **Cut** slot is active when the dialog opens.
+3. To limit the operation, click the **Solids** slot, then click a face or edge of a target solid, or its feature row in the timeline. Leave **Solids** empty to use all solids in the current scope. Inside a part, that means the solids in that part.
+4. In the **Keep** dropdown, choose **Both sides**, **Front side**, or **Back side** to set which pieces to keep. The cut is at the selected plane itself; to cut somewhere else, create an offset plane with the **Plane** tool first and pick that.
+5. Check the preview, then click **Apply**. FluidCAD adds a Split feature to the timeline and writes the statement to your file.
+
+The preview shows a translucent cutting surface. With **Front side** or **Back side** selected, pieces that will be removed appear red. Click the **Cut** or **Solids** slot before picking in the viewport to choose what the next click selects.
+
+Targets are selected by feature. If a feature produced several solids, selecting it can include all of those solids.
+
+To change an existing split, double-click its timeline row. You can replace the cut, change the targets, or adjust the keep side.
+
+## Split at an offset plane
+
+For this 80 × 60 × 20 block, first create a plane 10 units from **YZ** with the **Plane** tool, then pick that plane in the **Cut** slot and keep **Both**. The cut is at `x = 10`, leaving pieces that are 50 and 30 units wide. The plane feature is hidden once the split consumes it; its timeline eye shows it again.
+
+![A block split at x = 10, with a seam across its top and front faces](/img/docs/3d-operations/split-plane.png)
+
+<ExplainedCode code={splitPlane} fileName="split-plane.part.js" />
+
+The pieces stay in their original positions and touch at the cut. Split does not create a gap or move them apart. Both pieces belong to the Split feature; a later operation targeting that feature acts on all its retained pieces.
+
+## Keep both sides or trim one side
+
+**Front** means the side the cutting plane's normal points toward. **Back** means the opposite side. These directions belong to the plane and do not change when you rotate the view.
+
+For the same block and cut at `x = 10`:
+
+<ModeTable columns={[
+  {title: 'Both', image: '/img/docs/3d-operations/split-plane.png', description: 'Keeps the 50-unit and 30-unit pieces as two solids.'},
+  {title: 'Front', image: '/img/docs/3d-operations/split-front.png', description: 'Keeps the 30-unit piece on the +X side of the cut.'},
+  {title: 'Back', image: '/img/docs/3d-operations/split-back.png', description: 'Keeps the 50-unit piece on the −X side of the cut.'},
+]} />
+
+<ExplainedCode code={splitFront} fileName="split-front.part.js" title="Keep the front side" />
+<ExplainedCode code={splitBack} fileName="split-back.part.js" title="Keep the back side" />
+
+| Origin plane | Front side |
+| --- | --- |
+| XY | +Z |
+| XZ | −Y |
+| YZ | +X |
+
+A plane that only touches a solid splits nothing. Selecting an exterior face, for example, usually needs a plane offset inward from that face (`plane(select(face()…), -8)`) so the cut passes through the solid instead of grazing its surface.
+
+## Split along a sketch edge
+
+Use a sketch edge when the cut is easier to draw than to define with a datum plane: a line for an angled flat cut, a curve for a curved one.
+
+1. Draw the edge across the intended cut in a sketch. Turn on **Guide** before drawing if the edge is only for construction.
+2. Finish the sketch, open **Split**, and pick the edge in the **Cut** slot.
+3. Choose the target solids and which side to keep, then click **Apply**.
+
+A straight line defines an infinite plane perpendicular to its sketch; the cut extends beyond the line's endpoints and through the full solid. An arc, circle, ellipse or spline defines a curved surface perpendicular to its sketch instead, as if the curve were extruded out of the sketch both ways. That surface ends where the curve ends, so draw a curve all the way across the solid: a curve that stops inside a solid leaves it unchanged.
+
+This example cuts a 60 × 40 × 15 block diagonally and keeps **Front**:
+
+![The retained wedge after splitting a block along a diagonal sketch line](/img/docs/3d-operations/split-line.png)
+
+<ExplainedCode code={splitLine} fileName="split-line.part.js" />
+
+For a sketch edge, **Front** is the side to the right of the edge when you travel it from start to end, looking at the sketch from its front (the edge tangent crossed with the sketch normal). Reversing the edge's start and end swaps **Front** and **Back**; for a circle or any closed loop drawn counter-clockwise, **Front** is the outside. Use the red removal preview to confirm which piece will remain.
+
+This example cores a cylinder out of a plate with a construction circle, keeping the outside:
+
+<ExplainedCode code={splitCircle} fileName="split-circle.part.js" />
+
+Applying the split hides the source sketch. Use its timeline eye to show it again; later features can still reference the edge. In code, return the edge from the sketch callback to access it as `s.geometries.seed`, as shown in the examples.
+
+## In code
+
+```js
+split('xz');                               // All solids in scope, at the XZ plane.
+split(p, body);                             // Only body, at an existing plane p.
+split('yz', { keep: 'front' }, body);        // Keep the +X side of the cut.
+split(plane('xy', 12), body);               // Cut 12 units above the XY plane.
+split(s.geometries.seed, { keep: 'back' });  // Along a sketch line, keep the left side.
+split(s.geometries.ring, { keep: 'front' }); // Outside a counter-clockwise circle: core it out.
+```
+
+| Argument | Accepted values |
+| --- | --- |
+| Cut | `'xy'`, `'xz'`, `'yz'`, a `plane()` feature, a planar face selection, or a sketch edge (line, arc, circle, ellipse, spline) |
+| Options | `keep`: `'both'` (default), `'front'`, or `'back'` |
+| Targets | One or more solid-producing features; omit to use all solids in scope |
+
+See the [API reference](/docs/api/features/3d/split) for the full signature.
+
+## If nothing is split
+
+The cut must pass through the interior of a target solid. A plane that misses a solid or only touches a face or edge leaves that solid unchanged, even when **Front** or **Back** is selected. So does a sketch curve that stops inside the solid instead of running all the way across it.
+
+If no target is crossed, the original solids remain and the Split row reports **nothing was split**. Move the plane, choose a different cut, or check the **Solids** selection. If there are no solids in scope, create a solid first or place the split inside the part that contains it.
+
+To divide a line or curve within a sketch, use the [sketch Split tool](/docs/sketching/tools/split).

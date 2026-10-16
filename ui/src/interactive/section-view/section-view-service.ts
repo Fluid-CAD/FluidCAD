@@ -1,7 +1,7 @@
 import { Box3, Vector3 } from 'three';
 import { applySection, setSectionOptions, type MeasurePose, type RepeatPlaneRef } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
-import { SectionController } from '../../scene/section-controller';
+import { SectionController, SectionStyles } from '../../scene/section-controller';
 import { sceneGeometryBounds } from '../../scene/scene-geometry-bounds';
 import type { StandardPlaneId } from '../../scene/standard-planes';
 import type { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
@@ -36,9 +36,6 @@ export type SectionViewHooks = {
   instanceIds?: () => string[];
   poseOf?: (instanceId: string) => MeasurePose | null;
 };
-
-/** Hatch lines per scene diagonal — a drawing's density at any model size. */
-const HATCH_LINES_PER_DIAGONAL = 90;
 
 /**
  * The live section view: the viewport's section button opens a menu of the
@@ -271,13 +268,8 @@ export class SectionViewService {
       return;
     }
     const bounds = sceneGeometryBounds(ctx.scene, this.viewer.getAssemblyController()?.getContainer() ?? null);
-    const diagonal = bounds && !bounds.isEmpty() ? bounds.getSize(new Vector3()).length() : 100;
     const spec = sectionSpecOf(row, this.currentOffset());
-    this.controller.apply(root, spec, {
-      distinctColors: true,
-      hatch: true,
-      hatchSpacing: diagonal / HATCH_LINES_PER_DIAGONAL,
-    });
+    this.controller.apply(root, spec, SectionStyles.viewer(bounds));
     const plane = this.controller.clipPlane;
     this.viewer.overlayClipPlanes = plane ? [plane] : null;
     this.placeArrow(row, bounds);

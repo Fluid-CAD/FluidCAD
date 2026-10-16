@@ -21,7 +21,7 @@ The plane normal points at the half that is removed; `offset` moves the
 cut along that normal and `flip` keeps the removed half instead. A face
 yields its own plane, exactly as `plane(face)` reads it.
 
-**Returns**: **`ISection`**
+**Returns**: [**`Section`**](/docs/api/types/section)
 
 :::tip
 See the [guide](/docs/3d-operations/section-views) for detailed usage examples.
@@ -30,7 +30,7 @@ See the [guide](/docs/3d-operations/section-views) for detailed usage examples.
 ## Signatures
 
 ```ts
-section(name: string, plane: SceneObject | PlaneLike, options?: SectionOptions): ISection
+section(name: string, plane: SceneObject | PlaneLike, options?: SectionOptions): Section
 ```
 
 Saves a named section view: a cut plane the viewer clips the scene at

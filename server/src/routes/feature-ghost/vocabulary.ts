@@ -75,8 +75,11 @@ export type GhostBody = {
 
 export const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'mirror',
-  'rotate', 'plane', 'rib', 'hole', 'offset', 'fillet2d', 'copy2d', 'mirror2d',
+  'rotate', 'plane', 'rib', 'hole', 'offset', 'fillet2d', 'copy2d', 'mirror2d', 'split',
 ];
+
+/** The split's keep choices. */
+export const SPLIT_KEEPS = ['both', 'front', 'back'];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
 export const BAND_FEATURES = ['fillet', 'chamfer'];

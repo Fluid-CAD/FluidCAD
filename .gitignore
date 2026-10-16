@@ -6,15 +6,12 @@ out/
 .DS_Store
 .vscode/
 *.tsbuildinfo
-*.vsix
 *.tar.gz
-extension/vscode/README.md
 server/dist/
 ui/dist/
 ui/dist-lib/
 ui/dist-start/
 launcher/dist/
-.vscode-test
 .fluidcad/
 llm-docs/index.json
 llm-docs/api/index.json

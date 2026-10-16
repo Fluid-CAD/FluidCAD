@@ -17,9 +17,12 @@ rotate(axis: AxisLike, angle, ...targets)
 rotate(axis, angle, copy: boolean, ...targets)
 ```
 
-Angles are degrees. `AxisLike` is `"x"` / `"y"` / `"z"`, a direction
-vector, or an `{ point?, direction }` record. `copy: true` clones the
-source rather than rotating it in place.
+Angles are degrees. The axis is a world axis name, `"x"` / `"y"` /
+`"z"`, or an `axis()` datum for any other line ([[api/axis]]: from an
+edge, or a world axis offset and tilted); a direction vector is refused.
+`copy: true` clones the source rather than rotating it in place. A named
+target stands for the body it built wherever later features left it — a
+filleted or moved body turns as it is now (see [[concepts/scene-graph]]).
 
 `rotate()` is 3D-only — inside a sketch it throws (the 2D rotate was
 removed). Sketch geometry is oriented by constraints: `angle(xAxis(), l,

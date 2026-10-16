@@ -4,6 +4,8 @@ import { Convert } from "./convert.js";
 import { Point, Point2D } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
+import { CurveData } from "./loft/curve-data.js";
+import type { BSplineCurveData } from "../math/bspline-interpolation.js";
 
 /**
  * Degenerate inputs (coincident points, ~zero radius) make several
@@ -284,6 +286,34 @@ export class Geometry {
     edgeMaker.delete();
 
     throw new Error('Failed to create edge from bezier curve: ' + status);
+  }
+
+  /**
+   * An edge on a polynomial B-spline given as plain pole/knot data (3D
+   * poles) — what a sketch spline interpolates through its fit points. The
+   * curve is built through the array constructor the lofts rely on; the
+   * `GeomAPI` fitting classes are avoided on purpose (see
+   * `math/bspline-interpolation.ts`).
+   */
+  static makeEdgeFromBSplineData(data: BSplineCurveData): Edge {
+    const oc = getOC();
+    const curve = CurveData.build({ ...data, weights: null });
+    const start = curve.StartPoint();
+    const end = curve.EndPoint();
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(curve, start, end);
+    start.delete();
+    end.delete();
+
+    if (edgeMaker.IsDone()) {
+      const edge = edgeMaker.Edge();
+      edgeMaker.delete();
+      return Edge.fromTopoDSEdge(edge);
+    }
+
+    const status = edgeMaker.Error();
+    edgeMaker.delete();
+
+    throw new Error('Failed to create edge from spline curve: ' + status);
   }
 
   // ── Edge factories ─────────────────────────────────────────────────────────

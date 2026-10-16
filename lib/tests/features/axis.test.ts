@@ -67,13 +67,43 @@ describe("axis", () => {
 
     it("should rotate the axis direction", () => {
       // Rotate X axis by 90° around Z → should become Y axis
-      const a = axis("x", { rotateZ: Math.PI / 2 }) as AxisObjectBase;
+      const a = axis("x", { rotateZ: 90 }) as AxisObjectBase;
 
       render();
 
       const ax = a.getAxis();
       expect(ax.direction.x).toBeCloseTo(0);
       expect(ax.direction.y).toBeCloseTo(1);
+      expect(ax.direction.z).toBeCloseTo(0);
+    });
+
+    it("should read rotations as degrees, not radians", () => {
+      const diagonal = axis("x", { rotateZ: 45 }) as AxisObjectBase;
+      const tilted = axis("y", { rotateZ: 30 }) as AxisObjectBase;
+
+      render();
+
+      const d = diagonal.getAxis().direction;
+      expect(d.x).toBeCloseTo(Math.SQRT1_2);
+      expect(d.y).toBeCloseTo(Math.SQRT1_2);
+      expect(d.z).toBeCloseTo(0);
+      const t = tilted.getAxis().direction;
+      expect(t.x).toBeCloseTo(-0.5);
+      expect(t.y).toBeCloseTo(Math.sqrt(3) / 2);
+      expect(t.z).toBeCloseTo(0);
+    });
+
+    it("should rotate around the offset origin", () => {
+      const a = axis("z", { offsetX: 50, rotateX: 90 }) as AxisObjectBase;
+
+      render();
+
+      const ax = a.getAxis();
+      expect(ax.origin.x).toBeCloseTo(50);
+      expect(ax.origin.y).toBeCloseTo(0);
+      expect(ax.origin.z).toBeCloseTo(0);
+      expect(ax.direction.x).toBeCloseTo(0);
+      expect(ax.direction.y).toBeCloseTo(-1);
       expect(ax.direction.z).toBeCloseTo(0);
     });
   });
@@ -143,6 +173,24 @@ describe("axis", () => {
       const ax = a.getAxis();
       expect(ax.origin.z).toBeCloseTo(15);
     });
+
+    it("should rotate an extracted axis in degrees", () => {
+      let guideLine: any;
+      sketch("xy", () => {
+          testRect(100, 50);
+          guideLine = line([10, 0], [10, 40]).guide();
+        });
+
+      const a = axis(guideLine, { rotateZ: 90 }) as AxisObjectBase;
+
+      render();
+
+      const ax = a.getAxis();
+      expect(ax.origin.x).toBeCloseTo(10);
+      expect(Math.abs(ax.direction.x)).toBeCloseTo(1);
+      expect(ax.direction.y).toBeCloseTo(0);
+      expect(ax.direction.z).toBeCloseTo(0);
+    });
   });
 
   describe("axis middle", () => {
@@ -193,6 +241,20 @@ describe("axis", () => {
       const ax = mid.getAxis();
       expect(ax.origin.x).toBeCloseTo(50);
       expect(ax.origin.y).toBeCloseTo(25);
+    });
+
+    it("should rotate the middle axis in degrees", () => {
+      const a1 = axis("z", { offsetX: 0 }) as AxisObjectBase;
+      const a2 = axis("z", { offsetX: 100 }) as AxisObjectBase;
+      const mid = axis(a1, a2, { rotateY: 90 }) as AxisObjectBase;
+
+      render();
+
+      const ax = mid.getAxis();
+      expect(ax.origin.x).toBeCloseTo(50);
+      expect(ax.direction.x).toBeCloseTo(1);
+      expect(ax.direction.y).toBeCloseTo(0);
+      expect(ax.direction.z).toBeCloseTo(0);
     });
 
     it("should work with standard axis shorthand", () => {

@@ -8,6 +8,7 @@
 // against the statement-time values (P4 gotcha).
 
 import type {
+  SketchPositionEditParam,
   SolvedConstraintParam as WireConstraintParam,
   SolvedEmissionTargetParam,
   SolvedGeometryParam,
@@ -46,6 +47,11 @@ export type SolvedEmissionRequest = {
    * the constraint bar swaps out a replaced orientation and deletes the
    * coincident(s) behind a vertex pick. */
   removals?: { line: number }[];
+  /** The sketch's drifted literals, settled on their solved positions
+   * first — sent by a tool whose guesses come from the solved geometry and
+   * whose constraints lock a side from them (the Offset tool), so the side
+   * is read against the sketch the user saw. */
+  settle?: SketchPositionEditParam[];
 };
 
 /** Injected into drawing tools inside a solved sketch (null in legacy
@@ -119,6 +125,17 @@ export function pointText(p: [number, number] | PickedPoint): string {
  * as the statement's own anchor point (`bz.point(i)`). */
 export function bezierText(points: ([number, number] | PickedPoint)[]): string {
   return `bezier(${points.map(solvedPointText).join(', ')})`;
+}
+
+/** `spline(p0, p1, …)` — every fit point a literal, so each registers as
+ * the statement's own anchor point (`sp.point(i)`). */
+export function splineText(points: ([number, number] | PickedPoint)[]): string {
+  return `spline(${points.map(solvedPointText).join(', ')})`;
+}
+
+/** The statement text of a point-driven curve of `kind` through `points`. */
+export function curveText(kind: 'bezier' | 'spline', points: ([number, number] | PickedPoint)[]): string {
+  return kind === 'spline' ? splineText(points) : bezierText(points);
 }
 
 /** A snap ref as an emission constraint target. Loop-instance refs carry

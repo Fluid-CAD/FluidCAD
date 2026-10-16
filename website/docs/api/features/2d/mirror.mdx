@@ -8,7 +8,7 @@ description: "[2D] Mirror all sketch geometries across a given line."
 
 [2D] Mirror all sketch geometries across a given line.
 
-**Returns**: **`IMirror`**
+**Returns**: [**`Mirror`**](/docs/api/types/mirror)
 
 :::tip
 See the [guide](/docs/transforms/introduction) for detailed usage examples.
@@ -67,7 +67,7 @@ mirror(axis: AxisLike, ...geometries: SceneObject[]): IMirror2D
 ---
 
 ```ts
-mirror(plane: PlaneLike, ...objects: SceneObject[]): IMirror
+mirror(plane: PlaneLike, ...objects: SceneObject[]): Mirror
 ```
 
 [3D] Mirror given shapes across a given plane.

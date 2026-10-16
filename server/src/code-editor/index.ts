@@ -26,10 +26,12 @@ export {
   type SpliceEdit,
 } from './lines.ts';
 export {
+  chainBaseCall,
   chainRootCallee,
   collectBoundNames,
   enclosingStatementOf,
   findEditableCallAt,
+  getArgumentsNode,
   stringLiteralValue,
   walkTree,
 } from './nodes.ts';
@@ -68,6 +70,9 @@ export {
   setPartMaterial,
   setSectionOptions,
   setSketchClosed,
+  insertSketchImage,
+  setSketchImage,
+  type SketchImageEdit,
 } from './statements.ts';
 export {
   updateSketchPositions,
@@ -78,11 +83,16 @@ export {
 export { getDimensionExpression, updateDimension, updateDimensionExpression } from './dimensions.ts';
 export { declareTopLevelVariable, findTopLevelDeclarationAnchor } from './declarations.ts';
 export {
+  bareProperties,
+  declarationImports,
   declareInPartBody,
   declareParamStatements,
   declareParamStatementsFor,
   findEnclosingPart,
   findPartAt,
+  freeIdentifiers,
+  isPartLevelInitializer,
+  type BareProperty,
   type PartBody,
 } from './parts.ts';
 export {

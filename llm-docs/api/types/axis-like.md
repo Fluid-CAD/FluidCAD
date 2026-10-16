@@ -17,7 +17,7 @@ An axis reference used by `revolve()` and other axis-based operations. Any of th
 | Format | Example | Description |
 | --- | --- | --- |
 | Standard axis string | `"x"`, `"y"`, `"z"` | The three principal axes. |
-| [[api/types/axis]] | `axis("x", [0, 10])` | An axis object created with `axis()`. |
+| [[api/types/axis]] | `axis("z", { offsetX: 50 })` | An axis object created with `axis()`. |
 | Sketch axis datum | `xAxis()`, `yAxis()` | The sketch's own X / Y axis (see `api/constraints`) — for `mirror()` and `copy("linear", …)` inside a sketch, where a bare string means the world axis. |
 
 ## Example

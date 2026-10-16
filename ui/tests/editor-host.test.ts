@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-// The in-page editor host is the third implementation of the host contract
-// (VS Code, Neovim, this). What can silently diverge is *which buffer* an
+// The in-page editor host implements the host contract. What can silently
+// diverge is *which buffer* an
 // edit lands in and *what render* follows it — the assembly work made both
 // matter: the mate dialog edits a connector() in a PART file while the
 // assembly is on screen, and the parts panel rewrites an insert() chain named
@@ -42,7 +42,7 @@ function entry(absPath: string, text: string): FakeEntry {
 
 type Recorded = { url: string; body: any };
 
-function install(opts: { loaded: FakeEntry[]; loadable?: FakeEntry[]; current: string | null }) {
+function install(opts: { loaded: FakeEntry[]; loadable?: FakeEntry[]; current: string | null; onError?: (message: string) => void }) {
   const store = new Map(opts.loaded.map((e) => [e.absPath, e]));
   const loadable = new Map((opts.loadable ?? []).map((e) => [e.absPath, e]));
   const saved: string[] = [];
@@ -88,6 +88,7 @@ function install(opts: { loaded: FakeEntry[]; loadable?: FakeEntry[]; current: s
     reveal: async (absPath, line, column, revealPane) => {
       reveals.push({ absPath, line, column, revealPane });
     },
+    onError: opts.onError,
   });
   return { host, requests, responses, saved, store, reveals };
 }
@@ -202,8 +203,8 @@ describe('in-page editor host — which buffer an edit lands in', () => {
 
   it('marks a path-targeted timeline edit in an imported file keepCurrent', async () => {
     // Removing a feature from an imported part while the assembly is current:
-    // the assembly re-renders with the dependency updated (the Neovim bridge's
-    // rule for every non-current buffer), the viewport does not switch.
+    // the assembly re-renders with the dependency updated, the viewport does
+    // not switch.
     const asm = entry(ASSEMBLY, '// assembly');
     const part = entry(PART, 'extrude(10);');
     const { host, requests, responses } = install({ loaded: [asm, part], current: ASSEMBLY });
@@ -213,6 +214,22 @@ describe('in-page editor host — which buffer an edit lands in', () => {
 
     expect(part.text).toBe('');
     expect(requests.find((r) => r.url === 'api/render')!.body).toEqual({ filePath: PART, code: '', keepCurrent: true });
+  });
+
+  it('surfaces a transform refusal instead of silently applying the unchanged code', async () => {
+    // A rename to a name the file already holds comes back as the same code
+    // plus `error`: nothing lands in the buffer, no render runs, the person hears why.
+    const code = `extrude(10).name('Boss');\nfillet(2);`;
+    const part = entry(PART, code);
+    const errors: string[] = [];
+    const { host, requests, responses } = install({ loaded: [part], current: PART, onError: (m) => errors.push(m) });
+    responses.set('api/code/set-feature-name', () => ({ newCode: code, error: "'Boss' is already the name of the extrude at line 1" }));
+
+    await host.handle({ type: 'rename-feature', filePath: PART, line: 2, name: 'Boss' });
+
+    expect(errors).toEqual(["'Boss' is already the name of the extrude at line 1"]);
+    expect(part.text).toBe(code);
+    expect(requests.find((r) => r.url === 'api/render')).toBeUndefined();
   });
 });
 
@@ -280,7 +297,7 @@ describe('in-page editor host — acked solved-sketch drag write-back', () => {
 describe('in-page editor host — goto-source reveal', () => {
   it('passes a passive goto-source through without revealing the pane', async () => {
     // A timeline row click. The pane is a strip beside the scene here (unlike
-    // VS Code / Neovim, where the editor *is* the window), so the flag has to
+    // a host whose editor *is* the window), so the flag has to
     // survive the trip or every row click pops the code open again.
     const asm = entry(ASSEMBLY, '// assembly');
     const { host, reveals } = install({ loaded: [asm], current: ASSEMBLY });

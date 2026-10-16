@@ -47,7 +47,9 @@ export function cutRefusalFor(pick: SolvedPick, words: CutWords): string | null 
     return `A mirror image can't be ${words.past} — ${words.verb} its source edge instead`;
   }
   if (pick.anchor) {
-    return pick.anchor.owner === 'text' ? `Text can't be ${words.past}` : `Bezier curves can't be ${words.past}`;
+    return pick.anchor.owner === 'text' ? `Text can't be ${words.past}`
+      : pick.anchor.owner === 'spline' ? `Splines can't be ${words.past}`
+        : `Bezier curves can't be ${words.past}`;
   }
   if (pick.kind === 'ellipse') {
     return `Ellipses can't be ${words.past} yet`;

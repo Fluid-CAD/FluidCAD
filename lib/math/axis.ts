@@ -5,13 +5,20 @@ import { Quaternion } from "./quaternion.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { IAxis } from "../core/interfaces.js";
 import type { SketchDatum } from "../features/2d/solved/datum.js";
+import { rad } from "../helpers/math-helpers.js";
 
 export interface AxisTransformOptions {
+  /** Distance to move the axis origin along world X. Applied before any rotation. */
   offsetX?: number;
+  /** Distance to move the axis origin along world Y. Applied before any rotation. */
   offsetY?: number;
+  /** Distance to move the axis origin along world Z. Applied before any rotation. */
   offsetZ?: number;
+  /** Rotation in degrees around world X, through the axis origin (after the offset). */
   rotateX?: number;
+  /** Rotation in degrees around world Y, through the axis origin (after the offset). */
   rotateY?: number;
+  /** Rotation in degrees around world Z, through the axis origin (after the offset). */
   rotateZ?: number;
 }
 
@@ -86,16 +93,17 @@ export class Axis {
       return result;
     }
 
-    // Compose all rotations into a single quaternion to avoid gimbal lock
+    // Compose all rotations into a single quaternion to avoid gimbal lock.
+    // The options are degrees, like every angle a user writes.
     let q = Quaternion.identity();
     if (options.rotateX) {
-      q = q.multiply(Quaternion.fromAxisAngle(Vector3d.unitX(), options.rotateX));
+      q = q.multiply(Quaternion.fromAxisAngle(Vector3d.unitX(), rad(options.rotateX)));
     }
     if (options.rotateY) {
-      q = q.multiply(Quaternion.fromAxisAngle(Vector3d.unitY(), options.rotateY));
+      q = q.multiply(Quaternion.fromAxisAngle(Vector3d.unitY(), rad(options.rotateY)));
     }
     if (options.rotateZ) {
-      q = q.multiply(Quaternion.fromAxisAngle(Vector3d.unitZ(), options.rotateZ));
+      q = q.multiply(Quaternion.fromAxisAngle(Vector3d.unitZ(), rad(options.rotateZ)));
     }
 
     // Apply the composed rotation around the axis origin

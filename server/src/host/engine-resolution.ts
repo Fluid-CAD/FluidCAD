@@ -62,10 +62,9 @@ type ResolvedEngineCopy = {
  * `createRequire().resolve()`, which also consults CJS-only global folders
  * (`$NODE_PATH`, `~/node_modules`) that Node ESM and Vite ignore.
  *
- * A `fluidcad` that isn't the kernel doesn't count: this repo's own npm
- * workspaces symlink `node_modules/fluidcad` to the VS Code extension, which
- * shares the package name. Only a root carrying `lib/dist/index.js` is an
- * engine (the same guard `lib-identity.ts` applies).
+ * A `fluidcad` that isn't the kernel doesn't count: another package can share
+ * the name. Only a root carrying `lib/dist/index.js` is an engine (the same
+ * guard `lib-identity.ts` applies).
  */
 function resolveEngineFrom(workspacePath: string): ResolvedEngineCopy | null {
   const start = path.resolve(workspacePath);

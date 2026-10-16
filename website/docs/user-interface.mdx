@@ -24,7 +24,7 @@ The workspace is one browser tab: a top bar with the open files, a toolbar, a pa
     {n: 7, x: 1.7, y: 18.2, label: 'Code editor', description: 'Docks the source editor on the left (Ctrl+B). The editor takes width from the viewport rather than covering it.'},
     {n: 8, x: 12, y: 15.2, label: 'History', description: 'One row per feature, in file order. See below for what clicks do.'},
     {n: 9, x: 17.7, y: 15.2, label: 'History menu', description: 'Recompute scene (clears the cache and rebuilds everything) and Show execution time.'},
-    {n: 10, x: 12, y: 81.7, label: 'Shapes', description: 'One row per solid. Click to select it; the row menu hides it, sets transparency, or exports it.'},
+    {n: 10, x: 12, y: 81.7, label: 'Shapes', description: 'The solids the model produced, grouped by part. Click a row to select it; the row menu hides it, sets transparency, or exports it.'},
     {n: 11, x: 12, y: 95, label: 'Parameters', description: 'One control per param() and one row per property(). + adds a parameter or a property, the arrow resets all values to their defaults.'},
     {n: 12, x: 96.5, y: 95.5, label: 'Shape properties', description: 'Volume, surface area, mass and centre of mass of a solid or of a whole part, from the part’s material.'},
     {n: 13, x: 93, y: 95.5, label: 'Unit', description: 'The document unit. Readouts and dialogs use it; the menu switches the display to mm / in / same as project.'},
@@ -63,7 +63,7 @@ The History panel is the feature timeline. Every statement in the file is a row:
 
   ![Row context menu](/img/docs/ui/history-context-menu.png)
 
-  **Rename** edits the feature's `.name('…')` in place. **Edit feature** is the double-click action; on a sketch row it reads **Edit sketch**, takes a `.close()` chain off the statement and reopens the sketch at a breakpoint. **Breakpoint here** puts a `breakpoint()` after the row without opening a dialog, so features you add next land after that row instead of at the end of the file. **Remove** deletes the statement; if later features depend on it, a dialog lists them and deletes the closure on confirm. A part row also offers **Set material…**, described under [Shape properties](#setting-a-parts-material).
+  **Rename** opens an input on the row's current name. Every feature has one: a statement the UI wrote carries a `.name('…')` chain (`Extrude 1`, `Sketch 2`, … — the next free number for that type in the file), and a feature written without one is labelled the same way, `<Type> <n>` in file order, until it is named. Names are unique per file; a name another feature or part already holds is refused with the clash shown under the input. An empty rename keeps the name. **Edit feature** is the double-click action; on a sketch row it reads **Edit sketch**, takes a `.close()` chain off the statement and reopens the sketch at a breakpoint. **Breakpoint here** puts a `breakpoint()` after the row without opening a dialog, so features you add next land after that row instead of at the end of the file. **Remove** deletes the statement; if later features depend on it, a dialog lists them and deletes the closure on confirm. A part row also offers **Set material…**, described under [Shape properties](#setting-a-parts-material).
 - The **⋮** menu on the panel header:
 
   ![History menu](/img/docs/ui/history-menu.png)
@@ -80,7 +80,11 @@ Reloading the page preserves this history while the server is running. Opening a
 
 ## Shapes and shape properties
 
-The **Shapes** panel lists the solids the model produced, grouped by type. Clicking a row selects the solid in the viewport; the row menu toggles visibility, sets transparency, and opens the export dialog for that solid.
+The **Shapes** panel lists the solids the model produced, grouped by part: one collapsible group per part, with shapes that belong to no part under **Model**. A row reads `Solid 1`, `Solid 2`, … (numbered per part and per shape type, in the order the features built them) with `from <feature>` beneath it, the feature whose statement currently holds the body — a fillet on `Extrude 1`'s solid moves that line to the fillet. Clicking a row selects the solid in the viewport; the row menu toggles visibility, sets transparency, and opens the export dialog for that solid.
+
+Hiding a body or making it transparent follows the body itself, not the row: the setting stays through later features that reshape it (a fillet, a chamfer, a shell, a cut), through edits to earlier features that rebuild it, and both halves of a split inherit it. A body whose feature was removed loses the setting with it.
+
+{/* TODO screenshot: the overview figure above still shows the Shapes panel grouped by type. */}
 
 The scale icon at the bottom right opens **Shape properties**. The **Part | Solid** tabs at the top choose what the numbers describe, and **Calculate** fills **Volume**, **Surface Area**, **Mass** and **Center of Mass** in the chosen length and mass units. A density is never typed: mass comes from a material, and **Density** under it is read-only.
 

@@ -111,7 +111,7 @@ describe("RenderChangeTracker", () => {
 
     const { changes } = rerender(first, buildPart({ baseDepth: 40 }));
 
-    expect(changes.rebuilt.map(e => e.name)).toEqual(["Extrude", "Select", "Sketch", "boss"]);
+    expect(changes.rebuilt.map(e => e.name)).toEqual(["Extrude 1", "Select", "Sketch 2", "boss"]);
     expect(changes.reused).toBe(1);
     // The sketch adds no solid, so it carries no bounds; the boss moved up
     // with the face even though its own statement did not change.
@@ -126,7 +126,7 @@ describe("RenderChangeTracker", () => {
 
     const grown = rerender(plain, buildPart({ extra: true }));
     expect(grown.changes.rebuilt).toEqual([]);
-    expect(grown.changes.added.map(e => e.name)).toEqual(["Sketch", "pin"]);
+    expect(grown.changes.added.map(e => e.name)).toEqual(["Sketch 3", "pin"]);
     expect(grown.changes.added[1].bounds?.after).toBeDefined();
     expect(grown.changes.added[1].bounds?.before).toBeUndefined();
     expect(grown.changes.reused).toBe(5);
@@ -134,7 +134,7 @@ describe("RenderChangeTracker", () => {
     const shrunk = rerender(grown.merged, buildPart());
     expect(shrunk.changes.rebuilt).toEqual([]);
     expect(shrunk.changes.added).toEqual([]);
-    expect(shrunk.changes.removed.map(e => e.name)).toEqual(["Sketch", "pin"]);
+    expect(shrunk.changes.removed.map(e => e.name)).toEqual(["Sketch 3", "pin"]);
     expect(shrunk.changes.removed[1].kind).toBe("extrude");
     expect(shrunk.changes.reused).toBe(5);
   });
@@ -146,7 +146,7 @@ describe("RenderChangeTracker", () => {
     const { changes } = rerender(first, buildPart({ baseDepth: 40 }), 1);
 
     expect(changes.rebuilt).toHaveLength(1);
-    expect(changes.rebuilt[0].name).toBe("Extrude");
+    expect(changes.rebuilt[0].name).toBe("Extrude 1");
     expect(changes.truncated).toBe(3);
   });
 
@@ -167,7 +167,7 @@ describe("RenderChangeTracker", () => {
 
     expect(changes.reused).toBe(0);
     expect(changes.added).toEqual([]);
-    expect(changes.rebuilt.map(e => e.name)).toEqual(["Sketch", "Extrude", "Select", "Sketch", "boss"]);
+    expect(changes.rebuilt.map(e => e.name)).toEqual(["Sketch 1", "Extrude 1", "Select", "Sketch 2", "boss"]);
     expect(changes.rebuilt[4].bounds?.before).toEqual(changes.rebuilt[4].bounds?.after);
   });
 
@@ -191,7 +191,7 @@ describe("RenderChangeTracker", () => {
     assertBuilt(merged);
     const changes = tracker.summarize(merged);
 
-    expect(changes.rebuilt.map(e => `${e.kind}:${e.name}`)).toEqual(["part:Cam", "sketch:Sketch", "extrude:Extrude"]);
+    expect(changes.rebuilt.map(e => `${e.kind}:${e.name}`)).toEqual(["part:Cam", "sketch:Sketch 2", "extrude:Extrude 2"]);
     expect(changes.rebuilt[2].bounds?.before).toBeDefined();
     expect(changes.rebuilt[2].bounds?.after).toBeDefined();
     expect(changes.rebuilt[2].bounds?.before).not.toEqual(changes.rebuilt[2].bounds?.after);

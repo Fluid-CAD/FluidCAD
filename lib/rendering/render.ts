@@ -3,6 +3,7 @@ import { MeshBuilder } from "./mesh-builder.js";
 import { SceneObject } from "../common/scene-object.js";
 import { callSiteKey } from "../common/call-site.js";
 import { BodyLineage } from "./lineage.js";
+import { DefaultNames } from "./default-names.js";
 import { Shape } from "../common/shape.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
@@ -121,6 +122,8 @@ export class SceneRenderer {
   private occurrenceIndexes: Map<SceneObject, number> = new Map();
   /** One walk per render pass, once every object has built — see BodyLineage. */
   private lineageKeys: Map<Shape, string> = new Map();
+  /** The `<DisplayType> <n>` label of every unnamed row, one pass per render — see DefaultNames. */
+  private defaultLabels: Map<SceneObject, string> = new Map();
 
   constructor(settings: MeshSettings) {
     this.meshBuilder = new MeshBuilder(settings);
@@ -201,6 +204,7 @@ export class SceneRenderer {
     // which call getShapes() scope-less, keep seeing those shapes.
     const renderScope = new Set<SceneObject>(sceneObjects);
     this.lineageKeys = BodyLineage.keysFor(scene.getTimelineObjects(), this.occurrenceIndexes, renderScope);
+    this.defaultLabels = DefaultNames.labelsFor(scene.getTimelineObjects());
 
     const prepared = new Map<SceneObject, PreparedShapes>();
     for (const object of sceneObjects) {
@@ -252,6 +256,7 @@ export class SceneRenderer {
       scope = new Set<SceneObject>(rows.slice(0, rollbackIndex + 1));
     }
     this.lineageKeys = BodyLineage.keysFor(rows, this.occurrenceIndexes, scope);
+    this.defaultLabels = DefaultNames.labelsFor(rows);
 
     scene.clearRenderedObjects();
 
@@ -711,9 +716,7 @@ export class SceneRenderer {
     const categories = opts.profiler?.getCategories();
     const profileCategories = categories && categories.length > 0 ? categories : undefined;
 
-    const displayName = obj.hasCustomName()
-      ? obj.getName()
-      : obj.getDisplayType();
+    const displayName = DefaultNames.labelFor(obj, this.defaultLabels);
 
     // Serialization can dereference state that a failed build never produced —
     // e.g. a sketch whose plane could not be built reads plane.localToWorld.

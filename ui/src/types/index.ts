@@ -268,6 +268,8 @@ export type SubSelection =
 
 export type SceneObjectPart = {
   shapeId?: string;
+  /** A solid's identity across renders (lib BodyLineage); absent on everything but solids. */
+  lineageKey?: string;
   /** Packed xyz per topological vertex, before any assembly instance pose. */
   vertices?: number[];
   /** Vertex indices belonging to each face, in the viewport's topology order. */

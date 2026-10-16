@@ -158,7 +158,6 @@ export class ShapesPanel extends AccordionSection {
             ${ICON_CHEVRON_RIGHT}
           </span>
           <span class="truncate">${ShapesPanel.escapeHtml(group.title)}</span>
-          <span class="text-base-content/40 ml-1">${group.rows.length}</span>
         </div>
       `;
 

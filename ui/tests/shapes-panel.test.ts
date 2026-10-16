@@ -76,8 +76,8 @@ describe('shapes panel — grouping by part', () => {
     h.panel.update(scene());
     const titles = h.headers().map((el) => el.querySelector('span:nth-child(2)')!.textContent!.trim());
     expect(titles).toEqual(['Model', 'Bracket', 'Lid']);
-    const counts = h.headers().map((el) => el.querySelector('span:nth-child(3)')!.textContent!.trim());
-    expect(counts).toEqual(['1', '3', '1']);
+    // A group header names the part and nothing else — no shape count.
+    expect(h.headers().every((el) => el.querySelectorAll('span').length === 2)).toBe(true);
   });
 
   it('labels rows <Type> <n> per part and per type, with the holder beneath', () => {

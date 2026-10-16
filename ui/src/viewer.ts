@@ -83,6 +83,8 @@ const HOVER_EDGE_LINE_WIDTH = 2;
 // Sketch wires already render at width 2 — a selected sketch needs the extra
 // width on top of the highlight color to stand out from its neighbors.
 const HIGHLIGHT_SKETCH_WIRE_LINE_WIDTH = 3;
+/** A hovered sketch wire reads like a selected one: the width is what makes it stand out of its sketch. */
+const HOVER_SKETCH_WIRE_LINE_WIDTH = HIGHLIGHT_SKETCH_WIRE_LINE_WIDTH;
 
 export type SelectionModifiers = {
   additive: boolean;
@@ -2330,12 +2332,14 @@ export class Viewer {
       return;
     }
 
-    // Don't hover-highlight a currently selected face/edge (same instance).
-    const isSelected = this.highlightedEntities.some((entity) =>
+    // Don't hover-highlight a currently selected face/edge (same instance)
+    // or a selected sketch wire (a dialog's picked seed or input sketch).
+    const isSelected = (this.highlightedEntities.some((entity) =>
       entity.shapeId === result.shapeId &&
       entity.sub.type === result.sub?.type &&
       entity.sub.index === result.sub?.index) &&
-      this.highlightedInstanceId === (result.instanceId ?? null);
+      this.highlightedInstanceId === (result.instanceId ?? null))
+      || (result.sub?.type === 'sketch' && this.highlightedSketchWires.includes(result.shapeId));
     if (isSelected) {
       if (this.hoverState) {
         this.clearHover();
@@ -2353,6 +2357,8 @@ export class Viewer {
       this.applyHoverEdge(result.shapeId, result.sub.index, result.instanceId ?? null);
     } else if (result.sub?.type === 'vertex') {
       this.vertexPicking?.setHover({ shapeId: result.shapeId, sub: result.sub, instanceId: result.instanceId });
+    } else if (result.sub?.type === 'sketch') {
+      this.applyHoverSketchWire(result.shapeId);
     } else if (result.sub?.type === 'axis') {
       this.applyHoverAxis(result.shapeId);
     } else if (result.sub?.type === 'plane') {
@@ -2532,6 +2538,33 @@ export class Viewer {
   }
 
   /** Tint a hovered axis line (whole line — axes have no sub-selection). */
+  /**
+   * Tint a hovered sketch wire (the shape under the cursor on the sketch-pick
+   * channel: one sketched line, arc, circle, ellipse or spline) the way a
+   * selected wire is tinted, so an armed dialog shows which edge a click
+   * would take. `clearHover` restores the saved colour and width.
+   */
+  private applyHoverSketchWire(shapeId: string): void {
+    const group = this.findMeshByShapeId(shapeId);
+    if (!group) {
+      return;
+    }
+    group.traverse((obj) => {
+      if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
+        return;
+      }
+      // A selection-highlighted wire (originalColor saved) keeps its tint.
+      if (obj.userData.hoverOriginalColor !== undefined || obj.userData.originalColor !== undefined) {
+        return;
+      }
+      obj.userData.hoverOriginalColor = (obj as any).material.color.getHex();
+      (obj as any).material.color.set(themeColors.highlightColor);
+      obj.userData.hoverOriginalLineWidth = (obj as any).material.linewidth;
+      (obj as any).material.linewidth = HOVER_SKETCH_WIRE_LINE_WIDTH;
+    });
+    this.ctx.requestRender();
+  }
+
   private applyHoverAxis(shapeId: string): void {
     const group = this.findMeshByShapeId(shapeId);
     if (!group) {

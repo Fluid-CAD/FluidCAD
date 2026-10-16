@@ -28,6 +28,16 @@ rules. The feature tree records both the consumer and what it consumed —
 so swapping a sketch's parameters in source code can be reused without
 re-running everything downstream.
 
+## Feature names are optional
+
+Any feature statement may end in `.name('…')` (`extrude(10).name('Base')`),
+and the FluidCAD UI writes one onto every statement it creates. Code written
+by hand or through MCP may leave it out: an unnamed feature is labelled
+`<Type> <n>` (`Extrude 1`, `Sketch 2`, …) at render time, numbered in file
+order per type, and nothing requires the chain. Names are unique within a
+file — a `.name()` that repeats another statement's name, or a `part()`'s
+name, is refused when set from the UI.
+
 ## A variable names a body, not a snapshot
 
 A modifying feature takes the solid it works on: `fillet(3, e.endEdges())`

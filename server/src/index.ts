@@ -24,7 +24,7 @@ import { loadPreferences } from './preferences.ts';
 import { createHealthRouter } from './routes/health.ts';
 import { createSceneRouter } from './routes/scene.ts';
 import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
-import { createRenderRouter, type RenderOutcome } from './routes/render.ts';
+import { createRenderRouter, type LiveRenderOptions, type RenderOutcome } from './routes/render.ts';
 import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
 import { createShareRouter } from './routes/share.ts';
@@ -180,7 +180,7 @@ app.use('/api', createScreenshotRouter(
 app.use('/api', createPreferencesRouter((prefs) => setMaxWorkers(prefs.maxWorkers)));
 app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));
 app.use('/api', createEditorRouter(dirtyBufferState, editDispatcher));
-app.use('/api', createRenderRouter((fileName, code, keepCurrent, changes) => runLiveRender(fileName, code, keepCurrent, changes), core.awaitLatestSceneApplied));
+app.use('/api', createRenderRouter((fileName, code, options) => runLiveRender(fileName, code, options), core.awaitLatestSceneApplied));
 app.use('/api', createLintRouter());
 app.use('/api', createTextRouter(fluidCadServer));
 app.use('/api', createFeatureGhostRouter(fluidCadServer));
@@ -264,7 +264,11 @@ const lastSceneByFile = new Map<string, {
 
 attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState });
 
-function emitSuccess(version: number, data: SceneRenderedData) {
+/**
+ * Broadcast a completed render. `fitView` rides along to the pages only —
+ * see `UISceneRenderedMessage.fitView`; the editor hosts never move a camera.
+ */
+function emitSuccess(version: number, data: SceneRenderedData, { fitView = false }: { fitView?: boolean } = {}) {
   const { absPath, sceneKind, unit, declaredUnit, result, breakpointHit, assembly, params, properties, objectWarnings } = data;
   lastSceneByFile.set(absPath, { result, ...sceneStopFields(data), sceneKind, unit, declaredUnit, assembly });
   fluidCadServer.setCompileError(null);
@@ -289,6 +293,7 @@ function emitSuccess(version: number, data: SceneRenderedData) {
     properties,
     objectWarnings,
     ...(assembly ? { assembly } : {}),
+    ...(fitView ? { fitView: true } : {}),
   });
   broadcastToUI({ type: 'render-version', version, state: 'end', absPath });
 }
@@ -392,7 +397,11 @@ function emitMissingEngine(version: number, filePath: string): boolean {
  * adds the render's change summary to that outcome; the UI broadcasts never
  * carry it.
  */
-async function runLiveRender(fileName: string, code: string, keepCurrent = false, changes = false): Promise<RenderOutcome> {
+async function runLiveRender(
+  fileName: string,
+  code: string,
+  { keepCurrent = false, changes = false, fitView = false }: Partial<LiveRenderOptions> = {},
+): Promise<RenderOutcome> {
   const startedAt = Date.now();
   const myVersion = ++renderVersion;
   broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
@@ -417,7 +426,7 @@ async function runLiveRender(fileName: string, code: string, keepCurrent = false
       emitMissingEngine(myVersion, fileName);
       return { state: 'no-scene-manager', version: myVersion, durationMs: Date.now() - startedAt };
     }
-    emitSuccess(myVersion, data);
+    emitSuccess(myVersion, data, { fitView });
     // The scene is served either way — a feature that fails to build doesn't
     // abort the render, it just leaves its geometry out. But that is NOT a
     // successful render as far as the caller is concerned, so it gets its own
@@ -510,7 +519,7 @@ async function handleExtensionMessage(msg: any) {
         if (pageWrites.isEcho(msg.fileName, msg.code)) {
           break;
         }
-        await runLiveRender(msg.fileName, msg.code, msg.keepCurrent === true);
+        await runLiveRender(msg.fileName, msg.code, { keepCurrent: msg.keepCurrent === true });
         break;
       }
 

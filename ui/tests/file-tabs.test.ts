@@ -403,6 +403,60 @@ describe('FileTabs active-tab reveal', () => {
     s.frame();
     expect(s.track.style.left).toBe('-250px');
   });
+
+  // An agent writing a second file moves the scene (the underline) without
+  // moving the active tab — the one tab the watcher needs is the scene's.
+  it('scrolls the scene\'s tab into view when the scene moves to a tab that is not active', () => {
+    const s = narrowStrip();
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[0].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('0px');
+    // The scene now comes from the sixth tab (500..600px); the first stays active.
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[5].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe(`-${600 - VIEWPORT_WIDTH}px`);
+    // Another render of the same file re-renders the strip but doesn't scroll it.
+    s.tabs.setTabs(MANY.map((tab, i) => (i === 5 ? { ...tab, dirty: true } : tab)), MANY[0].absPath, MANY[5].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-350px');
+    // The user goes back to the first tab: the active tab wins over an unchanged scene.
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[5].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-350px');
+    s.tabs.setTabs(MANY, MANY[1].absPath, MANY[5].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-100px');
+  });
+
+  // The scene following a render re-renders the strip twice in one tick
+  // (once as the file opens, once after). The reveal must land on the tab
+  // in the document, not on the one the first render built and the second
+  // threw away.
+  it('survives a second render before the frame that measures the reveal', () => {
+    const s = narrowStrip();
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[0].absPath);
+    s.frame();
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[5].absPath);
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[5].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-350px');
+  });
+
+  it('reveals a scene tab that closed and reopened off-screen', () => {
+    const s = narrowStrip();
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[0].absPath);
+    s.frame();
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[5].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-350px');
+    // The scene's tab closes; the strip scrolls back as the track shrinks.
+    s.tabs.setTabs(MANY.slice(0, 5), MANY[0].absPath, null);
+    s.frame();
+    // It reopens as the scene's tab again — off the right edge, so it is revealed afresh.
+    s.tabs.setTabs(MANY, MANY[0].absPath, MANY[5].absPath);
+    s.frame();
+    expect(s.track.style.left).toBe('-350px');
+  });
 });
 
 describe('renamedBasename', () => {

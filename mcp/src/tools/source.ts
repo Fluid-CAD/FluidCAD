@@ -287,6 +287,10 @@ export type RenderOutcome =
  * `changes` asks the server for the render's change summary (see
  * `RenderChanges`); the flag is only sent when set, so an older server
  * sees the request it always did.
+ *
+ * `fitView` asks every connected page to frame the model once the render
+ * is on screen: the person watching an agent model sees each edit land in
+ * frame instead of off-screen. An older server ignores the flag.
  */
 async function triggerRender(
   entry: RegistryEntry,
@@ -300,6 +304,7 @@ async function triggerRender(
       filePath,
       code,
       awaitUi: true,
+      fitView: true,
       ...(changes ? { changes: true } : {}),
     });
     return outcome;

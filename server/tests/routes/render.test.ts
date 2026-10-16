@@ -12,7 +12,7 @@ import { createRenderRouter, type RenderOutcome } from '../../src/routes/render.
 
 let server: http.Server;
 let baseUrl: string;
-let calls: { fileName: string; code: string; keepCurrent: boolean; changes: boolean }[] = [];
+let calls: { fileName: string; code: string; keepCurrent: boolean; changes: boolean; fitView: boolean }[] = [];
 let uiApplied = true;
 let uiWaits = 0;
 
@@ -29,8 +29,8 @@ describe('POST /api/render', () => {
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
-    app.use('/api', createRenderRouter(async (fileName, code, keepCurrent, changes): Promise<RenderOutcome> => {
-      calls.push({ fileName, code, keepCurrent, changes });
+    app.use('/api', createRenderRouter(async (fileName, code, options): Promise<RenderOutcome> => {
+      calls.push({ fileName, code, ...options });
       return { state: 'rendered', version: 1, absPath: fileName, durationMs: 0 };
     }, async () => {
       uiWaits++;
@@ -70,7 +70,17 @@ describe('POST /api/render', () => {
     const { status, body } = await post({ filePath: '/ws/robot.assembly.js', code: '// a' });
     expect(status).toBe(200);
     expect(body.state).toBe('rendered');
-    expect(calls).toEqual([{ fileName: '/ws/robot.assembly.js', code: '// a', keepCurrent: false, changes: false }]);
+    expect(calls).toEqual([{ fileName: '/ws/robot.assembly.js', code: '// a', keepCurrent: false, changes: false, fitView: false }]);
+  });
+
+  // An agent's edit is watched from the viewport, so the MCP asks for the
+  // model to be framed once the render lands; the page's own live-updates
+  // leave the camera alone.
+  it('forwards fitView so an MCP write frames the model on screen', async () => {
+    await post({ filePath: '/ws/arm.part.js', code: '// g', fitView: true });
+    expect(calls[0]?.fitView).toBe(true);
+    await post({ filePath: '/ws/arm.part.js', code: '// h', fitView: 'yes' });
+    expect(calls[1]?.fitView).toBe(false);
   });
 
   // The change summary is the MCP's request, never the page's: the flag

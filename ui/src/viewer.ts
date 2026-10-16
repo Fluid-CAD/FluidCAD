@@ -702,9 +702,14 @@ export class Viewer {
     setBottomRightRowVisible(this.chromeContainer, visible);
   }
 
-  /** Frame the whole model, the way the fit-to-view button does. */
-  fitView(options: Partial<FitPolicy> = {}): void {
-    this.fitViewToScene(options);
+  /**
+   * Frame the whole model, the way the fit-to-view button does. `transition`
+   * false snaps instead of flying: a render an agent asked to be framed is
+   * acknowledged as "on screen" the moment it is applied, and a screenshot
+   * taken on that acknowledgement must not catch the camera mid-flight.
+   */
+  fitView(options: Partial<FitPolicy> = {}, { transition = true }: { transition?: boolean } = {}): void {
+    this.fitViewToScene(options, transition);
   }
 
   /**
@@ -2649,8 +2654,8 @@ export class Viewer {
    * meta shapes. `overrides` is for a one-off fit — the fit button and the
    * embed protocol's `fit` — and leaves the standing policy alone.
    */
-  private fitViewToScene(overrides: Partial<FitPolicy> = {}): void {
-    this.reframeScene({ ...this.fitPolicy, ...overrides }, true);
+  private fitViewToScene(overrides: Partial<FitPolicy> = {}, transition = true): void {
+    this.reframeScene({ ...this.fitPolicy, ...overrides }, transition);
   }
 
   /**

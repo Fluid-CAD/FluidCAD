@@ -3586,6 +3586,14 @@ function applySceneRendered(msg: any): void {
         }
       }
     }
+    // A render an agent asked to be framed (the MCP write tools): whoever is
+    // watching the modeling sees the edit land in frame, instead of off-screen
+    // or at the zoom of a detail they were looking at. Snapped, not flown — the
+    // scene-applied ack goes out right after this, and an agent's screenshot
+    // on that ack must find the camera settled.
+    if (msg.fitView === true) {
+      viewer.fitView({}, { transition: false });
+    }
     // The render wipes the viewer selection and the timeline clears its
     // pick highlight in update() below — a pre-render explain response
     // must not repaint it.

@@ -32,12 +32,14 @@ export class Subtract extends SceneObject {
 
     const newShapes = shapes.map(s => ShapeOps.cleanShapeRaw(s)).map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
 
+    // The tool is cut away entirely — nothing is made of it; the stock
+    // becomes the cut result.
     for (const { holder, shape } of toBeRemoved) {
-      holder.removeShape(shape, this);
+      holder.removeShape(shape, this, []);
     }
 
     for (const { holder, shape } of stock) {
-      holder.removeShape(shape, this);
+      holder.removeShape(shape, this, newShapes);
     }
 
     this.addShapes(newShapes);

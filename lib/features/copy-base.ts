@@ -1,4 +1,5 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import type { Shape } from "../common/shape.js";
 import { Axis } from "../math/axis.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
@@ -119,13 +120,20 @@ export abstract class CopyBase extends SceneObject {
     // A target's own shapes go through `removeShapes` — a datum is only
     // hidden by it — and a body a later feature took from a named target is
     // read where that feature left it (liveOperandShapes) and taken from there.
+    // What the copy makes of each original: the original itself, moved over
+    // as it is, and its clones — the successors its removal records.
     const held = objects.flatMap(obj => liveOperandShapes(obj));
+    const clones = this.stampSlots(held, this.slotLayout().slots);
+    const made = (shape: Shape): Shape[] | undefined => {
+      const list = clones.get(shape);
+      return list ? [shape, ...list] : undefined;
+    };
     for (const obj of objects) {
-      obj.removeShapes(this);
+      obj.removeShapes(this, undefined, made);
     }
     for (const { holder, shape } of held) {
       if (!objects.includes(holder)) {
-        holder.removeShape(shape, this);
+        holder.removeShape(shape, this, made(shape));
       }
     }
     // The originals move over as they are: their colours come along from
@@ -134,8 +142,9 @@ export abstract class CopyBase extends SceneObject {
       this.addShape(shape);
       this.carryFaceColors(holder, shape);
     }
-
-    this.stampSlots(held, this.slotLayout().slots);
+    for (const { shape } of held) {
+      this.addShapes(clones.get(shape) ?? []);
+    }
   }
 
   /**
@@ -156,22 +165,26 @@ export abstract class CopyBase extends SceneObject {
     return this.targetObjects.filter(target => !(target instanceof Connector));
   }
 
-  /** One moved clone of every original shape per slot, in slot order, each with the original's colours. */
-  private stampSlots(held: HeldShape[], slots: CopySlot[]): void {
+  /** One moved clone of every original shape per slot, in slot order, each with the original's colours — keyed by original, not yet added. */
+  private stampSlots(held: HeldShape[], slots: CopySlot[]): Map<Shape, Shape[]> {
     const placements = slots.map(({ matrix }) => matrix.resolve());
+    const clones = new Map<Shape, Shape[]>();
     for (const { holder, shape } of held) {
       const colors = holder.getFaceColors(shape);
+      const made: Shape[] = [];
       try {
         for (const placement of placements) {
           const { shape: transformed, colors: carried } = ShapeOps.transformColored({ shape, colors }, placement);
           transformed.setMeshSource(shape, placement);
-          this.addShape(transformed);
+          made.push(transformed);
           this.recordCarriedColors(carried);
         }
       } finally {
         colors.delete();
       }
+      clones.set(shape, made);
     }
+    return clones;
   }
 
   protected static axisSourceEquals(a: CopyAxisSource, b: CopyAxisSource): boolean {

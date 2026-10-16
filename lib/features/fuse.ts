@@ -4,6 +4,7 @@ import { BooleanOps } from "../oc/boolean-ops.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
 import { requireShapes } from "../common/operand-check.js";
 import { liveOperandShapes } from "../helpers/live-solids.js";
+import { fusedInto } from "../helpers/scene-helpers.js";
 
 export class Fuse extends SceneObject {
   private _sceneObjects: SceneObject[] = [];
@@ -75,9 +76,11 @@ export class Fuse extends SceneObject {
       firstView.delete();
     }
 
+    // Each input leaves its holder for the body the fuse merged it into.
+    const successors = fusedInto(fuseResult.modifiedShapes, fuseResult.newShapes, fuseResult.newShapes, fuseResult.maker);
     for (const shape of fuseResult.modifiedShapes) {
       const obj = objShapeMap.get(shape);
-      obj.removeShape(shape, this);
+      obj.removeShape(shape, this, successors.get(shape));
     }
 
     this.addShapes(fuseResult.newShapes);

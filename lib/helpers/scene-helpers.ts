@@ -190,7 +190,13 @@ export function fuseWithSceneObjects(
  * the fuse swallowed gets no entry — its removal then stands for it with
  * every solid the feature built.
  */
-function fusedInto(consumed: Shape[], results: Shape[], cleaned: Shape[], maker: any): Map<Shape, Shape[]> {
+/**
+ * Which result body each consumed solid went into: `results` are the fuse's
+ * new solids as the maker left them, `cleaned` their cleaned twins in the
+ * same order (pass the results twice when nothing was cleaned). A solid none
+ * of the results holds a face of is absent from the map.
+ */
+export function fusedInto(consumed: Shape[], results: Shape[], cleaned: Shape[], maker: any): Map<Shape, Shape[]> {
   const fused = new Map<Shape, Shape[]>();
   if (cleaned.length === 1) {
     for (const solid of consumed) {

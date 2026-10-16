@@ -1,4 +1,4 @@
-import type { SceneObject } from "../common/scene-object.js";
+import type { SceneObject, ShapeRemovalRecord } from "../common/scene-object.js";
 import type { Shape, ShapeFilter } from "../common/shape.js";
 import type { ShapeType } from "../common/shape-type.js";
 
@@ -122,7 +122,7 @@ function follow(holder: SceneObject, solid: Shape, out: HeldSolid[], seen: Set<S
     out.push({ holder, solid });
     return;
   }
-  const removal = holder.getRemovedShapes().find(r => r.shape === solid && !r.soft);
+  const removal = hardRemovalOf(holder, solid);
   if (!removal) {
     return;
   }
@@ -130,14 +130,26 @@ function follow(holder: SceneObject, solid: Shape, out: HeldSolid[], seen: Set<S
     out.push({ holder, solid });
     return;
   }
-  // A remover that does not say what it made of the solid (a fillet, a
-  // move) stands for it with every solid it built.
-  const successors = removal.successors ?? bodiesBuiltBy(removal.removedBy);
-  for (const successor of successors) {
+  for (const successor of successorsOf(removal)) {
     follow(removal.removedBy, successor, out, seen, options);
   }
 }
 
-function bodiesBuiltBy(obj: SceneObject): Shape[] {
+/** The hard removal that took `solid` off `holder`, if a feature did; a soft (display-only) removal is no removal here. */
+export function hardRemovalOf(holder: SceneObject, solid: Shape): ShapeRemovalRecord | undefined {
+  return holder.getRemovedShapes().find(r => r.shape === solid && !r.soft);
+}
+
+/**
+ * What the remover made of the shape it took: the successors it recorded,
+ * or — for a remover that does not say (a fillet, a move) — every solid it
+ * built. The one rule every forward walk (live operands, body lineage) follows.
+ */
+export function successorsOf(removal: ShapeRemovalRecord): Shape[] {
+  return removal.successors ?? bodiesBuiltBy(removal.removedBy);
+}
+
+/** The solids `obj` built itself — its added shapes, meta and guide shapes aside. */
+export function bodiesBuiltBy(obj: SceneObject): Shape[] {
   return obj.getAddedShapes().filter(s => s.getType() === 'solid' && !s.isMetaShape() && !s.isGuideShape());
 }

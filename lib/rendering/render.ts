@@ -2,6 +2,7 @@ import { RenderedShape, Scene, SceneObjectMesh, SceneObjectRender } from "./scen
 import { MeshBuilder } from "./mesh-builder.js";
 import { SceneObject } from "../common/scene-object.js";
 import { callSiteKey } from "../common/call-site.js";
+import { BodyLineage } from "./lineage.js";
 import { Shape } from "../common/shape.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
@@ -118,6 +119,8 @@ export class SceneRenderer {
   private readonly meshBuilder: MeshBuilder;
   /** Recomputed at the top of every render pass — see computeCallSiteOccurrences. */
   private occurrenceIndexes: Map<SceneObject, number> = new Map();
+  /** One walk per render pass, once every object has built — see BodyLineage. */
+  private lineageKeys: Map<Shape, string> = new Map();
 
   constructor(settings: MeshSettings) {
     this.meshBuilder = new MeshBuilder(settings);
@@ -197,6 +200,7 @@ export class SceneRenderer {
     // published selection stays out of the picture — while feature reads,
     // which call getShapes() scope-less, keep seeing those shapes.
     const renderScope = new Set<SceneObject>(sceneObjects);
+    this.lineageKeys = BodyLineage.keysFor(scene.getTimelineObjects(), this.occurrenceIndexes, renderScope);
 
     const prepared = new Map<SceneObject, PreparedShapes>();
     for (const object of sceneObjects) {
@@ -247,6 +251,7 @@ export class SceneRenderer {
     if (!scope) {
       scope = new Set<SceneObject>(rows.slice(0, rollbackIndex + 1));
     }
+    this.lineageKeys = BodyLineage.keysFor(rows, this.occurrenceIndexes, scope);
 
     scene.clearRenderedObjects();
 
@@ -576,6 +581,9 @@ export class SceneRenderer {
   ): RenderedShape {
     return {
       shapeId: shape.id,
+      lineageKey: shape.getType() === 'solid' && !shape.isMetaShape() && !shape.isGuideShape()
+        ? this.lineageKeys.get(shape)
+        : undefined,
       // Meta shapes carry no topology vertices — except a lone vertex (a
       // circle's centre mark, a point entity's guide), which IS its position:
       // the vertex pick channel offers it as a sketch point.

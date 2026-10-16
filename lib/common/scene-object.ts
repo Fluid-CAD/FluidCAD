@@ -582,7 +582,8 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return false;
   }
 
-  removeShapes(removedBy: SceneObject, force?: boolean) {
+  /** `successors`: what `removedBy` made of each shape, when it knows — see ShapeRemovalRecord. */
+  removeShapes(removedBy: SceneObject, force?: boolean, successors?: (shape: Shape) => Shape[] | undefined) {
     if (this.consumedForDisplayOnly() && !force) {
       this.removeShapesFromDisplay(removedBy);
       return;
@@ -591,13 +592,13 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     if (this.isContainer()) {
 
       for (const child of this.children) {
-        child.removeShapes(removedBy, force);
+        child.removeShapes(removedBy, force, successors);
       }
       return;
     }
 
     for (const shape of this.addedShapes) {
-      this.removeShape(shape, removedBy);
+      this.removeShape(shape, removedBy, successors?.(shape));
     }
   }
 

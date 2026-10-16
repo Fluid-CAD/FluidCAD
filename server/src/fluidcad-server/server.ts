@@ -61,7 +61,8 @@ import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneRendered
 import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import { TimelineHistory } from './timeline-history.ts';
-import type { SceneSummary, SceneSummaryObject, ShapeList, ShapeListEntry } from './scene-summary.ts';
+import type { SceneSummary, SceneSummaryObject, SceneSummaryShape, ShapeList, ShapeListEntry } from './scene-summary.ts';
+import { ShapeLabels } from '../../../lib/dist/rendering/shape-labels.js';
 
 /** How many synthesis answers one rendered scene keeps (see `synthesizeApplyFeatureCached`). */
 const SYNTHESIS_MEMO_LIMIT = 32;
@@ -1832,15 +1833,18 @@ export class FluidCadServer {
         warningsByIndex.set(warning.index, [warning.message]);
       }
     }
+    const labels = ShapeLabels.labelsFor(rendered);
     const objects: SceneSummaryObject[] = rendered.map((r, index) => ({
       index,
       id: r.id,
       kind: r.type,
       uniqueKind: r.uniqueType,
       name: r.name,
+      ...(r.hasCustomName ? { hasCustomName: true } : {}),
       params: sanitizeParams(r.object),
       sourceLocation: r.sourceLocation,
       shapeIds: ((r.sceneShapes ?? []) as any[]).map((s) => s.shapeId),
+      shapes: ((r.sceneShapes ?? []) as any[]).map((s) => FluidCadServer.summaryShape(s, labels)),
       fromCache: !!r.fromCache,
       hasError: !!r.hasError,
       errorMessage: r.errorMessage,
@@ -1870,18 +1874,31 @@ export class FluidCadServer {
       return null;
     }
     const rendered = scene.getRenderedObjects() as any[];
+    const labels = ShapeLabels.labelsFor(rendered);
     const shapes: ShapeListEntry[] = [];
     for (const r of rendered) {
       const sceneShapes = (r.sceneShapes ?? []) as any[];
       for (const s of sceneShapes) {
-        shapes.push({
-          shapeId: s.shapeId,
-          type: s.shapeType,
-          sceneObjectId: r.id,
-        });
+        shapes.push({ ...FluidCadServer.summaryShape(s, labels), sceneObjectId: r.id });
       }
     }
     return { shapes };
+  }
+
+  /**
+   * One rendered shape as the summary and the shape list report it: its id
+   * and type, the Shapes panel's `<Type> <n>` label and part (none on a meta
+   * shape, which has no row) and, for a solid, its lineage key.
+   */
+  private static summaryShape(shape: any, labels: ReadonlyMap<string, { label: string; part: string | null }>): SceneSummaryShape {
+    const labelled = labels.get(shape.shapeId);
+    return {
+      shapeId: shape.shapeId,
+      type: shape.shapeType,
+      ...(labelled ? { label: labelled.label, part: labelled.part } : {}),
+      ...(typeof shape.lineageKey === 'string' ? { lineageKey: shape.lineageKey } : {}),
+      ...(shape.isMetaShape ? { isMetaShape: true as const } : {}),
+    };
   }
 
   /**

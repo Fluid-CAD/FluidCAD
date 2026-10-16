@@ -22,6 +22,7 @@ export type {
   SceneRenderedData,
   SceneSummary,
   SceneSummaryObject,
+  SceneSummaryShape,
   ShapeList,
   ShapeListEntry,
 } from './fluidcad-server/index.ts';

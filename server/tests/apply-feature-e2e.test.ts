@@ -1321,7 +1321,7 @@ describe('create into the active part from a sketch drawn before it', () => {
       activePart: { line: 5, column: 21 },
     });
     expect(edited.error).toBeUndefined();
-    expect(edited.newCode).toContain(`export const part1 = part('Part 1', () => {\n  extrude(10, s)\n`);
+    expect(edited.newCode).toContain(`export const part1 = part('Part 1', () => {\n  extrude(10, s).name('Extrude 1')\n`);
 
     const scene = runFluid(edited.newCode.replace(/^export /gm, ''));
     const built = scene.getAllSceneObjects().find(o => o.getType() === 'extrude');

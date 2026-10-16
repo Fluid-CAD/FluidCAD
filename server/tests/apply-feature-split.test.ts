@@ -55,7 +55,7 @@ describe('split statement templates', () => {
       `const f = extrude(30)`,
       `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
-      `split('yz', { keep: 'front' }, f, f2)`,
+      `split('yz', { keep: 'front' }, f, f2).name('Split 1')`,
       ``,
     ].join('\n'));
   });
@@ -67,7 +67,7 @@ describe('split statement templates', () => {
       targets: [],
     }, { producers: [] }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode.endsWith(`cut(5)\nsplit('xz')\n`)).toBe(true);
+    expect(result.newCode.endsWith(`cut(5)\nsplit('xz').name('Split 1')\n`)).toBe(true);
     expect(result.newCode).toContain(`import { split, sketch`);
   });
 
@@ -95,7 +95,7 @@ describe('split statement templates', () => {
         targets: [],
       }, { producers: [], activePart }));
       expect(result.error).toBeUndefined();
-      expect(result.newCode.endsWith(`  extrude(30)\n  split('xz')\n})\n`)).toBe(true);
+      expect(result.newCode.endsWith(`  extrude(30)\n  split('xz').name('Split 1')\n})\n`)).toBe(true);
     });
 
     it('appends a plane-feature split of every solid inside the active part', async () => {
@@ -108,7 +108,7 @@ describe('split statement templates', () => {
         activePart,
       }));
       expect(result.error).toBeUndefined();
-      expect(result.newCode.endsWith(`  extrude(30)\n  split(p, { keep: 'front' })\n})\n`)).toBe(true);
+      expect(result.newCode.endsWith(`  extrude(30)\n  split(p, { keep: 'front' }).name('Split 1')\n})\n`)).toBe(true);
     });
 
     it('keeps a split with a target beside that target inside the part', async () => {
@@ -121,7 +121,7 @@ describe('split statement templates', () => {
         activePart,
       }));
       expect(result.error).toBeUndefined();
-      expect(result.newCode).toContain(`  const f = extrude(30)\n  split('xz', f)\n})\n`);
+      expect(result.newCode).toContain(`  const f = extrude(30)\n  split('xz', f).name('Split 1')\n})\n`);
     });
   });
 
@@ -179,7 +179,7 @@ describe('split statement templates', () => {
       `  const l1 = line([0, -60], [0, 60]).guide()`,
       `  return { l1 };`,
       `})`,
-      `split(s.geometries.l1, { keep: 'back' }, e)`,
+      `split(s.geometries.l1, { keep: 'back' }, e).name('Split 1')`,
       ``,
     ].join('\n'));
   });
@@ -206,7 +206,7 @@ describe('split statement templates', () => {
       ],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  const c1 = circle([0, 0], 40).guide()\n  return { c1 };\n})\nsplit(s.geometries.c1, { keep: 'front' }, e)\n`);
+    expect(result.newCode).toContain(`  const c1 = circle([0, 0], 40).guide()\n  return { c1 };\n})\nsplit(s.geometries.c1, { keep: 'front' }, e).name('Split 1')\n`);
   });
 
   it('exports a bezier seed, which is geometry but no solver entity', async () => {
@@ -231,7 +231,7 @@ describe('split statement templates', () => {
       ],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  const bz1 = bezier([-20, -60], [-30, 0], [30, 0], [20, 60]).guide()\n  return { bz1 };\n})\nsplit(s.geometries.bz1, e)\n`);
+    expect(result.newCode).toContain(`  const bz1 = bezier([-20, -60], [-30, 0], [30, 0], [20, 60]).guide()\n  return { bz1 };\n})\nsplit(s.geometries.bz1, e).name('Split 1')\n`);
   });
 
   it('binds the feature that built a painted body, not the color() that painted it', async () => {
@@ -254,7 +254,7 @@ describe('split statement templates', () => {
       producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const f = extrude(30)\ncolor('red')\nsplit('yz', f)\n`);
+    expect(result.newCode).toContain(`const f = extrude(30)\ncolor('red')\nsplit('yz', f).name('Split 1')\n`);
   });
 
   it('refuses a color() statement as the target: it holds no body', async () => {

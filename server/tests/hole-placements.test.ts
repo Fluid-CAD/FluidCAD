@@ -61,7 +61,7 @@ describe('hole statement templates', () => {
     }, { producers: [BOLT, PLATE] }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  const bolt = connector('bolt', e.endFaces().center())`);
-    expect(result.newCode).toContain(`  hole('M6', bolt).clearance('close').counterbore().depth(12, 118).scope(e)\n})`);
+    expect(result.newCode).toContain(`  hole('M6', bolt).clearance('close').counterbore().depth(12, 118).scope(e).name('Hole 1')\n})`);
     expect(result.newCode).toContain(`import { hole, part, sketch`);
   });
 
@@ -71,7 +71,7 @@ describe('hole statement templates', () => {
     }, { producers: [BOLT] }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  const bolt = connector('bolt', e.endFaces().center())`);
-    expect(result.newCode).toContain(`  hole('M6', bolt, bolt.instance(1)).clearance('close')\n})`);
+    expect(result.newCode).toContain(`  hole('M6', bolt, bolt.instance(1)).clearance('close').name('Hole 1')\n})`);
   });
 
   it('refuses a connector slot that is not a whole number counting from 0', async () => {
@@ -89,16 +89,16 @@ describe('hole statement templates', () => {
       size: { kind: 'diameter', value: 5 }, fastener: null,
       style: { kind: 'counterbore', diameter: 9, depth: 4 }, placements: [{ kind: 'connector', producer: 0 }],
     }, { producers: [BOLT] }));
-    expect(drilled.newCode).toContain(`hole(5, bolt).counterbore(9, 4)\n`);
+    expect(drilled.newCode).toContain(`hole(5, bolt).counterbore(9, 4).name('Hole 1')\n`);
     const tapped = await applyFeatureEdit(plate, holeSpec({
       fastener: { type: 'tapped', pitch: 0.75 }, style: { kind: 'countersink', diameter: null, angle: null },
       depth: 8, placements: [{ kind: 'connector', producer: 0 }],
     }, { producers: [BOLT] }));
-    expect(tapped.newCode).toContain(`hole('M6', bolt).tapped(0.75).countersink().depth(8)\n`);
+    expect(tapped.newCode).toContain(`hole('M6', bolt).tapped(0.75).countersink().depth(8).name('Hole 1')\n`);
     const coarse = await applyFeatureEdit(plate, holeSpec({
       fastener: { type: 'tapped', pitch: null }, placements: [{ kind: 'connector', producer: 0 }],
     }, { producers: [BOLT] }));
-    expect(coarse.newCode).toContain(`hole('M6', bolt).tapped()\n`);
+    expect(coarse.newCode).toContain(`hole('M6', bolt).tapped().name('Hole 1')\n`);
   });
 
   it('exports a sketch point through the sketch return and names it from outside', async () => {
@@ -113,7 +113,7 @@ describe('hole statement templates', () => {
     // `p` is taken by `plate`, so the hoist steps to the next free name.
     expect(result.newCode).toContain(`    const p1 = point([-20, 0])`);
     expect(result.newCode).toContain(`    return { c, p1 };`);
-    expect(result.newCode).toContain(`  hole('M6', s.geometries.c.center(), s.geometries.p1).clearance('close')\n})`);
+    expect(result.newCode).toContain(`  hole('M6', s.geometries.c.center(), s.geometries.p1).clearance('close').name('Hole 1')\n})`);
   });
 
   it('creates a named connector inside the part for an anchor and drills at it', async () => {
@@ -130,7 +130,7 @@ describe('hole statement templates', () => {
     }, { producers: [BOLT] }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  const h1 = connector('h1', e.endFaces(0).center())`);
-    expect(result.newCode).toContain(`  hole('M6', h1, bolt).clearance('close')\n})`);
+    expect(result.newCode).toContain(`  hole('M6', h1, bolt).clearance('close').name('Hole 1')\n})`);
     // The new statement lands before the hole, inside the part body.
     expect(result.newCode.indexOf(`const h1 =`)).toBeLessThan(result.newCode.indexOf(`hole('M6'`));
   });
@@ -157,7 +157,7 @@ describe('hole statement templates', () => {
     expect(result.newCode).toContain(`import { edge } from 'fluidcad/filters'`);
     expect(result.newCode).toContain(`  const h1 = connector('h1', e.endEdges(edge().above('xz')).center())`);
     expect(result.newCode).toContain(`  const h2 = connector('h2', e.endEdges(edge().below('xz')).center())`);
-    expect(result.newCode).toContain(`  hole('M6', h1, h2).clearance('close')\n})`);
+    expect(result.newCode).toContain(`  hole('M6', h1, h2).clearance('close').name('Hole 1')\n})`);
   });
 
   it('exports a sketch point after a new connector adds an import line above it', async () => {
@@ -180,7 +180,7 @@ describe('hole statement templates', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`import { edge } from 'fluidcad/filters'`);
     expect(result.newCode).toContain(`    const p1 = point([-20, 0])`);
-    expect(result.newCode).toContain(`  hole('M6', h1, s.geometries.p1).clearance('close')\n})`);
+    expect(result.newCode).toContain(`  hole('M6', h1, s.geometries.p1).clearance('close').name('Hole 1')\n})`);
   });
 
   it('refuses a new connector whose name the part already declares', async () => {
@@ -215,7 +215,7 @@ describe('hole statement templates', () => {
       parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const e = extrude(10)\nhole(6.4, e.endFaces(0).center())\n`);
+    expect(result.newCode).toContain(`const e = extrude(10)\nhole(6.4, e.endFaces(0).center()).name('Hole 1')\n`);
   });
 
   it('refuses an empty placement list and an unstaged placement', async () => {

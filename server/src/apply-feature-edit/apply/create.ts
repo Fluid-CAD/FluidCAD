@@ -28,6 +28,7 @@ import type { RepeatAxisSpec, RepeatPlaneSpec } from '../features/repeat.ts';
 import { validTextStatementOptions } from '../features/text.ts';
 import { validHoleFasten, validHoleOptions, validHolePlacementSlot } from '../features/hole.ts';
 import { appendTopLevelStatement, declarationsBefore, resolveInsertion } from '../insertion.ts';
+import { FeatureNames } from '../../feature-names.ts';
 import { allocateNames, resolveProducerBindings } from '../producers/bindings.ts';
 import {
   isAxisProducer,
@@ -637,6 +638,10 @@ export async function applyCreateEdit(
     return { newCode: code, error: insertion.error };
   }
   let statementText = buildStatement(spec, bindings, insertion.indent, extras.foreignArgs ?? []);
+  // The row's name, written with the statement (D2): "<DisplayType> <n>"
+  // past every such name the file holds. Nothing inside a sketch body and
+  // no callee without a display type takes one.
+  statementText += FeatureNames.chainFor(tree, statementCallee(spec), insertion.index);
   let useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
 
   type Edit = { index: number; text: string };

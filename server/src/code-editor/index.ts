@@ -26,10 +26,12 @@ export {
   type SpliceEdit,
 } from './lines.ts';
 export {
+  chainBaseCall,
   chainRootCallee,
   collectBoundNames,
   enclosingStatementOf,
   findEditableCallAt,
+  getArgumentsNode,
   stringLiteralValue,
   walkTree,
 } from './nodes.ts';

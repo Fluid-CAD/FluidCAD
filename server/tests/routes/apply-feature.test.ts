@@ -5573,6 +5573,43 @@ describe('apply-feature route validation', () => {
       expect(body.preview).toBe("split('yz')");
     });
 
+    // Re-picking a seed edge on an edit (clearing the chip and clicking the
+    // line again, or picking another line) previews the export the apply
+    // writes — an already exported line keeps its name.
+    it('previews a re-picked seed edge as its sketch export, new or already exported', async () => {
+      currentFileName = '/ws/m.fluid.js';
+      const SEED_EDIT_CODE = [
+        "import { sketch, circle, line, extrude, split } from 'fluidcad/core'",
+        '',
+        "sketch('xy', () => { circle([0, 0], 100) })",
+        'const e = extrude(30)',
+        "const s = sketch('xy', () => {",
+        '  const l1 = line([0, -50], [0, 50]).guide()',
+        '  const l2 = line([-50, 0], [50, 0]).guide()',
+        '  return { l1 };',
+        '})',
+        "split(s.geometries.l1, { keep: 'front' }, e)",
+        '',
+      ].join('\n');
+      currentCode = SEED_EDIT_CODE;
+      const seed = (line: number) => ({
+        kind: 'sketchEdge',
+        sketch: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
+        line: { filePath: '/ws/m.fluid.js', line, column: 2 },
+      });
+      const edit = { filePath: '/ws/m.fluid.js', line: 10, column: 0 };
+
+      const same = await post({ feature: 'split', edit, keep: 'front', plane: seed(6), preview: true });
+      expect(same.status).toBe(200);
+      expect(same.body.preview).toBe("split(s.geometries.l1, { keep: 'front' }, e)");
+
+      const other = await post({ feature: 'split', edit, keep: 'back', plane: seed(7) });
+      expect(other.status).toBe(200);
+      expect(other.body.preview).toBe("split(s.geometries.l2, { keep: 'back' }, e)");
+      expect(relayed[0].spec.edit.split.plane).toEqual({ kind: 'sketchEdge', producer: 0, target: { line: 7 } });
+      expect(relayed[0].spec.producers[0]).toMatchObject({ line: 5, column: 0, featureType: 'sketch', bind: true });
+    });
+
     it('rejects a bad keep on an edit', async () => {
       const { status, body } = await post({ feature: 'split', edit: EDIT, keep: 'left' });
       expect(status).toBe(400);

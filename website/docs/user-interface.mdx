@@ -16,19 +16,21 @@ The workspace is one browser tab: a top bar with the open files, a toolbar, a pa
   alt="FluidCAD with a hinge leaf open: top bar, toolbar, panels and viewport"
   markers={[
     {n: 1, x: 20, y: 2.6, label: 'File tabs', description: 'Every open file is a tab. The current model tab owns the viewport; drag to reorder, right-click to rename.'},
-    {n: 2, x: 35, y: 2.6, label: '+ (Open a file)', description: 'Opens a box listing every file in the workspace. Pick one to open it as a tab, or type a name that does not exist to create it.'},
-    {n: 3, x: 91, y: 2.6, label: 'Import', description: 'Imports a STEP file into imports/ and appends a load() statement.'},
-    {n: 4, x: 94, y: 2.6, label: 'Export', description: 'Lists the scene’s solids; pick one for the STEP / STL / PNG dialog. In an assembly the list leads with Whole assembly.'},
-    {n: 5, x: 35, y: 8.3, label: 'Toolbar', description: 'Sketch, the create features (Extrude … Hole), the pick tools (Fillet, Chamfer, Shell, Offset), datums and transforms, Boolean, and the structure tools Part and Connector. Undo / Redo sit at the left end.'},
-    {n: 6, x: 1.7, y: 14.2, label: 'Feature tree', description: 'Shows or hides the panel column.'},
-    {n: 7, x: 1.7, y: 18.2, label: 'Code editor', description: 'Docks the source editor on the left (Ctrl+B). The editor takes width from the viewport rather than covering it.'},
-    {n: 8, x: 12, y: 15.2, label: 'History', description: 'One row per feature, in file order. See below for what clicks do.'},
-    {n: 9, x: 17.7, y: 15.2, label: 'History menu', description: 'Recompute scene (clears the cache and rebuilds everything) and Show execution time.'},
-    {n: 10, x: 12, y: 81.7, label: 'Shapes', description: 'The solids the model produced, grouped by part. Click a row to select it; the row menu hides it, sets transparency, or exports it.'},
-    {n: 11, x: 12, y: 95, label: 'Parameters', description: 'One control per param() and one row per property(). + adds a parameter or a property, the arrow resets all values to their defaults.'},
-    {n: 12, x: 96.5, y: 95.5, label: 'Shape properties', description: 'Volume, surface area, mass and centre of mass of a solid or of a whole part, from the part’s material.'},
-    {n: 13, x: 93, y: 95.5, label: 'Unit', description: 'The document unit. Readouts and dialogs use it; the menu switches the display to mm / in / same as project.'},
-    {n: 14, x: 96.5, y: 16.5, label: 'View cube', description: 'Click a face or an axis dot for that view. Below it: fit to view, and the grid / projection toggles.'},
+    {n: 2, x: 35.2, y: 2.6, label: '+ (Open a file)', description: 'Opens a box listing every file in the workspace. Pick one to open it as a tab, or type a name that does not exist to create it.'},
+    {n: 3, x: 86.3, y: 2.6, label: 'Share', description: 'Publishes the model and the files it imports to the FluidCAD viewer and gives you the public link; anyone with it sees the model and its source.'},
+    {n: 4, x: 88.8, y: 2.6, label: 'Import', description: 'Imports a STEP file into imports/ and appends a load() statement.'},
+    {n: 5, x: 91.7, y: 2.6, label: 'Export', description: 'Lists the scene’s solids; pick one for the STEP / STL / PNG dialog. In an assembly the list leads with Whole assembly.'},
+    {n: 6, x: 95.6, y: 2.6, label: 'Settings', description: 'Appearance, Editor, Sketch, Timeline, Units, Materials and Advanced.'},
+    {n: 7, x: 35, y: 8.3, label: 'Toolbar', description: 'Part, Sketch, the create features (Extrude … Hole), the pick tools (Fillet, Chamfer, Shell), the transforms (Repeat, Copy, Mirror, Rotate, Split), Boolean and Connector. Undo / Redo sit at the left end.'},
+    {n: 8, x: 1.6, y: 14.2, label: 'Feature tree', description: 'Shows or hides the panel column.'},
+    {n: 9, x: 1.6, y: 18.2, label: 'Code editor', description: 'Docks the source editor on the left (Ctrl+B). The editor takes width from the viewport rather than covering it.'},
+    {n: 10, x: 12, y: 15.2, label: 'History', description: 'One row per feature, in file order, named Sketch 1, Extrude 1, … until you rename one. See below for what clicks do.'},
+    {n: 11, x: 17.7, y: 15.2, label: 'History menu', description: 'Recompute scene (clears the cache and rebuilds everything) and Show execution time.'},
+    {n: 12, x: 12, y: 73.9, label: 'Shapes', description: 'The solids the model produced, grouped by part, each named Solid 1, Solid 2, … with the feature that holds it beneath. Click a row to select it; the row menu hides it, sets transparency, or exports it.'},
+    {n: 13, x: 12, y: 88.3, label: 'Parameters', description: 'One control per param() and one row per property(). + adds a parameter or a property, the arrow resets all values to their defaults.'},
+    {n: 14, x: 96.5, y: 95.5, label: 'Shape properties', description: 'Volume, surface area, mass and centre of mass of a solid or of a whole part, from the part’s material.'},
+    {n: 15, x: 93.2, y: 95.6, label: 'Unit', description: 'The document unit. Readouts and dialogs use it; the menu switches the display to mm / in / same as project.'},
+    {n: 16, x: 96.5, y: 16.4, label: 'View cube', description: 'Click a face or an axis dot for that view. Below it: the view menu (grid, projection and connector toggles), section views, and fit to view.'},
   ]}
 />
 
@@ -83,8 +85,6 @@ Reloading the page preserves this history while the server is running. Opening a
 The **Shapes** panel lists the solids the model produced, grouped by part: one collapsible group per part, with shapes that belong to no part under **Model**. A row reads `Solid 1`, `Solid 2`, … (numbered per part and per shape type, in the order the features built them) with `from <feature>` beneath it, the feature whose statement currently holds the body — a fillet on `Extrude 1`'s solid moves that line to the fillet. Clicking a row selects the solid in the viewport; the row menu toggles visibility, sets transparency, and opens the export dialog for that solid.
 
 Hiding a body or making it transparent follows the body itself, not the row: the setting stays through later features that reshape it (a fillet, a chamfer, a shell, a cut), through edits to earlier features that rebuild it, and both halves of a split inherit it. A body whose feature was removed loses the setting with it.
-
-{/* TODO screenshot: the overview figure above still shows the Shapes panel grouped by type. */}
 
 The scale icon at the bottom right opens **Shape properties**. The **Part | Solid** tabs at the top choose what the numbers describe, and **Calculate** fills **Volume**, **Surface Area**, **Mass** and **Center of Mass** in the chosen length and mass units. A density is never typed: mass comes from a material, and **Density** under it is read-only.
 

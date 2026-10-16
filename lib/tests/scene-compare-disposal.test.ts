@@ -12,17 +12,7 @@ import { } from "../core/2d/index.js";
 import { face } from "../filters/index.js";
 import { testRect } from "./helpers/profiles.js";
 import { faceColorEntriesOf } from "./utils.js";
-
-const ACTOR_RECORD_KEYS: { key: string; actorField: string }[] = [
-  { key: 'removedShapes', actorField: 'removedBy' },
-  { key: 'addedFaces', actorField: 'addedBy' },
-  { key: 'addedEdges', actorField: 'addedBy' },
-  { key: 'modifiedFaces', actorField: 'modifiedBy' },
-  { key: 'modifiedEdges', actorField: 'modifiedBy' },
-  { key: 'removedFaces', actorField: 'removedBy' },
-  { key: 'removedEdges', actorField: 'removedBy' },
-  { key: 'faceColors', actorField: 'setBy' },
-];
+import { ActorRecords } from "../rendering/actor-records.js";
 
 function findByType(objects: SceneObject[], uniqueType: string): SceneObject {
   const found = objects.find(o => o.getUniqueType() === uniqueType);
@@ -234,7 +224,7 @@ describe("SceneCompare resource disposal", () => {
     const newObjects = new Set(newScene.getAllSceneObjects());
     let recordCount = 0;
     for (const obj of newScene.getAllSceneObjects()) {
-      for (const { key, actorField } of ACTOR_RECORD_KEYS) {
+      for (const { key, actorField } of ActorRecords.KEYS) {
         const records = obj.getFullState().get(key) ?? [];
         for (const record of records) {
           recordCount++;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { setupOC } from "./setup.js";
+import { setupOC, render } from "./setup.js";
 import { getSceneManager } from "../scene-manager.js";
 import { AssemblyCompare } from "../rendering/assembly-compare.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
@@ -11,6 +11,8 @@ import extrude from "../core/extrude.js";
 import expose from "../core/expose.js";
 import remove from "../core/remove.js";
 import param from "../core/param.js";
+import color from "../core/color.js";
+import { Extrude } from "../features/extrude.js";
 import { testRect } from "./helpers/profiles.js";
 
 // Mirrors the server's per-render module reload: every render creates fresh
@@ -146,5 +148,47 @@ describe("AssemblyCompare part pairing", () => {
     for (const beam of beams) {
       expect(result.isCached(beam)).toBe(true);
     }
+  });
+});
+
+// A part's face-colour records name the color() statement that painted
+// them, and a render serves a record only when that statement is in the
+// render's scope. The compare hands a cached part's records to the new
+// scene — they must name the NEW color() instance, or the part renders
+// grey on every render after the first (the watcher / live-update path).
+describe("AssemblyCompare colour records", () => {
+  setupOC();
+
+  function buildPaintedAssembly(): AssemblyScene {
+    const scene = getSceneManager().startAssemblyScene();
+    const gear = part("Gear", () => {
+      sketch("xy", () => { testRect(20, 20); });
+      extrude(8);
+      color("steelblue");
+    });
+    insert(gear);
+    return scene;
+  }
+
+  function faceColorsOf(scene: AssemblyScene, partName: string): (string | undefined)[] {
+    const body = topPart(scene, partName).getChildren().find(child => child instanceof Extrude);
+    expect(body).toBeDefined();
+    const row = scene.getRenderedObject(body!);
+    expect(row).not.toBeNull();
+    expect(row!.sceneShapes).toHaveLength(1);
+    return row!.sceneShapes[0].meshes!.filter(m => m.label === "solid-faces").map(m => m.color);
+  }
+
+  it("keeps a cached part's paint across a compare", () => {
+    const scene1 = buildPaintedAssembly();
+    render();
+    expect(faceColorsOf(scene1, "Gear")).toEqual(["#4682b4"]);
+
+    const scene2 = buildPaintedAssembly();
+    const result = AssemblyCompare.compare(scene1, scene2);
+    expect(result.isCached(topPart(result, "Gear"))).toBe(true);
+
+    render();
+    expect(faceColorsOf(result, "Gear")).toEqual(["#4682b4"]);
   });
 });

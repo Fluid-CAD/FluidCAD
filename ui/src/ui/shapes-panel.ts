@@ -3,7 +3,8 @@ import { ICON_EYE, ICON_EYE_OFF, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL } from '
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { AccordionSection } from './accordion-section';
 import { iconUrl } from './icon-url';
-import { findEnclosingPartRow, sourceLocKey } from '../helpers/scene-utils';
+import { sourceLocKey } from '../helpers/scene-utils';
+import { ShapeLabels } from '../../../lib/rendering/shape-labels.js';
 
 /** One listed shape: its action handle, its `<Type> <n>` label and the row that holds it. */
 type ShapeRow = {
@@ -25,7 +26,8 @@ type ShapeGroup = {
  * The Shapes section of the docked column: every non-meta shape the render
  * produced, grouped by the part that holds it (part-less shapes under
  * "Model"), each row `<Type> <n>` — n counted per part and per shape type in
- * timeline order — over the feature that holds it ("from Extrude 2").
+ * timeline order, the rule `ShapeLabels` owns and the scene summary shares —
+ * over the feature that holds it ("from Extrude 2").
  *
  * The number is a label, never an identity: the eye and the row menu act on
  * `data-shape-id`, which the viewer translates per render (lineage keys keep
@@ -36,7 +38,7 @@ type ShapeGroup = {
 export class ShapesPanel extends AccordionSection {
   /** Group key of the shapes no part holds. */
   static readonly MODEL_GROUP_KEY = 'model';
-  private static readonly MODEL_GROUP_TITLE = 'Model';
+  private static readonly MODEL_GROUP_TITLE = ShapeLabels.MODEL_LABEL;
 
   private panel: HTMLElement;
   private sceneObjects: SceneObjectRender[] = [];
@@ -84,34 +86,22 @@ export class ShapesPanel extends AccordionSection {
 
   /**
    * The groups in display order: "Model" first when it has shapes, then one
-   * group per part in timeline order of the part rows. Ordinals restart per
-   * group and per shape type, counting holders in timeline order and shapes
-   * in their holder's order.
+   * group per part in timeline order of the part rows. Labels and parts come
+   * from `ShapeLabels` (holders in timeline order, shapes in their holder's
+   * order), so a row reads exactly as the scene summary reports it.
    */
   private buildGroups(): ShapeGroup[] {
     const partGroups = new Map<string, ShapeGroup>();
     const model: ShapeGroup = { key: ShapesPanel.MODEL_GROUP_KEY, title: ShapesPanel.MODEL_GROUP_TITLE, rows: [] };
-    const ordinals = new Map<string, number>();
 
-    for (const obj of this.sceneObjects) {
-      const shapes = (obj.sceneShapes ?? []).filter((shape) => !shape.isMetaShape);
-      if (shapes.length === 0) {
-        continue;
-      }
-      const part = obj.type === 'part' ? obj : findEnclosingPartRow(obj, this.sceneObjects);
-      const group = part ? ShapesPanel.groupFor(part, partGroups) : model;
-      for (const shape of shapes) {
-        const type = shape.shapeType || 'unknown';
-        const ordinalKey = `${group.key}\0${type}`;
-        const ordinal = (ordinals.get(ordinalKey) ?? 0) + 1;
-        ordinals.set(ordinalKey, ordinal);
-        group.rows.push({
-          shapeId: shape.shapeId || '',
-          shapeType: type,
-          label: `${ShapesPanel.capitalize(type)} ${ordinal}`,
-          holderName: obj.name ?? '',
-        });
-      }
+    for (const labelled of ShapeLabels.labelsFor(this.sceneObjects).values()) {
+      const group = labelled.partRow ? ShapesPanel.groupFor(labelled.partRow, partGroups) : model;
+      group.rows.push({
+        shapeId: labelled.shapeId,
+        shapeType: labelled.shapeType,
+        label: labelled.label,
+        holderName: labelled.holder.name ?? '',
+      });
     }
 
     const groups = [...partGroups.values()];
@@ -144,10 +134,6 @@ export class ShapesPanel extends AccordionSection {
     }
     const base = sourceLocKey(loc);
     return loc.occurrence != null ? `${base}#${loc.occurrence}` : base;
-  }
-
-  private static capitalize(text: string): string {
-    return text.charAt(0).toUpperCase() + text.slice(1);
   }
 
   private static escapeHtml(text: string): string {

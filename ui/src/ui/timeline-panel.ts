@@ -2001,44 +2001,85 @@ export class TimelinePanel {
 
   /**
    * Swap the row context menu's content for an inline rename input. The
-   * input edits the feature's chained `.name('…')`: Enter commits (an empty
-   * value clears the chain, reverting to the default name), Escape or the
-   * menu's click-outside handler dismisses without committing. A part is
-   * renamed in its `part('…', …)` statement instead, and its variable with it.
+   * input starts on the row's current name — the custom `.name('…')` or the
+   * default `<Type> <n>` label the lib assigned — selected, so typing
+   * replaces it. Enter commits a changed, non-empty name: a feature's chained
+   * `.name('…')` is written or edited in place; a part is renamed in its
+   * `part('…', …)` statement instead, and its variable with it. An empty
+   * value or the unchanged name just closes: nothing is sent, the name stays
+   * (clearing a name is a code edit, not a rename). Names are unique per
+   * file: a name another row already holds keeps the input open with the
+   * clash under it and sends nothing — the server refuses the same clash
+   * with a toast when the panel's list is stale. Escape or the menu's
+   * click-outside handler dismisses without committing.
    */
   private showRenameInput(dropdown: HTMLDivElement, obj: SceneObjectRender): void {
-    const type = obj.type ?? '';
-    const defaultName = type ? type.charAt(0).toUpperCase() + type.slice(1) : 'Feature';
-    const currentName = obj.hasCustomName ? (obj.name ?? '') : '';
+    const currentName = obj.name ?? '';
 
     dropdown.innerHTML = `
       <div class="p-1.5 w-[180px]">
         <input data-ref="rename-input" type="text" spellcheck="false"
           class="input input-xs input-bordered w-full bg-transparent"
-          placeholder="${this.escapeHtml(defaultName)}" />
+          placeholder="${this.escapeHtml(currentName)}" />
+        <div data-ref="rename-error" class="hidden mt-1 text-xs text-error leading-tight"></div>
       </div>
     `;
 
     const input = dropdown.querySelector<HTMLInputElement>('[data-ref="rename-input"]')!;
+    const error = dropdown.querySelector<HTMLElement>('[data-ref="rename-error"]')!;
     input.value = currentName;
     input.focus();
     input.select();
+
+    input.addEventListener('input', () => {
+      input.classList.remove('input-error');
+      error.classList.add('hidden');
+    });
 
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
         const next = input.value.trim();
-        if (next !== currentName) {
-          if (obj.type === 'part' && next) {
-            void this.client.editor?.renamePart(obj.sourceLocation!, next);
-          } else {
-            this.client.editor?.renameFeature(obj.sourceLocation!, next || null);
-          }
+        if (!next || next === currentName) {
+          this.closeDropdown();
+          return;
+        }
+        const clash = this.findNameClash(next, obj);
+        if (clash) {
+          input.classList.add('input-error');
+          error.textContent = `'${next}' is already used by ${clash.name ?? 'another row'}`;
+          error.classList.remove('hidden');
+          return;
+        }
+        if (obj.type === 'part') {
+          void this.client.editor?.renamePart(obj.sourceLocation!, next);
+        } else {
+          this.client.editor?.renameFeature(obj.sourceLocation!, next);
         }
         this.closeDropdown();
       } else if (e.key === 'Escape') {
         this.closeDropdown();
       }
+    });
+  }
+
+  /**
+   * The row in the same file that already carries `name` — a custom
+   * `.name('…')` or a part's name — other than the row being renamed. Default
+   * `<Type> <n>` labels never clash: the lib renumbers them past a custom
+   * name. Undefined when the name is free as far as this render knows.
+   */
+  private findNameClash(name: string, obj: SceneObjectRender): SceneObjectRender | undefined {
+    const file = obj.sourceLocation?.filePath;
+    return this.sceneObjects.find((row) => {
+      if (row === obj || row.name !== name) {
+        return false;
+      }
+      if (!row.hasCustomName && row.type !== 'part') {
+        return false;
+      }
+      const rowFile = row.sourceLocation?.filePath;
+      return file == null || rowFile == null || rowFile === file;
     });
   }
 

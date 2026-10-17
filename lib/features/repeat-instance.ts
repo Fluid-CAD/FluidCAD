@@ -66,9 +66,9 @@ export class RepeatInstance extends LazySelectionSceneObject {
     }
   }
 
-  override removeShapes(removedBy: SceneObject, force?: boolean): void {
+  override removeShapes(removedBy: SceneObject, force?: boolean, successors?: (shape: Shape) => Shape[] | undefined): void {
     for (const root of this.getRoots()) {
-      root.removeShapes(removedBy, force);
+      root.removeShapes(removedBy, force, successors);
     }
   }
 

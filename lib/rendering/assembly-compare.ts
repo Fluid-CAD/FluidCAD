@@ -1,6 +1,6 @@
 import { SceneObject } from "../common/scene-object.js";
-import { Shape } from "../common/shape.js";
 import { AssemblyScene } from "./assembly-scene.js";
+import { ActorRecords } from "./actor-records.js";
 import { Part } from "../features/part.js";
 import { canonicalVariantKey, toOverrideMap } from "../features/param-overrides.js";
 import type { RenderChangeTracker } from "./render-changes.js";
@@ -91,24 +91,15 @@ export class AssemblyCompare {
     // changes — bodies drift in z and laterally. Skipping inheritance
     // forces the controller's slow path every render; build(), .brep
     // import, and triangulation are still cached.
+    //
+    // Every actor-stamped record is remapped, the same way SceneCompare
+    // does it — a `faceColors` record still naming the previous render's
+    // color() statement is out of the new render's scope, and the cached
+    // part came back grey (removedShapes alone was remapped before).
     for (const [oldObj, newObj] of map.entries()) {
       const oldState = oldObj.getFullState();
       const newState = cloneState(oldState);
-
-      const oldRemovedShapes = newState.get('removedShapes') as { shape: Shape; removedBy: SceneObject; soft?: boolean }[];
-      const newRemovedShapes: { shape: Shape; removedBy: SceneObject; soft?: boolean }[] = [];
-      for (const r of oldRemovedShapes) {
-        const removedByNewObj = map.get(r.removedBy);
-        if (removedByNewObj) {
-          // Spread keeps the record's flags — dropping `soft` here turned
-          // expose()'s render-only removal into a hard consumption, so a
-          // cached re-render served the exposure with no shapes and its
-          // contact classification (tangent mates) silently came back null.
-          newRemovedShapes.push({ ...r, removedBy: removedByNewObj });
-        }
-      }
-      newState.set('removedShapes', newRemovedShapes);
-
+      ActorRecords.remap(newState, map);
       newObj.restoreState(newState);
 
       const oldError = oldObj.getError();

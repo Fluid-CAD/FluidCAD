@@ -26,6 +26,7 @@ import {
   RenderedProperties,
   type VariableInfo,
 } from '../code-editor/index.ts';
+import { FeatureNames } from '../feature-names.ts';
 import { SketchDeleteSweep } from '../sketch-delete-sweep.ts';
 import { validateSketchPositionEdit } from '../sketch-position-validate.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';
@@ -575,7 +576,21 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const result = await setFeatureName(code, sourceLine, name);
+      // An empty rename keeps the current name (D4): clearing a name is
+      // not reachable from the timeline, only from the code. A name another
+      // statement of the file already holds is refused with the clash (D3)
+      // — the hosts surface `error` the way they surface any edit refusal.
+      const value = FeatureNames.normalize(name);
+      if (value === '') {
+        res.json({ newCode: code });
+        return;
+      }
+      const clash = await FeatureNames.conflictIn(code, value, sourceLine);
+      if (clash) {
+        res.json({ newCode: code, error: FeatureNames.conflictMessage(value, clash) });
+        return;
+      }
+      const result = await setFeatureName(code, sourceLine, value);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

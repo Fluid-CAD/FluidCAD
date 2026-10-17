@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import JSZip from 'jszip';
 
 /**
@@ -19,7 +21,8 @@ export type ArchiveOptions = {
 };
 
 export class ArchiveFixture {
-  static readonly ENGINE = '0.0.46';
+  /** This FluidCAD's version, as the CLI and the server read it from the root package.json. */
+  static readonly ENGINE: string = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')).version;
 
   static defaultFiles(): Record<string, string> {
     return {

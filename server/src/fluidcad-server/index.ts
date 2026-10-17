@@ -65,6 +65,7 @@ export {
   type SceneSummaryInstancePoses,
   type SceneSummaryObject,
   type SceneSummaryOccurrence,
+  type SceneSummaryShape,
   type ShapeList,
   type ShapeListEntry,
 } from './scene-summary.ts';

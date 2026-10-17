@@ -37,7 +37,7 @@ describe('applyFeatureEdit', () => {
       ``,
       `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
-      `fillet(3, e.endEdges(2))`,
+      `fillet(3, e.endEdges(2)).name('Fillet 1')`,
       ``,
     ].join('\n'));
   });
@@ -108,7 +108,7 @@ describe('applyFeatureEdit', () => {
 
     const result = await applyFeatureEdit(code, spec());
     expect(result.newCode).toContain(`const e = extrude(30);`);
-    expect(result.newCode).toContain(`fillet(3, e.endEdges(2));`);
+    expect(result.newCode).toContain(`fillet(3, e.endEdges(2)).name('Fillet 1');`);
   });
 
   it('inserts after later statements so the selection resolves on the final model', async () => {
@@ -123,7 +123,7 @@ describe('applyFeatureEdit', () => {
 
     const result = await applyFeatureEdit(code, spec());
     const lines = result.newCode.split('\n');
-    expect(lines.indexOf(`fillet(3, e.endEdges(2))`)).toBeGreaterThan(lines.indexOf(`color('red')`));
+    expect(lines.indexOf(`fillet(3, e.endEdges(2)).name('Fillet 1')`)).toBeGreaterThan(lines.indexOf(`color('red')`));
   });
 
   it('inserts before a trailing return inside a function body', async () => {
@@ -286,7 +286,7 @@ describe('applyFeatureEdit', () => {
     expect(result.newCode).toContain(`repeat('linear', 'x', { count: 3, offset: 40 }, e)`);
     const lines = result.newCode.split('\n');
     const filletRow = lines.findIndex(l =>
-      l === `fillet(2, select(edge().onPlane('xy', 10).above('yz', 30).below('yz', 70)))`);
+      l === `fillet(2, select(edge().onPlane('xy', 10).above('yz', 30).below('yz', 70))).name('Fillet 1')`);
     expect(filletRow).toBeGreaterThan(lines.findIndex(l => l.startsWith('repeat(')));
     expect(result.newCode).toContain(` select,`);
     expect(result.newCode).toContain(`import { edge } from 'fluidcad/filters';`);
@@ -500,7 +500,7 @@ describe('shell and sketch statement templates', () => {
       `const e = extrude(30)`,
       `sketch(e.endFaces(), () => {`,
       ``,
-      `})`,
+      `}).name('Sketch 1')`,
       ``,
     ].join('\n'));
   });
@@ -527,7 +527,7 @@ describe('shell and sketch statement templates', () => {
     expect(result.newCode).toContain([
       `  sketch(e.endFaces(), () => {`,
       ``,
-      `  });`,
+      `  }).name('Sketch 1');`,
       `  return e;`,
     ].join('\n'));
   });
@@ -595,7 +595,7 @@ describe('plane sketch (no picks)', () => {
       `extrude(30)`,
       `sketch(() => {`,
       ``,
-      `})`,
+      `}).name('Sketch 1')`,
       ``,
     ].join('\n'));
   });
@@ -607,7 +607,7 @@ describe('plane sketch (no picks)', () => {
       `import { sketch } from 'fluidcad/core';`,
       `sketch(() => {`,
       ``,
-      `});`,
+      `}).name('Sketch 1');`,
       ``,
     ].join('\n'));
   });
@@ -632,7 +632,7 @@ describe('plane sketch (no picks)', () => {
       `sketch('xy', () => { ellipse(100, 50) });`,
       `sketch(() => {`,
       ``,
-      `});`,
+      `}).name('Sketch 1');`,
     ].join('\n'));
   });
 });
@@ -666,7 +666,7 @@ describe('sketch on a plane feature', () => {
       `extrude(30)`,
       `sketch(p, () => {`,
       ``,
-      `})`,
+      `}).name('Sketch 1')`,
       ``,
     ].join('\n'));
   });
@@ -758,7 +758,7 @@ describe('breakpoint-aware insertion', () => {
     const result = await applyFeatureEdit(code, spec());
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
-    const filletRow = lines.indexOf(`fillet(3, e.endEdges(2))`);
+    const filletRow = lines.indexOf(`fillet(3, e.endEdges(2)).name('Fillet 1')`);
     expect(filletRow).toBeGreaterThan(lines.indexOf(`const e = extrude(30)`));
     expect(filletRow).toBeLessThan(lines.indexOf(`breakpoint()`));
   });
@@ -781,7 +781,7 @@ describe('breakpoint-aware insertion', () => {
     }));
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
-    const filletRow = lines.indexOf(`  fillet(3, e.endEdges(2))`);
+    const filletRow = lines.indexOf(`  fillet(3, e.endEdges(2)).name('Fillet 1')`);
     expect(filletRow).toBeGreaterThan(-1);
     expect(filletRow).toBeLessThan(lines.indexOf(`  breakpoint()`));
   });
@@ -801,7 +801,7 @@ describe('breakpoint-aware insertion', () => {
     }));
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
-    expect(lines.indexOf(`fillet(3, e.endEdges(2))`)).toBeGreaterThan(lines.indexOf(`const e = extrude(30)`));
+    expect(lines.indexOf(`fillet(3, e.endEdges(2)).name('Fillet 1')`)).toBeGreaterThan(lines.indexOf(`const e = extrude(30)`));
   });
 
   it('inserts a plane sketch before an active breakpoint', async () => {
@@ -826,7 +826,7 @@ describe('breakpoint-aware insertion', () => {
       `extrude(30)`,
       `sketch(() => {`,
       ``,
-      `})`,
+      `}).name('Sketch 1')`,
       `breakpoint()`,
       ``,
     ].join('\n'));
@@ -974,7 +974,7 @@ describe('extrude statement templates', () => {
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
     const sketchRow = lines.findIndex(l => l.startsWith(`sketch('xy'`));
-    expect(lines[sketchRow + 1]).toBe(`extrude(25)`);
+    expect(lines[sketchRow + 1]).toBe(`extrude(25).name('Extrude 1')`);
     expect(result.newCode).toMatch(/import \{ ?extrude,/);
   });
 
@@ -1046,7 +1046,7 @@ describe('extrude statement templates', () => {
     expect(boundRow).toBeGreaterThan(-1);
     // End of scope: after the later sketch, not directly after the profile.
     expect(lines[boundRow + 1]).toBe(`sketch('xz', () => { circle(10) })`);
-    expect(lines[boundRow + 2]).toBe(`extrude(25, s)`);
+    expect(lines[boundRow + 2]).toBe(`extrude(25, s).name('Extrude 1')`);
   });
 
   it('reuses an existing const binding for the bound profile', async () => {
@@ -1066,7 +1066,7 @@ describe('extrude statement templates', () => {
     const lines = result.newCode.split('\n');
     const profileRow = lines.findIndex(l => l === `const profile = sketch('xy', () => { ellipse(100, 50) })`);
     expect(lines[profileRow + 1]).toBe(`sketch('xz', () => { circle(10) })`);
-    expect(lines[profileRow + 2]).toBe(`extrude(25, profile)`);
+    expect(lines[profileRow + 2]).toBe(`extrude(25, profile).name('Extrude 1')`);
   });
 
   it('matches the file semicolon style', async () => {
@@ -1078,7 +1078,7 @@ describe('extrude statement templates', () => {
     ].join('\n');
 
     const result = await applyFeatureEdit(code, extrudeSpec());
-    expect(result.newCode).toContain(`extrude(25);`);
+    expect(result.newCode).toContain(`extrude(25).name('Extrude 1');`);
   });
 
   it('refuses when the profile line is not a sketch call', async () => {
@@ -1132,7 +1132,7 @@ describe('extrude statement templates', () => {
     const profileRow = lines.findIndex(l => l === `const s = sketch('xz', () => { circle(10) })`);
     // End of scope, not directly after the bound profile — the face selector
     // must resolve on the final model.
-    expect(lines[profileRow + 1]).toBe(`extrude(e.endFaces(), s)`);
+    expect(lines[profileRow + 1]).toBe(`extrude(e.endFaces(), s).name('Extrude 1')`);
   });
 
   it('renders an implicit-profile to-face cut from a global select part', async () => {
@@ -1173,7 +1173,7 @@ describe('extrude statement templates', () => {
     const profileRow = lines.findIndex(l => l === `const s = sketch('xz', () => { circle(10) })`);
     // End of scope, like every up-to-face form — the target is resolved
     // against the model the statement runs on.
-    expect(lines[profileRow + 1]).toBe(`cut('last-face', s)`);
+    expect(lines[profileRow + 1]).toBe(`cut('last-face', s).name('Cut 1')`);
   });
 });
 
@@ -1246,7 +1246,7 @@ describe('sweep statement templates', () => {
     expect(pathRow).toBeGreaterThan(-1);
     // End-of-scope insertion: after the (implicit-profile) active sketch.
     expect(lines[pathRow + 1]).toBe(`sketch('xy', () => { ellipse(10, 10) })`);
-    expect(lines[pathRow + 2]).toBe(`sweep(p)`);
+    expect(lines[pathRow + 2]).toBe(`sweep(p).name('Sweep 1')`);
     expect(result.newCode).toMatch(/import \{ ?sweep,/);
   });
 
@@ -1275,7 +1275,7 @@ describe('sweep statement templates', () => {
     expect(profileRow).toBeGreaterThan(-1);
     // End of scope: after the uninvolved trailing sketch.
     expect(lines[profileRow + 1]).toBe(`sketch('yz', () => { arc([6, 6], [20, 20]) })`);
-    expect(lines[profileRow + 2]).toBe(`sweep(p, s)`);
+    expect(lines[profileRow + 2]).toBe(`sweep(p, s).name('Sweep 1')`);
   });
 
   it('renders a selector path at end of scope with the implicit profile', async () => {
@@ -1301,7 +1301,7 @@ describe('sweep statement templates', () => {
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
     expect(result.newCode).toContain(`const e = extrude(30)`);
-    const sweepRow = lines.findIndex(l => l === `sweep(e.endEdges(2))`);
+    const sweepRow = lines.findIndex(l => l === `sweep(e.endEdges(2)).name('Sweep 1')`);
     expect(sweepRow).toBeGreaterThan(lines.findIndex(l => l.startsWith(`sketch('xz'`)));
   });
 
@@ -1466,7 +1466,7 @@ describe('wrap statement templates', () => {
     const sketchRow = lines.findIndex(l => l === `const s = sketch('xz', () => { ellipse(10, 10) })`);
     expect(sketchRow).toBeGreaterThan(-1);
     // The face selector must resolve on the final model — end of scope.
-    expect(lines[sketchRow + 1]).toBe(`wrap(2, s, e.sideFaces(0))`);
+    expect(lines[sketchRow + 1]).toBe(`wrap(2, s, e.sideFaces(0)).name('Wrap 1')`);
     expect(result.newCode).toMatch(/import \{ ?wrap,/);
   });
 
@@ -1542,7 +1542,7 @@ describe('loft statement templates', () => {
     const firstRow = lines.findIndex(l => l === `const s = sketch('xy', () => { ellipse(10, 10) })`);
     expect(firstRow).toBeGreaterThan(-1);
     expect(lines[firstRow + 1]).toBe(`const s2 = sketch('xz', () => { circle(5) })`);
-    expect(lines[firstRow + 2]).toBe(`loft(s, s2)`);
+    expect(lines[firstRow + 2]).toBe(`loft(s, s2).name('Loft 1')`);
     expect(result.newCode).toMatch(/import \{ ?loft,/);
   });
 
@@ -1559,7 +1559,7 @@ describe('loft statement templates', () => {
     const result = await applyFeatureEdit(code, loftSpec());
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
-    const loftRow = lines.findIndex(l => l === `loft(s, s2)`);
+    const loftRow = lines.findIndex(l => l === `loft(s, s2).name('Loft 1')`);
     expect(loftRow).toBeGreaterThan(-1);
     // End of scope: after the uninvolved trailing sketch.
     expect(lines[loftRow - 1]).toBe(`sketch('yz', () => { arc([6, 6], [20, 20]) })`);
@@ -1618,7 +1618,7 @@ describe('loft statement templates', () => {
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
     expect(result.newCode).toContain(`const e = extrude(30)`);
-    const loftRow = lines.findIndex(l => l === `loft(s, e.endFaces())`);
+    const loftRow = lines.findIndex(l => l === `loft(s, e.endFaces()).name('Loft 1')`);
     expect(loftRow).toBeGreaterThan(lines.findIndex(l => l.startsWith(`const s = sketch('xz'`)));
   });
 
@@ -1716,7 +1716,7 @@ describe('loft statement templates', () => {
     const lines = result.newCode.split('\n');
     const guideRow = lines.findIndex(l => l.startsWith(`const g = sketch('yz'`));
     expect(guideRow).toBeGreaterThan(-1);
-    expect(lines[guideRow + 1]).toBe(`loft(s, s2).guides(g)`);
+    expect(lines[guideRow + 1]).toBe(`loft(s, s2).guides(g).name('Loft 1')`);
   });
 
   it('renders condition chains, omitting the default magnitude', async () => {
@@ -1761,7 +1761,7 @@ describe('loft statement templates', () => {
     const lines = result.newCode.split('\n');
     const guideRow = lines.findIndex(l => l === `const g = helix('z').radius(10).pitch(4).turns(2)`);
     expect(guideRow).toBeGreaterThan(-1);
-    expect(lines[guideRow + 1]).toBe(`loft(s, s2).guides(g)`);
+    expect(lines[guideRow + 1]).toBe(`loft(s, s2).guides(g).name('Loft 1')`);
   });
 
   it('refuses guides combined with thin walls', async () => {
@@ -2730,7 +2730,7 @@ describe('plane statement templates', () => {
     ].join('\n');
     const result = await applyFeatureEdit(code, planeSpec(planeOptions({ offset: 5 })));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`plane('xy', 5)\nbreakpoint()`);
+    expect(result.newCode).toContain(`plane('xy', 5).name('Plane 1')\nbreakpoint()`);
   });
 
   it('renders an offset plane from a picked face selector at end of scope', async () => {
@@ -3347,7 +3347,7 @@ describe('revolve statement templates', () => {
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
     const sketchRow = lines.findIndex(l => l.startsWith(`sketch('xz'`));
-    expect(lines[sketchRow + 1]).toBe(`revolve('z')`);
+    expect(lines[sketchRow + 1]).toBe(`revolve('z').name('Revolve 1')`);
     expect(result.newCode).toMatch(/import \{ ?revolve,/);
   });
 
@@ -3374,7 +3374,7 @@ describe('revolve statement templates', () => {
     expect(profileRow).toBeGreaterThan(-1);
     // End of scope: after the later sketch, not directly after the profile.
     expect(lines[profileRow + 1]).toBe(`sketch('xy', () => { ellipse(10, 10) })`);
-    expect(lines[profileRow + 2]).toBe(`revolve('z', 90, s)`);
+    expect(lines[profileRow + 2]).toBe(`revolve('z', 90, s).name('Revolve 1')`);
   });
 
   it('binds an axis statement and appends at end of scope', async () => {
@@ -3398,7 +3398,7 @@ describe('revolve statement templates', () => {
     const lines = result.newCode.split('\n');
     const axisRow = lines.findIndex(l => l === `const a = axis('y', { offsetZ: 290 })`);
     expect(axisRow).toBeGreaterThan(-1);
-    expect(lines[axisRow + 1]).toBe(`revolve(a, s)`);
+    expect(lines[axisRow + 1]).toBe(`revolve(a, s).name('Revolve 1')`);
   });
 
   it('renders a picked-edge axis wrapped in axis() at end of scope', async () => {
@@ -3424,7 +3424,7 @@ describe('revolve statement templates', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const e = extrude(30)`);
     const lines = result.newCode.split('\n');
-    const revolveRow = lines.findIndex(l => l === `revolve(axis(e.endEdges(2)))`);
+    const revolveRow = lines.findIndex(l => l === `revolve(axis(e.endEdges(2))).name('Revolve 1')`);
     expect(revolveRow).toBeGreaterThan(lines.findIndex(l => l.startsWith(`sketch('xz'`)));
     expect(result.newCode).toMatch(/import \{ ?axis,/);
   });
@@ -3531,7 +3531,7 @@ describe('helix statement templates', () => {
     const lines = result.newCode.split('\n');
     const axisRow = lines.findIndex(l => l === `const a = axis('y', { offsetZ: 100 })`);
     expect(axisRow).toBeGreaterThan(-1);
-    expect(lines[axisRow + 1]).toBe(`helix(a).turns(3)`);
+    expect(lines[axisRow + 1]).toBe(`helix(a).turns(3).name('Helix 1')`);
   });
 
   it('wraps a picked-edge source in axis() and imports axis', async () => {
@@ -4352,7 +4352,7 @@ describe('repeat statement templates', () => {
       `const f = extrude(30)`,
       `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
-      `repeat('linear', 'x', { count: 3, offset: 40 }, f, f2)`,
+      `repeat('linear', 'x', { count: 3, offset: 40 }, f, f2).name('Repeat 1')`,
       ``,
     ].join('\n'));
   });
@@ -4488,6 +4488,26 @@ describe('repeat statement templates', () => {
     expect(result.newCode).toContain(`repeat('mirror', 'yz', e, s)`);
   });
 
+  it('refuses a color() statement as a repeat target: a paint holds no body', async () => {
+    const code = [
+      `import { sketch, ellipse, extrude, color } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `const e = extrude(30)`,
+      `color('red', e)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, repeatSpec({
+      kind: 'mirror',
+      plane: { kind: 'standard', plane: 'yz' },
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 5, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toContain('color(');
+    expect(result.newCode).toBe(code);
+  });
+
   it('accepts a repeat statement as a repeat target, binding a bare one', async () => {
     const code = `${base}\nrepeat('linear', 'x', { count: 3, offset: 40 }, cut(5))\n`;
     const result = await applyFeatureEdit(code, repeatSpec({
@@ -4499,7 +4519,7 @@ describe('repeat statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const f = repeat('linear', 'x', { count: 3, offset: 40 }, cut(5))`);
-    expect(result.newCode).toContain(`\nrepeat('mirror', 'xz', f)\n`);
+    expect(result.newCode).toContain(`\nrepeat('mirror', 'xz', f).name('Repeat 1')\n`);
   });
 
   it('reuses the variable a repeat target is already bound to', async () => {
@@ -4529,7 +4549,7 @@ describe('repeat statement templates', () => {
       `sketch('xy', () => { ellipse(10, 10) })`,
       `const c = cut(5)`,
       `const row = repeat('linear', 'x', { count: 3, offset: 40 }, c)`,
-      `repeat('mirror', 'xz', row)`,
+      `repeat('mirror', 'xz', row).name('Repeat 1')`,
       ``,
     ].join('\n'));
   });
@@ -4925,7 +4945,7 @@ describe('copy statement templates', () => {
       `const f = extrude(30)`,
       `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
-      `copy('linear', 'x', { count: 3, offset: 40 }, f, f2)`,
+      `copy('linear', 'x', { count: 3, offset: 40 }, f, f2).name('Copy 1')`,
       ``,
     ].join('\n'));
   });
@@ -5507,7 +5527,7 @@ describe('copy statement templates — connectors', () => {
       `  const e = extrude(10)`,
       `  const bolt = connector('bolt', e.endFaces()).offset(30, 0, 0)`,
       `  connector('pivot', e.endFaces())`,
-      `  copy('circular', 'z', { count: 6, angle: 360 }, bolt)`,
+      `  copy('circular', 'z', { count: 6, angle: 360 }, bolt).name('Copy 1')`,
       `})`,
       ``,
     ].join('\n'));
@@ -5519,7 +5539,7 @@ describe('copy statement templates — connectors', () => {
       ...CIRCULAR, axis: { kind: 'standard', axis: 'z' }, targets: [{ producer: 0 }],
     }, [{ ...BOLT, column: 13 }]));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  copy('circular', 'z', { count: 6, angle: 360 }, c1)\n})`);
+    expect(result.newCode).toContain(`  copy('circular', 'z', { count: 6, angle: 360 }, c1).name('Copy 1')\n})`);
     expect(result.newCode).not.toContain('const bolt');
   });
 
@@ -5551,7 +5571,7 @@ describe('copy statement templates — connectors', () => {
       targets: [{ producer: 0 }, { producer: 1 }],
     }, [{ line: 5, column: 12, featureType: 'feature', nameHint: 'f', bind: true }, BOLT]));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  copy('linear', 'x', { count: 3, offset: 40 }, e, bolt)\n})`);
+    expect(result.newCode).toContain(`  copy('linear', 'x', { count: 3, offset: 40 }, e, bolt).name('Copy 1')\n})`);
   });
 
   it("renders a connector axis as its binding, and a copy's slot on it", async () => {
@@ -5560,7 +5580,7 @@ describe('copy statement templates — connectors', () => {
     }, [BOLT, PIVOT]));
     expect(around.error).toBeUndefined();
     expect(around.newCode).toContain(`  const pivot = connector('pivot', e.endFaces())`);
-    expect(around.newCode).toContain(`  copy('circular', pivot, { count: 6, angle: 360 }, bolt)\n})`);
+    expect(around.newCode).toContain(`  copy('circular', pivot, { count: 6, angle: 360 }, bolt).name('Copy 1')\n})`);
 
     const along = await applyFeatureEdit(flange, copySpec({
       kind: 'linear',
@@ -5569,7 +5589,7 @@ describe('copy statement templates — connectors', () => {
       targets: [{ producer: 1 }],
     }, [BOLT, PIVOT]));
     expect(along.error).toBeUndefined();
-    expect(along.newCode).toContain(`  copy('linear', bolt.instance(2), { count: 2, offset: 15 }, pivot)\n})`);
+    expect(along.newCode).toContain(`  copy('linear', bolt.instance(2), { count: 2, offset: 15 }, pivot).name('Copy 1')\n})`);
   });
 
   it('refuses a connector producer whose line holds another call, and a bad axis slot', async () => {
@@ -5738,7 +5758,7 @@ describe('copy statement templates — following a repeat', () => {
       `  const slots = repeat('linear', 'x', { count: 2, offset: 30 }, hole)`,
       `  const bolt = connector('bolt', hole.startEdges())`,
       `  connector('pivot', e.endFaces())`,
-      `  copy(holes, bolt)`,
+      `  copy(holes, bolt).name('Copy 1')`,
       `})`,
       ``,
     ].join('\n'));
@@ -5751,7 +5771,7 @@ describe('copy statement templates — following a repeat', () => {
     }, [{ ...HOLES, column: 2 }, PIVOT, BOLT]));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  const r = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`);
-    expect(result.newCode).toContain(`  const pivot = connector('pivot', e.endFaces())\n  copy(r, pivot, bolt)\n})`);
+    expect(result.newCode).toContain(`  const pivot = connector('pivot', e.endFaces())\n  copy(r, pivot, bolt).name('Copy 1')\n})`);
   });
 
   it('lands after both when the connector is declared above the repeat', async () => {
@@ -5777,7 +5797,7 @@ describe('copy statement templates — following a repeat', () => {
       `  const bolt = connector('bolt', hole.startEdges())`,
       `  const holes = repeat('circular', 'z', { count: 6, angle: 360 }, hole)`,
       `  sketch('xz', () => { circle([0, 0], 5) })`,
-      `  copy(holes, bolt)`,
+      `  copy(holes, bolt).name('Copy 1')`,
       `})`,
     ].join('\n'));
   });
@@ -5944,7 +5964,7 @@ describe('boolean statement templates', () => {
       `const f = extrude(30)`,
       `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
-      `fuse(f, f2)`,
+      `fuse(f, f2).name('Fuse 1')`,
       ``,
     ].join('\n'));
   });
@@ -7874,7 +7894,7 @@ describe('rib statement templates', () => {
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
     const sketchRow = lines.findIndex(l => l.startsWith(`sketch('front'`));
-    expect(lines[sketchRow + 1]).toBe(`rib(5)`);
+    expect(lines[sketchRow + 1]).toBe(`rib(5).name('Rib 1')`);
     expect(result.newCode).toMatch(/import \{.*\brib\b.*\} from 'fluidcad\/core'/);
   });
 
@@ -7901,7 +7921,7 @@ describe('rib statement templates', () => {
     const lines = result.newCode.split('\n');
     const boundRow = lines.findIndex(l => l === `const s = sketch('front', () => { line([0, 0], [45, 20]) })`);
     expect(boundRow).toBeGreaterThan(-1);
-    expect(lines[boundRow + 1]).toBe(`rib(5, s)`);
+    expect(lines[boundRow + 1]).toBe(`rib(5, s).name('Rib 1')`);
   });
 
   it('binds scope solids and renders the .scope() chain', async () => {
@@ -7919,7 +7939,7 @@ describe('rib statement templates', () => {
     expect(lines).toContain(`const f = extrude(30)`);
     const boundRow = lines.findIndex(l => l === `const s = sketch('front', () => { line([0, 0], [45, 20]) })`);
     // Inserted after the LATEST referenced statement (the spine here).
-    expect(lines[boundRow + 1]).toBe(`rib(5, s).scope(f)`);
+    expect(lines[boundRow + 1]).toBe(`rib(5, s).scope(f).name('Rib 1')`);
   });
 
   it('refuses a scope index that is not a feature producer', async () => {
@@ -8422,7 +8442,7 @@ describe('mirror statement templates', () => {
       `const f = extrude(30)`,
       `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
-      `mirror('yz', f, f2)`,
+      `mirror('yz', f, f2).name('Mirror 1')`,
       ``,
     ].join('\n'));
   });
@@ -8829,7 +8849,7 @@ describe('rotate statement templates', () => {
       `const f = extrude(30)`,
       `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
-      `rotate('z', 45, f, f2)`,
+      `rotate('z', 45, f, f2).name('Rotate 1')`,
       ``,
     ].join('\n'));
   });
@@ -9217,7 +9237,7 @@ describe('active part insertion', () => {
       `  extrude(30)`,
       `  sketch('xy', () => {`,
       ``,
-      `  })`,
+      `  }).name('Sketch 1')`,
       `})`,
       ``,
     ].join('\n'));
@@ -9238,7 +9258,7 @@ describe('active part insertion', () => {
       `part('Body', () => {`,
       `  sketch('xy', () => {`,
       ``,
-      `  })`,
+      `  }).name('Sketch 1')`,
       `})`,
       ``,
     ].join('\n'));
@@ -9261,7 +9281,7 @@ describe('active part insertion', () => {
       `export const part1 = part('Part 1', () => {`,
       `  sketch('xy', () => {`,
       ``,
-      `  })`,
+      `  }).name('Sketch 1')`,
       ``,
       `})`,
       ``,
@@ -9285,7 +9305,7 @@ describe('active part insertion', () => {
       `  extrude(30)`,
       `  sketch('xy', () => {`,
       ``,
-      `  })`,
+      `  }).name('Sketch 1')`,
       `  breakpoint()`,
     ].join('\n'));
   });
@@ -9312,7 +9332,7 @@ describe('active part insertion', () => {
       activePart: { line: 3, column: 0 },
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  extrude(30)\n  plane('xy', 10)\n})`);
+    expect(result.newCode).toContain(`  extrude(30)\n  plane('xy', 10).name('Plane 1')\n})`);
     expect(result.newCode).toContain(`import { plane,`);
   });
 
@@ -9363,7 +9383,7 @@ describe('active part insertion — inputs declared at the top level', () => {
       `const s = sketch('xy', () => { ellipse(100, 50) })`,
       ``,
       `export const part1 = part('Part 1', () => {`,
-      `  extrude(25, s)`,
+      `  extrude(25, s).name('Extrude 1')`,
       ``,
       `})`,
       ``,
@@ -9395,7 +9415,7 @@ describe('active part insertion — inputs declared at the top level', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const a = axis('y', { offsetZ: 290 })`);
-    expect(result.newCode).toContain(`  extrude(30)\n  revolve(a, 90, s)\n})`);
+    expect(result.newCode).toContain(`  extrude(30)\n  revolve(a, 90, s).name('Revolve 1')\n})`);
   });
 
   it('opens a sketch on a top-level plane inside the part body', async () => {
@@ -9422,7 +9442,7 @@ describe('active part insertion — inputs declared at the top level', () => {
       `part('Body', () => {`,
       `  sketch(p, () => {`,
       ``,
-      `  })`,
+      `  }).name('Sketch 1')`,
       `})`,
       ``,
     ].join('\n'));
@@ -9450,7 +9470,7 @@ describe('active part insertion — inputs declared at the top level', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  region('r1', a, c1);\n});`);
-    expect(result.newCode).toContain(`export const part1 = part('Part 1', () => {\n  extrude(25, s).region('r1');\n`);
+    expect(result.newCode).toContain(`export const part1 = part('Part 1', () => {\n  extrude(25, s).region('r1').name('Extrude 1');\n`);
   });
 
   it('keeps a feature on a top-level solid beside it — the kernel resolves the picked edges in its own scope', async () => {
@@ -9465,7 +9485,7 @@ describe('active part insertion — inputs declared at the top level', () => {
     ].join('\n');
     const result = await applyFeatureEdit(code, spec({ activePart: { line: 6, column: 0 } }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`part('Body', () => {})\nfillet(3, e.endEdges(2))\n`);
+    expect(result.newCode).toContain(`part('Body', () => {})\nfillet(3, e.endEdges(2)).name('Fillet 1')\n`);
   });
 
   it('keeps an implicit-profile extrude beside its sketch — the part would consume its own last sketch', async () => {
@@ -9482,7 +9502,7 @@ describe('active part insertion — inputs declared at the top level', () => {
       producers: [sketchProducer(3, false)],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`part('Body', () => {})\nextrude(25)\n`);
+    expect(result.newCode).toContain(`part('Body', () => {})\nextrude(25).name('Extrude 1')\n`);
   });
 
   it('keeps the statement at the top level when the sketch is declared below the part', async () => {
@@ -9497,7 +9517,7 @@ describe('active part insertion — inputs declared at the top level', () => {
     const result = await applyFeatureEdit(code, extrudeSpec(5, 3));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`part('Body', () => {})\n`);
-    expect(result.newCode).toContain(`const s = sketch('xy', () => { ellipse(100, 50) })\nextrude(25, s)\n`);
+    expect(result.newCode).toContain(`const s = sketch('xy', () => { ellipse(100, 50) })\nextrude(25, s).name('Extrude 1')\n`);
   });
 
   it('lands in the part a sketch was drawn in, whichever part is active', async () => {
@@ -9516,7 +9536,7 @@ describe('active part insertion — inputs declared at the top level', () => {
     ].join('\n');
     const result = await applyFeatureEdit(code, extrudeSpec(4, 7));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  const s = sketch('xy', () => { ellipse(100, 50) })\n  extrude(25, s)\n})`);
+    expect(result.newCode).toContain(`  const s = sketch('xy', () => { ellipse(100, 50) })\n  extrude(25, s).name('Extrude 1')\n})`);
     expect(result.newCode).toContain(`  extrude(5)\n})`);
   });
 
@@ -9538,7 +9558,7 @@ describe('active part insertion — inputs declared at the top level', () => {
       parts: [{ producer: 1, accessor: 'endFaces', indices: null, filterArgs: null }],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  const e = extrude(30)\n  extrude(e.endFaces(), s)\n})`);
+    expect(result.newCode).toContain(`  const e = extrude(30)\n  extrude(e.endFaces(), s).name('Extrude 1')\n})`);
   });
 
   it('refuses a top-level profile declared below the part holding the picked face', async () => {

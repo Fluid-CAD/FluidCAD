@@ -119,6 +119,13 @@ export class EditorHost {
     if (!result || typeof result.newCode !== 'string') {
       return;
     }
+    // A refusal comes back as the unchanged code plus `error` (a rename to a
+    // name the file already holds): nothing to apply, and the person must
+    // hear why — the same way an apply-feature refusal reaches them.
+    if (result.error) {
+      this.deps.onError?.(result.error);
+      return;
+    }
     this.applyResult(entry, result.newCode);
 
     if (spec.endpoint.includes('breakpoint')) {

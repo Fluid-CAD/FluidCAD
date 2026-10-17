@@ -11,7 +11,7 @@ import { Scene } from "./scene.js";
  * reachable only from the old scene is garbage: the walker collects the
  * wrappers reachable from each side and releases the difference. Raw-handle
  * sets guard wrappers that share one underlying TopoDS handle (`Solid.copy`
- * and `colorMap` entries alias raw handles across wrappers).
+ * aliases the original's raw handle).
  *
  * Wrappers held in feature instance fields (outside the state map) are not
  * walked — features that keep native resources there free them in their

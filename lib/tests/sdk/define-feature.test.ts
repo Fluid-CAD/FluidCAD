@@ -335,7 +335,7 @@ describe("a custom feature's timeline row", () => {
 
     expect(errorsOf(scene)).toEqual([]);
     expect(row.getDisplayType()).toBe('Bolt circle');
-    expect(scene.getRenderedObject(row)!.name).toBe('Bolt circle');
+    expect(scene.getRenderedObject(row)!.name).toBe('Bolt circle 1');
   });
 
   it("reads the metadata's label with registerBuilder()", () => {
@@ -347,7 +347,7 @@ describe("a custom feature's timeline row", () => {
     const row = boltCircle() as unknown as SceneObject;
     const scene = render();
 
-    expect(scene.getRenderedObject(row)!.name).toBe('Bolt circle');
+    expect(scene.getRenderedObject(row)!.name).toBe('Bolt circle 1');
   });
 
   it("falls back to the id's last segment for a class no builder registered, and a name() still wins", () => {

@@ -6,6 +6,7 @@ import { ScaleOps } from "./scale-ops.js";
 import { Explorer } from "./explorer.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
+import type { ColoredSolid } from "../common/colored-solid.js";
 import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { Mesh } from "./mesh.js";
@@ -40,7 +41,7 @@ export class OcIO {
     return parseStepFileUnits(text);
   }
 
-  /** Uniform scale about the origin, colours carried over — see ScaleOps. */
+  /** Uniform scale about the origin, geometry only — see ScaleOps (colours are holder records). */
   static scaleSolids(solids: Solid[], factor: number): Solid[] {
     return ScaleOps.scaleSolids(solids, factor);
   }
@@ -394,7 +395,7 @@ export class OcIO {
    * Writing an INCH header instead would need Interface_Static
    * ("write.step.unit"), which the binding does not expose.
    */
-  static writeStepXCAF(solids: Solid[], fileName: string, unit: LengthUnit = 'mm'): string {
+  static writeStepXCAF(solids: ColoredSolid[], fileName: string, unit: LengthUnit = 'mm'): string {
     const oc = getOC();
 
     const app = new oc.TDocStd_Application();
@@ -414,15 +415,15 @@ export class OcIO {
     // becomes its own free top-level shape, with no compound wrapped around
     // the set. (The multi-file output this once tried to dodge came from the
     // `multi` argument below, not from AddShape.)
-    for (const solid of solids) {
+    for (const { solid, colors } of solids) {
       const conformed = StepConform.conformSolid(solid.getShape());
       const label = shapeTool.NewShape();
       shapeTool.SetShape(label, conformed.shape);
 
-      for (const entry of solid.colorMap) {
+      for (const entry of colors) {
         const [r, g, b] = OcIO.hexToRgb(entry.color);
         const color = new oc.Quantity_Color(r, g, b, oc.Quantity_TypeOfColor.Quantity_TOC_RGB);
-        colorTool.SetColor(conformed.replacement(entry.shape), color, surfType);
+        colorTool.SetColor(conformed.replacement(entry.face.getShape()), color, surfType);
         color.delete();
       }
       conformed.delete();

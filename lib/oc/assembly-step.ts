@@ -99,7 +99,7 @@ export class OcAssemblyStep {
     disposers: (() => void)[],
   ): TDF_Label {
     const oc = getOC();
-    const conformed = part.solids.map(solid => StepConform.conformSolid(solid.getShape()));
+    const conformed = part.solids.map(({ solid }) => StepConform.conformSolid(solid.getShape()));
     disposers.push(() => {
       for (const c of conformed) {
         c.delete();
@@ -120,11 +120,11 @@ export class OcAssemblyStep {
     OcAssemblyStep.nameLabel(label, part.name);
 
     if (includeColors) {
-      part.solids.forEach((solid, i) => {
-        for (const entry of solid.colorMap) {
+      part.solids.forEach(({ colors }, i) => {
+        for (const entry of colors) {
           const [r, g, b] = OcIO.hexToRgb(entry.color);
           const color = new oc.Quantity_Color(r, g, b, oc.Quantity_TypeOfColor.Quantity_TOC_RGB);
-          colorTool.SetColor(conformed[i].replacement(entry.shape), color, surfType);
+          colorTool.SetColor(conformed[i].replacement(entry.face.getShape()), color, surfType);
           color.delete();
         }
       });

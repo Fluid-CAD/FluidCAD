@@ -539,7 +539,7 @@ describe('POST /api/hub/inspect → POST /api/packages/install', () => {
     expect(inspected.body.manifest.version).toBe('0.1.0');
     expect(inspected.body.defaultTarget).toBe('library');
     expect(inspected.body.notes).toEqual([
-      'The latest @acme/kit, 0.2.0, needs FluidCAD 0.0.99 or newer; this FluidCAD is 0.0.46, so this installs 0.1.0, the newest version it runs.',
+      `The latest @acme/kit, 0.2.0, needs FluidCAD 0.0.99 or newer; this FluidCAD is ${ENGINE}, so this installs 0.1.0, the newest version it runs.`,
     ]);
     PackageArchive.discard(inspected.body.token);
   });

@@ -10,7 +10,7 @@ import { OrientedFaces } from "../oc/oriented-faces.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { getOC } from "../oc/init.js";
-import { ColorTransfer } from "../oc/color-transfer.js";
+import { ColorTransfer, type SourceColors } from "../oc/color-transfer.js";
 import type { TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
 import { Profiler } from "../common/profiler.js";
 import { Wire } from "../common/wire.js";
@@ -191,7 +191,13 @@ export function fuseWithSceneObjects(
  * the fuse swallowed gets no entry — its removal then stands for it with
  * every solid the feature built.
  */
-function fusedInto(consumed: Shape[], results: Shape[], cleaned: Shape[], maker: any): Map<Shape, Shape[]> {
+/**
+ * Which result body each consumed solid went into: `results` are the fuse's
+ * new solids as the maker left them, `cleaned` their cleaned twins in the
+ * same order (pass the results twice when nothing was cleaned). A solid none
+ * of the results holds a face of is absent from the map.
+ */
+export function fusedInto(consumed: Shape[], results: Shape[], cleaned: Shape[], maker: any): Map<Shape, Shape[]> {
   const fused = new Map<Shape, Shape[]>();
   if (cleaned.length === 1) {
     for (const solid of consumed) {
@@ -533,11 +539,27 @@ function recordFusionHistory(
   const remapRawFace = (raw: TopoDS_Shape): TopoDS_Shape[] =>
     remapFaces([Face.fromTopoDSFace(Explorer.toFace(raw))]).map(f => f.getShape());
 
-  const colorThrough = () => ColorTransfer.applyThroughMaker(sceneShapes, newShapes, maker, remapRawFace);
-  p ? p.record('Color through maker', colorThrough) : colorThrough();
+  // Each stock's colours, read from its owner, land on the caller: it holds
+  // the fused result. Authors are kept (a bled colour takes its seed's).
+  const sources: SourceColors[] = [];
+  for (const sceneShape of sceneShapes) {
+    const owner = owners.get(sceneShape);
+    if (owner) {
+      sources.push({ shape: sceneShape, colors: owner.getFaceColors(sceneShape) });
+    }
+  }
+  try {
+    const colorThrough = () => ColorTransfer.applyThroughMaker(sources, newShapes, maker, remapRawFace);
+    const carried = p ? p.record('Color through maker', colorThrough) : colorThrough();
 
-  const colorBleed = () => ColorTransfer.applyBleeding(sceneShapes, newShapes, maker, remapRawFace);
-  p ? p.record('Color bleeding', colorBleed) : colorBleed();
+    const colorBleed = () => ColorTransfer.applyBleeding(sources, newShapes, maker, remapRawFace, carried);
+    carried.push(...(p ? p.record('Color bleeding', colorBleed) : colorBleed()));
+    caller.recordCarriedColors(carried);
+  } finally {
+    for (const source of sources) {
+      source.colors.delete();
+    }
+  }
 
   claimedFaces.delete();
   claimedEdges.delete();
@@ -909,71 +931,23 @@ function recordCutHistory(
     }
   }
 
-  propagateFaceColorsViaCut(stock, cleanedShapes, makerOf, cleanups);
+  // Each replaced stock's colours, read from its owner, land on the caller:
+  // it holds the cut result.
+  const sources: SourceColors[] = [];
+  for (const stockShape of stock) {
+    const owner = owners.get(stockShape);
+    if (owner) {
+      sources.push({ shape: stockShape, colors: owner.getFaceColors(stockShape) });
+    }
+  }
+  try {
+    caller.recordCarriedColors(ColorTransfer.applyThroughCut(sources, cleanedShapes, makerOf, cleanups));
+  } finally {
+    for (const source of sources) {
+      source.colors.delete();
+    }
+  }
 
   claimedFaces.delete();
   claimedEdges.delete();
-}
-
-/**
- * Cut-path color propagation. Chains through UnifySameDomain's history via
- * the `cleanups[]` remapFace callbacks so colors land on the actual
- * post-clean faces in `cleanedShapes`.
- */
-function propagateFaceColorsViaCut(
-  stock: Shape<any>[],
-  cleanedShapes: Shape<any>[],
-  makerOf: (stockShape: Shape<any>) => any,
-  cleanups: CleanShapeLineage[],
-) {
-  const oc = getOC();
-  const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
-
-  for (const stockShape of stock) {
-    if (!stockShape.hasColors()) {
-      continue;
-    }
-
-    const maker = makerOf(stockShape);
-    for (const entry of stockShape.colorMap) {
-      const modifiedRaws = ShapeOps.shapeListToArray(maker.Modified(entry.shape))
-        .filter(s => s.ShapeType() === FACE);
-
-      let preCleanFaces: Face[];
-      if (modifiedRaws.length > 0) {
-        preCleanFaces = modifiedRaws.map(r => Face.fromTopoDSFace(Explorer.toFace(r)));
-      } else if (!maker.IsDeleted(entry.shape)) {
-        preCleanFaces = [Face.fromTopoDSFace(Explorer.toFace(entry.shape))];
-      } else {
-        continue;
-      }
-
-      // Chain through each cleanup's UnifySameDomain lineage
-      const postCleanFaces: Face[] = [];
-      for (const preFace of preCleanFaces) {
-        let matched = false;
-        for (const cleanup of cleanups) {
-          const remapped = cleanup.remapFace(preFace);
-          if (remapped !== null) {
-            postCleanFaces.push(...remapped);
-            matched = true;
-            break;
-          }
-        }
-        if (!matched) {
-          postCleanFaces.push(preFace);
-        }
-      }
-
-      for (const postFace of postCleanFaces) {
-        for (const cleaned of cleanedShapes) {
-          const faces = Explorer.findShapes(cleaned.getShape(), FACE);
-          if (faces.some(f => f.IsSame(postFace.getShape()))) {
-            cleaned.setColor(postFace.getShape(), entry.color);
-            break;
-          }
-        }
-      }
-    }
-  }
 }

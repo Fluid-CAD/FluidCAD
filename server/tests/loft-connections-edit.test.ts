@@ -109,7 +109,7 @@ describe('loft connection source edits', () => {
     expect(result.newCode).toContain([
       `const sel2 = select(edge().farthest('x'));`,
       `const sel3 = select(edge().nearest('x'));`,
-      `loft(a, b).connect(sel2.end(), sel3.start());`,
+      `loft(a, b).connect(sel2.end(), sel3.start()).name('Loft 1');`,
     ].join('\n'));
   });
 

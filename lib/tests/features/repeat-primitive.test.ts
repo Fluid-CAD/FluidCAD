@@ -98,9 +98,9 @@ describe("repeat of primitives", () => {
     const kinds = ["repeat-linear", "repeat-circular", "mirror", "repeat-matrix"];
     const containers = scene.getRenderedObjects().filter(r => kinds.includes(r.type!));
     expect(containers.map(r => r.type)).toEqual(kinds);
-    // The kind lives in the statement; every row reads "Repeat" and folds the
-    // generated instances away.
-    expect(containers.map(r => r.name)).toEqual(kinds.map(() => "Repeat"));
+    // The kind lives in the statement; every row reads "Repeat <n>" (one
+    // numbering across the kinds) and folds the generated instances away.
+    expect(containers.map(r => r.name)).toEqual(kinds.map((_, i) => `Repeat ${i + 1}`));
     expect(containers.map(r => r.hideChildren)).toEqual(kinds.map(() => true));
 
     // The plane the mirror spells inline serves that build alone — internal,

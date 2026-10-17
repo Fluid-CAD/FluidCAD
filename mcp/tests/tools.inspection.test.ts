@@ -737,6 +737,16 @@ describe('inspection tools (over MCP)', () => {
       expect(byName.get('pack')).toContain('`manifestVersion` 1');
       expect(byName.get('pack')).toContain('`package` block');
       expect(byName.get('pack')).not.toContain('schemaVersion');
+      // The agent learns from the surface alone that names are optional
+      // labels, that shape ids are per render and that lineageKey / label +
+      // part are how to find a body again.
+      expect(byName.get('get_scene_summary')).toContain('`hasCustomName`');
+      expect(byName.get('get_scene_summary')).toContain('`lineageKey`');
+      expect(byName.get('get_scene_summary')).toContain('optional');
+      expect(byName.get('list_shapes')).toContain('lineageKey');
+      expect(byName.get('list_shapes')).toContain('`label`');
+      const shapeIdSchema = JSON.stringify(tools.tools.find((t) => t.name === 'get_shape_properties')!.inputSchema);
+      expect(shapeIdSchema).toContain('lineageKey');
     } finally {
       await client.close();
       await server.close();

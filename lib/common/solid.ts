@@ -199,12 +199,15 @@ export class Solid extends Shape<TopoDS_Solid> {
     super.release(retainedRaw, deletedRaw);
   }
 
+  /**
+   * A new wrapper over the same raw handle (so the faces are `IsSame` with
+   * the original's) with its render seams. Face colours are the holder's
+   * records, not the wrapper's: the object that takes the copy carries them
+   * over (`SceneObject.carryFaceColors`).
+   */
   override copy(): Shape {
     const copied = new Solid(this.getShape());
     for (const edge of this.getRenderSeams()) copied.recordRenderSeam(edge);
-    for (const entry of this.colorMap) {
-      copied.colorMap.push({ shape: entry.shape, color: entry.color });
-    }
     return copied;
   }
 

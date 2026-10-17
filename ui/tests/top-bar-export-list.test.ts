@@ -18,6 +18,7 @@ function part(id: string, name: string, shapeId: string): SceneObjectRender[] {
     {
       id: `${id}-extrude`,
       name: `${name} body`,
+      hasCustomName: true,
       type: 'extrusion',
       parentId: id,
       sceneShapes: [{ shapeId, shapeType: 'solid', meshes: [] }],
@@ -131,6 +132,26 @@ describe('top bar Export list', () => {
     expect(rowLabels(openPanel())).toEqual(['Whole assembly', 'Housing body']);
     bar.updateSolids(objects);
     expect(rowLabels(openPanel())).toEqual(['Housing body', 'Lid body', 'Spare body']);
+  });
+
+  it('an unnamed holder reads as the Shapes panel labels it, with its part; a named one as its name', () => {
+    const { bar, openPanel, rowLabels } = mount();
+    const scene: SceneObjectRender[] = [
+      ...part('p-housing', 'Housing', 's-housing'),
+      { id: 'p-lid', name: 'Lid', type: 'part', parentId: null, sceneShapes: [], ownShapes: [] } as unknown as SceneObjectRender,
+      {
+        id: 'p-lid-extrude', name: 'Extrude 1', type: 'extrusion', parentId: 'p-lid',
+        sceneShapes: [{ shapeId: 's-lid-a', shapeType: 'solid', meshes: [] }, { shapeId: 's-lid-b', shapeType: 'solid', meshes: [] }],
+        ownShapes: [],
+      } as unknown as SceneObjectRender,
+      {
+        id: 'top-extrude', name: 'Extrude 2', type: 'extrusion', parentId: null,
+        sceneShapes: [{ shapeId: 's-top', shapeType: 'solid', meshes: [] }],
+        ownShapes: [],
+      } as unknown as SceneObjectRender,
+    ];
+    bar.updateSolids(scene);
+    expect(rowLabels(openPanel())).toEqual(['Housing body', 'Solid 1 (Lid)', 'Solid 2 (Lid)', 'Solid 1']);
   });
 
   it('a whole-assembly handler-less host lists parts only', () => {

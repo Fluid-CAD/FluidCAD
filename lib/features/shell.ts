@@ -91,11 +91,13 @@ export class Shell extends SceneObject implements IShell {
 
       unmatchedFaces = unmatchedFaces.filter(f => !targetFaces.includes(f));
 
+      const originalObj = shapeObjMap.get(shape);
+      const colors = originalObj.getFaceColors(shape);
       try {
-        const newShape = ShellOps.makeThickSolid(shape, targetFaces, this.thickness, this._joinType);
+        const { shape: newShape, colors: carried } = ShellOps.makeThickSolid({ shape, colors }, targetFaces, this.thickness, this._joinType);
         newShapes.push(newShape);
+        this.recordCarriedColors(carried);
 
-        const originalObj = shapeObjMap.get(shape);
         originalObj.removeShape(shape, this, [newShape]);
       } catch {
         // OCCT's MakeThickSolid could not offset the inner wall — it said
@@ -104,6 +106,7 @@ export class Shell extends SceneObject implements IShell {
         // geometry to work with, but surface the failure instead of silently
         // serving an unchanged part.
         newShapes.push(shape);
+        this.carryFaceColors(originalObj, shape);
         console.warn("Shell: Failed to create thick solid.");
         this.setError(
           "shell: could not hollow the solid — wall offset failed.\n" +
@@ -114,6 +117,8 @@ export class Shell extends SceneObject implements IShell {
           "smoothly at the other (a square-to-round loft) may hollow only " +
           "when opened at the cornered end."
         );
+      } finally {
+        colors.delete();
       }
     }
 

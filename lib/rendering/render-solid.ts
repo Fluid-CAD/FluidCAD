@@ -9,14 +9,27 @@ import { getOC } from "../oc/init.js";
 import { HiddenEdges } from "../oc/hidden-edges.js";
 import { EdgeConvexityOps } from "../oc/edge-convexity.js";
 import { TopologyIndex } from "../oc/topology-index.js";
+import type { FaceColorView } from "../common/face-color-view.js";
+import { MeshPieces, type FacePiece, type ShapeMeshPieces } from "./mesh-pieces.js";
 
-export function renderSolid(shapeObj: Shape, meshConfig?: MeshConfig): SceneObjectMesh[] {
+/**
+ * Meshes a solid for one pass: its faces grouped by colour (one
+ * `solid-faces` mesh per colour, `colors` resolving each face — none means
+ * unpainted) and its edges.
+ */
+export function renderSolid(shapeObj: Shape, meshConfig?: MeshConfig, colors?: FaceColorView): SceneObjectMesh[] {
+  return MeshPieces.group(renderSolidPieces(shapeObj, meshConfig), colors, shapeObj);
+}
+
+/**
+ * The scope-free geometry of a solid: one piece per face, in Explorer
+ * order, and its edge meshes. Colour is resolved when the pieces are
+ * grouped for a pass (`MeshPieces.group`), never here.
+ */
+export function renderSolidPieces(shapeObj: Shape, meshConfig?: MeshConfig): ShapeMeshPieces {
   Mesh.ensureTriangulated(shapeObj.getShape(), meshConfig);
 
-  const facesMeshes = getFacesMesh(shapeObj);
-  const edgesMesh = getEdgesMesh(shapeObj);
-
-  return [...facesMeshes, ...edgesMesh];
+  return { faces: getFacePieces(shapeObj), meshes: getEdgesMesh(shapeObj) };
 }
 
 function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
@@ -75,60 +88,16 @@ function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
   return result;
 }
 
-function getFacesMesh(shapeObj: Shape): SceneObjectMesh[] {
+function getFacePieces(shapeObj: Shape): FacePiece[] {
   const faces = Explorer.findFacesWrapped(shapeObj);
-
-  const groups = new Map<string | undefined, { vertices: number[]; normals: number[]; indices: number[]; faceMapping: number[]; vertexOffset: number }>();
+  const pieces: FacePiece[] = [];
 
   for (let faceIdx = 0; faceIdx < faces.length; faceIdx++) {
-    const face = faces[faceIdx];
-    const color = shapeObj.getColor(face.getShape());
-
-    const faceResult = Mesh.extractFaceTriangulationRaw(face.getShape(), 0);
-
+    const faceResult = Mesh.extractFaceTriangulationRaw(faces[faceIdx].getShape(), 0);
     if (faceResult) {
-      if (!groups.has(color)) {
-        groups.set(color, { vertices: [], normals: [], indices: [], faceMapping: [], vertexOffset: 0 });
-      }
-      const group = groups.get(color)!;
-
-      const triangleCount = faceResult.indices.length / 3;
-      for (let t = 0; t < triangleCount; t++) {
-        group.faceMapping.push(faceIdx);
-      }
-
-      // Avoid spread on potentially huge arrays — JS argument count is
-      // capped (~65K) and would throw "Maximum call stack size exceeded".
-      const verts = faceResult.vertices;
-      for (let i = 0; i < verts.length; i++) {
-        group.vertices.push(verts[i]);
-      }
-      const norms = faceResult.normals;
-      for (let i = 0; i < norms.length; i++) {
-        group.normals.push(norms[i]);
-      }
-      for (const idx of faceResult.indices) {
-        group.indices.push(group.vertexOffset + idx);
-      }
-      group.vertexOffset += faceResult.count;
+      pieces.push({ faceIdx, vertices: faceResult.vertices, normals: faceResult.normals, indices: faceResult.indices });
     }
   }
 
-  const result: SceneObjectMesh[] = [];
-  for (const [color, group] of groups) {
-    const mesh: SceneObjectMesh = {
-      vertices: group.vertices,
-      normals: group.normals,
-      indices: group.indices,
-      faceMapping: group.faceMapping,
-      label: "solid-faces",
-    };
-
-    if (color) {
-      mesh.color = color;
-    }
-    result.push(mesh);
-  }
-
-  return result;
+  return pieces;
 }

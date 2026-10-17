@@ -20,6 +20,12 @@ export type SceneObjectMesh = {
 
 export type RenderedShape = {
   shapeId: string;
+  /**
+   * A solid's identity across renders — the feature that created it, its
+   * ordinal there and the branches since (see BodyLineage) — where `shapeId`
+   * is minted afresh whenever the holder rebuilds. Solids only.
+   */
+  lineageKey?: string;
   /** Packed world xyz per topological vertex, in Explorer order. */
   vertices?: number[];
   /** Vertex indices belonging to each face, in the viewport's topology order. */

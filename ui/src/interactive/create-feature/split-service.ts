@@ -886,23 +886,26 @@ export class SplitFeatureService {
 
   /**
    * Repaint the viewport selection: the chosen solids whole, plus the picked
-   * cut face or the chosen plane feature's quad — one combined pass through
-   * the shared picker.
+   * cut face, the picked seed edge's wire or the chosen plane feature's
+   * quad — one combined pass through the shared picker.
    */
   private refreshHighlight(): void {
     if (!this.armed) {
       return;
     }
     const entities: SelectedEntity[] = [];
+    const wireIds: string[] = [];
     const planeQuadIds: string[] = [];
     const selection = this.panel.planeSelection();
     if (selection?.kind === 'plane') {
       planeQuadIds.push(...planeQuadShapeIds(selection.option, this.sceneObjects));
     } else if (selection?.kind === 'face' && this.planeFaceEntity) {
       entities.push(this.planeFaceEntity);
+    } else if (selection?.kind === 'sketchEdge' && this.seedEdge) {
+      wireIds.push(this.seedEdge.shapeId);
     }
     this.solidPick.set(this.targets.flatMap(t => t.kind === 'option' ? t.option.shapeIds : []));
-    this.solidPick.refreshHighlight({ entities, planeQuadIds });
+    this.solidPick.refreshHighlight({ entities, wireIds, planeQuadIds });
   }
 
   private refreshLabels(): void {

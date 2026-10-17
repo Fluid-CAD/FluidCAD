@@ -11,6 +11,7 @@ import {
   renderEditedStatement,
   resolveEditedStatementLine,
   resolveParamValues,
+  SplitSeeds,
   type ApplyFeatureEditSpec,
   type ConnectorAnchorSpec,
   type CopyEditAxis,
@@ -1026,11 +1027,16 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         });
         return;
       }
+      // A re-picked split seed renders as its sketch export, which only
+      // exists once the transform stages it — the same dry run here, so
+      // the preview shows the name the apply writes.
       const staged = spec.feature === 'loft'
         ? await LoftConnections.prepare(code, spec)
         : spec.feature === 'hole'
           ? await HolePlacements.prepare(code, spec, ctx.applyEdit)
-          : { code, spec };
+          : spec.feature === 'split'
+            ? await SplitSeeds.prepare(code, spec)
+            : { code, spec };
       if ('error' in staged) {
         res.status(422).json({ success: false, reason: staged.error });
         return;

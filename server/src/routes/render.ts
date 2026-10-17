@@ -54,18 +54,33 @@ export type RenderOutcome =
  * second. False when no viewer is connected or it is still applying the
  * scene after `UI_APPLY_WAIT_MS`.
  *
+ * `fitView` (MCP only) asks every connected page to frame the whole model
+ * once this render is on screen. An agent's edit is watched, not made, from
+ * the viewport: whoever is following the modeling sees each step land in
+ * frame instead of off-screen. The page's own live-updates never set it —
+ * the camera is the user's while they type.
+ *
  * Whoever invokes this is responsible for the on-disk write — we only run
  * the render. Pairing both in one HTTP round-trip is what lets MCP
  * `write_file` return a synchronous { written, render } to the agent.
  */
+export type LiveRenderOptions = {
+  /** Fold the file in as a dependency of the current model instead of switching to it. */
+  keepCurrent: boolean;
+  /** Include the render's change summary in the outcome. */
+  changes: boolean;
+  /** Stamp the scene so every page frames the model when it applies it. */
+  fitView: boolean;
+};
+
 export function createRenderRouter(
-  runLiveRender: (fileName: string, code: string, keepCurrent: boolean, changes: boolean) => Promise<RenderOutcome>,
+  runLiveRender: (fileName: string, code: string, options: LiveRenderOptions) => Promise<RenderOutcome>,
   awaitSceneApplied: (timeoutMs: number) => Promise<boolean> = async () => false,
 ): Router {
   const router = Router();
 
   router.post('/render', async (req, res) => {
-    const { filePath, code, keepCurrent, changes, awaitUi } = req.body ?? {};
+    const { filePath, code, keepCurrent, changes, awaitUi, fitView } = req.body ?? {};
     if (typeof filePath !== 'string' || filePath.length === 0) {
       res.status(400).json({ error: '`filePath` must be a non-empty string.' });
       return;
@@ -76,7 +91,11 @@ export function createRenderRouter(
     }
 
     try {
-      const outcome = await runLiveRender(filePath, code, keepCurrent === true, changes === true);
+      const outcome = await runLiveRender(filePath, code, {
+        keepCurrent: keepCurrent === true,
+        changes: changes === true,
+        fitView: fitView === true,
+      });
       if (awaitUi === true && (outcome.state === 'rendered' || outcome.state === 'build-error')) {
         outcome.uiApplied = await awaitSceneApplied(UI_APPLY_WAIT_MS);
       }

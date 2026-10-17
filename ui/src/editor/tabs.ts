@@ -103,6 +103,15 @@ export class FileTabs {
    * dot or a rename leaves a hand-scrolled strip where it is.
    */
   private revealedPath: string | null = null;
+  /**
+   * Likewise for the scene's tab. The scene follows a render without
+   * activating its tab (an agent writing a second file while the user reads
+   * another), so the underline can land on a tab off the strip's edge — the
+   * one tab the person watching the model most needs to see.
+   */
+  private revealedModelPath: string | null = null;
+  /** The tab elements of the latest render, for a reveal resolved at measure time. */
+  private tabElements = new Map<string, HTMLElement>();
   private renaming: Renaming | null = null;
 
   constructor(container: HTMLElement, private readonly handlers: FileTabsHandlers, tabsEnabled: boolean) {
@@ -197,22 +206,19 @@ export class FileTabs {
     closePopupMenu();
     this.scroller.track.replaceChildren();
     let field: HTMLInputElement | null = null;
-    let active: HTMLElement | null = null;
+    this.tabElements = new Map();
     for (const tab of this.tabs) {
       const el = this.buildTab(tab);
       this.scroller.track.appendChild(el);
+      this.tabElements.set(tab.absPath, el);
       field ??= el.querySelector<HTMLInputElement>('[data-rename-input]');
-      if (tab.absPath === this.activePath) {
-        active = el;
-      }
     }
-    if (!active) {
-      // No active tab (or a closed one): the next activation is a fresh reveal.
-      this.revealedPath = null;
-      this.scroller.refresh();
-    } else if (this.activePath !== this.revealedPath) {
-      this.revealedPath = this.activePath;
-      this.scroller.reveal(active);
+    const reveal = this.pathToReveal();
+    if (reveal !== null) {
+      // Resolved when the scroller measures: the scene following a render
+      // re-renders the strip twice in one tick, and the second rebuild would
+      // otherwise detach the element the first one asked to reveal.
+      this.scroller.reveal(() => this.tabElements.get(reveal) ?? null);
     } else {
       this.scroller.refresh();
     }
@@ -227,6 +233,30 @@ export class FileTabs {
         field.setSelectionRange(field.value.length, field.value.length);
       }
     }
+  }
+
+  /**
+   * Which tab, if any, this render scrolls into view: the active tab when
+   * activation moved, else the scene's tab when the scene moved. Each is
+   * revealed once per change, so a strip the user scrolled by hand stays put
+   * through the re-renders that follow (dirty dots, renames, more renders of
+   * the same file). A tab that closed resets its slot, so reopening it is a
+   * fresh reveal.
+   */
+  private pathToReveal(): string | null {
+    const active = this.activePath !== null && this.tabElements.has(this.activePath) ? this.activePath : null;
+    const model = this.currentModelPath !== null && this.tabElements.has(this.currentModelPath) ? this.currentModelPath : null;
+    const activeMoved = active !== null && active !== this.revealedPath;
+    const modelMoved = model !== null && model !== this.revealedModelPath;
+    this.revealedPath = active;
+    this.revealedModelPath = model;
+    if (activeMoved) {
+      return active;
+    }
+    if (modelMoved) {
+      return model;
+    }
+    return null;
   }
 
   private buildTab(tab: FileTab): HTMLElement {

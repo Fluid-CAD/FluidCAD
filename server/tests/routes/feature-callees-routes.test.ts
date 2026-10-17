@@ -113,7 +113,7 @@ describe('routes with the feature catalog', () => {
     const { status, body } = await post(`${base}/code/apply-feature`, { code: CODE, spec: FILLET_SPEC });
     expect(status).toBe(200);
     expect(body.error).toBeUndefined();
-    expect(body.newCode).toContain(`const p1 = part('Body', () => {})\nfillet(0.5, s.endEdges())\n`);
+    expect(body.newCode).toContain(`const p1 = part('Body', () => {})\nfillet(0.5, s.endEdges()).name('Fillet 1')\n`);
   });
 
   it('preflights a dispatched fillet over the catalog', async () => {

@@ -4,6 +4,7 @@ import { BooleanOps } from "../oc/boolean-ops.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
 import { requireShapes } from "../common/operand-check.js";
 import { liveOperandShapes } from "../helpers/live-solids.js";
+import { fusedInto } from "../helpers/scene-helpers.js";
 
 export class Fuse extends SceneObject {
   private _sceneObjects: SceneObject[] = [];
@@ -63,14 +64,23 @@ export class Fuse extends SceneObject {
     // colors, the fused result stays uncolored — even if other inputs are
     // colored, those colors are intentionally dropped.
     const firstShape = allShapes[0];
-    if (firstShape && firstShape.hasColors()) {
-      ColorTransfer.applyThroughMaker([firstShape], fuseResult.newShapes, fuseResult.maker);
-      ColorTransfer.applyBleeding([firstShape], fuseResult.newShapes, fuseResult.maker);
+    const firstView = objShapeMap.get(firstShape).getFaceColors(firstShape);
+    try {
+      if (!firstView.isEmpty()) {
+        const source = { shape: firstShape, colors: firstView };
+        const carried = ColorTransfer.applyThroughMaker([source], fuseResult.newShapes, fuseResult.maker);
+        carried.push(...ColorTransfer.applyBleeding([source], fuseResult.newShapes, fuseResult.maker, undefined, carried));
+        this.recordCarriedColors(carried);
+      }
+    } finally {
+      firstView.delete();
     }
 
+    // Each input leaves its holder for the body the fuse merged it into.
+    const successors = fusedInto(fuseResult.modifiedShapes, fuseResult.newShapes, fuseResult.newShapes, fuseResult.maker);
     for (const shape of fuseResult.modifiedShapes) {
       const obj = objShapeMap.get(shape);
-      obj.removeShape(shape, this);
+      obj.removeShape(shape, this, successors.get(shape));
     }
 
     this.addShapes(fuseResult.newShapes);

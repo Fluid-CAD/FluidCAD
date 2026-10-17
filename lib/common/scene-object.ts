@@ -11,6 +11,9 @@ import { DEFAULT_LENGTH_UNIT } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import { heldSolidsOf, liveSolidsIn, type HeldSolid } from "../helpers/live-solids.js";
 import { BucketDefs, type BucketDef, type SubShapeKind } from "./bucket-defs.js";
+import { FaceColorView } from "./face-color-view.js";
+import type { CarriedColor } from "../oc/color-transfer.js";
+import { CssColor } from "./css-color.js";
 
 export type SourceLocation = {
   filePath: string;
@@ -46,6 +49,23 @@ export type ModificationRecord<T> = {
   sources: T[];
   results: T[];
   modifiedBy: SceneObject;
+};
+
+/**
+ * A colour painted on one face of a solid, kept by the object HOLDING the
+ * solid and stamped with the statement that painted it — the same shape as
+ * `{ shape, removedBy }`. A colour changes no geometry, so painting changes
+ * nothing about what any object holds: whether the colour shows is decided
+ * like whether a shape shows, by whether its author is in scope.
+ */
+export type FaceColorRecord = {
+  /** The wrapper the holder holds — matched by identity, like `removedShapes`. */
+  solid: Shape;
+  /** The painted face — matched with `IsSame`, so any orientation of it resolves. */
+  face: Face;
+  /** Normalised lowercase `#rrggbb`. */
+  color: string;
+  setBy: SceneObject;
 };
 
 export interface Comparable<T> {
@@ -106,6 +126,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     this.state.set('addedEdges', [])
     this.state.set('modifiedEdges', [])
     this.state.set('removedEdges', [])
+    this.state.set('faceColors', [])
     this.state.set('finalShapes', [])
 
     this._id = globalThis.crypto.randomUUID().toString();
@@ -530,6 +551,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     this.state.set('removedEdges', records);
   }
 
+  private get faceColors() {
+    return this.state.get('faceColors') as FaceColorRecord[];
+  }
+
   private get finalShapes() {
     return this.state.get('finalShapes') as Shape[];
   }
@@ -586,7 +611,8 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return false;
   }
 
-  removeShapes(removedBy: SceneObject, force?: boolean) {
+  /** `successors`: what `removedBy` made of each shape, when it knows — see ShapeRemovalRecord. */
+  removeShapes(removedBy: SceneObject, force?: boolean, successors?: (shape: Shape) => Shape[] | undefined) {
     if (this.consumedForDisplayOnly() && !force) {
       this.removeShapesFromDisplay(removedBy);
       return;
@@ -595,13 +621,13 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     if (this.isContainer()) {
 
       for (const child of this.children) {
-        child.removeShapes(removedBy, force);
+        child.removeShapes(removedBy, force, successors);
       }
       return;
     }
 
     for (const shape of this.addedShapes) {
-      this.removeShape(shape, removedBy);
+      this.removeShape(shape, removedBy, successors?.(shape));
     }
   }
 
@@ -714,6 +740,97 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this.removedEdges
       .filter(r => !scope || scope.has(r.removedBy))
       .map(r => r.shape);
+  }
+
+  /**
+   * Paint `face` of `solid` — a solid this object holds — on behalf of
+   * `setBy`. Containers route to the child holding the solid, like
+   * `removeShape`; a leaf appends. Nothing is replaced at write time: which
+   * record shows is resolved at read time (`getFaceColors`), so rolling the
+   * scene back between two paints shows the earlier one.
+   */
+  recordFaceColor(solid: Shape, face: Face, color: string, setBy: SceneObject): void {
+    if (this.isContainer()) {
+      for (const child of this.children) {
+        if (child.holdsSolid(solid)) {
+          child.recordFaceColor(solid, face, color, setBy);
+        }
+      }
+      return;
+    }
+
+    this.faceColors.push({ solid, face, color: CssColor.toHex(color), setBy });
+  }
+
+  /**
+   * The resolved colour per face of `solid` under `scope` — the records
+   * whose author is in scope (all of them scope-less), latest author
+   * winning per face. The view owns native memory: `delete()` it when done.
+   */
+  getFaceColors(solid: Shape, scope?: Set<SceneObject>): FaceColorView {
+    if (this.isContainer()) {
+      for (const child of this.children) {
+        if (child.holdsSolid(solid)) {
+          return child.getFaceColors(solid, scope);
+        }
+      }
+    }
+
+    return new FaceColorView(this.faceColors.filter(r =>
+      r.solid === solid && (!scope || scope.has(r.setBy))
+    ));
+  }
+
+  /**
+   * Record the colours an operation carried onto results this object holds
+   * (`ColorTransfer`'s output): each keeps the statement that painted the
+   * source face as its author, so the colour follows that statement's
+   * scope, edits and removal on every downstream body.
+   */
+  recordCarriedColors(colors: ReadonlyArray<CarriedColor>): void {
+    for (const carried of colors) {
+      this.recordFaceColor(carried.shape, carried.face, carried.color, carried.setBy);
+    }
+  }
+
+  /**
+   * Carry the colours `from` resolves for `solid` onto this object's records
+   * for `onto` — the same wrapper when this object takes the solid over as it
+   * is, or a `Solid.copy()` of it, whose faces are the same handles. Authors
+   * are kept.
+   */
+  carryFaceColors(from: SceneObject, solid: Shape, onto: Shape = solid): void {
+    const view = from.getFaceColors(solid);
+    try {
+      for (const entry of view.entries()) {
+        this.recordFaceColor(onto, entry.face, entry.color, entry.setBy);
+      }
+    } finally {
+      view.delete();
+    }
+  }
+
+  /** The colour `getFaceColors(solid, scope)` resolves for one face, or undefined. */
+  faceColorOf(solid: Shape, face: Face, scope?: Set<SceneObject>): string | undefined {
+    const view = this.getFaceColors(solid, scope);
+    try {
+      return view.get(face.getShape());
+    } finally {
+      view.delete();
+    }
+  }
+
+  /**
+   * Whether this object (through its children, for a container) was given
+   * `solid` — ever, not only while it still shows: a holder keeps answering
+   * for a solid a later feature consumed, since a scoped read before that
+   * feature sees the solid again.
+   */
+  private holdsSolid(solid: Shape): boolean {
+    if (this.isContainer()) {
+      return this.children.some(child => child.holdsSolid(solid));
+    }
+    return this.addedShapes.includes(solid);
   }
 
   setFinalShapes(shapes: Shape[]) {

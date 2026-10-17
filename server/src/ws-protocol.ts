@@ -554,6 +554,14 @@ export type UISceneRenderedMessage = {
    * `index` numbering as `result`; absent on error replays.
    */
   objectWarnings?: ObjectBuildWarning[];
+  /**
+   * Frame the whole model once this scene is on screen. Set on renders an
+   * agent asked for through the MCP write tools (`POST /api/render` with
+   * `fitView`): the person watching the modeling sees each edit land in
+   * frame. Never set on the page's own live-updates — the camera stays
+   * where the user put it while they type.
+   */
+  fitView?: boolean;
 };
 
 export type UIHighlightShapeMessage = {

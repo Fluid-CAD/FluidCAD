@@ -99,7 +99,7 @@ describe("single-ended loft condition influence", () => {
       expect(edges.some(edge => connection.every(point => EdgeOps.distancePointToEdge(point, edge) < 1e-6))).toBe(true);
       // All four corner curves have the same envelope by square symmetry.
       // The old single cubic bulged to 81.05 mm between the 40 and 50 mm profiles.
-      const mesh = solid.getMeshes()!.flatMap(mesh => mesh.vertices);
+      const mesh = solid.getMeshPieces()!.faces.flatMap(piece => piece.vertices);
       const upper = Array.from({ length: mesh.length / 3 }, (_, i) => mesh.slice(i * 3, i * 3 + 3))
         .filter(point => point[2] >= 50);
       expect(2 * Math.max(...upper.map(point => Math.max(Math.abs(point[0]), Math.abs(point[1]))))).toBeLessThan(60);

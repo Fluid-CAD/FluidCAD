@@ -5,6 +5,7 @@ import type {
   TopAbs_ShapeEnum,
   TopoDS_Shape,
 } from "ocjs-fluidcad";
+import type { CarriedColor, SourceColors } from "./color-transfer.js";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Matrix4 } from "../math/matrix4.js";
@@ -43,8 +44,9 @@ export type CleanShapeLineage = {
 };
 
 export class ShapeOps {
+  /** A transformed copy of `shape`: geometry, seams, helix data and flags. Colours are holder records — see {@link transformColored}. */
   static transform(shape: Shape, matrix: Matrix4): Shape {
-    return ShapeOps.transformWith(shape, matrix, () => {});
+    return ShapeOps.transformThrough(shape, matrix, () => undefined);
   }
 
   /**
@@ -54,7 +56,7 @@ export class ShapeOps {
    */
   static transformTracking<T extends Shape>(shape: Shape, matrix: Matrix4, subShapes: readonly T[]): { shape: Shape; images: (T | null)[] } {
     let images: (T | null)[] = [];
-    const moved = ShapeOps.transformWith(shape, matrix, transformer => {
+    const moved = ShapeOps.transformThrough(shape, matrix, transformer => {
       if (subShapes.length === 0) {
         return;
       }
@@ -73,8 +75,32 @@ export class ShapeOps {
     return { shape: moved, images };
   }
 
-  /** The move itself; `visit` reads the transformer before it is released. */
-  private static transformWith(shape: Shape, matrix: Matrix4, visit: (transformer: BRepBuilderAPI_Transform) => void): Shape {
+  /**
+   * A transformed copy of a held solid with its colours carried onto the
+   * moved faces, authors kept — what a move, a mirror or a copy records on
+   * itself as the new holder.
+   */
+  static transformColored(source: SourceColors, matrix: Matrix4): { shape: Shape; colors: CarriedColor[] } {
+    const colors: CarriedColor[] = [];
+    const shape = ShapeOps.transformThrough(source.shape, matrix, (transformer, transformed) => {
+      for (const entry of source.colors.entries()) {
+        const moved = transformer.ModifiedShape(entry.face.getShape());
+        colors.push({
+          shape: transformed,
+          face: Face.fromTopoDSFace(Explorer.toFace(moved)),
+          color: entry.color,
+          setBy: entry.setBy,
+        });
+      }
+    });
+    return { shape, colors };
+  }
+
+  private static transformThrough(
+    shape: Shape,
+    matrix: Matrix4,
+    carry: (transformer: BRepBuilderAPI_Transform, transformed: Shape) => void,
+  ): Shape {
     const oc = getOC();
     const [trsf, disposeTrsf] = Convert.toGpTrsf(matrix);
     const transformer = new oc.BRepBuilderAPI_Transform(trsf);
@@ -94,17 +120,7 @@ export class ShapeOps {
       }
     }
 
-    if (shape.hasColors()) {
-      const sourceFaces = shape.getSubShapes("face");
-
-      for (const sourceFace of sourceFaces) {
-        const faceColor = shape.getColor(sourceFace.getShape());
-        if (faceColor) {
-          const modifiedFace = transformer.ModifiedShape(sourceFace.getShape());
-          transformed.setColor(modifiedFace, faceColor);
-        }
-      }
-    }
+    carry(transformer, transformed);
 
     if (shape.isMetaShape()) {
       transformed.markAsMetaShape(shape.metaType);
@@ -115,8 +131,6 @@ export class ShapeOps {
     }
 
     transformed.copyRoleFrom(shape);
-
-    visit(transformer);
 
     transformer.delete();
     disposeTrsf();

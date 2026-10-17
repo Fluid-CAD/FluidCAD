@@ -144,7 +144,7 @@ describe('HubInstaller.resolve', () => {
     const latest = await publish('0.2.0');
     const resolved = await installer().resolve({ name: NAME, version: null });
     expect(resolved).toMatchObject({ name: NAME, version: '0.2.0', integrity: latest.integrity, status: 'published', access: 'public', passedOver: null, signedOut: false, notes: [] });
-    expect(hub.requestsTo(`/api/v1/packages/${NAME}`)[0].query).toBe('?engine=0.0.46&sdk=1');
+    expect(hub.requestsTo(`/api/v1/packages/${NAME}`)[0].query).toBe(`?engine=${ENGINE}&sdk=1`);
   });
 
   it('picks the newest compatible version when the latest needs a newer engine, with a note', async () => {
@@ -155,7 +155,7 @@ describe('HubInstaller.resolve', () => {
     expect(resolved.integrity).toBe(older.integrity);
     expect(resolved.passedOver).toEqual({ version: '0.2.0', needs: 'FluidCAD 0.0.99 or newer' });
     expect(resolved.notes).toEqual([
-      'The latest @acme/kit, 0.2.0, needs FluidCAD 0.0.99 or newer; this FluidCAD is 0.0.46, so this installs 0.1.0, the newest version it runs.',
+      `The latest @acme/kit, 0.2.0, needs FluidCAD 0.0.99 or newer; this FluidCAD is ${ENGINE}, so this installs 0.1.0, the newest version it runs.`,
     ]);
   });
 
@@ -165,7 +165,7 @@ describe('HubInstaller.resolve', () => {
     const error = await refusal(installer().resolve({ name: NAME, version: null }));
     expect(error.code).toBe('incompatible');
     expect(error.message).toBe(
-      'No published version of @acme/kit runs on this FluidCAD (0.0.46, feature SDK 1): the latest, 0.2.0, needs feature SDK version 2 (this FluidCAD has 1). ' +
+      `No published version of @acme/kit runs on this FluidCAD (${ENGINE}, feature SDK 1): the latest, 0.2.0, needs feature SDK version 2 (this FluidCAD has 1). ` +
         HubInstallMessages.UPDATE_HINT,
     );
   });
@@ -300,7 +300,7 @@ describe('HubInstaller.choose', () => {
     it('takes the newest compatible version when the latest needs a newer engine, with its note', async () => {
       const older = await publish('0.1.0');
       await publish('0.2.0', { minEngine: '0.0.99' });
-      const note = 'The latest @acme/kit, 0.2.0, needs FluidCAD 0.0.99 or newer; this FluidCAD is 0.0.46, so this installs 0.1.0, the newest version it runs.';
+      const note = `The latest @acme/kit, 0.2.0, needs FluidCAD 0.0.99 or newer; this FluidCAD is ${ENGINE}, so this installs 0.1.0, the newest version it runs.`;
       const downloaded = await installer().choose({ name: NAME, version: null }, { project });
       expect(downloaded).toMatchObject({ source: 'hub', resolved: { version: '0.1.0', integrity: older.integrity, notes: [note] } });
 

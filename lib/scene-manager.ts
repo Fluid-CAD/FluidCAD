@@ -80,6 +80,7 @@ import { SceneInterference } from "./validation/scene-interference.js";
 import type { InterferenceMesher, InterferenceRequest, SceneInterferenceOutcome } from "./validation/scene-interference.js";
 import { RenderedSolidPool } from "./validation/rendered-pool.js";
 import { MeshBuilder } from "./rendering/mesh-builder.js";
+import { ColoredSolids, type ColoredSolid } from "./common/colored-solid.js";
 import type { SceneObjectMesh } from "./rendering/scene.js";
 import type {
   ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickChain, PickRef,
@@ -419,11 +420,13 @@ class SceneManager {
   }
 
   exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {
-    const solids: Solid[] = [];
+    // Each solid leaves with the colours its holder resolves for it (the
+    // final state, scope-less).
+    const solids: ColoredSolid[] = [];
     for (const obj of scene.getAllSceneObjects()) {
       for (const shape of obj.getAddedShapes()) {
         if (shapeIds.includes(shape.id) && shape.isSolid()) {
-          solids.push(shape as Solid);
+          solids.push(ColoredSolids.fromHolder(obj, shape as Solid));
         }
       }
     }

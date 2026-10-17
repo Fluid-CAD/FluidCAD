@@ -1,7 +1,10 @@
-import { SceneObjectMesh } from "./scene.js";
 import { Matrix4 } from "../math/matrix4.js";
 
-export function transformMeshes(meshes: SceneObjectMesh[], matrix: Matrix4): SceneObjectMesh[] {
+/** What a transform touches: packed xyz vertices and normals, plus the triangle indices it may re-wind. */
+export type MeshArrays = { vertices: number[]; normals: number[]; indices: number[] };
+
+/** `meshes` moved by `matrix` — wire meshes and cached face pieces alike; every other field is kept. */
+export function transformMeshes<T extends MeshArrays>(meshes: T[], matrix: Matrix4): T[] {
   const m = matrix.elements;
   // Determinant of the 3x3 linear part. Negative for mirror/reflection
   // transforms — those flip triangle winding, so we have to swap indices

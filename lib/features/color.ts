@@ -2,32 +2,38 @@ import { Face } from "../common/face.js";
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
-import { SelectSceneObject } from "./select.js";
 import { requireShapes } from "../common/operand-check.js";
-import cssColorNames from "color-name";
+import { BuildError } from "../common/build-error.js";
+import { CssColor } from "../common/css-color.js";
+import { heldSolidsOf, liveOperandShapes } from "../helpers/live-solids.js";
 
-function toHex(color: string): string {
-  if (color.startsWith('#')) {
-    return color;
-  }
-  const rgb = cssColorNames[color.toLowerCase() as keyof typeof cssColorNames];
-  if (rgb) {
-    return '#' + rgb.map(c => c.toString(16).padStart(2, '0')).join('');
-  }
-  return color;
-}
+/** One face to paint, with the solid it belongs to and the object holding that solid now. */
+type PaintTarget = { holder: SceneObject; solid: Shape; face: Face };
 
+/**
+ * `color(value, selection?)`: a face attribute, not a body owner. The
+ * statement holds no shapes, removes none and copies none — it writes
+ * face-colour records on the holder of each target solid, each naming this
+ * statement as its author, and the scene shows a record exactly as it shows
+ * a shape: when its author is in scope. Rolling back before the paint shows
+ * the same wrapper unpainted; between two paints, the earlier colour.
+ */
 export class Color extends SceneObject {
   private _selection: SceneObject | null = null;
 
   constructor(private color: string, selection?: SceneObject) {
     super();
-    this.color = toHex(color);
+    this.color = CssColor.toHex(color);
     this._selection = selection ?? null;
   }
 
   get selection(): SceneObject | null {
     return this._selection;
+  }
+
+  /** A reference row: it draws nothing, and nothing can consume it, so it is never dimmed. */
+  override isAlwaysVisible(): boolean {
+    return true;
   }
 
   override validate() {
@@ -36,96 +42,88 @@ export class Color extends SceneObject {
     }
   }
 
-  /**
-   * Every face this color applies to, grouped by the solid that owns it.
-   *
-   * A face selection hands us loose faces, whose owner has to be searched for
-   * among the scene's solids. Any other scene object hands us whole solids,
-   * which contribute all of their faces to an owner we already know.
-   *
-   * Without an explicit selection we colour every face in the current context,
-   * matching `select(face())` followed by `color(...)`: all faces of all
-   * non-meta solids present at this point in the build.
-   */
-  private collectFacesByOwner(candidates: Solid[]): Map<Solid, Face[]> {
-    const facesByOwner = new Map<Solid, Face[]>();
-
-    const add = (owner: Solid, face: Face) => {
-      let faces = facesByOwner.get(owner);
-      if (!faces) {
-        faces = [];
-        facesByOwner.set(owner, faces);
-      }
-      faces.push(face);
-    };
-
-    if (!this._selection) {
-      for (const solid of candidates) {
-        if (solid.isMetaShape()) {
-          continue;
-        }
-        facesByOwner.set(solid, solid.getFaces());
-      }
-      return facesByOwner;
-    }
-
-    for (const shape of this._selection.getShapes()) {
-      if (shape instanceof Solid) {
-        for (const face of shape.getFaces()) {
-          add(shape, face);
-        }
-        continue;
-      }
-
-      for (const face of shape.getSubShapes('face') as Face[]) {
-        const ownerShape = candidates.find(s => s.hasFace(face.getShape()));
-        if (ownerShape) {
-          add(ownerShape, face);
-        }
-        else {
-          console.log('Color: Could not find owner shape for face, skipping. Face:', face);
-        }
-      }
-    }
-
-    return facesByOwner;
+  override getDependencies(): SceneObject[] {
+    return this._selection ? [this._selection] : [];
   }
 
   build(context: BuildSceneObjectContext) {
-    const sceneObjects = context.getSceneObjects();
-
-    const objShapeMap = new Map<Solid, SceneObject>();
-    for (const obj of sceneObjects) {
-      const shapes = obj.getShapes({ excludeMeta: false }, 'solid');
-      for (const shape of shapes) {
-        objShapeMap.set(shape as Solid, obj);
-      }
+    for (const { holder, solid, face } of this.resolveTargets(context)) {
+      holder.recordFaceColor(solid, face, this.color, this);
     }
 
-    const allShapes = Array.from(objShapeMap.keys());
+    // A selection is claimed, never consumed: its highlight leaves the
+    // display from this row on (the `expose()` precedent), while scope-less
+    // readers — a later fillet(2, sel), a second color() — still get its
+    // faces. A lazy accessor (e.endFaces()) resolved its shapes when it
+    // built, ahead of this statement, so it hides the same way. A whole
+    // object (`color("red", e)`) keeps showing: its bodies are the paint's
+    // canvas, not a highlight.
+    if (this._selection && Color.isFaceSelection(this._selection)) {
+      this._selection.removeShapesFromDisplay(this);
+    }
+  }
 
-    const facesByOwner = this.collectFacesByOwner(allShapes);
+  /** Whether `operand` hands over faces to find owners for, as opposed to a feature whose bodies are painted whole. */
+  private static isFaceSelection(operand: SceneObject): boolean {
+    return operand.isSelection() || operand.isLazy();
+  }
 
-    // Apply all face colors per solid in a single copy
-    for (const [ownerShape, faces] of facesByOwner) {
-      const newSolid = ownerShape.copy();
-      for (const face of faces) {
-        newSolid.setColor(face.getShape(), this.color);
+  /**
+   * Every face this colour applies to, with the solid holding it now:
+   *
+   * - a face selection (`select(face()…)`, `e.endFaces()`): each of its
+   *   faces, resolved to the held solid it belongs to in this scope;
+   * - any other object (`color("red", e)`): every face of the bodies the
+   *   object built, wherever the features between left them — a fillet
+   *   that took `e`'s solid stands for it with the filleted body;
+   * - no selection: every face of every non-meta solid held in this scope,
+   *   matching `select(face())` followed by `color(...)`.
+   */
+  private resolveTargets(context: BuildSceneObjectContext): PaintTarget[] {
+    const selection = this._selection;
+    if (!selection) {
+      return Color.wholeSolids(heldSolidsOf(context.getSceneObjects()).filter(({ solid }) => !solid.isMetaShape()));
+    }
+
+    if (Color.isFaceSelection(selection)) {
+      return Color.selectedFaces(selection, heldSolidsOf(context.getSceneObjects()));
+    }
+
+    return Color.wholeSolids(liveOperandShapes(selection, {}, 'solid').map(({ holder, shape }) => ({ holder, solid: shape })));
+  }
+
+  private static wholeSolids(held: ReadonlyArray<{ holder: SceneObject; solid: Shape }>): PaintTarget[] {
+    const targets: PaintTarget[] = [];
+    for (const { holder, solid } of held) {
+      if (!(solid instanceof Solid)) {
+        continue;
       }
+      for (const face of solid.getFaces()) {
+        targets.push({ holder, solid, face });
+      }
+    }
+    return targets;
+  }
 
-      if (this._selection instanceof SelectSceneObject) {
-        for (const face of faces) {
-          this._selection.removeShape(face, this);
+  /** The selection's faces, each on the held solid that owns it — a face no held solid owns is a build error. */
+  private static selectedFaces(
+    selection: SceneObject,
+    held: ReadonlyArray<{ holder: SceneObject; solid: Shape }>,
+  ): PaintTarget[] {
+    const targets: PaintTarget[] = [];
+    for (const shape of selection.getShapes()) {
+      for (const face of shape.getSubShapes('face') as Face[]) {
+        const owner = held.find(({ solid }) => solid instanceof Solid && solid.hasFace(face.getShape()));
+        if (!owner) {
+          throw new BuildError(
+            `color: no solid in scope holds a selected face.`,
+            `Select faces of a body that exists at this point — a body a later feature builds, or one in another part, cannot be painted here.`,
+          );
         }
+        targets.push({ holder: owner.holder, solid: owner.solid, face });
       }
-
-      const ownerObj = objShapeMap.get(ownerShape);
-      if (ownerObj) {
-        ownerObj.removeShape(ownerShape, this);
-      }
-
-      this.addShape(newSolid);
     }
+    return targets;
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {

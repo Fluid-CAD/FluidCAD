@@ -1344,7 +1344,7 @@ describe('create into the active part from a sketch drawn before it', () => {
       activePart: { line: 5, column: 21 },
     });
     expect(edited.error).toBeUndefined();
-    expect(edited.newCode).toContain(`export const part1 = part('Part 1', () => {\n  extrude(10, s)\n`);
+    expect(edited.newCode).toContain(`export const part1 = part('Part 1', () => {\n  extrude(10, s).name('Extrude 1')\n`);
 
     const scene = runFluid(edited.newCode.replace(/^export /gm, ''));
     const built = scene.getAllSceneObjects().find(o => o.getType() === 'extrude');
@@ -1679,7 +1679,7 @@ describe("a custom feature's named buckets, from a viewport pick to the built mo
     const { preview, newCode } = await filletThrough(scene, topTipArc(solidAround(scene, 50, 0), 50, 0));
 
     expect(preview).toMatch(/^fillet\(0\.3, g\.tipEdges\(.+\)\)$/);
-    expect(newCode).toContain(`const r = repeat('circular', 'z', { count: 3, angle: 360 }, g)\n${preview}\n`);
+    expect(newCode).toContain(`const r = repeat('circular', 'z', { count: 3, angle: 360 }, g)\n${preview}.name('Fillet 1')\n`);
 
     const rerun = runFluid(newCode, { gear });
     expect(rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
@@ -1692,7 +1692,7 @@ describe("a custom feature's named buckets, from a viewport pick to the built mo
     const { preview, newCode } = await filletThrough(scene, topTipArc(solidAround(scene, cx, cy), cx, cy));
 
     expect(preview).toMatch(/^fillet\(0\.3, r\.instance\(1\)\.tipEdges\(.+\)\)$/);
-    expect(newCode).toContain(`\n${preview}\n`);
+    expect(newCode).toContain(`\n${preview}.name('Fillet 1')\n`);
 
     const rerun = runFluid(newCode, { gear });
     expect(rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
@@ -2070,7 +2070,7 @@ describe('an axis that is a connector, from the dialog\'s pick to the built mode
       const written = await route.post('/code/apply-feature', { code: CODE, spec: route.relayed[0].spec });
       expect(written.body.error).toBeUndefined();
       current = written.body.newCode;
-      expect(current).toContain(`  revolve(bolt.instance(1), s).new()\n})`);
+      expect(current).toContain(`  revolve(bolt.instance(1), s).new().name('Revolve 1')\n})`);
 
       // A ring around the copy's line, (30, 20).
       let scene = runFluid(current);
@@ -2083,7 +2083,7 @@ describe('an axis that is a connector, from the dialog\'s pick to the built mode
       expect(edited.status, JSON.stringify(edited.body)).toBe(200);
       const rewritten = await route.post('/code/apply-feature', { code: current, spec: route.relayed[1].spec });
       expect(rewritten.body.error).toBeUndefined();
-      expect(rewritten.body.newCode).toContain(`  revolve(bolt.instance(1), 180, s).new()\n})`);
+      expect(rewritten.body.newCode).toContain(`  revolve(bolt.instance(1), 180, s).new().name('Revolve 1')\n})`);
       scene = runFluid(rewritten.body.newCode);
       expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
     } finally {

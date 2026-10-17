@@ -135,6 +135,11 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Instances that differ in size are separate statements. Loop only when',
         'none of these can express the geometry.',
         '',
+        '`.name(\'…\')` on a feature statement is optional: the UI writes it for',
+        'statements it creates, an unnamed feature shows as `<Type> <n>`',
+        '("Extrude 2") in the timeline and in get_scene_summary, and you may',
+        'name the features you want to refer to later.',
+        '',
         '`.fluid.js` files MUST import every FluidCAD symbol they use:',
         '  import { sketch, line, extrude } from "fluidcad/core";',
         '  import { face, edge } from "fluidcad/filters";',
@@ -312,7 +317,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       ),
   };
 
-  const shapeIdArg = z.string().min(1).describe('Shape id from list_shapes or get_scene_summary.');
+  const shapeIdArg = z
+    .string()
+    .min(1)
+    .describe(
+      'Shape id from list_shapes or get_scene_summary. Ids are minted afresh whenever the holding feature rebuilds, so re-read them after an edit; ' +
+      'to find the same body again use its `lineageKey` (stable across your own edits) or its `label` + `part` ("Solid 2" of "Bracket", as the Shapes panel lists it).',
+    );
   const faceIndexArg = z
     .number()
     .int()
@@ -338,7 +349,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get the feature tree for a workspace',
       description:
-        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. Use this before list_shapes when you need feature-tree context. ' +
+        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. `name` is the object\'s display label — the text of its `.name(\'…\')` chain when `hasCustomName` is true, else the default `<Type> <n>` ("Extrude 2") the timeline shows; `.name()` is optional and the UI writes it for statements it creates. `shapes` lists the same shapes as `shapeIds` with `label` + `part` ("Solid 2" of "Bracket", the Shapes panel\'s row; `part` null = the top-level "Model" group) and, for solids, `lineageKey` — the body\'s identity across renders, stable through your own edits where `shapeId` is not. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. Use this before list_shapes when you need feature-tree context. ' +
         'In an assembly file it also returns `instances`, one per inserted instance (sub-assemblies\' included): `instanceId` (what ' +
         'validate, interfere, measure, resolve_selection and the screenshot `hide`/`focus`/`fitTo` take), `name`, `partId`/`partName` ' +
         '(the `part` row it inserts; `partId` feeds get_shape_properties), `owner` (the sub-assembly occurrence path, "" at the root), ' +
@@ -359,7 +370,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'List all shapes in the current scene',
       description:
-        'Returns a flat list of `{ shapeId, type, sceneObjectId }`. Cheaper than get_scene_summary when you only need ids — use this before calling shape/face/edge property tools.',
+        'Returns a flat list of `{ shapeId, type, sceneObjectId, label, part, lineageKey? }`: `label` + `part` is the row the Shapes panel shows ("Solid 2" of "Bracket"; `part` null = the top-level "Model" group; both absent on a meta shape), `lineageKey` (solids only) stays the same across your own edits where `shapeId` is minted afresh. Cheaper than get_scene_summary when you only need ids — use this before calling shape/face/edge property tools.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await listShapes({ workspace })),

@@ -129,7 +129,7 @@ describe("draft, written on the Feature base", () => {
       const scene = render();
       expect(errorsOf(scene)).toEqual([]);
       expect(d).toBeInstanceOf(Draft);
-      expect(scene.getRenderedObject(d)!.name).toBe('Draft');
+      expect(scene.getRenderedObject(d)!.name).toBe('Draft 1');
       return d;
     };
     let picked: unknown = null;

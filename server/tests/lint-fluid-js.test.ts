@@ -16,6 +16,22 @@ describe('lintFluidJs', () => {
     );
   });
 
+  it('neither flags a .name() chain nor requires one — names are optional for MCP writers', async () => {
+    const named = [
+      'import { sketch, circle, extrude } from "fluidcad/core";',
+      '',
+      'sketch("xy", () => circle(50)).name("Profile");',
+      'extrude(20).name("Base");',
+      '',
+    ].join('\n');
+    const unnamed = named.replace('.name("Profile")', '').replace('.name("Base")', '');
+    for (const code of [named, unnamed]) {
+      const result = await lintFluidJs(code);
+      expect(result.missing).toEqual([]);
+      expect(result.diagnostics ?? []).toEqual([]);
+    }
+  });
+
   it('accepts the standard fluid.js with all imports present', async () => {
     const code = [
       'import { sketch, circle, extrude } from "fluidcad/core";',

@@ -70,11 +70,17 @@ export class Rotate extends SceneObject {
     // it (liveOperandShapes): the holder loses it, not the variable's object.
     for (const obj of targetObjects) {
       for (const { holder, shape } of liveOperandShapes(obj)) {
-        const transformed = ShapeOps.transform(shape, matrix);
-        transformed.setMeshSource(shape, matrix);
-        this.addShape(transformed);
-        if (!this.copy) {
-          holder.removeShape(shape, this, [transformed]);
+        const colors = holder.getFaceColors(shape);
+        try {
+          const { shape: transformed, colors: carried } = ShapeOps.transformColored({ shape, colors }, matrix);
+          transformed.setMeshSource(shape, matrix);
+          this.addShape(transformed);
+          this.recordCarriedColors(carried);
+          if (!this.copy) {
+            holder.removeShape(shape, this, [transformed]);
+          }
+        } finally {
+          colors.delete();
         }
       }
     }

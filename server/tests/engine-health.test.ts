@@ -39,7 +39,7 @@ async function catalog(type: string): Promise<FeatureDisclosure | null> {
   return type === 'acme.dangling' ? { label: 'Dangling pointer', usesOcct: true } : null;
 }
 
-const RAW_NOTE = '\nDangling pointer uses raw OpenCascade (fluidcad/sdk/occt) — the likeliest cause: its code freed, or reached past, '
+const RAW_NOTE = '\nDangling pointer 1 uses raw OpenCascade (fluidcad/sdk/occt) — the likeliest cause: its code freed, or reached past, '
   + 'memory the engine still needed.';
 
 let stops: (() => void)[] = [];

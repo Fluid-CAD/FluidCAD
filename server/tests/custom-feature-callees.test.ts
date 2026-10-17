@@ -120,7 +120,7 @@ describe('applyFeatureEdit with custom feature callees', () => {
       `sketch('xy', () => { rect(40, 40) })`,
       `const e = extrude(10)`,
       `const s = standoff(e.endFaces(), { height: 12 })`,
-      `fillet(0.5, s.endEdges())`,
+      `fillet(0.5, s.endEdges()).name('Fillet 1')`,
     ));
   });
 

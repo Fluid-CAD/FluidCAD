@@ -1,14 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { setupOC } from "../setup.js";
 import { FileExport } from "../../io/file-export.js";
-import { box, stlBounds } from "./helpers.js";
+import { box, stlBounds, exportable } from "./helpers.js";
 
 describe("STL export units", () => {
   setupOC();
 
   it("scales an inch compound into mm by default", () => {
     const solids = box(1);
-    const data = FileExport.exportShapes(solids, { format: "stl", unit: "in" }).data as Uint8Array;
+    const data = FileExport.exportShapes(exportable(solids), { format: "stl", unit: "in" }).data as Uint8Array;
     const bounds = stlBounds(data);
     expect(bounds.max.map(v => +v.toFixed(4))).toEqual([25.4, 25.4, 25.4]);
     expect(bounds.min.map(v => +Math.abs(v).toFixed(4))).toEqual([0, 0, 0]);
@@ -16,14 +16,14 @@ describe("STL export units", () => {
 
   it("keeps document units when asked", () => {
     const solids = box(1);
-    const data = FileExport.exportShapes(solids, { format: "stl", unit: "in", scaleTo: "document" }).data as Uint8Array;
+    const data = FileExport.exportShapes(exportable(solids), { format: "stl", unit: "in", scaleTo: "document" }).data as Uint8Array;
     expect(stlBounds(data).max.map(v => +v.toFixed(4))).toEqual([1, 1, 1]);
   });
 
   it("leaves an mm compound alone either way", () => {
     const solids = box(10);
     for (const scaleTo of ["mm", "document"] as const) {
-      const data = FileExport.exportShapes(solids, { format: "stl", scaleTo }).data as Uint8Array;
+      const data = FileExport.exportShapes(exportable(solids), { format: "stl", scaleTo }).data as Uint8Array;
       expect(stlBounds(data).max.map(v => +v.toFixed(4))).toEqual([10, 10, 10]);
     }
   });

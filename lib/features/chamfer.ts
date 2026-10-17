@@ -2,7 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Edge, Face, Shape, Solid } from "../common/shapes.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { CleanShapeLineage, ShapeOps } from "../oc/shape-ops.js";
-import { ColorTransfer } from "../oc/color-transfer.js";
+import { ColorTransfer, type CarriedColor } from "../oc/color-transfer.js";
 import { requireShapes } from "../common/operand-check.js";
 import { recordModifierHistory } from "../helpers/scene-helpers.js";
 import { ShapeHistory } from "../common/shape-history-tracker.js";
@@ -88,11 +88,14 @@ export class Chamfer extends SceneObject {
 
       edges = edges.filter(e => !targetEdges.includes(e));
 
+      const obj = shapeObjectMap.get(shape);
+      const colors = obj.getFaceColors(solid);
       try {
         let preCleanSolids: Solid[];
         let history: ShapeHistory;
+        let carried: CarriedColor[];
         if (!this.distance2) {
-          ({ solids: preCleanSolids, history } = FilletOps.makeChamfer(solid, targetEdges, this.distance));
+          ({ solids: preCleanSolids, history, colors: carried } = FilletOps.makeChamfer({ shape: solid, colors }, targetEdges, this.distance));
         } else {
           const faces = solid.getFaces();
           const commonFaces: Face[] = [];
@@ -101,16 +104,15 @@ export class Chamfer extends SceneObject {
             const firstCommonFace = faces.find(f => f.hasEdge(edge.getShape()));
             if (!firstCommonFace) {
               newShapes.push(shape);
+              this.carryFaceColors(obj, shape);
               console.error("Chamfer: Failed to find common face for chamfer.");
               continue;
             }
             commonFaces.push(firstCommonFace);
           }
 
-          ({ solids: preCleanSolids, history } = FilletOps.makeChamferTwoDistances(solid, targetEdges, this.distance, this.distance2, commonFaces, this.isAngle));
+          ({ solids: preCleanSolids, history, colors: carried } = FilletOps.makeChamferTwoDistances({ shape: solid, colors }, targetEdges, this.distance, this.distance2, commonFaces, this.isAngle));
         }
-
-        const obj = shapeObjectMap.get(shape);
 
         // Clean each chamfer result and chain colors through the cleanup's
         // UnifySameDomain history so any merged faces keep their colors.
@@ -118,7 +120,12 @@ export class Chamfer extends SceneObject {
         const chamfered: Solid[] = [];
         for (const preClean of preCleanSolids) {
           const cleanup = ShapeOps.cleanShapeWithLineage(preClean);
-          ColorTransfer.applyThroughCleanup(preClean, cleanup);
+          const preCleanView = ColorTransfer.viewOf(carried, preClean);
+          try {
+            this.recordCarriedColors(ColorTransfer.applyThroughCleanup({ shape: preClean, colors: preCleanView }, cleanup));
+          } finally {
+            preCleanView.delete();
+          }
           const cleaned = cleanup.shape as Solid;
           cleanups.push(cleanup);
           chamfered.push(cleaned);
@@ -141,6 +148,8 @@ export class Chamfer extends SceneObject {
           "too large for the adjacent geometry. The solid was left unchamfered."
         );
         continue;
+      } finally {
+        colors.delete();
       }
     }
 

@@ -1,6 +1,7 @@
 import { onThemeChange } from '../scene/theme-colors';
 import { filterToReferencedParts } from '../scene/referenced-parts';
 import type { SceneObjectRender, SerializedAssembly } from '../types';
+import { ShapeLabels, type ShapeLabel } from '../../../lib/rendering/shape-labels.js';
 import {
   ICON_CHEVRON_DOWN,
   ICON_CUBE,
@@ -12,7 +13,7 @@ import {
   ICON_SUN,
 } from './icons';
 
-/** One exportable solid, as the Export list names it. */
+/** One exportable solid, as the Export list names it — see {@link TopBarActions.collectSolids}. */
 export type ExportableSolid = { shapeId: string; name: string };
 
 export interface TopBarExportHandlers {
@@ -546,9 +547,16 @@ export class TopBarActions {
    * The scene's exportable solids, named like the Shapes panel names them:
    * the owning object's name, numbered when one object contributes several.
    */
+  /**
+   * The Export rows, in timeline order: a solid whose holder the user named
+   * reads as that name; any other reads the way the Shapes panel lists it —
+   * `<Type> <n>`, numbered per part — with its part in brackets so two
+   * parts' first solids stay apart.
+   */
   private static collectSolids(objects: SceneObjectRender[]): ExportableSolid[] {
     const solids: ExportableSolid[] = [];
     const seen = new Set<string>();
+    const labels = ShapeLabels.labelsFor(objects);
     for (const object of objects) {
       for (const part of object.sceneShapes ?? []) {
         if (part.shapeType !== 'solid' || part.isMetaShape || part.isGuide) {
@@ -558,21 +566,19 @@ export class TopBarActions {
           continue;
         }
         seen.add(part.shapeId);
-        solids.push({ shapeId: part.shapeId, name: object.name || 'Solid' });
-      }
-    }
-    const totals = new Map<string, number>();
-    for (const solid of solids) {
-      totals.set(solid.name, (totals.get(solid.name) ?? 0) + 1);
-    }
-    const counts = new Map<string, number>();
-    for (const solid of solids) {
-      if ((totals.get(solid.name) ?? 0) > 1) {
-        const n = (counts.get(solid.name) ?? 0) + 1;
-        counts.set(solid.name, n);
-        solid.name = `${solid.name} ${n}`;
+        solids.push({ shapeId: part.shapeId, name: TopBarActions.solidName(object, labels.get(part.shapeId)) });
       }
     }
     return solids;
+  }
+
+  private static solidName(holder: SceneObjectRender, labelled: ShapeLabel<SceneObjectRender> | undefined): string {
+    if (holder.hasCustomName && holder.name) {
+      return holder.name;
+    }
+    if (!labelled) {
+      return holder.name || 'Solid';
+    }
+    return labelled.part === null ? labelled.label : `${labelled.label} (${labelled.part})`;
   }
 }

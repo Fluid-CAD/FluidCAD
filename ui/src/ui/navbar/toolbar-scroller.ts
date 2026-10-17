@@ -39,8 +39,8 @@ export class ToolbarScroller {
   /** The largest useful offset: the width the track overruns the viewport by. */
   private maxOffset = 0;
   private pendingMeasure = 0;
-  /** An item to bring into view on the next measure, if it sits outside the viewport. */
-  private pendingReveal: HTMLElement | null = null;
+  /** Resolves the item to bring into view on the next measure, if it sits outside the viewport. */
+  private pendingReveal: (() => HTMLElement | null) | null = null;
 
   constructor(bar: HTMLElement) {
     this.viewport = document.createElement('div');
@@ -82,9 +82,14 @@ export class ToolbarScroller {
    * scrolled the bar by hand keeps their place unless the item they need is
    * off-screen. Deferred to the next measure, which is when the layout the
    * item was just rendered into is settled enough to read.
+   *
+   * A resolver instead of an element survives a track rebuilt before that
+   * measure (two renders in one tick): it is asked for the item as it stands
+   * then, so the reveal lands on the element in the document rather than on
+   * the detached one the first render made.
    */
-  reveal(item: HTMLElement): void {
-    this.pendingReveal = item;
+  reveal(item: HTMLElement | (() => HTMLElement | null)): void {
+    this.pendingReveal = typeof item === 'function' ? item : () => item;
     this.scheduleMeasure();
   }
 
@@ -117,7 +122,7 @@ export class ToolbarScroller {
 
   private measure(): void {
     this.maxOffset = Math.max(0, this.track.scrollWidth - this.viewport.clientWidth);
-    const reveal = this.pendingReveal;
+    const reveal = this.pendingReveal?.() ?? null;
     this.pendingReveal = null;
     if (reveal && reveal.parentElement === this.track) {
       this.scrollTo(this.offsetRevealing(reveal), true);

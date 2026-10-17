@@ -3,7 +3,7 @@ import { ShapeOps } from "./shape-ops.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
-import { ColorTransfer } from "./color-transfer.js";
+import { ColorTransfer, type CarriedColor, type SourceColors } from "./color-transfer.js";
 import { ShapeValidator } from "./shape-validator.js";
 import { ShellJoinType } from "../core/interfaces.js";
 
@@ -11,8 +11,14 @@ export class ShellOps {
   /** Relative volume change below which a "shelled" solid is the input handed back. */
   private static readonly UNCHANGED_VOLUME = 1e-9;
 
-  static makeThickSolid(solid: Shape, faces: Face[], thickness: number, joinType: ShellJoinType = 'arc'): Shape {
+  /**
+   * Hollows `source.shape`, leaving `faces` open. Returns the shelled solid
+   * with the source's colours carried onto its outer faces — the caller
+   * records them.
+   */
+  static makeThickSolid(source: SourceColors, faces: Face[], thickness: number, joinType: ShellJoinType = 'arc'): { shape: Shape; colors: CarriedColor[] } {
     const oc = getOC();
+    const solid = source.shape;
     const listOfFaces = new oc.TopTools_ListOfShape();
 
     for (const f of faces) {
@@ -49,16 +55,22 @@ export class ShellOps {
     // intentionally skipped so painting the outside doesn't paint the
     // inside.
     const preClean = ShapeFactory.fromShape(maker.Shape());
-    ColorTransfer.applyThroughMaker([solid], [preClean], maker);
+    const preCleanColors = ColorTransfer.applyThroughMaker([source], [preClean], maker);
     maker.delete();
     listOfFaces.delete();
 
     // Chain colors through the UnifySameDomain cleanup so any merged faces
     // keep the colors that `applyThroughMaker` just placed.
     const cleanup = ShapeOps.cleanShapeWithLineage(preClean);
-    ColorTransfer.applyThroughCleanup(preClean, cleanup);
+    const preCleanView = ColorTransfer.viewOf(preCleanColors, preClean);
+    let colors: CarriedColor[];
+    try {
+      colors = ColorTransfer.applyThroughCleanup({ shape: preClean, colors: preCleanView }, cleanup);
+    } finally {
+      preCleanView.delete();
+    }
     const cleaned = cleanup.shape;
     cleanup.dispose();
-    return cleaned;
+    return { shape: cleaned, colors };
   }
 }

@@ -143,13 +143,13 @@ describe('a connector in a built-in axis slot', () => {
     ]);
     expect(relayed[0].spec.revolve.axis).toEqual({ kind: 'connector', producer: 1 });
     // The pivot is bound under its own name; the revolve lands in its part.
-    expect(await written(base, FLANGE)).toBe(withStatements(`revolve(pivot, s).new()`)
+    expect(await written(base, FLANGE)).toBe(withStatements(`revolve(pivot, s).new().name('Revolve 1')`)
       .replace(`  connector('pivot'`, `  const pivot = connector('pivot'`)
       .replace(`import { part,`, `import { revolve, part,`));
 
     result = await post(`${base}/apply-feature`, revolveBody({ ...BOLT, slot: 1 }));
     expect(result.body.preview).toBe('revolve(bolt.instance(1), s).new()');
-    expect(await written(base, FLANGE)).toBe(withStatements(`revolve(bolt.instance(1), s).new()`)
+    expect(await written(base, FLANGE)).toBe(withStatements(`revolve(bolt.instance(1), s).new().name('Revolve 1')`)
       .replace(`import { part,`, `import { revolve, part,`));
   });
 
@@ -161,7 +161,7 @@ describe('a connector in a built-in axis slot', () => {
     });
     expect(result.status).toBe(200);
     expect(result.body.preview).toBe('helix(bolt.instance(1)).radius(5).pitch(2).height(10)');
-    expect(await written(base, FLANGE)).toBe(withStatements(`helix(bolt.instance(1)).radius(5).pitch(2).height(10)`)
+    expect(await written(base, FLANGE)).toBe(withStatements(`helix(bolt.instance(1)).radius(5).pitch(2).height(10).name('Helix 1')`)
       .replace(`import { part,`, `import { helix, part,`));
   });
 
@@ -172,7 +172,7 @@ describe('a connector in a built-in axis slot', () => {
     });
     expect(result.status).toBe(200);
     expect(result.body.preview).toBe(`repeat('circular', bolt, { count: 4, angle: 360 }, plate)`);
-    expect(await written(base, FLANGE)).toContain(`  repeat('circular', bolt, { count: 4, angle: 360 }, plate)\n})`);
+    expect(await written(base, FLANGE)).toContain(`  repeat('circular', bolt, { count: 4, angle: 360 }, plate).name('Repeat 1')\n})`);
 
     result = await post(`${base}/apply-feature`, {
       feature: 'repeat', kind: 'linear', targets: [PLATE], spacingMode: 'offset',
@@ -184,7 +184,7 @@ describe('a connector in a built-in axis slot', () => {
     result = await post(`${base}/apply-feature`, { feature: 'rotate', targets: [PLATE], axis: { ...BOLT, slot: 1 }, angle: 30 });
     expect(result.status).toBe(200);
     expect(result.body.preview).toBe('rotate(bolt.instance(1), 30, plate)');
-    expect(await written(base, FLANGE)).toContain(`  rotate(bolt.instance(1), 30, plate)\n})`);
+    expect(await written(base, FLANGE)).toContain(`  rotate(bolt.instance(1), 30, plate).name('Rotate 1')\n})`);
   });
 
   it('refuses a connector with no call site, a slot that is no whole index, or in another file', async () => {

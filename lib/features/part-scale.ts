@@ -3,7 +3,10 @@ import { Shape } from "../common/shape.js";
 import { Plane } from "../math/plane.js";
 import { Point, Point2D } from "../math/point.js";
 import { Axis } from "../math/axis.js";
-import { ScaleOps } from "../oc/scale-ops.js";
+import { ShapeScaler } from "../oc/scale-ops.js";
+import { Explorer } from "../oc/explorer.js";
+import { Face } from "../common/face.js";
+import type { FaceColorRecord } from "../common/scene-object.js";
 import { SceneDisposal } from "../rendering/scene-disposal.js";
 import type { Scene } from "../rendering/scene.js";
 import type { Part } from "./part.js";
@@ -13,6 +16,13 @@ import type { Part } from "./part.js";
  * them alone. Everything else point-shaped in a state map is a position.
  */
 const DIRECTION_KEYS = new Set(['tangent']);
+
+/**
+ * State entries pairing a solid with one of ITS faces. A face scaled on its
+ * own is a different face from the scaled solid's, so these are remapped
+ * through the solid's transform — see `StateScaler.scaleFaceColor`.
+ */
+const FACE_COLOR_KEY = 'faceColors';
 
 /**
  * Rescale a foreign-unit part's built geometry into the consuming scene's
@@ -47,16 +57,20 @@ export function scaleForeignPart(part: Part, members: SceneObject[], scene: Scen
   const targetUnit = part.getTargetUnit();
   const scaler = new StateScaler(factor);
 
-  for (const member of members) {
-    const state = member.getFullState();
-    const rescaled = new Map<string, unknown>();
-    for (const [key, value] of state) {
-      rescaled.set(key, DIRECTION_KEYS.has(key) ? value : scaler.scale(value));
+  try {
+    for (const member of members) {
+      const state = member.getFullState();
+      const rescaled = new Map<string, unknown>();
+      for (const [key, value] of state) {
+        rescaled.set(key, scaler.scaleEntry(key, value));
+      }
+      member.restoreState(rescaled);
+      // Mesh deflection and tolerances now belong to the consuming unit; the
+      // marker rides the state through the compare caches (SceneObject.getUnit).
+      member.setGeometryUnit(targetUnit);
     }
-    member.restoreState(rescaled);
-    // Mesh deflection and tolerances now belong to the consuming unit; the
-    // marker rides the state through the compare caches (SceneObject.getUnit).
-    member.setGeometryUnit(targetUnit);
+  } finally {
+    scaler.delete();
   }
 
   // The wrappers we swapped out are unreachable from the scene now, unless
@@ -72,9 +86,32 @@ export function scaleForeignPart(part: Part, members: SceneObject[], scene: Scen
  */
 class StateScaler {
   private readonly memo = new Map<Shape, Shape>();
+  /**
+   * Kept open across the whole part so a record's face can be remapped
+   * through the transform that scaled its solid, however many entries
+   * apart the two are read. Freed by `delete()`.
+   */
+  private readonly shapes: ShapeScaler;
   readonly replaced = new Set<Shape>();
 
-  constructor(private readonly factor: number) {}
+  constructor(private readonly factor: number) {
+    this.shapes = new ShapeScaler(factor);
+  }
+
+  /** One state entry: the key decides between the generic walk and the record-shaped exceptions. */
+  scaleEntry(key: string, value: unknown): unknown {
+    if (DIRECTION_KEYS.has(key)) {
+      return value;
+    }
+    if (key === FACE_COLOR_KEY && Array.isArray(value)) {
+      return value.map(record => this.scaleFaceColor(record as FaceColorRecord));
+    }
+    return this.scale(value);
+  }
+
+  delete(): void {
+    this.shapes.delete();
+  }
 
   scale(value: unknown): unknown {
     if (!value || typeof value !== 'object') {
@@ -134,12 +171,26 @@ class StateScaler {
     return value;
   }
 
+  /**
+   * A colour record's face is a sub-shape of its solid: it has to come out
+   * of the SOLID's transform to stay `IsSame` with a face of the scaled
+   * solid, so `faceColorOf` keeps finding it. (The face/edge records are
+   * still scaled wrapper by wrapper — the same gap, left as it is for now.)
+   */
+  private scaleFaceColor(record: FaceColorRecord): FaceColorRecord {
+    const solid = this.scaleShape(record.solid);
+    const raw = this.shapes.remapSub(record.solid, record.face.getShape());
+    const face = Face.fromTopoDSFace(Explorer.toFace(raw));
+    this.replaced.add(record.face);
+    return { solid, face, color: record.color, setBy: record.setBy };
+  }
+
   private scaleShape(shape: Shape): Shape {
     const existing = this.memo.get(shape);
     if (existing) {
       return existing;
     }
-    const scaled = ScaleOps.scaleShape(shape, this.factor);
+    const scaled = this.shapes.scale(shape);
     // A pick cell's `metaData.pickPoint` is a position on the shape.
     if (shape.metaData) {
       scaled.metaData = this.scale(shape.metaData) as Record<string, unknown>;

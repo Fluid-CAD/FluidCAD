@@ -11,16 +11,8 @@ import color from "../core/color.js";
 import { } from "../core/2d/index.js";
 import { face } from "../filters/index.js";
 import { testRect } from "./helpers/profiles.js";
-
-const ACTOR_RECORD_KEYS: { key: string; actorField: string }[] = [
-  { key: 'removedShapes', actorField: 'removedBy' },
-  { key: 'addedFaces', actorField: 'addedBy' },
-  { key: 'addedEdges', actorField: 'addedBy' },
-  { key: 'modifiedFaces', actorField: 'modifiedBy' },
-  { key: 'modifiedEdges', actorField: 'modifiedBy' },
-  { key: 'removedFaces', actorField: 'removedBy' },
-  { key: 'removedEdges', actorField: 'removedBy' },
-];
+import { faceColorEntriesOf } from "./utils.js";
+import { ActorRecords } from "../rendering/actor-records.js";
 
 function findByType(objects: SceneObject[], uniqueType: string): SceneObject {
   const found = objects.find(o => o.getUniqueType() === uniqueType);
@@ -96,7 +88,7 @@ describe("SceneCompare resource disposal", () => {
     expect(oldExtrude.isDestroyed()).toBe(true);
 
     expect(oldSolid.isReleased()).toBe(true);
-    expect(oldSolid.getMeshes()).toBe(null);
+    expect(oldSolid.getMeshPieces()).toBe(null);
     expect(() => oldSolid.getShape()).toThrow(/released/);
     expect(() => (oldRaw as any).ShapeType()).toThrow();
 
@@ -156,7 +148,7 @@ describe("SceneCompare resource disposal", () => {
     }
   });
 
-  it("keeps raw handles shared through Solid.copy when only the copier dies", () => {
+  it("keeps the painted body with its feature when only the painter dies", () => {
     sketch("xy", () => {
         testRect(200, 100);
       });
@@ -169,17 +161,20 @@ describe("SceneCompare resource disposal", () => {
     const oldSelect = findByType(previousScene.getAllSceneObjects(), "lazy-select");
     const oldColor = findByType(previousScene.getAllSceneObjects(), "color");
 
-    const ownerSolid = oldExtrude.getAddedShapes()[0];
-    const copiedSolid = oldColor.getAddedShapes()[0];
-    const sharedRaw = copiedSolid.getShape();
-    expect(sharedRaw).toBe(ownerSolid.getShape());
+    // The paint is a record on the body's holder, not a copy of the body
+    // (the drafted body the extrude holds, not the straight one it replaced).
+    const ownerSolid = oldExtrude.getShapes()[0];
+    const ownerRaw = ownerSolid.getShape();
+    expect(oldColor.getAddedShapes()).toEqual([]);
+    expect(faceColorEntriesOf(previousScene, ownerSolid).every(entry => entry.setBy === oldColor)).toBe(true);
+    expect(faceColorEntriesOf(previousScene, ownerSolid).length).toBeGreaterThan(0);
 
     const newScene = getSceneManager().startScene();
     sketch("xy", () => {
         testRect(200, 100);
       });
     const e2 = extrude(20).draft(15);
-    color("blue", e2.sideFaces(face().above("xz")));
+    color("blue", e2.sideFaces(face().below("xz", 50)));
 
     SceneCompare.compare(previousScene, newScene);
 
@@ -187,12 +182,11 @@ describe("SceneCompare resource disposal", () => {
     expect(oldSelect.isDestroyed()).toBe(true);
     expect(oldColor.isDestroyed()).toBe(true);
 
-    // The copier's wrapper is gone, but the raw handle it shared with the
-    // surviving owner solid must not be deleted.
-    expect(copiedSolid.isReleased()).toBe(true);
-    expect(() => copiedSolid.getShape()).toThrow(/released/);
-    expect(() => (sharedRaw as any).ShapeType()).not.toThrow();
+    // The surviving holder keeps its body and loses the dead painter's
+    // records; the rebuilt painter writes its own after the render.
     expectRawAlive(ownerSolid);
+    expect(ownerSolid.getShape()).toBe(ownerRaw);
+    expect(faceColorEntriesOf(newScene, ownerSolid)).toEqual([]);
 
     // The dead selection referenced faces owned by the surviving extrude's
     // classification state — those must stay alive too.
@@ -200,7 +194,12 @@ describe("SceneCompare resource disposal", () => {
       expectRawAlive(picked);
     }
 
-    expectNoErrors(render());
+    const rendered = render();
+    expectNoErrors(rendered);
+    const newColor = findByType(newScene.getAllSceneObjects(), "color");
+    const entries = faceColorEntriesOf(rendered, ownerSolid);
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.every(entry => entry.setBy === newColor && entry.color === "#0000ff")).toBe(true);
   });
 
   it("remaps surviving actor records onto the new instances", () => {
@@ -225,7 +224,7 @@ describe("SceneCompare resource disposal", () => {
     const newObjects = new Set(newScene.getAllSceneObjects());
     let recordCount = 0;
     for (const obj of newScene.getAllSceneObjects()) {
-      for (const { key, actorField } of ACTOR_RECORD_KEYS) {
+      for (const { key, actorField } of ActorRecords.KEYS) {
         const records = obj.getFullState().get(key) ?? [];
         for (const record of records) {
           recordCount++;

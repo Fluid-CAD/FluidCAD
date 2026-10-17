@@ -23,6 +23,7 @@ import {
   sameNode,
   topLevelStatement,
 } from './ast/nodes.ts';
+import { FeatureNames } from '../feature-names.ts';
 import type { ProducerBinding } from './producers/bindings.ts';
 import { renderNewVariableDecls } from './render/variable-decls.ts';
 import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from './spec.ts';
@@ -60,7 +61,10 @@ export async function appendTopLevelStatement(
   if ('error' in declsResult) {
     return { newCode: code, error: declsResult.error };
   }
-  const block = (indent: string) => [...declsResult.decls, `${statementFor(indent)}${useSemicolon ? ';' : ''}`]
+  // The row's name, written with the statement (D2) — none for a callee
+  // without a display type (a part names itself by its first argument).
+  const nameChain = FeatureNames.chainFor(tree, callee);
+  const block = (indent: string) => [...declsResult.decls, `${statementFor(indent)}${nameChain}${useSemicolon ? ';' : ''}`]
     .join(`\n${indent}`);
 
   let result: string;
@@ -72,7 +76,7 @@ export async function appendTopLevelStatement(
     result = spliceCode(code, target.index, target.index, target.wrap(block(target.indent)));
   } else if (!last) {
     result = spliceCode(code, code.length, code.length,
-      [...declsResult.decls, `${statementFor('')};`].join('\n') + '\n');
+      [...declsResult.decls, `${statementFor('')}${nameChain};`].join('\n') + '\n');
   } else {
     const before = children.find(isBreakpointStatement)
       ?? (last.type === 'return_statement' ? last : null);

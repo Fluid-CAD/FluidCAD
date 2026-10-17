@@ -58,6 +58,18 @@ export type Atom<B> = {
    * name goes; the writer must bind `ref` and substitute its name.
    */
   ref?: SceneObject;
+  /**
+   * The code passes `ref`'s variable whole — `from({{ref}})` — rather than
+   * chaining an accessor on it. Any feature-producing call binds for that
+   * use, not only the ones with selector accessors.
+   */
+  wholeRef?: boolean;
+  /**
+   * Scope predicate (`from(...)`): it narrows the universe the rest of the
+   * conjunction describes rather than describing the picks itself, so it
+   * does not count toward the conjunction's readability cap.
+   */
+  scope?: boolean;
 };
 
 export type EdgeAtom = Atom<EdgeFilterBuilder>;
@@ -97,14 +109,29 @@ export type FaceSource = {
 };
 
 /**
- * One instance of a bindable repeat that every pick lives on, usable as a
- * `from()` scope: `select(edge().from(r.instance(1)).circle())`. This is
- * the address of a clone the bucket accessors cannot reach — a slot that
- * repeats several features, or a dependency clone (the extrude behind a
- * repeated fillet). `resolve` is the very instance object the emitted
- * `<var>.instance(<slot>)` evaluates to.
+ * A `from()` scope every pick lives in, named through a bindable producer's
+ * variable. Two kinds:
+ *
+ * - a repeat instance — `select(edge().from(r.instance(1)).circle())` — the
+ *   address of a clone the bucket accessors cannot reach: a slot that
+ *   repeats several features, or a dependency clone (the extrude behind a
+ *   repeated fillet);
+ * - the feature owning the picks' solid — `select(edge().from(f).line())` —
+ *   the one thing that separates a pick from a geometrically identical twin
+ *   on another solid (two touching `.new()` bodies share coincident edges no
+ *   geometric predicate can tell apart). Ownership moves with every later
+ *   feature that rebuilds the solid, so synthesis only offers it once no
+ *   geometric filter resolves (see `synthesizeSelectors`).
+ *
+ * `accessor` is the chain after the variable (`instance(1)`), or null when
+ * the variable itself is the scope; `resolve` is the very object the
+ * emitted `from(...)` argument evaluates to.
  */
-export type InstanceSource = { feature: SceneObject; slot: number; resolve: () => SceneObject };
+export type FromSource = {
+  feature: SceneObject;
+  accessor: string | null;
+  resolve: () => SceneObject;
+};
 
 /**
  * Format a dimension-like constant, preferring the name of an exactly-equal
@@ -166,10 +193,10 @@ export function instantiateEdgeAtoms(
   allowScoped: boolean,
   params: ParameterLink[] = [],
   faceSources: FaceSource[] = [],
-  instanceSources: InstanceSource[] = [],
+  fromSources: FromSource[] = [],
 ): EdgeAtom[] {
   const atoms: EdgeAtom[] = [];
-  atoms.push(...instanceAtoms<EdgeFilterBuilder>(instanceSources));
+  atoms.push(...fromAtoms<EdgeFilterBuilder>(fromSources));
 
   const curveClass = sharedString(probes.map(p => p.props.curveType));
   if (curveClass === 'line') {
@@ -273,10 +300,10 @@ export function instantiateFaceAtoms(
   universe: Face[],
   params: ParameterLink[] = [],
   faceSources: FaceSource[] = [],
-  instanceSources: InstanceSource[] = [],
+  fromSources: FromSource[] = [],
 ): FaceAtom[] {
   const atoms: FaceAtom[] = [];
-  atoms.push(...instanceAtoms<FaceFilterBuilder>(instanceSources));
+  atoms.push(...fromAtoms<FaceFilterBuilder>(fromSources));
 
   const surfaceClass = sharedString(probes.map(p => p.props.surfaceType));
   if (surfaceClass === 'plane') {
@@ -516,19 +543,21 @@ function planeRefAtoms<B extends { onPlane(plane: Plane): unknown; above(plane: 
 }
 
 /**
- * `from({{ref}}.instance(k))` atoms: the repeat instance every pick lives on,
- * as a scope. Constant-free and stronger than any plane reference — it names
- * the instance outright, so the rest of the conjunction only has to describe
- * the picks within it, exactly as it would on the original.
+ * `from({{ref}}.instance(k))` / `from({{ref}})` atoms: the repeat instance or
+ * owning feature every pick lives on, as a scope. Constant-free and stronger
+ * than any plane reference — it names the scope outright, so the rest of the
+ * conjunction only has to describe the picks within it.
  */
-function instanceAtoms<B extends { from(...objects: ISceneObject[]): unknown }>(
-  sources: InstanceSource[],
+function fromAtoms<B extends { from(...objects: ISceneObject[]): unknown }>(
+  sources: FromSource[],
 ): Atom<B>[] {
   return sources.map(source => ({
-    code: `.from({{ref}}.instance(${source.slot}))`,
+    code: source.accessor === null ? '.from({{ref}})' : `.from({{ref}}.${source.accessor})`,
     addTo: b => b.from(source.resolve() as unknown as ISceneObject),
     weight: 24, constants: 0, needsScope: false,
     ref: source.feature,
+    wholeRef: source.accessor === null,
+    scope: true,
   }));
 }
 

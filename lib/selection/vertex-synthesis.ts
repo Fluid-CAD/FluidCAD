@@ -9,7 +9,7 @@ import { attributePick } from './attribution.js';
 import { pickedVertexPoint } from './vertex-pick.js';
 import { attributeSketchVertex } from './sketch-vertex.js';
 import { SelectionIndex } from './selection-index.js';
-import { synthesizeSelectors, selectorRank, canBindProducer, type SelectorPart } from './synthesis.js';
+import { synthesizeSelectors, selectorRank, canBindProducer, producerFeatureType, type SelectorPart } from './synthesis.js';
 import { allocateNames, collectImports, makeStatementBindable, renderPartArgs } from './explain.js';
 import { renderSolvedTarget, SOLVED_ENTITY_NAME_HINTS, type SketchExportRequest } from './sketch-target.js';
 import type { SelectionScene, PickRef, SynthesizeOptions } from './types.js';
@@ -171,6 +171,11 @@ export class VertexPointSynthesizer {
     return null;
   }
 
+  /** The edge selectors the winning point expressions are built on. */
+  private static winningSelectors(groups: PointGroup[]): SelectorPart[] {
+    return groups.flatMap(([winner]) => winner.kind === 'edge' ? [winner.selector] : []);
+  }
+
   /** The features the winning expressions reference, in first-use order. */
   private static producersOf(groups: PointGroup[]): SceneObject[] {
     const producers: SceneObject[] = [];
@@ -193,7 +198,8 @@ export class VertexPointSynthesizer {
    * (an existing binding or export key wins) and reports them per part.
    */
   private static allocatePointNames(groups: PointGroup[], producers: SceneObject[], options: SynthesizeOptions): PointNames {
-    const names = allocateNames(producers, options.namer);
+    const names = allocateNames(producers, options.namer, producer =>
+      producerFeatureType(producer, VertexPointSynthesizer.winningSelectors(groups)));
     const tools = new Map(producers.map(producer => [producer, `$obj["${producer.id}"]`]));
     const entities = new Map<SceneObject, string>();
     const used = new Set(names.values());
@@ -296,7 +302,8 @@ export class VertexPointSynthesizer {
       producers: producers.map(producer => {
         const location = producer.getSourceLocation();
         return {
-          sceneObjectId: producer.id, sceneObjectName: producer.getName(), featureType: producer.getType(),
+          sceneObjectId: producer.id, sceneObjectName: producer.getName(),
+          featureType: producerFeatureType(producer, VertexPointSynthesizer.winningSelectors(groups)),
           variable: names.producers.get(producer)!,
           filePath: location?.filePath ?? null, line: location?.line ?? null, column: location?.column ?? null,
         };

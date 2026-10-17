@@ -1,9 +1,11 @@
-import type { TopTools_MapOfShape } from "ocjs-fluidcad";
+import type { TopoDS_Shape, TopTools_MapOfShape } from "ocjs-fluidcad";
 import { Matrix4 } from "../math/matrix4.js";
 import { Shape } from "../common/shapes.js";
 import { ShapeType } from "../common/shape-type.js";
 import { SceneObject } from "../common/scene-object.js";
+import { TopologyIndex } from "../oc/topology-index.js";
 import { FilterBase } from "./filter-base.js";
+import type { FilterBuilderBase } from "./filter-builder-base.js";
 
 export class FromSceneObjectFilter<TShape extends Shape> extends FilterBase<TShape> {
   private membershipSet: TopTools_MapOfShape | null = null;
@@ -63,4 +65,46 @@ export class FromSceneObjectFilter<TShape extends Shape> extends FilterBase<TSha
     const remapped = this.sceneObjects.map(obj => remap.get(obj) ?? obj);
     return new FromSceneObjectFilter<TShape>(remapped, this.shapeType);
   }
+}
+
+/**
+ * Give every `from()` filter in the builders its membership set — the
+ * sub-shapes its scene objects hold — and return the disposer that clears and
+ * frees them. `removalScope` bounds which removals count when reading those
+ * objects' shapes (see SceneObject.getOwnShapes), exactly as it bounds the
+ * candidate universe: a statement-boundary evaluation passes the objects
+ * before the boundary, so a solid the edited statement (or anything after
+ * it) consumed still belongs to its owner there — as it does when that
+ * statement's arguments build.
+ */
+export function injectFromMembership(
+  filters: FilterBuilderBase<Shape>[],
+  removalScope?: Set<SceneObject>,
+): () => void {
+  const allocated: { filter: FromSceneObjectFilter<Shape>; set: TopTools_MapOfShape }[] = [];
+  for (const builder of filters) {
+    for (const filter of builder.getFilters()) {
+      if (!(filter instanceof FromSceneObjectFilter)) {
+        continue;
+      }
+      const shapeType = filter.getShapeType();
+      const rawShapes: TopoDS_Shape[] = [];
+      for (const obj of filter.getSceneObjects()) {
+        for (const owner of obj.getShapes({}, undefined, removalScope)) {
+          for (const sub of owner.getSubShapes(shapeType)) {
+            rawShapes.push(sub.getShape());
+          }
+        }
+      }
+      const set = TopologyIndex.buildShapeSet(rawShapes);
+      filter.setMembershipSet(set);
+      allocated.push({ filter, set });
+    }
+  }
+  return () => {
+    for (const { filter, set } of allocated) {
+      filter.setMembershipSet(null);
+      set.delete();
+    }
+  };
 }

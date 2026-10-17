@@ -2512,7 +2512,8 @@ finishSketchButton.onClick = () => {
   void modifyService.finishSketch(breakpointActive);
 };
 // The breakpoint chip steps aside while sketching: Finish Sketch is the one
-// way out of a sketch, paused or not, so it also lifts the pause.
+// way out of a sketch, paused or not, so it also lifts the pause — except
+// for a new sketch written at the user's breakpoint, which returns to it.
 sketchService.onActiveChange = (active) => {
   finishSketchButton.setVisible(active);
   breakpointIndicator.setSketchActive(active);

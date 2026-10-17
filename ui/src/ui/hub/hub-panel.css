@@ -1,0 +1,11 @@
+/* The Hub panel's mono text (names, versions, ids, parameters, code) is set
+   in JetBrains Mono, the hub website's mono, bundled so it doesn't depend
+   on the machine's fonts; then an installed JetBrains Mono, then the app's
+   mono stack. Scoped to the panel: `font-mono` reads `--font-mono`, so the
+   rest of the app keeps its own. Imported by hub-panel.ts rather than
+   styles.css, which the viewer-ui library build shares. */
+@import "@fontsource-variable/jetbrains-mono/wght.css";
+
+[data-role='hub-panel'] {
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}

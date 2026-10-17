@@ -6,6 +6,7 @@ import { HubPackageView } from './hub-package-view';
 import { HubPanelState } from './hub-panel-state';
 import type { HubEngine } from './hub-row';
 import { HubSearchView } from './hub-search-view';
+import './hub-panel.css';
 
 export type HubPanelDeps = {
   /** `#fluidcad-viewer`, the positioning context every overlay shares. */

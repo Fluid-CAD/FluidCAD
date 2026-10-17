@@ -106,6 +106,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@tabler/icons": "^3.40.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/express": "^5.0.6",

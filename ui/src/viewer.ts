@@ -1591,6 +1591,20 @@ export class Viewer {
     return this.assemblyController?.isInstanceVisible(instanceId) ?? true;
   }
 
+  /** The parts panel's Transparency… slider: fade one instance live (display only). */
+  previewInstanceTransparency(instanceId: string, transparency: number): void {
+    this.assemblyController?.previewInstanceTransparency(instanceId, transparency);
+  }
+
+  /** The slider closed — see {@link AssemblyController.endInstanceTransparencyPreview}. */
+  endInstanceTransparencyPreview(instanceId: string, untilRender: boolean): void {
+    this.assemblyController?.endInstanceTransparencyPreview(instanceId, untilRender);
+  }
+
+  getInstanceTransparency(instanceId: string): number {
+    return this.assemblyController?.getInstanceTransparency(instanceId) ?? 0;
+  }
+
   setInstanceDragReleaseHandler(handler: InstanceDragReleaseHandler | null): void {
     this.pendingDragReleaseHandler = handler;
     this.assemblyController?.setDragReleaseHandler(handler);

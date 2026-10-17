@@ -5516,6 +5516,23 @@ export async function renameInstance(
 }
 
 /**
+ * Set (0 < t ≤ 1) or drop (null, or 0) the `.transparent(t)` call of the
+ * `insert()` statement at `sourceLocation` — the parts panel's
+ * Transparency…. Acked: a refusal (an expression argument, a statement in
+ * another file, an out-of-date line) comes back as the reason.
+ */
+export async function setInstanceTransparency(
+  sourceLocation: { filePath: string; line: number },
+  transparency: number | null,
+): Promise<{ success: boolean; reason?: string }> {
+  return postAcked('api/set-instance-transparency', {
+    filePath: sourceLocation.filePath,
+    sourceLine: sourceLocation.line,
+    transparency,
+  });
+}
+
+/**
  * Merge changed parameter values into an inserted instance's/occurrence's
  * `insert()` statement (second argument). `set` carries ONLY the labels the
  * user changed — untouched entries (expressions included) survive verbatim.

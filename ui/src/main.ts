@@ -55,7 +55,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey, findActiveSketch } from './helpers/scene-utils';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
@@ -406,6 +406,13 @@ function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
 
 function buildAssemblyRail(): LeftRail {
   const visibility = new Map<string, boolean>();
+  /**
+   * Transparency… per instance: the last write, settled when its popover
+   * closes, and a session count so a write settling after the popover was
+   * reopened leaves the new session's preview alone.
+   */
+  const transparencyWrites = new Map<string, Promise<boolean>>();
+  const transparencySessions = new Map<string, number>();
   let joints!: JointsPanel;
   const parts = new PartsPanel(
     container,
@@ -524,6 +531,46 @@ function buildAssemblyRail(): LeftRail {
           void assemblyReplicateService.removeReplica(record, row).then((result) => {
             if (!result.success && currentRail?.kind === 'assembly') {
               currentRail.dragReadout.flashError(result.reason ?? 'Could not remove the replica');
+            }
+          });
+        },
+      },
+      // Transparency… — the slider fades the part through the viewer and
+      // each release writes `.transparent(v)`. Display only: the render the
+      // write triggers keeps every part where it is on screen.
+      transparency: {
+        open: (id) => {
+          transparencySessions.set(id, (transparencySessions.get(id) ?? 0) + 1);
+          transparencyWrites.delete(id);
+          return viewer.getInstanceTransparency(id);
+        },
+        preview: (id, transparency) => viewer.previewInstanceTransparency(id, transparency),
+        commit: (id, transparency) => {
+          const inst = findInstance(id);
+          // Occurrence-owned and replica rows never offer the item; backstop.
+          if (!inst?.sourceLocation || inst.owner || inst.replica) return;
+          const write = setInstanceTransparency(inst.sourceLocation, transparency > 0 ? transparency : null)
+            .then((result) => {
+              if (!result.success && currentRail?.kind === 'assembly') {
+                currentRail.dragReadout.flashError(result.reason ?? 'Could not set the transparency');
+              }
+              return result.success;
+            });
+          transparencyWrites.set(id, write);
+        },
+        end: (id) => {
+          // A written value stays on screen until the render brings it; with
+          // nothing written — or the write refused — the source's shows now.
+          const write = transparencyWrites.get(id);
+          const session = transparencySessions.get(id);
+          transparencyWrites.delete(id);
+          if (!write) {
+            viewer.endInstanceTransparencyPreview(id, false);
+            return;
+          }
+          void write.then((written) => {
+            if (transparencySessions.get(id) === session) {
+              viewer.endInstanceTransparencyPreview(id, written);
             }
           });
         },

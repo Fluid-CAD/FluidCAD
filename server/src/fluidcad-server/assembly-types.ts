@@ -12,6 +12,8 @@ export type SerializedAssembly = {
     /** Owning scope path; "" for root-scope instances. Engines predating sub-assemblies omit it. */
     owner?: string;
     name: string;
+    /** Effective `.transparent()` in (0, 1] — absent when the instance renders opaque or on older engines. */
+    transparency?: number;
     /** Resolved parameter values of the instance's template variant — absent pre-parameters engines. */
     paramValues?: Record<string, string | number | boolean | (string | number)[]>;
     /** The variant's `property()` values as the assembly reads them — set only when the part declares any. */

@@ -147,6 +147,43 @@ export function createInstancePoseRouter(
     await dispatcher.dispatch(res, spec, { success: true });
   });
 
+  // The parts panel's Transparency…: set (a number) or drop (null) the
+  // insert() statement's `.transparent(v)`. Cross-file targets 422 like
+  // /instance-pose — a sub-assembly's insert() lives in its own file.
+  router.post('/set-instance-transparency', async (req, res) => {
+    const { filePath, sourceLine, transparency } = req.body ?? {};
+    if (
+      typeof filePath !== 'string' || filePath.length === 0
+      || !Number.isInteger(sourceLine) || sourceLine < 1
+      || (transparency !== null
+        && (typeof transparency !== 'number' || !Number.isFinite(transparency) || transparency < 0 || transparency > 1))
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const currentFile = fluidCadServer.getCurrentFileName();
+    if (!currentFile) {
+      res.status(404).json({ error: 'No active scene' });
+      return;
+    }
+    if (normalizePath(filePath) !== normalizePath(currentFile)) {
+      res.status(422).json({
+        success: false,
+        reason: `this insert() lives in ${basename(filePath)} — open that file to change its transparency.`,
+      });
+      return;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: currentFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      instanceTransparency: { sourceLine, transparency },
+    };
+    await dispatcher.dispatch(res, spec, { success: true });
+  });
+
   // Edit-parameters commit: merge the dialog's changed values into the
   // insert() statement's second argument. Same shape as /instance-pose —
   // cross-file targets 422 (a sub-assembly's insert() lives in its own file).

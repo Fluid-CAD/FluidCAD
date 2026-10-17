@@ -17,6 +17,7 @@ import { TimelineBreakpoint } from '../../timeline-breakpoint.ts';
 import { RemoveFeature } from '../../remove-feature.ts';
 import { OrphanedSelections } from '../../orphaned-selections.ts';
 import { applyInsertPartEdit } from '../../part-catalog/insert-edit.ts';
+import { setInsertTransparency } from '../../insert-chain-edit.ts';
 import { applyAssemblyExportEdit, applyConnectorPropsEdit } from '../../assembly-mate-edit.ts';
 import { applyAssemblyRelationEdit } from '../../assembly-relation-edit.ts';
 import { applyAssemblyReplicateEdit } from '../../assembly-replicate-edit.ts';
@@ -187,6 +188,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.instanceRename) {
     return InstanceRename.apply(code, spec.filePath, spec.instanceRename);
+  }
+  if (spec.instanceTransparency) {
+    return setInsertTransparency(code, spec.instanceTransparency.sourceLine, spec.instanceTransparency.transparency);
   }
   if (spec.partRename) {
     return PartRename.apply(code, spec.filePath, spec.partRename);

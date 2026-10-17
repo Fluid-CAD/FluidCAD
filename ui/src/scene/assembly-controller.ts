@@ -1,4 +1,4 @@
-import { Box3, Camera, Group, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
+import { Box3, Camera, Group, Material, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
 import { ConnectorAddress, ConnectorCopiesData, ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, SerializedAssemblyRelation, connectorLabel } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
 import { SceneIndex } from '../helpers/scene-index';
@@ -260,6 +260,24 @@ export class AssemblyController {
   /** World connectors a joints-panel mate selection keeps visible. */
   private worldPinned = new Set<string>();
 
+  /**
+   * The parts panel's Transparency… slider: instance id → the transparency
+   * shown instead of the statement's, so dragging the slider fades the part
+   * live and a render landing mid-drag keeps the slider's value. `held`
+   * while the popover is open; a released preview whose value was written
+   * to the source stays up until the next render brings it, so closing the
+   * popover never flashes the old value.
+   */
+  private transparencyPreview = new Map<string, { value: number; held: boolean }>();
+
+  /**
+   * The previous render's {@link poseInputsKey}. A render whose key matches
+   * changed nothing a solve reads — only display state such as
+   * `.transparent()` or `.name()` — so every instance keeps the pose it has
+   * on screen rather than re-syncing to its statement pose.
+   */
+  private lastPoseInputsKey: string | null = null;
+
   constructor(
     private renderer: WebGLRenderer,
     private camera: Camera,
@@ -327,6 +345,11 @@ export class AssemblyController {
    * `inst.position` / `inst.quaternion`. The currently dragged instance is
    * skipped to avoid snapping it back mid-drag — the next render after
    * pointerup will catch up. Removed instances are pruned.
+   *
+   * A render that changed none of the solve's inputs ({@link poseInputsKey})
+   * re-syncs nothing: every instance keeps its on-screen pose. A mated part
+   * dragged by hand is live-only (its statement keeps the warm-start pose),
+   * so re-syncing on, say, a `.transparent()` edit would snap it back.
    */
   update(sceneObjects: SceneObjectRender[], assembly: SerializedAssembly): void {
     this.allObjects = sceneObjects;
@@ -343,12 +366,22 @@ export class AssemblyController {
     // replicate dialog re-sends its spec once its picks re-resolve.
     this.disposeProvisionalReplicas();
 
+    const poseInputsKey = this.poseInputsKey(assembly);
+    const keepLivePoses = poseInputsKey === this.lastPoseInputsKey;
+    this.lastPoseInputsKey = poseInputsKey;
+    for (const [id, preview] of this.transparencyPreview) {
+      if (!preview.held) {
+        this.transparencyPreview.delete(id);
+      }
+    }
+
     const incomingIds = new Set(assembly.instances.map(i => i.instanceId));
     for (const [id, state] of this.instances) {
       if (!incomingIds.has(id)) {
         this.container.remove(state.group);
         this.disposeGroup(state.group);
         this.instances.delete(id);
+        this.transparencyPreview.delete(id);
         if (this.hoveredInstanceId === id) {
           this.hoveredInstanceId = null;
         }
@@ -373,20 +406,31 @@ export class AssemblyController {
       // the fast path below would just patch pose/data and leave the wrong
       // mesh on screen.
       const partChanged = existing !== undefined && existing.data.partId !== inst.partId;
+      // Read before the group is replaced: part ids re-mint every assembly
+      // render (AssemblyCompare inherits no identity), so the rebuild below
+      // is the usual path, not the exception — and `partChanged` with it.
+      // An id that really moved onto another part changes the key instead.
+      const livePose = existing && (isDragging || keepLivePoses)
+        ? { position: existing.group.position.clone(), quaternion: existing.group.quaternion.clone() }
+        : null;
       if (existing && !partChanged && (!subtreeFresh || isDragging)) {
         existing.data = inst;
         existing.connectors = connectors;
         existing.contacts = contacts;
         existing.group.userData.grounded = inst.grounded;
         existing.group.userData.draggable = !inst.grounded;
-        if (!isDragging) {
+        if (!livePose) {
           existing.group.position.set(inst.position.x, inst.position.y, inst.position.z);
           existing.group.quaternion.set(
             inst.quaternion.x, inst.quaternion.y, inst.quaternion.z, inst.quaternion.w,
           );
         }
+        this.applyTransparency(existing);
         continue;
       }
+      // The eye toggle is view state the payload doesn't carry; a rebuilt
+      // group must not show a part the parts panel lists as hidden.
+      const visible = existing?.group.visible ?? true;
       if (existing) {
         this.container.remove(existing.group);
         this.disposeGroup(existing.group);
@@ -394,6 +438,11 @@ export class AssemblyController {
       }
       const group = this.buildInstanceGroup(inst);
       if (!group) continue;
+      if (livePose) {
+        group.position.copy(livePose.position);
+        group.quaternion.copy(livePose.quaternion);
+      }
+      group.visible = visible;
       this.instances.set(inst.instanceId, { data: inst, group, connectors, contacts });
       this.container.add(group);
     }
@@ -420,6 +469,8 @@ export class AssemblyController {
     this.allObjects = [];
     this.mates = [];
     this.relations = [];
+    this.transparencyPreview.clear();
+    this.lastPoseInputsKey = null;
     this.hoveredInstanceId = null;
     this.externalDrag = null;
     this.provisionalMate = null;
@@ -593,6 +644,45 @@ export class AssemblyController {
    */
   private partSubtreeWasRebuilt(partId: string): boolean {
     return SceneIndex.of(this.allObjects).subtreeRebuilt(partId);
+  }
+
+  /**
+   * Everything a solve reads, spelled so two renders of the same model
+   * compare equal: each instance's statement pose, grounding, owner and part
+   * — its connector frames and exposures by value, since scene ids re-mint
+   * every render — the mates with their connector sides resolved to those
+   * frames, the relations, and the assembly's own connector frames.
+   * Display-only state (names, transparency, source lines) stays out.
+   */
+  private poseInputsKey(assembly: SerializedAssembly): string {
+    const frames = new Map<string, number[]>();
+    const instances = assembly.instances.map((inst) => {
+      const connectors = this.collectConnectorStates(inst.partId).map((c) => {
+        const frame = [...c.localOrigin.toArray(), ...c.localXDirection.toArray(), ...c.localNormal.toArray()];
+        frames.set(c.connectorId, frame);
+        return frame;
+      });
+      return [
+        inst.instanceId, inst.owner ?? '', inst.partName, inst.grounded,
+        inst.position, inst.quaternion, connectors, this.collectExposureStates(inst.partId),
+      ];
+    });
+    const world = (assembly.connectors ?? []).map((c) => {
+      const frame = [c.origin, c.xDirection, c.yDirection, c.normal].flatMap(v => [v.x, v.y, v.z]);
+      frames.set(c.connectorId, frame);
+      return frame;
+    });
+    const frameOf = (connectorId: string | undefined) =>
+      connectorId === undefined ? null : frames.get(connectorId) ?? connectorId;
+    const mates = assembly.mates.map(m => [
+      m.mateId, m.type, m.options ?? null,
+      m.connectorA?.instanceId ?? null, frameOf(m.connectorA?.connectorId),
+      m.connectorB?.instanceId ?? null, frameOf(m.connectorB?.connectorId),
+      m.geometryA ?? null, m.geometryB ?? null,
+      frameOf(m.frameA?.connectorId), frameOf(m.frameB?.connectorId),
+    ]);
+    const relations = (assembly.relations ?? []).map(r => [r.relationId, r.type, r.mateA, r.mateB, r.ratio, r.reverse]);
+    return JSON.stringify([instances, world, mates, relations]);
   }
 
   /**
@@ -883,7 +973,60 @@ export class AssemblyController {
     const partMesh = buildObjectMesh(partTemplate, this.allObjects, null, this.camera, false);
     group.add(partMesh);
     setConnectorsVisible(group, false);
+    applyInstanceOpacity(group, 1 - this.transparencyOf(inst));
     return group;
+  }
+
+  /** What the instance shows: the slider's preview, else its statement's `.transparent()`. */
+  private transparencyOf(inst: SerializedAssemblyInstance): number {
+    return this.transparencyPreview.get(inst.instanceId)?.value ?? inst.transparency ?? 0;
+  }
+
+  private applyTransparency(state: InstanceState): void {
+    applyInstanceOpacity(state.group, 1 - this.transparencyOf(state.data));
+  }
+
+  /**
+   * Show `transparency` (0–1) on one instance while the parts panel's
+   * slider moves. Display only: nothing re-solves and no part moves.
+   */
+  previewInstanceTransparency(instanceId: string, transparency: number): void {
+    const value = Number.isFinite(transparency) ? Math.min(1, Math.max(0, transparency)) : 0;
+    this.transparencyPreview.set(instanceId, { value, held: true });
+    this.reapplyTransparency(instanceId);
+  }
+
+  /**
+   * The slider closed. `untilRender`: its value was written to the source,
+   * so keep showing it until the next render brings the statement's own;
+   * otherwise (nothing written, or the write was refused) the statement's
+   * `.transparent()` shows again at once.
+   */
+  endInstanceTransparencyPreview(instanceId: string, untilRender: boolean): void {
+    const preview = this.transparencyPreview.get(instanceId);
+    if (!preview) {
+      return;
+    }
+    if (untilRender) {
+      preview.held = false;
+      return;
+    }
+    this.transparencyPreview.delete(instanceId);
+    this.reapplyTransparency(instanceId);
+  }
+
+  private reapplyTransparency(instanceId: string): void {
+    const state = this.instances.get(instanceId);
+    if (state) {
+      this.applyTransparency(state);
+      this.requestRender();
+    }
+  }
+
+  /** The transparency the instance shows right now (preview included); 0 when unknown. */
+  getInstanceTransparency(instanceId: string): number {
+    const state = this.instances.get(instanceId);
+    return state ? this.transparencyOf(state.data) : 0;
   }
 
   private disposeGroup(group: Object3D): void {
@@ -1984,6 +2127,51 @@ function setConnectorsVisible(root: Object3D, visible: boolean): void {
       child.visible = visible;
     }
   });
+}
+
+type OpacityBase = { opacity: number; transparent: boolean; depthWrite: boolean };
+
+/**
+ * Fade an instance's faces and edges to `opacity` of their own resting
+ * opacity. Connector gizmos are skipped — the mate picker drives their
+ * opacity. Materials are built per instance group, so other instances of
+ * the same part are untouched.
+ *
+ * The resting state is recorded on the material the first time (at group
+ * build), so opacity 1 restores it exactly. A node the viewer's selection
+ * highlight holds opaque keeps its highlight: the value it restores on
+ * clear is updated instead.
+ */
+function applyInstanceOpacity(root: Object3D, opacity: number): void {
+  const walk = (obj: Object3D): void => {
+    if (obj.userData?.isConnector) {
+      return;
+    }
+    const material = (obj as { material?: Material | Material[] }).material;
+    for (const m of material ? (Array.isArray(material) ? material : [material]) : []) {
+      const base: OpacityBase = m.userData.instanceOpacityBase
+        ??= { opacity: m.opacity, transparent: m.transparent, depthWrite: m.depthWrite };
+      const faded = opacity < 1;
+      const next = { opacity: base.opacity * opacity, transparent: base.transparent || faded };
+      m.depthWrite = faded ? false : base.depthWrite;
+      if (obj.userData.originalOpacity !== undefined) {
+        obj.userData.originalOpacity = next.opacity;
+        if (obj.userData.originalTransparent !== undefined) {
+          obj.userData.originalTransparent = next.transparent;
+        }
+        continue;
+      }
+      if (m.transparent !== next.transparent) {
+        m.needsUpdate = true;
+      }
+      m.opacity = next.opacity;
+      m.transparent = next.transparent;
+    }
+    for (const child of obj.children) {
+      walk(child);
+    }
+  };
+  walk(root);
 }
 
 /**

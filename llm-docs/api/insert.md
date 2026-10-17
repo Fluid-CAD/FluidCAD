@@ -1,7 +1,7 @@
 ---
 id: api/insert
 title: "insert(definition, overrides?)"
-summary: "Places a part or sub-assembly definition in the current assembly and returns a handle — Instance (part) or Occurrence (sub-assembly) — with .translate(), .rotate(), .grounded(), .name() chains, instance.connectors.<name> for mates and instance.features.<name> for tangent mates. Overrides feed the definition's param() calls, in the part's own unit."
+summary: "Places a part or sub-assembly definition in the current assembly and returns a handle — Instance (part) or Occurrence (sub-assembly) — with .translate(), .rotate(), .grounded(), .name(), .transparent() chains, instance.connectors.<name> for mates and instance.features.<name> for tangent mates. Overrides feed the definition's param() calls, in the part's own unit."
 tags: [api, assembly]
 symbols: [insert]
 seeAlso: [api/assembly, api/mate, api/part, api/param, api/replicate, concepts/assemblies]
@@ -20,7 +20,7 @@ Places one instance of an exported `part()` or `assembly()` definition. The
 first insert of a variant builds it; repeats with equal overrides share the
 build.
 
-The returned handle chains a starting pose and a name, in any order:
+The returned handle chains a starting pose, a name and a display transparency, in any order:
 
 | chain | effect |
 |-------|--------|
@@ -28,6 +28,7 @@ The returned handle chains a starting pose and a name, in any order:
 | `.rotate(axis, degrees)` | turn it about a world axis (`'x'`, `'y'`, `'z'` or an axis object) |
 | `.grounded()` | pin it; the frame everything else is solved against (one per mechanism) |
 | `.name('…')` | the label in the Parts panel and the STEP export |
+| `.transparent(v)` | see-through in the assembly view: `0` opaque … `1` fully transparent (no argument = `0.5`); outside 0..1 throws. Display only — pose, mates and export are untouched. On a sub-assembly it fades every part inside (opacities multiply); a replica follows its seed's value |
 
 and exposes the part's interface:
 
@@ -40,7 +41,8 @@ and exposes the part's interface:
 
 Dragging an instance with the transform gizmo writes `.translate()` /
 `.rotate()` back onto the statement; *Toggle grounded* in the Parts panel
-adds or removes `.grounded()`.
+adds or removes `.grounded()`; *Transparency…* sets or removes
+`.transparent(v)`.
 
 ```js
 import { assembly, insert, mate } from "fluidcad/core";
@@ -49,7 +51,7 @@ import { extrusion } from "./extrusion.part.js";
 
 export const frame = assembly("frame", () => {
   const base = insert(plate).grounded();
-  const post = insert(extrusion, { Length: 380 }).translate(0, 0, 10).name("Post");
+  const post = insert(extrusion, { Length: 380 }).translate(0, 0, 10).name("Post").transparent(0.6);
   mate("fastened", base.connectors.hole1, post.connectors.start);
 });
 ```

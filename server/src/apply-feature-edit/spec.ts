@@ -14,7 +14,7 @@ import type { MoveToPartSpec } from '../move-to-part.ts';
 import type { TimelineBreakpointSpec } from '../timeline-breakpoint.ts';
 import type { RemoveFeatureSpec } from '../remove-feature.ts';
 import type { InsertPartEditSpec } from '../part-catalog/insert-edit.ts';
-import type { InstancePoseEditSpec } from '../insert-chain-edit.ts';
+import type { InstancePoseEditSpec, InstanceTransparencySpec } from '../insert-chain-edit.ts';
 import type { InstanceRenameSpec } from '../instance-rename.ts';
 import type { PartRenameSpec } from '../part-rename.ts';
 import type { AssemblyConnectorEditSpec } from '../assembly-connector-edit.ts';
@@ -285,6 +285,12 @@ export type ApplyFeatureEditSpec = {
    * ignored.
    */
   instanceRename?: InstanceRenameSpec;
+  /**
+   * The parts panel's Transparency…: set or drop the `.transparent(v)` call
+   * of the `insert()` statement at `sourceLine`. Rides the same round trip
+   * as `instancePose`; every other spec field is ignored.
+   */
+  instanceTransparency?: InstanceTransparencySpec;
   /**
    * The part row's Rename: rewrite the name of the `part()` statement at
    * `sourceLine` and rename the variable it binds after it. Rides the same

@@ -148,16 +148,6 @@ export class CopyLinear2D extends Copy2DBase {
     }
   }
 
-  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const axes = this.axes.map(a =>
-      a instanceof AxisObjectBase ? (remap.get(a) as AxisObjectBase) || a : a
-    );
-    const targetObjects = this.targetObjects
-      ? this.targetObjects.map(obj => remap.get(obj) || obj)
-      : null;
-    return new CopyLinear2D(axes, this.options, targetObjects);
-  }
-
   compareTo(other: CopyLinear2D): boolean {
     if (!(other instanceof CopyLinear2D)) {
       return false;

@@ -95,14 +95,6 @@ export class CopyCircular2D extends Copy2DBase {
     }
   }
 
-  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const center = (remap.get(this.center) as LazyVertex) || this.center;
-    const targetObjects = this.targetObjects
-      ? this.targetObjects.map(obj => remap.get(obj) || obj)
-      : null;
-    return new CopyCircular2D(center, this.options, targetObjects);
-  }
-
   compareTo(other: CopyCircular2D): boolean {
     if (!(other instanceof CopyCircular2D)) {
       return false;

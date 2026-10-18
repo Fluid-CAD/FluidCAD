@@ -145,6 +145,32 @@ describe("custom feature picked values", () => {
     expect(list).toMatchObject({ ok: true, slots: { rims: { args: ["e.endEdges()"] } } });
   });
 
+  it("keeps an ordered list's picks in pick order, one element each", () => {
+    plate();
+    boss();
+    const scene = render();
+    const side = (x: number) => faceRefsWhere(solidAt(scene, 2), mid => Math.abs(mid.x - x) < 1e-6);
+    const picks = [...side(-20), ...faceRefsWhere(solidAt(scene, 4), top), ...side(20)];
+    expect(picks).toHaveLength(3);
+    const slot = (ordered: boolean) => {
+      const result = FeatureSlotSynthesizer.synthesize(scene, {
+        slots: { faces: { picker: "face", entities: picks, options: { max: 3, ...(ordered ? { ordered } : {}) } } },
+      });
+      expect(result.ok).toBe(true);
+      return (result as Extract<typeof result, { ok: true }>).slots.faces.args;
+    };
+
+    // Grouped by producer, the plate's two sides make one element.
+    expect(slot(false)).toHaveLength(2);
+    // Ordered, the boss's top stays second, between them.
+    const args = slot(true);
+    expect(args).toHaveLength(3);
+    expect(args[1]).toMatch(/^e2\.endFaces\(\)$/);
+    expect(args[0]).toMatch(/^e\./);
+    expect(args[2]).toMatch(/^e\./);
+    expect(args[0]).not.toBe(args[2]);
+  });
+
   it("names an edge value's picks as picked — a tangent chain is no part of a custom feature's request", () => {
     plate();
     const scene = render();

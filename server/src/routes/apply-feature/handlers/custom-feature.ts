@@ -563,7 +563,7 @@ class CustomFeatureRoute {
    */
   private static slotOptions(spec: FeatureMetaSnapshot['params'][string], union: boolean): FeatureSlotPicks['options'] {
     const declared = spec as {
-      label: string; multiple?: boolean; max?: number; surface?: never; curve?: never; facesAsEdges?: boolean; anchors?: never;
+      label: string; multiple?: boolean; max?: number; ordered?: boolean; surface?: never; curve?: never; facesAsEdges?: boolean; anchors?: never;
     };
     const list = declared.multiple === true || declared.max !== undefined;
     return {
@@ -572,6 +572,7 @@ class CustomFeatureRoute {
         ...(declared.multiple !== undefined ? { multiple: declared.multiple } : {}),
         ...(declared.max !== undefined ? { max: declared.max } : {}),
       }),
+      ...(declared.ordered === true ? { ordered: true } : {}),
       ...(declared.surface !== undefined ? { surface: declared.surface } : {}),
       ...(declared.curve !== undefined ? { curve: declared.curve } : {}),
       ...(declared.facesAsEdges !== undefined ? { facesAsEdges: declared.facesAsEdges } : {}),

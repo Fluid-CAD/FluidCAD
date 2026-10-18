@@ -53,15 +53,19 @@ export const PICKED_SURFACES: readonly PickedSurface[] = ['planar', 'cylinder', 
  * A condition on a picked value, for a `visibleWhen` that names it — every
  * field given must hold:
  * - `picked`: whether the value holds anything;
+ * - `count`: the value holds this many picks (or one of these counts) — a
+ *   face picked as a statement's faces counts each face;
  * - `surface`: the value holds picks, and each is a face of this surface (or
  *   of one of these);
  * - `not`: the condition given does not hold.
  *
  * `{ at: { not: { surface: 'cylinder' } } }` shows a row until a cylindrical
- * face is picked for `at`; `{ at: { picked: false } }` while nothing is.
+ * face is picked for `at`; `{ at: { picked: false } }` while nothing is;
+ * `{ faces: { not: { count: 3 } } }` until a third face is.
  */
 export type PickCondition = {
   readonly picked?: boolean;
+  readonly count?: number | readonly number[];
   readonly surface?: PickedSurface | readonly PickedSurface[];
   readonly not?: PickCondition;
 };
@@ -1240,8 +1244,8 @@ class FeatureMetaValidator {
   }
 
   /**
-   * A picked value's condition: an object of `picked`, `surface` and `not`,
-   * a `surface` only for a value that takes faces.
+   * A picked value's condition: an object of `picked`, `count`, `surface`
+   * and `not`, a `surface` only for a value that takes faces.
    */
   private pickCondition(where: string, name: string, target: PickerParamSpec, value: unknown): void {
     if (!FeatureCall.isPlainObject(value) || Object.keys(value).length === 0) {
@@ -1251,6 +1255,16 @@ class FeatureMetaValidator {
       if (field === 'picked') {
         if (typeof given !== 'boolean') {
           this.fail(`${where}: 'picked' must be true or false, got ${FeatureMetaValidator.describe(given)}`);
+        }
+      } else if (field === 'count') {
+        const counts = Array.isArray(given) ? given : [given];
+        if (counts.length === 0) {
+          this.fail(`${where}: the counts listed are empty`);
+        }
+        for (const count of counts) {
+          if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) {
+            this.fail(`${where}: 'count' takes a whole number of picks, 0 or more, or a list of them, got ${FeatureMetaValidator.describe(count)}`);
+          }
         }
       } else if (field === 'surface') {
         const kinds = typeof target.picker === 'string' ? [target.picker] : target.picker;
@@ -1269,7 +1283,7 @@ class FeatureMetaValidator {
       } else if (field === 'not') {
         this.pickCondition(`${where}: 'not'`, name, target, given);
       } else {
-        this.fail(`${where}: unknown field '${field}' — a picked value's condition takes 'picked', 'surface' and 'not'`);
+        this.fail(`${where}: unknown field '${field}' — a picked value's condition takes 'picked', 'count', 'surface' and 'not'`);
       }
     }
   }
@@ -1815,6 +1829,12 @@ export class FeatureMetas {
   static pickHolds(condition: PickCondition, picks: readonly (PickedSurface | null)[]): boolean {
     if (condition.picked !== undefined && condition.picked !== picks.length > 0) {
       return false;
+    }
+    if (condition.count !== undefined) {
+      const counts: readonly number[] = typeof condition.count === 'number' ? [condition.count] : condition.count;
+      if (!counts.includes(picks.length)) {
+        return false;
+      }
     }
     if (condition.surface !== undefined) {
       const wanted: readonly PickedSurface[] = typeof condition.surface === 'string' ? [condition.surface] : condition.surface;

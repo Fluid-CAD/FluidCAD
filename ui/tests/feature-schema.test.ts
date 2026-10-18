@@ -129,6 +129,12 @@ describe('FeatureSchema', () => {
     expect(FeatureSchema.holds({ at: hub }, { at: { picks: ['cylinder'] } })).toBe(false);
     expect(FeatureSchema.holds({ at: { picked: true } }, { at: { picks: [] } })).toBe(false);
     expect(FeatureSchema.holds({ at: { surface: ['cylinder', 'cone'] } }, { at: { picks: ['cone', 'cylinder'] } })).toBe(true);
+    // A count holds for that many picks, told apart or not: a third face hides an angle.
+    const twoFaces = { faces: { not: { count: 3 } } } as const;
+    expect(FeatureSchema.holds(twoFaces, {})).toBe(true);
+    expect(FeatureSchema.holds(twoFaces, { faces: { picks: ['planar', 'planar'] } })).toBe(true);
+    expect(FeatureSchema.holds(twoFaces, { faces: { picks: ['planar', 'planar', null] } })).toBe(false);
+    expect(FeatureSchema.holds({ faces: { count: [2, 3] } }, { faces: { picks: ['planar', 'cylinder'] } })).toBe(true);
     // A face not told apart yet is no surface: the row waits as it was.
     expect(FeatureSchema.holds({ at: { surface: 'cylinder' } }, { at: { picks: [null] } })).toBe(false);
     // Mixed with a typed-in clause, both must hold.

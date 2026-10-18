@@ -210,6 +210,12 @@ export class FeatureSchema {
     if (condition.picked !== undefined && condition.picked !== picks.length > 0) {
       return false;
     }
+    if (condition.count !== undefined) {
+      const counts = Array.isArray(condition.count) ? condition.count : [condition.count];
+      if (!counts.includes(picks.length)) {
+        return false;
+      }
+    }
     if (condition.surface !== undefined) {
       const wanted = Array.isArray(condition.surface) ? condition.surface : [condition.surface];
       if (picks.length === 0 || !picks.every(surface => surface !== null && wanted.includes(surface))) {

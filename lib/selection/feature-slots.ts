@@ -31,6 +31,8 @@ export type FeatureSlotOptions = {
   multiple?: boolean;
   /** The value is a list of at most this many. */
   max?: number;
+  /** The list's order matters: each pick is its own element, in pick order. */
+  ordered?: boolean;
   /** Only faces of this surface. */
   surface?: 'planar' | 'cylinder' | 'cone' | 'torus';
   /** Only edges of this curve. */
@@ -293,25 +295,33 @@ export class FeatureSlotSynthesizer {
         attributions[i] = rehomePlaneFacePick(this.scene, this.index, attributions[i], this.stmtBindable);
       }
     }
-    const synthesis = synthesizeSelectors(
-      this.scene, this.index, attributions, [], this.options.params ?? [], kind === 'plane', this.stmtBindable,
-    );
-    if (synthesis.ok === false) {
-      throw new SlotRefusal(`${label}: ${synthesis.reason}`, name, synthesis.pick);
+    // The picks synthesize together, grouped by the feature that names them —
+    // except an ordered list's: each pick is its own element, in pick order,
+    // which a grouping (one producer's picks together, the rest pooled in a
+    // select() after them) would reorder.
+    const runs = isList && options.ordered === true ? attributions.map(attr => [attr]) : [attributions];
+    const winners: SelectorPart[] = [];
+    for (const run of runs) {
+      const synthesis = synthesizeSelectors(
+        this.scene, this.index, run, [], this.options.params ?? [], kind === 'plane', this.stmtBindable,
+      );
+      if (synthesis.ok === false) {
+        throw new SlotRefusal(`${label}: ${synthesis.reason}`, name, synthesis.pick);
+      }
+      winners.push(...synthesis.groups.map(group => group.winner));
+      for (const producer of synthesis.producers) {
+        if (!this.producers.includes(producer)) {
+          this.producers.push(producer);
+        }
+      }
+      if (synthesis.anchor && !this.anchors.includes(synthesis.anchor)) {
+        this.anchors.push(synthesis.anchor);
+      }
     }
-    const winners = synthesis.groups.map(group => group.winner);
     // A single value — and an axis or a plane — is one scene object, which a
     // selection spread over several parts can't be.
     if (winners.length !== 1 && (!isList || kind === 'axis' || kind === 'plane')) {
       throw new SlotRefusal(`${label}: the picks need ${winners.length} selectors, and this value takes one — pick geometry of one feature`, name);
-    }
-    for (const producer of synthesis.producers) {
-      if (!this.producers.includes(producer)) {
-        this.producers.push(producer);
-      }
-    }
-    if (synthesis.anchor && !this.anchors.includes(synthesis.anchor)) {
-      this.anchors.push(synthesis.anchor);
     }
     return { name, winners, wrap: kind === 'axis' || kind === 'plane' ? kind : null };
   }

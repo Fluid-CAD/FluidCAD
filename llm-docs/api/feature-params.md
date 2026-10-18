@@ -69,6 +69,7 @@ hold:
 | Field | Holds when |
 |---|---|
 | `picked: true` / `false` | the value holds a pick / nothing |
+| `count: 3` (or a list) | the value holds that many picks, or one of the counts listed: whole numbers, 0 or more. A statement's faces count each face, as `facesOf()` hands them to the feature. |
 | `surface: 'cylinder'` (or a list) | the value holds picks and each is a face of that surface: `'planar'`, `'cylinder'`, `'cone'`, `'sphere'`, `'torus'` or `'other'`. Only for a value that takes faces. |
 | `not: { … }` | the condition given does not hold |
 
@@ -77,6 +78,10 @@ at: { picker: ['face', 'axis'], optional: true },
 // The hub's rows go while a shaft (a cylindrical face) is picked: nothing
 // picked, an axis or a planar face keep them.
 hubDiameter: { type: 'length', default: 20, visibleWhen: { at: { not: { surface: 'cylinder' } } } },
+
+faces: { picker: 'face', max: 3, ordered: true },
+// The slope goes once a third face is picked: two faces keep it.
+angle: { type: 'angle', default: 45, visibleWhen: { faces: { not: { count: 3 } } } },
 ```
 
 - The dialog classifies a picked face when it is picked, and the rows follow
@@ -84,7 +89,7 @@ hubDiameter: { type: 'length', default: 20, visibleWhen: { at: { not: { surface:
   face not classified yet meets no `surface`, so a row hidden on one shows
   for a moment until it is.
 - An edge, an axis, a statement or a connector is a pick but no face: it
-  counts for `picked`, never for `surface`.
+  counts for `picked` and `count`, never for `surface`.
 - Only `visibleWhen` reads picks: an option's `when` names typed-in values
   only. Like any `visibleWhen`, it hides rows and writes nothing for them in
   a create; it doesn't change what a call written by hand passes, so a
@@ -92,7 +97,8 @@ hubDiameter: { type: 'length', default: 20, visibleWhen: { at: { not: { surface:
   whatever was picked).
 - Refused by name: a condition that isn't an object (`{ at: 'shaft' }` —
   "give it a condition such as { picked: true } or { surface: 'cylinder' }"),
-  a `surface` on a value that picks no faces, an unknown surface or field.
+  a `surface` on a value that picks no faces, a `count` that isn't a whole
+  number from 0 up, an unknown surface or field.
 
 ## Typed-in values
 
@@ -298,8 +304,10 @@ Options:
 - **Lists.** `multiple: true`, or `max: n` (a whole number, 2 or more; it
   makes the value a list). A list is always a list: one scene object passed
   for it becomes a list of one, and left out it is `[]`. `ordered: true` lets
-  the dialog reorder the picks by dragging. `axis` and `plane` pick one thing
-  and take no list fields.
+  the dialog reorder the picks by dragging, and writes each pick as its own
+  element in pick order (an unordered list's picks are grouped by the
+  feature that names them, so picks of one feature share a selector).
+  `axis` and `plane` pick one thing and take no list fields.
 - **`surface` / `curve`** limit what the dialog takes, checked by the engine
   on the pick: "On face: the picked face is not planar — this value takes
   faces that match face().planar()". A call written by hand is not checked:

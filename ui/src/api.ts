@@ -6336,12 +6336,14 @@ export type FeaturePickedSurface = 'planar' | 'cylinder' | 'cone' | 'sphere' | '
 
 /**
  * A condition on a picked value (mirror of the engine's `PickCondition`):
- * every field given holds — `picked`, whether it holds anything; `surface`,
- * it holds picks and each is a face of this surface (or one of these);
- * `not`, the condition given does not hold.
+ * every field given holds — `picked`, whether it holds anything; `count`, it
+ * holds this many picks (or one of these counts); `surface`, it holds picks
+ * and each is a face of this surface (or one of these); `not`, the condition
+ * given does not hold.
  */
 export type FeaturePickCondition = {
   picked?: boolean;
+  count?: number | number[];
   surface?: FeaturePickedSurface | FeaturePickedSurface[];
   not?: FeaturePickCondition;
 };

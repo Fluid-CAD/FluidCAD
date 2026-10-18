@@ -109,7 +109,21 @@ function buildSolids(
     return spanPrism(faces, plane, span, scratch);
   }
 
-  return new Extruder(faces, plane, span.to, draft).extrude();
+  return extrudeInto(new Extruder(faces, plane, span.to, draft), scratch);
+}
+
+/**
+ * The extruder's bodies, with the cap and side faces it classifies parked in
+ * `scratch`: the real extrude records them as its selection accessors, the
+ * ghost has no use for them, and nothing else frees them.
+ */
+function extrudeInto(extruder: Extruder, scratch: Shape[]): Shape[] {
+  const solids = extruder.extrude();
+  scratch.push(
+    ...extruder.getStartFaces(), ...extruder.getEndFaces(),
+    ...extruder.getSideFaces(), ...extruder.getInternalFaces(),
+  );
+  return solids;
 }
 
 /**
@@ -196,7 +210,7 @@ function spanPrism(faces: Face[], plane: Plane, span: GhostSpan, scratch: Shape[
   const shift = Matrix4.fromTranslationVector(plane.normal.multiply(span.from));
   const base = faces.map(face => ShapeOps.transform(face, shift) as Face);
   scratch.push(...base);
-  return new Extruder(base, plane, span.to - span.from).extrude();
+  return extrudeInto(new Extruder(base, plane, span.to - span.from), scratch);
 }
 
 /**
@@ -212,8 +226,8 @@ function fusedHalves(
   scratch: Shape[],
 ): Shape[] {
   const halves = [
-    ...new Extruder(faces, plane, span.to, draft).extrude(),
-    ...new Extruder(faces, plane, span.from, draft).extrude(),
+    ...extrudeInto(new Extruder(faces, plane, span.to, draft), scratch),
+    ...extrudeInto(new Extruder(faces, plane, span.from, draft), scratch),
   ];
   scratch.push(...halves);
   const fused = BooleanOps.fuse(halves);

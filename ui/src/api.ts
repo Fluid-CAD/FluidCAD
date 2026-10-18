@@ -6502,7 +6502,14 @@ export type FeatureMetaSnapshot = {
   /** Every value, in declaration order. */
   params: Record<string, FeatureParam>;
   call: unknown;
+  /** Whether the dialog draws a preview at all. */
   ghost: boolean;
+  /**
+   * `'always'`: drawn from the start with no toggle. Left out — the default,
+   * and every snapshot an older engine packed — it is behind the Preview
+   * toggle.
+   */
+  ghostMode?: 'toggle' | 'always';
   contexts: string[];
   /**
    * Where every value's row sits in the dialog: the author's tree, or the

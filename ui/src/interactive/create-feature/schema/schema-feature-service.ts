@@ -59,14 +59,16 @@ export type SchemaFeatureHooks = {
  * and an edit rewrites only what the user changed. The re-render is the
  * preview, editor undo the rollback.
  *
- * While the dialog's Preview toggle is on, the feature's ghost draws in the
- * viewport — built by the engine from the same values and picks. The toggle
- * starts off (a preview runs the feature's code on every change) unless the
- * user turned it on for this feature before, and a feature whose metadata
- * draws no preview has none. Off, the engine is never asked for a ghost.
- * One that takes longer to build than a preview may (5 s) times out: the
- * dialog says so and asks again only when the toggle is turned off and on,
- * or the feature's code is saved.
+ * While the dialog previews, the feature's ghost draws in the viewport —
+ * built by the engine from the same values and picks. The feature's metadata
+ * chooses how: behind a Preview toggle that starts off (a preview runs the
+ * feature's code on every change) unless the user turned it on for this
+ * feature before (`ghost: 'toggle'`, the default), always with no toggle
+ * (`ghost: 'always'`), or not at all (`ghost: false`). Off, the engine is
+ * never asked for a ghost. One that takes longer to build than a preview may
+ * (5 s) times out: the dialog says so and asks again only when the toggle is
+ * turned off and on (or Try again is pressed, with no toggle), or the
+ * feature's code is saved.
  */
 export class SchemaFeatureService implements FeatureDialogService {
   readonly id: string;
@@ -187,6 +189,10 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.panel.onPreviewToggle = (on) => {
       this.previewOn = on;
       PreviewPreference.write(schema.id, on);
+      this.resumeGhost();
+      this.runner.schedulePreview();
+    };
+    this.panel.onPreviewRetry = () => {
       this.resumeGhost();
       this.runner.schedulePreview();
     };
@@ -911,8 +917,8 @@ export class SchemaFeatureService implements FeatureDialogService {
   }
 
   /**
-   * The bodies the form would build, or null to clear. With the Preview
-   * toggle off, none, and the engine is never asked. After a time-out, none:
+   * The bodies the form would build, or null to clear. With the preview
+   * off (its toggle off), none, and the engine is never asked. After a time-out, none:
    * a build that slow would lag every change. A ghost that comes back timed
    * out stops the dialog's preview.
    */
@@ -944,9 +950,14 @@ export class SchemaFeatureService implements FeatureDialogService {
     }
   }
 
-  /** The Preview toggle as the user left it for this feature: off unless they turned it on. */
+  /**
+   * Whether the dialog previews: always for a feature whose metadata says so,
+   * else the Preview toggle as the user left it for this feature — off unless
+   * they turned it on.
+   */
   private restorePreview(): void {
-    this.previewOn = this.ghost !== null && PreviewPreference.read(this.schema.id);
+    const mode = this.schema.previewMode;
+    this.previewOn = mode === 'always' || (mode === 'toggle' && PreviewPreference.read(this.schema.id));
     this.panel.setPreviewOn(this.previewOn);
   }
 

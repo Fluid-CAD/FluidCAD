@@ -56,7 +56,7 @@ export type {
   FeatureLayoutNote, FeatureLayoutImage, FeatureLayoutDivider, FeatureStaticItem, FeatureDialogWidth,
 } from "./layout.js";
 export type {
-  FeatureMeta, FeatureGroup, FeatureKind, FeatureContext, ParamSpec, ScalarParamSpec, ScalarParamType,
+  FeatureMeta, FeatureGroup, FeatureKind, FeatureContext, FeatureGhostMode, ParamSpec, ScalarParamSpec, ScalarParamType,
   NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, ChoiceOption, TextParamSpec, PickerParamSpec, PickerKind, VisibleWhen,
   OptionWhen, OptionCase, PickCondition, PickedSurface,
   SketchPickerSpec, FacePickerSpec, EdgePickerSpec, AxisPickerSpec, PlanePickerSpec, SolidPickerSpec, FeaturePickerSpec,

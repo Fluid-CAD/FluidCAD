@@ -296,6 +296,29 @@ describe('the feature catalog over a workspace', () => {
     expect((await list()).find(entry => entry.id === 'standoff')!.error).toBeUndefined();
   });
 
+  it('carries how each feature previews: always, behind the toggle, or not at all', async () => {
+    write('eager.feature.js', featureModule({ id: 'acme.eager', exportName: 'eager', field: `ghost: 'always'` }));
+    write('lazy.feature.js', featureModule({ id: 'acme.lazy', exportName: 'lazy', field: `ghost: 'toggle'` }));
+    write('blind.feature.js', featureModule({ id: 'acme.blind', exportName: 'blind', field: 'ghost: false' }));
+    write('wrong.feature.js', featureModule({ id: 'acme.wrong', exportName: 'wrong', field: `ghost: 'sometimes'` }));
+    try {
+      const entries = await list();
+      const meta = (id: string) => entries.find(entry => entry.id === id)!.meta;
+      expect(meta('acme.eager')).toMatchObject({ ghost: true, ghostMode: 'always' });
+      expect(meta('acme.lazy')).toMatchObject({ ghost: true });
+      expect(meta('acme.lazy')).not.toHaveProperty('ghostMode');
+      expect(meta('acme.blind')).toMatchObject({ ghost: false });
+      expect(entries.find(entry => entry.modulePath === at('wrong.feature.js'))).toMatchObject({
+        id: null, meta: null, error: expect.stringContaining("'ghost' must be true, false, 'toggle' or 'always', got 'sometimes'"),
+      });
+    } finally {
+      remove('eager.feature.js');
+      remove('lazy.feature.js');
+      remove('blind.feature.js');
+      remove('wrong.feature.js');
+    }
+  });
+
   it('turns a module whose metadata declares an illustration or an onChange hook into an error entry saying why', async () => {
     write('sketchy.feature.js', featureModule({ id: 'acme.sketchy', exportName: 'sketchy', field: `illustration: './sketchy.svg'` }));
     write('hooked.feature.js', featureModule({ id: 'acme.hooked', exportName: 'hooked', field: 'onChange: values => ({ values })' }));

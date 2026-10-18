@@ -25,7 +25,7 @@ type FeatureMeta = {
   kind: 'tool' | 'modifier';                   // must match the class
   params: { [name: string]: ParamSpec };       // what Feature.with() declares on the other path
   label: string; description?: string; icon?: string; group: 'create' | 'modify';
-  operations?: ('add' | 'new' | 'remove')[]; call: CallShape; ghost?: boolean; contexts?: ['part'];
+  operations?: ('add' | 'new' | 'remove')[]; call: CallShape; ghost?: boolean | 'toggle' | 'always'; contexts?: ['part'];
 };
 ```
 

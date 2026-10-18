@@ -30,6 +30,13 @@ export type FeatureKind = 'tool' | 'modifier';
 /** Where a feature may be used: `part` is a part body or a part file. */
 export type FeatureContext = 'part';
 
+/**
+ * How a feature's dialog draws its preview: `toggle` behind a Preview toggle
+ * the user turns on (for a build that may be slow), `always` from the start
+ * with no toggle (for a cheap one).
+ */
+export type FeatureGhostMode = 'toggle' | 'always';
+
 /** A value the dialog types in: lengths are in the document's unit, angles in degrees. */
 export type ScalarParamType = 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'radio' | 'text';
 
@@ -355,11 +362,17 @@ export type FeatureMeta = {
   /** How the builder's call lays the values out (see `CallShape`). */
   call: CallShape;
   /**
-   * Whether the dialog draws a preview of the feature while its values are
-   * typed: on by default for a tool, and for a modifier whose class
-   * overrides `ghost(ctx)`; `false` turns it off.
+   * Whether and how the dialog draws a preview of the feature while its
+   * values are typed — the feature chooses:
+   * - `'toggle'` (`true`, or left out): a Preview toggle the user turns on,
+   *   remembered per feature — for a feature whose build may be slow;
+   * - `'always'`: no toggle, the preview drawn from the start — for a cheap
+   *   build;
+   * - `false`: no preview.
+   * A tool can always preview; a modifier only when its class overrides
+   * `ghost(ctx)`.
    */
-  ghost?: boolean;
+  ghost?: boolean | FeatureGhostMode;
   /** Where the feature may be used; `['part']`, the only context so far, when left out. */
   contexts?: readonly FeatureContext[];
   /**
@@ -386,6 +399,8 @@ export type ResolvedFeatureMeta = Readonly<Omit<FeatureMeta, 'operations' | 'gho
   defaultOperation: FeatureOperation | null;
   /** Whether the dialog draws a preview: the metadata allows one and the class has one to draw. */
   ghost: boolean;
+  /** How the dialog draws it: behind the Preview toggle, or always (see {@link FeatureMeta.ghost}). */
+  ghostMode: FeatureGhostMode;
   contexts: readonly FeatureContext[];
   /** The dialog's rows: the author's, or the one derived from the values' `group` and `tab` (see {@link FeatureLayouts.derive}). */
   layout: FeatureLayout;
@@ -412,6 +427,13 @@ export type FeatureMetaSnapshot = {
   call: CallShape;
   /** Whether the dialog draws a preview — the UI asks for none when false. */
   ghost: boolean;
+  /**
+   * `'always'` when the dialog draws it from the start with no toggle; left
+   * out otherwise — behind the Preview toggle, as every snapshot an older
+   * engine packed reads — so a feature that keeps the default packs to the
+   * same bytes as before.
+   */
+  ghostMode?: 'always';
   contexts: FeatureContext[];
   /** The dialog's rows, always there: as the author wrote them, or derived from the values' `group` and `tab`. */
   layout: FeatureLayout;
@@ -575,6 +597,7 @@ class FeatureMetaValidator {
     const params = this.params(meta.params);
     const call = this.call(meta.call, operations, params, id);
     const ghost = this.ghost(meta.ghost, featureClass as typeof Feature);
+    const ghostMode = FeatureMetas.ghostModeOf(meta.ghost);
     const contexts = this.contexts(meta.contexts);
     const checks = this.layoutChecks(params);
     const layout = meta.layout === undefined ? FeatureLayouts.derive(params) : FeatureLayouts.check(meta.layout, checks);
@@ -588,7 +611,7 @@ class FeatureMetaValidator {
 
     const resolved: Record<string, unknown> = {
       id, class: featureClass, label, description, icon, group, kind, operations,
-      defaultOperation: FeatureCall.defaultOperationOf(operations), params, call, ghost, contexts,
+      defaultOperation: FeatureCall.defaultOperationOf(operations), params, call, ghost, ghostMode, contexts,
       layout, width, aside,
     };
     return Object.freeze(FeatureMetaValidator.defined(resolved)) as ResolvedFeatureMeta;
@@ -653,14 +676,15 @@ class FeatureMetaValidator {
    * Whether the dialog draws a preview: unless the metadata turns it off,
    * whenever the class has one to draw — a tool always, a modifier when it
    * overrides `ghost(ctx)`. Asking for one a modifier can't draw is refused.
+   * How it draws it (`'toggle'` or `'always'`) is {@link FeatureMetas.ghostModeOf}.
    */
   private ghost(value: unknown, featureClass: typeof Feature): boolean {
-    if (value !== undefined && typeof value !== 'boolean') {
-      this.fail(`'ghost' must be true or false, got ${FeatureMetaValidator.describe(value)}`);
+    if (value !== undefined && typeof value !== 'boolean' && !FeatureMetas.GHOST_MODES.includes(value as FeatureGhostMode)) {
+      this.fail(`'ghost' must be true, false, 'toggle' or 'always', got ${FeatureMetaValidator.describe(value)}`);
     }
     const previews = Feature.previews(featureClass);
-    if (value === true && !previews) {
-      this.fail("'ghost: true' needs a preview to draw — a modifier draws one only when its class overrides ghost(ctx); override it, or leave 'ghost' out");
+    if (value !== undefined && value !== false && !previews) {
+      this.fail(`'ghost: ${typeof value === 'string' ? `"${value}"` : value}' needs a preview to draw — a modifier draws one only when its class overrides ghost(ctx); override it, or leave 'ghost' out`);
     }
     return value !== false && previews;
   }
@@ -1585,6 +1609,7 @@ export class FeatureMetas {
       params,
       call: FeatureMetas.json(meta.call ?? []),
       ghost: FeatureMetas.ghostOf(meta),
+      ghostMode: FeatureMetas.ghostModeOf((meta as Partial<ResolvedFeatureMeta>).ghostMode ?? meta.ghost) === 'always' ? 'always' : undefined,
       contexts: [...(meta.contexts ?? ['part'])],
       layout: FeatureMetas.json(meta.layout ?? FeatureLayouts.derive(meta.params ?? {})),
       width: meta.width,
@@ -1609,6 +1634,19 @@ export class FeatureMetas {
       paths.push(...FeatureLayouts.images(spec.aside));
     }
     return [...new Set(paths.filter((path): path is string => typeof path === 'string'))];
+  }
+
+  /** The ways a dialog draws a preview: behind the Preview toggle, or always. */
+  static readonly GHOST_MODES: readonly FeatureGhostMode[] = ['toggle', 'always'];
+
+  /**
+   * How the dialog draws a feature's preview, from its `ghost` (or a
+   * resolved `ghostMode`): `'always'` only when asked for, else `'toggle'` —
+   * also for `true`, `false` (which draws none) and a snapshot an older
+   * engine packed without one.
+   */
+  static ghostModeOf(value: unknown): FeatureGhostMode {
+    return value === 'always' ? 'always' : 'toggle';
   }
 
   /**

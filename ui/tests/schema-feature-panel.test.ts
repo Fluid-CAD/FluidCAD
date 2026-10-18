@@ -800,6 +800,12 @@ describe("the layout tree of a schema dialog", () => {
     expect(root.innerHTML).toContain('sm:w-60');
   });
 
+  it('leaves the Preview toggle out of a feature that always previews', () => {
+    const { body, sign } = open({ ...VENT, ghostMode: 'always' });
+    expect([...body.children].map(sign)).toEqual(
+      ['face', 'style', 'group:Pattern', 'group:Slot', 'tabs', 'tab-Finish', 'tab-Notes', 'scope-slot', 'ghost-paused']);
+  });
+
   it('lays a row out as wrapping cells sharing the line by their widths, a note as a cell, and wears the declared width', () => {
     const { root, body, sign, one } = open();
     expect([...body.children].map(sign)).toEqual(

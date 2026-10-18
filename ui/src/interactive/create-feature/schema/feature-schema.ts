@@ -119,6 +119,19 @@ export class FeatureSchema {
   }
 
   /**
+   * How the dialog draws the feature's preview, as its metadata chose:
+   * `'toggle'` behind the Preview toggle, `'always'` from the start with no
+   * toggle, or null for a feature that draws none (`ghost: false`). A
+   * snapshot an older engine packed carries no mode: it is a toggle.
+   */
+  get previewMode(): 'toggle' | 'always' | null {
+    if (!this.meta.ghost) {
+      return null;
+    }
+    return this.meta.ghostMode === 'always' ? 'always' : 'toggle';
+  }
+
+  /**
    * Where every row sits: the tree the engine resolved — the author's, or
    * the one it derived from the values' `group` and `tab`. A snapshot
    * without one lists the values in declaration order.

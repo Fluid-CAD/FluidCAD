@@ -220,15 +220,22 @@ copies read them again. A referenced solid, feature or connector stays.
 
 ## The preview: `ghost(ctx)`
 
-While the dialog's **Preview** toggle is on, the engine builds the feature
-from the dialog's values on stand-ins of the picks and draws what `ghost()`
-returns (green for an add or a new, red for a remove), again on every
-change. The scene is never changed.
+While the dialog previews, the engine builds the feature from the
+dialog's values on stand-ins of the picks and draws what `ghost()` returns
+(green for an add or a new, red for a remove), again on every change. The
+scene is never changed.
 
-- **The toggle starts off**: until the user turns it on, the engine runs
-  neither `ghost()` nor `buildTool()` for the dialog. The page remembers it
-  per feature id (turned on, it opens on; turning it off forgets it). Apply
-  never depends on it.
+- **The feature chooses when** (`ghost` in [[api/define-feature]]):
+  - `'toggle'`, the default (also `true`, or left out): a **Preview** toggle
+    that starts off; until the user turns it on, the engine runs neither
+    `ghost()` nor `buildTool()` for the dialog. The page remembers it per
+    feature id (turned on, it opens on; turning it off forgets it). For a
+    build that may be slow — a gear, a loft through many sections.
+  - `'always'`: no toggle; the dialog previews from the start, on every
+    change. For a cheap build.
+  - `false`: no preview, no toggle.
+
+  Apply never depends on the preview.
 - **A tool** previews by default (`ghost()` runs `buildTool()`); override it
   to return something cheaper. **A modifier** draws nothing unless it
   overrides `ghost()`, which may return solids, faces (drawn as patches) or
@@ -238,10 +245,9 @@ change. The scene is never changed.
 - **Time-out:** a preview over 5 s to build and mesh is not drawn, and the
   dialog asks for no more: "Preview timed out. It took 6.2 s to build, over
   the 5 s a preview may take. Turn it off and on to try again." Turning the
-  toggle off and on, saving the feature's module or opening the dialog again
+  toggle off and on — or, for a feature that always previews, the row's
+  **Try again** — saving the feature's module or opening the dialog again
   asks again.
-- `ghost: false` in the metadata turns the preview off: the dialog shows no
-  toggle.
 
 ## Modifier kind: `build(ctx)`
 

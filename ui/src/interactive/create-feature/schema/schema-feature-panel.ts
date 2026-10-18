@@ -62,6 +62,8 @@ export class SchemaFeaturePanel extends FeaturePanel {
   onScopeRemove?: (index: number) => void;
   /** The Preview toggle flipped. */
   onPreviewToggle?: (on: boolean) => void;
+  /** A feature that always previews: its timed-out preview's Try again. */
+  onPreviewRetry?: () => void;
 
   readonly fields = new Map<string, SchemaField>();
   readonly pickers = new Map<string, SchemaPicker>();
@@ -87,7 +89,11 @@ export class SchemaFeaturePanel extends FeaturePanel {
   private readonly folds: { fold: FoldingSection; collapsed: boolean }[] = [];
   private readonly images: { img: HTMLImageElement; path: string }[] = [];
   private readonly pausedRow: HTMLElement;
-  /** The Preview toggle; null for a feature whose metadata draws no preview (`ghost: false`). */
+  private readonly pausedText: HTMLElement;
+  /**
+   * The Preview toggle; null for a feature whose metadata draws no preview
+   * (`ghost: false`) or always draws it (`ghost: 'always'`).
+   */
   private readonly previewToggle: HTMLInputElement | null = null;
   private armed: ArmedSlot = null;
 
@@ -148,7 +154,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
       this.scopeSlot.onRemove = (index) => this.onScopeRemove?.(index);
     }
 
-    if (schema.meta.ghost) {
+    if (schema.previewMode === 'toggle') {
       const row = this.append('preview-row', 'text-xs');
       const label = document.createElement('label');
       label.className = 'flex items-center justify-between w-full cursor-pointer';
@@ -167,11 +173,23 @@ export class SchemaFeaturePanel extends FeaturePanel {
     }
 
     this.pausedRow = this.append('ghost-paused', 'hidden text-xs leading-snug text-base-content/70');
+    this.pausedText = document.createElement('span');
+    this.pausedRow.append(this.pausedText);
+    if (schema.previewMode === 'always') {
+      // No toggle to turn off and on: the paused row asks again itself.
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.dataset.role = 'preview-retry';
+      retry.className = 'btn btn-ghost btn-xs ml-1 px-1 min-h-0 h-auto text-primary';
+      retry.textContent = 'Try again';
+      retry.addEventListener('click', () => this.onPreviewRetry?.());
+      this.pausedRow.append(retry);
+    }
   }
 
-  /** Whether the Preview toggle is on; false for a feature without one. */
+  /** Whether the preview is on: always for a feature that always previews, else the toggle; false without one. */
   get previewOn(): boolean {
-    return this.previewToggle?.checked ?? false;
+    return this.schema.previewMode === 'always' || (this.previewToggle?.checked ?? false);
   }
 
   /** Set the Preview toggle without firing its change. */
@@ -183,10 +201,12 @@ export class SchemaFeaturePanel extends FeaturePanel {
 
   /**
    * The preview timed out — it took longer to build than a preview may — and
-   * why; null when it runs again. Turning the toggle off and on asks again.
+   * why; null when it runs again. Turning the toggle off and on asks again;
+   * a feature that always previews offers Try again instead.
    */
   setPreviewPaused(reason: string | null): void {
-    this.pausedRow.textContent = reason ? `Preview timed out. ${reason} Turn it off and on to try again.` : '';
+    const again = this.schema.previewMode === 'always' ? '' : ' Turn it off and on to try again.';
+    this.pausedText.textContent = reason ? `Preview timed out. ${reason}${again}` : '';
     this.pausedRow.classList.toggle('hidden', reason === null);
   }
 

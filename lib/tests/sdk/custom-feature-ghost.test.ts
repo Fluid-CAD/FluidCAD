@@ -415,5 +415,9 @@ describe("a custom feature's ghost", () => {
     } as unknown as FeatureMeta;
     expect(() => registerBuilder(() => () => undefined, { feature: meta }))
       .toThrow("feature 'acme.bare': 'ghost: true' needs a preview to draw — a modifier draws one only when its class overrides ghost(ctx); override it, or leave 'ghost' out");
+    for (const mode of ['toggle', 'always']) {
+      expect(() => registerBuilder(() => () => undefined, { feature: { ...meta, ghost: mode } as unknown as FeatureMeta }))
+        .toThrow(`feature 'acme.bare': 'ghost: "${mode}"' needs a preview to draw — a modifier draws one only when its class overrides ghost(ctx); override it, or leave 'ghost' out`);
+    }
   });
 });

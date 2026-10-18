@@ -80,6 +80,7 @@ describe("registerBuilder with feature metadata", () => {
     expect(attached.operations).toEqual(['add', 'new']);
     expect(attached.defaultOperation).toBe('add');
     expect(attached.ghost).toBe(true);
+    expect(attached.ghostMode).toBe('toggle');
     expect(attached.contexts).toEqual(['part']);
     expect(attached.params.height).toEqual({ type: 'length', default: 5, min: 0 });
     expect(Object.isFrozen(attached)).toBe(true);
@@ -307,11 +308,44 @@ describe("feature metadata refusals", () => {
     expect(() => register(bossMeta({ icon: './icons/boss.svg' }))).not.toThrow();
   });
 
-  it("refuse a ghost that is not a flag, and contexts beyond parts", () => {
-    refuses(bossMeta({ ghost: 'yes' }), "feature 'acme.boss': 'ghost' must be true or false, got 'yes'");
+  it("refuse a ghost that is neither a flag nor a mode, and contexts beyond parts", () => {
+    refuses(bossMeta({ ghost: 'yes' }), "feature 'acme.boss': 'ghost' must be true, false, 'toggle' or 'always', got 'yes'");
+    refuses(bossMeta({ ghost: 'Always' }), "feature 'acme.boss': 'ghost' must be true, false, 'toggle' or 'always', got 'Always'");
+    refuses(bossMeta({ ghost: 1 }), "feature 'acme.boss': 'ghost' must be true, false, 'toggle' or 'always', got 1");
     refuses(bossMeta({ contexts: ['assembly'] }), "feature 'acme.boss': custom features run in parts only for now — 'contexts' takes 'part'");
     refuses(bossMeta({ contexts: ['sketch'] }), "feature 'acme.boss': 'contexts' must be one of part, got 'sketch'");
     refuses(bossMeta(), "feature 'acme.boss': a feature runs where its 'contexts' say — leave allowAssemblyTopLevel out", { allowAssemblyTopLevel: true });
+  });
+});
+
+describe("the preview a feature chooses", () => {
+  it("resolves the toggle by default, for true and for 'toggle'", () => {
+    for (const ghost of [undefined, true, 'toggle']) {
+      const meta = getFeatureMeta(register(bossMeta(ghost === undefined ? {} : { ghost })))!;
+      expect(meta.ghost).toBe(true);
+      expect(meta.ghostMode).toBe('toggle');
+      // The default leaves the snapshot as it always was: no mode, a toggle.
+      expect(snapshotFeatureMeta(meta).ghost).toBe(true);
+      expect(snapshotFeatureMeta(meta)).not.toHaveProperty('ghostMode');
+    }
+  });
+
+  it("resolves 'always' as a preview with no toggle", () => {
+    const meta = getFeatureMeta(register(bossMeta({ ghost: 'always' })))!;
+    expect(meta.ghost).toBe(true);
+    expect(meta.ghostMode).toBe('always');
+    expect(snapshotFeatureMeta(meta)).toMatchObject({ ghost: true, ghostMode: 'always' });
+  });
+
+  it("draws none for false", () => {
+    const meta = getFeatureMeta(register(bossMeta({ ghost: false })))!;
+    expect(meta.ghost).toBe(false);
+    expect(snapshotFeatureMeta(meta)).toMatchObject({ ghost: false });
+  });
+
+  it("reads the mode off metadata nobody checked yet", () => {
+    expect(snapshotFeatureMeta(bossMeta({ ghost: 'always' }))).toMatchObject({ ghost: true, ghostMode: 'always' });
+    expect(snapshotFeatureMeta(bossMeta())).not.toHaveProperty('ghostMode');
   });
 });
 

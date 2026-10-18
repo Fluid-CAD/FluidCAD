@@ -942,6 +942,27 @@ describe("a custom feature's ghost", () => {
     expect(previewToggle(panel)).toBeNull();
   });
 
+  it('shows no toggle for a feature that always previews, and builds its ghost from the start', async () => {
+    // Even with the toggle remembered off: the feature's metadata decides.
+    const { service, panel, type, lastGhost, ghostBodies } = mount({ ...STANDOFF, ghostMode: 'always' }, { preview: false });
+    service.enter();
+    expect(previewToggle(panel)).toBeNull();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(1);
+    expect(ghostBodies()).toBe(1);
+    type('height', '14');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(2);
+    expect(lastGhost()![0]).toMatchObject({ values: { height: 14 } });
+  });
+
+  it('reads a snapshot without a mode as a toggle', () => {
+    const { service, panel } = mount({ ...STANDOFF, ghostMode: undefined }, { preview: false });
+    service.enter();
+    expect(previewToggle(panel)!.checked).toBe(false);
+  });
+
   it('draws the form as the engine builds it: every value the rows hold, the picks as refs, where the statement lands', async () => {
     const { service, type, lastGhost, ghostBodies } = mount();
     api.setActivePartProvider(() => at(3, 22));
@@ -1049,6 +1070,33 @@ describe("a custom feature's ghost", () => {
     await vi.advanceTimersByTimeAsync(300);
     expect(api.applyCustomFeatureEdit).toHaveBeenCalled();
     expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
+  });
+
+  it('times out a ghost that always previews too, and Try again asks again', async () => {
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValueOnce({ solids: null, frames: [], notice: null, paused: PAUSED });
+    const { service, panel, type, lastGhost, ghostBodies } = mount({ ...STANDOFF, ghostMode: 'always' });
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    const row = panel().querySelector<HTMLElement>('[data-role="ghost-paused"]')!;
+    expect(row.classList.contains('hidden')).toBe(false);
+    // No toggle to turn off and on: the row says so its own way.
+    expect(row.querySelector('span')!.textContent).toBe(`Preview timed out. ${PAUSED}`);
+    const retry = row.querySelector<HTMLButtonElement>('[data-role="preview-retry"]')!;
+    expect(retry.textContent).toBe('Try again');
+    expect(ghostBodies()).toBe(0);
+
+    // Timed out, the form previews its statement but asks for no ghost.
+    type('height', '12');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(1);
+
+    retry.click();
+    expect(row.classList.contains('hidden')).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.fetchFeatureGhostResult).toHaveBeenCalledTimes(2);
+    expect(lastGhost()![0]).toMatchObject({ values: { height: 12 } });
+    expect(ghostBodies()).toBe(1);
   });
 
   it('times out a ghost too slow to follow the form, and asks again once the toggle is turned off and on', async () => {

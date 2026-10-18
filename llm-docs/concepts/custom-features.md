@@ -1,7 +1,7 @@
 ---
 id: concepts/custom-features
 title: Custom features — your own feature types in *.feature.js modules
-summary: "A custom feature is a feature type a project writes in JavaScript: a Feature.with() class whose buildTool() returns its solids, exported through defineFeature() from a *.feature.js module. The editor finds it by scanning the module's exports (no init.js), lists it under the toolbar's Custom dropdown with a dialog built from its declared values, a live preview behind a toggle, Apply that writes the import and the call, and timeline edits; models call it like a built-in, and repeat, copy and fillet its buckets — the standard ones and the named buckets its class declares (Feature.with(params, { buckets: { tipEdges: {} } }) → g.tipEdges(), which the editor's picks and right-click menu use too; each bucket is described in the package's docs/ pages). The module re-evaluates on every render, so never instanceof your own class; saving its code rebuilds its statements with no restart."
+summary: "A custom feature is a feature type a project writes in JavaScript: a Feature.with() class whose buildTool() returns its solids, exported through defineFeature() from a *.feature.js module. The editor finds it by scanning the module's exports (no init.js), lists it under the toolbar's Custom dropdown with a dialog built from its declared values, a live preview (behind a toggle, or always on, as the feature chooses), Apply that writes the import and the call, and timeline edits; models call it like a built-in, and repeat, copy and fillet its buckets — the standard ones and the named buckets its class declares (Feature.with(params, { buckets: { tipEdges: {} } }) → g.tipEdges(), which the editor's picks and right-click menu use too; each bucket is described in the package's docs/ pages). The module re-evaluates on every render, so never instanceof your own class; saving its code rebuilds its statements with no restart."
 tags: [concept, sdk, custom-feature, feature]
 seeAlso: [api/feature, api/feature-buckets, api/define-feature, api/feature-params, api/feature-layout, api/register-builder, api/sdk-kernel, api/sdk-occt, api/draft, api/repeat, concepts/scene-graph, concepts/packages]
 ---
@@ -15,9 +15,10 @@ from then on it behaves like a built-in feature:
 - the part toolbar's **Custom** dropdown (the last button on the bar) lists it;
 - its dialog is built from the values it declares: picks in the viewport or
   the timeline, typed values, tabs and groups;
-- the dialog draws a live preview once its **Preview** toggle is on, green for
-  what it adds and red for what it cuts (the toggle starts off, and stays on
-  for a feature the user turned it on for);
+- the dialog draws a live preview, green for what it adds and red for what it
+  cuts: once its **Preview** toggle is on (the default — the toggle starts
+  off, and stays on for a feature the user turned it on for), or from the
+  start with no toggle for a feature whose metadata says `ghost: 'always'`;
 - **Apply** writes `import { standoff } from './standoff.feature.js'` and the
   call into the model;
 - double-clicking its timeline row opens the same dialog on the statement;

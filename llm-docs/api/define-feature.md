@@ -19,7 +19,7 @@ defineFeature(FeatureClass, {
   group: 'create' | 'modify';                     // where it sorts in the Custom dropdown
   operations?: ('add' | 'new' | 'remove')[];      // a tool's operations; left out, none
   call: CallShape;                                // how the builder's arguments map to the values
-  ghost?: boolean;                                // false: the dialog draws no preview and shows no Preview toggle
+  ghost?: boolean | 'toggle' | 'always';          // the dialog's preview: behind a Preview toggle (the default), always, or none (false)
   contexts?: ['part'];                            // where it may be used; parts only so far
 }): (...args: FeatureArgs) => InstanceType<FeatureClass>
 
@@ -64,7 +64,7 @@ that message, and a model that imports the module fails to compile with it.
 | `group` | Required: `'create'` or `'modify'`. The dropdown lists create features first, then modify, each sorted by label. |
 | `operations` | A tool's operations, which its dialog offers as tabs (see below). A modifier takes none. |
 | `call` | Required: the call shape (see below). Every value appears in it exactly once. |
-| `ghost` | `false` turns the dialog's preview off: no **Preview** toggle. Otherwise the dialog has the toggle, off until the user turns it on (remembered per feature). A tool can always preview; a modifier only when its class overrides `ghost(ctx)`, and `ghost: true` on one that doesn't is refused. |
+| `ghost` | How the dialog previews the feature — the feature chooses. `'toggle'` (or `true`, or left out): a **Preview** toggle, off until the user turns it on (remembered per feature); the default, for a build that may be slow. `'always'`: no toggle, the preview drawn from the start; for a cheap build. `false`: no preview and no toggle. Anything else is refused (`'ghost' must be true, false, 'toggle' or 'always', got …`). A tool can always preview; a modifier only when its class overrides `ghost(ctx)`, and `true`, `'toggle'` or `'always'` on one that doesn't is refused. |
 | `contexts` | `['part']`, the only context so far: custom features run in parts, not at the top level of an assembly file. `'assembly'` is refused ("custom features run in parts only for now — 'contexts' takes 'part'"). |
 | `layout`, `width`, `aside` | Optional: how the dialog is laid out — rows, sections, tabs, notes and images; a wider dialog; static items beside the rows. See [feature-layout](feature-layout.md). Left out, the layout is derived from the values' `group` and `tab`. |
 

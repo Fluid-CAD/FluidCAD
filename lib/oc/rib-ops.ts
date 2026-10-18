@@ -181,9 +181,9 @@ export class RibOps {
     loft.delete();
 
     return {
-      solid: ShapeFactory.fromShape(solid),
-      firstFace: ShapeFactory.fromShape(firstFace),
-      lastFace: ShapeFactory.fromShape(lastFace),
+      solid: ShapeFactory.adopt(solid),
+      firstFace: ShapeFactory.adopt(firstFace),
+      lastFace: ShapeFactory.adopt(lastFace),
     };
   }
 
@@ -274,7 +274,11 @@ export class RibOps {
     let trimmed = ribSolid;
     const slabs = RibOps.buildBoundingBoxSlabs(scopeShapes);
     for (const slab of slabs) {
-      trimmed = BooleanOps.cutShapes(trimmed, slab);
+      const next = BooleanOps.cutShapes(trimmed, slab);
+      // The slab and every intermediate cut are this conformance's own.
+      if (trimmed !== ribSolid) trimmed.dispose();
+      slab.dispose();
+      trimmed = next;
     }
 
     // Phase 2: cut by scope compound, with lineage so the result faces can be
@@ -282,10 +286,11 @@ export class RibOps {
     const scopeCompound = ShapeOps.makeCompound(scopeShapes);
 
     const stockList = new oc.TopTools_ListOfShape();
-    stockList.Append(trimmed.getShape());
+    stockList.Append(trimmed.getShape()).delete();
 
     const toolList = new oc.TopTools_ListOfShape();
-    toolList.Append(scopeCompound.getShape());
+    toolList.Append(scopeCompound.getShape()).delete();
+    scopeCompound.dispose();
 
     const progress = new oc.Message_ProgressRange();
     const cutMaker = new oc.BRepAlgoAPI_Cut();
@@ -305,7 +310,8 @@ export class RibOps {
 
     const cutResult = cutMaker.Shape();
     const rawSolids = Explorer.findShapes(cutResult, Explorer.getOcShapeType("solid"));
-    const allSolids = rawSolids.map(s => ShapeFactory.fromShape(s));
+    const allSolids = rawSolids.map(s => ShapeFactory.adopt(s));
+    cutResult.delete();
 
     // Pick the solid(s) whose interior contains the original spine. The
     // rib was built by extruding a profile centred on the spine, so the
@@ -435,6 +441,8 @@ export class RibOps {
     for (const f of trimmedSideFaces) {
       RibOps.collectFaceImages(cutMaker, f, sideMap);
     }
+    // The maps hold their own references to the trimmed faces.
+    Explorer.deleteAll(trimmedFaces);
 
     const startFaces: Face[] = [];
     const endFaces: Face[] = [];
@@ -446,6 +454,7 @@ export class RibOps {
       const faces = Explorer.findShapes(solid.getShape(), Explorer.getOcShapeType("face"));
       for (const f of faces) {
         if (!seen.Add(f)) {
+          f.delete();
           continue;
         }
         const wrapped = Face.fromTopoDSFace(Explorer.toFace(f));
@@ -458,6 +467,7 @@ export class RibOps {
         } else {
           internalFaces.push(wrapped);
         }
+        f.delete();
       }
     }
 
@@ -483,6 +493,12 @@ export class RibOps {
       cleanedSolids.push(lineage.shape);
       lineages.push(lineage);
     }
+    // Fragments the cut left behind, and the trimmed prism itself, were
+    // only steps on the way to the cleaned solids.
+    for (const solid of allSolids) {
+      if (!resultSolids.includes(solid)) solid.dispose();
+    }
+    if (trimmed !== ribSolid) trimmed.dispose();
 
     const remapBucket = (faces: Face[]): Face[] => {
       const out: Face[] = [];
@@ -515,6 +531,12 @@ export class RibOps {
     for (const lineage of lineages) {
       lineage.dispose();
     }
+    for (const solid of resultSolids) solid.dispose();
+    // Bucket wrappers a lineage replaced by their cleaned images.
+    const kept = new Set([...finalStart, ...finalEnd, ...finalSide, ...finalInternal]);
+    for (const face of [...startFaces, ...endFaces, ...sideFaces, ...internalFaces]) {
+      if (!kept.has(face)) face.dispose();
+    }
 
     return {
       solids: cleanedSolids,
@@ -537,23 +559,28 @@ export class RibOps {
 
   private static tryGetFacePlane(face: TopoDS_Shape): { origin: Point; normal: Vector3d } | null {
     const oc = getOC();
+    const scratch: { delete(): void }[] = [];
     try {
-      const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(face), true);
+      const typed = oc.TopoDS.Face(face);
+      scratch.push(typed);
+      const adaptor = new oc.BRepAdaptor_Surface(typed, true);
+      scratch.push(adaptor);
       if (adaptor.GetType() !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-        adaptor.delete();
         return null;
       }
       const pln = adaptor.Plane();
       const loc = pln.Location();
-      const ax = pln.Axis().Direction();
-      const result = {
+      const axis = pln.Axis();
+      const ax = axis.Direction();
+      scratch.push(pln, loc, axis, ax);
+      return {
         origin: new Point(loc.X(), loc.Y(), loc.Z()),
         normal: new Vector3d(ax.X(), ax.Y(), ax.Z()).normalize(),
       };
-      adaptor.delete();
-      return result;
     } catch {
       return null;
+    } finally {
+      Explorer.deleteAll(scratch);
     }
   }
 
@@ -583,12 +610,13 @@ export class RibOps {
     const c3 = new Point(x2, y2, z1);
     const c4 = new Point(x1, y2, z1);
 
-    const wire = WireOps.makeWireFromEdges([
+    const edges = [
       EdgeOps.makeLineEdge(c1, c2),
       EdgeOps.makeLineEdge(c2, c3),
       EdgeOps.makeLineEdge(c3, c4),
       EdgeOps.makeLineEdge(c4, c1),
-    ]);
+    ];
+    const wire = WireOps.makeWireFromEdges(edges);
     const face = Face.fromTopoDSFace(
       FaceOps.makeFaceFromWires([wire.getShape() as TopoDS_Wire]),
     );
@@ -599,7 +627,10 @@ export class RibOps {
     const result = prism.Shape();
     prism.delete();
     dispose();
-    return ShapeFactory.fromShape(result);
+    face.dispose();
+    wire.dispose();
+    for (const edge of edges) edge.dispose();
+    return ShapeFactory.adopt(result);
   }
 
   private static offsetWireOnPlane(wire: Wire, plane: Plane, distance: number): Wire {
@@ -635,19 +666,22 @@ export class RibOps {
 
     const result = maker.Shape();
     maker.delete();
+    face.delete();
 
-    if (Explorer.isWire(result)) {
-      return Wire.fromTopoDSWire(oc.TopoDS.Wire(result));
-    }
+    try {
+      if (Explorer.isWire(result)) {
+        return Wire.fromTopoDSWire(oc.TopoDS.Wire(result));
+      }
 
-    const wires = Explorer.findShapes<TopoDS_Wire>(
-      result,
-      oc.TopAbs_ShapeEnum.TopAbs_WIRE as any,
-    );
-    if (wires.length === 0) {
-      throw new Error("Rib offset produced no usable wire");
+      return Explorer.withShapes(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as any, wires => {
+        if (wires.length === 0) {
+          throw new Error("Rib offset produced no usable wire");
+        }
+        return Wire.fromTopoDSWire(oc.TopoDS.Wire(wires[0]));
+      });
+    } finally {
+      result.delete();
     }
-    return Wire.fromTopoDSWire(oc.TopoDS.Wire(wires[0]));
   }
 
   private static makeOpenFaceWithCaps(wire1: Wire, wire2: Wire): Face {

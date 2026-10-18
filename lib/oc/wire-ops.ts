@@ -151,7 +151,9 @@ export class WireOps {
     const edgeList = new oc.TopTools_ListOfShape();
 
     for (const edge of edges) {
-      edgeList.Append(oc.TopoDS.Edge(edge));
+      const typed = oc.TopoDS.Edge(edge);
+      edgeList.Append(typed).delete();
+      typed.delete();
     }
 
     wireMaker.Add(edgeList);

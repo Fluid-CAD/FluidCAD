@@ -80,15 +80,21 @@ export class Extruder {
 
       const solidFaces = Explorer.findFacesWrapped(solid);
       const remainingFaces: Face[] = [];
+      // The maker's own cap wrappers only serve to find the solid's: once
+      // matched they are replaced and freed.
+      const makerFirst = firstFace;
+      const makerLast = lastFace;
       for (const f of solidFaces) {
-        if (f.getShape().IsSame(firstFace.getShape())) {
+        if (f.getShape().IsSame(makerFirst.getShape())) {
           firstFace = f;
-        } else if (f.getShape().IsSame(lastFace.getShape())) {
+        } else if (f.getShape().IsSame(makerLast.getShape())) {
           lastFace = f;
         } else {
           remainingFaces.push(f as Face);
         }
       }
+      if (firstFace !== makerFirst) makerFirst.dispose();
+      if (lastFace !== makerLast) makerLast.dispose();
 
       // Use the firstFace from the solid to detect inner wires. Test against
       // the face's actual outward normal — for negative-distance extrudes the
@@ -123,6 +129,12 @@ export class Extruder {
     this.lastFaces = lastFaces;
     this.sideFaces = sideFaces;
     this._internalFaces = internalFaces;
+
+    // Profiles the fuse rebuilt (merged regions) were only ever this
+    // extrude's inputs; the caller's own faces stay the caller's.
+    for (const face of fusedFaces.result) {
+      if (!(this.faces as Shape[]).includes(face)) face.dispose();
+    }
 
     return extrusions;
   }

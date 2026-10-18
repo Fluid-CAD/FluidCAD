@@ -144,4 +144,11 @@ export class Wire extends Shape<TopoDS_Wire> {
     this.vertices = null;
     super.release(retainedRaw, deletedRaw);
   }
+
+  protected override disposeSubShapes(): void {
+    for (const edge of this.edges ?? []) edge.dispose();
+    for (const vertex of this.vertices ?? []) vertex.dispose();
+    this.edges = null;
+    this.vertices = null;
+  }
 }

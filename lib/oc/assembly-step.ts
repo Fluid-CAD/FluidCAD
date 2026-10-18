@@ -60,6 +60,7 @@ export class OcAssemblyStep {
       }
 
       const root = shapeTool.NewShape();
+      disposers.push(() => root.delete());
       OcAssemblyStep.nameLabel(root, tree.name);
       OcAssemblyStep.addComponents(root, tree.children, tree.parts, prototypes, shapeTool, disposers);
 
@@ -116,6 +117,9 @@ export class OcAssemblyStep {
     }
 
     const label = shapeTool.NewShape();
+    // Label wrappers are handles into the document; the document outlives
+    // them, so they go with the other scratch once the file is written.
+    disposers.push(() => label.delete());
     shapeTool.SetShape(label, shape);
     OcAssemblyStep.nameLabel(label, part.name);
 
@@ -149,13 +153,16 @@ export class OcAssemblyStep {
       if (node.kind === 'instance') {
         const prototype = prototypes.get(node.partId)!;
         const reference = shapeTool.AddComponent(parent, prototype, location);
+        disposers.push(() => reference.delete());
         OcAssemblyStep.nameLabel(reference, node.name);
         continue;
       }
       const occurrence = shapeTool.NewShape();
+      disposers.push(() => occurrence.delete());
       OcAssemblyStep.nameLabel(occurrence, node.name);
       OcAssemblyStep.addComponents(occurrence, node.children, parts, prototypes, shapeTool, disposers);
       const reference = shapeTool.AddComponent(parent, occurrence, location);
+      disposers.push(() => reference.delete());
       OcAssemblyStep.nameLabel(reference, node.name);
     }
   }

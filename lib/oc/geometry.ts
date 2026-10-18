@@ -274,7 +274,11 @@ export class Geometry {
     const oc = getOC();
     // Handles are unwrapped in V8: pass the Geom_Curve straight to MakeEdge
     // (constructing the abstract oc.Geom_Curve base throws at runtime).
-    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(curve, curve.StartPoint(), curve.EndPoint());
+    const start = curve.StartPoint();
+    const end = curve.EndPoint();
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(curve, start, end);
+    start.delete();
+    end.delete();
 
     if (edgeMaker.IsDone()) {
       const edge = edgeMaker.Edge();
@@ -332,7 +336,11 @@ export class Geometry {
 
   static makeEdgeRaw(geometry: Geom_TrimmedCurve): TopoDS_Edge {
     const oc = getOC();
-    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(geometry.StartPoint(), geometry.EndPoint());
+    const start = geometry.StartPoint();
+    const end = geometry.EndPoint();
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(start, end);
+    start.delete();
+    end.delete();
 
     if (!edgeMaker.IsDone()) {
       const status = edgeMaker.Error();

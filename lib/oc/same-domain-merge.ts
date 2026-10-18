@@ -110,7 +110,7 @@ export class SameDomainMerge {
     // Only a group on a periodic surface can make the kernel give up, and a
     // pass that gives up can leave its input damaged. When the input holds
     // such a group, keep a pristine copy to retry from.
-    const risky = options.unifyFaces && SameDomainMerge.stuckGroups(shape, options, true).length > 0;
+    const risky = options.unifyFaces && SameDomainMerge.hasStuckGroups(shape, options);
     const backup = risky ? new oc.BRepBuilderAPI_Copy(shape, false, false) : null;
 
     let first: Pass;
@@ -140,34 +140,38 @@ export class SameDomainMerge {
       const givenUp = new Set<string>();
       for (let retries = 0; retries < SameDomainMerge.MAX_RETRIES;) {
         const groups = SameDomainMerge.stuckGroups(current, options, false);
-        const group = groups.find(g => !givenUp.has(SameDomainMerge.faceKey(g, g.members[0])));
-        if (!group) {
-          break;
-        }
-        const key = SameDomainMerge.faceKey(group, group.members[0]);
-        let triedFaces = tried.get(key);
-        if (!triedFaces) {
-          triedFaces = new Set([key]);
-          tried.set(key, triedFaces);
-        }
-        const reference = SameDomainMerge.nextReference(group, triedFaces);
-        if (reference === null) {
-          givenUp.add(key);
-          continue;
-        }
-        triedFaces.add(SameDomainMerge.faceKey(group, reference));
-        retries++;
+        try {
+          const group = groups.find(g => !givenUp.has(SameDomainMerge.faceKey(g, g.members[0])));
+          if (!group) {
+            break;
+          }
+          const key = SameDomainMerge.faceKey(group, group.members[0]);
+          let triedFaces = tried.get(key);
+          if (!triedFaces) {
+            triedFaces = new Set([key]);
+            tried.set(key, triedFaces);
+          }
+          const reference = SameDomainMerge.nextReference(group, triedFaces);
+          if (reference === null) {
+            givenUp.add(key);
+            continue;
+          }
+          triedFaces.add(SameDomainMerge.faceKey(group, reference));
+          retries++;
 
-        const last = groups
-          .filter(g => g.shell.IsSame(group.shell) && givenUp.has(SameDomainMerge.faceKey(g, g.members[0])))
-          .flatMap(g => g.members);
-        const body = SameDomainMerge.bodyOf(current, group.shell);
-        const reordered = SameDomainMerge.replace(body, group.shell, SameDomainMerge.reorderedShell(group, reference, last));
-        const retry = SameDomainMerge.retry(body, reordered, options);
-        if (retry) {
-          adopted.push(retry.adopted);
-          current = SameDomainMerge.replace(current, body, retry.shape);
-          merged = true;
+          const last = groups
+            .filter(g => g.shell.IsSame(group.shell) && givenUp.has(SameDomainMerge.faceKey(g, g.members[0])))
+            .flatMap(g => g.members);
+          const body = SameDomainMerge.bodyOf(current, group.shell);
+          const reordered = SameDomainMerge.replace(body, group.shell, SameDomainMerge.reorderedShell(group, reference, last));
+          const retry = SameDomainMerge.retry(body, reordered, options);
+          if (retry) {
+            adopted.push(retry.adopted);
+            current = SameDomainMerge.replace(current, body, retry.shape);
+            merged = true;
+          }
+        } finally {
+          SameDomainMerge.releaseGroups(groups);
         }
       }
     }
@@ -175,6 +179,9 @@ export class SameDomainMerge {
     if (!merged) {
       for (const step of adopted) {
         step.history.delete();
+      }
+      if (current !== shape && current !== first.shape) {
+        current.delete();
       }
       return {
         shape: first.shape,
@@ -291,6 +298,26 @@ export class SameDomainMerge {
    * consider same-domain is not reported. `periodicOnly` leaves the planar
    * groups out — those the kernel always merges.
    */
+  /** Whether a periodic group the merge may give up on exists in `shape`. */
+  private static hasStuckGroups(shape: TopoDS_Shape, options: SameDomainMergeOptions): boolean {
+    const groups = SameDomainMerge.stuckGroups(shape, options, true);
+    SameDomainMerge.releaseGroups(groups);
+    return groups.length > 0;
+  }
+
+  /** Free the shell and face copies the groups hold (shared between groups of one shell). */
+  private static releaseGroups(groups: StuckGroup[]): void {
+    const seen = new Set<object>();
+    for (const group of groups) {
+      for (const raw of [group.shell, ...group.faces]) {
+        if (!seen.has(raw)) {
+          seen.add(raw);
+          raw.delete();
+        }
+      }
+    }
+  }
+
   private static stuckGroups(shape: TopoDS_Shape, options: SameDomainMergeOptions, periodicOnly: boolean): StuckGroup[] {
     const oc = getOC();
     const SHELL = oc.TopAbs_ShapeEnum.TopAbs_SHELL as TopAbs_ShapeEnum;
@@ -344,6 +371,7 @@ export class SameDomainMerge {
         }
       }
       if (pairs.length === 0) {
+        Explorer.deleteAll([shell, ...faces]);
         continue;
       }
 
@@ -353,7 +381,7 @@ export class SameDomainMerge {
       const edgesOf = (i: number) => {
         let keys = edgeKeys.get(i);
         if (!keys) {
-          keys = new Set(Explorer.findShapes(faces[i], EDGE).map(e => hasher.key(e)));
+          keys = Explorer.withShapes(faces[i], EDGE, edges => new Set(edges.map(e => hasher.key(e))));
           edgeKeys.set(i, keys);
         }
         return keys;
@@ -399,6 +427,9 @@ export class SameDomainMerge {
       const shellGroups = [...byRoot.values()]
         .map(members => members.sort((a, b) => a - b))
         .sort((a, b) => a[0] - b[0]);
+      if (shellGroups.length === 0) {
+        Explorer.deleteAll([shell, ...faces]);
+      }
       for (const members of shellGroups) {
         groups.push({ shell, faces, frames, members });
       }

@@ -65,6 +65,7 @@ export class ShapeOps {
           color: entry.color,
           setBy: entry.setBy,
         });
+        moved.delete();
       }
     });
     return { shape, colors };
@@ -79,8 +80,7 @@ export class ShapeOps {
     const [trsf, disposeTrsf] = Convert.toGpTrsf(matrix);
     const transformer = new oc.BRepBuilderAPI_Transform(trsf);
     transformer.Perform(shape.getShape(), true);
-    const raw = transformer.Shape();
-    const transformed = ShapeFactory.fromShape(raw);
+    const transformed = ShapeFactory.adopt(transformer.Shape());
     RenderSeams.map(transformed, [shape], edge => [transformer.ModifiedShape(edge)]);
 
     for (const entry of shape.getHelixEdges()) {
@@ -187,10 +187,15 @@ export class ShapeOps {
   private static boundingBoxFromBnd(bbox: Bnd_Box): BoundingBox {
     const minPnt = bbox.CornerMin();
     const maxPnt = bbox.CornerMax();
-    return ShapeOps.boundingBoxFromExtents(
-      minPnt.X(), minPnt.Y(), minPnt.Z(),
-      maxPnt.X(), maxPnt.Y(), maxPnt.Z(),
-    );
+    try {
+      return ShapeOps.boundingBoxFromExtents(
+        minPnt.X(), minPnt.Y(), minPnt.Z(),
+        maxPnt.X(), maxPnt.Y(), maxPnt.Z(),
+      );
+    } finally {
+      minPnt.delete();
+      maxPnt.delete();
+    }
   }
 
   private static boundingBoxFromExtents(
@@ -206,25 +211,31 @@ export class ShapeOps {
   }
 
   static makeCompound(shapes: Shape[]): Shape {
-    const raw = ShapeOps.makeCompoundRaw(shapes.map(s => s.getShape()));
-    return ShapeFactory.fromShape(raw);
+    return ShapeFactory.adopt(ShapeOps.makeCompoundRaw(shapes.map(s => s.getShape())));
   }
 
   static makeCompoundRaw(shapes: TopoDS_Shape[]) {
     const oc = getOC();
     const compoundBuilder = new oc.BRep_Builder();
     const compound = new oc.TopoDS_Compound();
-    compoundBuilder.MakeCompound(compound);
-
-    for (const shape of shapes) {
-      compoundBuilder.Add(compound, shape);
+    try {
+      compoundBuilder.MakeCompound(compound);
+      for (const shape of shapes) {
+        compoundBuilder.Add(compound, shape);
+      }
+    } finally {
+      compoundBuilder.delete();
     }
 
     return compound;
   }
 
   static cleanShape(shape: Shape): Shape {
-    return ShapeFactory.fromShape(ShapeOps.cleanShapeRaw(shape.getShape()));
+    const raw = shape.getShape();
+    const cleaned = ShapeOps.cleanShapeRaw(raw);
+    // The cleanup hands back a copy of its own (or the input itself when it
+    // gave up); the wrapper takes its own, so a copy is freed here.
+    return cleaned === raw ? ShapeFactory.fromShape(cleaned) : ShapeFactory.adopt(cleaned);
   }
 
   /**
@@ -281,16 +292,18 @@ export class ShapeOps {
     // "saw but didn't modify" (return [original]).
     const knownFaces = new oc.TopTools_MapOfShape();
     const knownEdges = new oc.TopTools_MapOfShape();
-    for (const raw of Explorer.findShapes(inputRaw, FACE)) {
-      knownFaces.Add(raw);
-    }
-    for (const raw of Explorer.findShapes(inputRaw, EDGE)) {
-      knownEdges.Add(raw);
-    }
+    Explorer.withShapes(inputRaw, FACE, raws => {
+      for (const raw of raws) knownFaces.Add(raw);
+    });
+    Explorer.withShapes(inputRaw, EDGE, raws => {
+      for (const raw of raws) knownEdges.Add(raw);
+    });
+    // The rebuilt input, when there was one, is only the merge's input.
+    const rebuilt = direct ? shape : null;
 
     if (!merge.valid) {
       if (opts?.requireLineage) {
-        merge.dispose(); knownFaces.delete(); knownEdges.delete(); direct?.dispose(); cleanedRaw.delete();
+        merge.dispose(); knownFaces.delete(); knownEdges.delete(); direct?.dispose(); cleanedRaw.delete(); rebuilt?.dispose();
         throw new Error("Sweep cleanup validation failed: invalid topology would require ShapeFix without trustworthy history.");
       }
       // ShapeFix_Shape creates new TShapes without recording history.
@@ -319,13 +332,16 @@ export class ShapeOps {
         knownFaces.delete();
         knownEdges.delete();
         direct?.dispose();
+        rebuilt?.dispose();
+        fixed.delete();
+        cleanedRaw.delete();
       };
       return {
         shape: wrapped,
         remapFace: (face) => {
           const raw = through(face.getShape());
           return raw && knownFaces.Contains(face.getShape())
-            ? [Face.fromTopoDSFace(Explorer.toFace(fixedFaces.orient(raw)))]
+            ? [fixedFaces.wrapFace(raw)]
             : null;
         },
         remapEdge: (edge) => {
@@ -354,6 +370,9 @@ export class ShapeOps {
       knownFaces.delete();
       knownEdges.delete();
       direct?.dispose();
+      rebuilt?.dispose();
+      // The merge's result copy: `wrapped` holds its own.
+      cleanedRaw.delete();
     };
 
     const wrapped = ShapeFactory.fromShape(cleanedRaw);
@@ -376,10 +395,13 @@ export class ShapeOps {
         if (history.IsRemoved(raw)) {
           return [];
         }
-        const list = ShapeOps.shapeListToArray(history.Modified(raw))
-          .filter(s => s.ShapeType() === FACE);
-        const images = list.length === 0 ? [raw] : list;
-        return images.map(r => Face.fromTopoDSFace(Explorer.toFace(cleanedFaces.orient(r))));
+        const list = ShapeOps.shapeListToArray(history.Modified(raw));
+        try {
+          const images = list.filter(s => s.ShapeType() === FACE);
+          return (images.length === 0 ? [raw] : images).map(r => cleanedFaces.wrapFace(r));
+        } finally {
+          Explorer.deleteAll(list);
+        }
       },
       remapEdge: (edge) => {
         if (!knownEdges.Contains(edge.getShape())) {
@@ -392,12 +414,16 @@ export class ShapeOps {
         if (history.IsRemoved(raw)) {
           return [];
         }
-        const list = ShapeOps.shapeListToArray(history.Modified(raw))
-          .filter(s => s.ShapeType() === EDGE);
-        if (list.length === 0) {
-          return [raw.IsSame(edge.getShape()) ? edge : Edge.fromTopoDSEdge(Explorer.toEdge(raw))];
+        const list = ShapeOps.shapeListToArray(history.Modified(raw));
+        try {
+          const images = list.filter(s => s.ShapeType() === EDGE);
+          if (images.length === 0) {
+            return [raw.IsSame(edge.getShape()) ? edge : Edge.fromTopoDSEdge(Explorer.toEdge(raw))];
+          }
+          return images.map(r => Edge.fromTopoDSEdge(Explorer.toEdge(r)));
+        } finally {
+          Explorer.deleteAll(list);
         }
-        return list.map(r => Edge.fromTopoDSEdge(Explorer.toEdge(r)));
       },
       dispose,
     };
@@ -516,6 +542,7 @@ export class ShapeOps {
       const fixed = fixer.Shape();
       fixer.delete();
       progress.delete();
+      cleaned.delete();
       return fixed;
     } catch {
       return cleaned;

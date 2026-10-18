@@ -54,13 +54,24 @@ export class OcIO {
   static findSolids(shape: Shape): Solid[] {
     const oc = getOC();
     const rawSolids = Explorer.findShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_SOLID);
-    return rawSolids.map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
+    return rawSolids.map(s => OcIO.wrapSolid(s));
   }
 
   static findFaces(shape: Shape): Face[] {
     const oc = getOC();
     const rawFaces = Explorer.findShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_FACE);
-    return rawFaces.map(f => Face.fromTopoDSFace(Explorer.toFace(f)));
+    return rawFaces.map(f => {
+      const face = Face.fromTopoDSFace(Explorer.toFace(f));
+      f.delete();
+      return face;
+    });
+  }
+
+  /** The downcast makes its own handle; the explorer's copy would otherwise outlive everything. */
+  private static wrapSolid(raw: TopoDS_Shape): Solid {
+    const solid = Solid.fromTopoDSSolid(Explorer.toSolid(raw));
+    raw.delete();
+    return solid;
   }
 
   static makeCompound(shapes: Shape[]): Shape {
@@ -71,11 +82,14 @@ export class OcIO {
   static readBRepSolids(fileName: string, content: string): Solid[] {
     const raw = OcIO.readBRepRaw(fileName, content);
     if (Explorer.isSolid(raw)) {
-      return [Solid.fromTopoDSSolid(Explorer.toSolid(raw))];
+      return [OcIO.wrapSolid(raw)];
     }
     const oc = getOC();
     const rawSolids = Explorer.findShapes(raw, oc.TopAbs_ShapeEnum.TopAbs_SOLID);
-    return rawSolids.map(s => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
+    // The solids keep their TShapes alive on their own; the compound read
+    // from the file is only the container they were found in.
+    raw.delete();
+    return rawSolids.map(s => OcIO.wrapSolid(s));
   }
 
   static writeSolidsAsBRep(solids: Solid[], fileName: string): string {
@@ -89,7 +103,7 @@ export class OcIO {
     const rawResult = OcIO.extractSolidsAndColorsRaw(docHandle);
     return {
       solids: rawResult.solids.map(entry => ({
-        shape: Solid.fromTopoDSSolid(Explorer.toSolid(entry.shape)),
+        shape: OcIO.wrapSolid(entry.shape),
         faceColors: entry.faceColors,
       })),
     };
@@ -261,9 +275,14 @@ export class OcIO {
     let simpleShapeCount = 0;
     let subShapeColorCount = 0;
 
+    // Every shape handed out below is a wrapper of its own; the hasher keeps
+    // its own copy of what it keys, so each is freed once keyed or explored.
     for (let i = 1; i <= allLabels.Length(); i++) {
       const label = allLabels.Value(i);
-      if (!oc.XCAFDoc_ShapeTool.IsSimpleShape(label)) continue;
+      if (!oc.XCAFDoc_ShapeTool.IsSimpleShape(label)) {
+        label.delete();
+        continue;
+      }
       simpleShapeCount++;
 
       const shape = oc.XCAFDoc_ShapeTool.GetShape(label);
@@ -271,16 +290,17 @@ export class OcIO {
       const labelColor = new oc.Quantity_Color();
       if (oc.XCAFDoc_ColorTool.GetColor(label, surfType, labelColor)) {
         const hex = OcIO.rgbToHex(labelColor.Red(), labelColor.Green(), labelColor.Blue());
-        const labelSolids = OcIO.findSolidsRaw(shape);
-        for (const s of labelSolids) {
+        for (const s of OcIO.findSolidsRaw(shape)) {
           solidColorByHash.set(shapeHasher.key(s), hex);
+          s.delete();
         }
-        const labelFaces = OcIO.findFacesRaw(shape);
-        for (const f of labelFaces) {
+        for (const f of OcIO.findFacesRaw(shape)) {
           faceColorByHash.set(shapeHasher.key(f), hex);
+          f.delete();
         }
       }
       labelColor.delete();
+      shape.delete();
 
       const subLabels = new oc.TDF_LabelSequence();
       oc.XCAFDoc_ShapeTool.GetSubShapes(label, subLabels);
@@ -291,11 +311,14 @@ export class OcIO {
         if (oc.XCAFDoc_ColorTool.GetColor(subLabel, surfType, subColor)) {
           const subShape = oc.XCAFDoc_ShapeTool.GetShape(subLabel);
           faceColorByHash.set(shapeHasher.key(subShape), OcIO.rgbToHex(subColor.Red(), subColor.Green(), subColor.Blue()));
+          subShape.delete();
           subShapeColorCount++;
         }
         subColor.delete();
+        subLabel.delete();
       }
       subLabels.delete();
+      label.delete();
     }
     allLabels.delete();
 
@@ -309,8 +332,11 @@ export class OcIO {
     for (let i = 1; i <= freeLabels.Length(); i++) {
       const label = freeLabels.Value(i);
       const rootShape = oc.XCAFDoc_ShapeTool.GetShape(label);
+      label.delete();
 
+      // The solids go to the caller; their faces and the root are only read.
       const solidShapes = OcIO.findSolidsRaw(rootShape);
+      rootShape.delete();
 
       for (const solidShape of solidShapes) {
         const faces = OcIO.findFacesRaw(solidShape);
@@ -323,6 +349,7 @@ export class OcIO {
           if (color) {
             faceColors.push({ faceIndex: fi, color });
           }
+          face.delete();
         }
 
         solids.push({ shape: solidShape, faceColors });
@@ -344,21 +371,18 @@ export class OcIO {
    * header declares; the result is physically the same size as the model.
    */
   static writeStep(solids: Solid[], fileName: string, unit: LengthUnit = 'mm'): string {
-    const shapes = solids.map(solid => {
-      const conformed = StepConform.conformSolid(solid.getShape());
-      conformed.delete();
-      return conformed.shape;
-    });
-    const compound = OcIO.makeCompoundRaw(shapes);
+    // A rebuilt (conformed) solid lives only as long as its ConformedSolid,
+    // so every one stays alive until the writer is done with the compound.
+    const conformed = solids.map(solid => StepConform.conformSolid(solid.getShape()));
+    const compound = OcIO.makeCompoundRaw(conformed.map(c => c.shape));
     const factor = unitFactor(unit, 'mm');
-    if (factor === 1) {
-      return OcIO.writeStepRaw(compound, fileName);
-    }
-    const scaled = OcIO.scaleShapeRaw(compound, factor);
+    const scaled = factor === 1 ? null : OcIO.scaleShapeRaw(compound, factor);
     try {
-      return OcIO.writeStepRaw(scaled, fileName);
+      return OcIO.writeStepRaw(scaled ?? compound, fileName);
     } finally {
-      scaled.delete();
+      scaled?.delete();
+      compound.delete();
+      conformed.forEach(c => c.delete());
     }
   }
 
@@ -419,6 +443,7 @@ export class OcIO {
       const conformed = StepConform.conformSolid(solid.getShape());
       const label = shapeTool.NewShape();
       shapeTool.SetShape(label, conformed.shape);
+      label.delete();
 
       for (const entry of colors) {
         const [r, g, b] = OcIO.hexToRgb(entry.color);
@@ -426,6 +451,7 @@ export class OcIO {
         colorTool.SetColor(conformed.replacement(entry.face.getShape()), color, surfType);
         color.delete();
       }
+      // The document holds the shape and its colours now.
       conformed.delete();
     }
 
@@ -533,21 +559,23 @@ export class OcIO {
 
     const identityLoc = new oc.TopLoc_Location();
     const unlocatedFace = face.Located(identityLoc, false);
-    if (colorTool.GetColor(unlocatedFace, surfType, color)) {
+    const unlocatedHit = colorTool.GetColor(unlocatedFace, surfType, color);
+    unlocatedFace.delete();
+    identityLoc.delete();
+    if (unlocatedHit) {
       const hex = OcIO.rgbToHex(color.Red(), color.Green(), color.Blue());
       color.delete();
-      identityLoc.delete();
       return hex;
     }
-    identityLoc.delete();
 
     const faceLabel = new oc.TDF_Label();
-    if (shapeTool.SearchUsingMap(face, faceLabel, true, true)) {
-      if (oc.XCAFDoc_ColorTool.GetColor(faceLabel, surfType, color)) {
-        const hex = OcIO.rgbToHex(color.Red(), color.Green(), color.Blue());
-        color.delete();
-        return hex;
-      }
+    const labelHit = shapeTool.SearchUsingMap(face, faceLabel, true, true)
+      && oc.XCAFDoc_ColorTool.GetColor(faceLabel, surfType, color);
+    faceLabel.delete();
+    if (labelHit) {
+      const hex = OcIO.rgbToHex(color.Red(), color.Green(), color.Blue());
+      color.delete();
+      return hex;
     }
     color.delete();
 

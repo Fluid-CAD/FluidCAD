@@ -50,12 +50,21 @@ export class Extrude extends ExtrudeBase {
     } else {
       const faces = p.record('Resolve faces', () => this.resolveSourceFaces(plane, pickedFaces));
 
-      if (this._operationMode === 'remove') {
-        this.buildRemove(faces, plane, context);
-      } else if (this._symmetric) {
-        this.buildSymmetric(faces, plane, context);
-      } else {
-        this.buildAdd(faces, plane, context);
+      try {
+        if (this._operationMode === 'remove') {
+          this.buildRemove(faces, plane, context);
+        } else if (this._symmetric) {
+          this.buildSymmetric(faces, plane, context);
+        } else {
+          this.buildAdd(faces, plane, context);
+        }
+      } finally {
+        // Region faces FaceMaker2 built here are this build's profiles, not
+        // scene shapes: free them once the solids exist. Picked faces and a
+        // face-sourced extrude's faces belong to their owners.
+        if (pickedFaces === null && !this.isFaceSourced()) {
+          for (const face of faces) face.dispose();
+        }
       }
     }
 

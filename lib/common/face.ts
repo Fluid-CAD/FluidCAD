@@ -72,6 +72,7 @@ export class Face extends Shape<TopoDS_Face> {
       this.edges = all.filter(e => !hiddenSet.Contains(e.getShape()));
     } finally {
       hiddenSet.delete();
+      for (const edge of hidden) edge.delete();
     }
     return this.edges;
   }
@@ -145,6 +146,14 @@ export class Face extends Shape<TopoDS_Face> {
     this.wires = null;
     this.outerWire = undefined;
     super.release(retainedRaw, deletedRaw);
+  }
+
+  protected override disposeSubShapes(): void {
+    for (const wire of this.wires ?? []) wire.dispose();
+    for (const edge of this.edges ?? []) edge.dispose();
+    this.edges = null;
+    this.wires = null;
+    this.outerWire = undefined;
   }
 
   hasEdge(edge: TopoDS_Edge): Edge {

@@ -55,7 +55,11 @@ export function normalizePoint2D(p: Point2DLike): LazyVertex {
     throw new Error("Invalid point2D format");
   }
 
-  return new LazyVertex(`point2D-${point2D.x}-${point2D.y}`, () => [Vertex.fromPoint2D(point2D)]);
+  return new LazyVertex(
+    `point2D-${point2D.x}-${point2D.y}`,
+    () => [Vertex.fromPoint2D(point2D)],
+    new Point(point2D.x, point2D.y, 0),
+  );
 }
 
 export function normalizeVector(v: Vector3dLike): Vector3d {

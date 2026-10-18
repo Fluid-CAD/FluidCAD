@@ -94,6 +94,7 @@ export function fuseWithSceneObjects(
 
   if (newShapes.length === 0 && modifiedShapes.length === 0) {
     dispose();
+    for (const shape of result) shape.dispose();
     if (opts?.recordHistoryFor) {
       const run = () => recordShapesAsAdditions(opts.recordHistoryFor!, extrusions);
       p ? p.record('Record fusion history', run) : run();
@@ -156,7 +157,8 @@ export function fuseWithSceneObjects(
       const recordHistory = () => {
         // One in-result orientation index over the fuse output, shared by every
         // history collect below (scene-side per shape, then tool-side).
-        const resultFaces = new OrientedFaces(maker.Shape());
+        const resultRaw = maker.Shape();
+        const resultFaces = new OrientedFaces(resultRaw);
         try {
           recordFusionHistory(
             opts.recordHistoryFor!, sceneShapes, objShapeMap, cleanedShapesToAdd, maker, cleanups, resultFaces, p,
@@ -170,6 +172,7 @@ export function fuseWithSceneObjects(
           toolHistory = remapHistoryThroughCleanups(rawToolHistory, cleanups, extrusions);
         } finally {
           resultFaces.delete();
+          resultRaw.delete();
         }
       };
       p ? p.record('Record fusion history', recordHistory) : recordHistory();
@@ -179,6 +182,11 @@ export function fuseWithSceneObjects(
   } finally {
     for (const cleanup of cleanups) cleanup.dispose();
     dispose();
+    // The fuse's result wrappers were the cleanup's inputs; what the scene
+    // takes is the cleaned twin (or the same wrapper, when nothing changed).
+    for (const shape of result) {
+      if (!cleanedShapesToAdd.includes(shape)) shape.dispose();
+    }
   }
 }
 
@@ -329,17 +337,22 @@ function cleanupOnlyRecords<T extends Shape>(
     }
     const records: ShapeHistoryRecord<T>[] = [];
     for (const input of inputs) {
-      for (const raw of Explorer.findShapes(input.getShape(), type)) {
-        if (recorded.Contains(raw)) {
-          continue;
+      Explorer.withShapes(input.getShape(), type, raws => {
+        for (const raw of raws) {
+          if (recorded.Contains(raw)) {
+            continue;
+          }
+          const source = wrap(raw);
+          const images = remap(source);
+          if (images.length === 1 && images[0].getShape().IsSame(raw)) {
+            // Unchanged: nothing to record, and the probe wrappers go.
+            if (images[0] !== source) images[0].dispose();
+            source.dispose();
+            continue;
+          }
+          records.push({ sources: [source], results: images });
         }
-        const source = wrap(raw);
-        const images = remap(source);
-        if (images.length === 1 && images[0].getShape().IsSame(raw)) {
-          continue;
-        }
-        records.push({ sources: [source], results: images });
-      }
+      });
     }
     return records;
   } finally {
@@ -356,12 +369,16 @@ function recordShapesAsAdditions(caller: SceneObject, shapes: Shape<any>[]) {
   const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
   const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
   for (const shape of shapes) {
-    for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
-      caller.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), caller);
-    }
-    for (const raw of Explorer.findShapes(shape.getShape(), EDGE)) {
-      caller.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), caller);
-    }
+    Explorer.withShapes(shape.getShape(), FACE, raws => {
+      for (const raw of raws) {
+        caller.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), caller);
+      }
+    });
+    Explorer.withShapes(shape.getShape(), EDGE, raws => {
+      for (const raw of raws) {
+        caller.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), caller);
+      }
+    });
   }
 }
 
@@ -442,12 +459,12 @@ function recordFusionHistory(
       // A stock face or edge the fuse hands back as it was is the stock's
       // still, and stays with whoever added it: each claims itself, so the
       // additions below are left with what descends from no stock sub-shape.
-      for (const raw of Explorer.findShapes(sceneShape.getShape(), FACE)) {
-        claimedFaces.Add(raw);
-      }
-      for (const raw of Explorer.findShapes(sceneShape.getShape(), EDGE)) {
-        claimedEdges.Add(raw);
-      }
+      Explorer.withShapes(sceneShape.getShape(), FACE, raws => {
+        for (const raw of raws) claimedFaces.Add(raw);
+      });
+      Explorer.withShapes(sceneShape.getShape(), EDGE, raws => {
+        for (const raw of raws) claimedEdges.Add(raw);
+      });
       // recordFusionHistory aggregates additions across the full result via
       // `claimedFaces`/`claimedEdges` below — each per-shape collect doesn't
       // need to compute its own added* sets.
@@ -521,16 +538,20 @@ function recordFusionHistory(
 
   const recordAdditions = () => {
     for (const newShape of newShapes) {
-      for (const raw of Explorer.findShapes(newShape.getShape(), FACE)) {
-        if (!claimedFaces.Contains(raw)) {
-          caller.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), caller);
+      Explorer.withShapes(newShape.getShape(), FACE, raws => {
+        for (const raw of raws) {
+          if (!claimedFaces.Contains(raw)) {
+            caller.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), caller);
+          }
         }
-      }
-      for (const raw of Explorer.findShapes(newShape.getShape(), EDGE)) {
-        if (!claimedEdges.Contains(raw)) {
-          caller.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), caller);
+      });
+      Explorer.withShapes(newShape.getShape(), EDGE, raws => {
+        for (const raw of raws) {
+          if (!claimedEdges.Contains(raw)) {
+            caller.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), caller);
+          }
         }
-      }
+      });
     }
   };
   p ? p.record('Record additions', recordAdditions) : recordAdditions();

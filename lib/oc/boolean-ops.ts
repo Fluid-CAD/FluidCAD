@@ -44,11 +44,15 @@ export class BooleanOps {
       return { raws, direct: null };
     }
     const compound = ShapeOps.makeCompoundRaw(raws);
-    if (!DirectFaces.hasMixedHandedness(compound)) {
-      return { raws, direct: null };
+    try {
+      if (!DirectFaces.hasMixedHandedness(compound)) {
+        return { raws, direct: null };
+      }
+      const direct = DirectFaces.applyRaw(compound);
+      return { raws: raws.map(r => direct.modified(r)), direct };
+    } finally {
+      compound.delete();
     }
-    const direct = DirectFaces.applyRaw(compound);
-    return { raws: raws.map(r => direct.modified(r)), direct };
   }
 
   /**
@@ -70,7 +74,9 @@ export class BooleanOps {
       return list;
     };
     return {
-      Shape: () => result ?? builder.Shape(),
+      // A fresh copy each call, as the builder's own Shape() hands out: the
+      // callers free what they are given.
+      Shape: () => result ? result.Oriented(result.Orientation()) : builder.Shape(),
       IsDone: () => builder.IsDone(),
       HasErrors: () => builder.HasErrors(),
       HasWarnings: () => builder.HasWarnings(),
@@ -91,7 +97,7 @@ export class BooleanOps {
 
   static cutShapes(shape: Shape, tool: Shape): Shape {
     const result = BooleanOps.cutShapesRaw(shape.getShape(), tool.getShape());
-    return ShapeFactory.fromShape(result);
+    return ShapeFactory.adopt(result);
   }
 
   static cutShapesRaw(shape: TopoDS_Shape, tool: TopoDS_Shape): TopoDS_Shape {
@@ -141,8 +147,8 @@ export class BooleanOps {
     };
     let result: TopoDS_Shape | undefined;
     try {
-      stockRaws.forEach(shape => stockList.Append(shape));
-      inputs.raws.slice(stocks.length).forEach(shape => toolList.Append(shape));
+      stockRaws.forEach(shape => stockList.Append(shape).delete());
+      inputs.raws.slice(stocks.length).forEach(shape => toolList.Append(shape).delete());
       builder.SetArguments(stockList); builder.SetTools(toolList);
       builder.SetNonDestructive(true); builder.SetRunParallel(true);
       builder.SetFuzzyValue(BooleanOps.FEATURE_BOOLEAN_FUZZY);
@@ -438,17 +444,22 @@ export class BooleanOps {
     // the tool doesn't touch them. Bundling them under one TopoDS_Compound
     // keeps stock-to-stock relationships out of the result; only stock↔tool
     // interactions are computed.
+    // The builder copies both lists (and the compound through them): the
+    // handles here are freed as soon as they are set.
     const stockCompound = ShapeOps.makeCompoundRaw(stockRaws);
     const stockList = new oc.TopTools_ListOfShape();
-    stockList.Append(stockCompound);
+    stockList.Append(stockCompound).delete();
+    stockCompound.delete();
 
     const toolList = new oc.TopTools_ListOfShape();
     for (const raw of toolRaws) {
-      toolList.Append(raw);
+      toolList.Append(raw).delete();
     }
 
     builder.SetArguments(stockList);
     builder.SetTools(toolList);
+    stockList.delete();
+    toolList.delete();
 
     const progress = new oc.Message_ProgressRange();
     builder.Build(progress);
@@ -457,7 +468,7 @@ export class BooleanOps {
       ? built
       : BooleanOps.simplifyResult(builder, built, BooleanOps.FEATURE_BOOLEAN_FUZZY);
     const rawShapes = Explorer.findAllShapes(resultShape);
-    const result = rawShapes.map(s => ShapeFactory.fromShape(s));
+    const result = rawShapes.map(s => ShapeFactory.adopt(s));
 
     const allInputs = [...stock, ...tools];
     const modifiedShapes: Shape[] = [];
@@ -484,6 +495,11 @@ export class BooleanOps {
       builder.delete();
       progress.delete();
       inputs.direct?.dispose();
+      // The result handles live as long as the maker answers for them.
+      if (resultShape !== built) {
+        resultShape.delete();
+      }
+      built.delete();
     };
 
     const maker = inputs.direct || resultShape !== built
@@ -556,14 +572,17 @@ export class BooleanOps {
     const inputs = BooleanOps.normalizeMixedInputs(args.map(a => a.getShape()));
     const argsList = new oc.TopTools_ListOfShape();
     for (const raw of inputs.raws) {
-      argsList.Append(raw);
+      argsList.Append(raw).delete();
     }
 
     const empty = ShapeOps.makeCompoundRaw([])
     const list = new oc.TopTools_ListOfShape();
-    list.Append(empty);
+    list.Append(empty).delete();
     builder.SetArguments(list);
     builder.SetTools(argsList);
+    list.delete();
+    argsList.delete();
+    empty.delete();
 
 
     const progress = new oc.Message_ProgressRange();
@@ -575,17 +594,22 @@ export class BooleanOps {
     console.log(`[perf] BooleanOps.fuse.SimplifyResult: ${(performance.now() - tSimplify).toFixed(1)} ms`);
 
     const tUnify = performance.now();
+    const builtShape = builder.Shape();
     const resultShape = BooleanOps.unifyEdgesSplitByBoolean(
       builder,
       inputs.raws,
-      builder.Shape(),
+      builtShape,
     );
     console.log(`[perf] BooleanOps.fuse.unifyEdgesSplitByBoolean: ${(performance.now() - tUnify).toFixed(1)} ms`);
 
     const tExplore = performance.now();
     const rawShapes = Explorer.findAllShapes(resultShape);
     console.log(`[perf] BooleanOps.fuse.findAllShapes (count=${rawShapes.length}): ${(performance.now() - tExplore).toFixed(1)} ms`);
-    const result = rawShapes.map(s => ShapeFactory.fromShape(s));
+    const result = rawShapes.map(s => ShapeFactory.adopt(s));
+    if (resultShape !== builtShape) {
+      resultShape.delete();
+    }
+    builtShape.delete();
 
     const modifiedShapes: Shape[] = [];
     args.forEach((shape, index) => {
@@ -669,28 +693,35 @@ export class BooleanOps {
     // collect closure vertices first and exclude them from the kept set.
     const closureVertices = new oc.TopTools_MapOfShape();
     for (const raw of argRaws) {
-      for (const e of Explorer.findShapes(raw, EDGE)) {
-        const edgeVertices = Explorer.findShapes(e, VERTEX);
-        if (edgeVertices.length === 1) {
-          closureVertices.Add(edgeVertices[0]);
+      Explorer.withShapes(raw, EDGE, edges => {
+        for (const e of edges) {
+          Explorer.withShapes(e, VERTEX, edgeVertices => {
+            if (edgeVertices.length === 1) {
+              closureVertices.Add(edgeVertices[0]);
+            }
+          });
         }
-      }
+      });
     }
 
     const structuralVertices = new oc.TopTools_MapOfShape();
     for (const raw of argRaws) {
-      for (const v of Explorer.findShapes(raw, VERTEX)) {
-        if (closureVertices.Contains(v)) {
-          continue;
+      Explorer.withShapes(raw, VERTEX, vertices => {
+        for (const v of vertices) {
+          if (closureVertices.Contains(v)) {
+            continue;
+          }
+          structuralVertices.Add(v);
+          const modifiedList = builder.Modified(v);
+          while (modifiedList.Size() > 0) {
+            const first = modifiedList.First();
+            structuralVertices.Add(first);
+            first.delete();
+            modifiedList.RemoveFirst();
+          }
+          modifiedList.delete();
         }
-        structuralVertices.Add(v);
-        const modifiedList = builder.Modified(v);
-        while (modifiedList.Size() > 0) {
-          structuralVertices.Add(modifiedList.First());
-          modifiedList.RemoveFirst();
-        }
-        modifiedList.delete();
-      }
+      });
     }
     closureVertices.delete();
 
@@ -701,11 +732,13 @@ export class BooleanOps {
         keptVertices.push(v);
       } else {
         candidateCount++;
+        v.delete();
       }
     }
     structuralVertices.delete();
 
     if (candidateCount === 0) {
+      Explorer.deleteAll(keptVertices);
       return resultShape;
     }
 
@@ -723,6 +756,7 @@ export class BooleanOps {
       checker.delete();
       if (!valid) {
         unify.delete();
+        unified.delete();
         return resultShape;
       }
 
@@ -735,6 +769,8 @@ export class BooleanOps {
       return unified;
     } catch {
       return resultShape;
+    } finally {
+      Explorer.deleteAll(keptVertices);
     }
   }
 
@@ -745,68 +781,82 @@ export class BooleanOps {
   } {
     const oc = getOC();
     const builder = new oc.BRepAlgoAPI_Fuse();
-    builder.SetNonDestructive(true);
-    builder.SetRunParallel(true);
-
-    const argsList = new oc.TopTools_ListOfShape();
-    for (const arg of args) {
-      argsList.Append(arg.getShape());
-    }
-
-    const empty = ShapeOps.makeCompoundRaw([])
-    const list = new oc.TopTools_ListOfShape();
-    list.Append(empty);
-    builder.SetArguments(list);
-
-    builder.SetTools(argsList);
-
     const progress = new oc.Message_ProgressRange();
-    builder.Build(progress);
+    const scratch: { delete(): void }[] = [];
+    let unify: { delete(): void } | null = null;
+    try {
+      builder.SetNonDestructive(true);
+      builder.SetRunParallel(true);
 
-    const resultShape = builder.Shape();
-
-    const unify = new oc.ShapeUpgrade_UnifySameDomain(resultShape, true, true, false);
-    unify.Build();
-    const mergedShape = unify.Shape();
-
-    const rawShapes = Explorer.findAllShapes(mergedShape);
-
-    if (rawShapes.length === args.length || rawShapes.length === 0) {
-      return {
-        result: args,
-        newShapes: [],
-        modifiedShapes: []
+      const argsList = new oc.TopTools_ListOfShape();
+      scratch.push(argsList);
+      for (const arg of args) {
+        argsList.Append(arg.getShape()).delete();
       }
-    }
 
-    console.log('FuseMultiShape: Result shapes count:', rawShapes.length);
-    const result = rawShapes.map(s => ShapeFactory.fromShape(s));
+      const empty = ShapeOps.makeCompoundRaw([]);
+      const list = new oc.TopTools_ListOfShape();
+      scratch.push(empty, list);
+      list.Append(empty).delete();
+      builder.SetArguments(list);
 
-    const modifiedShapes: Shape[] = [];
-    for (const shape of args) {
-      if (builder.IsDeleted(shape.getShape())) {
-        console.log('=======', 'Shape was deleted in fuse:', shape);
-        modifiedShapes.push(shape);
+      builder.SetTools(argsList);
+
+      builder.Build(progress);
+
+      const resultShape = builder.Shape();
+      scratch.push(resultShape);
+
+      unify = new oc.ShapeUpgrade_UnifySameDomain(resultShape, true, true, false);
+      (unify as any).Build();
+      const mergedShape = (unify as any).Shape();
+      scratch.push(mergedShape);
+
+      const rawShapes = Explorer.findAllShapes(mergedShape);
+
+      if (rawShapes.length === args.length || rawShapes.length === 0) {
+        Explorer.deleteAll(rawShapes);
+        return {
+          result: args,
+          newShapes: [],
+          modifiedShapes: []
+        }
       }
-    }
 
-    builder.delete();
-    progress.delete();
+      console.log('FuseMultiShape: Result shapes count:', rawShapes.length);
+      const result = rawShapes.map(s => ShapeFactory.adopt(s));
 
-    const newShapes: Shape[] = [];
-
-    for (const s of result) {
-      const existsInArgs = args.some(arg => arg.getShape().IsPartner(s.getShape()));
-
-      if (!existsInArgs) {
-        newShapes.push(s);
+      const modifiedShapes: Shape[] = [];
+      for (const shape of args) {
+        if (builder.IsDeleted(shape.getShape())) {
+          console.log('=======', 'Shape was deleted in fuse:', shape);
+          modifiedShapes.push(shape);
+        }
       }
+
+      const newShapes: Shape[] = [];
+
+      for (const s of result) {
+        const existsInArgs = args.some(arg => arg.getShape().IsPartner(s.getShape()));
+
+        if (!existsInArgs) {
+          newShapes.push(s);
+        }
+      }
+
+      // The cleaned wrappers are what the caller keeps; the pre-clean ones
+      // were only ever the inputs to that cleanup.
+      const cleanResult = result.map(s => ShapeOps.cleanShape(s));
+      const cleanNewShapes = newShapes.map(s => ShapeOps.cleanShape(s));
+      for (const s of result) s.dispose();
+
+      return { result: cleanResult, newShapes: cleanNewShapes, modifiedShapes };
+    } finally {
+      unify?.delete();
+      Explorer.deleteAll(scratch);
+      builder.delete();
+      progress.delete();
     }
-
-    const cleanResult = result.map(s => ShapeOps.cleanShape(s));
-    const cleanNewShapes = newShapes.map(s => ShapeOps.cleanShape(s));
-
-    return { result: cleanResult, newShapes: cleanNewShapes, modifiedShapes };
   }
 
   static splitShape(shape: Shape, tool: Shape): Shape[] {
@@ -830,11 +880,15 @@ export class BooleanOps {
     splitter.delete();
 
     if (Explorer.isSolid(resultShape)) {
-      return [ShapeFactory.fromShape(resultShape)];
+      return [ShapeFactory.adopt(resultShape)];
     }
 
-    return Explorer.findShapes(resultShape, Explorer.getOcShapeType("solid"))
-      .map(s => ShapeFactory.fromShape(s));
+    try {
+      return Explorer.findShapes(resultShape, Explorer.getOcShapeType("solid"))
+        .map(s => ShapeFactory.adopt(s));
+    } finally {
+      resultShape.delete();
+    }
   }
 
   static common(args: Shape[]): {
@@ -847,16 +901,14 @@ export class BooleanOps {
     const inputs = BooleanOps.normalizeMixedInputs(args.map(a => a.getShape()));
     const argsList = new oc.TopTools_ListOfShape();
     for (const raw of inputs.raws) {
-      argsList.Append(raw);
+      argsList.Append(raw).delete();
     }
 
-    const empty = ShapeOps.makeCompoundRaw([])
-    const list = new oc.TopTools_ListOfShape();
-    list.Append(empty);
     const progress = new oc.Message_ProgressRange();
 
     const builder = new oc.BOPAlgo_CellsBuilder();
     builder.SetArguments(argsList);
+    argsList.delete();
     builder.SetNonDestructive(true);
     builder.SetCheckInverted(true);
     builder.SetRunParallel(true);
@@ -865,24 +917,27 @@ export class BooleanOps {
     if (builder.HasErrors()) {
       builder.delete();
       progress.delete();
-      list.delete();
+      inputs.direct?.dispose();
       throw new Error('Common operation failed');
     }
 
     builder.RemoveAllFromResult();
     const inside = new oc.TopTools_ListOfShape();
     for (const arg of args) {
-      inside.Append(arg.getShape());
+      inside.Append(arg.getShape()).delete();
     }
 
     const outside = new oc.TopTools_ListOfShape();
     builder.AddToResult(inside, outside, 0, false);
+    inside.delete();
+    outside.delete();
     builder.MakeContainers()
 
     const resultShape = builder.Shape();
 
     const rawShapes = Explorer.findAllShapes(resultShape);
-    const result = rawShapes.map(s => ShapeFactory.fromShape(s));
+    const result = rawShapes.map(s => ShapeFactory.adopt(s));
+    resultShape.delete();
     console.log('Common operation: result shape type:', rawShapes.length);
 
     const modifiedShapes: Shape[] = [];
@@ -896,6 +951,7 @@ export class BooleanOps {
         if (modified.Size() > 0) {
           modifiedShapes.push(shape);
         }
+        modified.delete();
       }
     });
 

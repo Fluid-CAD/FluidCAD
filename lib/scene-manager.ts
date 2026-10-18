@@ -102,6 +102,8 @@ class SceneManager {
    * these along with the module graph before trusting it.
    */
   renderInputs = new Set<string>();
+  /** @internal Listeners from onSceneStarted; public only because the class type is exported anonymously. */
+  sceneStartedListeners = new Set<(scene: Scene) => void>();
 
   constructor(public rootPath: string, public readonly meshQuality: MeshQuality, projectUnit: LengthUnit) {
     this.renderer = new SceneRenderer(meshQuality);
@@ -138,6 +140,7 @@ class SceneManager {
     this.renderInputs = new Set();
     this.currentScene = new Scene();
     console.log("Starting new scene");
+    this.notifySceneStarted(this.currentScene);
     return this.currentScene;
   }
 
@@ -147,7 +150,27 @@ class SceneManager {
     const scene = new AssemblyScene();
     this.currentScene = scene;
     console.log("Starting new assembly scene");
+    this.notifySceneStarted(scene);
     return scene;
+  }
+
+  /**
+   * Hear every scene startScene()/startAssemblyScene() creates. Starting a
+   * scene replaces the current one without disposing it — the host frees a
+   * replaced scene itself after the compare — so whoever else starts scenes
+   * (the test suite, per test) tracks them here to release them. Returns
+   * the unsubscribe.
+   */
+  onSceneStarted(listener: (scene: Scene) => void): () => void {
+    this.sceneStartedListeners.add(listener);
+    return () => { this.sceneStartedListeners.delete(listener); };
+  }
+
+  /** @internal */
+  notifySceneStarted(scene: Scene): void {
+    for (const listener of this.sceneStartedListeners) {
+      listener(scene);
+    }
   }
 
   renderScene(scene: Scene) {
@@ -255,6 +278,15 @@ class SceneManager {
    */
   disposeScene(scene: Scene) {
     SceneDisposal.disposeScene(scene);
+  }
+
+  /**
+   * Free several scenes dropped together in one pass: a compare moves state
+   * maps between scenes by reference, so two of them may share one raw
+   * kernel handle, which must be deleted once.
+   */
+  disposeScenes(scenes: Scene[]) {
+    SceneDisposal.disposeScenes(scenes);
   }
 
   importFile(workspacePath: string, fileName: string, data: Uint8Array): ImportReport {

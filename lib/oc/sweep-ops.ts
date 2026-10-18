@@ -37,7 +37,13 @@ export interface SweepResult {
 
 export class SweepOps {
   static makeSweep(spineWire: Wire, profileFaces: Face[], profilePlane?: Plane): SweepResult {
-    return SweepOps.buildResolved(resolveSweepSpec(spineWire, profileFaces, { profilePlane }));
+    const spec = resolveSweepSpec(spineWire, profileFaces, { profilePlane });
+    try {
+      return SweepOps.buildResolved(spec);
+    } finally {
+      // The spec is this call's own; its spine analysis holds edge copies.
+      spec.spine.dispose();
+    }
   }
 
   static buildResolved(spec: ResolvedSweepSpec): SweepResult {
@@ -66,7 +72,9 @@ export class SweepOps {
       for (const face of profileFaces) {
         const ocFace = own(oc.TopoDS.Face(face.getShape()));
         const outerWire = own(oc.BRepTools.OuterWire(ocFace));
-        const innerWires = face.getWires().map(w => w.getShape()).filter(w => !w.IsSame(outerWire));
+        // Raw wires rather than `face.getWires()`: those wrappers would be
+        // cached on the face, outside this scope's ownership.
+        const innerWires = Explorer.findShapes(ocFace, Explorer.getOcShapeType("wire")).map(own).filter(w => !w.IsSame(outerWire));
         const outer = ownPipe(SweepOps.sweepWire(spine, outerWire, transport, placement, tolerances, helixGeometry));
         let origins = (outer.generatedFaces ?? []).map(entry => ({ ...entry, internal: false }));
         let resultSolid = outer.solid;

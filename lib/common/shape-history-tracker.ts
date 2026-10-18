@@ -99,7 +99,7 @@ export class ShapeHistoryTracker {
         inputs,
         FACE,
         outputFaces,
-        (raw) => Face.fromTopoDSFace(Explorer.toFace(resultFaces.orient(raw))),
+        (raw) => resultFaces.wrapFace(raw),
         skipAdded,
       );
       const edges = ShapeHistoryTracker.collectForType(
@@ -125,6 +125,10 @@ export class ShapeHistoryTracker {
       if (resultFaces !== opts.resultFaces) {
         resultFaces.delete();
       }
+      // Every wrapper took its own copy; the explorer's and the maker's go.
+      Explorer.deleteAll(outputFaces);
+      Explorer.deleteAll(outputEdges);
+      output.delete();
     }
   }
 
@@ -153,13 +157,19 @@ export class ShapeHistoryTracker {
 
     for (const input of inputs) {
       const inputRaws = Explorer.findShapes(input.getShape(), type);
+      // Copies the wrappers below do not keep: the image lists' entries and
+      // the explorer's.
+      const scratch: TopoDS_Shape[] = [...inputRaws];
 
       for (const inputRaw of inputRaws) {
         if (claimed) {
           claimed.Add(inputRaw);
         }
-        const modifiedRaws = ShapeOps.shapeListToArray(maker.Modified(inputRaw)).filter(isOfType);
-        const generatedRaws = ShapeOps.shapeListToArray(maker.Generated(inputRaw)).filter(isOfType);
+        const modifiedAll = ShapeOps.shapeListToArray(maker.Modified(inputRaw));
+        const generatedAll = ShapeOps.shapeListToArray(maker.Generated(inputRaw));
+        scratch.push(...modifiedAll, ...generatedAll);
+        const modifiedRaws = modifiedAll.filter(isOfType);
+        const generatedRaws = generatedAll.filter(isOfType);
 
         if (modifiedRaws.length > 0) {
           modified.push({
@@ -193,6 +203,7 @@ export class ShapeHistoryTracker {
           removed.push(wrap(inputRaw));
         }
       }
+      Explorer.deleteAll(scratch);
     }
 
     const added: T[] = [];

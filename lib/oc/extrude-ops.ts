@@ -34,7 +34,7 @@ export class ExtrudeOps {
     const result = prism.Shape();
     prism.delete();
     disposeVec();
-    return ShapeFactory.fromShape(result);
+    return ShapeFactory.adopt(result);
   }
 
   /**
@@ -86,10 +86,13 @@ export class ExtrudeOps {
     const last = prism.LastShape();
     prism.delete();
     disposeVec();
+    if (flip) {
+      profile.dispose();
+    }
     return {
-      solid: ShapeFactory.fromShape(solid),
-      firstFace: ShapeFactory.fromShape(flip ? last : first),
-      lastFace: ShapeFactory.fromShape(flip ? first : last),
+      solid: ShapeFactory.adopt(solid),
+      firstFace: ShapeFactory.adopt(flip ? last : first),
+      lastFace: ShapeFactory.adopt(flip ? first : last),
     };
   }
 
@@ -120,7 +123,7 @@ export class ExtrudeOps {
     const result = prism.Shape();
     prism.delete();
     disposeVec();
-    return ShapeFactory.fromShape(result);
+    return ShapeFactory.adopt(result);
   }
 
   static makePrismSymmetric(shape: Shape, direction: Vector3d): Shape {
@@ -135,7 +138,7 @@ export class ExtrudeOps {
     const result = prism.Shape();
     prism.delete();
     disposeDir();
-    return ShapeFactory.fromShape(result);
+    return ShapeFactory.adopt(result);
   }
 
   /**

@@ -53,6 +53,21 @@ export function resolveSweepSpec(
     throw new Error("Could not extract profile faces from extrudable.");
   }
   const spine = new SpineAnalysis(wire);
+  try {
+    return resolveWithSpine(spine, wire, profileFaces, options);
+  } catch (error) {
+    // The spec owns the spine; on failure there is no spec to carry it.
+    spine.dispose();
+    throw error;
+  }
+}
+
+function resolveWithSpine(
+  spine: SpineAnalysis,
+  wire: Wire,
+  profileFaces: readonly Face[],
+  options: { transport?: SweepTransport; placement?: SweepPlacement; profilePlane?: Plane },
+): ResolvedSweepSpec {
   const plane = options.profilePlane ?? profileFaces[0].getPlane();
   const descriptors = spine.edges.map(edge => wire.getHelixEdges().find(entry => entry.edge.IsSame(edge.edge))?.geometry);
   const helixIndex = descriptors.findIndex(Boolean);

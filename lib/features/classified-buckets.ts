@@ -51,21 +51,32 @@ export class ClassifiedBucketRemapper {
     this.finalEdges = new oc.TopTools_MapOfShape();
     this.finalFaceList = [];
     for (const shape of finalShapes) {
-      for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
-        if (this.finalFaces.Add(raw)) {
-          this.finalFaceList.push(Face.fromTopoDSFace(Explorer.toFace(raw)));
+      Explorer.withShapes(shape.getShape(), FACE, raws => {
+        for (const raw of raws) {
+          if (this.finalFaces.Add(raw)) {
+            this.finalFaceList.push(Face.fromTopoDSFace(Explorer.toFace(raw)));
+          }
         }
-      }
-      for (const raw of Explorer.findShapes(shape.getShape(), EDGE)) {
-        this.finalEdges.Add(raw);
-      }
+      });
+      Explorer.withShapes(shape.getShape(), EDGE, raws => {
+        for (const raw of raws) this.finalEdges.Add(raw);
+      });
     }
   }
 
   dispose() {
     this.finalFaces.delete();
     this.finalEdges.delete();
+    // The candidate wrappers a bucket re-homed onto are the bucket's now;
+    // the rest were only this remapper's lookup table.
+    for (const face of this.finalFaceList) {
+      if (!this.handedOut.has(face)) face.dispose();
+    }
+    this.finalFaceList.length = 0;
   }
+
+  /** Final-face wrappers a remap returned, which the caller keeps. */
+  private readonly handedOut = new Set<Face>();
 
   /**
    * The bucket's edges as they exist in the final solid: each as-built edge
@@ -93,6 +104,7 @@ export class ClassifiedBucketRemapper {
           const home = this.findAbsorbingFace(face, anchors);
           if (home) {
             result.faces.push(home);
+            this.handedOut.add(home);
           }
           continue;
         }

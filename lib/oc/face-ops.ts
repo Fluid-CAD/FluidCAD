@@ -207,15 +207,14 @@ export class FaceOps {
   static calculateNormalRaw(face: TopoDS_Face): Vector3d {
     const oc = getOC();
 
-    const surface = oc.BRep_Tool.Surface(oc.TopoDS.Face(face));
+    const typed = oc.TopoDS.Face(face);
+    const surface = oc.BRep_Tool.Surface(typed);
+    typed.delete();
     const props = new oc.GeomLProp_SLProps(surface, 0, 0, 1, 1e-6);
-    let normal = props.Normal();
+    const normal = props.Normal();
 
-    if (face.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
-      normal = normal.Reversed();
-    }
-
-    const result = Convert.toVector3dFromGpDir(normal);
+    const vector = Convert.toVector3dFromGpDir(normal);
+    const result = face.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED ? vector.negate() : vector;
 
     surface.delete();
     props.delete();

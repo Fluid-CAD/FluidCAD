@@ -129,12 +129,14 @@ export class DirectFaces {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const frames: SurfaceFrame[] = [];
-    for (const raw of Explorer.findShapes(shape, FACE)) {
-      const frame = SurfaceFrames.of(raw);
-      if (frame && frame.type !== 'plane') {
-        frames.push(frame);
+    Explorer.withShapes(shape, FACE, raws => {
+      for (const raw of raws) {
+        const frame = SurfaceFrames.of(raw);
+        if (frame && frame.type !== 'plane') {
+          frames.push(frame);
+        }
       }
-    }
+    });
     return frames;
   }
 

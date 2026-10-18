@@ -34,7 +34,11 @@ export class TopologyIndex {
     const explorer = new oc.TopExp_Explorer(root, sub.ShapeType(), oc.TopAbs_ShapeEnum.TopAbs_SHAPE as TopAbs_ShapeEnum);
     try {
       while (explorer.More()) {
-        if (explorer.Current().IsSame(sub)) {
+        // `Current()` is a fresh copy each visit.
+        const current = explorer.Current();
+        const same = current.IsSame(sub);
+        current.delete();
+        if (same) {
           return true;
         }
         explorer.Next();

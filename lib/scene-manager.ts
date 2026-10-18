@@ -309,11 +309,16 @@ class SceneManager {
     for (const obj of scene.getAllSceneObjects()) {
       for (const shape of obj.getAddedShapes()) {
         if (shape.id === shapeId) {
+          // The sub-shape wrappers only serve this read: all of them go with it.
           const faces = Explorer.findFacesWrapped(shape);
-          if (faceIndex < 0 || faceIndex >= faces.length) {
-            return null;
+          try {
+            if (faceIndex < 0 || faceIndex >= faces.length) {
+              return null;
+            }
+            return FaceProps.getProperties(faces[faceIndex].getShape());
+          } finally {
+            for (const face of faces) face.dispose();
           }
-          return FaceProps.getProperties(faces[faceIndex].getShape());
         }
       }
     }
@@ -325,10 +330,14 @@ class SceneManager {
       for (const shape of obj.getAddedShapes()) {
         if (shape.id === shapeId) {
           const edges = Explorer.findEdgesWrapped(shape);
-          if (edgeIndex < 0 || edgeIndex >= edges.length) {
-            return null;
+          try {
+            if (edgeIndex < 0 || edgeIndex >= edges.length) {
+              return null;
+            }
+            return EdgeProps.getProperties(edges[edgeIndex].getShape());
+          } finally {
+            for (const edge of edges) edge.dispose();
           }
-          return EdgeProps.getProperties(edges[edgeIndex].getShape());
         }
       }
     }
@@ -344,7 +353,13 @@ class SceneManager {
         if (!shape) {
           return null;
         }
+        // Every sub-shape wrapper only serves to find the picked one; all of
+        // them go once the measure has run (the picked one's handle lives
+        // until then, as does the moved copy taken from it below).
         const subShapes = ref.kind === 'face' ? Explorer.findFacesWrapped(shape) : Explorer.findEdgesWrapped(shape);
+        disposers.push(() => {
+          for (const sub of subShapes) sub.dispose();
+        });
         if (ref.index < 0 || ref.index >= subShapes.length) {
           return null;
         }
@@ -361,8 +376,10 @@ class SceneManager {
           }
           const [trsf, disposeTrsf] = Convert.toGpTrsfPose(pose.position, pose.quaternion);
           const location = new (getOC().TopLoc_Location)(trsf);
-          subShape = subShape.Moved(location, false);
+          const moved = subShape.Moved(location, false);
+          subShape = moved;
           disposers.push(() => {
+            moved.delete();
             location.delete();
             disposeTrsf();
           });

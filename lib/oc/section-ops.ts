@@ -23,9 +23,12 @@ export class SectionOps {
       return [];
     }
 
+    // `Shape()` and the explorer copies are the section's leftovers: each
+    // edge wrapper takes its own typed copy.
     const result = section.Shape();
-    const rawEdges = Explorer.findShapes(result, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
-    const edges = rawEdges.map(e => Edge.fromTopoDSEdge(Explorer.toEdge(e)));
+    const edges = Explorer.withShapes(result, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum,
+      raws => raws.map(e => Edge.fromTopoDSEdge(Explorer.toEdge(e))));
+    result.delete();
 
     section.delete();
     progress.delete();

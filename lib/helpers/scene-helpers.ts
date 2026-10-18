@@ -170,6 +170,13 @@ export function fuseWithSceneObjects(
           const collectTools = () => ShapeHistoryTracker.collect(maker, extrusions, { skipAdded: true, resultFaces });
           const rawToolHistory = p ? p.record('Collect tool history', collectTools) : collectTools();
           toolHistory = remapHistoryThroughCleanups(rawToolHistory, cleanups, extrusions);
+          // The pre-clean wrappers the remap replaced are nobody's now; what
+          // it passed through lives on in `toolHistory`, whose wrappers are
+          // the caller's to keep in its buckets or free.
+          const remapped = new Set(ShapeHistoryTracker.shapesOf(toolHistory));
+          for (const shape of ShapeHistoryTracker.shapesOf(rawToolHistory)) {
+            if (!remapped.has(shape)) shape.dispose();
+          }
         } finally {
           resultFaces.delete();
           resultRaw.delete();
@@ -470,8 +477,19 @@ function recordFusionHistory(
       // need to compute its own added* sets.
       const history = ShapeHistoryTracker.collect(maker, [sceneShape], { skipAdded: true, resultFaces });
 
+      // The tracker's result wrappers are pre-clean: whatever the cleanup
+      // remap replaced (it hands back fresh face wrappers, and fresh edge
+      // wrappers for edges it rebuilt) is freed once recorded — as
+      // `recordCutHistory` does for a cut.
+      const retire = <T extends Shape<any>>(results: T[], kept: T[]) => {
+        for (const result of results) {
+          if (!kept.includes(result)) result.dispose();
+        }
+      };
+
       for (const record of history.modifiedFaces) {
         const postCleanResults = remapFaces(record.results);
+        retire(record.results, postCleanResults);
         if (postCleanResults.length === 0) {
           for (const src of record.sources) {
             owner.recordRemovedFace(src, caller);
@@ -485,6 +503,7 @@ function recordFusionHistory(
       }
       for (const record of history.modifiedEdges) {
         const postCleanResults = remapEdges(record.results);
+        retire(record.results, postCleanResults);
         if (postCleanResults.length === 0) {
           for (const src of record.sources) {
             owner.recordRemovedEdge(src, caller);
@@ -556,8 +575,21 @@ function recordFusionHistory(
   };
   p ? p.record('Record additions', recordAdditions) : recordAdditions();
 
-  const remapRawFace = (raw: TopoDS_Shape): TopoDS_Shape[] =>
-    remapFaces([Face.fromTopoDSFace(Explorer.toFace(raw))]).map(f => f.getShape());
+  // The colour pass owns what it is answered: a typed copy of each image.
+  // The wrappers walked here — the input's and the fresh ones a cleanup
+  // hands back (or the input passed through) — are this remap's alone.
+  const remapRawFace = (raw: TopoDS_Shape): TopoDS_Shape[] => {
+    const face = Face.fromTopoDSFace(Explorer.toFace(raw));
+    const images = remapFaces([face]);
+    try {
+      return images.map(f => Explorer.toFace(f.getShape()));
+    } finally {
+      for (const image of images) {
+        if (image !== face) image.dispose();
+      }
+      face.dispose();
+    }
+  };
 
   // Each stock's colours, read from its owner, land on the caller: it holds
   // the fused result. Authors are kept (a bled colour takes its seed's).

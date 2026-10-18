@@ -4,12 +4,12 @@ import { BuildError } from "../common/build-error.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { requireShapes } from "../common/operand-check.js";
-import type { ShapeHistory } from "../common/shape-history-tracker.js";
+import { ShapeHistoryTracker, type ShapeHistory } from "../common/shape-history-tracker.js";
 import { Plane } from "../math/plane.js";
 import { getOC } from "../oc/init.js";
 import { Explorer } from "../oc/explorer.js";
 import { SplitOps, type SplitCutter, type SplitSolidResult } from "../oc/split-ops.js";
-import type { CarriedColor } from "../oc/color-transfer.js";
+import { ColorTransfer, type CarriedColor } from "../oc/color-transfer.js";
 import { heldSolidsOf, liveOperandShapes, type HeldShape } from "../helpers/live-solids.js";
 import { recordModifierHistory } from "../helpers/scene-helpers.js";
 import { ISplit } from "../core/interfaces.js";
@@ -107,10 +107,24 @@ export class Split extends SceneObject implements ISplit {
 
       holder.removeShape(shape, this, kept);
       if (history) {
-        recordModifierHistory(this.keep === 'both' ? history : historyWithin(history, kept), holder, this);
+        const within = this.keep === 'both' ? history : historyWithin(history, kept);
+        recordModifierHistory(within, holder, this);
+        // The result wrappers on a thrown-away piece were recorded nowhere.
+        if (within !== history) {
+          const recorded = new Set(ShapeHistoryTracker.shapesOf(within));
+          for (const wrapper of ShapeHistoryTracker.shapesOf(history)) {
+            if (!recorded.has(wrapper)) wrapper.dispose();
+          }
+        }
       }
       this.addShapes(kept);
-      this.recordCarriedColors(carried.filter(c => kept.some(piece => piece === c.shape)));
+      const onKept = carried.filter(c => kept.some(piece => piece === c.shape));
+      this.recordCarriedColors(onKept);
+      // Colours carried onto a piece that is thrown away go with it, as does the piece.
+      ColorTransfer.disposeCarried(carried.filter(c => !onKept.includes(c)));
+      for (const piece of pieces) {
+        if (!kept.includes(piece.solid)) piece.solid.dispose();
+      }
     }
 
     if (splitCount === 0) {
@@ -277,12 +291,13 @@ function historyWithin(history: ShapeHistory, solids: Solid[]): ShapeHistory {
   const edges = new oc.TopTools_MapOfShape();
   try {
     for (const solid of solids) {
-      for (const raw of Explorer.findShapes(solid.getShape(), FACE)) {
-        faces.Add(raw);
-      }
-      for (const raw of Explorer.findShapes(solid.getShape(), EDGE)) {
-        edges.Add(raw);
-      }
+      // The maps keep their own references; the explorer copies go.
+      Explorer.withShapes(solid.getShape(), FACE, raws => {
+        for (const raw of raws) faces.Add(raw);
+      });
+      Explorer.withShapes(solid.getShape(), EDGE, raws => {
+        for (const raw of raws) edges.Add(raw);
+      });
     }
     const inFaces = (shape: Shape) => faces.Contains(shape.getShape());
     const inEdges = (shape: Shape) => edges.Contains(shape.getShape());

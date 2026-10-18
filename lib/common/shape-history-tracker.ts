@@ -24,6 +24,17 @@ export type ShapeHistory = {
 };
 
 export class ShapeHistoryTracker {
+  /** Every wrapper a history holds — sources and results of each record, the removed and the added. */
+  static shapesOf(history: ShapeHistory): Shape[] {
+    const out: Shape[] = [];
+    const records = [...history.modifiedFaces, ...history.generatedFaces, ...history.modifiedEdges, ...history.generatedEdges];
+    for (const record of records) {
+      out.push(...record.sources, ...record.results);
+    }
+    out.push(...history.addedFaces, ...history.removedFaces, ...history.addedEdges, ...history.removedEdges);
+    return out;
+  }
+
   /**
    * Remap a list of pre-operation faces through a `ShapeHistory`'s
    * modifications. For each input face:

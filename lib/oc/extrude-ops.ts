@@ -1,30 +1,14 @@
-import type { BRepPrimAPI_MakeRevol, gp_Pln, gp_Vec, TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
+import type { gp_Pln, gp_Vec, TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { Plane } from "../math/plane.js";
-import { Axis } from "../math/axis.js";
 import { Explorer } from "./explorer.js";
 import { OrientedFaces } from "./oriented-faces.js";
 import { Shape } from "../common/shape.js";
-import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { ShapeOps } from "./shape-ops.js";
-
-/**
- * History-based result of a `BRepPrimAPI_MakeRevol` operation. `firstFace` /
- * `lastFace` come from the maker's `FirstShape` / `LastShape` (null on full
- * revolution where the source face is absorbed). `edgeFaces` maps each edge
- * of the input face to the swept face it generated, so callers can classify
- * by input-edge category instead of geometric heuristics.
- */
-export interface MakeRevolResult {
-  solid: Shape;
-  firstFace: Face | null;
-  lastFace: Face | null;
-  edgeFaces: { edge: TopoDS_Shape; face: Face | null }[];
-}
 
 export class ExtrudeOps {
   static makePrism(shape: Shape, direction: Vector3d, distance: number): Shape {
@@ -139,94 +123,6 @@ export class ExtrudeOps {
     prism.delete();
     disposeDir();
     return ShapeFactory.adopt(result);
-  }
-
-  /**
-   * Sweep a profile around an axis. `history` (on by default) captures the
-   * start/end faces and the side face each input edge generated, which the
-   * revolve feature classifies its result by. Callers that only want the
-   * body — the dialog's live preview — pass `false` and skip both the
-   * per-edge `Generated()` walk and the wrappers it hands back.
-   */
-  static makeRevol(
-    shape: Shape,
-    axis: Axis,
-    angle: number,
-    options: { history?: boolean } = {},
-  ): MakeRevolResult {
-    const oc = getOC();
-    const history = options.history !== false;
-    const [ax1, disposeAx1] = Convert.toGpAx1(axis);
-    let revol: BRepPrimAPI_MakeRevol;
-    try {
-      revol = new oc.BRepPrimAPI_MakeRevol(shape.getShape(), ax1, angle, true);
-    } catch {
-      disposeAx1();
-      throw new Error("Revolution failed");
-    }
-    if (!revol.IsDone()) {
-      revol.delete();
-      disposeAx1();
-      throw new Error("Revolution failed");
-    }
-    const rawResult = revol.Shape();
-
-    // Capture history while the maker is alive. For full revolution the
-    // source face is absorbed (IsDeleted), so first/last are meaningless.
-    const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
-    const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
-    const sourceDeleted = history ? revol.IsDeleted(shape.getShape()) : true;
-    const firstShapeRaw = sourceDeleted ? null : revol.FirstShape();
-    const lastShapeRaw = sourceDeleted ? null : revol.LastShape();
-
-    const edgeFacesRaw: { edge: TopoDS_Shape; face: TopoDS_Shape | null }[] = [];
-    if (history) {
-      const inputEdgesRaw = Explorer.findShapes(shape.getShape(), EDGE);
-      for (const edge of inputEdgesRaw) {
-        const generated = ShapeOps.shapeListToArray(revol.Generated(edge))
-          .filter(s => s.ShapeType() === FACE);
-        edgeFacesRaw.push({ edge, face: generated[0] ?? null });
-      }
-    }
-
-    revol.delete();
-    disposeAx1();
-
-    // A profile face whose normal points "backwards" relative to the axis
-    // produces a closed solid with inverted shell orientation. Volume can
-    // still be positive but downstream boolean ops fail. OrientClosedSolid
-    // flips the shell to outward-facing when needed.
-    let oriented = rawResult;
-    if (Explorer.isSolid(rawResult)) {
-      const solid = Explorer.toSolid(rawResult);
-      oc.BRepLib.OrientClosedSolid(solid);
-      oriented = solid;
-    }
-
-    const clean = ShapeOps.cleanShapeRaw(oriented);
-    // Only the history consumers need every result face wrapped; without it
-    // `findFace` has nothing to look up anyway.
-    const cleanedFaceRaws = history ? Explorer.findShapes(clean, FACE) : [];
-    const wrappedFaces = cleanedFaceRaws.map(f => Face.fromTopoDSFace(Explorer.toFace(f)));
-
-    const findFace = (raw: TopoDS_Shape | null): Face | null => {
-      if (!raw) {
-        return null;
-      }
-      for (let i = 0; i < cleanedFaceRaws.length; i++) {
-        if (cleanedFaceRaws[i].IsSame(raw)) {
-          return wrappedFaces[i];
-        }
-      }
-      return null;
-    };
-
-    return {
-      solid: ShapeFactory.fromShape(clean),
-      firstFace: findFace(firstShapeRaw),
-      lastFace: findFace(lastShapeRaw),
-      edgeFaces: edgeFacesRaw.map(({ edge, face }) => ({ edge, face: findFace(face) })),
-    };
   }
 
   static applyDraftOnSideFaces(

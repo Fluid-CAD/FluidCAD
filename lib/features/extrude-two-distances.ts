@@ -1,5 +1,6 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { ExtrudeBase } from "./extrude-base.js";
+import { disposeBuildTemporaries } from "./build-temporaries.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
@@ -243,6 +244,8 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       this.classifyExtrudeEdges();
     }
     this.setFinalShapes(this.getShapes());
+    // The tool solids the fuse consumed; an unfused one the state keeps stays.
+    disposeBuildTemporaries(this, extrusions);
   }
 
   override getDependencies(): SceneObject[] {

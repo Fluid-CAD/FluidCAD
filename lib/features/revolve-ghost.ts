@@ -6,7 +6,7 @@ import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { Plane } from "../math/plane.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
-import { ExtrudeOps } from "../oc/extrude-ops.js";
+import { RevolveOps } from "../oc/revolve-ops.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
@@ -98,7 +98,7 @@ function collectSolids(
   for (const face of fusedProfileFaces(faces, scratch)) {
     // History off: the ghost wants the body, not the start/end/side-face
     // classification the real revolve builds its selection accessors from.
-    let solid = ExtrudeOps.makeRevol(face, options.axis, angle, { history: false }).solid;
+    let solid = RevolveOps.makeRevol(face, options.axis, angle, { history: false }).solid;
     if (symmetricMatrix) {
       scratch.push(solid);
       solid = ShapeOps.transform(solid, symmetricMatrix);

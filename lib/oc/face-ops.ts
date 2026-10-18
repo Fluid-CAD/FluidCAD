@@ -288,30 +288,35 @@ export class FaceOps {
     const oc = getOC();
 
     const faceAdaptor = new oc.BRepAdaptor_Surface(face, true);
-    const type = faceAdaptor.GetType();
+    // Every gp_* read below is a fresh copy: all of them go with the adaptor.
+    const scratch: { delete(): void }[] = [faceAdaptor];
+    try {
+      const type = faceAdaptor.GetType();
 
-    if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-      return false;
+      if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
+        return false;
+      }
+
+      const facePlane = faceAdaptor.Plane();
+      const location = facePlane.Location();
+      scratch.push(facePlane, location);
+
+      if (!plane.Contains(location, oc.Precision.Confusion())) {
+        return false;
+      }
+
+      const planeAxis = plane.Axis();
+      const faceAxis = facePlane.Axis();
+      const axis1 = planeAxis.Direction();
+      const axis2 = faceAxis.Direction();
+      scratch.push(planeAxis, faceAxis, axis1, axis2);
+
+      const dot = axis1.Dot(axis2);
+
+      return Math.abs(Math.abs(dot) - 1.0) < oc.Precision.Angular();
+    } finally {
+      for (const handle of scratch) handle.delete();
     }
-
-    const facePlane = faceAdaptor.Plane();
-    const location = facePlane.Location();
-
-    if (!plane.Contains(location, oc.Precision.Confusion())) {
-      faceAdaptor.delete();
-      location.delete();
-      return false;
-    }
-
-    const axis1 = plane.Axis().Direction();
-    const axis2 = facePlane.Axis().Direction();
-
-    const dot = axis1.Dot(axis2);
-
-    faceAdaptor.delete();
-    location.delete();
-
-    return Math.abs(Math.abs(dot) - 1.0) < oc.Precision.Angular();
   }
 
   static faceOnPlaneWrapped(face: Face, plane: Plane): boolean {
@@ -422,15 +427,20 @@ export class FaceOps {
     const MakeFaceFn = new oc.BRepBuilderAPI_MakeFace(wires[0], true);
     console.log("Number of wires:", wires.length);
 
-    for (let i = 1; i < wires.length; i++) {
-      console.log("Adding wire:", wires[i]);
-      MakeFaceFn.Add(wires[i]);
-    }
+    try {
+      for (let i = 1; i < wires.length; i++) {
+        console.log("Adding wire:", wires[i]);
+        MakeFaceFn.Add(wires[i]);
+      }
 
-    if (MakeFaceFn.IsDone()) {
-      return MakeFaceFn.Face();
-    } else {
-      throw new Error("Failed to create face from wires: " + MakeFaceFn.Error());
+      if (MakeFaceFn.IsDone()) {
+        return MakeFaceFn.Face();
+      } else {
+        throw new Error("Failed to create face from wires: " + MakeFaceFn.Error());
+      }
+    } finally {
+      // The face is a copy of its own; the maker goes.
+      MakeFaceFn.delete();
     }
   }
 
@@ -448,10 +458,14 @@ export class FaceOps {
   static makeFaceWithHoles(outerWire: Wire, holes: Wire[]): Face {
     const oc = getOC();
     const faceMaker = new oc.BRepLib_MakeFace(outerWire.getShape() as TopoDS_Wire, false);
-    for (const hole of holes) {
-      faceMaker.Add(hole.getShape() as TopoDS_Wire);
+    try {
+      for (const hole of holes) {
+        faceMaker.Add(hole.getShape() as TopoDS_Wire);
+      }
+      return Face.fromTopoDSFace(faceMaker.Face());
+    } finally {
+      faceMaker.delete();
     }
-    return Face.fromTopoDSFace(faceMaker.Face());
   }
 
   static isPointInsideFace(point: Point, face: Face | TopoDS_Face): boolean {

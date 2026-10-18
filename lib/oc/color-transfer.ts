@@ -14,7 +14,9 @@ export type SourceColors = { shape: Shape; colors: FaceColorView };
 /**
  * A colour an operation carried onto a face of one of its results, with the
  * statement that painted the source face it came from. The feature holding
- * `shape` records it (`SceneObject.recordCarriedColors`).
+ * `shape` records it (`SceneObject.recordCarriedColors`), which makes `face`
+ * — a fresh wrapper the pass built — the scene's; a caller that drops a
+ * record frees it instead (`ColorTransfer.disposeCarried`).
  */
 export type CarriedColor = { shape: Shape; face: Face; color: string; setBy: SceneObject };
 
@@ -36,9 +38,12 @@ class ResultColors {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     this.faces = new oc.TopTools_MapOfShape();
-    for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
-      this.faces.Add(raw);
-    }
+    // The map keeps its own references; the explorer copies go.
+    Explorer.withShapes(shape.getShape(), FACE, raws => {
+      for (const raw of raws) {
+        this.faces.Add(raw);
+      }
+    });
     this.keys = new oc.TopTools_IndexedMapOfShape();
     for (const seed of seeds) {
       if (seed.shape === shape) {
@@ -114,6 +119,19 @@ export class ColorTransfer {
     return new FaceColorView(carried.filter(c => c.shape === shape));
   }
 
+  /** Free the face wrappers of records nobody recorded (a dropped piece, a pre-clean pass read through and done with). */
+  static disposeCarried(carried: Iterable<CarriedColor>): void {
+    for (const record of carried) {
+      record.face.dispose();
+    }
+  }
+
+  /**
+   * Carries the colours through `maker`. `remapFace` (a cleanup chained
+   * after the maker) is handed the maker's images and answers with raw
+   * copies this pass owns and frees; the images themselves go too, once the
+   * records hold their own typed copies.
+   */
   static applyThroughMaker(
     sources: SourceColors[],
     results: Shape[],
@@ -127,12 +145,16 @@ export class ColorTransfer {
     }
 
     const placed = results.map(result => new ResultColors(result, []));
+    // The raw copies this pass owns — the maker's image lists and the
+    // remap's answers — keyed into the results' maps and freed with them.
+    const scratch: TopoDS_Shape[] = [];
     try {
       for (const source of sources) {
         for (const entry of source.colors.entries()) {
           const raw = entry.face.getShape();
-          const modifiedRaws = ShapeOps.shapeListToArray(maker.Modified(raw))
-            .filter(s => s.ShapeType() === FACE);
+          const modifiedAll = ShapeOps.shapeListToArray(maker.Modified(raw));
+          scratch.push(...modifiedAll);
+          const modifiedRaws = modifiedAll.filter(s => s.ShapeType() === FACE);
 
           let targets: TopoDS_Shape[];
           if (modifiedRaws.length > 0) {
@@ -148,6 +170,7 @@ export class ColorTransfer {
           // IsSame search below still lands.
           if (remapFace) {
             targets = targets.flatMap(remapFace);
+            scratch.push(...targets);
           }
 
           for (const target of targets) {
@@ -163,6 +186,7 @@ export class ColorTransfer {
       for (const result of placed) {
         result.delete();
       }
+      Explorer.deleteAll(scratch);
     }
   }
 
@@ -214,120 +238,152 @@ export class ColorTransfer {
     // protected/generated sets are expressed in final faces.
     const toFinal = (raws: TopoDS_Shape[]) => (remapFace ? raws.flatMap(remapFace) : raws);
 
+    // Every raw this pass reads — explorer copies, the maker's image lists,
+    // the remap's answers — is keyed into kernel maps (which keep their own
+    // references) or wrapped by `carried()` (which takes typed copies), so
+    // each is freed once its pass is done with it.
     const protectedFaces = new oc.TopTools_MapOfShape();
     for (const scene of sceneSources) {
-      for (const inputFace of Explorer.findShapes(scene.shape.getShape(), FACE)) {
-        const modified = ShapeOps.shapeListToArray(maker.Modified(inputFace))
-          .filter(s => s.ShapeType() === FACE);
-        if (modified.length > 0) {
-          for (const r of toFinal(modified)) {
+      Explorer.withShapes(scene.shape.getShape(), FACE, inputFaces => {
+        for (const inputFace of inputFaces) {
+          const modifiedAll = ShapeOps.shapeListToArray(maker.Modified(inputFace));
+          const modified = modifiedAll.filter(s => s.ShapeType() === FACE);
+          const finals = modified.length > 0
+            ? toFinal(modified)
+            : !maker.IsDeleted(inputFace) ? toFinal([inputFace]) : [];
+          for (const r of finals) {
             protectedFaces.Add(r);
           }
-        } else if (!maker.IsDeleted(inputFace)) {
-          for (const r of toFinal([inputFace])) {
-            protectedFaces.Add(r);
+          Explorer.deleteAll(modifiedAll);
+          if (remapFace) {
+            Explorer.deleteAll(finals);
           }
         }
-      }
+      });
     }
 
     const bled: CarriedColor[] = [];
     for (const result of results) {
       const placed = new ResultColors(result, seeds);
+      const scratch: TopoDS_Shape[] = [];
       const allFaces = Explorer.findShapes(result.getShape(), FACE);
+      scratch.push(...allFaces);
 
       // ── Pass 1: lineage via Generated(edge|vertex) ──
       const lineageResolved = new oc.TopTools_MapOfShape();
 
-      for (const scene of sceneSources) {
-        const sceneFaces = Explorer.findShapes(scene.shape.getShape(), FACE);
+      try {
+        for (const scene of sceneSources) {
+          const sceneFaces = Explorer.findShapes(scene.shape.getShape(), FACE);
+          scratch.push(...sceneFaces);
 
-        for (const subType of [EDGE, VERTEX] as TopAbs_ShapeEnum[]) {
-          // Cache scene-face → contained subshapes so we can find which faces
-          // own a given edge/vertex without re-walking each time.
-          const sceneFaceSubs = sceneFaces.map(f => Explorer.findShapes(f, subType));
+          for (const subType of [EDGE, VERTEX] as TopAbs_ShapeEnum[]) {
+            // Cache scene-face → contained subshapes so we can find which faces
+            // own a given edge/vertex without re-walking each time.
+            const sceneFaceSubs = sceneFaces.map(f => Explorer.findShapes(f, subType));
+            const subs = Explorer.findShapes(scene.shape.getShape(), subType);
 
-          for (const sub of Explorer.findShapes(scene.shape.getShape(), subType)) {
-            const generatedFaces = toFinal(ShapeOps.shapeListToArray(maker.Generated(sub))
-              .filter(s => s.ShapeType() === FACE));
-            if (generatedFaces.length === 0) {
-              continue;
-            }
+            try {
+              for (const sub of subs) {
+                const generatedAll = ShapeOps.shapeListToArray(maker.Generated(sub));
+                scratch.push(...generatedAll);
+                const generatedFaces = toFinal(generatedAll.filter(s => s.ShapeType() === FACE));
+                if (remapFace) {
+                  scratch.push(...generatedFaces);
+                }
+                if (generatedFaces.length === 0) {
+                  continue;
+                }
 
-            // Color the generated face from the first colored owner-face of
-            // this edge/vertex. Owners with no color don't contribute, so a
-            // fillet on a vertical box edge (owned only by uncolored sides)
-            // stays uncolored even though the new fillet face touches a
-            // colored top via adjacency.
-            let picked: { color: string; setBy: SceneObject } | undefined;
-            for (let i = 0; i < sceneFaces.length; i++) {
-              if (!sceneFaceSubs[i].some(s => s.IsSame(sub))) {
-                continue;
-              }
-              const entry = scene.colors.entryOf(sceneFaces[i]);
-              if (entry) {
-                picked = entry;
-                break;
-              }
-            }
+                // Color the generated face from the first colored owner-face of
+                // this edge/vertex. Owners with no color don't contribute, so a
+                // fillet on a vertical box edge (owned only by uncolored sides)
+                // stays uncolored even though the new fillet face touches a
+                // colored top via adjacency.
+                let picked: { color: string; setBy: SceneObject } | undefined;
+                for (let i = 0; i < sceneFaces.length; i++) {
+                  if (!sceneFaceSubs[i].some(s => s.IsSame(sub))) {
+                    continue;
+                  }
+                  const entry = scene.colors.entryOf(sceneFaces[i]);
+                  if (entry) {
+                    picked = entry;
+                    break;
+                  }
+                }
 
-            for (const g of generatedFaces) {
-              if (!placed.has(g)) {
-                continue;
+                for (const g of generatedFaces) {
+                  if (!placed.has(g)) {
+                    continue;
+                  }
+                  if (protectedFaces.Contains(g)) {
+                    continue;
+                  }
+                  lineageResolved.Add(g);
+                  if (picked && !placed.get(g)) {
+                    placed.set(g, picked.color, picked.setBy);
+                  }
+                }
               }
-              if (protectedFaces.Contains(g)) {
-                continue;
+            } finally {
+              for (const list of sceneFaceSubs) {
+                Explorer.deleteAll(list);
               }
-              lineageResolved.Add(g);
-              if (picked && !placed.get(g)) {
-                placed.set(g, picked.color, picked.setBy);
-              }
+              Explorer.deleteAll(subs);
             }
           }
         }
-      }
 
-      // ── Pass 2: adjacency fallback for faces with no Generated lineage ──
-      const faceEdges = allFaces.map(f => Explorer.findShapes(f, EDGE));
+        // ── Pass 2: adjacency fallback for faces with no Generated lineage ──
+        const faceEdges = allFaces.map(f => Explorer.findShapes(f, EDGE));
 
-      let changed = true;
-      while (changed) {
-        changed = false;
-        for (let i = 0; i < allFaces.length; i++) {
-          const face = allFaces[i];
-          if (protectedFaces.Contains(face)) {
-            continue;
-          }
-          if (lineageResolved.Contains(face)) {
-            continue;
-          }
-          if (placed.get(face)) {
-            continue;
-          }
+        try {
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (let i = 0; i < allFaces.length; i++) {
+              const face = allFaces[i];
+              if (protectedFaces.Contains(face)) {
+                continue;
+              }
+              if (lineageResolved.Contains(face)) {
+                continue;
+              }
+              if (placed.get(face)) {
+                continue;
+              }
 
-          const myEdges = faceEdges[i];
-          for (let j = 0; j < allFaces.length; j++) {
-            if (i === j) {
-              continue;
+              const myEdges = faceEdges[i];
+              for (let j = 0; j < allFaces.length; j++) {
+                if (i === j) {
+                  continue;
+                }
+                const otherEdges = faceEdges[j];
+                const adjacent = myEdges.some(me => otherEdges.some(oe => me.IsSame(oe)));
+                if (!adjacent) {
+                  continue;
+                }
+                const other = placed.get(allFaces[j]);
+                if (other) {
+                  placed.set(face, other.color, other.setBy);
+                  changed = true;
+                  break;
+                }
+              }
             }
-            const otherEdges = faceEdges[j];
-            const adjacent = myEdges.some(me => otherEdges.some(oe => me.IsSame(oe)));
-            if (!adjacent) {
-              continue;
-            }
-            const other = placed.get(allFaces[j]);
-            if (other) {
-              placed.set(face, other.color, other.setBy);
-              changed = true;
-              break;
-            }
+          }
+        } finally {
+          for (const list of faceEdges) {
+            Explorer.deleteAll(list);
           }
         }
-      }
 
-      lineageResolved.delete();
-      bled.push(...placed.carried());
-      placed.delete();
+        bled.push(...placed.carried());
+      } finally {
+        lineageResolved.delete();
+        placed.delete();
+        Explorer.deleteAll(scratch);
+      }
     }
 
     protectedFaces.delete();
@@ -375,6 +431,10 @@ export class ColorTransfer {
     }
 
     const placed = cleanedShapes.map(cleaned => new ResultColors(cleaned, []));
+    // The wrappers this pass walks the cleanups' lineage with — the maker's
+    // pre-clean images and the fresh wrappers each remap answers — are its
+    // own: the records take typed copies, so they go with the pass.
+    const scratch: Shape[] = [];
     try {
       for (const source of sources) {
         if (source.colors.isEmpty()) {
@@ -384,17 +444,21 @@ export class ColorTransfer {
         const maker = makerOf(source.shape);
         for (const entry of source.colors.entries()) {
           const raw = entry.face.getShape();
-          const modifiedRaws = ShapeOps.shapeListToArray(maker.Modified(raw))
-            .filter(s => s.ShapeType() === FACE);
-
+          const modifiedAll = ShapeOps.shapeListToArray(maker.Modified(raw));
           let preCleanFaces: Face[];
-          if (modifiedRaws.length > 0) {
-            preCleanFaces = modifiedRaws.map(r => Face.fromTopoDSFace(Explorer.toFace(r)));
-          } else if (!maker.IsDeleted(raw)) {
-            preCleanFaces = [Face.fromTopoDSFace(Explorer.toFace(raw))];
-          } else {
-            continue;
+          try {
+            const modifiedRaws = modifiedAll.filter(s => s.ShapeType() === FACE);
+            if (modifiedRaws.length > 0) {
+              preCleanFaces = modifiedRaws.map(r => Face.fromTopoDSFace(Explorer.toFace(r)));
+            } else if (!maker.IsDeleted(raw)) {
+              preCleanFaces = [Face.fromTopoDSFace(Explorer.toFace(raw))];
+            } else {
+              continue;
+            }
+          } finally {
+            Explorer.deleteAll(modifiedAll);
           }
+          scratch.push(...preCleanFaces);
 
           // Chain through each cleanup's UnifySameDomain lineage
           const postCleanFaces: Face[] = [];
@@ -404,6 +468,7 @@ export class ColorTransfer {
               const remapped = cleanup.remapFace(preFace);
               if (remapped !== null) {
                 postCleanFaces.push(...remapped);
+                scratch.push(...remapped);
                 matched = true;
                 break;
               }
@@ -425,6 +490,9 @@ export class ColorTransfer {
     } finally {
       for (const result of placed) {
         result.delete();
+      }
+      for (const face of scratch) {
+        face.dispose();
       }
     }
   }

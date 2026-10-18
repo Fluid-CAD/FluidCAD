@@ -524,13 +524,23 @@ export class ShapeOps {
   }
 
   static cleanShapeRaw(shape: TopoDS_Shape) {
-    const oc = getOC();
-
     // Two coincident cylinders of opposite handedness corrupt the face merge:
-    // rebuild the left-handed ones first — see DirectFaces.
+    // rebuild the left-handed ones first — see DirectFaces. The rebuilt
+    // copy is a step on the way: it goes unless it is what comes back.
+    let normalized: TopoDS_Shape | null = null;
     if (DirectFaces.hasMixedHandedness(shape)) {
-      shape = DirectFaces.normalizeRaw(shape);
+      normalized = DirectFaces.normalizeRaw(shape);
+      shape = normalized;
     }
+    const result = ShapeOps.mergeSameDomain(shape);
+    if (normalized && result !== normalized) {
+      normalized.delete();
+    }
+    return result;
+  }
+
+  private static mergeSameDomain(shape: TopoDS_Shape): TopoDS_Shape {
+    const oc = getOC();
 
     // Full unification: merge redundant edges AND co-surface faces.
     // UnifySameDomain can throw on shapes with subtle topology issues
@@ -579,7 +589,11 @@ export class ShapeOps {
     }
     const oriented = new OrientedFaces(result);
     try {
-      return oriented.orient(modified[0]);
+      // The list's copies go, except the one handed back — the first image
+      // itself, or the index's copy of it, which is the caller's to free.
+      const image = oriented.orient(modified[0]);
+      Explorer.deleteAll(modified.filter(m => m !== image));
+      return image;
     } finally {
       oriented.delete();
     }

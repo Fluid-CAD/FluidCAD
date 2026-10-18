@@ -143,6 +143,12 @@ export class Rib extends ExtrudeBase implements IRib {
     const conformed = p.record('Conform rib', () =>
       RibOps.conformRibToScope(ribSolid, scopeShapes, originalSpineWire, ribFirstFace, ribLastFace, direction),
     );
+    // The conformance built its own buckets and solids: the prism, its caps
+    // and the profile they came from were this build's inputs only.
+    ribSolid.dispose();
+    ribFirstFace.dispose();
+    ribLastFace.dispose();
+    profileFace?.dispose();
 
     let classified: ClassifiedFaces = {
       startFaces: conformed.startFaces,
@@ -245,19 +251,25 @@ export class Rib extends ExtrudeBase implements IRib {
       conformedSolids = [draftResult.solid];
     }
 
-    if (this._operationMode === 'new') {
-      this.setState('start-faces', classified.startFaces);
-      this.setState('end-faces', classified.endFaces);
-      this.setState('side-faces', classified.sideFaces);
-      this.setState('internal-faces', classified.internalFaces);
-      this.setState('cap-faces', classified.capFaces);
-      this.addShapes(conformedSolids);
-      this.recordShapeFacesAndEdgesAsAdditions(conformedSolids);
-      this.classifyExtrudeEdges();
-      return;
-    }
+    try {
+      if (this._operationMode === 'new') {
+        this.setState('start-faces', classified.startFaces);
+        this.setState('end-faces', classified.endFaces);
+        this.setState('side-faces', classified.sideFaces);
+        this.setState('internal-faces', classified.internalFaces);
+        this.setState('cap-faces', classified.capFaces);
+        this.addShapes(conformedSolids);
+        this.recordShapeFacesAndEdgesAsAdditions(conformedSolids);
+        this.classifyExtrudeEdges();
+        return;
+      }
 
-    this.finalizeAndFuse(conformedSolids, classified, context);
+      this.finalizeAndFuse(conformedSolids, classified, context);
+    } finally {
+      // The spine wire built from the path (and its extension) was this build's own.
+      if (spineWire !== originalSpineWire) spineWire.dispose();
+      originalSpineWire.dispose();
+    }
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {

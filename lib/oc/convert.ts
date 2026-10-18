@@ -173,8 +173,13 @@ export class Convert {
 
   static toPlane(gpPln: gp_Pln, deleteSource: boolean = false): Plane {
     const origin = Convert.toPoint(gpPln.Location(), true);
-    const xDirection = Convert.toVector3dFromGpDir(gpPln.XAxis().Direction(), true);
-    const normal = Convert.toVector3dFromGpDir(gpPln.Axis().Direction(), true);
+    // The axes are copies of their own, as are the directions read off them.
+    const xAxis = gpPln.XAxis();
+    const axis = gpPln.Axis();
+    const xDirection = Convert.toVector3dFromGpDir(xAxis.Direction(), true);
+    const normal = Convert.toVector3dFromGpDir(axis.Direction(), true);
+    xAxis.delete();
+    axis.delete();
     if (deleteSource) {
       gpPln.delete();
     }

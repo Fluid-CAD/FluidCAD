@@ -54,9 +54,9 @@ function sampleSpinePoints(spineWire: Wire, count: number): Point[] {
   if (edges.length === 0) {
     return [];
   }
-  const verts: Point[] = [edges[0].getFirstVertex().toPoint()];
+  const verts: Point[] = [edges[0].getFirstPoint()];
   for (const e of edges) {
-    verts.push(e.getLastVertex().toPoint());
+    verts.push(e.getLastPoint());
   }
   // Cumulative arc length along the polyline.
   const cum: number[] = [0];
@@ -97,14 +97,24 @@ export class RibOps {
     const wire1 = RibOps.offsetWireOnPlane(spineWire, plane, halfThickness);
     const wire2 = RibOps.offsetWireOnPlane(spineWire, plane, -halfThickness);
 
-    return RibOps.makeOpenFaceWithCaps(wire1, wire2);
+    // The offset wires were only the profile's inputs: the face holds its own copies.
+    try {
+      return RibOps.makeOpenFaceWithCaps(wire1, wire2);
+    } finally {
+      wire1.dispose();
+      wire2.dispose();
+    }
   }
 
   static makeRibProfileParallel(spineWire: Wire, thickness: number, plane: Plane): Face {
     const closedWire = RibOps.makeParallelRibClosedWire(spineWire, thickness, plane);
-    return Face.fromTopoDSFace(
-      FaceOps.makeFaceFromWires([closedWire.getShape() as TopoDS_Wire]),
-    );
+    try {
+      return Face.fromTopoDSFace(
+        FaceOps.makeFaceFromWires([closedWire.getShape() as TopoDS_Wire]),
+      );
+    } finally {
+      closedWire.dispose();
+    }
   }
 
   // Closed boundary wire for the parallel-mode rib profile: spine offset
@@ -119,7 +129,13 @@ export class RibOps {
     const wire1 = ShapeOps.transform(spineWire, Matrix4.fromTranslationVector(offset1)) as Wire;
     const wire2 = ShapeOps.transform(spineWire, Matrix4.fromTranslationVector(offset2)) as Wire;
 
-    return RibOps.makeClosedWireWithCaps(wire1, wire2);
+    // The closed wire holds its own copies of their edges.
+    try {
+      return RibOps.makeClosedWireWithCaps(wire1, wire2);
+    } finally {
+      wire1.dispose();
+      wire2.dispose();
+    }
   }
 
   // Lofts a tapered prism between two parallel-mode rib profile wires:
@@ -179,6 +195,10 @@ export class RibOps {
     const firstFace = loft.FirstShape();
     const lastFace = loft.LastShape();
     loft.delete();
+    // The section wires were the loft's inputs only.
+    baseClosedWire.dispose();
+    tipBaseWire.dispose();
+    tipClosedWire.dispose();
 
     return {
       solid: ShapeFactory.adopt(solid),
@@ -188,8 +208,12 @@ export class RibOps {
   }
 
   static computeSpinePerpendicularDirection(spineWire: Wire, plane: Plane): Vector3d {
-    const start = spineWire.getFirstVertex().toPoint().toVector3d();
-    const end = spineWire.getLastVertex().toPoint().toVector3d();
+    const first = spineWire.getFirstVertex();
+    const last = spineWire.getLastVertex();
+    const start = first.toPoint().toVector3d();
+    const end = last.toPoint().toVector3d();
+    first.dispose();
+    last.dispose();
     const spineDir = end.subtract(start).normalize();
     return plane.normal.cross(spineDir).normalize();
   }
@@ -551,7 +575,10 @@ export class RibOps {
     map.Add(raw);
     const modList = cutMaker.Modified(raw);
     while (modList.Size() > 0) {
-      map.Add(modList.First());
+      // The map keeps its own reference; `First()` is a copy to free.
+      const image = modList.First();
+      map.Add(image);
+      image.delete();
       modList.RemoveFirst();
     }
     modList.delete();
@@ -637,9 +664,18 @@ export class RibOps {
     const oc = getOC();
 
     if (distance < 0) {
+      // The reversed input and the unreversed offset are steps on the way only.
       const reversed = WireOps.reverseWire(wire);
-      const result = RibOps.offsetWireOnPlane(reversed, plane, -distance);
-      return WireOps.reverseWire(result);
+      try {
+        const result = RibOps.offsetWireOnPlane(reversed, plane, -distance);
+        try {
+          return WireOps.reverseWire(result);
+        } finally {
+          result.dispose();
+        }
+      } finally {
+        reversed.dispose();
+      }
     }
 
     const [pln, disposePlane] = Convert.toGpPln(plane);
@@ -686,16 +722,20 @@ export class RibOps {
 
   private static makeOpenFaceWithCaps(wire1: Wire, wire2: Wire): Face {
     const closedWire = RibOps.makeClosedWireWithCaps(wire1, wire2);
-    return Face.fromTopoDSFace(
-      FaceOps.makeFaceFromWires([closedWire.getShape() as TopoDS_Wire]),
-    );
+    // The face holds its own copy of the wire.
+    try {
+      return Face.fromTopoDSFace(
+        FaceOps.makeFaceFromWires([closedWire.getShape() as TopoDS_Wire]),
+      );
+    } finally {
+      closedWire.dispose();
+    }
   }
 
   private static makeClosedWireWithCaps(wire1: Wire, wire2: Wire): Wire {
-    const wire1End = wire1.getLastVertex().toPoint();
-    const wire2Start = wire2.getFirstVertex().toPoint();
-    const wire2End = wire2.getLastVertex().toPoint();
-    const wire1Start = wire1.getFirstVertex().toPoint();
+    const ends = [wire1.getLastVertex(), wire2.getFirstVertex(), wire2.getLastVertex(), wire1.getFirstVertex()];
+    const [wire1End, wire2Start, wire2End, wire1Start] = ends.map(v => v.toPoint());
+    for (const vertex of ends) vertex.dispose();
 
     const cap1 = EdgeOps.makeLineEdge(wire1End, wire2End);
     const cap2 = EdgeOps.makeLineEdge(wire2Start, wire1Start);
@@ -709,6 +749,14 @@ export class RibOps {
       cap2,
     ];
 
-    return WireOps.makeWireFromEdges(allEdges);
+    // The closed wire holds its own copies of every edge: the caps and the
+    // reversed wire (with the edge wrappers it cached) were inputs only.
+    try {
+      return WireOps.makeWireFromEdges(allEdges);
+    } finally {
+      cap1.dispose();
+      cap2.dispose();
+      reversedWire2.dispose();
+    }
   }
 }

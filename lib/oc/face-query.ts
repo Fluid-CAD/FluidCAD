@@ -98,7 +98,8 @@ export class FaceQuery {
     const planeFace = FaceOps.makeFaceFromPlane(gpPln);
 
     const tool = new oc.IntTools_FaceFace();
-    tool.Perform(oc.TopoDS.Face(face.getShape()), planeFace, false);
+    const typed = oc.TopoDS.Face(face.getShape());
+    tool.Perform(typed, planeFace, false);
 
     let result = false;
     if (tool.IsDone()) {
@@ -106,6 +107,7 @@ export class FaceQuery {
     }
 
     tool.delete();
+    typed.delete();
     planeFace.delete();
     dispose();
     return result;
@@ -278,50 +280,52 @@ export class FaceQuery {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    ocFace.delete();
     const type = faceAdaptor.GetType();
+    faceAdaptor.delete();
 
     if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-      faceAdaptor.delete();
       return false;
     }
 
-    faceAdaptor.delete();
+    // The explorer copies and the typed casts are this read's own.
+    return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
+      for (const e of edges) {
+        const edge = oc.TopoDS.Edge(e);
+        const curveAdaptor = new oc.BRepAdaptor_Curve(edge);
+        edge.delete();
 
-    const edges = Explorer.findShapes(ocFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
-
-    for (const e of edges) {
-      const edge = oc.TopoDS.Edge(e);
-      const curveAdaptor = new oc.BRepAdaptor_Curve(edge);
-
-      const curveType = curveAdaptor.GetType();
-      if (curveType !== oc.GeomAbs_CurveType.GeomAbs_Circle) {
-        curveAdaptor.delete();
-        return false;
-      }
-
-      if (curveAdaptor.IsClosed()) {
-        if (diameter === undefined) {
+        const curveType = curveAdaptor.GetType();
+        if (curveType !== oc.GeomAbs_CurveType.GeomAbs_Circle) {
           curveAdaptor.delete();
-          return true;
+          return false;
         }
 
-        const circle = curveAdaptor.Circle();
-        const r = circle.Radius();
-        circle.delete();
+        if (curveAdaptor.IsClosed()) {
+          if (diameter === undefined) {
+            curveAdaptor.delete();
+            return true;
+          }
+
+          const circle = curveAdaptor.Circle();
+          const r = circle.Radius();
+          circle.delete();
+          curveAdaptor.delete();
+          return Math.abs(r - diameter / 2) <= oc.Precision.Confusion();
+        }
+
         curveAdaptor.delete();
-        return Math.abs(r - diameter / 2) <= oc.Precision.Confusion();
       }
 
-      curveAdaptor.delete();
-    }
-
-    return false;
+      return false;
+    });
   }
 
   static isConeFaceRaw(face: TopoDS_Shape): boolean {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    ocFace.delete();
     const type = faceAdaptor.GetType();
     faceAdaptor.delete();
     return type === oc.GeomAbs_SurfaceType.GeomAbs_Cone;
@@ -338,17 +342,20 @@ export class FaceQuery {
    */
   static hasClosedCircularRimRaw(face: TopoDS_Shape): boolean {
     const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const edges = Explorer.findShapes(ocFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
-    for (const edge of edges) {
-      const curveAdaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(edge));
-      const isClosedCircle = curveAdaptor.GetType() === oc.GeomAbs_CurveType.GeomAbs_Circle && curveAdaptor.IsClosed();
-      curveAdaptor.delete();
-      if (isClosedCircle) {
-        return true;
+    // The explorer copies and the typed casts are this read's own.
+    return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
+      for (const edge of edges) {
+        const typed = oc.TopoDS.Edge(edge);
+        const curveAdaptor = new oc.BRepAdaptor_Curve(typed);
+        typed.delete();
+        const isClosedCircle = curveAdaptor.GetType() === oc.GeomAbs_CurveType.GeomAbs_Circle && curveAdaptor.IsClosed();
+        curveAdaptor.delete();
+        if (isClosedCircle) {
+          return true;
+        }
       }
-    }
-    return false;
+      return false;
+    });
   }
 
   /**
@@ -360,6 +367,8 @@ export class FaceQuery {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    // The adaptor holds its own reference to the face; the typed copy goes.
+    ocFace.delete();
     const type = faceAdaptor.GetType();
     if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
       faceAdaptor.delete();
@@ -399,6 +408,7 @@ export class FaceQuery {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    ocFace.delete();
     const type = faceAdaptor.GetType();
 
     if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Torus) {
@@ -429,13 +439,21 @@ export class FaceQuery {
 
   static isFaceOnPlaneRaw(face: TopoDS_Shape, plane: gp_Pln): boolean {
     const oc = getOC();
-    return FaceOps.faceOnPlane(oc.TopoDS.Face(face), plane);
+    const typed = oc.TopoDS.Face(face);
+    try {
+      return FaceOps.faceOnPlane(typed, plane);
+    } finally {
+      typed.delete();
+    }
   }
 
+  // In each adaptor read below the adaptor holds its own reference to the
+  // face, so the typed copy it was built from goes as soon as it exists.
   static isFaceParallelToPlaneRaw(face: TopoDS_Shape, plane: gp_Pln): boolean {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    ocFace.delete();
     // Plane() raises Standard_NoSuchObject on any other surface — a wasm
     // exception per cylinder per evaluation. A non-planar face is not
     // parallel to a plane; say so without asking the adaptor for one.
@@ -466,6 +484,7 @@ export class FaceQuery {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    ocFace.delete();
     const result = adaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Plane;
     adaptor.delete();
     return result;
@@ -475,6 +494,7 @@ export class FaceQuery {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    ocFace.delete();
     const type = adaptor.GetType();
     adaptor.delete();
     if (type === oc.GeomAbs_SurfaceType.GeomAbs_Plane) return "plane";
@@ -489,27 +509,36 @@ export class FaceQuery {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    const plane = adaptor.Plane();
-    adaptor.delete();
-    return plane;
+    ocFace.delete();
+    try {
+      return adaptor.Plane();
+    } finally {
+      adaptor.delete();
+    }
   }
 
   static getSurfaceAdaptorCylinderRaw(face: TopoDS_Shape): gp_Cylinder {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    const cylinder = adaptor.Cylinder();
-    adaptor.delete();
-    return cylinder;
+    ocFace.delete();
+    try {
+      return adaptor.Cylinder();
+    } finally {
+      adaptor.delete();
+    }
   }
 
   static getSurfaceAdaptorConeRaw(face: TopoDS_Shape): gp_Cone {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    const cone = adaptor.Cone();
-    adaptor.delete();
-    return cone;
+    ocFace.delete();
+    try {
+      return adaptor.Cone();
+    } finally {
+      adaptor.delete();
+    }
   }
 
   /**
@@ -521,6 +550,7 @@ export class FaceQuery {
     const oc = getOC();
     const ocFace = oc.TopoDS.Face(face);
     const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
+    ocFace.delete();
     const vMin = adaptor.FirstVParameter();
     const vMax = adaptor.LastVParameter();
     adaptor.delete();
@@ -573,11 +603,16 @@ export class FaceQuery {
 
   static arePlanesParallelRaw(plane1: gp_Pln, plane2: gp_Pln): boolean {
     const oc = getOC();
-    const dir1 = plane1.Axis().Direction();
-    const dir2 = plane2.Axis().Direction();
+    // The axes are copies of their own, as are the directions read off them.
+    const axis1 = plane1.Axis();
+    const axis2 = plane2.Axis();
+    const dir1 = axis1.Direction();
+    const dir2 = axis2.Direction();
     const result = dir1.IsParallel(dir2, oc.Precision.Angular());
     dir1.delete();
     dir2.delete();
+    axis1.delete();
+    axis2.delete();
     return result;
   }
 

@@ -21,6 +21,7 @@ import { type NumberParam, resolveParam } from "../core/param.js";
 import { getOC } from "../oc/init.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import { ClassifiedBucketRemapper } from "./classified-buckets.js";
+import { disposeBuildTemporaries } from "./build-temporaries.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import type { TopAbs_ShapeEnum } from "ocjs-fluidcad";
 import { mmTol } from "../units/tolerance.js";
@@ -322,9 +323,14 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
    */
   protected remapClassifiedBuckets(history: ShapeHistory, finalShapes: Shape[]) {
     const remapper = new ClassifiedBucketRemapper(history, finalShapes);
+    // The as-built bucket wrappers the remap replaces, and the history it
+    // reads through: whatever the state no longer reaches afterwards was
+    // this build's alone.
+    const replaced: Shape[] = [];
     try {
       const rehome = (key: string) => {
         const asBuilt = this.getState(key) as Face[] || [];
+        replaced.push(...asBuilt);
         const edges = remapper.remapEdges(edgesOfFaces(asBuilt));
         const faces = remapper.remapFaces(asBuilt, edges);
         this.setState(key, faces.faces);
@@ -334,6 +340,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       const end = rehome('end-faces');
       for (const key of ['side-faces', 'internal-faces', 'cap-faces']) {
         const faces = this.getState(key) as Face[] || [];
+        replaced.push(...faces);
         this.setState(key, ShapeHistoryTracker.remapFaces(faces, history));
       }
 
@@ -344,6 +351,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       });
     } finally {
       remapper.dispose();
+      disposeBuildTemporaries(this, [...replaced, ...ShapeHistoryTracker.shapesOf(history)]);
     }
   }
 
@@ -357,12 +365,17 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
     for (const shape of shapes) {
-      for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
-        this.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), this);
-      }
-      for (const raw of Explorer.findShapes(shape.getShape(), EDGE)) {
-        this.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), this);
-      }
+      // Each record takes its own typed copy; the explorer copies go.
+      Explorer.withShapes(shape.getShape(), FACE, raws => {
+        for (const raw of raws) {
+          this.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), this);
+        }
+      });
+      Explorer.withShapes(shape.getShape(), EDGE, raws => {
+        for (const raw of raws) {
+          this.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), this);
+        }
+      });
     }
   }
 
@@ -415,6 +428,16 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     } else {
       p.record('Classify edges', () => this.classifyExtrudeEdges());
     }
+
+    // The fuse consumed the tool solids, and the remap replaced the as-built
+    // bucket faces and read the tool history through: whatever the state no
+    // longer reaches was this build's alone.
+    p.record('Dispose build temporaries', () => disposeBuildTemporaries(this, [
+      ...shapes,
+      ...classified.startFaces, ...classified.endFaces, ...classified.sideFaces,
+      ...classified.internalFaces, ...classified.capFaces,
+      ...(fusionResult.toolHistory ? ShapeHistoryTracker.shapesOf(fusionResult.toolHistory) : []),
+    ]));
   }
 
   /**

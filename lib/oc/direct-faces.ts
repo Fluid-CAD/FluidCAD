@@ -44,18 +44,23 @@ import { SurfaceFrame, SurfaceFrames } from "./surface-frames.js";
  * `ShapeFix_Wire::FixShifted` applies within a wire.
  */
 export type DirectFacesResult = {
-  /** The normalized shape; the input itself when nothing was indirect. */
+  /**
+   * The normalized shape — the same shape as the input (IsSame) when
+   * nothing was indirect. A handle of the result's own: `dispose` frees it,
+   * so a caller that keeps the shape takes a copy first.
+   */
   shape: TopoDS_Shape;
   /** Whether any face was rebuilt (the result is then a new shape). */
   changed: boolean;
   /**
-   * The result's stand-in for `sub`, a sub-shape of the input: the rebuilt
-   * copy when its geometry changed, `sub` itself when it was untouched.
+   * The result's stand-in for `sub`, a sub-shape of the input: a fresh copy
+   * of the rebuilt sub-shape when its geometry changed (the caller frees
+   * it), `sub` itself when it was untouched.
    */
   modified(sub: TopoDS_Shape): TopoDS_Shape;
   /** As `modified`, but null for a sub-shape the rebuild never saw. */
   modifiedOrNull(sub: TopoDS_Shape): TopoDS_Shape | null;
-  /** Frees the modifier. `shape` and every `modified` result stay valid. */
+  /** Frees the modifier and `shape`. Every `modified` result stays valid. */
   dispose(): void;
 };
 
@@ -79,16 +84,25 @@ export class DirectFaces {
     const changed = !result.IsSame(shape);
     if (changed) {
       const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
-      for (const face of Explorer.findShapes(shape, FACE)) {
-        const rebuilt = modifier.ModifiedShape(face);
-        if (!rebuilt.IsSame(face)) {
+      // The explorer copies, the rebuilt images and the typed casts only
+      // serve the canonicalization: the modifier keeps the rebuilt faces.
+      Explorer.withShapes(shape, FACE, faces => {
+        for (const face of faces) {
+          const rebuilt = modifier.ModifiedShape(face);
           try {
-            DirectFaces.canonicalizePeriodicPCurves(oc.TopoDS.Face(rebuilt));
-          } catch (e) {
-            throw e;
+            if (!rebuilt.IsSame(face)) {
+              const typed = oc.TopoDS.Face(rebuilt);
+              try {
+                DirectFaces.canonicalizePeriodicPCurves(typed);
+              } finally {
+                typed.delete();
+              }
+            }
+          } finally {
+            rebuilt.delete();
           }
         }
-      }
+      });
     }
     const modified = (sub: TopoDS_Shape) => changed ? modifier.ModifiedShape(sub) : sub;
     return {
@@ -102,7 +116,10 @@ export class DirectFaces {
           return null;
         }
       },
-      dispose: () => modifier.delete(),
+      dispose: () => {
+        modifier.delete();
+        result.delete();
+      },
     };
   }
 
@@ -154,56 +171,72 @@ export class DirectFaces {
     // BRep_Tool's face-based pcurve read flips the edge when the FACE is
     // reversed, while BRep_Builder's write does not: address the face
     // FORWARD so the pair read is the pair written.
-    const face: TopoDS_Face = oc.TopoDS.Face(rebuilt.Oriented(FORWARD));
-    const adaptor = new oc.BRepAdaptor_Surface(face, false);
-    const uPeriod = adaptor.IsUPeriodic() ? adaptor.UPeriod() : 0;
-    const vPeriod = adaptor.IsVPeriodic() ? adaptor.VPeriod() : 0;
-    adaptor.delete();
-    if (uPeriod === 0 && vPeriod === 0) {
-      return;
-    }
-
-    const bounds = oc.BRepTools.UVBounds(face);
-    const du = DirectFaces.periodShift(bounds.UMin, uPeriod);
-    const dv = DirectFaces.periodShift(bounds.VMin, vPeriod);
-    if (du === 0 && dv === 0) {
-      return;
-    }
-
-    const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
-    const shift = new oc.gp_Vec2d(du, dv);
-    const builder = new oc.BRep_Builder();
-    const seen: TopoDS_Shape[] = [];
-    for (const raw of Explorer.findShapes(face, EDGE)) {
-      // A seam edge is explored once per orientation; its two pcurves are
-      // moved together below, so the second visit is skipped.
-      if (seen.some(e => e.IsSame(raw))) {
-        continue;
+    // Every handle read here — the oriented copies, the typed casts, the
+    // explorer copies — is this pass's own and goes with it; the kernel
+    // keeps the pcurves the builder writes.
+    const scratch: { delete(): void }[] = [];
+    try {
+      const forwardFace = rebuilt.Oriented(FORWARD);
+      const face: TopoDS_Face = oc.TopoDS.Face(forwardFace);
+      scratch.push(forwardFace, face);
+      const adaptor = new oc.BRepAdaptor_Surface(face, false);
+      const uPeriod = adaptor.IsUPeriodic() ? adaptor.UPeriod() : 0;
+      const vPeriod = adaptor.IsVPeriodic() ? adaptor.VPeriod() : 0;
+      adaptor.delete();
+      if (uPeriod === 0 && vPeriod === 0) {
+        return;
       }
-      seen.push(raw);
-      // A seam's two pcurves are the FORWARD and REVERSED sides of the edge;
-      // address it FORWARD so C1 / C2 keep their sides through the write.
-      const edge: TopoDS_Edge = oc.TopoDS.Edge(raw.Oriented(FORWARD));
-      const tolerance = oc.BRep_Tool.Tolerance(edge);
-      if (oc.BRepTools.IsReallyClosed(edge, face)) {
-        const forward = oc.BRep_ToolExt.CurveOnFace(edge, face);
-        const reversed = oc.BRep_ToolExt.CurveOnFace(oc.TopoDS.Edge(edge.Oriented(REVERSED)), face);
-        forward.returnValue.Translate(shift);
-        reversed.returnValue.Translate(shift);
-        builder.UpdateEdge(edge, forward.returnValue, reversed.returnValue, face, tolerance);
-        forward[Symbol.dispose]();
-        reversed[Symbol.dispose]();
-      } else {
-        const rep = oc.BRep_ToolExt.CurveOnFace(edge, face);
-        if (rep.returnValue) {
-          rep.returnValue.Translate(shift);
-          builder.UpdateEdge(edge, rep.returnValue, face, tolerance);
+
+      const bounds = oc.BRepTools.UVBounds(face);
+      const du = DirectFaces.periodShift(bounds.UMin, uPeriod);
+      const dv = DirectFaces.periodShift(bounds.VMin, vPeriod);
+      if (du === 0 && dv === 0) {
+        return;
+      }
+
+      const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+      const shift = new oc.gp_Vec2d(du, dv);
+      const builder = new oc.BRep_Builder();
+      scratch.push(shift, builder);
+      const seen: TopoDS_Shape[] = [];
+      const raws = Explorer.findShapes(face, EDGE);
+      scratch.push(...raws);
+      for (const raw of raws) {
+        // A seam edge is explored once per orientation; its two pcurves are
+        // moved together below, so the second visit is skipped.
+        if (seen.some(e => e.IsSame(raw))) {
+          continue;
         }
-        rep[Symbol.dispose]();
+        seen.push(raw);
+        // A seam's two pcurves are the FORWARD and REVERSED sides of the edge;
+        // address it FORWARD so C1 / C2 keep their sides through the write.
+        const forwardEdge = raw.Oriented(FORWARD);
+        const edge: TopoDS_Edge = oc.TopoDS.Edge(forwardEdge);
+        scratch.push(forwardEdge, edge);
+        const tolerance = oc.BRep_Tool.Tolerance(edge);
+        if (oc.BRepTools.IsReallyClosed(edge, face)) {
+          const reversedEdge = edge.Oriented(REVERSED);
+          const reversedTyped = oc.TopoDS.Edge(reversedEdge);
+          scratch.push(reversedEdge, reversedTyped);
+          const forward = oc.BRep_ToolExt.CurveOnFace(edge, face);
+          const reversed = oc.BRep_ToolExt.CurveOnFace(reversedTyped, face);
+          forward.returnValue.Translate(shift);
+          reversed.returnValue.Translate(shift);
+          builder.UpdateEdge(edge, forward.returnValue, reversed.returnValue, face, tolerance);
+          forward[Symbol.dispose]();
+          reversed[Symbol.dispose]();
+        } else {
+          const rep = oc.BRep_ToolExt.CurveOnFace(edge, face);
+          if (rep.returnValue) {
+            rep.returnValue.Translate(shift);
+            builder.UpdateEdge(edge, rep.returnValue, face, tolerance);
+          }
+          rep[Symbol.dispose]();
+        }
       }
+    } finally {
+      for (const handle of scratch) handle.delete();
     }
-    builder.delete();
-    shift.delete();
   }
 
   /** The whole-period translation that moves `min` into [0, period); 0 when not periodic. */
@@ -216,11 +249,15 @@ export class DirectFaces {
     return -Math.floor((min + EPS) / period) * period;
   }
 
-  /** Normalizes `shape` and returns only the result (no history). */
+  /** Normalizes `shape` and returns only the result (no history) — a handle the caller frees. */
   static normalizeRaw(shape: TopoDS_Shape): TopoDS_Shape {
     const direct = DirectFaces.applyRaw(shape);
-    direct.dispose();
-    return direct.shape;
+    try {
+      // The caller's own copy of the result: `dispose` frees the result's.
+      return direct.shape.Oriented(direct.shape.Orientation());
+    } finally {
+      direct.dispose();
+    }
   }
 
   private static applyToCompound(compound: TopoDS_Shape): DirectFacesResult {
@@ -228,13 +265,21 @@ export class DirectFaces {
     const children: DirectFacesResult[] = [];
     const iterator = new oc.TopoDS_Iterator(compound, true, true);
     for (; iterator.More(); iterator.Next()) {
-      children.push(DirectFaces.applyRaw(iterator.Value()));
+      // `Value()` is a copy of its own; each child's result holds its own.
+      const child = iterator.Value();
+      try {
+        children.push(DirectFaces.applyRaw(child));
+      } finally {
+        child.delete();
+      }
     }
     iterator.delete();
 
     const changed = children.some(c => c.changed);
-    let shape = compound;
+    // A handle of this result's own either way (see `DirectFacesResult.shape`).
+    let shape = compound.Oriented(compound.Orientation());
     if (changed) {
+      shape.delete();
       const builder = new oc.BRep_Builder();
       const rebuilt = new oc.TopoDS_Compound();
       builder.MakeCompound(rebuilt);
@@ -279,6 +324,7 @@ export class DirectFaces {
         for (const child of children) {
           child.dispose();
         }
+        shape.delete();
       },
     };
   }

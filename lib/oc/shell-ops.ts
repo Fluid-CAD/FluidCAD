@@ -72,6 +72,8 @@ export class ShellOps {
       colors = ColorTransfer.applyThroughCleanup({ shape: preClean, colors: preCleanView }, cleanup);
     } finally {
       preCleanView.delete();
+      // The pre-clean records were read through to the cleaned faces and are done with.
+      ColorTransfer.disposeCarried(preCleanColors);
     }
     const cleaned = cleanup.shape;
     cleanup.dispose();

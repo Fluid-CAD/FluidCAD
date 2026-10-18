@@ -1,6 +1,7 @@
 import type { TopoDS_Edge, TopoDS_Wire, TopAbs_ShapeEnum, TopoDS_Vertex, TopoDS_Face } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Vector3d } from "../math/vector3d.js";
+import type { Point } from "../math/point.js";
 import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
 import { Vertex } from "../common/vertex.js";
@@ -131,10 +132,15 @@ export class WireOps {
     const handle = isEnvelope ? result.wires : result;
 
     const wires: Wire[] = [];
+    // `Sequence()` and each `Value(i)` are copies of their own: every
+    // wrapper takes a typed copy, and the rest go here.
     const sequence = handle.Sequence();
     for (let i = 1; i <= sequence.Length(); i++) {
-      wires.push(inheritHelixGeometry(Wire.fromTopoDSWire(oc.TopoDS.Wire(sequence.Value(i))), edges));
+      const value = sequence.Value(i);
+      wires.push(inheritHelixGeometry(Wire.fromTopoDSWire(oc.TopoDS.Wire(value)), edges));
+      value.delete();
     }
+    sequence.delete();
 
     input.delete();
     if (isEnvelope && typeof result[Symbol.dispose] === "function") {
@@ -319,6 +325,17 @@ export class WireOps {
     const visited = new Set<number>();
     const groups: Edge[][] = [];
 
+    // Each edge's endpoints, read once: the vertex wrappers the reads go
+    // through are freed as they are read (a same vertex is a zero distance).
+    const ends = edges.map(edge => [edge.getFirstPoint(), edge.getLastPoint()] as const);
+    const tolSq = tolerance * tolerance;
+    const match = (a: Point, b: Point) => {
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const dz = a.z - b.z;
+      return (dx * dx + dy * dy + dz * dz) < tolSq;
+    };
+
     for (let i = 0; i < edges.length; i++) {
       if (visited.has(i)) {
         continue;
@@ -332,20 +349,18 @@ export class WireOps {
         const idx = queue.shift()!;
         group.push(edges[idx]);
 
-        const v1 = edges[idx].getFirstVertex();
-        const v2 = edges[idx].getLastVertex();
+        const [v1, v2] = ends[idx];
 
         for (let j = 0; j < edges.length; j++) {
           if (visited.has(j)) {
             continue;
           }
 
-          const ov1 = edges[j].getFirstVertex();
-          const ov2 = edges[j].getLastVertex();
+          const [ov1, ov2] = ends[j];
 
           if (
-            WireOps.verticesMatch(v1, ov1, tolerance) || WireOps.verticesMatch(v1, ov2, tolerance) ||
-            WireOps.verticesMatch(v2, ov1, tolerance) || WireOps.verticesMatch(v2, ov2, tolerance)
+            match(v1, ov1) || match(v1, ov2) ||
+            match(v2, ov1) || match(v2, ov2)
           ) {
             visited.add(j);
             queue.push(j);
@@ -438,6 +453,8 @@ export class WireOps {
       faceMaker.delete();
       disposePlane();
       maker.Init(face, joinType, isOpen);
+      // The maker holds its own reference to the reference face.
+      face.delete();
     } else {
       maker.Init(joinType, isOpen);
     }
@@ -447,28 +464,40 @@ export class WireOps {
       maker.delete();
       throw new Error("Failed to offset wire");
     }
+    // `Shape()` and the explorer copies are the maker's leftovers: only the
+    // typed copy the wrapper takes lives on.
     const result = maker.Shape();
     let resultWire: TopoDS_Wire;
-    if (Explorer.isWire(result)) {
-      resultWire = oc.TopoDS.Wire(result);
-    } else {
-      const wires = Explorer.findShapes<TopoDS_Wire>(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
-      if (wires.length === 0) {
-        maker.delete();
-        throw new Error("Offset produced no wires");
+    try {
+      if (Explorer.isWire(result)) {
+        resultWire = oc.TopoDS.Wire(result);
+      } else {
+        resultWire = Explorer.withShapes(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum, wires => {
+          if (wires.length === 0) {
+            throw new Error("Offset produced no wires");
+          }
+          return oc.TopoDS.Wire(wires[0]);
+        });
       }
-      resultWire = oc.TopoDS.Wire(wires[0]);
+    } catch (error) {
+      maker.delete();
+      throw error;
+    } finally {
+      result.delete();
     }
     // Read the provenance for every spine edge NOW — the maker goes with it.
     const provenance = new Map<Edge, Edge[]>();
     for (const spineEdge of wire.getEdges()) {
       const list = maker.Generated(spineEdge.getShape());
       const edges: Edge[] = [];
-      for (const shape of ShapeOps.shapeListToArray(list)) {
+      // The list's entries are copies: each wrapper takes a typed one.
+      const images = ShapeOps.shapeListToArray(list);
+      for (const shape of images) {
         if (Explorer.isEdge(shape)) {
           edges.push(Edge.fromTopoDSEdge(oc.TopoDS.Edge(shape)));
         }
       }
+      Explorer.deleteAll(images);
       provenance.set(spineEdge, edges);
     }
     maker.delete();
@@ -507,6 +536,8 @@ export class WireOps {
       faceMaker.delete();
       disposePlane();
       maker.Init(face, oc.GeomAbs_JoinType.GeomAbs_Arc, isOpen);
+      // The maker holds its own reference to the reference face.
+      face.delete();
     } else {
       maker.Init(oc.GeomAbs_JoinType.GeomAbs_Arc, isOpen);
     }
@@ -522,14 +553,21 @@ export class WireOps {
     const result = maker.Shape();
     maker.delete();
 
-    if (Explorer.isWire(result)) {
-      return oc.TopoDS.Wire(result);
-    }
+    // `Shape()` and the explorer copies are the maker's leftovers: only the
+    // typed copy handed back lives on.
+    try {
+      if (Explorer.isWire(result)) {
+        return oc.TopoDS.Wire(result);
+      }
 
-    const wires = Explorer.findShapes<TopoDS_Wire>(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
-    if (wires.length === 0) {
-      throw new Error("Offset produced no wires");
+      return Explorer.withShapes(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum, wires => {
+        if (wires.length === 0) {
+          throw new Error("Offset produced no wires");
+        }
+        return oc.TopoDS.Wire(wires[0]);
+      });
+    } finally {
+      result.delete();
     }
-    return oc.TopoDS.Wire(wires[0]);
   }
 }

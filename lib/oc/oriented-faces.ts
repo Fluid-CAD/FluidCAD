@@ -36,8 +36,9 @@ export class OrientedFaces {
 
   /**
    * The instance of `face` inside the result (same TShape and location, the
-   * result's orientation). A face the result does not contain is returned
-   * unchanged — a caller may legitimately hold faces that a later cleanup
+   * result's orientation) — a copy of the index's entry, the caller's to
+   * free. A face the result does not contain is returned unchanged (`face`
+   * itself) — a caller may legitimately hold faces that a later cleanup
    * removed, and those keep whatever orientation they had.
    */
   orient(face: TopoDS_Shape): TopoDS_Shape {

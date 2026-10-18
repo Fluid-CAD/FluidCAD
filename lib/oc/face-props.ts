@@ -1,4 +1,4 @@
-import type { TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
+import type { TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { FaceQuery } from "./face-query.js";
@@ -22,23 +22,38 @@ export interface FaceProperties {
 export class FaceProps {
   static getProperties(face: TopoDS_Shape): FaceProperties {
     const oc = getOC();
+    // The typed copy only serves this read.
     const ocFace = oc.TopoDS.Face(face);
+    try {
+      return FaceProps.read(ocFace);
+    } finally {
+      ocFace.delete();
+    }
+  }
+
+  private static read(ocFace: TopoDS_Face): FaceProperties {
+    const oc = getOC();
     const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
     const type = adaptor.GetType();
 
     if (type === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
       adaptor.delete();
       // Check if it's a circular face (plane with a single closed circular edge)
-      const edges = Explorer.findShapes(ocFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
       let isCircle = false;
       let circleRadius = 0;
 
-      if (edges.length >= 1) {
+      // The explorer copies and the typed casts are this read's own.
+      Explorer.withShapes(ocFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
+        if (edges.length === 0) {
+          return;
+        }
         let allCircular = true;
         let closedCircleFound = false;
 
         for (const e of edges) {
-          const curveAdaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(e));
+          const typed = oc.TopoDS.Edge(e);
+          const curveAdaptor = new oc.BRepAdaptor_Curve(typed);
+          typed.delete();
           const curveType = curveAdaptor.GetType();
           if (curveType !== oc.GeomAbs_CurveType.GeomAbs_Circle) {
             allCircular = false;
@@ -55,7 +70,7 @@ export class FaceProps {
         }
 
         isCircle = allCircular && closedCircleFound;
-      }
+      });
 
       if (isCircle) {
         return { surfaceType: 'circle', radius: circleRadius };

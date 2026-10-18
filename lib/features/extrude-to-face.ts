@@ -1,6 +1,7 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Edge, Face, Shape } from "../common/shapes.js";
 import { ExtrudeBase } from "./extrude-base.js";
+import { disposeBuildTemporaries } from "./build-temporaries.js";
 import { Extruder } from "./simple-extruder.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import { FaceQuery } from "../oc/face-query.js";
@@ -47,6 +48,10 @@ export class ExtrudeToFace extends ExtrudeBase {
     let faces: Face[];
     let inwardEdges: Edge[] | undefined;
     let outwardEdges: Edge[] | undefined;
+    // The profile faces this build made for itself (regions, thin
+    // profiles): freed with the tool solids once the fuse has consumed
+    // them. Picked or source faces belong to the feature that holds them.
+    let builtFaces: Face[] = [];
 
     if (this.isFaceSourced()) {
       if (this.isThin()) {
@@ -56,10 +61,12 @@ export class ExtrudeToFace extends ExtrudeBase {
     } else if (this.isThin()) {
       const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
       faces = thinResult.faces;
+      builtFaces = faces;
       inwardEdges = thinResult.inwardEdges;
       outwardEdges = thinResult.outwardEdges;
     } else {
       faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
+      builtFaces = pickedFaces ? [] : faces;
     }
 
     const allCapFaces: Face[] = [];
@@ -110,45 +117,51 @@ export class ExtrudeToFace extends ExtrudeBase {
       this.face.removeShapes(this);
     }
 
-    if (this._operationMode === 'remove') {
-      try {
-        cutWithSceneObjects(this.resolveFusionStock(allSceneObjects), solids, plane, 0, this, { recordHistoryFor: this });
-      } finally {
-        // The tool solids never reach the scene, and the cut records its
-        // own internal faces over the tool's.
-        for (const shape of solids) shape.dispose();
-        for (const face of allInternalFaces) face.dispose();
+    try {
+      if (this._operationMode === 'remove') {
+        try {
+          cutWithSceneObjects(this.resolveFusionStock(allSceneObjects), solids, plane, 0, this, { recordHistoryFor: this });
+        } finally {
+          // The tool solids never reach the scene, and the cut records its
+          // own internal faces over the tool's.
+          for (const shape of solids) shape.dispose();
+          for (const face of allInternalFaces) face.dispose();
+        }
+        this.setFinalShapes(this.getShapes());
+        return;
+      }
+
+      if (sceneObjects.length === 0) {
+        this.addShapes(solids);
+        this.recordShapeFacesAndEdgesAsAdditions(solids);
+        this.classifyExtrudeEdges();
+        this.setFinalShapes(this.getShapes());
+        return;
+      }
+
+      const fusionResult = fuseWithSceneObjects(this.resolveFusionStock(allSceneObjects), solids, {
+        recordHistoryFor: this,
+      });
+
+      for (const modifiedShape of fusionResult.modifiedShapes) {
+        if (modifiedShape.object) {
+          modifiedShape.object.removeShape(modifiedShape.shape, this, modifiedShape.successors);
+        }
+      }
+
+      this.addShapes(fusionResult.newShapes);
+
+      if (fusionResult.toolHistory) {
+        this.remapClassifiedBuckets(fusionResult.toolHistory, fusionResult.newShapes);
+      } else {
+        this.classifyExtrudeEdges();
       }
       this.setFinalShapes(this.getShapes());
-      return;
+    } finally {
+      // The profile faces this build made and the tool solids a fuse
+      // consumed: whatever the state still reaches (an unfused solid) stays.
+      disposeBuildTemporaries(this, [...builtFaces, ...solids]);
     }
-
-    if (sceneObjects.length === 0) {
-      this.addShapes(solids);
-      this.recordShapeFacesAndEdgesAsAdditions(solids);
-      this.classifyExtrudeEdges();
-      this.setFinalShapes(this.getShapes());
-      return;
-    }
-
-    const fusionResult = fuseWithSceneObjects(this.resolveFusionStock(allSceneObjects), solids, {
-      recordHistoryFor: this,
-    });
-
-    for (const modifiedShape of fusionResult.modifiedShapes) {
-      if (modifiedShape.object) {
-        modifiedShape.object.removeShape(modifiedShape.shape, this, modifiedShape.successors);
-      }
-    }
-
-    this.addShapes(fusionResult.newShapes);
-
-    if (fusionResult.toolHistory) {
-      this.remapClassifiedBuckets(fusionResult.toolHistory, fusionResult.newShapes);
-    } else {
-      this.classifyExtrudeEdges();
-    }
-    this.setFinalShapes(this.getShapes());
   }
 
   private createAdvancedExtrude(sourceFace: Face, targetFace: Face, isPlanar: boolean, sketchPlane: Plane): Shape[] {

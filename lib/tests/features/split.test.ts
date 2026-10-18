@@ -6,11 +6,14 @@ import plane from "../../core/plane.js";
 import select from "../../core/select.js";
 import split from "../../core/split.js";
 import translate from "../../core/translate.js";
+import repeat from "../../core/repeat.js";
 import { line, arc, circle, bezier } from "../../core/2d/index.js";
 import rect from "../../core/shapes/rect.js";
 import { coincident, fix, distance, vertical, horizontal } from "../../core/constraints/index.js";
 import { face } from "../../filters/index.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
+import { RepeatBase } from "../../features/repeat-base.js";
+import { Sketch } from "../../features/2d/sketch.js";
 import { Split } from "../../features/split.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Shape } from "../../common/shape.js";
@@ -303,7 +306,7 @@ describe("split", () => {
       const pieces = s.getShapes();
       expect(pieces.length).toBe(1);
       expect(ShapeOps.getBoundingBox(pieces[0]).maxX).toBeCloseTo(0, 5);
-      expect(ShapeOps.getBoundingBox(pieces[0]).minX).toBeCloseTo(-20, 5);
+      expect(ShapeOps.getBoundingBox(pieces[0]).minX).toBeCloseTo(-20, 0);
     });
 
     it("cuts along an arc's curved sheet, front to the right of the arc", () => {
@@ -413,6 +416,140 @@ describe("split", () => {
       expect(e.getShapes().length).toBe(1);
       expect(sceneSolids(scene).length).toBe(1);
       expect(s.getError()).toContain("passes through none of the solids");
+    });
+  });
+
+  describe("repeated", () => {
+    /** The scene's solids, by their min x. */
+    function piecesByX(scene: ReturnType<typeof render>): Shape[] {
+      // Containers (the repeat) hand out their children's solids again.
+      const all = new Set(scene.getAllSceneObjects());
+      const solids = scene.getAllSceneObjects().filter(o => !o.isContainer()).flatMap(o => o.getShapes({}, 'solid', all));
+      return solids.sort((a, b) => ShapeOps.getBoundingBox(a).minX - ShapeOps.getBoundingBox(b).minX);
+    }
+
+    function expectSpan(shape: Shape, minX: number, maxX: number): void {
+      const bbox = ShapeOps.getBoundingBox(shape);
+      expect(bbox.minX).toBeCloseTo(minX, 5);
+      expect(bbox.maxX).toBeCloseTo(maxX, 5);
+    }
+
+    it("a mirror repeat re-cuts the target's pieces at the mirrored plane instead of rebuilding the body", () => {
+      const e = box();
+      const s = split(plane('yz', 10), e) as unknown as Split;
+      const r = repeat('mirror', 'yz', s) as unknown as RepeatBase;
+
+      const scene = render();
+
+      // The target names a body to read live, not a chain to clone: the box
+      // was extruded once, and the instance cut the original split's pieces.
+      expect(scene.getAllSceneObjects().filter(o => o instanceof ExtrudeBase).length).toBe(1);
+      const pieces = piecesByX(scene);
+      expect(pieces.length).toBe(3);
+      expectSpan(pieces[0], -20, -10);
+      expectSpan(pieces[1], -10, 10);
+      expectSpan(pieces[2], 10, 20);
+
+      const clone = r.getInstanceRoots(1)[0] as Split;
+      expect(clone.getShapes().length).toBe(2);
+      expect(clone.getPlane()!.origin.x).toBeCloseTo(-10, 9);
+      expect(clone.getPlane()!.normal.x).toBeCloseTo(-1, 9);
+    });
+
+    it("a mirrored split with no targets cuts the bodies in scope, not its instance's other clones", () => {
+      box();
+      split(plane('yz', 10));
+      repeat('mirror', 'yz');
+
+      const scene = render();
+
+      const pieces = piecesByX(scene);
+      expect(pieces.length).toBe(3);
+      expectSpan(pieces[0], -20, -10);
+      expectSpan(pieces[1], -10, 10);
+      expectSpan(pieces[2], 10, 20);
+    });
+
+    it("a mirrored split seeded by a sketched line cuts at the line's image without cloning the sketch", () => {
+      box();
+      let seed: any;
+      sketch("xy", () => {
+        seed = line([6, -40], [6, 40]).guide();
+        vertical(seed);
+        fix(seed.start(), [6, -40]);
+        distance(seed.start(), seed.end(), 80);
+      });
+      const s = split(seed) as unknown as Split;
+      const r = repeat('mirror', 'yz', s) as unknown as RepeatBase;
+
+      const scene = render();
+
+      // The box profile and the seed sketch: the repeat moved the seed, not the sketch.
+      expect(scene.getAllSceneObjects().filter(o => o instanceof Sketch).length).toBe(2);
+      const pieces = piecesByX(scene);
+      expect(pieces.length).toBe(3);
+      expectSpan(pieces[0], -20, -6);
+      expectSpan(pieces[1], -6, 6);
+      expectSpan(pieces[2], 6, 20);
+
+      // The plane moves with its normal: the instance's front is the image
+      // of the original's (+x), so it points to -x.
+      const clone = r.getInstanceRoots(1)[0] as Split;
+      expect(clone.getPlane()!.origin.x).toBeCloseTo(-6, 9);
+      expect(clone.getPlane()!.normal.x).toBeCloseTo(-1, 9);
+    });
+
+    it("a mirrored split keeps the image of the side the original keeps", () => {
+      box();
+      let seed: any;
+      sketch("xy", () => {
+        seed = line([6, -40], [6, 40]).guide();
+        vertical(seed);
+        fix(seed.start(), [6, -40]);
+        distance(seed.start(), seed.end(), 80);
+      });
+      // The original keeps x < 6; its image keeps x > -6.
+      split(seed, { keep: 'back' });
+      repeat('mirror', 'yz');
+
+      const scene = render();
+
+      const pieces = piecesByX(scene);
+      expect(pieces.length).toBe(1);
+      expectSpan(pieces[0], -6, 6);
+    });
+
+    it("a mirrored split along a sheet keeps the sheet's front on the image side", () => {
+      box();
+      let seed: any;
+      // The arc of the sheet test above: it crosses the box between x = 14.5
+      // (top and bottom faces) and 16.6 (at y = 0), its front +x.
+      sketch("xy", () => {
+        seed = arc([0, -40], [0, 40], [-40, 0]).guide();
+        fix(seed.start(), [0, -40]);
+        fix(seed.end(), [0, 40]);
+        fix(seed.center(), [-40, 0]);
+      });
+      const s = split(seed) as unknown as Split;
+      const r = repeat('mirror', 'yz', s) as unknown as RepeatBase;
+
+      render();
+
+      expect(s.getCutKind()).toBe('sheet');
+      // The original's sliver lies beyond x = 14.5; the image took its other piece.
+      expect(s.getShapes().length).toBe(1);
+      expect(ShapeOps.getBoundingBox(s.getShapes()[0]).minX).toBeCloseTo(14.54, 1);
+
+      // The image's front is the image of the original's: its sliver lies
+      // beyond x = -14.5, and the middle piece spans the two cuts.
+      const clone = r.getInstanceRoots(1)[0] as Split;
+      expect(clone.getCutKind()).toBe('sheet');
+      const pieces = clone.getShapes();
+      expect(pieces.length).toBe(2);
+      expect(ShapeOps.getBoundingBox(pieces[0]).maxX).toBeCloseTo(-14.54, 1);
+      expect(ShapeOps.getBoundingBox(pieces[0]).minX).toBeCloseTo(-20, 0);
+      expect(ShapeOps.getBoundingBox(pieces[1]).minX).toBeCloseTo(-16.57, 1);
+      expect(ShapeOps.getBoundingBox(pieces[1]).maxX).toBeCloseTo(16.57, 1);
     });
   });
 

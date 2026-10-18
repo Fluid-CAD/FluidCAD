@@ -165,7 +165,10 @@ export class Split extends SceneObject implements ISplit {
   /**
    * The solids this split may cut, each with its holder: the named targets'
    * live solids (each listed once), or — without targets — every live
-   * solid the scope's objects hold before this statement.
+   * solid the scope's objects hold before this statement. The scope is the
+   * context's (the enclosing part's members, or the scene, up to here): a
+   * repeated split sits under its repeat container, whose earlier children
+   * are the instance's other clones, not the bodies to cut.
    */
   private resolveStock(context: BuildSceneObjectContext): HeldShape[] {
     if (this.targetObjects && this.targetObjects.length > 0) {
@@ -182,9 +185,7 @@ export class Split extends SceneObject implements ISplit {
       return out;
     }
 
-    const parent = this.parentId ? this.getParent() : null;
-    const objects = parent ? parent.getPreviousSiblings(this) : context.getSceneObjects();
-    return heldSolidsOf(objects).map(({ holder, solid }) => ({ holder, shape: solid }));
+    return heldSolidsOf(context.getSceneObjects()).map(({ holder, solid }) => ({ holder, shape: solid }));
   }
 
   /** The cut plane as built; null when the cut is a sketched curve's sheet. */
@@ -197,12 +198,23 @@ export class Split extends SceneObject implements ISplit {
     return (this.getState('cut-kind') as 'plane' | 'sheet' | undefined) ?? 'plane';
   }
 
+  /**
+   * The cut alone. The targets name bodies the split reads wherever the
+   * features since left them (`liveOperandShapes`), the way `mirror(p, f)`
+   * and `fuse(a, b)` read theirs — never features to rebuild. Listing them
+   * would make a repeat of the split clone each target's whole producer
+   * chain into every instance (a mirrored copy of the body, then the fillet
+   * and the split failing on it) instead of re-applying the cut to the
+   * pieces the original split left.
+   */
   override getDependencies(): SceneObject[] {
-    return [this.cut, ...(this.targetObjects ?? [])];
+    return [this.cut];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const cut = (remap.get(this.cut) as SplitCut | undefined) ?? this.cut;
+    // A target repeated alongside the split is its clone; any other stays
+    // the original, read live — after the original split, its pieces.
     const targets = this.targetObjects
       ? this.targetObjects.map(obj => remap.get(obj) || obj)
       : null;

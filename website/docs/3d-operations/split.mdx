@@ -105,6 +105,17 @@ split(s.geometries.ring, { keep: 'front' }); // Outside a counter-clockwise circ
 
 See the [API reference](/docs/api/features/3d/split) for the full signature.
 
+## Repeating a split
+
+A split can be repeated like any other feature. A mirror or pattern of it cuts the same bodies again at the moved cut: the targets name bodies to read where the features before left them, so the instance cuts the pieces the original split made, and nothing about the bodies is rebuilt. A split seeded by a sketch edge moves the edge's plane or sheet with the instance while the sketch stays where it was drawn.
+
+```js
+const s = split(sk.geometries.seed, leg);   // cut the leg at the top corner
+repeat('mirror', midPlane, s);              // the same cut at the bottom corner
+```
+
+The kept side follows the move: an instance of `{ keep: 'front' }` keeps the image of the side the original keeps.
+
 ## If nothing is split
 
 The cut must pass through the interior of a target solid. A plane that misses a solid or only touches a face or edge leaves that solid unchanged, even when **Front** or **Back** is selected. So does a sketch curve that stops inside the solid instead of running all the way across it.

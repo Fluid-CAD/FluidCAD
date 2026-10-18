@@ -236,7 +236,7 @@ export class ExtrudeOps {
     plane: Plane,
     angle: number,
     excludeFaces: Shape[] = [],
-  ): { solid: Shape; firstFace: Shape; lastFace: Shape; remapFace: (face: Shape) => Shape[] } {
+  ): { solid: Shape; firstFace: Shape; lastFace: Shape; remapFace: (face: Shape) => Shape[]; dispose: () => void } {
     const oc = getOC();
     const [dir, disposeDir] = Convert.toGpDir(plane.normal);
     const [pln, disposePln] = Convert.toGpPln(plane);
@@ -247,12 +247,16 @@ export class ExtrudeOps {
     const excludeRaw = excludeFaces.map(s => s.getShape());
 
     const draftMaker = new oc.BRepOffsetAPI_DraftAngle(solidRaw);
-    const sideFaces = Explorer.findShapes(solidRaw, Explorer.getOcShapeType("face")).filter(
+    // Explorer copies: the ones not drafted go now, the side faces live on
+    // as the remap's keys until `dispose`.
+    const allFaces = Explorer.findShapes(solidRaw, Explorer.getOcShapeType("face"));
+    const sideFaces = allFaces.filter(
       f =>
         !f.IsSame(firstFaceRaw)
         && !f.IsSame(lastFaceRaw)
         && !excludeRaw.some(e => f.IsSame(e))
     );
+    Explorer.deleteAll(allFaces.filter(f => !sideFaces.includes(f)));
 
     for (const face of sideFaces) {
       // Skip faces whose surface normal is parallel to the draft pull
@@ -260,19 +264,30 @@ export class ExtrudeOps {
       // tilt a face around an axis parallel to the face's own normal) and
       // OCC fails the whole Build() if any such face is added. Non-planar
       // faces get drafted unconditionally.
-      const adaptor = new oc.BRepAdaptor_Surface(Explorer.toFace(face), true);
-      if (adaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-        const facePlane = adaptor.Plane();
-        const ax = facePlane.Axis().Direction();
-        const dot = Math.abs(ax.Dot(dir));
-        adaptor.delete();
-        if (dot > 0.999) {
-          continue;
+      const typed = Explorer.toFace(face);
+      try {
+        const adaptor = new oc.BRepAdaptor_Surface(typed, true);
+        try {
+          if (adaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
+            // Each gp getter hands back a fresh copy.
+            const facePlane = adaptor.Plane();
+            const axis = facePlane.Axis();
+            const ax = axis.Direction();
+            const dot = Math.abs(ax.Dot(dir));
+            ax.delete();
+            axis.delete();
+            facePlane.delete();
+            if (dot > 0.999) {
+              continue;
+            }
+          }
+        } finally {
+          adaptor.delete();
         }
-      } else {
-        adaptor.delete();
+        draftMaker.Add(typed, dir, angle, pln, true);
+      } finally {
+        typed.delete();
       }
-      draftMaker.Add(Explorer.toFace(face), dir, angle, pln, true);
     }
 
     const progress = new oc.Message_ProgressRange();
@@ -283,20 +298,41 @@ export class ExtrudeOps {
       draftMaker.delete();
       disposeDir();
       disposePln();
+      Explorer.deleteAll(sideFaces);
       throw new Error("Draft application failed");
     }
 
     const result = draftMaker.Shape();
     // The draft maker's images carry no in-result orientation; every face
-    // handed to the caller is the instance the drafted solid contains.
+    // handed to the caller is the instance the drafted solid contains. The
+    // wrappers made here are the caller's once `remapFace` (or the result)
+    // hands them out; `dispose` frees the rest.
     const resultFaces = new OrientedFaces(result);
-    const image = (raw: TopoDS_Shape): Shape => ShapeFactory.fromShape(resultFaces.orient(raw));
+    const images: Shape[] = [];
+    const handedOut = new Set<Shape>();
+    const image = (raw: TopoDS_Shape): Shape => {
+      const wrapped = resultFaces.wrapFace(raw);
+      images.push(wrapped);
+      return wrapped;
+    };
+    // The maker's image lists are copies the wrappers do not keep.
+    const imagesOf = (raws: TopoDS_Shape[]): Shape[] => {
+      try {
+        return raws.map(image);
+      } finally {
+        Explorer.deleteAll(raws);
+      }
+    };
 
     const modifiedFirst = ShapeOps.shapeListToArray(draftMaker.Modified(firstFaceRaw));
     const modifiedLast = ShapeOps.shapeListToArray(draftMaker.Modified(lastFaceRaw));
 
-    const newFirstFace = modifiedFirst.length > 0 ? image(modifiedFirst[0]) : firstFace;
-    const newLastFace = modifiedLast.length > 0 ? image(modifiedLast[0]) : lastFace;
+    const newFirstFace = modifiedFirst.length > 0 ? imagesOf([modifiedFirst[0]])[0] : firstFace;
+    const newLastFace = modifiedLast.length > 0 ? imagesOf([modifiedLast[0]])[0] : lastFace;
+    Explorer.deleteAll(modifiedFirst.slice(1));
+    Explorer.deleteAll(modifiedLast.slice(1));
+    handedOut.add(newFirstFace);
+    handedOut.add(newLastFace);
 
     // Capture the post-draft images of every input face we care about
     // BEFORE deleting the maker. This lets the caller remap pre-draft
@@ -304,7 +340,7 @@ export class ExtrudeOps {
     const remapMap = new Map<TopoDS_Shape, Shape[]>();
     const captureRemap = (raw: TopoDS_Shape) => {
       const list = ShapeOps.shapeListToArray(draftMaker.Modified(raw));
-      remapMap.set(raw, (list.length > 0 ? list : [raw]).map(image));
+      remapMap.set(raw, list.length > 0 ? imagesOf(list) : [image(raw)]);
     };
     captureRemap(firstFaceRaw);
     captureRemap(lastFaceRaw);
@@ -324,18 +360,38 @@ export class ExtrudeOps {
       const raw = face.getShape();
       for (const [k, v] of remapMap) {
         if (k.IsSame(raw)) {
+          v.forEach(s => handedOut.add(s));
           return v;
         }
       }
       return [face];
     };
 
-    return {
-      solid: ShapeFactory.fromShape(result),
-      firstFace: newFirstFace,
-      lastFace: newLastFace,
-      remapFace,
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      for (const wrapped of images) {
+        if (!handedOut.has(wrapped)) wrapped.dispose();
+      }
+      remapMap.clear();
+      Explorer.deleteAll(sideFaces);
     };
+
+    try {
+      return {
+        solid: ShapeFactory.fromShape(result),
+        firstFace: newFirstFace,
+        lastFace: newLastFace,
+        remapFace,
+        dispose,
+      };
+    } finally {
+      // The wrapper took its own typed copy of the drafted solid.
+      result.delete();
+    }
   }
 
   static applyDraft(shape: TopoDS_Shape, direction: Vector3d, angle: number): TopoDS_Shape {

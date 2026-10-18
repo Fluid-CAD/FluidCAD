@@ -717,9 +717,18 @@ export function cutWithSceneObjects(
   const replacedStock: Shape[] = [];
   // What each replaced stock solid became — none when cut away entirely.
   const successors = new Map<Shape, Shape[]>();
+  // The boolean's own result solids: the cleanup rebuilds each into the
+  // wrapper the caller keeps, so these are freed once it has run.
+  const preClean: Shape[] = [];
+  // The created faces/edges the cleanup remap replaced (it hands back fresh
+  // wrappers for faces, and for edges it rebuilt); the kept ones are these
+  // minus whatever the remap passed through unchanged.
+  let keptFaces: Face[] = [];
+  let keptEdges: Edge[] = [];
   try {
     for (const shape of stock) {
       const list = cutResult.modified(shape);
+      preClean.push(...list);
       if (list.length) {
         // Global face unification would collapse delicate same-domain geometry
         // (e.g. thread flanks) the stock already carries, so skip it when the
@@ -763,6 +772,8 @@ export function cutWithSceneObjects(
     // kernel history rather than a geometric comparison against the stock.
     const internalFaces = remapCreated(cutResult.internalFaces, cleanups, (c, f) => c.remapFace(f));
     const sectionEdges = remapCreated(cutResult.sectionEdges, cleanups, (c, e) => c.remapEdge(e));
+    keptFaces = internalFaces;
+    keptEdges = sectionEdges;
 
     if (options?.recordHistoryFor) {
       recordCutHistory(options.recordHistoryFor, replacedStock, shapeObjectMap, cleanedShapes, cutResult.makerOf,
@@ -775,6 +786,13 @@ export function cutWithSceneObjects(
   } finally {
     for (const cleanup of cleanups) cleanup.dispose();
     cutResult.dispose();
+    for (const shape of preClean) shape.dispose();
+    for (const face of cutResult.internalFaces) {
+      if (!keptFaces.includes(face)) face.dispose();
+    }
+    for (const edge of cutResult.sectionEdges) {
+      if (!keptEdges.includes(edge)) edge.dispose();
+    }
   }
 }
 
@@ -861,8 +879,18 @@ function recordCutHistory(
     // skip its own added* output traversal.
     const history = ShapeHistoryTracker.collect(makerOf(stockShape), [stockShape], { skipAdded: true });
 
+    // The tracker's result wrappers are pre-clean: whatever the cleanup
+    // remap replaced (it hands back fresh face wrappers, and fresh edge
+    // wrappers for edges it rebuilt) is freed once recorded.
+    const retire = <T extends Shape<any>>(results: T[], kept: T[]) => {
+      for (const result of results) {
+        if (!kept.includes(result)) result.dispose();
+      }
+    };
+
     for (const record of history.modifiedFaces) {
       const postCleanResults = remapPreCleanFaces(record.results);
+      retire(record.results, postCleanResults);
       if (postCleanResults.length === 0) {
         // Entire modification was removed by UnifySameDomain — record as removal instead.
         for (const src of record.sources) {
@@ -877,6 +905,7 @@ function recordCutHistory(
     }
     for (const record of history.modifiedEdges) {
       const postCleanResults = remapPreCleanEdges(record.results);
+      retire(record.results, postCleanResults);
       if (postCleanResults.length === 0) {
         for (const src of record.sources) {
           owner.recordRemovedEdge(src, caller);

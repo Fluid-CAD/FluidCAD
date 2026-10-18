@@ -65,11 +65,22 @@ export class BooleanOps {
    */
   private static adaptMaker(builder: any, direct: DirectFacesResult | null, result?: TopoDS_Shape): any {
     const oc = getOC();
-    const through = (s: TopoDS_Shape): TopoDS_Shape => direct?.modifiedOrNull(s) ?? s;
+    // The rebuild answers with a fresh copy for an input it rebuilt and the
+    // input itself otherwise; a copy lives for the one query it serves.
+    const through = <T>(s: TopoDS_Shape, query: (rebuilt: TopoDS_Shape) => T): T => {
+      const rebuilt = direct?.modifiedOrNull(s) ?? s;
+      try {
+        return query(rebuilt);
+      } finally {
+        if (rebuilt !== s) {
+          rebuilt.delete();
+        }
+      }
+    };
     const listOf = (items: TopoDS_Shape[]) => {
       const list = new oc.TopTools_ListOfShape();
       for (const item of items) {
-        list.Append(item);
+        list.Append(item).delete();
       }
       return list;
     };
@@ -81,16 +92,19 @@ export class BooleanOps {
       HasErrors: () => builder.HasErrors(),
       HasWarnings: () => builder.HasWarnings(),
       History: () => builder.History(),
-      Modified: (s: TopoDS_Shape) => {
-        const rebuilt = through(s);
+      Modified: (s: TopoDS_Shape) => through(s, rebuilt => {
         if (rebuilt.IsSame(s)) {
           return builder.Modified(s);
         }
         const images = ShapeOps.shapeListToArray(builder.Modified(rebuilt));
-        return listOf(images.length > 0 || builder.IsDeleted(rebuilt) ? images : [rebuilt]);
-      },
-      Generated: (s: TopoDS_Shape) => builder.Generated(through(s)),
-      IsDeleted: (s: TopoDS_Shape) => builder.IsDeleted(through(s)),
+        try {
+          return listOf(images.length > 0 || builder.IsDeleted(rebuilt) ? images : [rebuilt]);
+        } finally {
+          Explorer.deleteAll(images);
+        }
+      }),
+      Generated: (s: TopoDS_Shape) => through(s, rebuilt => builder.Generated(rebuilt)),
+      IsDeleted: (s: TopoDS_Shape) => through(s, rebuilt => builder.IsDeleted(rebuilt)),
       delete: () => builder.delete(),
     };
   }
@@ -540,6 +554,8 @@ export class BooleanOps {
     }
     try {
       if (!merge.valid) {
+        // The dropped merge's output is the caller's to free — see SameDomainMerge.run.
+        merge.shape.delete();
         return built;
       }
       const history = builder.History();

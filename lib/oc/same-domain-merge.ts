@@ -162,13 +162,35 @@ export class SameDomainMerge {
           const last = groups
             .filter(g => g.shell.IsSame(group.shell) && givenUp.has(SameDomainMerge.faceKey(g, g.members[0])))
             .flatMap(g => g.members);
+          // The body handle, the reordered shell and the body rebuilt around
+          // it only feed the retry, which copies what it merges.
           const body = SameDomainMerge.bodyOf(current, group.shell);
-          const reordered = SameDomainMerge.replace(body, group.shell, SameDomainMerge.reorderedShell(group, reference, last));
-          const retry = SameDomainMerge.retry(body, reordered, options);
-          if (retry) {
-            adopted.push(retry.adopted);
-            current = SameDomainMerge.replace(current, body, retry.shape);
-            merged = true;
+          const shell = SameDomainMerge.reorderedShell(group, reference, last);
+          let reordered: TopoDS_Shape | null = null;
+          let retry: ReturnType<typeof SameDomainMerge.retry> = null;
+          try {
+            reordered = SameDomainMerge.replace(body, group.shell, shell);
+            retry = SameDomainMerge.retry(body, reordered, options);
+            if (retry) {
+              adopted.push(retry.adopted);
+              const next = SameDomainMerge.replace(current, body, retry.shape);
+              // The merged body is now held by the rebuilt whole; the whole
+              // it replaces was an earlier rebuild (or the backup copy).
+              if (next !== retry.shape) {
+                retry.shape.delete();
+              }
+              if (next !== current && current !== shape && current !== first.shape) {
+                current.delete();
+              }
+              current = next;
+              merged = true;
+            }
+          } finally {
+            if (reordered && reordered !== shell) {
+              reordered.delete();
+            }
+            shell.delete();
+            body.delete();
           }
         } finally {
           SameDomainMerge.releaseGroups(groups);
@@ -192,6 +214,10 @@ export class SameDomainMerge {
     }
     if (!first.valid) {
       first.unify.delete();
+    }
+    // A first pass a retry rebuilt on top of is no longer the result.
+    if (first.shape !== current) {
+      first.shape.delete();
     }
 
     const history = adopted[0].history;
@@ -254,13 +280,18 @@ export class SameDomainMerge {
     const copier = new oc.BRepBuilderAPI_Copy(reordered, false, false);
     let pass: Pass | null = null;
     try {
+      // The unifier keeps its own reference to the copy it runs on.
+      const copy = copier.Shape();
       try {
-        pass = SameDomainMerge.pass(copier.Shape(), options);
+        pass = SameDomainMerge.pass(copy, options);
       } catch {
         // A reference the kernel chokes on is one more that does not merge.
         return null;
+      } finally {
+        copy.delete();
       }
       if (!pass.valid || SameDomainMerge.faceCount(pass.shape) >= SameDomainMerge.faceCount(body)) {
+        pass.shape.delete();
         pass.unify.delete();
         return null;
       }
@@ -279,16 +310,25 @@ export class SameDomainMerge {
   private static copyHistory(shape: TopoDS_Shape, copier: BRepBuilderAPI_Copy): BRepTools_History {
     const history = new (getOC().BRepTools_History)();
     for (const kind of ['face', 'edge', 'vertex'] as const) {
-      for (const sub of Explorer.findShapes(shape, Explorer.getOcShapeType(kind) as TopAbs_ShapeEnum)) {
-        history.AddModified(sub, copier.ModifiedShape(sub));
-      }
+      // The history keeps its own references: the explorer copies and the
+      // copier's answers (fresh copies too) are freed once recorded.
+      Explorer.withShapes(shape, Explorer.getOcShapeType(kind) as TopAbs_ShapeEnum, subs => {
+        for (const sub of subs) {
+          const image = copier.ModifiedShape(sub);
+          try {
+            history.AddModified(sub, image);
+          } finally {
+            image.delete();
+          }
+        }
+      });
     }
     return history;
   }
 
   private static faceCount(shape: TopoDS_Shape): number {
     const FACE = getOC().TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
-    return Explorer.findShapes(shape, FACE).length;
+    return Explorer.withShapes(shape, FACE, faces => faces.length);
   }
 
   /**
@@ -444,9 +484,14 @@ export class SameDomainMerge {
    */
   private static faceKey(group: StuckGroup, index: number): string {
     const oc = getOC();
-    const bounds = oc.BRepTools.UVBounds(oc.TopoDS.Face(group.faces[index]));
-    const extent = [bounds.UMin, bounds.UMax, bounds.VMin, bounds.VMax].map(v => v.toFixed(6)).join(',');
-    return `${SameDomainMerge.parametrization(group.frames[index]!)}|${extent}`;
+    const face = oc.TopoDS.Face(group.faces[index]);
+    try {
+      const bounds = oc.BRepTools.UVBounds(face);
+      const extent = [bounds.UMin, bounds.UMax, bounds.VMin, bounds.VMax].map(v => v.toFixed(6)).join(',');
+      return `${SameDomainMerge.parametrization(group.frames[index]!)}|${extent}`;
+    } finally {
+      face.delete();
+    }
   }
 
   /**
@@ -476,17 +521,25 @@ export class SameDomainMerge {
     return `${frame.type}|${numbers.map(v => v.toFixed(7)).join(',')}`;
   }
 
-  /** The solid of `shape` that holds `shell`, or the shell itself when it is free. */
+  /**
+   * The solid of `shape` that holds `shell`, or the shell itself when it is
+   * free — as a handle of the caller's own, to free once used.
+   */
   private static bodyOf(shape: TopoDS_Shape, shell: TopoDS_Shape): TopoDS_Shape {
     const oc = getOC();
     const SOLID = oc.TopAbs_ShapeEnum.TopAbs_SOLID as TopAbs_ShapeEnum;
     const SHELL = oc.TopAbs_ShapeEnum.TopAbs_SHELL as TopAbs_ShapeEnum;
-    for (const solid of Explorer.findShapes(shape, SOLID)) {
-      if (Explorer.findShapes(solid, SHELL).some(s => s.IsSame(shell))) {
-        return solid;
+    const solids = Explorer.findShapes(shape, SOLID);
+    try {
+      for (const solid of solids) {
+        if (Explorer.withShapes(solid, SHELL, shells => shells.some(s => s.IsSame(shell)))) {
+          return solid.Oriented(solid.Orientation());
+        }
       }
+      return shell.Oriented(shell.Orientation());
+    } finally {
+      Explorer.deleteAll(solids);
     }
-    return shell;
   }
 
   /** A copy of the group's shell listing `first` before every other face and the `last` faces after them. */
@@ -524,7 +577,10 @@ export class SameDomainMerge {
     const builder = new oc.BRep_Builder();
 
     // Children are read with the parent's orientation and location composed
-    // in, which is how BRep_Builder::Add expects to be handed them.
+    // in, which is how BRep_Builder::Add expects to be handed them. Each
+    // child is an iterator copy, and a rebuilt container another: once a
+    // parent holds them (or keeps its own), those handles are freed —
+    // `replacement` stays the caller's.
     const rebuild = (current: TopoDS_Shape): TopoDS_Shape => {
       if (current.IsSame(target)) {
         return replacement;
@@ -538,15 +594,22 @@ export class SameDomainMerge {
         children.push(iterator.Value());
       }
       iterator.delete();
-      const rebuilt = children.map(rebuild);
-      if (rebuilt.every((child, i) => child === children[i])) {
-        return current;
+      try {
+        const rebuilt = children.map(rebuild);
+        if (rebuilt.every((child, i) => child === children[i])) {
+          return current;
+        }
+        const copy = current.EmptyCopied();
+        for (const child of rebuilt) {
+          builder.Add(copy, child);
+          if (child !== replacement && !children.includes(child)) {
+            child.delete();
+          }
+        }
+        return copy;
+      } finally {
+        Explorer.deleteAll(children);
       }
-      const copy = current.EmptyCopied();
-      for (const child of rebuilt) {
-        builder.Add(copy, child);
-      }
-      return copy;
     };
 
     try {

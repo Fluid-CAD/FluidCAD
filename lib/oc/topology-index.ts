@@ -91,18 +91,21 @@ export class TopologyIndex {
     if (idx === 0) {
       return [];
     }
+    // The binding hands back a copy of the slot's list (a reference return),
+    // so it can be drained in place and must be freed here.
     const list = index.ChangeFromIndex(idx);
-    if (!list || list.Size() === 0) {
+    if (!list) {
       return [];
     }
-    const oc = getOC();
-    const copy = new oc.TopTools_ListOfShape(list);
-    const out: TopoDS_Shape[] = [];
-    while (copy.Size() > 0) {
-      out.push(copy.First());
-      copy.RemoveFirst();
+    try {
+      const out: TopoDS_Shape[] = [];
+      while (list.Size() > 0) {
+        out.push(list.First());
+        list.RemoveFirst();
+      }
+      return out;
+    } finally {
+      list.delete();
     }
-    copy.delete();
-    return out;
   }
 }

@@ -35,6 +35,8 @@ export class FaceOps {
     const oc = getOC();
     const topoFace = oc.TopoDS.Face(face);
     const adaptor = new oc.BRepAdaptor_Surface(topoFace, true);
+    // The adaptor holds its own reference to the face; the typed copy goes.
+    topoFace.delete();
 
     const type = adaptor.GetType();
 
@@ -86,7 +88,13 @@ export class FaceOps {
     // Use the face's own modelling tolerance (never tighter than the kernel's
     // confusion tolerance) both to fit the plane and to judge flatness, so a
     // face built at a looser tolerance is not falsely rejected.
-    const tolerance = Math.max(oc.BRep_Tool.Tolerance(oc.TopoDS.Face(face)), oc.Precision.Confusion());
+    const typed = oc.TopoDS.Face(face);
+    let tolerance: number;
+    try {
+      tolerance = Math.max(oc.BRep_Tool.Tolerance(typed), oc.Precision.Confusion());
+    } finally {
+      typed.delete();
+    }
 
     const finder = new oc.BRepBuilderAPI_FindPlane(face, tolerance);
     if (!finder.Found()) {

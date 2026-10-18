@@ -6,11 +6,13 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
+import { Shape } from "../common/shape.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Extruder } from "./simple-extruder.js";
-import { ThinFaceMaker } from "../oc/thin-face-maker.js";
+import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
+import { Plane } from "../math/plane.js";
 import { mmTol } from "../units/tolerance.js";
 
 export class ExtrudeTwoDistances extends ExtrudeBase {
@@ -37,6 +39,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     let inwardEdges: Edge[] | undefined;
     let outwardEdges: Edge[] | undefined;
 
+    let thinResult = null as ThinFaceResult | null;
     faces = p.record('Resolve faces', () => {
       if (this.isFaceSourced()) {
         if (this.isThin()) {
@@ -44,7 +47,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
         }
         return pickedFaces ?? this.getSourceFaces();
       } else if (this.isThin()) {
-        const thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
+        thinResult = ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]);
         inwardEdges = thinResult.inwardEdges;
         outwardEdges = thinResult.outwardEdges;
         return thinResult.faces;
@@ -53,6 +56,28 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       }
     });
 
+    try {
+      this.buildFromFaces(faces, plane, inwardEdges, outwardEdges, context);
+    } finally {
+      // The profiles built here (thin bands, region faces) are this build's
+      // inputs, not scene shapes. Picked faces and a face-sourced extrude's
+      // faces belong to their owners.
+      if (thinResult) {
+        ThinFaceMaker.release(thinResult);
+      } else if (pickedFaces === null && !this.isFaceSourced()) {
+        for (const face of faces) face.dispose();
+      }
+    }
+  }
+
+  private buildFromFaces(
+    faces: Face[],
+    plane: Plane,
+    inwardEdges: Edge[] | undefined,
+    outwardEdges: Edge[] | undefined,
+    context: BuildSceneObjectContext,
+  ) {
+    const p = context.getProfiler();
     const draft = this.getDraft();
     const draft1 = draft ? [draft[0], draft[0]] as [number, number] : undefined;
     const draft2 = draft ? [draft[1], draft[1]] as [number, number] : undefined;
@@ -71,9 +96,19 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
     // seam; merge those pairs (and nothing else) so the two-sided extrude
     // reads as one continuous edge per lateral boundary. Caps keep their
     // TShape identity, which the IsSame re-find below depends on.
-    const extrusions = p.record('Unify seam edges', () =>
-      ShapeOps.unifySeamEdges(halvesFuse.result, plane));
-    halvesFuse.dispose();
+    let extrusions: Shape[];
+    try {
+      extrusions = p.record('Unify seam edges', () =>
+        ShapeOps.unifySeamEdges(halvesFuse.result, plane));
+    } finally {
+      halvesFuse.dispose();
+    }
+    // The halves and any fused solid the seam merge replaced were only ever
+    // inputs; the cap wrappers kept above share their TShapes with the result.
+    for (const shape of all) shape.dispose();
+    for (const shape of halvesFuse.result) {
+      if (!extrusions.includes(shape)) shape.dispose();
+    }
 
     const remainingFaces: Face[] = [];
     const fusedStartFaces: Face[] = [];
@@ -143,6 +178,13 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       }
     }
 
+    // Classification was the only consumer of the halves' own faces (bar the
+    // caps that are the start/end buckets) and of the fused solid's cap
+    // wrappers, whose role was the re-find above.
+    extruder1.dispose(startFaces);
+    extruder2.dispose(endFaces);
+    for (const face of [...fusedStartFaces, ...fusedEndFaces]) face.dispose();
+
     this.setState('start-faces', startFaces);
     this.setState('end-faces', endFaces);
     this.setState('side-faces', sideFaces);
@@ -153,12 +195,19 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
 
     if (this._operationMode === 'remove') {
       const stock = p.record('Resolve fusion scope', () => this.resolveFusionStock(context.getSceneObjects()));
-      p.record('Cut with scene objects', () => {
-        cutWithSceneObjects(stock, extrusions, plane, this.distance1 + this.distance2, this, {
-          recordHistoryFor: this,
-          bidirectional: true,
+      try {
+        p.record('Cut with scene objects', () => {
+          cutWithSceneObjects(stock, extrusions, plane, this.distance1 + this.distance2, this, {
+            recordHistoryFor: this,
+            bidirectional: true,
+          });
         });
-      });
+      } finally {
+        // The tool solids never reach the scene, and the cut records its
+        // own internal faces over the tool's.
+        for (const shape of extrusions) shape.dispose();
+        for (const face of internalFaces) face.dispose();
+      }
       this.setFinalShapes(this.getShapes());
       return;
     }

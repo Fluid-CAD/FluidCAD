@@ -1,6 +1,7 @@
 import type {
   Bnd_Box,
   BRepBuilderAPI_Transform,
+  ShapeUpgrade_UnifySameDomain,
   TopTools_ListOfShape,
   TopAbs_ShapeEnum,
   TopoDS_Shape,
@@ -463,45 +464,62 @@ export class ShapeOps {
     const tolerance = mmTol(1e-6);
 
     const raw = shape.getShape();
-    const keptVertices: TopoDS_Shape[] = [];
-    let seamVertexCount = 0;
-    for (const v of Explorer.findShapes(raw, VERTEX)) {
-      const point = VertexOps.toPointRaw(Explorer.toVertex(v));
-      if (Math.abs(plane.signedDistanceToPoint(point)) < tolerance) {
-        seamVertexCount++;
-      } else {
-        keptVertices.push(v);
-      }
-    }
-
-    if (seamVertexCount === 0) {
-      return shape;
-    }
-
+    // Every vertex here is an explorer copy (and the typed copy a point
+    // read takes): freed once the merge has registered the kept ones.
+    const vertices = Explorer.findShapes(raw, VERTEX);
     try {
-      const unify = new oc.ShapeUpgrade_UnifySameDomain(raw, true, false, false);
-      // Safe input mode (the default) copies rebuilt regions so the input
-      // stays untouched — but that replaces the TShapes of faces the merge
-      // never touched, breaking the caller's IsSame cap re-find. The input
-      // here is a just-fused intermediate owned by the caller, so in-place
-      // is fine and keeps untouched faces identical.
-      unify.SetSafeInputMode(false);
-      for (const v of keptVertices) {
-        unify.KeepShape(v);
+      const keptVertices: TopoDS_Shape[] = [];
+      let seamVertexCount = 0;
+      for (const v of vertices) {
+        const vertex = Explorer.toVertex(v);
+        try {
+          const point = VertexOps.toPointRaw(vertex);
+          if (Math.abs(plane.signedDistanceToPoint(point)) < tolerance) {
+            seamVertexCount++;
+          } else {
+            keptVertices.push(v);
+          }
+        } finally {
+          vertex.delete();
+        }
       }
-      unify.Build();
-      const unified = unify.Shape();
-      unify.delete();
 
-      const checker = new oc.BRepCheck_Analyzer(unified, true, true);
-      const valid = checker.IsValid();
-      checker.delete();
-      if (!valid) {
+      if (seamVertexCount === 0) {
         return shape;
       }
-      return ShapeFactory.fromShape(unified);
-    } catch {
-      return shape;
+
+      let unify: ShapeUpgrade_UnifySameDomain | null = null;
+      let unified: TopoDS_Shape | null = null;
+      try {
+        unify = new oc.ShapeUpgrade_UnifySameDomain(raw, true, false, false);
+        // Safe input mode (the default) copies rebuilt regions so the input
+        // stays untouched — but that replaces the TShapes of faces the merge
+        // never touched, breaking the caller's IsSame cap re-find. The input
+        // here is a just-fused intermediate owned by the caller, so in-place
+        // is fine and keeps untouched faces identical.
+        unify.SetSafeInputMode(false);
+        for (const v of keptVertices) {
+          unify.KeepShape(v);
+        }
+        unify.Build();
+        unified = unify.Shape();
+
+        const checker = new oc.BRepCheck_Analyzer(unified, true, true);
+        const valid = checker.IsValid();
+        checker.delete();
+        if (!valid) {
+          return shape;
+        }
+        return ShapeFactory.fromShape(unified);
+      } catch {
+        return shape;
+      } finally {
+        unify?.delete();
+        // The wrapper took its own typed copy of the result.
+        unified?.delete();
+      }
+    } finally {
+      Explorer.deleteAll(vertices);
     }
   }
 

@@ -111,7 +111,14 @@ export class ExtrudeToFace extends ExtrudeBase {
     }
 
     if (this._operationMode === 'remove') {
-      cutWithSceneObjects(this.resolveFusionStock(allSceneObjects), solids, plane, 0, this, { recordHistoryFor: this });
+      try {
+        cutWithSceneObjects(this.resolveFusionStock(allSceneObjects), solids, plane, 0, this, { recordHistoryFor: this });
+      } finally {
+        // The tool solids never reach the scene, and the cut records its
+        // own internal faces over the tool's.
+        for (const shape of solids) shape.dispose();
+        for (const face of allInternalFaces) face.dispose();
+      }
       this.setFinalShapes(this.getShapes());
       return;
     }

@@ -1,7 +1,9 @@
 import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { Wire } from "../../common/wire.js";
+import { Face } from "../../common/face.js";
 import { Solid } from "../../common/solid.js";
 import { FaceOps } from "../face-ops.js";
+import { Explorer } from "../explorer.js";
 import { SectionCompatibility, CompatibleSections } from "./section-compatibility.js";
 import { Skinning, LoftEndCondition, LoftSurfaceBasis } from "./skinning.js";
 import type { BSplineCurveData } from "../../math/bspline-interpolation.js";
@@ -97,13 +99,20 @@ export class SkinnedLoft {
       const outerWall = SkinnedLoft.skinWall(outer, startCondition, endCondition);
       const innerWall = SkinnedLoft.skinWall(inner, startCondition, endCondition);
 
-      const faces = [
-        ...Skinning.sideFaces(outerWall.uBasis, outerWall.grid, outerWall.vBasis),
-        ...Skinning.sideFaces(innerWall.uBasis, innerWall.grid, innerWall.vBasis),
-        SkinnedLoft.ringCap(outerWall, innerWall, false),
-        SkinnedLoft.ringCap(outerWall, innerWall, true),
-      ];
-      return [Skinning.sewSolid(faces)];
+      // The faces are the sewing's inputs; the sewn shell holds its own.
+      const sideFaces: TopoDS_Shape[] = [];
+      const caps: Face[] = [];
+      try {
+        sideFaces.push(...Skinning.sideFaces(outerWall.uBasis, outerWall.grid, outerWall.vBasis));
+        sideFaces.push(...Skinning.sideFaces(innerWall.uBasis, innerWall.grid, innerWall.vBasis));
+        caps.push(SkinnedLoft.ringCap(outerWall, innerWall, false), SkinnedLoft.ringCap(outerWall, innerWall, true));
+        return [Skinning.sewSolid([...sideFaces, ...caps.map(cap => cap.getShape())])];
+      } finally {
+        Explorer.deleteAll(sideFaces);
+        for (const cap of caps) {
+          cap.dispose();
+        }
+      }
     } finally {
       for (const wire of rebuilt) {
         wire.dispose();
@@ -135,14 +144,23 @@ export class SkinnedLoft {
     return { ...Skinning.relaxSmoothKnots(refined, grid, vBasis), vBasis };
   }
 
-  /** Planar ring between the outer and inner wall boundaries at one end. */
-  private static ringCap(outer: SkinnedWall, inner: SkinnedWall, isEnd: boolean): TopoDS_Shape {
+  /** Planar ring between the outer and inner wall boundaries at one end; the caller disposes it. */
+  private static ringCap(outer: SkinnedWall, inner: SkinnedWall, isEnd: boolean): Face {
     const column = (grid: number[][][]) =>
       grid.map(row => row[isEnd ? row.length - 1 : 0]);
 
     const outerWire = new Wire(Skinning.capWire(outer.uBasis, column(outer.grid)));
     const innerWire = new Wire(Skinning.capWire(inner.uBasis, column(inner.grid)));
-    const ring = FaceOps.makeFaceWithHoles(outerWire, [innerWire]);
-    return FaceOps.fixFaceOrientation(ring).getShape();
+    try {
+      const ring = FaceOps.makeFaceWithHoles(outerWire, [innerWire]);
+      try {
+        return FaceOps.fixFaceOrientation(ring);
+      } finally {
+        ring.dispose();
+      }
+    } finally {
+      outerWire.dispose();
+      innerWire.dispose();
+    }
   }
 }

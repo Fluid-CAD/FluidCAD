@@ -22,6 +22,7 @@ import type { Sketch } from "../2d/sketch.js";
 import { Connector } from "../connector.js";
 import { PointResolver } from "../point-resolver.js";
 import { buildOrthonormalFrame } from "../shape-anchor.js";
+import { disposeBuildTemporaries } from "../build-temporaries.js";
 import type { FastenerFit } from "./fastener-tables.js";
 import {
   buildHoleTool,
@@ -275,12 +276,20 @@ export class Hole extends SceneObject implements IHole {
     } else {
       const stock = this.resolveFusionStock(context.getSceneObjects()).filter(held => held.holder !== this);
       const stockSolids = stock.map(held => held.solid);
-      const tools: Shape[] = p.record('Build tools', () => frames.map(frame => {
-        const direction = frame.normal.normalize().negate();
-        const length = dims.depth ?? throughAllLength(stockSolids, [], Plane.fromPointAndNormal(frame.origin, direction));
-        return buildHoleTool(frame.origin, direction, dims, length);
-      }));
-      p.record('Cut', () => cutWithSceneObjects(stock, tools, cutPlane, dims.depth ?? 0, this, { recordHistoryFor: this }));
+      const tools: Shape[] = [];
+      try {
+        p.record('Build tools', () => {
+          for (const frame of frames) {
+            const direction = frame.normal.normalize().negate();
+            const length = dims.depth ?? throughAllLength(stockSolids, [], Plane.fromPointAndNormal(frame.origin, direction));
+            tools.push(buildHoleTool(frame.origin, direction, dims, length));
+          }
+        });
+        p.record('Cut', () => cutWithSceneObjects(stock, tools, cutPlane, dims.depth ?? 0, this, { recordHistoryFor: this }));
+      } finally {
+        // The cut keeps what it carved, never the tools themselves.
+        disposeBuildTemporaries(this, tools);
+      }
     }
 
     this.setState(DIMENSIONS_STATE_KEY, dims);
@@ -362,11 +371,16 @@ export class Hole extends SceneObject implements IHole {
     for (const { solids, indices } of groups.values()) {
       const stock = solids.flatMap(solid => liveSolidsFrom(held.get(solid)!));
       const stockSolids = stock.map(entry => entry.solid);
-      const tools = indices.map(i => {
-        const frame = frames[i];
-        return toolFor(frame, frame.normal.normalize().negate(), stockSolids, i);
-      });
-      cutWithSceneObjects(stock, tools, cutPlane, distance, this, { recordHistoryFor: this });
+      const tools: Shape[] = [];
+      try {
+        for (const i of indices) {
+          const frame = frames[i];
+          tools.push(toolFor(frame, frame.normal.normalize().negate(), stockSolids, i));
+        }
+        cutWithSceneObjects(stock, tools, cutPlane, distance, this, { recordHistoryFor: this });
+      } finally {
+        disposeBuildTemporaries(this, tools);
+      }
       CUT_STATE_KEYS.forEach((key, k) => buckets[k].push(...((this.getState(key) as Shape[] | undefined) ?? [])));
     }
     return buckets;

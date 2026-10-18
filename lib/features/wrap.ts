@@ -7,6 +7,7 @@ import { FaceMaker2 } from "../oc/face-maker2.js";
 import { WrapOps } from "../oc/wrap-ops.js";
 import { Plane } from "../math/plane.js";
 import { IWrap } from "../core/interfaces.js";
+import { disposeBuildTemporaries } from "./build-temporaries.js";
 
 /**
  * Wraps a sketch onto a curved face (cylindrical or conical) and thickens it
@@ -34,32 +35,51 @@ export class Wrap extends ExtrudeBase implements IWrap {
     }
 
     const regions = p.record('Resolve faces', () => this.resolveSourceFaces(plane, pickedFaces));
-    const targetFace = this.getTargetFace();
+    // Region faces FaceMaker2 built here are this build's profiles, not
+    // scene shapes. Picked faces and a face-sourced wrap's faces belong to
+    // their owners.
+    const ownsRegions = pickedFaces === null && !this.isFaceSourced();
 
-    const isRemove = this._operationMode === 'remove';
-    const result = p.record('Wrap faces', () =>
-      WrapOps.wrap(regions, plane, targetFace, isRemove ? -this.thickness : this.thickness));
+    try {
+      const targetFace = this.getTargetFace();
 
-    this.getSource()?.removeShapes(this);
-    this.face.removeShapes(this);
+      const isRemove = this._operationMode === 'remove';
+      const result = p.record('Wrap faces', () =>
+        WrapOps.wrap(regions, plane, targetFace, isRemove ? -this.thickness : this.thickness));
 
-    if (isRemove) {
-      const stock = this.resolveFusionStock(context.getSceneObjects());
-      cutWithSceneObjects(stock, result.solids, plane, this.thickness, this, {
-        recordHistoryFor: this,
-      });
-    } else {
-      const classified: ClassifiedFaces = {
-        startFaces: result.startFaces,
-        endFaces: result.endFaces,
-        sideFaces: result.sideFaces,
-        internalFaces: result.internalFaces,
-        capFaces: [],
-      };
-      this.finalizeAndFuse(result.solids, classified, context);
+      try {
+        this.getSource()?.removeShapes(this);
+        this.face.removeShapes(this);
+
+        if (isRemove) {
+          const stock = this.resolveFusionStock(context.getSceneObjects());
+          cutWithSceneObjects(stock, result.solids, plane, this.thickness, this, {
+            recordHistoryFor: this,
+          });
+        } else {
+          const classified: ClassifiedFaces = {
+            startFaces: result.startFaces,
+            endFaces: result.endFaces,
+            sideFaces: result.sideFaces,
+            internalFaces: result.internalFaces,
+            capFaces: [],
+          };
+          this.finalizeAndFuse(result.solids, classified, context);
+        }
+
+        this.setFinalShapes(this.getShapes());
+      } finally {
+        // The pads a fuse or cut consumed and the as-built faces a remap
+        // replaced; whatever the state kept stays.
+        disposeBuildTemporaries(this, [
+          ...result.solids, ...result.startFaces, ...result.endFaces, ...result.sideFaces, ...result.internalFaces,
+        ]);
+      }
+    } finally {
+      if (ownsRegions) {
+        for (const face of regions) face.dispose();
+      }
     }
-
-    this.setFinalShapes(this.getShapes());
   }
 
   /** Resolve the planar sketch regions to wrap (same source rules as extrude). */

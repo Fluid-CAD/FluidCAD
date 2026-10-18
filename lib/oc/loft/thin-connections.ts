@@ -160,7 +160,22 @@ export class ThinConnections {
 
   /** The wall with each split arc replaced by its two halves, in traversal order. */
   private static rebuild(wall: Wire, splits: Map<Edge, Point>): Wire {
-    const edges = wall.getEdges().flatMap(edge => splits.has(edge) ? EdgeOps.splitEdgeAtMid(edge).pieces : [edge]);
-    return WireOps.makeWireFromEdges(edges);
+    // The halves exist to build the wire, which keeps its own references.
+    const pieces: Edge[] = [];
+    const edges = wall.getEdges().flatMap(edge => {
+      if (!splits.has(edge)) {
+        return [edge];
+      }
+      const halves = EdgeOps.splitEdgeAtMid(edge).pieces;
+      pieces.push(...halves);
+      return halves;
+    });
+    try {
+      return WireOps.makeWireFromEdges(edges);
+    } finally {
+      for (const piece of pieces) {
+        piece.dispose();
+      }
+    }
   }
 }

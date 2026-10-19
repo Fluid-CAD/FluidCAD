@@ -1,5 +1,5 @@
 import {
-  applyFillet2DEdit, applyOffsetEdit, applySketchOp, clearBreakpoints,
+  applyFillet2DEdit, applyOffsetEdit, applySketchOp, continueBreakpoint,
   fetchFeatureGhost, fetchSketchFeatureSources, fetchSketchOffsetPlan, FeatureEditTarget, Fillet2DGhostRequest, GhostSolid,
   NewVariable, OffsetGhostRequest, OffsetOptionValues, ParsedFeatureStatement,
   SketchApplyEntity, SketchOffsetPlanChain, SketchOpFeature, sketchGhostScope, SketchSourceRef, ValueExpr,
@@ -672,7 +672,7 @@ export class SketchOpService {
     this.applyBtn.disabled = true;
     this.onVisibilityChange?.(false);
     if (wasEditing && reason === 'cancel') {
-      clearBreakpoints();
+      continueBreakpoint();
     }
   }
 

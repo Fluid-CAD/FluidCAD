@@ -249,6 +249,9 @@ export type SerializedAssembly = {
 export type SceneRenderedMessage = {
   breakpointHit?: boolean;
   breakpointStop?: number;
+  /** See `SceneRenderedData.breakpointAt` / `breakpoints`. */
+  breakpointAt?: { line: number; column: number };
+  breakpoints?: { line: number; column: number }[];
   timeline?: TimelineEntry[];
   type: 'scene-rendered';
   absPath: string;
@@ -514,6 +517,8 @@ export type UISceneRenderedMessage = {
   rollbackScopePartId?: string;
   breakpointHit?: boolean;
   breakpointStop?: number;
+  breakpointAt?: { line: number; column: number };
+  breakpoints?: { line: number; column: number }[];
   compileError?: CompileError;
   assembly?: SerializedAssembly;
   params?: UIParamDefinition[];

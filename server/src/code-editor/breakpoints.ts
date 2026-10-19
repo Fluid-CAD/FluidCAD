@@ -7,6 +7,9 @@ import { getParser, type TSNode, type TSTree } from './parser.ts';
 
 export type BreakpointEditResult = { newCode: string; breakpointLine: number | null };
 
+/** Where a `breakpoint();` statement starts: 1-based line and column. */
+export type BreakpointSite = { line: number; column: number };
+
 /**
  * Recognise a `breakpoint();` statement: an expression_statement wrapping a
  * call_expression to the bare identifier `breakpoint` with zero arguments.
@@ -45,7 +48,8 @@ function findBreakpointStatementAt(tree: TSTree, row: number): TSNode | null {
   return null;
 }
 
-function findAllBreakpointStatements(tree: TSTree): TSNode[] {
+/** Every `breakpoint();` statement of the tree, in document order. */
+export function findAllBreakpointStatements(tree: TSTree): TSNode[] {
   const out: TSNode[] = [];
   for (const node of walkTree(tree.rootNode)) {
     if (isBreakpointStatement(node)) {
@@ -53,6 +57,54 @@ function findAllBreakpointStatements(tree: TSTree): TSNode[] {
     }
   }
   return out;
+}
+
+/** The sites of every `breakpoint();` statement in `code`, in document order. */
+export async function listBreakpoints(code: string): Promise<BreakpointSite[]> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  return findAllBreakpointStatements(tree).map(breakpointSiteOf);
+}
+
+export function breakpointSiteOf(node: TSNode): BreakpointSite {
+  return { line: node.startPosition.row + 1, column: node.startPosition.column + 1 };
+}
+
+/**
+ * The breakpoint statement the build is paused on: the one at `site`, or —
+ * when no statement starts there any more (the file moved under it, or the
+ * kernel never said where it stopped) — the first one in document order,
+ * which is the first one a top-to-bottom build reaches.
+ */
+export function findActiveBreakpointStatement(tree: TSTree, site: BreakpointSite | null | undefined): TSNode | null {
+  const all = findAllBreakpointStatements(tree);
+  if (site) {
+    const exact = all.find(node => node.startPosition.row === site.line - 1 && node.startPosition.column === site.column - 1);
+    if (exact) {
+      return exact;
+    }
+  }
+  return all[0] ?? null;
+}
+
+/**
+ * The splice that deletes one `breakpoint();` statement from `code`: the
+ * whole line when the statement is alone on it, else exactly the statement —
+ * an inline callback or a neighbouring feature on the same line survives.
+ * Offsets are into `code` as it is, so several such splices apply together
+ * when sorted from the end.
+ */
+export function breakpointRemovalEdit(code: string, node: TSNode): { start: number; end: number; text: string } {
+  let start = node.startIndex;
+  let end = node.endIndex;
+  const lineStart = code.lastIndexOf('\n', start - 1) + 1;
+  const newline = code.indexOf('\n', end);
+  const lineEnd = newline < 0 ? code.length : newline;
+  if (/^\s*$/.test(code.slice(lineStart, start)) && /^\s*$/.test(code.slice(end, lineEnd))) {
+    start = lineStart;
+    end = newline < 0 ? lineEnd : newline + 1;
+  }
+  return { start, end, text: '' };
 }
 
 /**

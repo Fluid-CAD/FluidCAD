@@ -1,5 +1,5 @@
 import { ICON_PAUSE } from './icons';
-import { clearBreakpoints } from '../api';
+import { continueBreakpoint } from '../api';
 
 /** Bottom-center resting spot, shared with the sketch DOF pill and the animate bar. */
 const BOTTOM_RESTING = 'bottom-6';
@@ -39,7 +39,9 @@ export class BreakpointIndicator {
     this.element.querySelector<HTMLButtonElement>('.fluidcad-breakpoint-continue')!
       .addEventListener('click', () => {
         onContinue?.();
-        clearBreakpoints();
+        // The paused stop only: a `breakpoint();` further down the file is
+        // the next place the build pauses.
+        continueBreakpoint();
       });
   }
 

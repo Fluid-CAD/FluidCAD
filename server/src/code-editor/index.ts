@@ -38,11 +38,17 @@ export {
 export { addGuide, getPointExpression, insertPoint, removeGuide, removePoint } from './points.ts';
 export {
   addBreakpoint,
+  breakpointRemovalEdit,
+  breakpointSiteOf,
   clearBreakpoints,
+  findActiveBreakpointStatement,
+  findAllBreakpointStatements,
   isBreakpointStatement,
+  listBreakpoints,
   removeBreakpoint,
   toggleBreakpoint,
   type BreakpointEditResult,
+  type BreakpointSite,
 } from './breakpoints.ts';
 export {
   clearDocumentUnit,

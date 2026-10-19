@@ -1,5 +1,5 @@
 import {
-  applySketchMirror, applySketchMirrorEdit, clearBreakpoints, fetchFeatureGhost,
+  applySketchMirror, applySketchMirrorEdit, continueBreakpoint, fetchFeatureGhost,
   fetchSketchFeatureSources, ApplyFeatureResponse, FeatureEditTarget, GhostSolid,
   Mirror2DGhostRequest, ParsedFeatureStatement, SketchApplyEntity, SketchMirrorEditAxis,
 } from '../api';
@@ -250,7 +250,7 @@ export class SketchMirrorService {
     this.panel.setApplyEnabled(false);
     this.onVisibilityChange?.(false);
     if (wasEditing && reason === 'cancel') {
-      clearBreakpoints();
+      continueBreakpoint();
     }
   }
 

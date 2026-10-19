@@ -30,8 +30,8 @@ import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
 class HttpEngineEditorClient implements EngineEditorClient {
-  moveTimelineBreakpoint(filePath: string, before: { line: number; column: number } | null): Promise<SetUnitResult> {
-    return moveTimelineBreakpoint(filePath, before);
+  moveTimelineBreakpoint(filePath: string, before: { line: number; column: number } | null, remove?: 'passed' | 'all'): Promise<SetUnitResult> {
+    return moveTimelineBreakpoint(filePath, before, remove);
   }
 
   addBreakpoint(sourceLocation: SourceLocationParam): void {

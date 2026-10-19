@@ -8,10 +8,10 @@ function before(code: string, text: string) {
   return { line: lines.length, column: lines.at(-1)!.length + 1 };
 }
 
-async function move(code: string, text: string | null) {
+async function move(code: string, text: string | null, remove?: 'passed' | 'active' | 'all', active?: { line: number; column: number }) {
   return applyFeatureEdit(code, {
     feature: 'sketch', filePath: '/model.part.js', producers: [], parts: [], imports: [],
-    timelineBreakpoint: TimelineBreakpoint.capture(code, text === null ? null : before(code, text)),
+    timelineBreakpoint: TimelineBreakpoint.capture(code, text === null ? null : before(code, text), remove, active),
   });
 }
 
@@ -22,8 +22,35 @@ describe('atomic timeline breakpoint moves', () => {
     expect(forward.error).toBeUndefined();
     expect(forward.newCode).toContain('extrude(5);\nfillet(2);\nbreakpoint();\nshell(1);');
     expect(forward.newCode.match(/breakpoint\(\)/g)).toHaveLength(1);
+    // Moving back up leaves the stop further down pending: the build pauses
+    // there next, once the earlier one is lifted.
     const backward = await move(forward.newCode, 'extrude(5)');
-    expect(backward.newCode).toContain("from 'fluidcad/core';\nbreakpoint();\nextrude(5);\nfillet(2);\nshell(1);");
+    expect(backward.newCode).toContain("from 'fluidcad/core';\nbreakpoint();\nextrude(5);\nfillet(2);\nbreakpoint();\nshell(1);");
+  });
+
+  it('continue lifts the paused stop only, falling back to the first in the file', async () => {
+    const code = "import { extrude, fillet, shell, breakpoint } from 'fluidcad/core';\nextrude(5);\nbreakpoint();\nfillet(2);\nbreakpoint();\nshell(1);\n";
+    const first = await move(code, null, 'active', { line: 3, column: 1 });
+    expect(first.newCode).toBe("import { extrude, fillet, shell, breakpoint } from 'fluidcad/core';\nextrude(5);\nfillet(2);\nbreakpoint();\nshell(1);\n");
+    const second = await move(code, null, 'active', { line: 5, column: 1 });
+    expect(second.newCode).toBe("import { extrude, fillet, shell, breakpoint } from 'fluidcad/core';\nextrude(5);\nbreakpoint();\nfillet(2);\nshell(1);\n");
+    const unlocated = await move(code, null, 'active');
+    expect(unlocated.newCode).toBe(first.newCode);
+    const stale = await move(code, null, 'active', { line: 4, column: 1 });
+    expect(stale.newCode).toBe(first.newCode);
+    const none = await move("extrude(5);\n", null, 'active');
+    expect(none.newCode).toBe("extrude(5);\n");
+    expect(none.error).toBeUndefined();
+  });
+
+  it('keeps a pending stop the apply of an edit dialog did not pause on', async () => {
+    const code = "import { extrude, fillet, breakpoint } from 'fluidcad/core';\nextrude(5);\nbreakpoint();\nfillet(2);\nbreakpoint();\n";
+    const result = await applyFeatureEdit(code, {
+      feature: 'fillet', filePath: '/model.part.js', producers: [], parts: [], imports: [],
+      value: 3, edit: { line: 4 }, clearBreakpoints: { line: 3, column: 1 },
+    } as never);
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe("import { extrude, fillet, breakpoint } from 'fluidcad/core';\nextrude(5);\nfillet(3);\nbreakpoint();\n");
   });
 
   it('resolves a full multiline chained statement inside the correct part', async () => {
@@ -49,15 +76,16 @@ describe('atomic timeline breakpoint moves', () => {
     expect(result.newCode).toBe("import { breakpoint } from 'fluidcad/core';\nextrude(5);  fillet(2);\n// breakpoint(); is just a comment\n");
   });
 
-  it('refuses a changed live buffer, including a continue-to-end request', async () => {
+  it('refuses a move on a changed live buffer, but still continues on it', async () => {
     const code = 'extrude(5);\nbreakpoint();\nfillet(2);';
-    for (const target of [before(code, 'fillet'), null]) {
-      const spec = TimelineBreakpoint.capture(code, target);
-      const changed = code.replace('5', '10');
-      const result = await TimelineBreakpoint.apply(changed, spec);
-      expect(result.error).toContain('file changed');
-      expect(result.newCode).toBe(changed);
-    }
+    const changed = code.replace('5', '10');
+    const refused = await TimelineBreakpoint.apply(changed, TimelineBreakpoint.capture(code, before(code, 'fillet')));
+    expect(refused.error).toContain('file changed');
+    expect(refused.newCode).toBe(changed);
+    // A removal is resolved against the buffer it edits — nothing to go stale.
+    const continued = await TimelineBreakpoint.apply(changed, TimelineBreakpoint.capture(code, null));
+    expect(continued.error).toBeUndefined();
+    expect(continued.newCode).toBe('extrude(10);\nfillet(2);');
   });
 
   it('refuses invalid targets without removing the existing stop', async () => {

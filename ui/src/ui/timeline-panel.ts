@@ -256,6 +256,8 @@ export class TimelinePanel {
   private breakpointBar: TimelineBreakpointBar | null = null;
   private breakpointFilePath: string | undefined;
   private breakpointStop = -1;
+  /** Every `breakpoint();` of the document (see update); the pending ones get a marker. */
+  private breakpointSites: { line: number; column: number }[] = [];
   private sceneRevision = 0;
   private contentWrapper: HTMLDivElement;
   private historySection: AccordionSection;
@@ -402,7 +404,9 @@ export class TimelinePanel {
       this.breakpointBar = new TimelineBreakpointBar(this.timelineBody, async stop => {
         const row = stop.before ? this.timelineView.rows[Number(stop.before.dataset.displayIndex)] : undefined;
         if (row) this.enterScopeOf(row);
-        return this.client.editor!.moveTimelineBreakpoint!(this.breakpointFilePath!, stop.source);
+        // A move takes out the stops it passes and leaves any further down
+        // pending; the end of history takes them all.
+        return this.client.editor!.moveTimelineBreakpoint!(this.breakpointFilePath!, stop.source, stop.source ? 'passed' : 'all');
       });
     }
     this.historyTotalLabel = this.historySection.header.querySelector<HTMLSpanElement>('[data-ref="history-total"]')!;
@@ -478,28 +482,43 @@ export class TimelinePanel {
    * missing from `sceneObjects` rather than deleted from the source.
    *
    * The render that leaves the pause brings those rows back. It is not a
-   * scene of new features, so the panel keeps resting on the row it was
-   * paused on instead of following the current row to the tip, returning
-   * parts are not "new" (focusNewParts), and the row state the pause cut
-   * off is re-adopted (carryRowStateOver).
+   * scene of new features: returning parts are not "new" (focusNewParts),
+   * and the row state the pause cut off is re-adopted (carryRowStateOver).
+   *
+   * The panel scrolls on its own for one reason only — a feature was added
+   * (firstAddedRow), and then to that feature's row, wherever it landed:
+   * inside the active part, not necessarily at the bottom. Every other
+   * render — a rebuild, a rollback preview, a breakpoint placed or lifted,
+   * an edit dialog opening or closing — leaves the scroll position alone.
    */
   update(
     sceneObjects: SceneObjectRender[],
     rollbackStop: number,
     rollbackScopePartId: string | null = null,
-    options: { paused?: boolean; warnings?: ObjectBuildWarning[]; timeline?: TimelineEntry[]; filePath?: string; breakpointStop?: number } = {},
+    options: {
+      paused?: boolean;
+      warnings?: ObjectBuildWarning[];
+      timeline?: TimelineEntry[];
+      filePath?: string;
+      breakpointStop?: number;
+      /** Every `breakpoint();` of the document, in document order; absent keeps the last list. */
+      breakpoints?: { line: number; column: number }[];
+    } = {},
   ): void {
     const paused = options.paused === true;
     const view = new TimelineView(sceneObjects, paused ? options.timeline : undefined);
     if (options.warnings !== undefined) {
       this.rowWarnings = TimelinePanel.warningsByRow(sceneObjects, options.warnings);
     }
+    if (options.breakpoints !== undefined) {
+      this.breakpointSites = options.breakpoints;
+    }
     const leavingPause = this.paused && !paused;
     if (paused && !this.paused) {
       this.sceneBeforePause = this.timelineView.rows;
     }
-    const heldRow = leavingPause ? this.currentRowObject() : undefined;
-    const heldMatch = heldRow ? findMatchingRow(heldRow, sceneObjects) : undefined;
+    // Rows a pause cut off come back when it lifts; that is never an addition.
+    const addedRow = this.loaded && !leavingPause ? this.firstAddedRow(view.rows) : undefined;
     this.pickedFeatureId = null;
     this.selectedIndices.clear();
     this.selectionAnchor = null;
@@ -519,9 +538,57 @@ export class TimelinePanel {
     this.rollbackScopePartId = rollbackScopePartId;
     this.loaded = true;
     this.syncVisibility();
-    this.renderTimeline(true, heldMatch);
+    this.renderTimeline();
+    if (addedRow) {
+      const el = this.rowElementFor(addedRow);
+      if (el) {
+        this.revealRow(el, false);
+      }
+    }
     this.shapesPanel.update(sceneObjects);
     this.updateHistoryTotal();
+  }
+
+  /**
+   * The first row of a feature this scene adds — the one row the panel
+   * scrolls to — or undefined when nothing was added. Known rows are the
+   * ones the previous scene (or the scene a pause interrupted) re-adopts by
+   * source identity (findMatchingRow); everything else is new, a feature's
+   * own row ahead of its children. A scene whose every row is new is a
+   * different document, not an addition, and scrolls nowhere.
+   */
+  private firstAddedRow(next: SceneObjectRender[]): SceneObjectRender | undefined {
+    const previous = [...this.timelineView.rows, ...this.sceneBeforePause];
+    const listed = next.filter((obj) => obj.id != null && !isHiddenRow(obj));
+    // Only a scene with more rows than before can have added a feature: a
+    // rollback preview, a rebuild or a parameter change re-serves the rows
+    // it had, however their ids were re-minted.
+    if (listed.length <= previous.filter((obj) => !isHiddenRow(obj)).length) {
+      return undefined;
+    }
+    // A row is known by id or by its call site — any previous row with the
+    // same one vouches for it. Several rows share a call site (a repeat's
+    // clones, the select a chamfer spawns), so this is a lookup of what the
+    // previous scene had, not a one-to-one pairing. Names are no help: a
+    // sketch's lines all read "Line".
+    const ids = new Set<string>();
+    const sites = new Set<string>();
+    for (const prev of previous) {
+      if (prev.id != null) {
+        ids.add(prev.id);
+      }
+      if (prev.sourceLocation) {
+        sites.add(`${prev.sourceLocation.filePath}:${prev.sourceLocation.line}:${prev.type}`);
+      }
+    }
+    const added = listed.filter((obj) => {
+      const loc = obj.sourceLocation;
+      return loc != null && !ids.has(obj.id!) && !sites.has(`${loc.filePath}:${loc.line}:${obj.type}`);
+    });
+    if (added.length === 0 || added.length === listed.length) {
+      return undefined;
+    }
+    return added[0];
   }
 
   /** Group a render's warnings by the row they name — by id, else by `index` into the scene. */
@@ -806,17 +873,6 @@ export class TimelinePanel {
     return SceneIndex.of(this.timelineView.rows).ancestors(obj);
   }
 
-  /**
-   * The object behind the current row. A container that rolls back to its
-   * last descendant is current together with the child the stop lands on, so
-   * the deepest current row is the precise one.
-   */
-  private currentRowObject(): SceneObjectRender | undefined {
-    const rows = this.timelineBody.querySelectorAll<HTMLElement>('[data-current="true"]');
-    const el = rows[rows.length - 1];
-    return el ? this.sceneObjects[parseInt(el.dataset.index!, 10)] : undefined;
-  }
-
   /** The rendered row for `obj`, or for its nearest ancestor when a collapsed group hides it. */
   private rowElementFor(obj: SceneObjectRender): HTMLElement | null {
     const index = SceneIndex.of(this.timelineView.rows);
@@ -903,7 +959,7 @@ export class TimelinePanel {
   // Timeline rendering
   // ---------------------------------------------------------------------------
 
-  private renderTimeline(scrollToCurrent = false, heldRow?: SceneObjectRender): void {
+  private renderTimeline(): void {
     const items = this.timelineView.rows;
     const rollbackStop = this.rollbackStop;
 
@@ -1177,14 +1233,6 @@ export class TimelinePanel {
     }
 
     this.syncBreakpointBar();
-
-    if (scrollToCurrent) {
-      const revealEl = (heldRow ? this.rowElementFor(heldRow) : null)
-        ?? this.timelineBody.querySelector<HTMLElement>('[data-current="true"]');
-      if (revealEl) {
-        this.revealRow(revealEl, false);
-      }
-    }
   }
 
   /** The bar snaps before source statements, including retained unevaluated rows. */
@@ -1222,6 +1270,40 @@ export class TimelinePanel {
       // so dragging back and forward cannot strand the user there.
       disabled: this.sketchActive && !this.paused,
     });
+    this.markPendingBreakpoints(stops, current);
+  }
+
+  /**
+   * A dashed line at every `breakpoint();` the document holds besides the
+   * one the build is paused on: the stops still pending, where the build
+   * pauses next once this one is lifted. Each sits at the gap before the
+   * first statement after it in source order (or the end of history), zero
+   * height like the bar, so marking them moves no row.
+   */
+  private markPendingBreakpoints(stops: BreakpointStop[], current: number): void {
+    const after = (a: { line: number; column: number }, b: { line: number; column: number }): boolean =>
+      a.line > b.line || (a.line === b.line && a.column > b.column);
+    const marked = new Set<number>();
+    for (const site of this.breakpointSites) {
+      let index = stops.length - 1;
+      for (let i = 0; i < stops.length - 1; i++) {
+        const source = stops[i].source;
+        const best = stops[index].source;
+        if (source && after(source, site) && (!best || after(best, source))) {
+          index = i;
+        }
+      }
+      // The paused stop is the bar's own; a second marker there would say nothing.
+      if ((this.paused && index === current) || marked.has(index)) {
+        continue;
+      }
+      marked.add(index);
+      const marker = document.createElement('div');
+      marker.className = 'timeline-breakpoint-pending';
+      marker.dataset.pendingBreakpoint = String(site.line);
+      marker.title = `Breakpoint — ${stops[index].label.toLowerCase()}. The build pauses here next.`;
+      this.timelineBody.insertBefore(marker, stops[index].before);
+    }
   }
 
   /**
@@ -1549,14 +1631,18 @@ export class TimelinePanel {
 
     // A consumed sketch, plane or axis (one a feature hid in this world)
     // carries an eye: shown ones wear it always, hidden ones reveal it on
-    // hover — the shapes panel's own eye convention.
+    // hover — the shapes panel's own eye convention. The eye (and the part
+    // row's dots) fit the row's text line: a button taller than the line
+    // would make a row grow when its sketch gets consumed and shrink when
+    // a rollback or pause un-consumes it — rows jumping under the pointer
+    // on every double-click and exit.
     let eyeBtn = '';
     if (!unevaluated && isShowableConsumedRow(obj) && this.onToggleRowShown) {
       const shown = this.isRowShown?.(obj) === true;
       const eyeIcon = shown ? ICON_EYE : ICON_EYE_OFF;
       const eyeVisibility = shown ? 'opacity-100 text-base-content/70' : 'opacity-0 group-hover:opacity-100 text-base-content/40';
       const eyeTitle = shown ? `Hide the ${obj.type} again` : `Show the ${obj.type} (a feature used it)`;
-      eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-show-eye="${index}" title="${eyeTitle}">${eyeIcon}</button>`;
+      eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs h-5 min-h-0 ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-show-eye="${index}" title="${eyeTitle}">${eyeIcon}</button>`;
     } else if (!unevaluated && isImageRow && obj.sourceLocation && this.onToggleImageHidden) {
       // An image is shown by default, so the shapes panel's convention
       // applies as is: a hidden one wears its crossed eye always, a shown
@@ -1564,7 +1650,7 @@ export class TimelinePanel {
       const eyeIcon = isImageHidden ? ICON_EYE_OFF : ICON_EYE;
       const eyeVisibility = isImageHidden ? 'opacity-100 text-base-content/70' : 'opacity-0 group-hover:opacity-100 text-base-content/40';
       const eyeTitle = isImageHidden ? 'Show the reference image' : 'Hide the reference image';
-      eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-show-eye="${index}" title="${eyeTitle}">${eyeIcon}</button>`;
+      eyeBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs h-5 min-h-0 ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-show-eye="${index}" title="${eyeTitle}">${eyeIcon}</button>`;
     }
 
 
@@ -1573,7 +1659,7 @@ export class TimelinePanel {
     // an editor-less host has no actions to offer, so no button.
     let menuBtn = '';
     if (!unevaluated && isTopLevel && obj.type === 'part' && obj.sourceLocation != null && this.client.editor) {
-      menuBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-row-menu="${index}" title="Part actions">${ICON_DOTS_VERTICAL}</button>`;
+      menuBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs h-5 min-h-0 text-base-content/40 hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-row-menu="${index}" title="Part actions">${ICON_DOTS_VERTICAL}</button>`;
     }
 
     // The eye or the dots, when present, is what pushes the right-aligned

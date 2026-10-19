@@ -3677,6 +3677,9 @@ function applySceneRendered(msg: any): void {
       rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null, {
         filePath: msg.absPath ?? currentSceneAbsPath,
         breakpointStop: msg.breakpointStop,
+        // Every `breakpoint();` the file holds — absent on a compile-error
+        // replay, which keeps the last render's.
+        breakpoints: msg.breakpoints,
         paused: msg.breakpointHit ?? breakpointActive,
         timeline: msg.timeline,
         // Non-fatal per-row notices (an unknown material id) — absent on a

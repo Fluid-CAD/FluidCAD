@@ -1,5 +1,5 @@
 import {
-  applyFeature, applyValueFeatureEdit, clearBreakpoints, expandBucket, featureGhostScope, fetchFeatureGhost,
+  applyFeature, applyValueFeatureEdit, continueBreakpoint, expandBucket, featureGhostScope, fetchFeatureGhost,
   fetchFeatureSources, parseFeatureAt, removeFeature, setSketchClosed, ApplyFeatureResponse,
   FeatureEditTarget, NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType,
   SketchSourceRef, ValueExpr,
@@ -915,7 +915,7 @@ export class ModifyPickService {
     // Clearing rebuilds to the tip, so that render carries the sketch-UI resume.
     this.closeSketchSession(ownsBreakpoint ? 'lazy' : resume);
     if (ownsBreakpoint) {
-      clearBreakpoints();
+      continueBreakpoint();
     }
   }
 
@@ -995,7 +995,7 @@ export class ModifyPickService {
       if (this.sketchSession === session && session.breakpoint) {
         this.closeSketchDialog();
       } else {
-        clearBreakpoints();
+        continueBreakpoint();
       }
     }
   }

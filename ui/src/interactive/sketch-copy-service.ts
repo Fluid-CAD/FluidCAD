@@ -1,5 +1,5 @@
 import {
-  applySketchCopy, applySketchCopyEdit, clearBreakpoints, fetchFeatureGhost,
+  applySketchCopy, applySketchCopyEdit, continueBreakpoint, fetchFeatureGhost,
   fetchSketchFeatureSources, ApplyFeatureResponse, Copy2DGhostRequest, FeatureEditTarget,
   GhostSketchAxisRef, GhostSolid, ParsedFeatureStatement,
   SketchApplyEntity, SketchCopyAxis, SketchCopyEditAxis, sketchGhostScope, ValueExpr,
@@ -234,7 +234,7 @@ export class SketchCopyService {
     this.panel.setApplyEnabled(false);
     this.onVisibilityChange?.(false);
     if (wasEditing && reason === 'cancel') {
-      clearBreakpoints();
+      continueBreakpoint();
     }
   }
 

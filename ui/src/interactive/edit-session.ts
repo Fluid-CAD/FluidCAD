@@ -1,4 +1,4 @@
-import { FeatureEditTarget, SelectionBoundaryRef, clearBreakpoints, rollback } from '../api';
+import { FeatureEditTarget, SelectionBoundaryRef, continueBreakpoint, rollback } from '../api';
 import { SceneObjectRender } from '../types';
 
 /** What starts an edit session: the statement, its row, and its exact text. */
@@ -91,12 +91,13 @@ export class EditSession {
 
   /**
    * End the session. The edit dialog opened by placing a breakpoint after the
-   * feature; leaving it clears that breakpoint so the model rebuilds to its
-   * tip (the full render supersedes the pre-statement rollback):
-   * - `cancel` (Exit): the UI clears the breakpoint — nothing else is writing.
-   * - `apply`: the apply transform strips the breakpoint atomically with the
-   *   rewrite, so a separate clear here could clobber the edit — skip it.
-   * - `continue`: the breakpoint indicator's own handler clears.
+   * feature; leaving it lifts that one breakpoint — and only it, a stop the
+   * user set further down stays pending — so the model runs on (the full
+   * render supersedes the pre-statement rollback):
+   * - `cancel` (Exit): the UI lifts the breakpoint — nothing else is writing.
+   * - `apply`: the apply transform lifts the breakpoint atomically with the
+   *   rewrite, so a separate edit here could clobber it — skip it.
+   * - `continue`: the breakpoint indicator's own handler lifts it.
    * - `gone`: a code change already dropped the statement; a full render is in
    *   flight, so forcing another would fight the user's editing.
    */
@@ -104,7 +105,7 @@ export class EditSession {
     const wasActive = this.info !== null;
     this.info = null;
     if (reason === 'cancel' && wasActive) {
-      clearBreakpoints();
+      continueBreakpoint();
     }
   }
 }

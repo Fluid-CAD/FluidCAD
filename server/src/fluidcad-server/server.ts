@@ -10,6 +10,7 @@ import { normalizePath } from '../normalize-path.ts';
 import { findLibIdentityMismatch } from '../lib-identity.ts';
 import { detectKind, type FluidScriptKind } from '../file-kind.ts';
 import { BreakpointHit } from '../../../lib/dist/common/breakpoint-hit.js';
+import { listBreakpoints, type BreakpointSite } from '../code-editor/index.ts';
 import {
   createParamRegistry,
   getParamRegistry,
@@ -153,6 +154,10 @@ export class FluidCadServer {
    * scene message is a rollback broadcast.
    */
   private lastBreakpointHit = false;
+  /** The `breakpoint();` the last full render paused on, when it is in the rendered file. */
+  private lastBreakpointAt: BreakpointSite | null = null;
+  /** Every `breakpoint();` of the rendered file as of the last full render. */
+  private lastBreakpoints: BreakpointSite[] = [];
   private compileError: CompileError | null = null;
 
   constructor(host: SceneHost = new LocalSceneHost()) {
@@ -163,6 +168,24 @@ export class FluidCadServer {
   getCurrentCode(): string | null {
     if (!this.currentFileName) return null;
     return this.host.getBuffer(this.currentFileName);
+  }
+
+  /**
+   * The breakpoint statement the build is paused on, when the pause is in
+   * the rendered file. Continue and an edit dialog's apply lift exactly this
+   * one, leaving any stop further down the file pending.
+   */
+  getActiveBreakpoint(): BreakpointSite | null {
+    return this.lastBreakpointHit ? this.lastBreakpointAt : null;
+  }
+
+  /** Where a pause landed in `fileName`, or null for a pause in another file (or an unlocated one). */
+  private static breakpointSiteIn(hit: BreakpointHit, fileName: string): BreakpointSite | null {
+    const loc = hit.sourceLocation;
+    if (!loc || normalizePath(loc.filePath.replace('virtual:live-render:', '')) !== normalizePath(fileName)) {
+      return null;
+    }
+    return { line: loc.line, column: loc.column };
   }
 
   /**
@@ -435,6 +458,8 @@ export class FluidCadServer {
           this.lastRollbackStop = fromCache.data.rollbackStop;
           this.lastRollbackScopePartId = fromCache.data.rollbackScopePartId ?? null;
           this.lastBreakpointHit = fromCache.data.breakpointHit === true;
+          this.lastBreakpointAt = fromCache.data.breakpointAt ?? null;
+          this.lastBreakpoints = fromCache.data.breakpoints ?? [];
           this.timelineHistory.setCurrent(sessionId, fromCache.data.timeline);
           this.compileError = null;
           setParamRegistry(fromCache.registry);
@@ -464,12 +489,14 @@ export class FluidCadServer {
         }
 
         let breakpointHit = false;
+        let breakpointAt: BreakpointSite | null = null;
         try {
           await this.host.loadModule(filePath);
         }
         catch (e) {
           if (e instanceof BreakpointHit) {
             breakpointHit = true;
+            breakpointAt = FluidCadServer.breakpointSiteIn(e, normalizedFileName);
           } else {
             throw e;
           }
@@ -486,12 +513,25 @@ export class FluidCadServer {
           } catch (e) {
             if (e instanceof BreakpointHit) {
               breakpointHit = true;
+              breakpointAt = FluidCadServer.breakpointSiteIn(e, normalizedFileName);
             } else {
               throw e;
             }
           }
         }
         this.lastBreakpointHit = breakpointHit;
+        this.lastBreakpointAt = breakpointAt;
+        // Every stop the file holds — the paused one and the pending ones
+        // after it — so the timeline can mark them all. A file the parser
+        // can't read (mid-edit) keeps the previous list.
+        const mainSource = timelineSources.get(normalizedFileName);
+        if (typeof mainSource === 'string') {
+          try {
+            this.lastBreakpoints = await listBreakpoints(mainSource);
+          } catch (error) {
+            console.warn('Could not list the file\'s breakpoints:', error);
+          }
+        }
 
         // A bare `assembly('name', () => {...});` statement is a LAZY
         // definition nothing runs — without this check the render is a
@@ -608,6 +648,8 @@ export class FluidCadServer {
           ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
           breakpointHit,
           ...(breakpointHit ? { breakpointStop: stop } : {}),
+          ...(breakpointHit && breakpointAt ? { breakpointAt } : {}),
+          breakpoints: this.lastBreakpoints,
           ...(timeline ? { timeline } : {}),
           params,
           // A part file's published values; an assembly's inserted parts
@@ -803,6 +845,8 @@ export class FluidCadServer {
       this.lastRollbackStop = cached.data.rollbackStop;
       this.lastRollbackScopePartId = cached.data.rollbackScopePartId ?? null;
       this.lastBreakpointHit = cached.data.breakpointHit === true;
+      this.lastBreakpointAt = cached.data.breakpointAt ?? null;
+      this.lastBreakpoints = cached.data.breakpoints ?? [];
       this.timelineHistory.setCurrent(fileName, cached.data.timeline);
       // A deduplicated render built nothing: the summary says so rather
       // than leaving the caller to guess from a missing field.
@@ -977,6 +1021,8 @@ export class FluidCadServer {
       // A rollback doesn't re-run the module — the paused state persists.
       breakpointHit: this.lastBreakpointHit,
       ...(this.lastBreakpointHit ? { breakpointStop: this.sceneManager.renderStop?.(scene)?.stop ?? result.length - 1 } : {}),
+      ...(this.lastBreakpointHit && this.lastBreakpointAt ? { breakpointAt: this.lastBreakpointAt } : {}),
+      breakpoints: this.lastBreakpoints,
       ...(this.timelineHistory.get(fileName) ? { timeline: this.timelineHistory.get(fileName) } : {}),
       objectErrors: FluidCadServer.collectObjectErrors(result),
       objectWarnings: this.collectObjectWarnings(result),

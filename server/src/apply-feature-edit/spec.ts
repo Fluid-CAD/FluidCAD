@@ -417,12 +417,15 @@ export type ApplyFeatureEditSpec = {
    */
   activePart?: { line: number; column: number };
   /**
-   * Strip every `breakpoint();` after the rewrite. Set when an edit dialog
-   * applies: the double-click that opened it placed a breakpoint, and
-   * applying clears it so the model rebuilds to its tip. Done inside this
-   * one transform so the rewrite and the clear never race on the buffer.
+   * Take out the breakpoint the build is paused on, in the same rewrite.
+   * Set when an edit dialog applies: the double-click that opened it placed
+   * a breakpoint, and applying lifts it so the model runs on — to the next
+   * pending `breakpoint();` the file holds, or to its tip. The site names
+   * the paused statement; `true` stands for the first one in the file.
+   * Done inside this one transform so the rewrite and the removal never
+   * race on the buffer.
    */
-  clearBreakpoints?: boolean;
+  clearBreakpoints?: boolean | { line: number; column: number };
   /**
    * `const <name> = <initializer>;` declarations to write directly before
    * the statement — a dialog expression field's `myVar = 50` (or a fresh

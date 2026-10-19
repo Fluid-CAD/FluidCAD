@@ -1,10 +1,11 @@
 // Editing an existing feature statement in place.
 
 import {
-  clearBreakpoints as stripBreakpoints,
+  breakpointRemovalEdit,
   declarationImports,
   declareParamStatements,
   ensureSymbolImport,
+  findActiveBreakpointStatement,
   findEditableCallAt,
   findEnclosingPart,
   getJavaScriptParser,
@@ -176,6 +177,17 @@ export async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpe
   // edit below lands inside that part's body, so its own line holds.
   const enclosingPart = findEnclosingPart(tree, (stmtNode ?? call).startPosition.row);
   const partLine = enclosingPart ? enclosingPart.call.startPosition.row + 1 : null;
+  // The edit's own breakpoint comes out in the same splice pass — one
+  // transform, one write, so the rewrite and the removal can't race — and
+  // only that one: a stop the user set further down the file stays pending.
+  // Original-buffer coordinates like every other edit here, so the rewrite
+  // changing the statement's line count can't shift the target.
+  if (spec.clearBreakpoints) {
+    const paused = findActiveBreakpointStatement(tree, spec.clearBreakpoints === true ? null : spec.clearBreakpoints);
+    if (paused) {
+      edits.push(breakpointRemovalEdit(code, paused));
+    }
+  }
   // Ties (a pure insertion at the statement's own start) must splice after
   // the replacement, so the inserted text never lands inside the replaced
   // span — hence the end tie-break.
@@ -209,11 +221,6 @@ export async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpe
   }
   for (const symbol of imports) {
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
-  }
-  // Clearing the edit's breakpoint here — one transform, one write — keeps
-  // the rewrite and the clear from racing had the UI cleared it separately.
-  if (spec.clearBreakpoints) {
-    result = (await stripBreakpoints(result)).newCode;
   }
   return { newCode: result };
 }

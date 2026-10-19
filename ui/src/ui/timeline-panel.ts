@@ -545,7 +545,10 @@ export class TimelinePanel {
         this.revealRow(el, false);
       }
     }
-    this.shapesPanel.update(sceneObjects);
+    // A rollback preview keeps the Shapes list of the last complete render
+    // and dims what the preview cuts off; a pause is a scene of its own.
+    const previewing = !paused && isRollbackViewTruncated(sceneObjects, rollbackStop, rollbackScopePartId);
+    this.shapesPanel.update(sceneObjects, previewing ? { stop: rollbackStop, scopePartId: rollbackScopePartId } : undefined);
     this.updateHistoryTotal();
   }
 

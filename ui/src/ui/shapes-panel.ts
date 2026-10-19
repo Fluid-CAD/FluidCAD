@@ -3,7 +3,7 @@ import { ICON_EYE, ICON_EYE_OFF, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL } from '
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { AccordionSection } from './accordion-section';
 import { iconUrl } from './icon-url';
-import { sourceLocKey } from '../helpers/scene-utils';
+import { findMatchingRow, rollbackScopeIds, sourceLocKey } from '../helpers/scene-utils';
 import { ShapeLabels } from '../../../lib/rendering/shape-labels.js';
 
 /** One listed shape: its action handle, its `<Type> <n>` label and the row that holds it. */
@@ -12,6 +12,8 @@ type ShapeRow = {
   shapeType: string;
   label: string;
   holderName: string;
+  /** The holder is past a rollback preview's stop: the shape is not on screen, and the row is inert. */
+  past: boolean;
 };
 
 /** One collapsible group: a part row, or the fixed "Model" for part-less shapes. */
@@ -41,7 +43,12 @@ export class ShapesPanel extends AccordionSection {
   private static readonly MODEL_GROUP_TITLE = ShapeLabels.MODEL_LABEL;
 
   private panel: HTMLElement;
+  /** The scene the rows are built from: the last complete render, even while a rollback previews part of it. */
   private sceneObjects: SceneObjectRender[] = [];
+  /** The last complete (non-preview) render, or null before the first one. */
+  private completeScene: SceneObjectRender[] | null = null;
+  /** Ids of the holder rows a rollback preview cuts off: their shapes list dimmed. */
+  private pastHolderIds = new Set<string>();
   private collapsedGroups = new Set<string>();
   private selectedIds = new Set<string>();
   private activeDropdown: HTMLDivElement | null = null;
@@ -79,9 +86,56 @@ export class ShapesPanel extends AccordionSection {
     this.onResetAllTransparency = onResetAllTransparency;
   }
 
-  update(sceneObjects: SceneObjectRender[]): void {
-    this.sceneObjects = sceneObjects;
+  /**
+   * A complete render replaces the list. A rollback preview (`preview`: the
+   * stop and the part it is scoped to) does not: the preview is a view of
+   * the same model, so the list keeps the last complete render's rows and
+   * only dims the ones the preview cuts off — the way History dims rows
+   * past the stop. The row count never changes, so the section keeps its
+   * height and the column's split stays put. Without a complete render to
+   * hold on to (a refresh that replayed a rollback), the preview is listed
+   * as it is.
+   */
+  update(sceneObjects: SceneObjectRender[], preview?: { stop: number; scopePartId: string | null }): void {
+    if (!preview || this.completeScene === null) {
+      this.sceneObjects = sceneObjects;
+      this.pastHolderIds = new Set();
+      if (!preview) {
+        this.completeScene = sceneObjects;
+      }
+      this.render();
+      return;
+    }
+    this.sceneObjects = this.completeScene;
+    this.pastHolderIds = ShapesPanel.pastHolders(this.completeScene, sceneObjects, preview);
     this.render();
+  }
+
+  /**
+   * The holders of `complete` whose row the preview places past its stop
+   * (inside the scoped part when the stop is part-scoped), or drops: a
+   * complete-render row is found in the preview by id, else by source
+   * identity.
+   */
+  private static pastHolders(
+    complete: SceneObjectRender[],
+    preview: SceneObjectRender[],
+    { stop, scopePartId }: { stop: number; scopePartId: string | null },
+  ): Set<string> {
+    const past = new Set<string>();
+    const scoped = rollbackScopeIds(preview, scopePartId);
+    const byId = new Map(preview.map((obj, index) => [obj.id, index]));
+    for (const holder of complete) {
+      if (holder.id == null || !(holder.sceneShapes ?? []).some((shape) => !shape.isMetaShape)) {
+        continue;
+      }
+      const match = byId.has(holder.id) ? holder : findMatchingRow(holder, preview);
+      const index = match?.id != null ? byId.get(match.id) : undefined;
+      if (index === undefined || (index > stop && (scoped === null || scoped.has(match!.id!)))) {
+        past.add(holder.id);
+      }
+    }
+    return past;
   }
 
   /**
@@ -101,6 +155,7 @@ export class ShapesPanel extends AccordionSection {
         shapeType: labelled.shapeType,
         label: labelled.label,
         holderName: labelled.holder.name ?? '',
+        past: labelled.holder.id != null && this.pastHolderIds.has(labelled.holder.id),
       });
     }
 
@@ -163,6 +218,21 @@ export class ShapesPanel extends AccordionSection {
 
       if (!isCollapsed) {
         for (const shape of group.rows) {
+          // A row the preview cut off keeps its place but goes quiet: dimmed,
+          // no hover, no eye or menu — its handle names a shape the preview
+          // did not draw.
+          if (shape.past) {
+            html += `
+            <div class="flex items-center gap-2 pl-9 pr-3 py-1 text-sm text-base-content/35 leading-tight" data-shape-id="${shape.shapeId}" data-shape-type="${shape.shapeType}" data-past="true" title="Not built at the previewed step">
+              <img src="${iconUrl(shape.shapeType)}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain shrink-0 grayscale opacity-60" alt="" />
+              <span class="min-w-0 flex-1">
+                <span class="block truncate" data-shape-label>${ShapesPanel.escapeHtml(shape.label)}</span>
+                <span class="block truncate text-xs text-base-content/30" data-shape-from>from ${ShapesPanel.escapeHtml(shape.holderName)}</span>
+              </span>
+            </div>
+          `;
+            continue;
+          }
           const isSelected = this.selectedIds.has(shape.shapeId);
           const selectedClass = isSelected ? ' bg-primary/10' : '';
           const hidden = this.isShapeHidden(shape.shapeId);
@@ -200,7 +270,7 @@ export class ShapesPanel extends AccordionSection {
       });
     });
 
-    this.body.querySelectorAll<HTMLElement>('[data-shape-id]').forEach((el) => {
+    this.body.querySelectorAll<HTMLElement>('[data-shape-id]:not([data-past])').forEach((el) => {
       el.addEventListener('click', (e) => {
         if ((e.target as HTMLElement).closest('[data-dots]')) {
           return;

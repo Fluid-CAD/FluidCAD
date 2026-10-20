@@ -1,4 +1,4 @@
-import type { ParamDefinition, ParamOverrides, ParamScope, ParamVal } from "../param-registry.js";
+import { getParamRegistry, type ParamDefinition, type ParamOverrides, type ParamScope, type ParamVal } from "../param-registry.js";
 
 /**
  * Shared plumbing for definition parameter overrides — used by
@@ -67,17 +67,26 @@ export function collectedParamValues(scope: ParamScope): Record<string, ParamVal
 /**
  * Override keys the build never resolved. A warning, not an error: a key can
  * legitimately target a `param()` in a branch the current values don't take
- * (e.g. `Length` declared only under one `Size`).
+ * (e.g. `Length` declared only under one `Size`). A key that names a project
+ * parameter (a `*.params.js` global the live registry holds) is called out
+ * as such: a global's value is its declaration's literal, edited in the
+ * Parameters panel, and cannot be set per instance.
  */
 export function warnUnknownOverrides(kind: 'part' | 'assembly', name: string, scope: ParamScope): void {
   const unknown = Array.from(scope.overrides.keys()).filter(label => !scope.consumed.has(label));
   if (unknown.length === 0) {
     return;
   }
+  const registry = getParamRegistry();
+  const globals = unknown.filter(label => registry.hasGlobal(label));
   const declared = Array.from(scope.consumed);
+  const hint = globals.length === 0 ? '' : ' '
+    + `${globals.map(l => `'${l}'`).join(', ')} `
+    + (globals.length > 1 ? 'are project parameters — edit them' : 'is a project parameter — edit it')
+    + ' in the Parameters panel, not per instance.';
   console.warn(
     `${kind} '${name}': unknown parameter override${unknown.length > 1 ? 's' : ''} `
     + `${unknown.map(l => `'${l}'`).join(', ')} — this build declared `
-    + `${declared.length > 0 ? declared.map(l => `'${l}'`).join(', ') : 'no parameters'}.`,
+    + `${declared.length > 0 ? declared.map(l => `'${l}'`).join(', ') : 'no parameters'}.${hint}`,
   );
 }

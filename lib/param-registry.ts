@@ -12,8 +12,18 @@ export type ParamVal = ParamScalar | (string | number)[];
 /** Override values a definition build is parameterized with — `insert(def, {...})`. */
 export type ParamOverrides = Record<string, ParamVal>;
 
+/**
+ * Where a `param()` was declared: inside a `part()` body, inside an
+ * `assembly()` body, or at the top level of a `*.params.js` module (a project
+ * parameter, shared through imports). The authoritative discriminator — never
+ * infer it from `part` being absent, which is true of both an assembly's and
+ * a global's declaration.
+ */
+export type ParamKind = 'part' | 'assembly' | 'global';
+
 export type ParamDefinition = {
   label: string;
+  kind: ParamKind;
   defaultValue: ParamVal;
   currentValue: ParamVal;
   controlType: ControlType;
@@ -36,8 +46,8 @@ export type ParamDefinition = {
   /**
    * The `part()` statement whose body declared this parameter — the part
    * that was building when `param()` ran. The params panel filters its rows
-   * by this against the part its dropdown names. Absent for a declaration
-   * in an assembly body, the one home a parameter has outside a part.
+   * by this against the part its dropdown names. Present for `kind: 'part'`
+   * only; an assembly body's and a global's declarations carry none.
    */
   part?: SourceLocation;
 };
@@ -60,6 +70,23 @@ export class ParamRegistry {
 
   register(def: ParamDefinition): void {
     this.definitions.set(def.label, def);
+  }
+
+  /**
+   * Register a project parameter (`kind: 'global'`). A global's value is its
+   * declaration's literal — the one source of truth across every file that
+   * imports it — so it never goes through `resolve`: no session override
+   * applies, no baseline is recorded, nothing is ever discarded for it.
+   * `getAuthoredDefaults` / `getDiscardedOverrides` only ever see labels
+   * `resolve` handled, so a global shares a label with a part parameter
+   * without disturbing that parameter's override bookkeeping.
+   */
+  registerGlobal(def: ParamDefinition): void {
+    if (def.kind !== 'global') {
+      throw new Error(`registerGlobal(): '${def.label}' is a ${def.kind} parameter — use register().`);
+    }
+    const { part: _part, ...global } = def;
+    this.definitions.set(def.label, { ...global, currentValue: def.defaultValue });
   }
 
   resolve(label: string, defaultValue: (string | number)[]): (string | number)[];
@@ -95,8 +122,15 @@ export class ParamRegistry {
     this.baseDefaults = baseDefaults ?? new Map();
   }
 
-  getDefinitions(): ParamDefinition[] {
-    return Array.from(this.definitions.values());
+  /** Every definition registered this run, or only those of one `kind`. */
+  getDefinitions(kind?: ParamKind): ParamDefinition[] {
+    const all = Array.from(this.definitions.values());
+    return kind === undefined ? all : all.filter(def => def.kind === kind);
+  }
+
+  /** Whether a project parameter with this label was registered this run. */
+  hasGlobal(label: string): boolean {
+    return this.definitions.get(label)?.kind === 'global';
   }
 
   /** What each label's `param()` declared this run — feed back as the next run's baselines. */

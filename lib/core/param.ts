@@ -1,9 +1,10 @@
-import { captureSourceLocation } from "../index.js";
+import { captureSourceLocation, isParamsFile } from "../index.js";
+import type { SourceLocation } from "../common/scene-object.js";
 import { getCurrentScene } from "../scene-manager.js";
 import { Assembly } from "../features/assembly.js";
 import {
   activeParamScope, coerceParamOverride, getParamRegistry,
-  type ControlType, type MultiControlType, type SelectOption, type ParamDefinition,
+  type ControlType, type MultiControlType, type SelectOption, type ParamDefinition, type ParamKind,
 } from "../param-registry.js";
 
 export type ParamType = 'number' | 'slider' | 'text' | 'select' | 'checkbox' | 'color';
@@ -55,6 +56,9 @@ export class ParamValue<T extends string | number | boolean> {
     this._value = registry.resolve(label, defaultValue);
     this._definition = {
       label,
+      // The legacy class never refused a top-level call and never stamped
+      // `part`; it keeps the inference the registry used to make from that.
+      kind: getCurrentScene()?.getActivePart() ? 'part' : 'assembly',
       defaultValue,
       currentValue: this._value,
       controlType: typeof defaultValue === 'boolean' ? 'checkbox'
@@ -169,7 +173,10 @@ export function resolveParam(v: NumberParam | StringParam | BooleanParam): numbe
  *
  * A parameter belongs to a `part(...)` (or `assembly(...)`) body — declare it
  * at the top of the callback, before the geometry that reads it. Called
- * outside every body it is an error: a file has no parameters of its own.
+ * outside every body it is an error — a model file has no parameters of its
+ * own — unless the file is a `*.params.js` module: a parameter exported from
+ * there is a project parameter, shared with every file that imports it and
+ * edited in the Parameters panel, where its value is its declared literal.
  * When the defining file renders, the parameter appears in the Parameters
  * panel under its part, and a value edited there is written back as the new
  * default. Inserted elsewhere, the same declaration is the definition's
@@ -222,28 +229,33 @@ export default function param(
   // The part whose callback is running owns this declaration: the panel
   // shows a part's parameters under that part, and a declaration lands at
   // the top of the part's body. An assembly body (its own parameter
-  // interface) is the one other legal home. Outside both there is nothing to
-  // own the parameter — a file has no parameters of its own — so the call is
-  // refused where it stands rather than registering a stray control.
+  // interface) is the next legal home. Outside both, the call is a project
+  // parameter when it stands in a `*.params.js` module — and refused where
+  // it stands in any other attributed file, rather than registering a stray
+  // control (`classifyTopLevelParam`). The location is captured first: it is
+  // what the decision reads, and for a global nothing below resolves.
   const declaringPart = getCurrentScene()?.getActivePart() ?? null;
-  if (!declaringPart && !Assembly.isBodyRunning()) {
-    throw new Error(
-      `param('${label}') must be declared inside a part() body — move it to the top of the part's callback.`,
-    );
-  }
+  const sourceLocation = captureSourceLocation();
+  const kind: ParamKind = declaringPart ? 'part'
+    : Assembly.isBodyRunning() ? 'assembly'
+    : classifyTopLevelParam(label, sourceLocation);
   // A definition build in flight (a part variant materializing, an assembly
   // occurrence's body running) resolves against ITS scope only: the insert's
   // override map is the value source, and the declaration is collected as
   // the definition's parameter interface instead of registering globally —
   // the consuming file's params panel never sees an inserted part's
   // internals. No scope → the entry file's own params: global registry,
-  // panel overrides, baseline bookkeeping, exactly as before.
-  const scope = activeParamScope();
-  const value = scope
-    ? (scope.overrides.has(label) ? coerceParamOverride(defaultValue, scope.overrides.get(label)) : defaultValue)
-    : Array.isArray(defaultValue)
-      ? getParamRegistry().resolve(label, defaultValue)
-      : getParamRegistry().resolve(label, defaultValue);
+  // panel overrides, baseline bookkeeping, exactly as before. A project
+  // parameter consults neither: its value IS its literal (§2.5 of the
+  // global-parameters plan) — no session override, no baseline.
+  const scope = kind === 'global' ? null : activeParamScope();
+  const value = kind === 'global'
+    ? defaultValue
+    : scope
+      ? (scope.overrides.has(label) ? coerceParamOverride(defaultValue, scope.overrides.get(label)) : defaultValue)
+      : Array.isArray(defaultValue)
+        ? getParamRegistry().resolve(label, defaultValue)
+        : getParamRegistry().resolve(label, defaultValue);
 
   const controlType: ControlType = type
     ?? (typeof defaultValue === 'boolean' ? 'checkbox'
@@ -252,12 +264,12 @@ export default function param(
 
   const definition: ParamDefinition = {
     label,
+    kind,
     defaultValue,
     currentValue: value,
     controlType,
   };
 
-  const sourceLocation = captureSourceLocation();
   if (sourceLocation) {
     definition.sourceLocation = sourceLocation;
   }
@@ -277,11 +289,33 @@ export default function param(
     if ('multiControlType' in options && options.multiControlType != null) { definition.multiControlType = options.multiControlType; }
   }
 
-  if (scope) {
+  if (kind === 'global') {
+    getParamRegistry().registerGlobal(definition);
+  } else if (scope) {
     scope.consumed.add(label);
     scope.collected.set(label, definition);
   } else {
     getParamRegistry().register(definition);
   }
   return value;
+}
+
+/**
+ * The kind of a `param()` called outside every part and assembly body, from
+ * where the call was authored. In a `*.params.js` module it is a project
+ * parameter. In any other attributed file it is misplaced and refused.
+ * Unattributed (the browser viewer's module evaluator may give V8 no
+ * mappable file name; a plain `.js` helper has no script frame) it is a
+ * project parameter too: a viewer must render, never throw, over missing
+ * attribution — the guard keeps its teeth where frames are always
+ * attributed (the desktop's Vite path).
+ */
+export function classifyTopLevelParam(label: string, location: SourceLocation | null): 'global' {
+  if (location && !isParamsFile(location.filePath)) {
+    throw new Error(
+      `param('${label}') must be declared inside a part() body — move it to the top of the part's callback, `
+      + `or export it from a *.params.js file to share it across the project.`,
+    );
+  }
+  return 'global';
 }

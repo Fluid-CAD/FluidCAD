@@ -10,10 +10,21 @@ import { Extrudable } from "./helpers/types.js";
 import { parse as parseStackTrace } from "stacktrace-parser";
 import { getActiveUnit, getUnitRegistry } from "./units/registry.js";
 
-const SCRIPT_SUFFIXES = ['.part.js', '.assembly.js', '.fluid.js'];
+/**
+ * The suffixes a FluidCAD script carries. A `*.params.js` file is one too —
+ * not a model (it never renders as the scene), but a frame in it is a frame
+ * the engine attributes, so a top-level `param()` can be told apart from one
+ * misplaced in a part file (see `isParamsFile`).
+ */
+const SCRIPT_SUFFIXES = ['.part.js', '.assembly.js', '.fluid.js', '.params.js'];
 
 export function isFluidScriptFile(p: string): boolean {
   return SCRIPT_SUFFIXES.some(s => p.endsWith(s));
+}
+
+/** Whether `p` is a global-parameters module — the one legal home of a top-level `param()`. */
+export function isParamsFile(p: string): boolean {
+  return p.endsWith('.params.js');
 }
 
 export function captureSourceLocation(): SourceLocation | null {

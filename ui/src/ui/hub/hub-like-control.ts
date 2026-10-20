@@ -6,6 +6,8 @@ export type HubLikeControlDeps = {
   hub: HubClient;
   /** Start the panel's own sign-in (the header's, `HubAccount.signIn`). */
   signIn(): void;
+  /** Sign out, revoking the token from before likes, then sign in (`HubAccount.signInAgain`). */
+  signInAgain(): void;
   /** The hub's host for sentences (`hub.fluidcad.io`), once the status is known. */
   hubHost(): string | null;
   /** A like or unlike answered: the package's count now, for whatever else shows it. */
@@ -13,7 +15,7 @@ export type HubLikeControlDeps = {
 };
 
 /** What to offer under the button: the sign-in, or nothing beyond Dismiss. */
-type LikeNotice = { tone: 'warning' | 'error'; text: string; action: { label: string; title: string } | null };
+type LikeNotice = { tone: 'warning' | 'error'; text: string; action: { label: string; title: string; again: boolean } | null };
 
 /**
  * The package detail's Like (H13 in the app): a toggle with the heart,
@@ -217,13 +219,13 @@ export class HubLikeControl {
         return {
           tone: 'warning',
           text: `Sign in to ${host} to like packages.`,
-          action: { label: 'Sign in', title: `Sign in to ${host} in your browser` },
+          action: { label: 'Sign in', title: `Sign in to ${host} in your browser`, again: false },
         };
       case 'sign-in-again':
         return {
           tone: 'warning',
           text: 'This computer’s sign-in was made before FluidCAD could like packages. Sign in again to allow it.',
-          action: { label: 'Sign in again', title: `Sign in to ${host} in your browser; the new sign-in can like packages` },
+          action: { label: 'Sign in again', title: `Signs out, revoking this computer’s token on ${host}, then signs in in your browser; the new sign-in can like packages`, again: true },
         };
       case 'rate-limited':
         return { tone: 'warning', text: `Too many likes this minute, so the ${what} didn’t go through. Try again in a minute.`, action: null };
@@ -307,10 +309,15 @@ export class HubLikeControl {
       action.className = 'btn btn-xs text-hub-xs gap-1 font-normal self-start ml-6';
       action.title = message.action.title;
       action.append(HubIcons.span(HubIcons.SIGN_IN, '[&>svg]:size-3.5'), message.action.label);
+      const again = message.action.again;
       action.addEventListener('click', () => {
         this.message = null;
         this.renderNotice();
-        this.deps.signIn();
+        if (again) {
+          this.deps.signInAgain();
+        } else {
+          this.deps.signIn();
+        }
       });
       this.notice.appendChild(action);
     }

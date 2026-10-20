@@ -212,7 +212,7 @@ describe('Like in the package header', () => {
     expect(h.notice().classList.contains('hidden')).toBe(true);
   });
 
-  it('a sign-in older than likes: the message says to sign in again and offers it, then the state is read for the new sign-in', async () => {
+  it('a sign-in older than likes: the message says to sign in again and offers it, which signs out (revoking the old token) before signing in, then the state is read for the new sign-in', async () => {
     const h = await mount();
     h.hub.likeRefusal = { status: 403, error: 'This sign-in can’t like packages or keep lists…', code: 'sign-in-again' };
     h.like().click();
@@ -224,18 +224,35 @@ describe('Like in the package header', () => {
 
     again.click();
     await settle();
-    // The header's own sign-in, opened in the browser.
+    // Signed out first, so the hub revokes the old token, then the header's own sign-in, opened in the browser.
+    expect(h.hub.logout).toHaveBeenCalledTimes(1);
     expect(h.hub.login).toHaveBeenCalledTimes(1);
+    expect(h.hub.logout.mock.invocationCallOrder[0]).toBeLessThan(h.hub.login.mock.invocationCallOrder[0]);
     expect(h.openExternal).toHaveBeenCalledWith(FakeHubClient.loginState().authorizeUrl);
     expect(h.$('[data-ref="account"]')!.dataset.state).toBe('waiting');
     expect(h.notice().classList.contains('hidden')).toBe(true);
 
     const reads = h.hub.socialState.mock.calls.length;
     h.hub.liked.add(NAME);
+    h.hub.statusValue = FakeHubClient.status({ signedIn: { handle: 'acme' } });
     h.hub.endLogin({ status: 'signed-in', handle: 'acme' });
     await h.timers.fire();
     expect(h.hub.socialState.mock.calls.length).toBe(reads + 1);
     expect(h.like().getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('sign in again when the old token couldn\'t be revoked: it stops after signing out and says so, with Sign in back in the header', async () => {
+    const h = await mount();
+    h.hub.likeRefusal = { status: 403, error: 'This sign-in can’t like packages or keep lists…', code: 'sign-in-again' };
+    h.hub.logoutResult = { outcome: 'not-revoked', unreachable: true, reason: null };
+    h.like().click();
+    await settle();
+    h.$<HTMLButtonElement>('[data-ref="like-sign-in"]')!.click();
+    await settle();
+    expect(h.hub.logout).toHaveBeenCalledTimes(1);
+    expect(h.hub.login).not.toHaveBeenCalled();
+    expect(h.$('[data-ref="sign-in"]')!.textContent).toContain('so the token wasn’t revoked');
+    expect(h.$('[data-ref="account"]')!.dataset.state).toBe('signed-out');
   });
 
   it('the engine signed out under the panel (no credentials, or a refused token): the message offers Sign in', async () => {

@@ -26,6 +26,8 @@ export type HubPackageViewDeps = {
   onPublisher?(handle: string): void;
   /** Like pressed while signed out (or the sign-in predates likes): start the panel's sign-in. */
   signIn(): void;
+  /** The sign-in predates likes: sign out (revoking its token), then sign in. */
+  signInAgain(): void;
   /** A like or unlike answered the package's count: the results' copy of its row follows. */
   onLikes?(name: string, likes: number): void;
   now?(): number;
@@ -110,6 +112,7 @@ export class HubPackageView {
     this.like = new HubLikeControl({
       hub: deps.hub,
       signIn: () => deps.signIn(),
+      signInAgain: () => deps.signInAgain(),
       hubHost: () => this.host(),
       onLikes: (name, likes) => {
         if (this.pkg?.name === name) {

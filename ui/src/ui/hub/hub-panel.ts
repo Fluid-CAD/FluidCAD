@@ -138,6 +138,7 @@ export class HubPanel {
       onBack: () => this.showSearch(),
       onPublisher: (handle) => this.showPublisher(handle),
       signIn: () => void this.account.signIn(),
+      signInAgain: () => void this.account.signInAgain(),
       onLikes: (name, likes) => this.state.noteLikes(name, likes),
       onInstalled: (installed) => {
         this.searchStale = true;

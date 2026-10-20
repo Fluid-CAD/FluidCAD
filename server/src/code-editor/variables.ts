@@ -1,6 +1,12 @@
 // Variables a dialog introduces: declaring them and listing the ones in scope.
 
+import path from 'path';
+import { isParamsFile } from '../file-kind.ts';
+import type { GlobalParam, GlobalParamValue } from '../global-params/types.ts';
+import { normalizePath } from '../normalize-path.ts';
+import type { LengthUnit } from '../project-config.ts';
 import { assemblyBodies, assemblyInsertAnchors } from './assembly.ts';
+import { LexicalBindings } from './lexical-bindings.ts';
 
 import { updateDimensionExpression } from './dimensions.ts';
 import { ensureSymbolImport } from './imports.ts';
@@ -126,13 +132,48 @@ export function updateDimensionExpressionWithVariable(
 }
 
 /**
+ * Where a project parameter an expression field offers comes from
+ * (`docs/global-parameters-plan.md` §2.8): its params file, its label, the
+ * unit its number is in, and whether this file already imports it — under
+ * `alias` when the import renames it.
+ */
+export type VariableGlobalInfo = {
+  /** Workspace-relative path of the params file. */
+  file: string;
+  label: string;
+  /** The project unit, for a numeric global only (§2.7). */
+  unit?: LengthUnit;
+  /** Whether the file already imports the global. */
+  imported: boolean;
+  /** The local name an existing import binds it to, when that differs from the exported name. */
+  alias?: string;
+};
+
+/**
  * A name an expression field can offer. `unbound` marks a `property()` the
  * enclosing part publishes without binding a variable — a bare statement,
  * the way the Parameters panel writes one; its initializer is the whole
  * call, and a commit that reads the name declares it over that call, which
- * binds the property (see `bindPropertyInBody`).
+ * binds the property (see `bindPropertyInBody`). `global` marks a project
+ * parameter from a `*.params.js` file; its `name` is the identifier usable
+ * in this file and its initializer the literal value, so the client-side
+ * evaluator reads it like any local.
  */
-export type VariableInfo = { name: string; initializer?: string; numeric?: boolean; unbound?: boolean };
+export type VariableInfo = {
+  name: string;
+  initializer?: string;
+  numeric?: boolean;
+  unbound?: boolean;
+  global?: VariableGlobalInfo;
+};
+
+/** The project parameters to offer after a file's own variables, and the file they are offered in. */
+export type ScopeGlobals = {
+  params: readonly GlobalParam[];
+  /** Absolute path of the file the scope is read in — what an import's relative specifier resolves against. */
+  filePath: string;
+  projectUnit: LengthUnit;
+};
 
 /**
  * Whether an initializer is a plain constant, arithmetic expression,
@@ -182,6 +223,7 @@ export async function extractVariablesInScope(
   code: string,
   sketchSourceLine: number,
   rendered: RenderedProperties = RenderedProperties.none(),
+  globals?: ScopeGlobals,
 ): Promise<VariableInfo[]> {
   const p = await getParser();
   const tree = p.parse(code);
@@ -190,7 +232,7 @@ export async function extractVariablesInScope(
   if (sketchRow < 0) {
     return [];
   }
-  return collectVariablesInScope(tree, sketchRow, findEditableCallAt(tree, lines, sketchSourceLine), rendered);
+  return collectVariablesInScope(tree, sketchRow, findEditableCallAt(tree, lines, sketchSourceLine), rendered, globals);
 }
 
 /**
@@ -204,6 +246,7 @@ export async function extractVariablesInPart(
   code: string,
   partLine: number,
   rendered: RenderedProperties = RenderedProperties.none(),
+  globals?: ScopeGlobals,
 ): Promise<VariableInfo[]> {
   const p = await getParser();
   const tree = p.parse(code);
@@ -212,7 +255,7 @@ export async function extractVariablesInPart(
   if ('error' in part) {
     return [];
   }
-  return collectVariablesInScope(tree, part.body.endPosition.row, null, rendered);
+  return collectVariablesInScope(tree, part.body.endPosition.row, null, rendered, globals);
 }
 
 /**
@@ -223,17 +266,18 @@ export async function extractVariablesInPart(
 export async function extractVariablesInAssembly(
   code: string,
   rendered: RenderedProperties = RenderedProperties.none(),
+  globals?: ScopeGlobals,
 ): Promise<VariableInfo[]> {
   const parser = await getParser();
   const tree = parser.parse(code);
   const bodies = assemblyBodies(tree.rootNode);
   if (bodies.length !== 1) {
-    return collectVariablesInScope(tree, tree.rootNode.endPosition.row, null, rendered);
+    return collectVariablesInScope(tree, tree.rootNode.endPosition.row, null, rendered, globals);
   }
   const body = bodies[0];
   const { lastInsert, returnStmt } = assemblyInsertAnchors(body);
   const row = lastInsert?.endPosition.row ?? returnStmt?.startPosition.row ?? body.endPosition.row;
-  return collectVariablesInScope(tree, row, null, rendered);
+  return collectVariablesInScope(tree, row, null, rendered, globals);
 }
 
 /** How a dropdown shows a property's rendered value: source-shaped, so `480` reads as a number and `'oak'` as text. */
@@ -261,12 +305,19 @@ function propertyInitializer(value: RenderedPropertyValue): string {
  * it binds the declaration and moves it up to where the statement can
  * read it, so only one whose value reads names visible at the row — the
  * names that body can supply above the statement — is offered.
+ *
+ * The project parameters (`globals`) come last, each under the name this
+ * file reads it by — the alias its import gives it, else the exported name
+ * — with its literal value as initializer. One whose name the file binds
+ * to anything but its own import is hidden: JavaScript would read the
+ * local, and offering the global would lie.
  */
 function collectVariablesInScope(
   tree: TSTree,
   sketchRow: number,
   sketchCall: TSNode | null,
   rendered: RenderedProperties,
+  globals?: ScopeGlobals,
 ): VariableInfo[] {
   const variables: VariableInfo[] = [];
   const seen = new Set<string>();
@@ -419,5 +470,99 @@ function collectVariablesInScope(
     });
   }
 
-  return variables;
+  return globals ? appendGlobals(tree, variables, seen, globals) : variables;
+}
+
+/**
+ * The file's variables with the project parameters appended (§2.8). An
+ * already-imported global replaces the bare entry the import loop listed
+ * for it — same name, now with its value and provenance — so the list
+ * holds each usable name once.
+ */
+function appendGlobals(
+  tree: TSTree,
+  variables: VariableInfo[],
+  seen: Set<string>,
+  globals: ScopeGlobals,
+): VariableInfo[] {
+  const consumer = normalizePath(globals.filePath);
+  const bindings = new LexicalBindings(tree);
+  const imports = paramsImportSpecifiers(tree, consumer);
+  const out = variables.slice();
+  for (const global of globals.params) {
+    if (global.file === consumer) {
+      continue; // The file's own exports are already its variables.
+    }
+    const local = imports.get(`${global.file}\n${global.name}`);
+    const name = local ?? global.name;
+    const binding = bindings.resolve(name, tree.rootNode);
+    if (binding && local === undefined) {
+      continue; // A top-level declaration, or an import of something else, holds the name.
+    }
+    if (!binding && seen.has(name)) {
+      continue; // A body above the row declares it.
+    }
+    const initializer = global.value === null ? undefined : renderLiteral(global.value);
+    const info: VariableInfo = {
+      name,
+      ...(initializer !== undefined ? { initializer } : {}),
+      numeric: global.numeric,
+      global: {
+        file: global.relPath,
+        label: global.label,
+        ...(global.numeric ? { unit: globals.projectUnit } : {}),
+        imported: local !== undefined,
+        ...(local !== undefined && local !== global.name ? { alias: local } : {}),
+      },
+    };
+    if (local !== undefined) {
+      const index = out.findIndex((v) => v.name === name && v.global === undefined);
+      if (index >= 0) {
+        out.splice(index, 1);
+      }
+    }
+    seen.add(name);
+    out.push(info);
+  }
+  return out;
+}
+
+/**
+ * The local name each `import { x }` / `import { x as y }` of a params
+ * file binds, keyed `<absolute params file>\n<exported name>`.
+ */
+function paramsImportSpecifiers(tree: TSTree, consumer: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const statement of tree.rootNode.namedChildren) {
+    if (statement.type !== 'import_statement') {
+      continue;
+    }
+    const source = statement.childForFieldName('source')?.text.slice(1, -1) ?? '';
+    if (!isParamsFile(source) || !(source.startsWith('./') || source.startsWith('../'))) {
+      continue;
+    }
+    const file = normalizePath(path.resolve(path.dirname(consumer), source));
+    for (const node of walkTree(statement)) {
+      if (node.type !== 'import_specifier') {
+        continue;
+      }
+      const name = node.childForFieldName('name') ?? node.namedChild(0);
+      const alias = node.childForFieldName('alias');
+      if (name) {
+        out.set(`${file}\n${name.text}`, (alias ?? name).text);
+      }
+    }
+  }
+  return out;
+}
+
+/** A global's value as source: `3`, `'M4'`, `true`, `[1, 2]` — what an initializer reads as. */
+function renderLiteral(value: GlobalParamValue): string {
+  if (typeof value === 'string') {
+    return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => renderLiteral(v)).join(', ')}]`;
+  }
+  return String(value);
 }

@@ -6,7 +6,7 @@ import { detectKind } from '../../../file-kind.ts';
 import type { ApplyFeatureServices } from '../context.ts';
 
 export function registerCodeEndpoints(router: Router, services: ApplyFeatureServices): void {
-  const { fluidCadServer, dispatcher } = services;
+  const { fluidCadServer, dispatcher, globals } = services;
 
   // The Part tool: append an empty `part('Part N', () => {})` statement to
   // the current part file (the transform allocates the name past every part
@@ -51,7 +51,7 @@ export function registerCodeEndpoints(router: Router, services: ApplyFeatureServ
     }
     const { editId, ...editSpec } = spec;
     try {
-      const result = await applyFeatureEdit(code, editSpec);
+      const result = await applyFeatureEdit(code, editSpec, { globals });
       if (typeof editId === 'string') {
         dispatcher.settle(editId, result.error);
       }

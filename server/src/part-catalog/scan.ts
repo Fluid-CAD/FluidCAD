@@ -461,7 +461,9 @@ function recordPart(
  * `param()` the definition declared landed there).
  */
 function collectedParams(_builtPart: any, registry: { getDefinitions(): any[] }): CatalogParamDef[] {
-  return catalogParams(registry.getDefinitions());
+  // A project parameter the part imports from a `*.params.js` file registers
+  // as `kind: 'global'` — the workspace's, never this definition's interface.
+  return catalogParams(registry.getDefinitions().filter(def => def.kind !== 'global'));
 }
 
 /** Strip a ParamDefinition to the wire subset (drop sourceLocation). */

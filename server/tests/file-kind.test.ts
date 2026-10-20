@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { detectKind, isFluidScriptFile, newFileContent } from '../src/file-kind.ts';
+import { detectKind, isFluidScriptFile, isParamsFile, newFileContent, PARAMS_FILE_TEMPLATE } from '../src/file-kind.ts';
+import { classifyFile, describeFile } from '../src/files/file-tree.ts';
 
 describe('detectKind', () => {
   const cases: Array<{ input: string; expected: 'part' | 'assembly' | null }> = [
@@ -10,6 +11,7 @@ describe('detectKind', () => {
     { input: '/abs/path/to/robot.assembly.js', expected: 'assembly' },
     { input: 'C:\\Users\\me\\proj\\thing.fluid.js', expected: 'part' },
     { input: 'plain.js', expected: null },
+    { input: 'project.params.js', expected: null },
     { input: 'init.js', expected: null },
     { input: 'README.md', expected: null },
     { input: 'something.assembly.ts', expected: null },
@@ -64,6 +66,33 @@ describe('newFileContent', () => {
 
   it('leaves non-fluid files blank', () => {
     expect(newFileContent('helper.js')).toBe('');
+  });
+
+  it('prefills a params file with the param import and nothing else', () => {
+    expect(newFileContent('project.params.js')).toBe(`import { param } from 'fluidcad/core';\n\n`);
+    expect(newFileContent('/ws/sub/tolerances.params.js')).toBe(PARAMS_FILE_TEMPLATE);
+  });
+});
+
+describe('isParamsFile', () => {
+  it('matches the .params.js suffix only', () => {
+    expect(isParamsFile('project.params.js')).toBe(true);
+    expect(isParamsFile('/abs/dir/a.params.js')).toBe(true);
+    expect(isParamsFile('a.part.js')).toBe(false);
+    expect(isParamsFile('params.js')).toBe(false);
+    expect(isParamsFile('a.params.ts')).toBe(false);
+  });
+
+  it('is never a model', () => {
+    expect(isFluidScriptFile('a.params.js')).toBe(false);
+    expect(detectKind('a.params.js')).toBeNull();
+  });
+
+  it('lists as a source file flagged params, so the editor opens it like any module', () => {
+    expect(classifyFile('project.params.js')).toBe('source');
+    expect(describeFile('project.params.js')).toEqual({ kind: 'source', params: true });
+    expect(describeFile('helper.js')).toEqual({ kind: 'source' });
+    expect(describeFile('a.part.js')).toEqual({ kind: 'model' });
   });
 });
 

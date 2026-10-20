@@ -12,7 +12,9 @@
 // Doing it that way means we don't double-load the JavaScript wasm grammar.
 
 import { getJavaScriptParser } from './code-editor/index.ts';
-import { lintUnitStatements, type LintDiagnostic } from './unit-lint.ts';
+import { lintGlobalParamUnits, lintUnitStatements, type GlobalUnitLintContext, type LintDiagnostic } from './unit-lint.ts';
+import { isParamsFile } from './file-kind.ts';
+import { lintParamsTree } from './global-params/lint.ts';
 
 type TSNode = {
   type: string;
@@ -125,13 +127,27 @@ export type LintFluidJsResult = {
   missing: MissingImport[];
   /** A copy-pasteable block of suggested import statements, grouped by module. */
   suggestion: string;
-  /** File-level rule violations the runtime would reject (`unit()` placement). */
+  /**
+   * File-level rule violations the runtime would reject: `unit()` placement
+   * in a model, and for a `*.params.js` path the params-file rules of
+   * `docs/global-parameters-plan.md` §2.2 (`global-params/lint.ts`).
+   */
   diagnostics: LintDiagnostic[];
 };
 
 export type LintFluidJsOptions = {
-  /** The file the code will be written to — `unit()` is illegal in `*.assembly.js`. */
+  /**
+   * The file the code will be written to — `unit()` is illegal in
+   * `*.assembly.js`, and a `*.params.js` file follows its own rules.
+   */
   filePath?: string;
+  /**
+   * The project unit, the file's own unit and the project parameters, when
+   * the caller has them: a numeric global read in a file whose unit differs
+   * from the project's is reported with the converter to wrap it in. Absent,
+   * that rule is skipped (a bare lint has no catalog to ask).
+   */
+  globalUnits?: GlobalUnitLintContext;
 };
 
 /** True when `node` is the callee of a call expression (`m(…)`, not `m * 2`). */
@@ -395,9 +411,18 @@ export async function lintFluidJs(code: string, options: LintFluidJsOptions = {}
     .map(([mod, syms]) => `import { ${syms.join(', ')} } from "${mod}";`)
     .join('\n');
 
+  // A params file holds values, so the unit-order rule has nothing to say
+  // about it; its own rules (no geometry, every param() exported, …) apply.
+  const diagnostics = options.filePath && isParamsFile(options.filePath)
+    ? lintParamsTree(tree as any, options.filePath)
+    : [
+      ...lintUnitStatements(root, options.filePath, GEOMETRY_CALLEES),
+      ...(options.globalUnits ? lintGlobalParamUnits(root, options.filePath, options.globalUnits) : []),
+    ];
+
   return {
     missing: sorted,
     suggestion,
-    diagnostics: lintUnitStatements(root, options.filePath, GEOMETRY_CALLEES),
+    diagnostics,
   };
 }

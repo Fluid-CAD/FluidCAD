@@ -1,6 +1,9 @@
 import type { LengthUnit } from './project-config.ts';
 import type { ObjectBuildWarning } from './fluidcad-server/render-types.ts';
 import type { TimelineEntry } from '../../lib/dist/common/timeline.js';
+import type { GlobalParamsSnapshot } from './global-params/types.ts';
+
+export type { GlobalParam, GlobalParamsFile, GlobalParamsSnapshot } from './global-params/types.ts';
 
 // ---------------------------------------------------------------------------
 // IPC: Extension → Server messages
@@ -15,6 +18,14 @@ export type LiveUpdateMessage = {
   type: 'live-update';
   fileName: string;
   code: string;
+  /**
+   * Fold the file in as a dependency of the current model instead of
+   * switching the viewport to it — what the CLI watcher sends for a
+   * `*.params.js` change (`docs/global-parameters-plan.md` §2.9), and an
+   * editor host for a cross-file edit. A params file is never rendered as
+   * the scene whatever the flag says.
+   */
+  keepCurrent?: boolean;
 };
 
 export type RollbackMessage = {
@@ -467,6 +478,13 @@ export type ServerToExtensionMessage =
 
 export type UIParamDefinition = {
   label: string;
+  /**
+   * Where the declaration lives: a `part()` body, an assembly body, or a
+   * `*.params.js` file. The `scene-rendered` payload never carries a
+   * `'global'` — those reach the UI through the `global-params` message —
+   * so the panel's rows are `'part'` and `'assembly'` only.
+   */
+  kind: 'part' | 'assembly' | 'global';
   defaultValue: string | number | boolean | (string | number)[];
   currentValue: string | number | boolean | (string | number)[];
   controlType: 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox' | 'color';
@@ -478,6 +496,10 @@ export type UIParamDefinition = {
   options?: { label: string; value: string | number }[];
   multi?: boolean;
   multiControlType?: 'select' | 'checkboxes' | 'chips';
+  /** The `param()` call site, when the render captured it. */
+  sourceLocation?: { filePath: string; line: number; column: number };
+  /** The `part()` statement declaring it — `kind: 'part'` only. */
+  part?: { filePath: string; line: number; column: number };
 };
 
 /**
@@ -734,7 +756,17 @@ export type UIHostMessage = {
 };
 
 
+/**
+ * The global-parameters catalog, pushed whenever it changes — a `*.params.js`
+ * file edited (in the page or outside it), created, removed, or a value set
+ * through `POST /api/global-params/set`. Carries the same
+ * {@link GlobalParamsSnapshot} `GET /api/global-params` answers, so a page
+ * can treat both the same way.
+ */
+export type UIGlobalParamsMessage = { type: 'global-params' } & GlobalParamsSnapshot;
+
 export type ServerToUIMessage =
+  | UIGlobalParamsMessage
   | UIInitCompleteMessage
   | UIProcessingFileMessage
   | UISceneClosedMessage

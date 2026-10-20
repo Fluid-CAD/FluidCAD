@@ -23,7 +23,7 @@ The workspace is one browser tab: a top bar with the open files, a toolbar, a pa
     {n: 6, x: 95.6, y: 2.6, label: 'Settings', description: 'Appearance, Editor, Sketch, Timeline, Units, Materials and Advanced.'},
     {n: 7, x: 35, y: 8.3, label: 'Toolbar', description: 'Part, Sketch, the create features (Extrude … Hole), the pick tools (Fillet, Chamfer, Shell), the transforms (Repeat, Copy, Mirror, Rotate, Split), Boolean and Connector. Undo / Redo sit at the left end.'},
     {n: 8, x: 1.6, y: 14.2, label: 'Feature tree', description: 'Shows or hides the panel column.'},
-    {n: 9, x: 1.6, y: 18.2, label: 'Code editor', description: 'Docks the source editor on the left (Ctrl+B). The editor takes width from the viewport rather than covering it.'},
+    {n: 9, x: 1.6, y: 18.2, label: 'Code editor', description: 'Docks the source editor on the left (Ctrl+B). The editor takes width from the viewport rather than covering it. Below it, Parameters opens the project parameters column (see Project parameters).'},
     {n: 10, x: 12, y: 15.2, label: 'History', description: 'One row per feature, in file order, named Sketch 1, Extrude 1, … until you rename one. See below for what clicks do.'},
     {n: 11, x: 17.7, y: 15.2, label: 'History menu', description: 'Recompute scene (clears the cache and rebuilds everything) and Show execution time.'},
     {n: 12, x: 12, y: 73.9, label: 'Shapes', description: 'The solids the model produced, grouped by part, each named Solid 1, Solid 2, … with the feature that holds it beneath. Click a row to select it; the row menu hides it, sets transparency, or exports it.'},
@@ -135,6 +135,10 @@ A project carries exactly the custom materials it uses: applying one of these to
 ## Parameters
 
 The **Parameters** panel shows one control per `param()` in the file: a number field, slider, text box, dropdown, checkbox or color swatch, according to the declared type. Changing a control writes the new value into the source and re-renders. Below the controls, a **Properties** list shows each `property()` of the part by its label, with the value the last render computed. **+** opens a menu: **New parameter** or **New property**, each declared through a dialog; the pencil on a row edits or deletes its declaration, and the arrow resets every parameter to its default. Renaming a declaration renames the variable it binds and every read of it, in other files too; deleting one puts its value in place of its reads, or refuses when the value would not mean the same where it is read. See [Param](/docs/part/param) and [Property](/docs/part/property).
+
+### Project parameters
+
+The third button on the left rail, **Parameters** below **Code**, opens a column docked beside the rail that lists the project's shared parameters — the `export const x = param(…)` declarations of every `*.params.js` file — with one section per file. It is available in the part and the assembly workspace, latches like the feature-tree button, and works with no model open. A section's header carries the file name, **+** to add a parameter to that file, and a code icon that opens the file in a tab; with no params file yet, **+** creates `project.params.js`. Each row shows the label, its control, a chip with the identifier to type in expressions (`wall`) and a pencil that opens the declaration dialog with an extra **Identifier** field; derived exports (`export const inner = width - 2 * wall`) are listed read-only with their expression and value. Changing a control writes the new literal into the declaration and re-renders the open model — a project parameter has no session override and no reset. Every expression input offers these parameters with a **G** chip and writes the import when you pick one. See [Project parameters](/docs/extra/global-parameters).
 
 ## Edges in the viewport
 

@@ -4,7 +4,7 @@ title: "part(name, callback)"
 summary: "Declares a named part — a lazy definition whose body builds the geometry, with param() as its parameter interface, connector() as its mating interface and expose() as its published geometry. Chain .name() to rename it and .material(id) to give it a material (built-in fluidcad-… ids or a key of the fluidcad.json materials map) for mass in Shape Properties. Only an exported part() can be inserted into an assembly. Inside it shapes fuse with each other and never with siblings outside."
 tags: [api, part, assembly]
 symbols: [part]
-seeAlso: [api/param, api/connector, api/expose, api/insert, concepts/assemblies, concepts/scene-graph, concepts/units]
+seeAlso: [api/param, api/connector, api/expose, api/insert, concepts/assemblies, concepts/scene-graph, concepts/units, concepts/global-parameters]
 ---
 
 # part
@@ -35,7 +35,9 @@ Rules of thumb:
 - Inside a part, shapes auto-fuse with each other and never with anything
   outside it — several components in one file each get their own part.
 - Read parameters with `param()` inside the callback; declare `connector()`
-  and `expose()` directly in the body (not inside a nested callback).
+  and `expose()` directly in the body (not inside a nested callback). A
+  dimension shared with other parts is imported from `project.params.js`
+  ([[concepts/global-parameters]]), not declared again per part.
 - The callback's return value is ignored; publish geometry with `expose()`
   and read it back as `def.features.<name>`.
 - The part's numbers are in its file's unit; an assembly rescales it into

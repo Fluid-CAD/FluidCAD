@@ -1,0 +1,121 @@
+---
+sidebar_position: 3
+title: "Project Parameters"
+---
+
+# Project parameters
+
+A project parameter is a [`param()`](/docs/part/param) declared once, at the top level of a `*.params.js` file, exported, and read from any part or assembly through an ordinary `import`. It is the home for a dimension that several files share — a wall thickness, a bolt size, a clearance — so the number is written in one place and every model that reads it rebuilds when it changes.
+
+```js
+// project.params.js
+import { param } from 'fluidcad/core';
+
+export const wall = param('Wall thickness', 3, 'number', { min: 1, max: 10, step: 0.5 });
+export const boltSize = param('Bolt', 'M4', 'select', { options: [{ label: 'M3', value: 'M3' }, { label: 'M4', value: 'M4' }] });
+export const width = param('Width', 120);
+export const innerWidth = width - 2 * wall;   // derived — read-only in the panel
+```
+
+```js
+// bracket.part.js
+import { part, sketch, rect, extrude } from 'fluidcad/core';
+import { wall, innerWidth } from './project.params.js';
+
+export const bracket = part('Bracket', () => {
+    sketch('xy', () => { rect([0, 0], innerWidth, 40); });
+    extrude(wall);
+});
+```
+
+Nothing new is needed to read one: `wall` is a plain number in `bracket.part.js`, usable in a sketch guess, a dimension, an extrude distance, an `if`. The project gets a **Parameters** button on the left rail that lists every project parameter and edits it in place, and every expression input offers them beside the file's own variables and writes the import for you.
+
+A project parameter is source, not configuration: it lives in a JavaScript file you own, git diffs it, the editor completes it, and a derived value (`innerWidth = width - 2 * wall`) is an ordinary expression. There is no entry for it in `fluidcad.json`.
+
+## The params file
+
+The extension is what FluidCAD keys on: a params file is `<name>.params.js`. A project may have several (`project.params.js`, `tolerances.params.js`); the panel shows one section per file. The convention is `project.params.js` at the workspace root, which is also what the panel's **+** creates when the workspace has none.
+
+A params file is not a model. It is never rendered as the scene, opening it in a tab shows the code only, and the viewport never switches to it. Its only job is to hold values, and these rules keep it that way — each is reported as an error at the statement in the editor, and as a build error at render:
+
+1. **Only top-level statements**: imports, `export const x = param(…)`, `export const y = <expression>`, and comments. No `part()`, `sketch()`, geometry, `unit()` or `property()`.
+2. **Every `param()` is the initializer of an `export const`.** An unexported or unbound `param()` is unreachable from other files, so it is an error with the fix "export it". The exported identifier (`wall`) is what other files import and what you type in expressions; the label (`Wall thickness`) is what the panel shows.
+3. **Imports are limited to `fluidcad/core`, `fluidcad/units` and other `*.params.js` files.** Importing a model file is refused: it would make a cycle (model → params → model) that fails at run time.
+4. **Labels are unique per file**, and identifiers are valid JavaScript identifiers.
+5. **No `unit()`**: the numbers in a params file are in the [project unit](#units).
+
+A plain `export const` without `param()` is a **derived value**:
+
+```js
+export const width = param('Width', 120);
+export const wall = param('Wall thickness', 3);
+export const innerWidth = width - 2 * wall;
+export const boltClearance = width > 100 ? 0.5 : 0.3;
+```
+
+Derived values are listed in the panel with their expression and the value they evaluate to, and are read-only there: edit the expression in the file. Arithmetic over other exports is evaluated statically for the panel; an expression the panel cannot evaluate on its own (a `Math` call over a non-constant, a string concatenation) shows the value of the last render, or *computed at render* before any.
+
+## Units
+
+A params file has no `unit()`. Its numbers are in the project unit — the `unit` of [`fluidcad.json`](/docs/project-configuration#unit), `mm` by default — like an assembly's. A number read from a part file whose own `unit()` differs is **not converted**: a `param()` has no dimension, and a hole count or an angle must not be scaled by 25.4 on its way into an inch file.
+
+So in a file whose unit differs from the project's, convert a length yourself with the [`fluidcad/units`](/docs/extra/units) helper for the project unit, and leave counts, angles and ratios alone:
+
+```js
+// flange.part.js — an inch part in a millimetre project
+import { unit, extrude } from 'fluidcad/core';
+import { mm } from 'fluidcad/units';
+import { wall, holes } from './project.params.js';
+
+unit('in');
+extrude(mm(wall));                 // a length: 3 mm expressed in this file's inches
+for (let i = 0; i < holes; i++) {  // a count: used as is
+    // …
+}
+```
+
+The suggestion dropdown shows a number global with the project unit (`3 mm`) so the difference is visible where you type it, and the editor warns on a read of a number global in a file whose unit differs from the project unit, with the wrap as the quick fix. The wrap is explicit in source and reviewable, which is the product's stance on units: a file's numbers are its unit.
+
+## The Parameters panel
+
+The **Parameters** button on the left rail, below **Code**, opens a column docked beside the rail; the panels to its right shift over while it is open. It is available in the part and the assembly workspace alike, and it works with no model open — the list comes from a scan of the params files, not from a render.
+
+- **One section per params file**, headed by the file name. The header's **+** adds a parameter to that file and its code icon opens the file in a tab at the first declaration. With no params file in the workspace the panel shows *No project parameters yet* and **+** creates `project.params.js`.
+- **One row per parameter**: the label, the control (a number field, slider, text field, select, checkbox or colour swatch, as declared), a monospace chip with the identifier to type (`wall`), and a pencil. Parameters with the same `group` fold together; a `description` is the control's help text.
+- **Derived rows** show the identifier, the expression and the computed value, read-only; their pencil opens the file at the line.
+- A row that breaks one of the [file rules](#the-params-file) carries a warning triangle with the message.
+
+**Changing a value writes the literal.** There are no per-session overrides for project parameters, because the one source of truth that every file sees is the declaration's default: a change in the panel edits the `param()` statement's default argument in the file — undoable in the code editor like any other edit — and the open model re-renders against it. Number and text fields apply after a short pause and on blur; a slider applies on release; selects, checkboxes and colours apply on change. There is no *reset to defaults*: the literal is the value.
+
+**The pencil opens the declaration dialog**, the same one a part parameter uses, with one more field: **Identifier**, the exported name. A new parameter derives its identifier from the label (`Wall thickness` becomes `wallThickness`), de-duplicated and kept clear of reserved words; you can type your own. The dialog reports where the parameter is used (*Used in 3 files*) before you confirm.
+
+- **Renaming** the label or the identifier rewrites the declaration and, for the identifier, every `import { wall }` specifier and every read in the files that import it.
+- **Deleting** a parameter puts its literal in place of every read in every importing file and drops the import specifier, so the models still build. It is refused, naming the reads to rewrite by hand, when the value would not mean the same where it is read — a derived default over other names, for instance.
+
+**An assembly cannot override one.** `insert(bracket, { 'Wall thickness': 5 })` names no parameter of the part, and the warning says so: *`Wall thickness` is a project parameter — edit it in the Parameters panel, not per instance.* A value that must vary per instance is a part parameter; a value that must agree across the project is a project parameter.
+
+## In expression inputs
+
+Every [expression input](/docs/part/param#from-an-expression-input) — the numeric fields of the feature dialogs, the sketcher's dimensions and readouts — offers the project parameters after the file's own variables, with a **G** chip, the label dimmed beside the identifier and the value with the project unit in the hint column (`3 mm`). Pick one and the expression is written verbatim into the statement, as always; what is new is that **the import is written for you**: committing `wall * 2` into a file that does not import `wall` adds `import { wall } from './project.params.js'` (with the relative path from the file's own folder) at the top of the file.
+
+- A global whose name the file already binds — a local `const wall` — is not offered: JavaScript would read the local, and offering the global would lie. Rename one of the two.
+- A global imported under an alias (`import { wall as w }`) is offered as `w`.
+- The ghost preview resolves an imported global to its value, like any variable of the file.
+- Removing the last read of a global does not remove the import; unused imports are the editor's to point out, as for any module.
+
+## Re-rendering
+
+A params file is a dependency of every model that imports it, so a change to it rebuilds whatever model is open, never the params file itself:
+
+- An edit in the panel, or in the in-page editor with a params file in a tab, re-renders the current model with the new text.
+- A change from outside — your own editor under `npx fluidcad serve`, a git checkout, an agent writing through the MCP server — is picked up by the watcher and re-renders the current model too, and the panel updates even when no model imports the file.
+- When no model is open there is nothing to render; the panel still reflects the file.
+
+A `fluidcad.json` [`unit`](/docs/project-configuration#unit) change re-reads the params file's numbers under the new unit, as it does an assembly's.
+
+## Rules
+
+- A `param()` at a file's top level is only legal in a `*.params.js` file, and must be the initializer of an `export const`. Anywhere else, `param()` belongs inside a `part()` or `assembly()` body.
+- A params file holds imports and `export const` declarations only: no geometry, no `unit()`, no `property()`, no imports of model files.
+- Numbers in a params file are in the project unit and are not converted on import; wrap a length in the `fluidcad/units` converter when the reading file's unit differs.
+- The declaration's literal is the value everywhere. The panel edits it in source; nothing overrides it per session or per instance.

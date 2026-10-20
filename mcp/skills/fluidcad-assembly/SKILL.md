@@ -29,6 +29,7 @@ Convention: one part per `.part.js` file, named after the thing it is (`bracket.
 | `.part.js` | part | modelling statements; `export const x = part("X", () => { … })` when an assembly will insert it |
 | `.assembly.js` | assembly | `export const x = assembly("x", () => { insert(); mate(); … })` |
 | `.fluid.js` | part | legacy suffix, same as `.part.js` |
+| `.params.js` | never rendered | `export const wall = param("Wall thickness", 3)` — project parameters every part and assembly imports |
 
 Units belong to parts:
 
@@ -63,7 +64,8 @@ State the convention in one line before writing the part, exactly as the core sk
 
 Rules that trip up every first attempt:
 
-- `param()` is only valid inside a `part()` or `assembly()` body; at file top level it throws. Declare parameters at the top of the body, before the geometry that uses them.
+- `param()` is only valid inside a `part()` or `assembly()` body, or exported from the top level of a `*.params.js` file; at the top level of a model file it throws. Declare parameters at the top of the body, before the geometry that uses them.
+- **A dimension two parts must agree on is a project parameter, not an override.** The bore of the housing and the shaft diameter, the wall thickness of both halves, the bolt size of a flange and its mate: `export const x = param("Label", value)` in `project.params.js`, then `import { x } from "./project.params.js"` in each part. Never copy the number into the second file, and never push it through `insert(def, { Label })` — an override naming a project parameter is warned about, not applied. `list_global_params` / the `globalParams` block of `get_scene_summary` tell what exists; a `*.params.js` write re-renders the open model (the file itself is never the model).
 - `connector()` and `expose()` are declared **directly in the part body**, not in a nested callback; names are unique within a part.
 - A connector's source must resolve to **exactly one** face, edge or vertex, or be a plane; a raw point is refused inside a part. `resolve_selection` the expression at the part's scope and confirm `count` is 1 before writing it.
 - A face connector sits at the face center with Z along the outward normal; a circular edge gives center plus axis; a straight edge gives midpoint plus tangent. `.offset(x, y, z)` and `.rotate(axis, deg)` move it in its own axes, in call order.

@@ -8,7 +8,7 @@ import partParam from '!!raw-loader!./_examples/part-param.js';
 
 # param()
 
-`param()` declares a named value with a control, at the top of a `part()` body. The part's file shows it in the **Parameters** panel; an assembly sets it per instance. The return value is a plain number, string, boolean or array, so the rest of the body reads it like any variable: in a sketch guess, a dimension, an extrude distance, an `if`, a loop bound.
+`param()` declares a named value with a control, at the top of a `part()` body. The part's file shows it in the **Parameters** panel; an assembly sets it per instance. Exported from a `*.params.js` file instead, the same call declares a [project parameter](/docs/extra/global-parameters) that every model imports. The return value is a plain number, string, boolean or array, so the rest of the body reads it like any variable: in a sketch guess, a dimension, an extrude distance, an `if`, a loop bound.
 
 A mounting plate with five parameters — two sizes, a thickness slider, a screw-size select and a checkbox that turns the chamfer on or off:
 
@@ -115,9 +115,9 @@ Inserted into an assembly, the part's parameters are its interface: the Insert d
 
 Where a `param()` may be called, and who can see it:
 
-- **Inside a `part()` body** (or an [`assembly()` body](/docs/assembly/parameters#assembly-parameters)). Called at a file's top level it is an error — `param('Width') must be declared inside a part() body` — because a file has no parameters of its own. Declare parameters at the top of the body, before the geometry that reads them: a declaration deeper down still belongs to the part, but the code above it cannot use it.
+- **Inside a `part()` body** (or an [`assembly()` body](/docs/assembly/parameters#assembly-parameters)), **or exported from a `*.params.js` file**. Called at the top level of a part or assembly file it is an error — `param('Width') must be declared inside a part() body — move it to the top of the part's callback, or export it from a *.params.js file to share it across the project` — because a model file has no parameters of its own. At the top level of a `*.params.js` file, as the initializer of an `export const`, it is a [project parameter](/docs/extra/global-parameters): shared by every file that imports it, listed in the project **Parameters** panel rather than under a part, and never overridden per instance. Inside a body, declare parameters at the top, before the geometry that reads them: a declaration deeper down still belongs to the part, but the code above it cannot use it.
 - **The part owns it.** The panel lists a part's parameters under that part, and a parameter declared through the UI lands in the part chosen in **Add to**. Two parts in one file have two independent lists; the same label may appear in both, but must be unique within one part.
-- **The expression dropdown is part-scoped.** A dialog's field offers the declarations the statement can see: the part body's own (its `param()`s first), the file's top-level declarations above the part, and, inside a sketch, the sketch body's variables. The part's own [properties](./property#in-an-expression-input) are offered too, with a **Pr** chip. Another part's parameters are never offered. Feature results (`const e = extrude(…)`) are hidden; only values and expressions are.
+- **The expression dropdown is part-scoped.** A dialog's field offers the declarations the statement can see: the part body's own (its `param()`s first), the file's top-level declarations above the part, and, inside a sketch, the sketch body's variables. The part's own [properties](./property#in-an-expression-input) are offered too, with a **Pr** chip, and the project parameters after everything of the file, with a **G** chip — picking one writes the import. Another part's parameters are never offered. Feature results (`const e = extrude(…)`) are hidden; only values and expressions are.
 - **The value depends on who is building.** When the file itself renders, the value is the default, or whatever the panel last wrote back. When an assembly inserts the part, the value comes from that `insert()`'s overrides, and the default fills in for every label the insert does not name. The consuming file's panel never shows an inserted part's parameters — they are the part's interface, not the assembly's controls.
 - **Read it inside the callback.** A `part()` definition is lazy and may build several variants, so the body must read parameters through `param()` at run time — not from a variable computed outside the callback, which every variant would share.
 
@@ -146,7 +146,7 @@ const finish = param('Finish', ['deburr'], 'select', {
 
 ## Rules
 
-- A `param()` is only valid inside a `part()` or `assembly()` body.
+- A `param()` is only valid inside a `part()` or `assembly()` body, or as an `export const` at the top level of a `*.params.js` file ([project parameters](/docs/extra/global-parameters)).
 - Declare parameters at the top of the body, before the geometry that uses them.
 - Labels are unique within a part.
 - Setting parameters from an assembly is covered in [Part parameters](/docs/assembly/parameters).

@@ -3,7 +3,7 @@ id: concepts/assemblies
 title: "Parts and assemblies — files, inserting, grounding, mating"
 summary: "A .part.js file exports a part() with param() values, connector() mate frames and expose()d geometry; a .assembly.js file exports an assembly() whose body insert()s parts, .grounded()s one and mate()s the rest. Mates are solved live in the viewport. Units are the project's; parts are scaled in; overrides are in the part's unit."
 tags: [concept, assembly, part]
-seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly, api/insert, api/mate, api/replicate, concepts/units]
+seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly, api/insert, api/mate, api/replicate, concepts/units, concepts/global-parameters]
 ---
 
 # Parts and assemblies
@@ -15,6 +15,7 @@ seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly
 | `.part.js` | part | modelling statements; optionally `export const x = part('X', () => { … })` |
 | `.assembly.js` | assembly | `export const x = assembly('x', () => { insert(); mate(); … })` |
 | `.fluid.js` | part | legacy suffix, same as `.part.js` |
+| `.params.js` | — (never rendered) | `export const x = param('X', …)` project parameters every model imports ([[concepts/global-parameters]]) |
 
 A part file renders every part it declares. Only an **exported** `part()`
 can be inserted elsewhere. A new assembly file is scaffolded as one exported
@@ -25,6 +26,12 @@ can be inserted elsewhere. A new assembly file is scaffolded as one exported
 | statement | in | out |
 |-----------|----|-----|
 | `param('Label', default, type?, opts?)` | `insert(def, { Label: value })` | the Parameters panel / Insert wizard controls |
+
+A dimension that must agree across parts (a wall thickness both halves of a
+housing share, a bolt size) is not a part parameter overridden in every
+`insert()`: it is a project parameter in `project.params.js`, imported by
+each part (`import { wall } from "./project.params.js"`). An override that
+names one is warned about, not applied. See [[concepts/global-parameters]].
 | `connector('name', geometry)` | — | `instance.connectors.name` for `mate()` |
 | `copy(…, name)` of that connector | — | `instance.connectors.name.instance(k)`, one per copy |
 | `expose('name', sceneObject)` | — | `def.features.name` (another part), `instance.features.name` (tangent mate) |

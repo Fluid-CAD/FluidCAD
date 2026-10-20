@@ -4,7 +4,7 @@ import { PackageName } from '../packages/package-name.ts';
 import { PackagePinError, PackagePins } from '../packages/package-pins.ts';
 import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
 import { Semver } from '../packages/semver.ts';
-import { HubClient, type HubPackageDetail, type HubSearchResponse, type HubSearchResult, type HubVersionDetail } from './hub-client.ts';
+import { HubClient, type HubLikeState, type HubPackageDetail, type HubPackageSocialState, type HubSearchResponse, type HubSearchResult, type HubVersionDetail } from './hub-client.ts';
 import { HubConfig } from './hub-config.ts';
 import { HubCredentials } from './hub-credentials.ts';
 import { HubFileCache, type HubCachedFile } from './hub-file-cache.ts';
@@ -41,11 +41,15 @@ import { HubTransport, type HubClientKind } from './hub-transport.ts';
  *   (`HubInstaller.resolve` then `fetch`), answered as the `PackageInspection`
  *   the consent dialog shows and whose token `POST /api/packages/install`
  *   takes.
+ * - {@link socialState}, {@link setLiked}: the signed-in account's own state
+ *   on a package and its like (H13), for the Hub panel's Like.
  *
  * Reads carry the signed-in token where an owner or reviewer sees more
  * (the detail, files, screenshots, the download), never for search. A
  * token the hub refuses (401) is dropped and the read goes again
- * anonymously, as `HubInstaller` does.
+ * anonymously, as `HubInstaller` does. What acts as the account (the
+ * social routes) never goes anonymous: no credentials, or a refused token,
+ * is `signed-out` (`HubBridge.social`).
  *
  * Refusals: the hub's own as {@link HubRequestError} (no answer at all is
  * status 0), the installer's as `HubInstallError`, the bridge's own (a bad
@@ -129,6 +133,15 @@ export type HubBridgeVersion = {
   local: HubLocalMarks;
 };
 
+/**
+ * `GET /api/hub/packages/@s/n/me`: what only the signed-in account sees about
+ * a package, as the hub answers it (`liked`, its lists, its Helpful marks).
+ */
+export type HubBridgeSocialState = HubPackageSocialState;
+
+/** `PUT`/`DELETE /api/hub/packages/@s/n/like`: whether the account likes it now, and the package's count after the change. */
+export type HubBridgeLikeState = HubLikeState;
+
 /** A file or screenshot the bridge serves, and whether the disk cache answered it (`hit`), kept it (`miss`) or may not keep it (`none`). */
 export type HubProxiedFile = HubCachedFile & { cache: 'hit' | 'miss' | 'none' };
 
@@ -169,6 +182,10 @@ export class HubBridge {
   /** The largest file or screenshot the bridge passes on. */
   static readonly MAX_FILE_BYTES = 64 * 1024 * 1024;
   private static readonly MEDIA_ID = /^[A-Za-z0-9-]{1,64}$/;
+  /** What acts as the account refused for want of one: no credentials, or a token the hub refused. */
+  static readonly SIGNED_OUT = 'signed-out';
+  /** A CLI sign-in made before the scope the request needs: a new sign-in grants it. */
+  static readonly SIGN_IN_AGAIN = 'sign-in-again';
 
   readonly project: string | null;
   readonly engineVersion: string;
@@ -351,6 +368,18 @@ export class HubBridge {
     };
   }
 
+  /** The signed-in account's own state on `name`: whether it likes it, its lists, its Helpful marks. */
+  async socialState(name: string): Promise<HubBridgeSocialState> {
+    HubBridge.checkName(name);
+    return this.social((client) => client.socialState(name));
+  }
+
+  /** Like (`liked`) or stop liking `name` as the signed-in account; idempotent, as the hub's routes are. */
+  async setLiked(name: string, liked: boolean): Promise<HubBridgeLikeState> {
+    HubBridge.checkName(name);
+    return this.social((client) => client.setLiked(name, liked));
+  }
+
   // Shaping
 
   private static row(row: HubSearchResult, origin: string, local: HubLocalState): HubBridgeSearchResult {
@@ -422,6 +451,40 @@ export class HubBridge {
       }
       throw err;
     }
+  }
+
+  /**
+   * A request that acts as the signed-in account (the hub's social routes,
+   * H13). Unlike a read it never goes anonymous: no credentials, or a token
+   * the hub refuses (401), is 401 `signed-out`; a CLI sign-in older than the
+   * `social` scope (the hub's 403 with `details.signInAgain`) is 403
+   * `sign-in-again`, the hub's sentence kept. Every other refusal is the
+   * hub's own: 403 `forbidden` (a personal token without the scope, a
+   * suspended account), 404 `not-found` (no such public package), 429
+   * `rate-limited`, status 0 (no answer).
+   */
+  private async social<T>(request: (client: HubClient) => Promise<T>): Promise<T> {
+    const config = this.config();
+    const credential = HubCredentials.read(config.origin, this.options.env);
+    if (!credential) {
+      throw new HubBridgeError(401, HubBridge.SIGNED_OUT, `Not signed in to ${config.origin}. Sign in to like packages.`, { reason: 'no-credentials' });
+    }
+    try {
+      return await request(new HubClient(config, this.transport, credential.token));
+    } catch (err) {
+      if (err instanceof HubRequestError && err.unauthorized) {
+        throw new HubBridgeError(401, HubBridge.SIGNED_OUT, `${config.origin} didn't accept this computer's sign-in. Sign in again.`, { reason: 'token-refused' });
+      }
+      if (err instanceof HubRequestError && err.status === 403 && HubBridge.asksToSignInAgain(err.details)) {
+        throw new HubBridgeError(403, HubBridge.SIGN_IN_AGAIN, err.message, err.details);
+      }
+      throw err;
+    }
+  }
+
+  /** The hub's 403 for a sign-in made before a scope it now grants (`details.signInAgain`). */
+  private static asksToSignInAgain(details: unknown): boolean {
+    return typeof details === 'object' && details !== null && (details as { signInAgain?: unknown }).signInAgain === true;
   }
 
   /** A client for `config`, sending the signed-in token. */

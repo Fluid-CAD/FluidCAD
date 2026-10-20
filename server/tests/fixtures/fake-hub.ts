@@ -57,6 +57,15 @@ import { TreeHash } from '../../src/packages/tree-hash.ts';
  *   `GET`/`POST …/media` and `PATCH`/`DELETE …/media/<id>` (caption, place,
  *   card). A stranger's write is 403 on a package with a published version,
  *   404 otherwise, as the hub answers.
+ * - the social routes the Hub panel's Like uses (H13): `PUT` and
+ *   `DELETE …/like` (idempotent, answering `LikeState` with the count after
+ *   the change: the package's {@link FakeHubPackage.likes} from others plus
+ *   the accounts that like it here) and `GET …/me` (`PackageSocialState`,
+ *   no lists or marks). A bearer token only: none or a revoked one is 401;
+ *   one without the `social` scope (or `account`, which covers it) is 403,
+ *   with `details.signInAgain` for a `cli` token, as the hub tells a
+ *   sign-in older than the scope; a package with nothing published is 404.
+ *   {@link FakeHub.nextLike} makes the next write refuse (`rate-limited`).
  *
  * Tell it what to do next with {@link FakeHub.mode}: `approve` (default),
  * `deny`, `expire` (approves, then refuses the exchange as expired), `fail`
@@ -128,6 +137,8 @@ export type FakeHubPackage = {
   /** The listing (H12); the defaults when unset. */
   listing?: { license: string | null; homepageUrl: string | null; repositoryUrl: string | null };
   deprecatedMessage?: string | null;
+  /** Likes from accounts other than the tokens': the count's base. */
+  likes?: number;
 };
 
 /** One `PUT` the hub took: the archive's bytes, its headers and whether it was a dry run. */
@@ -210,6 +221,10 @@ export class FakeHub {
   nextSearch: { status: number; code: string; message: string; details?: unknown } | null = null;
   /** The screenshots, by id. */
   readonly media = new Map<string, FakeHubMedia>();
+  /** The accounts (user ids) that like each package, by full name. */
+  readonly likers = new Map<string, Set<string>>();
+  /** A refusal the next like or unlike answers instead; used once. */
+  nextLike: { status: number; code: string; message: string; details?: unknown } | null = null;
   /** The `request` of every `/cli/done` visit. */
   readonly doneVisits: string[] = [];
   readonly authorizations = new Map<string, Authorization>();
@@ -343,6 +358,8 @@ export class FakeHub {
     this.downloads.length = 0;
     this.packages.clear();
     this.media.clear();
+    this.likers.clear();
+    this.nextLike = null;
     this.searchAnswer = FakeHub.emptySearch();
     this.nextSearch = null;
     this.nextUpload = null;
@@ -416,6 +433,10 @@ export class FakeHub {
         if (mediaList) {
           return this.mediaListRoute(req, res, url, bytes, `${decodeURIComponent(mediaList[1])}/${decodeURIComponent(mediaList[2])}`);
         }
+        const social = FakeHub.SOCIAL_ROUTE.exec(url.pathname);
+        if (social) {
+          return this.socialRoute(req, res, `${decodeURIComponent(social[1])}/${decodeURIComponent(social[2])}`, social[3] as 'like' | 'me');
+        }
         const lifecycle = req.method === 'POST' ? FakeHub.LIFECYCLE_ROUTE.exec(url.pathname) : null;
         if (lifecycle) {
           const name = `${decodeURIComponent(lifecycle[1])}/${decodeURIComponent(lifecycle[2])}`;
@@ -438,6 +459,7 @@ export class FakeHub {
   private static readonly FILE_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)\/versions\/([^/]+)\/files\/(.+)$/;
   private static readonly MEDIA_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)\/media\/([^/]+)$/;
   private static readonly MEDIA_LIST_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)\/media$/;
+  private static readonly SOCIAL_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)\/(like|me)$/;
   private static readonly LIFECYCLE_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)\/versions\/([^/]+)\/(yank|unyank)$/;
   /** The hub's safe types (`ArchiveFiles`): images by extension, text as plain text, anything else as bytes. */
   private static readonly FILE_TYPES: Record<string, string> = {
@@ -835,6 +857,49 @@ export class FakeHub {
       return null;
     }
   }
+
+  // The social routes (H13): likes and the caller's own state
+
+  private socialRoute(req: http.IncomingMessage, res: http.ServerResponse, name: string, route: 'like' | 'me'): void {
+    const write = route === 'like' && (req.method === 'PUT' || req.method === 'DELETE');
+    if (!write && !(route === 'me' && req.method === 'GET')) {
+      return FakeHub.error(res, 404, 'not-found', 'No such route.');
+    }
+    const token = this.bearer(req);
+    if (!token) {
+      return FakeHub.error(res, 401, 'unauthorized', 'Sign in to do this.');
+    }
+    if (!token.scopes.includes('social') && !token.scopes.includes('account')) {
+      if (token.kind === 'cli') {
+        return FakeHub.error(res, 403, 'forbidden', FakeHub.SIGN_IN_AGAIN, { scope: 'social', signInAgain: true });
+      }
+      return FakeHub.error(res, 403, 'forbidden', "This API token doesn't have the `social` scope.", { scope: 'social' });
+    }
+    const pkg = this.packages.get(name);
+    if (!pkg || pkg.status !== 'active' || !pkg.versions.some((row) => row.status === 'published')) {
+      return FakeHub.error(res, 404, 'not-found', `No package ${name}.`);
+    }
+    const likers = this.likers.get(name) ?? new Set<string>();
+    this.likers.set(name, likers);
+    if (route === 'me') {
+      return FakeHub.json(res, 200, { package: name, liked: likers.has(token.user.id), lists: [], helpful: [] });
+    }
+    const plan = this.nextLike;
+    this.nextLike = null;
+    if (plan) {
+      return FakeHub.error(res, plan.status, plan.code, plan.message, plan.details);
+    }
+    if (req.method === 'PUT') {
+      likers.add(token.user.id);
+    } else {
+      likers.delete(token.user.id);
+    }
+    res.setHeader('cache-control', FakeHub.PRIVATE);
+    FakeHub.json(res, 200, { package: name, liked: likers.has(token.user.id), likes: (pkg.likes ?? 0) + likers.size });
+  }
+
+  /** The hub's sentence for a `cli` token older than the `social` scope (`Principal.signInAgain`). */
+  static readonly SIGN_IN_AGAIN = 'This sign-in can’t like packages or keep lists: it was made before FluidCAD could. Sign in again to allow it: `fluidcad login`, or Sign out and Sign in in FluidCAD’s Hub panel.';
 
   // The read routes (H7)
 
@@ -1319,8 +1384,8 @@ export class FakeHub {
     res.end(JSON.stringify(body));
   }
 
-  private static error(res: http.ServerResponse, status: number, code: string, message: string): void {
-    FakeHub.json(res, status, { error: { code, message } });
+  private static error(res: http.ServerResponse, status: number, code: string, message: string, details?: unknown): void {
+    FakeHub.json(res, status, { error: details === undefined ? { code, message } : { code, message, details } });
   }
 
   private static readBody(req: http.IncomingMessage): Promise<Buffer> {

@@ -509,29 +509,42 @@ export class BrowserEngineHost {
   /** Ported from FluidCadServer.collectObjectErrors — see that doc comment. */
   /**
    * The render's non-fatal notices, mirroring the desktop's
-   * `objectWarnings`: a `part` row whose `.material(id)` is in neither
-   * the built-in nor the workspace table. The part built; only its mass
-   * is unknown.
+   * `objectWarnings`: a row's own (`object.warnings`, a custom feature's
+   * value its `derive()` ignored), and a `part` row whose `.material(id)`
+   * is in neither the built-in nor the workspace table. The part built;
+   * only its mass is unknown.
    */
   private collectObjectWarnings(result: unknown[]): BrowserObjectBuildError[] {
     const warnings: BrowserObjectBuildError[] = [];
     for (let index = 0; index < result.length; index++) {
       const obj = result[index] as {
         type?: string; id: string; name: string; uniqueType: string;
-        object?: { material?: unknown } | null; sourceLocation?: BrowserObjectBuildError["sourceLocation"];
+        object?: { material?: unknown; warnings?: unknown } | null; sourceLocation?: BrowserObjectBuildError["sourceLocation"];
       };
-      const material = obj?.type === "part" ? obj.object?.material : undefined;
-      if (typeof material !== "string" || material === "" || this.resolveMaterial(material) !== undefined) {
+      if (!obj) {
         continue;
       }
-      warnings.push({
+      const warn = (message: string) => warnings.push({
         index,
         id: obj.id,
         name: obj.name,
         uniqueKind: obj.uniqueType,
-        message: `Unknown material: ${material}`,
+        message,
         sourceLocation: obj.sourceLocation,
       });
+      // A row's own notices (a custom feature's value its derive() ignored).
+      if (Array.isArray(obj.object?.warnings)) {
+        for (const message of obj.object!.warnings as unknown[]) {
+          if (typeof message === "string") {
+            warn(message);
+          }
+        }
+      }
+      const material = obj.type === "part" ? obj.object?.material : undefined;
+      if (typeof material !== "string" || material === "" || this.resolveMaterial(material) !== undefined) {
+        continue;
+      }
+      warn(`Unknown material: ${material}`);
     }
     return warnings;
   }

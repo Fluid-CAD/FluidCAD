@@ -1474,6 +1474,7 @@ export class FluidCadServer {
             status: 200,
             solids: (result.solids ?? []) as GhostSolid[],
             ...(result.frames?.length ? { frames: result.frames as GhostFrame[] } : {}),
+            ...(result.derived && Object.keys(result.derived).length ? { derived: { ...result.derived } } : {}),
           };
         }
         if (result?.paused === true) {

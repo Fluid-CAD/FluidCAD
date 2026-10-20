@@ -48,6 +48,8 @@ A feature file holds a class and the builder it exports:
 
 An `icon: './standoff.svg'` in the description gives the feature its picture in the Custom dropdown, from an image next to the file.
 
+A feature can follow what it is picked at. `framesOf(ref)` gives every placement a pick stands at — a `hole()` picked in the timeline, one frame per placement — and `propertiesOf(ref)` what the pick is, as plain data (a hole's size, fit and style). A `derive()` method returns the values the feature fixes from them (`{ size: hole.size }`): they replace the statement's, the dialog shows their rows locked, and a value the statement passes anyway is ignored with a warning on its row. The `Feature` page of the SDK reference has the details.
+
 ### How FluidCAD finds it
 
 - Every `*.feature.js` file in the project (outside `node_modules`, dot folders and gitignored paths) is scanned, and every **named** export that is a feature builder is offered in the Custom dropdown. Nothing is registered in `init.js`.

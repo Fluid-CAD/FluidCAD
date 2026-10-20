@@ -196,6 +196,13 @@ describe('feature-ghost route — custom features', () => {
     });
   });
 
+  it('passes on the values the feature\'s derive() fixed, when the kernel reports any', async () => {
+    answer = { status: 200, solids: [{ meshes: [] }], derived: { size: 'M6', head: 'flat' } };
+    const { status, body } = await post({ feature: 'custom', id: 'acme.standoff', values: { height: 5 }, refs: { face: [FACE] } });
+    expect(status).toBe(200);
+    expect(body).toEqual({ success: true, solids: [{ meshes: [] }], derived: { size: 'M6', head: 'flat' } });
+  });
+
   it('carries literals as they are, statements by call site, world axes, and an edit\'s statement', async () => {
     await post({
       feature: 'custom', id: 'acme.boltCircle',

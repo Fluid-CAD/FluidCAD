@@ -73,7 +73,7 @@ type RenderedRow = {
   type: string;
   uniqueType?: string;
   parentId: string | null;
-  object?: { material?: unknown } | null;
+  object?: { material?: unknown; warnings?: unknown } | null;
   sceneShapes?: { shapeId?: string; shapeType?: string; isMetaShape?: boolean }[];
   sourceLocation?: { filePath: string; line: number; column: number };
 };
@@ -90,11 +90,12 @@ export class PartPropertiesAggregator {
   }
 
   /**
-   * The non-fatal warnings of a render: every `part` row whose
-   * `.material(id)` names neither a built-in nor a project material. Same
-   * numbering and shape as `collectObjectErrors`, kept apart because an
-   * unknown material never fails a build — the geometry is fine, only
-   * the mass is unknown.
+   * The non-fatal warnings of a render: a row's own notices (its
+   * `object.warnings`, a custom feature's value its `derive()` ignored),
+   * and every `part` row whose `.material(id)` names neither a built-in
+   * nor a project material. Same numbering and shape as
+   * `collectObjectErrors`, kept apart because none fails a build — the
+   * geometry is fine; only the mass is unknown, or a value was overridden.
    */
   static collectWarnings(
     rows: readonly unknown[],
@@ -102,20 +103,33 @@ export class PartPropertiesAggregator {
     packages?: PackageMaterialLookup,
   ): ObjectBuildWarning[] {
     const warnings: ObjectBuildWarning[] = [];
+    const warn = (index: number, row: RenderedRow, message: string) => warnings.push({
+      index,
+      id: row.id,
+      name: row.name,
+      uniqueKind: row.uniqueType ?? row.type,
+      message,
+      sourceLocation: row.sourceLocation,
+    });
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index] as RenderedRow | null | undefined;
-      const materialId = PartPropertiesAggregator.materialIdOf(row);
-      if (materialId === null || resolveMaterial(materialId, PartPropertiesAggregator.materialsFor(row!, project, packages)) !== undefined) {
+      if (!row) {
         continue;
       }
-      warnings.push({
-        index,
-        id: row!.id,
-        name: row!.name,
-        uniqueKind: row!.uniqueType ?? row!.type,
-        message: PartPropertiesAggregator.unknownMaterialWarning(materialId),
-        sourceLocation: row!.sourceLocation,
-      });
+      // A row's own notices (a custom feature's value its derive() ignored).
+      const own = row.object?.warnings;
+      if (Array.isArray(own)) {
+        for (const message of own) {
+          if (typeof message === 'string') {
+            warn(index, row, message);
+          }
+        }
+      }
+      const materialId = PartPropertiesAggregator.materialIdOf(row);
+      if (materialId === null || resolveMaterial(materialId, PartPropertiesAggregator.materialsFor(row, project, packages)) !== undefined) {
+        continue;
+      }
+      warn(index, row, PartPropertiesAggregator.unknownMaterialWarning(materialId));
     }
     return warnings;
   }

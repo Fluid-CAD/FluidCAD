@@ -98,7 +98,12 @@ export type CustomGhostRequest = {
  * it can reach the scene.
  */
 class GhostReference extends SceneObject {
-  constructor(private readonly type: string, shapes: Shape[], private readonly selection: boolean) {
+  /**
+   * `source`: the scene object the stand-in stands for, when there is one —
+   * its properties and placements are read off the stand-in as the build
+   * would read them off the object (`propertiesOf`, `framesOf`).
+   */
+  constructor(private readonly type: string, shapes: Shape[], private readonly selection: boolean, private readonly source: SceneObject | null = null) {
     super();
     this.addShapes(shapes);
   }
@@ -109,6 +114,14 @@ class GhostReference extends SceneObject {
 
   override isSelection(): boolean {
     return this.selection;
+  }
+
+  override describe(): Readonly<Record<string, unknown>> {
+    return this.source ? this.source.describe() : Object.freeze({ type: this.type });
+  }
+
+  override locationFrames(): Plane[] {
+    return this.source ? this.source.locationFrames() : [];
   }
 
   build(): void {}
@@ -225,7 +238,8 @@ export class CustomFeatureGhost {
         reason: `It took ${CustomFeatureGhost.seconds(elapsed)} to build, over the ${CustomFeatureGhost.seconds(budget)} a preview may take.`,
       };
     }
-    return { ok: true, solids };
+    const derived = feature.getDerived();
+    return { ok: true, solids, ...(Object.keys(derived).length > 0 ? { derived: { ...derived } } : {}) };
   }
 
   /**
@@ -322,7 +336,7 @@ export class CustomFeatureGhost {
       return null;
     }
     try {
-      return this.located('connector', connector.getFrame());
+      return this.located('connector', connector.getFrame(), connector.describe());
     } catch {
       // A connector that did not build.
       return null;
@@ -390,7 +404,7 @@ export class CustomFeatureGhost {
     const kinds = Locations.kindsOf(element);
     try {
       if (kinds.length > 0) {
-        return this.located(kinds[kinds.length - 1], Locations.frameOf(element));
+        return this.located(kinds[kinds.length - 1], Locations.frameOf(element), element.describe());
       }
       if (element instanceof AxisObjectBase) {
         return new AxisObject(element.getAxis());
@@ -401,12 +415,12 @@ export class CustomFeatureGhost {
     } catch {
       return null;
     }
-    return new GhostReference(element.getType(), element.getShapes(undefined, undefined, this.before), element.isSelection());
+    return new GhostReference(element.getType(), element.getShapes(undefined, undefined, this.before), element.isSelection(), element);
   }
 
   /** A location stood in at `frame`, or null when nothing stands there. */
-  private located(kind: LocationKind, frame: Plane | null): SceneObject | null {
-    return frame ? new FixedLocation(frame, kind) : null;
+  private located(kind: LocationKind, frame: Plane | null, properties?: Readonly<Record<string, unknown>>): SceneObject | null {
+    return frame ? new FixedLocation(frame, kind, properties) : null;
   }
 
   /**
@@ -471,7 +485,7 @@ export class CustomFeatureGhost {
     if (!object) {
       return null;
     }
-    return new GhostReference(object.getType(), object.getShapes(undefined, undefined, this.before), object.isSelection());
+    return new GhostReference(object.getType(), object.getShapes(undefined, undefined, this.before), object.isSelection(), object);
   }
 
   /** The operation the dialog shows, chosen the way the statement's chain would. */

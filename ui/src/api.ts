@@ -1194,7 +1194,14 @@ export async function fetchFeatureGhostResult(
   request: FeatureGhostRequest,
   valueScope: GhostValueScope | null,
   signal: AbortSignal,
-): Promise<{ solids: GhostSolid[] | null; frames: GhostFrame[]; notice: string | null; paused?: string }> {
+): Promise<{
+  solids: GhostSolid[] | null;
+  frames: GhostFrame[];
+  notice: string | null;
+  paused?: string;
+  /** A custom feature's values its `derive()` fixed from the picks, by name — the dialog locks their rows. Absent when it fixed none. */
+  derived?: Record<string, FeatureScalarValue>;
+}> {
   try {
     const res = await fetch('api/feature-ghost', {
       method: 'POST',
@@ -1204,7 +1211,8 @@ export async function fetchFeatureGhostResult(
     });
     const body = await res.json().catch(() => null);
     if (res.ok && body?.success === true) {
-      return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null };
+      const derived = body.derived && typeof body.derived === 'object' && !Array.isArray(body.derived) ? body.derived as Record<string, FeatureScalarValue> : undefined;
+      return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null, ...(derived ? { derived } : {}) };
     }
     if (body?.paused === true) {
       // The build ran over the live preview's time limit (a custom

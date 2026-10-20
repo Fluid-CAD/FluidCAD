@@ -106,4 +106,13 @@ describe('PartPropertiesAggregator.collectWarnings', () => {
       sourceLocation: { filePath: '/ws/m.fluid.js', line: 4, column: 1 },
     }]);
   });
+
+  it("lists a row's own notices (`object.warnings`, a custom feature's value its derive() ignored) ahead of its material's", () => {
+    const own = rows('acme-pla');
+    own[2] = { ...own[2], object: { ...own[2].object, warnings: [`'size' is "M6", fixed by what the feature was picked at — the statement's "M5" is ignored`, 42] } } as Row;
+    expect(PartPropertiesAggregator.collectWarnings(own, null).map(w => [w.index, w.message])).toEqual([
+      [2, `'size' is "M6", fixed by what the feature was picked at — the statement's "M5" is ignored`],
+      [2, 'Unknown material: acme-pla'],
+    ]);
+  });
 });

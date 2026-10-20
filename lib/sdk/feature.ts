@@ -25,11 +25,12 @@ import { ShapeFilter } from "../filters/filter.js";
 import { applyBucketFilters } from "../filters/bucket-scope.js";
 import type { ISceneObject, ISelection } from "../core/interfaces.js";
 import type { SceneParserContext } from "../index.js";
-import { FeatureInputs, type FeatureValues } from "./feature-inputs.js";
+import { FeatureInputs, type FeatureScalar, type FeatureValues } from "./feature-inputs.js";
 import { FeatureCall, type FeatureOperation } from "./call-shape.js";
 import type { FeatureParams, ValuesOf } from "./feature-params.js";
 import { FeatureKey } from "./feature-key.js";
 import { FeatureNamespaces } from "./feature-namespaces.js";
+import type { ParamSpec } from "./meta.js";
 import {
   FeatureBucketSet, type BucketAccessors, type EdgeBucketName, type FaceBucketName, type FeatureBucketBrand,
   type FeatureBucketSpecs, type NamedBuckets,
@@ -248,6 +249,10 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
 
   /** The operation the statement's last operation chain chose, or null when it left it to the default. */
   private chosenOperation: FeatureOperation | null = null;
+  /** What {@link derive} fixed last, and the values with them in place; null while it fixed none. */
+  private derivedValues: Readonly<Record<string, FeatureScalar>> = Object.freeze({});
+  private derivedWarnings: readonly string[] = Object.freeze([]);
+  private mergedValues: Readonly<V> | null = null;
 
   constructor(values: V) {
     super();
@@ -283,9 +288,26 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
     return id;
   }
 
-  /** The values the feature was constructed from, frozen. */
+  /**
+   * The values the feature was constructed from, frozen — with those
+   * {@link derive} fixed in place of the statement's, once it has run (it
+   * runs ahead of every build and preview).
+   */
   get values(): Readonly<V> {
-    return this.inputs.values as Readonly<V>;
+    return this.mergedValues ?? this.inputs.values as Readonly<V>;
+  }
+
+  /**
+   * @internal How a fixed value is checked against its declaration, as a
+   * call's values are — set by the metadata module, which the SDK always
+   * loads; without it a fixed value is taken as it is.
+   */
+  static scalarCheck: ((callee: string, name: string, spec: ParamSpec, value: unknown) => unknown) | null = null;
+
+  /** Ahead of the build: the references are built, so {@link derive} can read them. */
+  override validate(): void {
+    super.validate();
+    this.resolveDerived();
   }
 
   /**
@@ -340,7 +362,10 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
   buildPreview(ctx: FeatureBuildContext): { shapes: Shape[]; scratch: Shape[] } | null {
     this.declared = {};
     try {
-      const shapes = BuildScope.run(this, ctx, () => this.ghost(ctx));
+      const shapes = BuildScope.run(this, ctx, () => {
+        this.resolveDerived();
+        return this.ghost(ctx);
+      });
       if (shapes === null || shapes === undefined) {
         return null;
       }
@@ -495,6 +520,111 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
       throw new Error(`${this.getType()}: ${Feature.describeReference(ref)} is not a location — declare the value as a connector, point or anchor picker`);
     }
     return Locations.pointOf(ref);
+  }
+
+  /**
+   * Every frame a value stands at, where it stands now: a location's one
+   * frame ({@link frameOf}), a picked feature's placements — a hole's, one
+   * per placement, so one statement stands a fastener in each — a list's
+   * members' in order. Refuses a value nothing stands at.
+   */
+  protected framesOf(ref: ISceneObject | ISceneObject[]): Plane[] {
+    const frames = Locations.framesOf(Feature.referenceList(ref, this.getType()));
+    if (frames.length === 0) {
+      const subject = Array.isArray(ref) ? 'none of the value\'s elements stand anywhere' : `${Feature.describeReference(ref)} stands nowhere`;
+      throw new Error(`${this.getType()}: ${subject} — a connector, a point, an anchor, or a feature with placements such as a hole`);
+    }
+    return frames;
+  }
+
+  /**
+   * What a reference is, as plain data — `type` and the values its
+   * statement set and its build resolved, lengths in its own unit: a hole's
+   * `size`, `fastener`, `style`, `depth`, `dimensions`; a connector's `name`;
+   * a custom feature's typed-in values (see `SceneObject.describe`). A
+   * feature reads them to follow what it was picked at — in {@link derive},
+   * to fix its own values from them. A preview hands the same properties
+   * on its stand-ins.
+   */
+  protected propertiesOf(ref: ISceneObject): Readonly<Record<string, unknown>> {
+    const [object] = Feature.referenceList(ref, this.getType());
+    return object.describe();
+  }
+
+  /**
+   * Values the feature fixes from what it was picked at, by name — a
+   * screw's size from the hole it stands in, a nut's from the rod it is
+   * threaded on: return `{ size: 'M6', pitch: 'coarse' }` and those values
+   * replace the statement's in `this.values` (one the statement passes too
+   * is ignored, with a warning on the row); return nothing to fix none.
+   * The dialog shows the fixed values locked. It runs before every build
+   * and preview, once the references are built, so it reads them through
+   * {@link propertiesOf} and {@link framesOf}; keep it pure — the same
+   * references give the same values — and name typed-in values of the
+   * feature only, each checked against its declaration.
+   */
+  derive(): { [K in keyof V]?: V[K] } | null | undefined {
+    return undefined;
+  }
+
+  /** The values {@link derive} fixed at the last build or preview, by name; empty when it fixed none. */
+  getDerived(): Readonly<Record<string, FeatureScalar>> {
+    return this.derivedValues;
+  }
+
+  /** The row's non-fatal notices from the last build or preview: a statement's value {@link derive} ignored. */
+  getWarnings(): readonly string[] {
+    return this.derivedWarnings;
+  }
+
+  /**
+   * Run {@link derive} and take what it fixed into `this.values`: each name
+   * a typed-in value of the class, each value a scalar its declaration
+   * accepts (checked as a call's is, through {@link scalarCheck}); a value
+   * the statement passed as well is noted as a warning.
+   */
+  private resolveDerived(): void {
+    const derived = this.derive();
+    const type = this.getType();
+    if (derived === undefined || derived === null) {
+      this.setDerived({}, []);
+      return;
+    }
+    if (!FeatureCall.isPlainObject(derived)) {
+      throw new Error(`${type}: derive() returns the values it fixes by name, such as { size: 'M6' }, or nothing`);
+    }
+    const params = (this.constructor as { params?: FeatureParams }).params;
+    const callee = FeatureKey.calleeOf(type);
+    const values: Record<string, FeatureScalar> = {};
+    const warnings: string[] = [];
+    for (const [name, value] of Object.entries(derived as Record<string, unknown>)) {
+      if (value === undefined) {
+        continue;
+      }
+      const spec = params?.[name];
+      if (params && !spec) {
+        throw new Error(`${type}: derive() fixes '${name}', which is not a value of the feature`);
+      }
+      if (spec && !('type' in spec)) {
+        throw new Error(`${type}: derive() fixes '${name}', a picked value — it fixes typed-in values only`);
+      }
+      if (typeof value !== 'number' && typeof value !== 'string' && typeof value !== 'boolean') {
+        throw new Error(`${type}: derive() fixes '${name}' to ${Array.isArray(value) ? 'a list' : value === null ? 'null' : `a ${typeof value}`} — a fixed value is a number, a string or a boolean`);
+      }
+      const checked = spec && Feature.scalarCheck ? Feature.scalarCheck(callee, name, spec, value) : value;
+      values[name] = checked as FeatureScalar;
+      const passed = this.inputs.values[name];
+      if (this.inputs.wasGiven(name) && passed !== undefined && passed !== null && !FeatureInputs.scalarEquals(passed as FeatureScalar, checked as FeatureScalar)) {
+        warnings.push(`'${name}' is ${JSON.stringify(checked)}, fixed by what the feature was picked at — the statement's ${JSON.stringify(passed)} is ignored`);
+      }
+    }
+    this.setDerived(values, warnings);
+  }
+
+  private setDerived(values: Record<string, FeatureScalar>, warnings: string[]): void {
+    this.derivedValues = Object.freeze({ ...values });
+    this.derivedWarnings = Object.freeze([...warnings]);
+    this.mergedValues = Object.keys(values).length === 0 ? null : Object.freeze({ ...this.inputs.values, ...values }) as Readonly<V>;
   }
 
   private static describeReference(ref: ISceneObject): string {
@@ -895,8 +1025,26 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
     return name.charAt(0).toUpperCase() + name.slice(1);
   }
 
+  /**
+   * The scalars and the references by type and id — and, when
+   * {@link derive} fixed values, those under `derived`, with the row's
+   * `warnings` for any the statement passed as well: the editor reads both
+   * off the row.
+   */
+  /** Its type and its typed-in values — those {@link derive} fixed in place of the statement's. */
+  override describe(): Readonly<Record<string, unknown>> {
+    const scalars = Object.fromEntries(Object.entries(this.values).filter(([, value]) => !(value instanceof SceneObject)
+      && !(Array.isArray(value) && value.some(entry => entry instanceof SceneObject))));
+    return Object.freeze({ type: this.getType(), ...scalars });
+  }
+
   serialize() {
-    return this.inputs.serialize();
+    const derived = this.derivedValues;
+    return {
+      ...this.inputs.serialize(),
+      ...(Object.keys(derived).length > 0 ? { derived } : {}),
+      ...(this.derivedWarnings.length > 0 ? { warnings: this.derivedWarnings } : {}),
+    };
   }
 
   /**

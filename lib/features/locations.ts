@@ -26,7 +26,16 @@ export type LocationKind = 'connector' | 'point' | 'anchor';
  * the feature does can reach the scene. It is never added to a scene.
  */
 export class FixedLocation extends SceneObject {
-  constructor(private readonly frame: Plane, readonly kind: LocationKind) {
+  /**
+   * `properties`: what the location it stands for is (an edited
+   * statement's own connector, say), so the feature reads the same
+   * properties of the stand-in; without them, its kind alone.
+   */
+  constructor(
+    private readonly frame: Plane,
+    readonly kind: LocationKind,
+    private readonly props?: Readonly<Record<string, unknown>>,
+  ) {
     super();
   }
 
@@ -36,6 +45,14 @@ export class FixedLocation extends SceneObject {
 
   getType(): string {
     return 'fixed-location';
+  }
+
+  override describe(): Readonly<Record<string, unknown>> {
+    return this.props ?? Object.freeze({ type: this.kind });
+  }
+
+  override locationFrames(): Plane[] {
+    return [this.frame];
   }
 
   build(): void {}
@@ -116,6 +133,22 @@ export class Locations {
       return buildOrthonormalFrame(PointResolver.toWorld(ref), Vector3d.unitZ(), {});
     }
     throw new Error("not a location — a connector, a point or an anchor");
+  }
+
+  /**
+   * Every frame a value stands at, where it stands now: a location's one
+   * frame ({@link frameOf}); any other object's placements
+   * (`SceneObject.locationFrames` — a hole's, one per placement); a list's
+   * members' frames in order. Empty for a value nothing stands at.
+   */
+  static framesOf(value: unknown): Plane[] {
+    if (Array.isArray(value)) {
+      return value.flatMap(entry => Locations.framesOf(entry));
+    }
+    if (Locations.kindsOf(value).length > 0) {
+      return [Locations.frameOf(value)];
+    }
+    return value instanceof SceneObject ? value.locationFrames() : [];
   }
 
   /** The world position a location names. */

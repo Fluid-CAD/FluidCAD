@@ -215,6 +215,11 @@ export class Hole extends SceneObject implements IHole {
     return (this.getState(FRAMES_STATE_KEY) as Plane[] | undefined) ?? [];
   }
 
+  /** A feature placed at the hole stands at each of its placements. */
+  override locationFrames(): Plane[] {
+    return this.getFrames();
+  }
+
   override validate() {
     if (this.placements.length === 0) {
       throw new Error("hole() needs at least one placement — a connector, a sketch point such as s.geometries.c.center(), or a face/edge anchor such as e.endFaces().center()");

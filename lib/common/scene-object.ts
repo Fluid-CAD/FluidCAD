@@ -2,6 +2,7 @@ import { Shape, ShapeFilter } from "./shape.js";
 import { Face } from "./face.js";
 import { Edge } from "./edge.js";
 import { Matrix4 } from "../math/matrix4.js";
+import type { Plane } from "../math/plane.js";
 import { LazyMatrix } from "../math/lazy-matrix.js";
 import { ISceneObject } from "../core/interfaces.js";
 import { FusionScope, OperationMode } from "../features/extrude-options.js";
@@ -280,6 +281,61 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   abstract serialize(scope?: Set<SceneObject>): any;
   abstract getType(): string;
   abstract build(context?: BuildSceneObjectContext): void;
+
+  /**
+   * What the object is, as plain data: its `type`, and the numbers, words
+   * and flags its statement set and its build resolved — what its timeline
+   * row carries (see {@link serialize}): a hole's size, fit, style, depth
+   * and the dimensions it cut; a connector's name and frame; a custom
+   * feature's typed-in values. A custom feature reads a reference's through
+   * `propertiesOf()`, so one feature can follow another — a screw sized by
+   * the hole it is picked at. Lengths are in the object's own unit
+   * ({@link getUnit}). Only plain data survives: a shape, a function or any
+   * other object is left out; a point or a vector becomes its array.
+   * Override to publish a documented set in place of the row's.
+   */
+  describe(): Readonly<Record<string, unknown>> {
+    return Object.freeze({ type: this.getType(), ...SceneObject.plainData(this.serialize()) as Record<string, unknown> });
+  }
+
+  /**
+   * Where the object stands, for a feature placed at it — one frame per
+   * placement, origin on the surface, Z out of the material, where it
+   * stands now (a repeat's copy moved): a hole's placements, a connector's
+   * frame. Empty for an object nothing stands at. A custom feature reads
+   * them through `framesOf()`, which also reads the single locations
+   * (`frameOf()`).
+   */
+  locationFrames(): Plane[] {
+    return [];
+  }
+
+  /** `value` reduced to plain data: scalars, null, arrays and plain objects of them; a point or vector as its array; anything else dropped. */
+  private static plainData(value: unknown): unknown {
+    if (value === null || typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.map(entry => SceneObject.plainData(entry)).filter(entry => entry !== undefined);
+    }
+    if (typeof value !== 'object' || value === undefined) {
+      return undefined;
+    }
+    if (typeof (value as { toArray?: unknown }).toArray === 'function') {
+      return SceneObject.plainData((value as { toArray(): unknown }).toArray());
+    }
+    if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
+      return undefined;
+    }
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      const plain = SceneObject.plainData(entry);
+      if (plain !== undefined) {
+        out[key] = plain;
+      }
+    }
+    return out;
+  }
 
   /**
    * Pre-build validation hook. The renderer calls this before `build()` so

@@ -1,6 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 import type { ParamDefinition, SelectOption } from "../param-registry.js";
 import { Feature, type FeatureClass } from "./feature.js";
+import { GIVEN_VALUES } from "./feature-inputs.js";
 import type { FeatureScalar, FeatureValues } from "./feature-inputs.js";
 import { FeatureCall, type CallShape, type FeatureOperation } from "./call-shape.js";
 import { FeatureKey } from "./feature-key.js";
@@ -1722,6 +1723,9 @@ export class FeatureMetas {
         ? FeatureMetas.scalarValue(callee, name, spec, value)
         : FeatureMetas.pickedValue(callee, name, spec, value);
     }
+    // The names the call gave, for the feature to tell apart from the filled ones.
+    const given = new Set(Object.keys(read).filter(name => read[name] !== undefined && read[name] !== null && name in meta.params));
+    Object.defineProperty(values, GIVEN_VALUES, { value: given, enumerable: false });
     return values;
   }
 
@@ -1913,6 +1917,14 @@ export class FeatureMetas {
   /** What messages call a feature's builder: its plain id's last segment (`@acme/kit:standoff` → `standoff`, see `FeatureKey.calleeOf`). */
   static calleeOf(id: string): string {
     return FeatureKey.calleeOf(id);
+  }
+
+  /** @internal One typed-in value checked against its declaration, as {@link complete} checks a call's; a picker declaration is refused. */
+  static checkScalar(callee: string, name: string, spec: ParamSpec, value: unknown): FeatureValues[string] {
+    if (!('type' in spec)) {
+      throw new Error(`${callee}(): '${name}' is a picked value, not a typed-in one`);
+    }
+    return FeatureMetas.scalarValue(callee, name, spec, value);
   }
 
   private static scalarValue(callee: string, name: string, spec: ScalarParamSpec, value: unknown): FeatureValues[string] {
@@ -2144,3 +2156,6 @@ export function snapshotFeatureMeta(meta: FeatureMeta | ResolvedFeatureMeta): Fe
 export function listFeatureAssets(meta: FeatureMeta | ResolvedFeatureMeta | FeatureMetaSnapshot): string[] {
   return FeatureMetas.assetsOf(meta);
 }
+
+// A value `derive()` fixes is checked as a call's is (see Feature.scalarCheck).
+Feature.scalarCheck = (callee, name, spec, value) => FeatureMetas.checkScalar(callee, name, spec, value);

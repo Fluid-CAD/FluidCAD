@@ -41,6 +41,11 @@ export abstract class SchemaField {
   /** The row element, hidden while its `visibleWhen` fails. */
   readonly row: HTMLElement;
   private changed = false;
+  /** What the last seed showed: what the row goes back to when a fixed value lets go of it. */
+  private seeded: FieldValue | undefined;
+  /** The engine's preview fixed the value from the picks: the row shows it locked, and writes nothing. */
+  private fixed = false;
+  private fixedNote: HTMLElement | null = null;
 
   constructor(readonly name: string, protected readonly spec: FeatureScalarParam) {
     this.row = document.createElement('div');
@@ -72,8 +77,59 @@ export abstract class SchemaField {
    * default, or an edited statement's own value. Undefined clears the row.
    */
   seed(value: FieldValue | undefined): void {
+    this.seeded = value;
+    this.unlock();
     this.changed = false;
     this.show(value);
+  }
+
+  /**
+   * The engine's preview fixed the value from what was picked (the
+   * feature's `derive()`): the row shows `value` locked, with a note, and
+   * counts as untouched — the statement never writes it. Undefined lets
+   * go: the row shows what it was seeded with again. True when the row's
+   * lock or value moved for it.
+   */
+  setDerived(value: FeatureScalarValue | undefined): boolean {
+    if (value === undefined) {
+      return this.unlock();
+    }
+    const moved = !this.fixed || this.current() !== value;
+    this.fixed = true;
+    this.changed = false;
+    this.show(value);
+    this.dismiss();
+    this.row.toggleAttribute('inert', true);
+    this.row.classList.add('opacity-70');
+    if (!this.fixedNote) {
+      this.fixedNote = document.createElement('div');
+      this.fixedNote.dataset.role = 'derived';
+      this.fixedNote.className = 'w-full text-[11px] text-base-content/50 italic';
+      this.fixedNote.textContent = 'Fixed by what was picked';
+      this.row.classList.add('flex-wrap');
+      this.row.append(this.fixedNote);
+    }
+    return moved;
+  }
+
+  /** The engine's preview fixed the value from the picks. */
+  get isDerived(): boolean {
+    return this.fixed;
+  }
+
+  /** Let a fixed value go, showing the seed again; true when the row was locked. */
+  private unlock(): boolean {
+    if (!this.fixed) {
+      return false;
+    }
+    this.fixed = false;
+    this.changed = false;
+    this.row.toggleAttribute('inert', false);
+    this.row.classList.remove('opacity-70');
+    this.fixedNote?.remove();
+    this.fixedNote = null;
+    this.show(this.seeded);
+    return true;
   }
 
   /**

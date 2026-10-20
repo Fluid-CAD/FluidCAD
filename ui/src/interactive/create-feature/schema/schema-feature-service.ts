@@ -34,6 +34,8 @@ import {
 type ParsedCustomFeature = Extract<ParsedFeatureStatement, { feature: 'custom' }>;
 
 type CreateRequest = Omit<CustomFeatureApplyOptions, 'preview' | 'signal'>;
+/** One ghost answer: the bodies to draw (null for none), and the values the feature fixed from its picks — null when the ghost didn't build, so nothing is known. */
+type SchemaGhost = { solids: GhostSolid[] | null; derived: Record<string, FeatureScalarValue> | null };
 type EditRequest = Omit<CustomFeatureEditOptions, 'preview' | 'signal'>;
 
 /** The hooks every part-mode dialog takes from the page. */
@@ -83,7 +85,7 @@ export class SchemaFeatureService implements FeatureDialogService {
   /** Its own button sits in the create group, which it votes visible. */
   private readonly votesCreateGroup: boolean;
   private readonly sketchUI: SketchUISuspender;
-  private readonly runner: ApplyRunner<CreateRequest | EditRequest>;
+  private readonly runner: ApplyRunner<CreateRequest | EditRequest, SchemaGhost>;
   private readonly scope = new ScopeTargetList();
   private armed = false;
   private sceneObjects: SceneObjectRender[];
@@ -231,7 +233,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     }
 
     this.ghost = schema.meta.ghost ? new FeatureGhostOverlay(viewer) : null;
-    this.runner = new ApplyRunner<CreateRequest | EditRequest>({
+    this.runner = new ApplyRunner<CreateRequest | EditRequest, SchemaGhost>({
       panel: this.panel,
       isArmed: () => this.armed,
       build: purpose => this.editTarget ? this.buildEditRequest(purpose === 'apply') : this.buildRequest(purpose === 'apply'),
@@ -245,7 +247,7 @@ export class SchemaFeatureService implements FeatureDialogService {
       ...(this.ghost ? {
         ghost: {
           fetch: (_request: CreateRequest | EditRequest, signal: AbortSignal) => this.fetchGhost(signal),
-          apply: (solids: GhostSolid[] | null) => this.drawGhost(solids),
+          apply: (ghost: SchemaGhost | null) => this.drawGhost(ghost),
         },
       } : {}),
     });
@@ -804,6 +806,15 @@ export class SchemaFeatureService implements FeatureDialogService {
         continue;
       }
       const missing = `${this.schema.param(name).label} is required.`;
+      if (field.isDerived) {
+        // The engine fixes the value from the picks: the statement never
+        // writes it — an edit drops the value it wrote, when the builder can
+        // do without it (else the engine ignores it, with a warning).
+        if (editing && this.parsed && name in this.parsed.values && !this.schema.required(name)) {
+          values[name] = null;
+        }
+        continue;
+      }
       if (!field.dirty) {
         if (!editing && this.schema.required(name)) {
           this.blockedAt(name, reveal);
@@ -881,7 +892,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     const editing = this.editTarget !== null;
     const values: Record<string, ValueExpr | boolean | string | FeatureListValue> = {};
     for (const [name, field] of this.panel.fields) {
-      if (!field.visible && !editing) {
+      if ((!field.visible && !editing) || field.isDerived) {
         continue;
       }
       const read = field.read();
@@ -922,7 +933,7 @@ export class SchemaFeatureService implements FeatureDialogService {
    * a build that slow would lag every change. A ghost that comes back timed
    * out stops the dialog's preview.
    */
-  private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
+  private async fetchGhost(signal: AbortSignal): Promise<SchemaGhost | null> {
     if (!this.previewOn || this.ghostPaused !== null) {
       return null;
     }
@@ -935,16 +946,27 @@ export class SchemaFeatureService implements FeatureDialogService {
       this.ghostPaused = result.paused;
       this.panel.setPreviewPaused(result.paused);
     }
-    return result.solids;
+    // A ghost that built knows what the feature fixed (nothing, when it
+    // says nothing); one that didn't leaves the rows as they were.
+    return { solids: result.solids, derived: result.solids ? result.derived ?? {} : null };
   }
 
-  /** Draw the ghost in the operation's colour — red for what a remove cuts — or clear it. */
-  private drawGhost(solids: GhostSolid[] | null): void {
+  /**
+   * Draw the ghost in the operation's colour — red for what a remove cuts —
+   * or clear it; and lock the rows the feature fixed from its picks on the
+   * values it fixed, letting the others go. Nothing to draw lets every row go.
+   */
+  private drawGhost(ghost: SchemaGhost | null): void {
+    if (ghost?.derived) {
+      this.panel.setDerived(ghost.derived);
+    } else if (!ghost) {
+      this.panel.setDerived({});
+    }
     if (!this.ghost) {
       return;
     }
-    if (solids) {
-      this.ghost.set(solids, this.panel.operation === 'remove' ? 'remove' : 'add');
+    if (ghost?.solids) {
+      this.ghost.set(ghost.solids, this.panel.operation === 'remove' ? 'remove' : 'add');
     } else {
       this.ghost.clear();
     }

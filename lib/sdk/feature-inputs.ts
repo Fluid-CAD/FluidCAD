@@ -14,6 +14,14 @@ export type FeatureValue = FeatureScalar | FeatureScalar[] | ISceneObject | ISce
 /** A feature's values, by name — what its constructor takes. */
 export type FeatureValues = { [name: string]: FeatureValue };
 
+/**
+ * On a values object the metadata completed (`FeatureMetas.complete`): the
+ * names the call gave, as a `Set<string>` — the rest it filled with
+ * defaults. A feature tells a value the statement passed from one it left
+ * out by it ({@link FeatureInputs.wasGiven}).
+ */
+export const GIVEN_VALUES: unique symbol = Symbol.for('fluidcad.feature-given-values');
+
 /** A reference value as the serialized feature names it. */
 export type FeatureReferenceSummary = { type: string; id: string };
 
@@ -36,6 +44,8 @@ export class FeatureInputs {
     readonly values: Readonly<FeatureValues>,
     private readonly scalars: Map<string, Scalar>,
     private readonly refs: Map<string, Reference>,
+    /** The names the call gave ({@link GIVEN_VALUES}); null when nothing said, so every value counts as given. */
+    private readonly given: ReadonlySet<string> | null,
   ) {}
 
   /** Split `values` for the feature `id`, refusing any value that is neither kind. */
@@ -62,7 +72,13 @@ export class FeatureInputs {
         scalars.set(name, own as Scalar);
       }
     }
-    return new FeatureInputs(Object.freeze(copied), scalars, refs);
+    const given = (values as { [GIVEN_VALUES]?: unknown })[GIVEN_VALUES];
+    return new FeatureInputs(Object.freeze(copied), scalars, refs, given instanceof Set ? new Set(given as Set<string>) : null);
+  }
+
+  /** Whether the call gave the value itself, rather than the metadata filling its default. */
+  wasGiven(name: string): boolean {
+    return this.given === null ? name in this.values : this.given.has(name);
   }
 
   /** Every reference, lists flattened, in the order the values were given. */
@@ -144,7 +160,8 @@ export class FeatureInputs {
     return typeof value === 'object' ? 'a plain object' : `a ${typeof value}`;
   }
 
-  private static scalarEquals(a: Scalar, b: Scalar): boolean {
+  /** Two scalars (or lists of them) equal by value, NaN to NaN. */
+  static scalarEquals(a: Scalar, b: Scalar): boolean {
     if (Array.isArray(a) || Array.isArray(b)) {
       if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
         return false;

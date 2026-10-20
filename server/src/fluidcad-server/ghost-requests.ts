@@ -639,6 +639,8 @@ export type FeatureGhostOutcome = {
   solids?: GhostSolid[];
   /** Connector frames the ghost places, beside its solids — a copy of connectors. */
   frames?: GhostFrame[];
+  /** A custom feature's values its `derive()` fixed from the picks, by name: the dialog locks their rows. */
+  derived?: Record<string, number | string | boolean>;
   reason?: string;
   /**
    * The reason is worth putting in front of the user — a limit they can act

@@ -227,6 +227,21 @@ export class SchemaFeaturePanel extends FeaturePanel {
     return this.armed && this.armed !== 'scope' ? this.pickers.get(this.armed) ?? null : null;
   }
 
+  /**
+   * Lock each row named in `derived` on the value the engine's preview
+   * fixed from the picks, and let every other row go; the rows that depend
+   * on them (`visibleWhen`) follow.
+   */
+  setDerived(derived: Readonly<Record<string, FeatureScalarValue>>): void {
+    let moved = false;
+    for (const [name, field] of this.fields) {
+      moved = field.setDerived(derived[name]) || moved;
+    }
+    if (moved) {
+      this.syncVisibility();
+    }
+  }
+
   /** The typed-in values as the rows hold them — what `visibleWhen` compares. */
   scalars(): Record<string, FeatureScalarValue | undefined> {
     const values: Record<string, FeatureScalarValue | undefined> = {};

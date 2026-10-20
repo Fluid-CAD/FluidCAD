@@ -1,3 +1,4 @@
+import type { FeatureScalar } from "../sdk/feature-inputs.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
@@ -711,6 +712,8 @@ export type FeatureGhostResult =
     solids: GhostSolid[];
     /** Connector frames the ghost places — only a copy of connectors has any. */
     frames?: GhostFrame[];
+    /** A custom feature's values its `derive()` fixed from the picks, by name — the dialog locks their rows. Absent when it fixed none. */
+    derived?: Record<string, FeatureScalar>;
   }
   | {
     ok: false;

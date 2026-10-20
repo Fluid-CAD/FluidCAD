@@ -1,7 +1,7 @@
 ---
 id: api/feature
 title: "Feature / Feature.with(params) — the base class of a custom feature"
-summary: "The class a custom feature extends, from fluidcad/sdk. Feature.with({ … }, { buckets }) declares its values, typing this.values, and its own named buckets (api/feature-buckets); static id names it. A tool's buildTool(ctx) returns solids the base adds, keeps apart or cuts and moves for a repeat (getOperationMode() reads which); a modifier overrides build(ctx). setBuckets() names startFaces…capFaces (edges derived), startPlane and the declared buckets; shapesOf/facesOf/edgesOf/axisOf/planeOf/frameOf/pointOf/isLocation read the picks; ghost(ctx) is the dialog's preview; occ() runs raw OpenCascade."
+summary: "The class a custom feature extends, from fluidcad/sdk. Feature.with({ … }, { buckets }) declares its values, typing this.values, and its own named buckets (api/feature-buckets); static id names it. A tool's buildTool(ctx) returns solids the base adds, keeps apart or cuts and moves for a repeat (getOperationMode() reads which); a modifier overrides build(ctx). setBuckets() names startFaces…capFaces (edges derived), startPlane and the declared buckets; shapesOf/facesOf/edgesOf/axisOf/planeOf/frameOf/framesOf/pointOf/isLocation/propertiesOf read the picks — framesOf every placement of a picked hole, propertiesOf a reference's plain data; derive() fixes values from the picks (the dialog locks their rows); ghost(ctx) is the dialog's preview; occ() runs raw OpenCascade."
 tags: [api, sdk, custom-feature, type]
 symbols: [Feature, FeatureBuckets, FeatureBuildContext]
 seeAlso: [concepts/custom-features, api/feature-buckets, api/define-feature, api/feature-params, api/sdk-kernel, api/sdk-occt, api/register-builder, api/connector, api/repeat]
@@ -23,6 +23,8 @@ class MyFeature extends Feature.with(params, { buckets }) {   // params: { [name
   build(ctx: FeatureBuildContext): void;
   // Optional — the dialog's preview:
   ghost(ctx: FeatureBuildContext): Shape[] | null;
+  // Optional — values fixed from what was picked, ahead of every build and preview:
+  derive(): Partial<values> | null | undefined;
 
   // The operation this statement applies — its chain's, else the default:
   getOperationMode(): 'add' | 'new' | 'remove';
@@ -35,9 +37,15 @@ class MyFeature extends Feature.with(params, { buckets }) {   // params: { [name
   axisOf(ref: ISceneObject): Axis;
   planeOf(ref: ISceneObject): Plane;
   frameOf(ref: ISceneObject): Plane;
+  framesOf(ref: ISceneObject | ISceneObject[]): Plane[];
   pointOf(ref: ISceneObject): Point;
   isLocation(ref: ISceneObject): boolean;
+  propertiesOf(ref: ISceneObject): Readonly<Record<string, unknown>>;
   occ<T>(fn: (scope: OccScope) => T): T;
+
+  // What derive() fixed at the last build or preview, and the row's notices:
+  getDerived(): Readonly<Record<string, number | string | boolean>>;
+  getWarnings(): readonly string[];
 }
 
 type FeatureBuckets = {
@@ -198,12 +206,15 @@ scene's objects).
 | `axisOf(ref)` | the `Axis` of an axis value: a world axis (`'z'`), an `axis()` statement, a picked straight edge, or a connector (its Z axis through its origin, a copy's too) |
 | `planeOf(ref)` | the `Plane` of a plane value: an origin plane (`'xy'`), a `plane()` statement, a picked planar face |
 | `frameOf(ref)` | the frame a location stands on: origin at the location, Z out of the material (below) |
+| `framesOf(ref)` | every frame a value stands at: a location's one, a picked feature's placements — a `hole()`'s, one per placement — a list's members' in order |
 | `pointOf(ref)` | the world position of a location |
 | `isLocation(ref)` | whether an element is a connector, a point or an anchor: how a `['solid', 'connector']` value tells its elements apart |
+| `propertiesOf(ref)` | what a reference is, as plain data: `type` and the values its statement set and its build resolved (below) |
 
 `axisOf` refuses anything but an axis value ("… is not an axis — declare the value as an
-axis picker"), `planeOf` likewise, and `frameOf`/`pointOf` anything but a
-location.
+axis picker"), `planeOf` likewise, `frameOf`/`pointOf` anything but a
+location, and `framesOf` a value nothing stands at ("… stands nowhere — a
+connector, a point, an anchor, or a feature with placements such as a hole").
 
 **The frame of a location** (`frameOf`): a connector gives its own frame; a
 face anchor (`e.endFaces().center()`) the face's normal; a circular edge's
@@ -213,10 +224,73 @@ a face; a sketch point its sketch's plane; any other point world Z. All of
 them where they stand now: a repeat moves the tool the feature builds there,
 not the location.
 
+**The properties of a reference** (`propertiesOf`): the plain data of its
+timeline row (what `serialize()` reports, shapes and other objects left
+out, a point or a vector as its array), with `type` — a `hole()`'s `size`,
+`fastener` (`{ type: 'clearance', fit }` or `{ type: 'tapped', pitch }`),
+`style` (`{ kind: 'counterbore', … }`, `{ kind: 'countersink', … }`),
+`depth`, `tipAngle`, `fasten`, `dimensions` (the numbers it cut with) and
+`frames`; a connector's `name` and frame; a custom feature's typed-in values
+(those its `derive()` fixed in place of the statement's). Lengths are in
+the reference's own unit. A preview hands the same properties on its
+stand-ins. The engine's row data is the contract: a built-in may publish a
+documented set of its own by overriding `describe()`.
+
 **What the feature consumes.** From the feature on, the selections and
 sketches it reads leave the screen (the selection an anchor stands on and
 the sketch a point is drawn in too), but they stay readable: a repeat's
 copies read them again. A referenced solid, feature or connector stays.
+
+## Following a pick: `derive()`
+
+A feature that stands at another feature can take its values from it — a
+screw sized by the hole it is picked at, a nut by the rod it is threaded
+on. Override `derive()` to return the values to fix, by name; return
+nothing (or `null`) to fix none:
+
+```js
+class Screw extends Feature.with({
+  at: { picker: ['connector', 'point', 'anchor', 'feature'], types: ['hole'], label: 'At' },
+  size: { type: 'select', default: 'M5', options: SIZES },
+  head: { type: 'radio', default: 'socket', options: HEADS },
+  length: { type: 'length', default: 16 },
+}) {
+  static id = 'screw';
+
+  derive() {
+    const hole = this.propertiesOf(this.values.at);
+    if (hole.type !== 'hole') return null;          // at a connector or a point: nothing fixed
+    return { size: hole.size, ...(hole.style?.kind === 'countersink' ? { head: 'flat' } : {}) };
+  }
+
+  buildTool() {
+    // One screw per placement of the hole; this.values.size is the hole's.
+    return this.framesOf(this.values.at).map(frame => screwAt(frame, this.values));
+  }
+}
+```
+
+- It runs **ahead of every build and preview**, once the references are
+  built, so `propertiesOf()` and `framesOf()` read them as they stand. What
+  it returns replaces the statement's values in `this.values`; a value the
+  statement passes as well is ignored, with a **warning on the row**
+  (`'size' is "M6", fixed by what the feature was picked at — the statement's
+  "M5" is ignored`). `getDerived()` and `getWarnings()` read both back;
+  `serialize()` carries them as `derived` and `warnings`.
+- It names **typed-in values** of the class only, and each is checked
+  against its declaration as a call's would be: `'size' must be one of
+  "M5", "M6", got 'M99'` fails the row. A picked value, an unknown name, a
+  list or anything but a plain object fails it too.
+- Keep it **pure**: the same references give the same values. The cache
+  compares the references themselves, so a hole that changes size rebuilds
+  the screw.
+- **In the dialog**, the preview reports what was fixed and the rows of
+  those values show it **locked**, with the note "Fixed by what was picked";
+  the statement never writes them, and an edit drops a value it wrote when
+  the builder can do without it. Rows that depend on a fixed value
+  (`visibleWhen`) follow it. A feature that draws no preview, or whose
+  Preview toggle is off, locks nothing — the engine still fixes the values
+  when the statement builds.
 
 ## The preview: `ghost(ctx)`
 

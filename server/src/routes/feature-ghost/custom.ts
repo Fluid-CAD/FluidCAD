@@ -109,7 +109,7 @@ export class CustomGhostRoute {
     };
     const result = await fluidCadServer.featureGhost(request);
     if (result.solids) {
-      res.json({ success: true, solids: result.solids });
+      res.json({ success: true, solids: result.solids, ...(result.derived ? { derived: result.derived } : {}) });
       return;
     }
     if (result.paused) {

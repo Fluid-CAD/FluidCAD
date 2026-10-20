@@ -890,6 +890,50 @@ describe("a custom feature's ghost", () => {
     expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
   });
 
+  it('locks the rows the feature fixed from its picks, writes none of them, and lets them go when a ghost fixes nothing', async () => {
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValueOnce({ solids: [{ meshes: [] }], frames: [], notice: null, derived: { height: 12 } } as never);
+    const { service, panel, input, type, lastCreate, lastGhost } = mount(STANDOFF);
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    await vi.advanceTimersByTimeAsync(300);
+
+    // The engine fixed the height: its row shows 12, locked, with a note.
+    const row = input('height').closest<HTMLElement>('[data-param="height"]')!;
+    expect(input('height').value).toBe('12');
+    expect(row.hasAttribute('inert')).toBe(true);
+    expect(row.querySelector('[data-role="derived"]')!.textContent).toBe('Fixed by what was picked');
+
+    // Another row still takes typing; the ghost asked for leaves the fixed value out.
+    type('outer', '8');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastGhost()![0]).toMatchObject({ values: { outer: 8 } });
+    expect((lastGhost()![0] as { values: Record<string, unknown> }).values).not.toHaveProperty('height');
+
+    // That ghost (the default answer) fixed nothing: the row is free again, back on its default.
+    expect(row.hasAttribute('inert')).toBe(false);
+    expect(row.querySelector('[data-role="derived"]')).toBeNull();
+    expect(input('height').value).toBe('10');
+
+    panel().querySelector<HTMLButtonElement>('[data-role="apply"]')!.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lastCreate()!.values).toEqual({ outer: 8 });
+  });
+
+  it('never writes a fixed value: Apply leaves it to the engine while the row is locked', async () => {
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: [{ meshes: [] }], frames: [], notice: null, derived: { height: 12 } } as never);
+    const { service, panel, input, type, lastCreate } = mount(STANDOFF);
+    service.enter();
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    type('outer', '8');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(input('height').value).toBe('12');
+
+    panel().querySelector<HTMLButtonElement>('[data-role="apply"]')!.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lastCreate()!.values).toEqual({ outer: 8 });
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: [{ meshes: [] }], frames: [], notice: null } as never);
+  });
+
   it('builds the ghost once the toggle is on, follows the form, and clears it when turned off', async () => {
     const { service, panel, type, lastGhost, ghostBodies } = mount(STANDOFF, { preview: false });
     service.enter();

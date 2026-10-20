@@ -17,6 +17,7 @@ vi.mock('../src/api', async (importOriginal) => ({
   applyCustomFeatureEdit: vi.fn(async () => ({ success: true, preview: 'feature(…)' })),
   getFeatureCatalog: vi.fn(async () => []),
   fetchFeatureGhostResult: vi.fn(async () => ({ solids: [{ meshes: [] }], frames: [], notice: null })),
+  fetchShapeOwners: vi.fn(async () => []),
   fetchConnectorAnchors: vi.fn(async () => ({ ok: false, reason: null })),
   rollback: vi.fn(),
   clearBreakpoints: vi.fn(),
@@ -164,6 +165,18 @@ function scene(): SceneObjectRender[] {
   ] as SceneObjectRender[];
 }
 const row = (id: string) => scene().find(o => o.id === id)!;
+
+/** A screw at a connector, a point, a face centre — or a hole picked whole, by its row or by a click on its wall. */
+const SCREW = meta('acme.screw', 'Screw', {
+  at: { picker: ['connector', 'point', 'anchor', 'feature'], types: ['hole'], label: 'At' },
+  length: { type: 'length', default: 16, min: 0, label: 'Length' },
+}, { operations: ['new'], defaultOperation: 'new' });
+
+/** The scene with a hole cut into the plate (line 12). */
+const holeRow = (): SceneObjectRender => ({
+  id: 'bore', type: 'hole' as never, name: 'Hole', parentId: 'part', ownShapes: [], sourceLocation: at(12, 3),
+  sceneShapes: [{ shapeId: 'plate-solid', shapeType: 'solid', meshes: MESH }],
+} as SceneObjectRender);
 
 /** Bosses at connectors, points and face centres: a value of three kinds. */
 const BOSS = meta('acme.boss', 'Boss', {
@@ -855,6 +868,44 @@ describe('editing a custom feature statement', () => {
     expect(registry.forStatement({ ...parsed, id: 'acme.gone' })).toBeNull();
     registry.unregister(service.id);
     expect(registry.editsRowType('acme.standoff')).toBe(false);
+  });
+});
+
+describe('a value that takes a feature by its geometry', () => {
+  it('picks the hole whose wall was clicked, floats no anchor on it, and still takes an anchor on any other face', async () => {
+    const { service, lastCreate } = mount(SCREW);
+    service.update([...scene(), holeRow()]);
+    service.enter();
+    expect(service.dialogPanel.armedSlot).toBe('at');
+
+    // The engine names the hole for face 4; hovering it floats nothing, clicking it picks the hole.
+    vi.mocked(api.fetchShapeOwners).mockResolvedValueOnce([{ id: 'bore', type: 'hole', uniqueType: 'hole', name: 'Hole' }]);
+    expect(service.handleHover('plate-solid', faceOf('plate-solid', 4).sub, 10, 10)).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.mocked(api.fetchConnectorAnchors)).not.toHaveBeenCalled();
+    expect(service.handleClick('plate-solid', faceOf('plate-solid', 4).sub)).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(vi.mocked(api.fetchShapeOwners)).toHaveBeenCalledTimes(1);
+    expect(lastCreate()!.picks).toEqual({
+      at: [{ kind: 'statement', filePath: FILE, line: 12, column: 3, picker: 'feature' }],
+    });
+  });
+
+  it('takes a face no hole made as an anchor, through the suggestion rail', async () => {
+    const { service, lastCreate } = mount(SCREW);
+    service.update([...scene(), holeRow()]);
+    service.enter();
+    vi.mocked(api.fetchConnectorAnchors).mockResolvedValueOnce({
+      ok: true, inPart: true, defaultName: null, args: null,
+      anchors: [{ anchor: { kind: 'center' }, suffix: '.center()', frame: { origin: { x: 0, y: 0, z: 10 }, xDirection: { x: 1, y: 0, z: 0 }, yDirection: { x: 0, y: 1, z: 0 }, normal: { x: 0, y: 0, z: 1 } } }],
+    } as never);
+    expect(service.handleHover('plate-solid', faceOf('plate-solid', 2).sub, 10, 10)).toBe(true);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(service.handleClick('plate-solid', faceOf('plate-solid', 2).sub)).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.picks).toEqual({
+      at: [{ kind: 'anchor', entity: faceOf('plate-solid', 2), anchor: { kind: 'center' } }],
+    });
   });
 });
 

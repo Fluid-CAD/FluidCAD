@@ -42,6 +42,8 @@ export type SceneManager = {
   getShapeProperties(scene: any, shapeId: string): any;
   getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
   getEdgeProperties(scene: any, shapeId: string, edgeIndex: number): any;
+  // Optional: may predate feature picks on geometry (the features whose buckets hold a face or an edge).
+  getShapeOwners?(scene: any, shapeId: string, sub: { type: 'face' | 'edge'; index: number }): { id: string; type: string; uniqueType: string; name: string }[];
   measure(scene: any, refs: MeasureRef[]): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate filter-expression resolution.

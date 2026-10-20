@@ -1,5 +1,5 @@
 import {
-  applyCustomFeature, applyCustomFeatureEdit, featureGhostScope, fetchConnectorAnchors, fetchFeatureGhostResult, fetchFeatureSources,
+  applyCustomFeature, applyCustomFeatureEdit, featureGhostScope, fetchConnectorAnchors, fetchFeatureGhostResult, fetchFeatureSources, fetchShapeOwners,
   getFaceProperties, type CustomFeatureApplyOptions, type FaceProperties, type FeaturePickedSurface, type CustomFeatureEditOptions, type CustomGhostRequest, type CustomPickInput,
   type FeatureEditTarget, type FeatureListValue, type FeatureScalarValue, type GhostCustomRef, type GhostSolid, type NewVariable,
   type ParsedFeatureStatement, type ScopeTargetRef, type ValueExpr,
@@ -89,6 +89,10 @@ export class SchemaFeatureService implements FeatureDialogService {
   private readonly scope = new ScopeTargetList();
   private armed = false;
   private sceneObjects: SceneObjectRender[];
+  /** Which feature a value takes a face or edge as, per value and entity, once the engine answered (shape ids are per render). */
+  private readonly owners = new Map<string, SceneObjectRender | null | 'pending'>();
+  /** The face or edge under the cursor, while a value that takes features' geometry is armed. */
+  private hovering: string | null = null;
   private sceneSketchActive = false;
   /** Statement being edited in place (timeline double-click or Edit feature), or null. */
   private editTarget: FeatureEditTarget | null = null;
@@ -473,6 +477,7 @@ export class SchemaFeatureService implements FeatureDialogService {
 
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
+    this.owners.clear();
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
     this.syncButton();
     if (!this.armed) {
@@ -521,22 +526,92 @@ export class SchemaFeatureService implements FeatureDialogService {
     }
     const picker = this.panel.armedPicker;
     if (picker) {
-      if (picker.clickKind(sub) === 'anchor') {
-        this.suggestions?.handleClick(shapeId, sub);
+      if (picker.takesFeatureRows && (sub.type === 'face' || sub.type === 'edge')) {
+        // A face or edge a feature the value takes made (a hole's wall)
+        // picks that feature; the engine says which, once.
+        const owner = this.ownerOf(picker, shapeId, sub, row => this.landGeometry(picker, shapeId, sub, row));
+        if (owner !== 'pending') {
+          this.landGeometry(picker, shapeId, sub, owner);
+        }
         return true;
       }
-      this.land(picker, picker.takeClick(shapeId, sub));
+      this.landGeometry(picker, shapeId, sub, null);
     }
     return true;
   }
 
-  /** The cursor rests on a face or edge: an armed anchor value floats its nearest anchor there. */
+  /** A face, edge or vertex click lands: as the feature that made it when there is one, else as the value's own kind for the click. */
+  private landGeometry(picker: SchemaPicker, shapeId: string, sub: NonNullable<SubSelection>, owner: SceneObjectRender | null): void {
+    if (owner) {
+      this.land(picker, picker.takeRow(owner));
+      return;
+    }
+    if (picker.clickKind(sub) === 'anchor') {
+      this.suggestions?.handleClick(shapeId, sub);
+      return;
+    }
+    this.land(picker, picker.takeClick(shapeId, sub));
+  }
+
+  /**
+   * The cursor rests on a face or edge: an armed anchor value floats its
+   * nearest anchor there — unless a feature the value takes made the face
+   * or edge, which a click picks whole, so nothing floats on it.
+   */
   handleHover(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): boolean {
-    if (!this.armed || !this.anchorPicker() || this.panel.armedSlot === 'scope') {
+    const picker = this.anchorPicker();
+    if (!this.armed || !picker || this.panel.armedSlot === 'scope') {
       return false;
+    }
+    if (shapeId && sub && (sub.type === 'face' || sub.type === 'edge') && picker.takesFeatureRows) {
+      const key = SchemaFeatureService.entityKey(shapeId, sub);
+      this.hovering = key;
+      const owner = this.ownerOf(picker, shapeId, sub, row => {
+        // The answer landed with the cursor still there: float the anchor after all.
+        if (row === null && this.hovering === key) {
+          this.suggestions?.handleHover(shapeId, sub, clientX, clientY);
+        }
+      });
+      if (owner !== null) {
+        this.suggestions?.handleHover(null, null, clientX, clientY);
+        return true;
+      }
+    } else {
+      this.hovering = null;
     }
     this.suggestions?.handleHover(shapeId, sub, clientX, clientY);
     return true;
+  }
+
+  private static entityKey(shapeId: string, sub: { type: string; index: number }): string {
+    return `${shapeId}:${sub.type}:${sub.index}`;
+  }
+
+  /**
+   * The feature a value takes a face or edge click as — the newest of those
+   * whose buckets hold it, of a type the value takes — from the cache, or
+   * `'pending'` while the engine is asked, `then` running with the answer.
+   * Null when none: the click is the value's own kind.
+   */
+  private ownerOf(
+    picker: SchemaPicker, shapeId: string, sub: { type: 'face' | 'edge'; index: number }, then: (row: SceneObjectRender | null) => void,
+  ): SceneObjectRender | null | 'pending' {
+    const key = `${picker.name}|${SchemaFeatureService.entityKey(shapeId, sub)}`;
+    const known = this.owners.get(key);
+    if (known !== undefined) {
+      return known;
+    }
+    this.owners.set(key, 'pending');
+    void fetchShapeOwners(shapeId, sub)
+      .then(owners => {
+        const rows = (owners ?? []).flatMap(owner => this.sceneObjects.filter(row => row.id === owner.id));
+        return rows.reverse().find(row => picker.takesFeatureRow(row)) ?? null;
+      }, () => null)
+      .then(row => {
+        this.owners.set(key, row);
+        then(row);
+      });
+    return 'pending';
   }
 
   /**

@@ -251,6 +251,20 @@ export class SchemaPicker {
     return this.takes('axis') && !this.takes('connector') ? [...this.kinds, 'connector'] : this.kinds;
   }
 
+  /**
+   * A click on a face or an edge a feature made picks that feature: the
+   * value takes features of named types (`types`), so geometry of such a
+   * feature — a hole's wall or rim — stands for it rather than for an anchor.
+   */
+  get takesFeatureRows(): boolean {
+    return this.takes('feature') && (this.spec.types?.length ?? 0) > 0;
+  }
+
+  /** Whether `row` is a feature the value takes a click on its geometry as (see {@link takesFeatureRows}). */
+  takesFeatureRow(row: SceneObjectRender): boolean {
+    return this.takesFeatureRows && SchemaPicker.typeAllowed(row, this.spec.types);
+  }
+
   /** The value takes more than one kind of pick. */
   get isUnion(): boolean {
     return this.kinds.length > 1;

@@ -284,7 +284,11 @@ export type SolidPickerSpec = ParamCommon & ListPicker & { picker: 'solid' };
 
 export type FeaturePickerSpec = ParamCommon & ListPicker & {
   picker: 'feature';
-  /** Only features of these types or ids. */
+  /**
+   * Only features of these types or ids. With them, the dialog also takes a
+   * click on a face or an edge such a feature made (a hole's wall or rim)
+   * as that feature — ahead of a face, anchor or edge kind beside it.
+   */
   types?: readonly string[];
 };
 

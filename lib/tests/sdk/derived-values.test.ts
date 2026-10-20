@@ -139,7 +139,7 @@ describe("following a reference: propertiesOf, framesOf and derive", () => {
     expect(p.serialize()).toMatchObject({ values: { size: 'M5', head: 'socket', length: 10 }, derived: { size: 'M6' } });
     expect(p.serialize()).not.toHaveProperty('warnings');
     // Its own properties show the fixed value, so a feature picked at the probe reads M6.
-    expect(p.describe()).toEqual({ type: 'acme.probe', size: 'M6', head: 'socket', length: 10 });
+    expect(p.describe()).toEqual({ type: 'acme.probe', unit: 'mm', size: 'M6', head: 'socket', length: 10 });
     // Two pegs, one per placement.
     expect(p.getShapes().filter(s => s.isSolid())).toHaveLength(2);
   });

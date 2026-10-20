@@ -289,7 +289,7 @@ dialog writes is the expression a model would write by hand.
 | `axis` | a world axis, an `axis()` line or row, a straight edge, a connector's gizmo or row | `'z'`, `ax`, `axis(e.sideEdges(0))`, `bolt`, `bolt.instance(1)` | `axisOf()` |
 | `plane` | an origin plane, a `plane()` quad or row, a planar face | `'xy'`, `p`, `plane(e.endFaces())` | `planeOf()` |
 | `solid` | a face or edge of a solid, or a feature row: the statement that made it | that statement's variable | `shapesOf()` |
-| `feature` | a feature row in the timeline | its variable | `shapesOf()` |
+| `feature` | a feature row in the timeline — and, with `types`, a face or an edge a feature of those types made (a hole's wall or rim picks the hole), ahead of any other kind of the value that takes the click | its variable | `shapesOf()`, `framesOf()`, `propertiesOf()` |
 | `connector` | a connector's gizmo or row, or a copy's | `bolt`, `bolt.instance(2)` | `frameOf()`, `pointOf()` |
 | `point` | a vertex: a sketch point, a solid's corner | `s.geometries.a` (the sketch returns it), `e.endEdges(0).end()` | `frameOf()`, `pointOf()` |
 | `anchor` | a face or an edge, then one of its suggested anchors | `e.endFaces().center()`, `e.sideEdges(0).start()` | `frameOf()`, `pointOf()` |
@@ -339,7 +339,7 @@ kinds must take different clicks**:
 | `axis` | an edge, an axis line, a world axis, an axis row, a connector, a connector row |
 | `plane` | a face, a plane quad, an origin plane, a plane row |
 | `solid` | a face, an edge, a feature row |
-| `feature` | a feature row |
+| `feature` | a feature row; with `types`, a face or an edge such a feature made |
 | `connector` | a connector, a connector row |
 | `point` | a vertex |
 | `anchor` | a face, an edge |

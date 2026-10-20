@@ -226,13 +226,13 @@ not the location.
 
 **The properties of a reference** (`propertiesOf`): the plain data of its
 timeline row (what `serialize()` reports, shapes and other objects left
-out, a point or a vector as its array), with `type` — a `hole()`'s `size`,
+out, a point or a vector as its array), with `type` and `unit` — a `hole()`'s `size`,
 `fastener` (`{ type: 'clearance', fit }` or `{ type: 'tapped', pitch }`),
 `style` (`{ kind: 'counterbore', … }`, `{ kind: 'countersink', … }`),
 `depth`, `tipAngle`, `fasten`, `dimensions` (the numbers it cut with) and
 `frames`; a connector's `name` and frame; a custom feature's typed-in values
 (those its `derive()` fixed in place of the statement's). Lengths are in
-the reference's own unit. A preview hands the same properties on its
+the reference's `unit` (`'mm'`, `'in'`, …), its file's. A preview hands the same properties on its
 stand-ins. The engine's row data is the contract: a built-in may publish a
 documented set of its own by overriding `describe()`.
 

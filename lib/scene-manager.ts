@@ -18,6 +18,7 @@ import type { MeshQuality } from "./oc/mesh.js";
 import type { FluidCADOptions } from "./index.js";
 import { createUnitRegistry, getUnitRegistry } from "./units/registry.js";
 import { MM_PER_UNIT } from "./units/units.js";
+import { Shape } from "./common/shape.js";
 import type { LengthUnit } from "./units/units.js";
 import { createProjectUnitLookup, resolveProjectUnit } from "./project-unit.js";
 import { FileImport } from "./io/file-import.js";
@@ -337,6 +338,43 @@ class SceneManager {
       }
     }
     return null;
+  }
+
+  /**
+   * The features whose buckets hold a face or an edge of a rendered solid —
+   * the hole whose wall or rim it is, the extrude whose end face — in scene
+   * order, oldest first: what a dialog's feature picker takes a click on
+   * geometry as. Empty when no feature names it (a face a later feature
+   * remade) or the shape is not in the scene.
+   */
+  getShapeOwners(scene: Scene, shapeId: string, sub: { type: 'face' | 'edge'; index: number }): ShapeOwner[] {
+    const shape = findShapeById(scene, shapeId);
+    if (!shape) {
+      return [];
+    }
+    const subs = sub.type === 'face' ? Explorer.findFacesWrapped(shape) : Explorer.findEdgesWrapped(shape);
+    try {
+      const picked = subs[sub.index];
+      if (!picked) {
+        return [];
+      }
+      const owners: ShapeOwner[] = [];
+      for (const obj of scene.getAllSceneObjects()) {
+        if (obj.isInternal()) {
+          continue;
+        }
+        const holds = obj.bucketDefs(sub.type).some(def => {
+          const members = obj.getState(def.key);
+          return Array.isArray(members) && members.some(member => member instanceof Shape && member.getShape().IsSame(picked.getShape()));
+        });
+        if (holds) {
+          owners.push({ id: obj.id, type: obj.getType(), uniqueType: obj.getUniqueType(), name: obj.getName() });
+        }
+      }
+      return owners;
+    } finally {
+      for (const entry of subs) entry.dispose();
+    }
   }
 
   getEdgeProperties(scene: Scene, shapeId: string, edgeIndex: number): EdgeProperties | null {
@@ -746,6 +784,9 @@ function serializedInstancePose(scene: Scene, instanceId: string): MeasurePose |
   }
   return { position: inst.position, quaternion: inst.quaternion };
 }
+
+/** A feature that holds a face or an edge in one of its buckets (see SceneManager.getShapeOwners). */
+export type ShapeOwner = { id: string; type: string; uniqueType: string; name: string };
 
 function findShapeById(scene: Scene, shapeId: string) {
   for (const obj of scene.getAllSceneObjects()) {

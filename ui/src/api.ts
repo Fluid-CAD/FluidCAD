@@ -1467,6 +1467,23 @@ export function getEdgeProperties(
   return getJson('api/edge-properties', { shapeId, edgeIndex }, signal);
 }
 
+/** A feature whose buckets hold a picked face or edge: the hole whose wall it is, the extrude whose end face. */
+export type ShapeOwner = { id: string; type: string; uniqueType: string; name: string };
+
+/**
+ * The features that made a face or an edge of a rendered solid, oldest
+ * first — what a feature picker takes a click on geometry as. Null when the
+ * server can't say (no scene, an engine that predates the query).
+ */
+export async function fetchShapeOwners(
+  shapeId: string,
+  sub: { type: 'face' | 'edge'; index: number },
+  signal?: AbortSignal,
+): Promise<ShapeOwner[] | null> {
+  const body = await getJson<{ owners?: unknown }>('api/shape-owners', { shapeId, kind: sub.type, index: sub.index }, signal);
+  return Array.isArray(body?.owners) ? body!.owners as ShapeOwner[] : null;
+}
+
 export function getShapeProperties(shapeId: string): Promise<ShapeProperties | null> {
   return getJson('api/shape-properties', { shapeId });
 }

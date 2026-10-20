@@ -283,7 +283,8 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   abstract build(context?: BuildSceneObjectContext): void;
 
   /**
-   * What the object is, as plain data: its `type`, and the numbers, words
+   * What the object is, as plain data: its `type`, its `unit` (the one its
+   * lengths are in), and the numbers, words
    * and flags its statement set and its build resolved — what its timeline
    * row carries (see {@link serialize}): a hole's size, fit, style, depth
    * and the dimensions it cut; a connector's name and frame; a custom
@@ -295,7 +296,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
    * Override to publish a documented set in place of the row's.
    */
   describe(): Readonly<Record<string, unknown>> {
-    return Object.freeze({ type: this.getType(), ...SceneObject.plainData(this.serialize()) as Record<string, unknown> });
+    return Object.freeze({ type: this.getType(), unit: this.getUnit(), ...SceneObject.plainData(this.serialize()) as Record<string, unknown> });
   }
 
   /**

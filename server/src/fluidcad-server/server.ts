@@ -1313,6 +1313,18 @@ export class FluidCadServer {
     return this.sceneManager.getFaceProperties(scene, shapeId, faceIndex);
   }
 
+  /** The features whose buckets hold a face or an edge of a rendered solid, oldest first; null without a scene or a manager that answers. */
+  getShapeOwners(shapeId: string, sub: { type: 'face' | 'edge'; index: number }): { id: string; type: string; uniqueType: string; name: string }[] | null {
+    if (!this.sceneManager?.getShapeOwners) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.getShapeOwners(scene, shapeId, sub);
+  }
+
   getEdgeProperties(shapeId: string, edgeIndex: number): any {
     if (!this.sceneManager) {
       return null;

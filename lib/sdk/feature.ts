@@ -539,7 +539,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
 
   /**
    * What a reference is, as plain data — `type` and the values its
-   * statement set and its build resolved, lengths in its own unit: a hole's
+   * statement set and its build resolved, lengths in its `unit`: a hole's
    * `size`, `fastener`, `style`, `depth`, `dimensions`; a connector's `name`;
    * a custom feature's typed-in values (see `SceneObject.describe`). A
    * feature reads them to follow what it was picked at — in {@link derive},
@@ -1031,11 +1031,11 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
    * `warnings` for any the statement passed as well: the editor reads both
    * off the row.
    */
-  /** Its type and its typed-in values — those {@link derive} fixed in place of the statement's. */
+  /** Its type, its unit and its typed-in values — those {@link derive} fixed in place of the statement's. */
   override describe(): Readonly<Record<string, unknown>> {
     const scalars = Object.fromEntries(Object.entries(this.values).filter(([, value]) => !(value instanceof SceneObject)
       && !(Array.isArray(value) && value.some(entry => entry instanceof SceneObject))));
-    return Object.freeze({ type: this.getType(), ...scalars });
+    return Object.freeze({ type: this.getType(), unit: this.getUnit(), ...scalars });
   }
 
   serialize() {

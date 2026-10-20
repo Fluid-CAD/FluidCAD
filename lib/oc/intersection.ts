@@ -88,6 +88,7 @@ export class ProjectionOps {
     const boundary = face.getWires()
       .flatMap(wire => wire.getEdges())
       .filter(edge => !hidden.some(h => h.IsSame(edge.getShape())));
+    Explorer.deleteAll(hidden);
     const outlines = facePlane
       ? []
       : SilhouetteOps.outlineEdgesRaw(rawFace, targetPlane.normal).map(e => Edge.fromTopoDSEdge(e));

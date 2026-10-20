@@ -4883,8 +4883,41 @@ export function addBreakpoint(sourceLocation: SourceLocationParam): void {
   postFireAndForget('api/add-breakpoint', { sourceLocation });
 }
 
-export function moveTimelineBreakpoint(filePath: string, before: { line: number; column: number } | null): Promise<SetUnitResult> {
-  return postAcked('api/timeline-breakpoint', { filePath, before });
+/**
+ * Which existing `breakpoint();` statements a timeline breakpoint edit takes
+ * out: the ones a move passes (`passed` — a stop further down the file stays
+ * pending), the one the build is paused on (`active`), or every one (`all`).
+ */
+export type BreakpointRemoval = 'passed' | 'active' | 'all';
+
+/**
+ * Move the document's breakpoint before a statement (`before`), or add none
+ * and only remove. One acknowledged source edit. A move takes out the stops
+ * it passes and leaves later ones pending; `before: null` with `all`
+ * continues to the end of history.
+ */
+export function moveTimelineBreakpoint(
+  filePath: string,
+  before: { line: number; column: number } | null,
+  remove: BreakpointRemoval = before ? 'passed' : 'all',
+): Promise<SetUnitResult> {
+  return postAcked('api/timeline-breakpoint', { filePath, before, remove });
+}
+
+/**
+ * Continue from the breakpoint the build is paused on: lift that one
+ * `breakpoint();` — the one a double-click placed, or the user's own — and
+ * no other, so the build runs on to the next stop the file holds, or to
+ * its tip. A server that can't do the acknowledged edit (an older one, or
+ * no edit dispatcher) falls back to clearing every breakpoint, which is
+ * what Continue always used to do.
+ */
+export function continueBreakpoint(): void {
+  void postAcked('api/timeline-breakpoint', { before: null, remove: 'active' }).then((result) => {
+    if (!result.success) {
+      clearBreakpoints();
+    }
+  });
 }
 
 export function removeFeature(sourceLocation: SourceLocationParam): void {
@@ -5603,6 +5636,23 @@ export async function renameInstance(
   } catch {
     return { success: false, reason: 'Could not reach the FluidCAD server' };
   }
+}
+
+/**
+ * Set (0 < t ≤ 1) or drop (null, or 0) the `.transparent(t)` call of the
+ * `insert()` statement at `sourceLocation` — the parts panel's
+ * Transparency…. Acked: a refusal (an expression argument, a statement in
+ * another file, an out-of-date line) comes back as the reason.
+ */
+export async function setInstanceTransparency(
+  sourceLocation: { filePath: string; line: number },
+  transparency: number | null,
+): Promise<{ success: boolean; reason?: string }> {
+  return postAcked('api/set-instance-transparency', {
+    filePath: sourceLocation.filePath,
+    sourceLine: sourceLocation.line,
+    transparency,
+  });
 }
 
 /**

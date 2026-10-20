@@ -60,6 +60,14 @@ export type SceneRenderedData = {
   breakpointHit?: boolean;
   /** Actual source breakpoint boundary, unchanged by view-only rollback previews. */
   breakpointStop?: number;
+  /** The `breakpoint();` statement the build paused on, when it is in the rendered file. */
+  breakpointAt?: { line: number; column: number };
+  /**
+   * Every `breakpoint();` statement of the rendered file, in document order
+   * — the one the build paused on and the ones still pending after it. The
+   * timeline marks each; absent on engines predating the list.
+   */
+  breakpoints?: { line: number; column: number }[];
   /** Paused history display, separate from the live scene and its indices. */
   timeline?: TimelineEntry[];
   assembly?: SerializedAssembly;

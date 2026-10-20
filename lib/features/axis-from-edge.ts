@@ -87,6 +87,11 @@ export class AxisFromEdge extends AxisObjectBase {
     this.addAxisEdge(axis);
   }
 
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const sourceObject = remap.get(this.sourceObject) || this.sourceObject;
+    return new AxisFromEdge(sourceObject, this.options_);
+  }
+
   compareTo(other: AxisFromEdge): boolean {
     if (!(other instanceof AxisFromEdge)) {
       return false;

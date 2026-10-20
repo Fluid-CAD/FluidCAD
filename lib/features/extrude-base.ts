@@ -17,8 +17,9 @@ import { applyBucketFilters } from "../filters/bucket-scope.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
-import { ShapeHistory } from "../common/shape-history-tracker.js";
+import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import { ClassifiedBucketRemapper, ClassifiedBuckets, FusedEdgeBuckets } from "./classified-buckets.js";
+import { disposeBuildTemporaries } from "./build-temporaries.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import { mmTol } from "../units/tolerance.js";
 
@@ -270,7 +271,10 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
 
   /** Carry the classified buckets across a fusion — see {@link ClassifiedBuckets.remapAcrossFusion}. */
   protected remapClassifiedBuckets(history: ShapeHistory, finalShapes: Shape[]) {
-    ClassifiedBuckets.remapAcrossFusion(this, history, finalShapes);
+    const replaced = ClassifiedBuckets.remapAcrossFusion(this, history, finalShapes);
+    // The as-built bucket wrappers the remap replaced, and the history it
+    // read through: whatever the state no longer reaches was this build's alone.
+    disposeBuildTemporaries(this, [...replaced, ...ShapeHistoryTracker.shapesOf(history)]);
   }
 
   /** Record every face/edge of the given shapes as additions — see {@link ClassifiedBuckets.recordAdditions}. */
@@ -327,6 +331,16 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     } else {
       p.record('Classify edges', () => this.classifyExtrudeEdges());
     }
+
+    // The fuse consumed the tool solids, and the remap replaced the as-built
+    // bucket faces and read the tool history through: whatever the state no
+    // longer reaches was this build's alone.
+    p.record('Dispose build temporaries', () => disposeBuildTemporaries(this, [
+      ...shapes,
+      ...classified.startFaces, ...classified.endFaces, ...classified.sideFaces,
+      ...classified.internalFaces, ...classified.capFaces,
+      ...(fusionResult.toolHistory ? ShapeHistoryTracker.shapesOf(fusionResult.toolHistory) : []),
+    ]));
   }
 
   /** Derive the edge buckets from the face buckets — see {@link ClassifiedBuckets.classifyEdges}. */

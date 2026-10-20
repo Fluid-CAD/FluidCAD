@@ -31,7 +31,7 @@ import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates, pickInstanceId } from './interactive/pick-candidates';
 import { VertexPicking, type VertexPickScope } from './interactive/vertex-picking';
-import { pointIsVisible } from './interactive/pick-visibility';
+import { hitIsClipped, hitIsSectioned, pointIsVisible } from './interactive/pick-visibility';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { SceneIndex } from './helpers/scene-index';
 import { carryShownKeys, findActiveSketch, isSceneEmpty, isShowableConsumedRow, sourceLocKey } from './helpers/scene-utils';
@@ -1150,18 +1150,28 @@ export class Viewer {
     // solid — like sketch wires they outrank face hits so picking one never
     // needs pixel-perfect aim against the geometry behind it.
     for (const axisHit of axisHits) {
+      if (hitIsClipped(axisHit, (axisHit as { pointOnLine?: Vector3 }).pointOnLine ?? axisHit.point)) {
+        continue;
+      }
       const shapeId = this.findShapeIdForObject(axisHit.object);
       if (shapeId) {
         return { shapeId, sub: { type: 'axis', index: 0 } };
       }
     }
 
-    // Pick the closest face hit whose triangle normal faces the camera.
+    // Pick the closest face hit whose triangle normal faces the camera. The
+    // raycaster ignores material clipping, so a hit on the half a section
+    // view removed is skipped — the screen shows what lies behind it. Once
+    // a section view has cut a solid open, the first kept hit is what the
+    // screen shows even when it is the inside of a far wall (back-facing).
     const viewDir = new Vector3();
     camera.getWorldDirection(viewDir);
     let bestFace: (typeof faceHits)[number] | undefined;
     for (const hit of faceHits) {
-      if (!hit.face) {
+      if (hitIsClipped(hit)) {
+        continue;
+      }
+      if (!hit.face || hitIsSectioned(hit)) {
         bestFace = hit;
         break;
       }
@@ -1194,6 +1204,10 @@ export class Viewer {
         // LineSegments2 hits expose `pointOnLine` (closest point on the
         // segment in world space); legacy Line hits carry it as `point`.
         const pointOnLine = (edgeHit as { pointOnLine?: Vector3 }).pointOnLine ?? edgeHit.point;
+        // An edge point on the half a section view removed is not on screen.
+        if (hitIsClipped(edgeHit, pointOnLine)) {
+          continue;
+        }
         if (this.isPointVisible(pointOnLine, occluders, tolerance)) {
           const edgeIndex = edgeHit.object.userData.edgeIndex as number;
           const shapeId = this.findShapeIdForObject(edgeHit.object);
@@ -1605,6 +1619,20 @@ export class Viewer {
 
   isInstanceVisible(instanceId: string): boolean {
     return this.assemblyController?.isInstanceVisible(instanceId) ?? true;
+  }
+
+  /** The parts panel's Transparency… slider: fade one instance live (display only). */
+  previewInstanceTransparency(instanceId: string, transparency: number): void {
+    this.assemblyController?.previewInstanceTransparency(instanceId, transparency);
+  }
+
+  /** The slider closed — see {@link AssemblyController.endInstanceTransparencyPreview}. */
+  endInstanceTransparencyPreview(instanceId: string, untilRender: boolean): void {
+    this.assemblyController?.endInstanceTransparencyPreview(instanceId, untilRender);
+  }
+
+  getInstanceTransparency(instanceId: string): number {
+    return this.assemblyController?.getInstanceTransparency(instanceId) ?? 0;
   }
 
   setInstanceDragReleaseHandler(handler: InstanceDragReleaseHandler | null): void {

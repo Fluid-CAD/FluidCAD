@@ -59,6 +59,8 @@ export function fitArcThroughEndpoints(
 
   const arc = Geometry.makeArcThreePoints(start, mid, end);
   const edge = Geometry.makeEdgeFromCurve(arc);
+  // The edge holds its own handle to the curve.
+  arc.delete();
 
   const sign = clockwise ? -1 : 1;
   const endTangent = new Point2D(sign * (-Math.sin(endAngle)), sign * Math.cos(endAngle));
@@ -86,6 +88,8 @@ function fitFullTurn(
   const normal = clockwise ? plane.normal.negate() : plane.normal;
   const circle = Geometry.makeCircle(center, radius, normal, toStart);
   const edge = Geometry.makeEdgeFromCircle(circle);
+  // The edge holds its own curve; the circle handle goes.
+  circle.delete();
 
   const endAngle = Math.atan2(startPt.y - centerPt.y, startPt.x - centerPt.x);
   const sign = clockwise ? -1 : 1;

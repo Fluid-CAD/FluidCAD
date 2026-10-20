@@ -236,6 +236,8 @@ export class Mesh {
 
     const pc = new oc.Poly_Connect(triangulation);
     const nbNodes = triangulation.NbNodes();
+    let triangles: { delete(): void } | null = null;
+    try {
 
     for (let i = 1; i <= nbNodes; i++) {
       const t1 = aLocation.Transformation();
@@ -278,9 +280,10 @@ export class Mesh {
       t1.delete();
     }
 
-    const triangles = triangulation.Triangles();
+    triangles = triangulation.Triangles();
+    const all = triangles as ReturnType<typeof triangulation.Triangles>;
     for (let nt = 1; nt <= triangulation.NbTriangles(); nt++) {
-      const t = triangles.Value(nt);
+      const t = all.Value(nt);
       let n1 = t.Value(1) - 1;
       let n2 = t.Value(2) - 1;
       let n3 = t.Value(3) - 1;
@@ -291,12 +294,13 @@ export class Mesh {
       t.delete();
     }
 
-    pc.delete();
-    triangles.delete();
-    triangulation.delete();
-    aLocation.delete();
-
     return { vertices, normals, indices, count: nbNodes };
+    } finally {
+      pc.delete();
+      triangles?.delete();
+      triangulation.delete();
+      aLocation.delete();
+    }
   }
 
   /**
@@ -404,6 +408,7 @@ export class Mesh {
     }
 
     tx.delete();
+    nodes.delete();
     poly.delete();
     loc.delete();
     ocEdge.delete();

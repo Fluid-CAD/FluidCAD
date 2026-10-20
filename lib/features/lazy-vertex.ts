@@ -3,13 +3,20 @@ import { ShapeType } from "../common/shape-type.js";
 import { Shape, ShapeFilter } from "../common/shape.js";
 import { Vertex } from "../common/vertex.js";
 import { Plane } from "../math/plane.js";
+import { Point, Point2D } from "../math/point.js";
 import { withUnit } from "../units/registry.js";
 
 export class LazyVertex extends SceneObject {
 
   private _isBuilt: boolean = false;
 
-  constructor(private uniqueName: string, private getShapesFn: () => Shape[]) {
+  /**
+   * `literal` is the point a plain coordinate was normalized from: the point
+   * accessors answer from it directly, so a `line([0, 0], [10, 0])` never
+   * builds kernel vertices it would only read the coordinates back from
+   * (and, held outside the scene, could never free).
+   */
+  constructor(private uniqueName: string, private getShapesFn: () => Shape[], private literal: Point | null = null) {
     super();
   }
 
@@ -42,11 +49,17 @@ export class LazyVertex extends SceneObject {
   }
 
   asPoint() {
+    if (this.literal) {
+      return this.literal;
+    }
     const vertex = this.getShapes({ excludeMeta: false }, 'vertex')[0] as Vertex;
     return vertex.toPoint();
   }
 
   asPoint2D() {
+    if (this.literal) {
+      return new Point2D(this.literal.x, this.literal.y);
+    }
     const vertex = this.getShapes({ excludeMeta: false }, 'vertex')[0] as Vertex;
     return vertex.toPoint2D();
   }
@@ -66,7 +79,7 @@ export class LazyVertex extends SceneObject {
   }
 
   override createCopy(_remap: Map<SceneObject, SceneObject>): SceneObject {
-    return new LazyVertex(this.uniqueName, this.getShapesFn);
+    return new LazyVertex(this.uniqueName, this.getShapesFn, this.literal);
   }
 
   getType(): string {

@@ -264,10 +264,15 @@ export class Skinning {
     vBasis: BSplineCurveData,
   ): Solid {
     ({ uBasis, grid } = Skinning.relaxSmoothKnots(uBasis, grid, vBasis));
+    // The faces are the sewing's inputs; the sewn shell holds its own.
     const faces = Skinning.sideFaces(uBasis, grid, vBasis);
-    faces.push(Skinning.capFace(uBasis, grid.map(row => row[0])));
-    faces.push(Skinning.capFace(uBasis, grid.map(row => row[row.length - 1])));
-    return Skinning.sewSolid(faces);
+    try {
+      faces.push(Skinning.capFace(uBasis, grid.map(row => row[0])));
+      faces.push(Skinning.capFace(uBasis, grid.map(row => row[row.length - 1])));
+      return Skinning.sewSolid(faces);
+    } finally {
+      Explorer.deleteAll(faces);
+    }
   }
 
   /** The wall surface of a skinned grid: the section basis in u, the column basis in v. */
@@ -444,7 +449,11 @@ export class Skinning {
     const sewn = sewing.SewedShape();
     sewing.delete();
 
-    return Skinning.solidFromShell(sewn);
+    try {
+      return Skinning.solidFromShell(sewn);
+    } finally {
+      sewn.delete();
+    }
   }
 
   /**
@@ -469,7 +478,9 @@ export class Skinning {
         segment = oc.GeomConvert.SplitBSplineCurve(boundary, from, to, 1e-9, true);
       }
       const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(segment);
-      wireMaker.Add(edgeMaker.Edge());
+      const edge = edgeMaker.Edge();
+      wireMaker.Add(edge);
+      edge.delete();
       edgeMaker.delete();
       if (segment !== boundary) {
         segment.delete();
@@ -485,14 +496,19 @@ export class Skinning {
   /** Planar cap built from the section's exact boundary curve. */
   private static capFace(uBasis: LoftSurfaceBasis, poles: number[][]): TopoDS_Shape {
     const oc = getOC();
-    const faceMaker = new oc.BRepBuilderAPI_MakeFace(Skinning.capWire(uBasis, poles), true);
-    if (!faceMaker.IsDone()) {
+    const wire = Skinning.capWire(uBasis, poles);
+    try {
+      const faceMaker = new oc.BRepBuilderAPI_MakeFace(wire, true);
+      if (!faceMaker.IsDone()) {
+        faceMaker.delete();
+        throw new Error("Loft could not cap a profile — guided and conditioned lofts require planar profiles.");
+      }
+      const face = faceMaker.Face();
       faceMaker.delete();
-      throw new Error("Loft could not cap a profile — guided and conditioned lofts require planar profiles.");
+      return face;
+    } finally {
+      wire.delete();
     }
-    const face = faceMaker.Face();
-    faceMaker.delete();
-    return face;
   }
 
   /** Interior u-values the wall is split at: the creases and every knot still C0, ascending. */
@@ -527,9 +543,11 @@ export class Skinning {
     const oc = getOC();
 
     let shellShape = sewn;
+    const shells: TopoDS_Shape[] = [];
     if (sewn.ShapeType() !== oc.TopAbs_ShapeEnum.TopAbs_SHELL) {
-      const shells = Explorer.findShapes(sewn, oc.TopAbs_ShapeEnum.TopAbs_SHELL as TopAbs_ShapeEnum);
+      shells.push(...Explorer.findShapes(sewn, oc.TopAbs_ShapeEnum.TopAbs_SHELL as TopAbs_ShapeEnum));
       if (shells.length !== 1) {
+        Explorer.deleteAll(shells);
         throw new Error("Loft sewing did not produce a single shell.");
       }
       shellShape = shells[0];
@@ -538,11 +556,17 @@ export class Skinning {
     const builder = new oc.BRep_Builder();
     let solid = new oc.TopoDS_Solid();
     builder.MakeSolid(solid);
-    builder.Add(solid, oc.TopoDS.Shell(shellShape));
+    const shell = oc.TopoDS.Shell(shellShape);
+    builder.Add(solid, shell);
+    shell.delete();
     builder.delete();
+    Explorer.deleteAll(shells);
 
     if (ShapeProps.getProperties(solid).volumeMm3 < 0) {
-      solid = oc.TopoDS.Solid(solid.Reversed());
+      const reversed = solid.Reversed();
+      solid.delete();
+      solid = oc.TopoDS.Solid(reversed);
+      reversed.delete();
     }
     return Solid.fromTopoDSSolid(solid);
   }

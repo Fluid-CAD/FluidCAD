@@ -146,6 +146,7 @@ export class Shell extends SceneObject implements IShell {
     for (const shape of allTargetShapes) {
       for (const edge of Explorer.findEdgesWrapped(shape)) {
         stockEdgeMidpoints.push(EdgeOps.getEdgeMidPoint(edge));
+        edge.dispose();
       }
     }
 
@@ -178,12 +179,16 @@ export class Shell extends SceneObject implements IShell {
     const internalFaces: Face[] = [];
     const internalEdges: Edge[] = [];
 
+    // Only the wrappers classified as internal reach the state; the rest
+    // of the explorer's are this build's temporaries.
     for (const shape of newShapes) {
       const resultFaces = Explorer.findFacesWrapped(shape);
       for (const f of resultFaces) {
         const faceEdges = (f as Face).getEdges();
         if (faceEdges.length > 0 && faceEdges.every(e => !isStockEdge(e))) {
           internalFaces.push(f as Face);
+        } else {
+          f.dispose();
         }
       }
 
@@ -191,6 +196,8 @@ export class Shell extends SceneObject implements IShell {
       for (const edge of edges) {
         if (!isStockEdge(edge) && !isOnSelectionPlane(edge)) {
           internalEdges.push(edge);
+        } else {
+          edge.dispose();
         }
       }
     }

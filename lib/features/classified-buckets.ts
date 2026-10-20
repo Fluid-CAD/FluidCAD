@@ -52,21 +52,32 @@ export class ClassifiedBucketRemapper {
     this.finalEdges = new oc.TopTools_MapOfShape();
     this.finalFaceList = [];
     for (const shape of finalShapes) {
-      for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
-        if (this.finalFaces.Add(raw)) {
-          this.finalFaceList.push(Face.fromTopoDSFace(Explorer.toFace(raw)));
+      Explorer.withShapes(shape.getShape(), FACE, raws => {
+        for (const raw of raws) {
+          if (this.finalFaces.Add(raw)) {
+            this.finalFaceList.push(Face.fromTopoDSFace(Explorer.toFace(raw)));
+          }
         }
-      }
-      for (const raw of Explorer.findShapes(shape.getShape(), EDGE)) {
-        this.finalEdges.Add(raw);
-      }
+      });
+      Explorer.withShapes(shape.getShape(), EDGE, raws => {
+        for (const raw of raws) this.finalEdges.Add(raw);
+      });
     }
   }
 
   dispose() {
     this.finalFaces.delete();
     this.finalEdges.delete();
+    // The candidate wrappers a bucket re-homed onto are the bucket's now;
+    // the rest were only this remapper's lookup table.
+    for (const face of this.finalFaceList) {
+      if (!this.handedOut.has(face)) face.dispose();
+    }
+    this.finalFaceList.length = 0;
   }
+
+  /** Final-face wrappers a remap returned, which the caller keeps. */
+  private readonly handedOut = new Set<Face>();
 
   /**
    * The bucket's edges as they exist in the final solid: each as-built edge
@@ -106,6 +117,7 @@ export class ClassifiedBucketRemapper {
           const home = this.findAbsorbingFace(face, anchors);
           if (home) {
             result.faces.push(home);
+            this.handedOut.add(home);
           }
           continue;
         }
@@ -277,12 +289,17 @@ export class ClassifiedBuckets {
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
     for (const shape of shapes) {
-      for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
-        target.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), target);
-      }
-      for (const raw of Explorer.findShapes(shape.getShape(), EDGE)) {
-        target.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), target);
-      }
+      // Each record takes its own typed copy; the explorer copies go.
+      Explorer.withShapes(shape.getShape(), FACE, raws => {
+        for (const raw of raws) {
+          target.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), target);
+        }
+      });
+      Explorer.withShapes(shape.getShape(), EDGE, raws => {
+        for (const raw of raws) {
+          target.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), target);
+        }
+      });
     }
   }
 
@@ -378,11 +395,17 @@ export class ClassifiedBuckets {
    * emits them) were recorded against, and re-homing or pruning them would
    * renumber those picks.
    */
-  static remapAcrossFusion(target: SceneObject, history: ShapeHistory, finalShapes: Shape[]) {
+  static remapAcrossFusion(target: SceneObject, history: ShapeHistory, finalShapes: Shape[]): Shape[] {
     const remapper = new ClassifiedBucketRemapper(history, finalShapes);
+    // The as-built bucket wrappers the remap replaces: handed back for the
+    // caller to free (disposeBuildTemporaries) once every bucket that reads
+    // through the same history — a custom feature's named ones among them —
+    // is written.
+    const replaced: Shape[] = [];
     try {
       const rehome = (key: string) => {
         const asBuilt = target.getState(key) as Face[] || [];
+        replaced.push(...asBuilt);
         const edges = remapper.remapEdges(ClassifiedBuckets.edgesOfFaces(asBuilt));
         const faces = remapper.remapFaces(asBuilt, edges);
         target.setState(key, faces.faces);
@@ -392,6 +415,7 @@ export class ClassifiedBuckets {
       const end = rehome('end-faces');
       for (const key of ['side-faces', 'internal-faces', 'cap-faces']) {
         const faces = target.getState(key) as Face[] || [];
+        replaced.push(...faces);
         target.setState(key, ShapeHistoryTracker.remapFaces(faces, history));
       }
 
@@ -403,5 +427,6 @@ export class ClassifiedBuckets {
     } finally {
       remapper.dispose();
     }
+    return replaced;
   }
 }

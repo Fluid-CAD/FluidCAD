@@ -3,6 +3,7 @@ import { WireOps } from "../oc/wire-ops.js";
 import { ShapeType } from "./shape-type.js";
 import { Shape } from "./shape.js";
 import { Vector3d } from "../math/vector3d.js";
+import type { Point } from "../math/point.js";
 import { Vertex } from "./vertex.js";
 import { Explorer } from "../oc/explorer.js";
 import { Edge } from "./edge.js";
@@ -112,6 +113,18 @@ export class Wire extends Shape<TopoDS_Wire> {
     return lastEdge.getLastVertex();
   }
 
+  /** Where the wire starts (null for an empty wire); the vertex read for it is freed here. */
+  getFirstPoint(): Point | null {
+    const edges = this.getEdges();
+    return edges.length === 0 ? null : edges[0].getFirstPoint();
+  }
+
+  /** Where the wire ends (null for an empty wire); the vertex read for it is freed here. */
+  getLastPoint(): Point | null {
+    const edges = this.getEdges();
+    return edges.length === 0 ? null : edges[edges.length - 1].getLastPoint();
+  }
+
   static fromTopoDSWire(wire: TopoDS_Wire): Wire {
     return new Wire(wire);
   }
@@ -147,5 +160,12 @@ export class Wire extends Shape<TopoDS_Wire> {
     this.edges = null;
     this.vertices = null;
     super.release(retainedRaw, deletedRaw);
+  }
+
+  protected override disposeSubShapes(): void {
+    for (const edge of this.edges ?? []) edge.dispose();
+    for (const vertex of this.vertices ?? []) vertex.dispose();
+    this.edges = null;
+    this.vertices = null;
   }
 }

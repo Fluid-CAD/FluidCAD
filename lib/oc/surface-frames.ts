@@ -32,31 +32,44 @@ export class SurfaceFrames {
    */
   static of(face: TopoDS_Shape, skipPlanes = false): SurfaceFrame | null {
     const oc = getOC();
-    const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(face), false);
+    const typed = oc.TopoDS.Face(face);
+    const adaptor = new oc.BRepAdaptor_Surface(typed, false);
+    // Each elementary surface (and its frame) comes back as a value copy.
+    let surface: { Position(): any; delete(): void } | null = null;
     try {
       const type = adaptor.GetType();
       if (type === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-        return skipPlanes ? null : SurfaceFrames.frameOf('plane', adaptor.Plane().Position(), 0, 0);
+        if (skipPlanes) {
+          return null;
+        }
+        surface = adaptor.Plane();
+        return SurfaceFrames.frameOf('plane', surface.Position(), 0, 0);
       }
       if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
         const cyl = adaptor.Cylinder();
+        surface = cyl;
         return SurfaceFrames.frameOf('cylinder', cyl.Position(), cyl.Radius(), 0);
       }
       if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cone) {
         const cone = adaptor.Cone();
+        surface = cone;
         return SurfaceFrames.frameOf('cone', cone.Position(), cone.RefRadius(), cone.SemiAngle());
       }
       if (type === oc.GeomAbs_SurfaceType.GeomAbs_Sphere) {
         const sphere = adaptor.Sphere();
+        surface = sphere;
         return SurfaceFrames.frameOf('sphere', sphere.Position(), sphere.Radius(), 0);
       }
       if (type === oc.GeomAbs_SurfaceType.GeomAbs_Torus) {
         const torus = adaptor.Torus();
+        surface = torus;
         return SurfaceFrames.frameOf('torus', torus.Position(), torus.MajorRadius(), torus.MinorRadius());
       }
       return null;
     } finally {
+      surface?.delete();
       adaptor.delete();
+      typed.delete();
     }
   }
 
@@ -106,18 +119,26 @@ export class SurfaceFrames {
     return off <= lin;
   }
 
+  /** `position` is a copy the caller received; it is consumed here. */
   private static frameOf(type: SurfaceFrame['type'], position: any, radius: number, extra: number): SurfaceFrame {
     const loc = position.Location();
     const dir = position.Direction();
     const xdir = position.XDirection();
-    return {
-      type,
-      direct: position.Direct(),
-      loc: [loc.X(), loc.Y(), loc.Z()],
-      dir: type === 'sphere' ? undefined : [dir.X(), dir.Y(), dir.Z()],
-      xdir: [xdir.X(), xdir.Y(), xdir.Z()],
-      radius,
-      extra,
-    };
+    try {
+      return {
+        type,
+        direct: position.Direct(),
+        loc: [loc.X(), loc.Y(), loc.Z()],
+        dir: type === 'sphere' ? undefined : [dir.X(), dir.Y(), dir.Z()],
+        xdir: [xdir.X(), xdir.Y(), xdir.Z()],
+        radius,
+        extra,
+      };
+    } finally {
+      loc.delete();
+      dir.delete();
+      xdir.delete();
+      position.delete();
+    }
   }
 }

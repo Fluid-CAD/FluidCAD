@@ -299,6 +299,8 @@ export function classifyFace(shape: TopoDS_Shape): ClassifiedEntity {
       result.dir = scale(result.dir, -1);
     }
   }
+  // The typed cast is a fresh handle of its own; the result keeps the caller's raw `shape`.
+  face.delete();
   return result;
 }
 
@@ -384,5 +386,7 @@ export function classifyEdge(shape: TopoDS_Shape): ClassifiedEntity {
   }
 
   adaptor.delete();
+  // The typed cast is a fresh handle of its own; the result keeps the caller's raw `shape`.
+  edge.delete();
   return result;
 }

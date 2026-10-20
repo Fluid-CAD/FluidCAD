@@ -143,13 +143,23 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
       return;
     }
     this._released = true;
+    this.disposeSubShapes();
     for (const entry of this._helixEdges) entry.edge.delete();
     this._helixEdges = [];
     for (const edge of this._renderSeams) edge.delete();
     this._renderSeams = [];
     this.shape?.delete();
     this.shape = null;
+    this.meshPieces = null;
+    this._meshSource = null;
   }
+
+  /**
+   * Free the sub-shape wrappers this wrapper built and cached for itself
+   * (a face's edges, a solid's faces): they are copies of its own
+   * sub-shapes, so a wrapper the caller solely owns owns them too.
+   */
+  protected disposeSubShapes(): void {}
 
   isReleased(): boolean {
     return this._released;

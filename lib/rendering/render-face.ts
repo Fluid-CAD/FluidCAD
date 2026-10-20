@@ -34,7 +34,9 @@ export function renderFacePatch(faceObj: Shape, meshConfig?: MeshConfig): SceneO
   const edges = Explorer.findEdgesWrapped(faceObj);
   // The face's seam and degenerated edges are not drawn; `index` still
   // counts them so it matches the explorer-ordered lookups.
-  const hidden = TopologyIndex.buildShapeSet(HiddenEdges.ofFace(face as TopoDS_Face));
+  const hiddenEdges = HiddenEdges.ofFace(face as TopoDS_Face);
+  const hidden = TopologyIndex.buildShapeSet(hiddenEdges);
+  for (const edge of hiddenEdges) edge.delete();
   try {
     edges.forEach((edge, index) => {
       if (hidden.Contains(edge.getShape())) {

@@ -2,8 +2,10 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { rad } from "../helpers/math-helpers.js";
 import { Solid } from "../common/shapes.js";
 import { cutWithSceneObjects } from "../helpers/scene-helpers.js";
-import { ExtrudeOps, MakeRevolResult } from "../oc/extrude-ops.js";
+import { RevolveOps, RevolResult } from "../oc/revolve-ops.js";
 import { Explorer } from "../oc/explorer.js";
+import { Shape } from "../common/shape.js";
+import { disposeBuildTemporaries } from "./build-temporaries.js";
 import { Extrudable } from "../helpers/types.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
@@ -19,6 +21,16 @@ import { Convert } from "../oc/convert.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { getOC } from "../oc/init.js";
 import type { TopoDS_Shape } from "ocjs-fluidcad";
+
+/**
+ * What one build makes for itself: the wrappers it frees once its state is
+ * final (anything the state kept stays — see `disposeBuildTemporaries`) and
+ * the raw handles the revolutions' histories hold.
+ */
+interface BuildScratch {
+  shapes: Shape[];
+  revols: RevolResult[];
+}
 
 export class Revolve extends ExtrudeBase implements IRevolve {
 
@@ -38,31 +50,44 @@ export class Revolve extends ExtrudeBase implements IRevolve {
       return;
     }
 
-    if (this.isThin()) {
-      const thinResult = p.record('Make thin faces', () => ThinFaceMaker.make(
-        this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1],
-      ));
-      this.buildRevolveThin(thinResult, plane, context);
-    } else {
-      const faces = pickedFaces ?? p.record('Resolve faces', () =>
-        FaceMaker2.getRegions(this.extrudable.getGeometries(), plane),
-      );
-      this.buildRevolve(faces, plane, context);
-    }
+    const scratch: BuildScratch = { shapes: [], revols: [] };
+    try {
+      if (this.isThin()) {
+        const thinResult = p.record('Make thin faces', () => ThinFaceMaker.make(
+          this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1],
+        ));
+        // The thin faces and the profile wires they offset are this build's.
+        scratch.shapes.push(...thinResult.faces, ...thinResult.walls.map(wall => wall.source));
+        this.buildRevolveThin(thinResult, plane, context, scratch);
+      } else {
+        const faces = pickedFaces ?? p.record('Resolve faces', () =>
+          FaceMaker2.getRegions(this.extrudable.getGeometries(), plane),
+        );
+        // Region faces built here are this build's profiles; picked faces
+        // belong to their owners.
+        if (pickedFaces === null) {
+          scratch.shapes.push(...faces);
+        }
+        this.buildRevolve(faces, plane, context, scratch);
+      }
 
-    this.setFinalShapes(this.getShapes());
+      this.setFinalShapes(this.getShapes());
+    } finally {
+      for (const revol of scratch.revols) revol.dispose();
+      disposeBuildTemporaries(this, scratch.shapes);
+    }
   }
 
   /** Plain revolve: classify by inner-wire detection on the source plane. */
-  private buildRevolve(faces: Face[], plane: Plane, context: BuildSceneObjectContext) {
-    const revolved = this.runRevolutions(faces, context);
+  private buildRevolve(faces: Face[], plane: Plane, context: BuildSceneObjectContext, scratch: BuildScratch) {
+    const revolved = this.runRevolutions(faces, context, scratch);
     const classified = this.classifyRevolveByInnerWires(revolved, plane);
     this.dispatchFinalize(revolved.solids, classified, plane, context);
   }
 
   /** Thin revolve: shell-like profile with inward/outward offsets. */
-  private buildRevolveThin(thinResult: ThinFaceResult, plane: Plane, context: BuildSceneObjectContext) {
-    const revolved = this.runRevolutions(thinResult.faces, context);
+  private buildRevolveThin(thinResult: ThinFaceResult, plane: Plane, context: BuildSceneObjectContext, scratch: BuildScratch) {
+    const revolved = this.runRevolutions(thinResult.faces, context, scratch);
 
     let classified: ClassifiedFaces;
     if (thinResult.inwardEdges.length > 0) {
@@ -128,9 +153,16 @@ export class Revolve extends ExtrudeBase implements IRevolve {
    * downstream `cleanShapeRaw`. Caller refines side → side/internal/cap
    * using the per-edge mapping in `revols[i].edgeFaces`.
    */
-  private runRevolutions(faces: Face[], context: BuildSceneObjectContext) {
+  private runRevolutions(faces: Face[], context: BuildSceneObjectContext, scratch: BuildScratch) {
     const p = context.getProfiler();
     const { result: fusedFaces } = p.record('Fuse faces', () => BooleanOps.fuseFaces(faces));
+    // Profiles the fuse rebuilt (merged regions) were only ever this
+    // revolve's inputs; the caller's own faces stay the caller's.
+    for (const face of fusedFaces) {
+      if (!(faces as Shape[]).includes(face)) {
+        scratch.shapes.push(face);
+      }
+    }
 
     const axis = this.axis.getAxis();
 
@@ -138,25 +170,30 @@ export class Revolve extends ExtrudeBase implements IRevolve {
     const startFaces: Face[] = [];
     const endFaces: Face[] = [];
     const sideFaces: Face[] = [];
-    const revols: MakeRevolResult[] = [];
+    const revols: RevolResult[] = [];
 
     for (const face of fusedFaces as Face[]) {
-      let revol = p.record('Revolve face', () => ExtrudeOps.makeRevol(face, axis, rad(this.angle)));
+      let revol = p.record('Revolve face', () => RevolveOps.makeRevol(face, axis, rad(this.angle)));
+      scratch.revols.push(revol);
+      scratch.shapes.push(revol.solid, ...revol.faces);
 
       if (this._symmetric) {
         const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, -rad(this.angle) / 2);
         revol = this.applySymmetricTransform(revol, matrix);
+        scratch.shapes.push(revol.solid, ...revol.faces);
       }
 
       const resultSolid = Solid.fromTopoDSSolid(Explorer.toSolid(revol.solid.getShape()));
       solids.push(resultSolid);
       revols.push(revol);
+      scratch.shapes.push(resultSolid);
 
       const firstRaw = revol.firstFace?.getShape() ?? null;
       const lastRaw = revol.lastFace?.getShape() ?? null;
 
       for (const f of Explorer.findFacesWrapped(resultSolid)) {
         const raw = f.getShape();
+        scratch.shapes.push(f);
         if (firstRaw && raw.IsSame(firstRaw)) {
           startFaces.push(f as Face);
         } else if (lastRaw && raw.IsSame(lastRaw)) {
@@ -174,35 +211,46 @@ export class Revolve extends ExtrudeBase implements IRevolve {
    * Rotate the revolved solid by `matrix` (used for `.symmetric()`) and
    * remap firstFace / lastFace / edgeFaces through the transformer's
    * `ModifiedShape` so classification keeps pointing at the right TShapes.
+   * The result shares the input's raw edge copies: `dispose` either one.
    */
-  private applySymmetricTransform(revol: MakeRevolResult, matrix: Matrix4): MakeRevolResult {
+  private applySymmetricTransform(revol: RevolResult, matrix: Matrix4): RevolResult {
     const oc = getOC();
     const [trsf, disposeTrsf] = Convert.toGpTrsf(matrix);
     const transformer = new oc.BRepBuilderAPI_Transform(trsf);
-    transformer.Perform(revol.solid.getShape(), true);
-    const transformedSolid = ShapeFactory.fromShape(transformer.Shape());
+    try {
+      transformer.Perform(revol.solid.getShape(), true);
+      const transformedSolid = ShapeFactory.adopt(transformer.Shape());
 
-    const remapFace = (f: Face | null): Face | null => {
-      if (!f) {
-        return null;
-      }
-      const modified = transformer.ModifiedShape(f.getShape());
-      return Face.fromTopoDSFace(Explorer.toFace(modified));
-    };
+      const faces: Face[] = [];
+      const remapFace = (f: Face | null): Face | null => {
+        if (!f) {
+          return null;
+        }
+        const modified = transformer.ModifiedShape(f.getShape());
+        try {
+          const face = Face.fromTopoDSFace(Explorer.toFace(modified));
+          faces.push(face);
+          return face;
+        } finally {
+          modified.delete();
+        }
+      };
 
-    const result: MakeRevolResult = {
-      solid: transformedSolid,
-      firstFace: remapFace(revol.firstFace),
-      lastFace: remapFace(revol.lastFace),
-      edgeFaces: revol.edgeFaces.map(({ edge, face }) => ({
-        edge,
-        face: remapFace(face),
-      })),
-    };
-
-    transformer.delete();
-    disposeTrsf();
-    return result;
+      return {
+        solid: transformedSolid,
+        firstFace: remapFace(revol.firstFace),
+        lastFace: remapFace(revol.lastFace),
+        edgeFaces: revol.edgeFaces.map(({ edge, face }) => ({
+          edge,
+          face: remapFace(face),
+        })),
+        faces,
+        dispose: revol.dispose,
+      };
+    } finally {
+      transformer.delete();
+      disposeTrsf();
+    }
   }
 
   /** Inner-wire classification used by both regular revolve and closed thin profiles. */

@@ -97,10 +97,24 @@ export class WrapOps {
 
     try {
       for (const region of regionFaces) {
+        // The wrapped face only seeds the thickening and names the start
+        // face; the solid carries its own copy of it.
         const wrappedFace = WrapOps.wrapRegion(region, sketchPlane, development, surface);
-        const thickened = WrapOps.thicken(wrappedFace, signedOffset);
-        WrapOps.classify(thickened, wrappedFace, development, result);
+        try {
+          const thickened = WrapOps.thicken(wrappedFace, signedOffset);
+          WrapOps.classify(thickened, wrappedFace, development, result);
+        } finally {
+          wrappedFace.delete();
+        }
       }
+    } catch (error) {
+      // A region that fails takes the ones already wrapped with it.
+      for (const shape of [
+        ...result.solids, ...result.startFaces, ...result.endFaces, ...result.sideFaces, ...result.internalFaces,
+      ]) {
+        shape.dispose();
+      }
+      throw error;
     } finally {
       surface.delete();
     }
@@ -180,45 +194,58 @@ export class WrapOps {
     const outerWire = oc.BRepTools.OuterWire(regionFace);
     const span = new UvSpan();
 
+    // The UV wires are the face builder's inputs only; the face keeps its
+    // own references to them.
     let outerUv: TopoDS_Wire | null = null;
     const holesUv: TopoDS_Wire[] = [];
-    for (const wire of region.getWires()) {
-      const isOuter = wire.getShape().IsSame(outerWire);
-      const uvWire = WrapOps.mapWire(wire, sketchPlane, development, surface, span);
-      const oriented = WrapOps.orientUvWire(uvWire, wire, sketchPlane, development, isOuter);
-      if (isOuter) {
-        outerUv = oriented;
-      } else {
-        holesUv.push(oriented);
+    try {
+      for (const wire of region.getWires()) {
+        const isOuter = wire.getShape().IsSame(outerWire);
+        const uvWire = WrapOps.mapWire(wire, sketchPlane, development, surface, span);
+        const oriented = WrapOps.orientUvWire(uvWire, wire, sketchPlane, development, isOuter);
+        if (isOuter) {
+          outerUv = oriented;
+        } else {
+          holesUv.push(oriented);
+        }
       }
-    }
 
-    if (!outerUv) {
-      throw new Error("wrap(): could not identify the outer boundary of a sketch region");
-    }
-    span.assertWithinOneTurn();
+      if (!outerUv) {
+        throw new Error("wrap(): could not identify the outer boundary of a sketch region");
+      }
+      span.assertWithinOneTurn();
 
-    const maker = new oc.BRepBuilderAPI_MakeFace(surface, outerUv, true);
-    for (const hole of holesUv) {
-      maker.Add(hole);
-    }
-    if (!maker.IsDone()) {
+      const maker = new oc.BRepBuilderAPI_MakeFace(surface, outerUv, true);
+      for (const hole of holesUv) {
+        maker.Add(hole);
+      }
+      if (!maker.IsDone()) {
+        maker.delete();
+        throw new Error("wrap(): failed to build the wrapped face on the target surface");
+      }
+      const rawFace = maker.Face();
       maker.delete();
-      throw new Error("wrap(): failed to build the wrapped face on the target surface");
+
+      try {
+        oc.BRepLib.BuildCurves3d(rawFace);
+
+        // Belt and suspenders for remaining surface-specific issues (the wire
+        // windings themselves are already enforced by orientUvWire — ShapeFix
+        // does NOT reliably fix multi-wire faces on periodic surfaces).
+        const fix = new oc.ShapeFix_Face(rawFace);
+        fix.Perform();
+        const fixedFace = fix.Face();
+        fix.delete();
+        return fixedFace;
+      } finally {
+        rawFace.delete();
+      }
+    } finally {
+      outerUv?.delete();
+      Explorer.deleteAll(holesUv);
+      outerWire.delete();
+      regionFace.delete();
     }
-    const rawFace = maker.Face();
-    maker.delete();
-
-    oc.BRepLib.BuildCurves3d(rawFace);
-
-    // Belt and suspenders for remaining surface-specific issues (the wire
-    // windings themselves are already enforced by orientUvWire — ShapeFix
-    // does NOT reliably fix multi-wire faces on periodic surfaces).
-    const fix = new oc.ShapeFix_Face(rawFace);
-    fix.Perform();
-    const fixedFace = fix.Face();
-    fix.delete();
-    return fixedFace;
   }
 
   /**
@@ -235,13 +262,21 @@ export class WrapOps {
     if (uvCW === wantCW) {
       return uvWire;
     }
-    return WireOps.reverseWireRaw(uvWire);
+    try {
+      return WireOps.reverseWireRaw(uvWire);
+    } finally {
+      uvWire.delete();
+    }
   }
 
   /** Maps a planar wire into a wire of edges with pcurves on the surface. */
   private static mapWire(wire: Wire, sketchPlane: Plane, development: Development, surface: Geom_Surface, span: UvSpan): TopoDS_Wire {
     const uvEdges = wire.getEdges().flatMap(edge => WrapOps.mapEdge(edge, sketchPlane, development, surface, span));
-    return WireOps.makeWireFromEdgesRaw(uvEdges);
+    try {
+      return WireOps.makeWireFromEdgesRaw(uvEdges);
+    } finally {
+      Explorer.deleteAll(uvEdges);
+    }
   }
 
   /**
@@ -256,7 +291,8 @@ export class WrapOps {
   private static mapEdge(edge: Edge, sketchPlane: Plane, development: Development, surface: Geom_Surface, span: UvSpan): TopoDS_Edge[] {
     const oc = getOC();
     const reversed = edge.getShape().Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED;
-    const adaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(edge.getShape()));
+    const typedEdge = oc.TopoDS.Edge(edge.getShape());
+    const adaptor = new oc.BRepAdaptor_Curve(typedEdge);
     try {
       const first = adaptor.FirstParameter();
       const last = adaptor.LastParameter();
@@ -291,6 +327,7 @@ export class WrapOps {
       return [WrapOps.makeFittedUvEdge(samples, surface)];
     } finally {
       adaptor.delete();
+      typedEdge.delete();
     }
   }
 
@@ -370,16 +407,20 @@ export class WrapOps {
     maker.delete();
 
     const SOLID = oc.TopAbs_ShapeEnum.TopAbs_SOLID as TopAbs_ShapeEnum;
-    const solids = Explorer.findShapes(shape, SOLID);
-    if (solids.length === 0) {
-      throw new Error("wrap(): thickening the wrapped face did not produce a solid");
+    try {
+      return Explorer.withShapes(shape, SOLID, solids => {
+        if (solids.length === 0) {
+          throw new Error("wrap(): thickening the wrapped face did not produce a solid");
+        }
+        return solids.map(solid => {
+          const typedSolid = oc.TopoDS.Solid(solid);
+          oc.BRepLib.OrientClosedSolid(typedSolid);
+          return ShapeFactory.adopt(typedSolid);
+        });
+      });
+    } finally {
+      shape.delete();
     }
-
-    return solids.map(solid => {
-      const typedSolid = oc.TopoDS.Solid(solid);
-      oc.BRepLib.OrientClosedSolid(typedSolid);
-      return ShapeFactory.fromShape(typedSolid);
-    });
   }
 
   /**
@@ -390,26 +431,29 @@ export class WrapOps {
    */
   private static classify(solids: Shape[], baseFace: TopoDS_Face, development: Development, out: WrapResult): void {
     const holeEdges = WrapOps.collectHoleEdges(baseFace);
+    try {
+      for (const solid of solids) {
+        out.solids.push(solid);
+        for (const shape of Explorer.findFacesWrapped(solid)) {
+          const face = shape as Face;
+          if (face.getShape().IsSame(baseFace)) {
+            out.startFaces.push(face);
+            continue;
+          }
 
-    for (const solid of solids) {
-      out.solids.push(solid);
-      for (const shape of Explorer.findFacesWrapped(solid)) {
-        const face = shape as Face;
-        if (face.getShape().IsSame(baseFace)) {
-          out.startFaces.push(face);
-          continue;
-        }
-
-        const probe = WrapOps.probeFace(face);
-        const aligned = Math.abs(probe.normal.dot(development.surfaceNormalAt(probe.point))) > ALIGNED_NORMAL_THRESHOLD;
-        if (aligned) {
-          out.endFaces.push(face);
-        } else if (WrapOps.sharesEdgeWith(face, holeEdges)) {
-          out.internalFaces.push(face);
-        } else {
-          out.sideFaces.push(face);
+          const probe = WrapOps.probeFace(face);
+          const aligned = Math.abs(probe.normal.dot(development.surfaceNormalAt(probe.point))) > ALIGNED_NORMAL_THRESHOLD;
+          if (aligned) {
+            out.endFaces.push(face);
+          } else if (WrapOps.sharesEdgeWith(face, holeEdges)) {
+            out.internalFaces.push(face);
+          } else {
+            out.sideFaces.push(face);
+          }
         }
       }
+    } finally {
+      Explorer.deleteAll(holeEdges);
     }
   }
 
@@ -419,14 +463,23 @@ export class WrapOps {
     const WIRE = oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
 
+    // Typed copies the caller owns (see `classify`); the explorer's are read only.
     const holeEdges: TopoDS_Edge[] = [];
-    for (const wire of Explorer.findShapes(face, WIRE)) {
-      if (wire.IsSame(outerWire)) {
-        continue;
-      }
-      for (const edge of Explorer.findShapes(wire, EDGE)) {
-        holeEdges.push(oc.TopoDS.Edge(edge));
-      }
+    try {
+      Explorer.withShapes(face, WIRE, wires => {
+        for (const wire of wires) {
+          if (wire.IsSame(outerWire)) {
+            continue;
+          }
+          Explorer.withShapes(wire, EDGE, edges => {
+            for (const edge of edges) {
+              holeEdges.push(oc.TopoDS.Edge(edge));
+            }
+          });
+        }
+      });
+    } finally {
+      outerWire.delete();
     }
     return holeEdges;
   }

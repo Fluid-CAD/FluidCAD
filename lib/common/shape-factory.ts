@@ -7,6 +7,19 @@ import { Edge } from "./edge.js";
 import { Vertex } from "./vertex.js";
 
 export class ShapeFactory {
+  /**
+   * Wrap a raw handle the caller owns and will not touch again (a maker's
+   * `Shape()`, an explorer copy): the wrapper takes its own typed copy, so
+   * the input is freed here instead of pinning the TShape a second time.
+   */
+  static adopt(shape: TopoDS_Shape) {
+    try {
+      return ShapeFactory.fromShape(shape);
+    } finally {
+      shape.delete();
+    }
+  }
+
   static fromShape(shape: TopoDS_Shape) {
     if (Explorer.isSolid(shape)) {
       return Solid.fromTopoDSSolid(Explorer.toSolid(shape));
@@ -30,11 +43,12 @@ export class ShapeFactory {
 
     if (Explorer.isCompound(shape) || Explorer.isCompoundSolid(shape)) {
       const solids = Explorer.findShapes(shape, Explorer.getOcShapeType("solid"));
-      if (solids.length === 1) {
-        return Solid.fromTopoDSSolid(Explorer.toSolid(solids[0]));
-      }
-      if (solids.length > 1) {
-        return Solid.fromTopoDSSolid(Explorer.toSolid(solids[0]));
+      try {
+        if (solids.length >= 1) {
+          return Solid.fromTopoDSSolid(Explorer.toSolid(solids[0]));
+        }
+      } finally {
+        for (const s of solids) s.delete();
       }
     }
 

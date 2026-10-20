@@ -19,7 +19,12 @@ export class BezierCurve extends ControlPointCurve {
     const plane = this.sketch.getPlane();
     const polesWorld: Point[] = points.map(p => plane.localToWorld(p));
     const bezierCurve = Geometry.makeBezierCurve(polesWorld);
-    return Geometry.makeEdgeFromBezier(bezierCurve);
+    try {
+      return Geometry.makeEdgeFromBezier(bezierCurve);
+    } finally {
+      // The edge holds its own handle to the curve.
+      bezierCurve.delete();
+    }
   }
 
   protected newInstance(controlPoints: LazyVertex[], literalIndices: number[]): ControlPointCurve {

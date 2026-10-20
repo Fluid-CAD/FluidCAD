@@ -34,6 +34,8 @@ export class FaceOps {
     const oc = getOC();
     const topoFace = oc.TopoDS.Face(face);
     const adaptor = new oc.BRepAdaptor_Surface(topoFace, true);
+    // The adaptor holds its own reference to the face; the typed copy goes.
+    topoFace.delete();
 
     const type = adaptor.GetType();
 
@@ -85,7 +87,13 @@ export class FaceOps {
     // Use the face's own modelling tolerance (never tighter than the kernel's
     // confusion tolerance) both to fit the plane and to judge flatness, so a
     // face built at a looser tolerance is not falsely rejected.
-    const tolerance = Math.max(oc.BRep_Tool.Tolerance(oc.TopoDS.Face(face)), oc.Precision.Confusion());
+    const typed = oc.TopoDS.Face(face);
+    let tolerance: number;
+    try {
+      tolerance = Math.max(oc.BRep_Tool.Tolerance(typed), oc.Precision.Confusion());
+    } finally {
+      typed.delete();
+    }
 
     const finder = new oc.BRepBuilderAPI_FindPlane(face, tolerance);
     if (!finder.Found()) {
@@ -324,30 +332,35 @@ export class FaceOps {
     const oc = getOC();
 
     const faceAdaptor = new oc.BRepAdaptor_Surface(face, true);
-    const type = faceAdaptor.GetType();
+    // Every gp_* read below is a fresh copy: all of them go with the adaptor.
+    const scratch: { delete(): void }[] = [faceAdaptor];
+    try {
+      const type = faceAdaptor.GetType();
 
-    if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-      return false;
+      if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
+        return false;
+      }
+
+      const facePlane = faceAdaptor.Plane();
+      const location = facePlane.Location();
+      scratch.push(facePlane, location);
+
+      if (!plane.Contains(location, oc.Precision.Confusion())) {
+        return false;
+      }
+
+      const planeAxis = plane.Axis();
+      const faceAxis = facePlane.Axis();
+      const axis1 = planeAxis.Direction();
+      const axis2 = faceAxis.Direction();
+      scratch.push(planeAxis, faceAxis, axis1, axis2);
+
+      const dot = axis1.Dot(axis2);
+
+      return Math.abs(Math.abs(dot) - 1.0) < oc.Precision.Angular();
+    } finally {
+      for (const handle of scratch) handle.delete();
     }
-
-    const facePlane = faceAdaptor.Plane();
-    const location = facePlane.Location();
-
-    if (!plane.Contains(location, oc.Precision.Confusion())) {
-      faceAdaptor.delete();
-      location.delete();
-      return false;
-    }
-
-    const axis1 = plane.Axis().Direction();
-    const axis2 = facePlane.Axis().Direction();
-
-    const dot = axis1.Dot(axis2);
-
-    faceAdaptor.delete();
-    location.delete();
-
-    return Math.abs(Math.abs(dot) - 1.0) < oc.Precision.Angular();
   }
 
   static faceOnPlaneWrapped(face: Face, plane: Plane): boolean {
@@ -454,14 +467,19 @@ export class FaceOps {
 
     const MakeFaceFn = new oc.BRepBuilderAPI_MakeFace(wires[0], true);
 
-    for (let i = 1; i < wires.length; i++) {
-      MakeFaceFn.Add(wires[i]);
-    }
+    try {
+      for (let i = 1; i < wires.length; i++) {
+        MakeFaceFn.Add(wires[i]);
+      }
 
-    if (MakeFaceFn.IsDone()) {
-      return MakeFaceFn.Face();
-    } else {
-      throw new Error("Failed to create face from wires: " + MakeFaceFn.Error());
+      if (MakeFaceFn.IsDone()) {
+        return MakeFaceFn.Face();
+      } else {
+        throw new Error("Failed to create face from wires: " + MakeFaceFn.Error());
+      }
+    } finally {
+      // The face is a copy of its own; the maker goes.
+      MakeFaceFn.delete();
     }
   }
 
@@ -479,10 +497,14 @@ export class FaceOps {
   static makeFaceWithHoles(outerWire: Wire, holes: Wire[]): Face {
     const oc = getOC();
     const faceMaker = new oc.BRepLib_MakeFace(outerWire.getShape() as TopoDS_Wire, false);
-    for (const hole of holes) {
-      faceMaker.Add(hole.getShape() as TopoDS_Wire);
+    try {
+      for (const hole of holes) {
+        faceMaker.Add(hole.getShape() as TopoDS_Wire);
+      }
+      return Face.fromTopoDSFace(faceMaker.Face());
+    } finally {
+      faceMaker.delete();
     }
-    return Face.fromTopoDSFace(faceMaker.Face());
   }
 
   static isPointInsideFace(point: Point, face: Face | TopoDS_Face): boolean {

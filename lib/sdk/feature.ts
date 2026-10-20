@@ -15,7 +15,8 @@ import { OccScope } from "../oc/occ-scope.js";
 import { BuildScope } from "../common/build-scope.js";
 import { SceneDisposal } from "../rendering/scene-disposal.js";
 import { cutWithSceneObjects, fuseWithSceneObjects } from "../helpers/scene-helpers.js";
-import { ShapeHistory } from "../common/shape-history-tracker.js";
+import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
+import { disposeBuildTemporaries } from "../features/build-temporaries.js";
 import { ClassifiedBucketRemapper, ClassifiedBuckets, ToolImageCarrier, type NamedBucket } from "../features/classified-buckets.js";
 import { LazySelectionSceneObject } from "../features/lazy-scene-object.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
@@ -692,21 +693,26 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
     for (const [name, key] of Feature.FACE_KEYS) {
       this.setState(key, buckets[name] ?? []);
     }
-    ClassifiedBuckets.remapAcrossFusion(this, history, finalShapes);
-
-    const declaredEdges = Feature.EDGE_KEYS.filter(([name]) => buckets[name]);
-    const named = this.namedBuckets(buckets);
-    if (declaredEdges.length === 0 && named.length === 0) {
-      return;
-    }
-    const remapper = new ClassifiedBucketRemapper(history, finalShapes);
+    const replaced = ClassifiedBuckets.remapAcrossFusion(this, history, finalShapes);
     try {
-      for (const [name, key] of declaredEdges) {
-        this.setState(key, remapper.remapEdges(buckets[name]!));
+      const declaredEdges = Feature.EDGE_KEYS.filter(([name]) => buckets[name]);
+      const named = this.namedBuckets(buckets);
+      if (declaredEdges.length === 0 && named.length === 0) {
+        return;
       }
-      ClassifiedBuckets.writeNamed(this, named, remapper);
+      const remapper = new ClassifiedBucketRemapper(history, finalShapes);
+      try {
+        for (const [name, key] of declaredEdges) {
+          this.setState(key, remapper.remapEdges(buckets[name]!));
+        }
+        ClassifiedBuckets.writeNamed(this, named, remapper);
+      } finally {
+        remapper.dispose();
+      }
     } finally {
-      remapper.dispose();
+      // Only once every bucket is written: the named ones read the as-built
+      // faces through the same history the standard remap did.
+      disposeBuildTemporaries(this, [...replaced, ...ShapeHistoryTracker.shapesOf(history)]);
     }
   }
 

@@ -7,6 +7,31 @@ import { requireShapes } from "../common/operand-check.js";
 import { recordModifierHistory } from "../helpers/scene-helpers.js";
 import { ShapeHistory } from "../common/shape-history-tracker.js";
 
+/**
+ * `cleanup` with a memory of every pre-clean wrapper it mapped to something
+ * else — a face or edge whose record now carries the post-clean images. One
+ * handed back as itself (an edge the cleanup kept) is still in use and stays.
+ */
+function trackReplaced(cleanup: CleanShapeLineage, replaced: Set<Shape>): CleanShapeLineage {
+  return {
+    ...cleanup,
+    remapFace: (face: Face) => {
+      const mapped = cleanup.remapFace(face);
+      if (mapped && !mapped.includes(face)) {
+        replaced.add(face);
+      }
+      return mapped;
+    },
+    remapEdge: (edge: Edge) => {
+      const mapped = cleanup.remapEdge(edge);
+      if (mapped && !mapped.includes(edge)) {
+        replaced.add(edge);
+      }
+      return mapped;
+    },
+  };
+}
+
 export class Chamfer extends SceneObject {
   private _selections: SceneObject[] = [];
 
@@ -118,25 +143,42 @@ export class Chamfer extends SceneObject {
         // UnifySameDomain history so any merged faces keep their colors.
         const cleanups: CleanShapeLineage[] = [];
         const chamfered: Solid[] = [];
-        for (const preClean of preCleanSolids) {
-          const cleanup = ShapeOps.cleanShapeWithLineage(preClean);
-          const preCleanView = ColorTransfer.viewOf(carried, preClean);
-          try {
-            this.recordCarriedColors(ColorTransfer.applyThroughCleanup({ shape: preClean, colors: preCleanView }, cleanup));
-          } finally {
-            preCleanView.delete();
+        try {
+          for (const preClean of preCleanSolids) {
+            const cleanup = ShapeOps.cleanShapeWithLineage(preClean);
+            cleanups.push(cleanup);
+            const preCleanView = ColorTransfer.viewOf(carried, preClean);
+            try {
+              this.recordCarriedColors(ColorTransfer.applyThroughCleanup({ shape: preClean, colors: preCleanView }, cleanup));
+            } finally {
+              preCleanView.delete();
+            }
+            const cleaned = cleanup.shape as Solid;
+            chamfered.push(cleaned);
+            newShapes.push(cleaned);
           }
-          const cleaned = cleanup.shape as Solid;
-          cleanups.push(cleanup);
-          chamfered.push(cleaned);
-          newShapes.push(cleaned);
-        }
-        obj.removeShape(shape, this, chamfered);
-        // The maker history references pre-clean faces/edges — chain it
-        // through the same cleanups before they are disposed.
-        recordModifierHistory(history, obj, this, cleanups);
-        for (const cleanup of cleanups) {
-          cleanup.dispose();
+          obj.removeShape(shape, this, chamfered);
+          // The maker history references pre-clean faces/edges — chain it
+          // through the same cleanups before they are disposed. The records
+          // keep the post-clean images; the pre-clean wrappers the cleanup
+          // replaced are nobody's afterwards and are freed here.
+          const replaced = new Set<Shape>();
+          recordModifierHistory(history, obj, this, cleanups.map(cleanup => trackReplaced(cleanup, replaced)));
+          for (const wrapper of replaced) {
+            wrapper.dispose();
+          }
+        } finally {
+          for (const cleanup of cleanups) {
+            cleanup.dispose();
+          }
+          // The scene holds the cleaned solids only: the maker's results and
+          // the colours carried onto them were read through and are done with.
+          for (const preClean of preCleanSolids) {
+            preClean.dispose();
+          }
+          for (const entry of carried) {
+            entry.face.dispose();
+          }
         }
       } catch {
         // OCCT refused the chamfer (distance too large for the adjacent

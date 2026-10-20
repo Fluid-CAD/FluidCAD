@@ -60,7 +60,7 @@ describe('the OpenCascade binding\'s declarations', () => {
     ]);
     expect(JSON.parse(payload!.files[0].content)).toEqual({ name: 'ocjs-fluidcad', types: './dist/index.d.ts' });
     expect(payload!.files[1].content).toContain('export * from "./opencascade.fluidcad.multi-threaded.js"');
-    expect(payload!.files[2].content).toContain('export declare class BRepOffsetAPI_ThruSections');
+    expect(payload!.files[2].content).toContain('declare class BRepOffsetAPI_ThruSections');
     expect(payload!.bytes).toBeGreaterThan(1_500_000);
   });
 

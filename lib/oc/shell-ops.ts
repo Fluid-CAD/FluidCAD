@@ -22,7 +22,7 @@ export class ShellOps {
     const listOfFaces = new oc.TopTools_ListOfShape();
 
     for (const f of faces) {
-      listOfFaces.Append(f.getShape());
+      listOfFaces.Append(f.getShape()).delete();
     }
 
     const ocJoinType = joinType === 'intersection' ? oc.GeomAbs_JoinType.GeomAbs_Intersection
@@ -31,7 +31,9 @@ export class ShellOps {
 
     const maker = new oc.BRepOffsetAPI_MakeThickSolid();
     const progress = new oc.Message_ProgressRange();
-    maker.MakeThickSolidByJoin(oc.TopoDS.Solid(solid.getShape()), listOfFaces, thickness, oc.Precision.Confusion(), oc.BRepOffset_Mode.BRepOffset_Skin, false, false, ocJoinType, false, progress);
+    const typedSolid = oc.TopoDS.Solid(solid.getShape());
+    maker.MakeThickSolidByJoin(typedSolid, listOfFaces, thickness, oc.Precision.Confusion(), oc.BRepOffset_Mode.BRepOffset_Skin, false, false, ocJoinType, false, progress);
+    typedSolid.delete();
 
     progress.delete();
 
@@ -40,7 +42,9 @@ export class ShellOps {
     // of any thickness changes the volume, so an unchanged one is that case.
     const collapsed = () => {
       const before = ShapeValidator.signedVolume(solid.getShape());
-      const after = ShapeValidator.signedVolume(maker.Shape());
+      const made = maker.Shape();
+      const after = ShapeValidator.signedVolume(made);
+      made.delete();
       return Math.abs(after - before) <= Math.abs(before) * ShellOps.UNCHANGED_VOLUME;
     };
     if (!maker.IsDone() || collapsed()) {
@@ -54,7 +58,7 @@ export class ShellOps {
     // internal walls have no source and stay uncolored — bleeding is
     // intentionally skipped so painting the outside doesn't paint the
     // inside.
-    const preClean = ShapeFactory.fromShape(maker.Shape());
+    const preClean = ShapeFactory.adopt(maker.Shape());
     const preCleanColors = ColorTransfer.applyThroughMaker([source], [preClean], maker);
     maker.delete();
     listOfFaces.delete();
@@ -68,9 +72,12 @@ export class ShellOps {
       colors = ColorTransfer.applyThroughCleanup({ shape: preClean, colors: preCleanView }, cleanup);
     } finally {
       preCleanView.delete();
+      // The pre-clean records were read through to the cleaned faces and are done with.
+      ColorTransfer.disposeCarried(preCleanColors);
     }
     const cleaned = cleanup.shape;
     cleanup.dispose();
+    preClean.dispose();
     return { shape: cleaned, colors };
   }
 }

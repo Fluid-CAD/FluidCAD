@@ -252,10 +252,10 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
 
     const eps = mmTol(1e-6);
     if (curveType === 'line') {
-      const aStart = EdgeOps.getVertexPoint(EdgeOps.getFirstVertex(a));
+      const aStart = a.getFirstPoint();
       const aMid = EdgeOps.getEdgeMidPoint(a);
-      const bStart = EdgeOps.getVertexPoint(EdgeOps.getFirstVertex(b));
-      const bEnd = EdgeOps.getVertexPoint(EdgeOps.getLastVertex(b));
+      const bStart = b.getFirstPoint();
+      const bEnd = b.getLastPoint();
 
       const dirA = aStart.vectorTo(aMid);
       const dirB = bStart.vectorTo(bEnd);

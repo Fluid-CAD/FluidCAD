@@ -80,6 +80,11 @@ export class Explorer {
       const current = explorer.Current();
       if (map.Add(current)) {
         result.push(current as T);
+      } else {
+        // The explorer reaches a shared sub-shape once per parent (a box's
+        // vertex three times); every visit is a fresh copy, and the ones the
+        // map rejects are nobody's to free later.
+        current.delete();
       }
       explorer.Next();
     }
@@ -117,6 +122,8 @@ export class Explorer {
         for (const face of faces) {
           shapes.push(face);
         }
+        // The shell copy itself is not handed out: free it with its TShape ref.
+        shape.delete();
       } else {
         shapes.push(shape);
       }
@@ -168,46 +175,95 @@ export class Explorer {
     return oc.TopoDS.Vertex(shape);
   }
 
+  // Every `Current()` / `Value()` the kernel hands back is a fresh heap copy
+  // of the sub-shape (embind copies reference returns), and so is the typed
+  // `TopoDS.Face(...)` copy the wrapper takes. Only the wrapper's copy lives
+  // on: the explorer's is freed here, or it would pin the TShape — and with
+  // it the face's surface and triangulation — for the life of the kernel.
   static findFacesWrapped(shape: Shape): Face[] {
     const oc = getOC();
     const raw = Explorer.findShapes<TopoDS_Face>(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum);
-    return raw.map((f: TopoDS_Face) => Face.fromTopoDSFace(Explorer.toFace(f)));
+    return raw.map((f: TopoDS_Face) => {
+      const face = Face.fromTopoDSFace(Explorer.toFace(f));
+      f.delete();
+      return face;
+    });
   }
 
   static findEdgesWrapped(shape: Shape): Edge[] {
     const oc = getOC();
     const raw = Explorer.findShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
-    return raw.map((e: TopoDS_Shape) => inheritHelixGeometry(Edge.fromTopoDSEdge(Explorer.toEdge(e)), [shape]));
+    return raw.map((e: TopoDS_Shape) => {
+      const edge = inheritHelixGeometry(Edge.fromTopoDSEdge(Explorer.toEdge(e)), [shape]);
+      e.delete();
+      return edge;
+    });
   }
 
   static findEdgesInWireOrderWrapped(wire: Wire): Edge[] {
     const oc = getOC();
     const result: Edge[] = [];
     const explorer = new oc.BRepTools_WireExplorer(wire.getShape());
-    while (explorer.More()) {
-      result.push(inheritHelixGeometry(Edge.fromTopoDSEdge(Explorer.toEdge(explorer.Current())), [wire]));
-      explorer.Next();
+    try {
+      while (explorer.More()) {
+        const current = explorer.Current();
+        result.push(inheritHelixGeometry(Edge.fromTopoDSEdge(Explorer.toEdge(current)), [wire]));
+        current.delete();
+        explorer.Next();
+      }
+    } finally {
+      explorer.delete();
     }
-    explorer.delete();
     return result;
   }
 
   static findSolidsWrapped(shape: Shape): Solid[] {
     const oc = getOC();
     const raw = Explorer.findShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_SOLID as TopAbs_ShapeEnum);
-    return raw.map((s: TopoDS_Shape) => Solid.fromTopoDSSolid(Explorer.toSolid(s)));
+    return raw.map((s: TopoDS_Shape) => {
+      const solid = Solid.fromTopoDSSolid(Explorer.toSolid(s));
+      s.delete();
+      return solid;
+    });
   }
 
   static findVerticesWrapped(shape: Shape): Vertex[] {
     const oc = getOC();
     const raw = Explorer.findShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_VERTEX as TopAbs_ShapeEnum);
-    return raw.map((e: TopoDS_Shape) => Vertex.fromTopoDSVertex(Explorer.toVertex(e)));
+    return raw.map((e: TopoDS_Shape) => {
+      const vertex = Vertex.fromTopoDSVertex(Explorer.toVertex(e));
+      e.delete();
+      return vertex;
+    });
   }
 
   static findWiresWrapped(shape: Shape): Wire[] {
     const oc = getOC();
     const raw = Explorer.findShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
-    return raw.map((w: TopoDS_Shape) => inheritHelixGeometry(Wire.fromTopoDSWire(Explorer.toWire(w)), [shape]));
+    return raw.map((w: TopoDS_Shape) => {
+      const wire = inheritHelixGeometry(Wire.fromTopoDSWire(Explorer.toWire(w)), [shape]);
+      w.delete();
+      return wire;
+    });
+  }
+
+  /**
+   * Run `fn` over the raw sub-shapes of `shape` and free every one of them
+   * afterwards — for callers that only read them (membership tests, keys,
+   * frames). Anything `fn` wants to keep must take its own typed copy.
+   */
+  static withShapes<R>(shape: TopoDS_Shape, lookFor: TopAbs_ShapeEnum, fn: (shapes: TopoDS_Shape[]) => R): R {
+    const shapes = Explorer.findShapes(shape, lookFor);
+    try {
+      return fn(shapes);
+    } finally {
+      for (const s of shapes) s.delete();
+    }
+  }
+
+  /** Free a batch of raw handles the caller owns (explorer results, list copies). */
+  static deleteAll(shapes: readonly { delete(): void }[]): void {
+    for (const s of shapes) s.delete();
   }
 
   static getShapeTypeFromWrapper(shape: Shape): string {

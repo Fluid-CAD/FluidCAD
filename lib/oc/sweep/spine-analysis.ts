@@ -5,6 +5,7 @@ import { EdgeQuery } from "../edge-query.js";
 import { Explorer } from "../explorer.js";
 import { ShapeOps } from "../shape-ops.js";
 import { WireOps } from "../wire-ops.js";
+import type { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { Plane } from "../../math/plane.js";
 import { Point } from "../../math/point.js";
@@ -73,11 +74,14 @@ export class SpineAnalysis {
   readonly runs: SpineRun[];
   /** `corners[i]` sits between `runs[i]` and `runs[(i + 1) % runs.length]`. */
   readonly corners: SpineCorner[];
+  /** The wrappers `edges[].edge` are borrowed from; freed by `dispose()`. */
+  private readonly wrappedEdges: Edge[];
 
   constructor(wire: Wire) {
     this.wire = wire.getShape() as TopoDS_Wire;
     this.closed = wire.isClosed();
-    let edges = Explorer.findEdgesInWireOrderWrapped(wire).map(e => SpineAnalysis.describeEdge(e.getShape()));
+    this.wrappedEdges = Explorer.findEdgesInWireOrderWrapped(wire);
+    let edges = this.wrappedEdges.map(e => SpineAnalysis.describeEdge(e.getShape() as TopoDS_Edge));
 
     // Every junction's turn, including the closing one on a closed spine.
     const junctionCount = this.closed ? edges.length : edges.length - 1;
@@ -112,6 +116,16 @@ export class SpineAnalysis {
     return this.corners.length > 0;
   }
 
+  /**
+   * Frees the edge wrappers the analysis holds. They are copies of the
+   * spine's own edges, so without this a disposed spine (and its helix
+   * curve) would stay alive for as long as the kernel runs.
+   */
+  dispose(): void {
+    for (const edge of this.wrappedEdges) edge.dispose();
+    this.wrappedEdges.length = 0;
+  }
+
   /** The corner a run starts at, if any (the closing corner for run 0 of a closed spine). */
   startCorner(runIndex: number): SpineCorner | null {
     if (runIndex > 0) {
@@ -141,17 +155,27 @@ export class SpineAnalysis {
     const edges = runEdges.map(e => e.edge);
     const first = runEdges[0];
     const last = runEdges[runEdges.length - 1];
+    // The lengthened lines live on in the wire; their wrappers do not.
+    const scratch: Edge[] = [];
     let firstStart = first.start;
     if (startExtension > 0) {
       firstStart = first.start.subtract(first.startTangent.multiply(startExtension));
-      edges[0] = EdgeOps.makeLineEdge(firstStart, first.end).getShape() as TopoDS_Edge;
+      const extended = EdgeOps.makeLineEdge(firstStart, first.end);
+      scratch.push(extended);
+      edges[0] = extended.getShape() as TopoDS_Edge;
     }
     if (endExtension > 0) {
       const lastStart = runEdges.length === 1 ? firstStart : last.start;
       const end = last.end.add(last.endTangent.multiply(endExtension));
-      edges[edges.length - 1] = EdgeOps.makeLineEdge(lastStart, end).getShape() as TopoDS_Edge;
+      const extended = EdgeOps.makeLineEdge(lastStart, end);
+      scratch.push(extended);
+      edges[edges.length - 1] = extended.getShape() as TopoDS_Edge;
     }
-    return WireOps.makeWireFromEdgesRaw(edges);
+    try {
+      return WireOps.makeWireFromEdgesRaw(edges);
+    } finally {
+      scratch.forEach(edge => edge.dispose());
+    }
   }
 
   /**
@@ -192,15 +216,23 @@ export class SpineAnalysis {
   }
 
   private static describeEdge(edge: TopoDS_Edge): SpineEdge {
-    return {
-      edge,
-      isLine: EdgeQuery.getEdgeCurveTypeRaw(edge) === "line",
-      start: EdgeOps.getVertexPointRaw(EdgeOps.getFirstVertexRaw(edge)),
-      end: EdgeOps.getVertexPointRaw(EdgeOps.getLastVertexRaw(edge)),
-      startTangent: EdgeOps.getEdgeTangentAtStartRaw(edge),
-      endTangent: EdgeOps.getEdgeTangentAtEndRaw(edge),
-      length: EdgeOps.getEdgeLengthRaw(edge),
-    };
+    // The vertex handles are only read for their points.
+    const first = EdgeOps.getFirstVertexRaw(edge);
+    const last = EdgeOps.getLastVertexRaw(edge);
+    try {
+      return {
+        edge,
+        isLine: EdgeQuery.getEdgeCurveTypeRaw(edge) === "line",
+        start: EdgeOps.getVertexPointRaw(first),
+        end: EdgeOps.getVertexPointRaw(last),
+        startTangent: EdgeOps.getEdgeTangentAtStartRaw(edge),
+        endTangent: EdgeOps.getEdgeTangentAtEndRaw(edge),
+        length: EdgeOps.getEdgeLengthRaw(edge),
+      };
+    } finally {
+      first.delete();
+      last.delete();
+    }
   }
 
   /** Indices `i` whose junction (end of edge i → start of edge i+1, cyclic) is a sharp corner. */

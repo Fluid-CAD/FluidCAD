@@ -1,16 +1,47 @@
 import { createHash } from 'node:crypto';
-import { applySpliceEdits, BreakpointMarker, enclosingStatementOf, ensureSymbolImport, getJavaScriptParser, isBreakpointStatement, type SpliceEdit } from './code-editor/index.ts';
+import {
+  applySpliceEdits, BreakpointMarker, enclosingStatementOf, ensureSymbolImport, findActiveBreakpointStatement,
+  getJavaScriptParser, isBreakpointStatement, type BreakpointSite, type SpliceEdit,
+} from './code-editor/index.ts';
 import type { ApplyFeatureEditResult } from './apply-feature-edit/spec.ts';
 
-/** A single, atomic move of the document's timeline stop. Null resumes the build. */
+/**
+ * Which existing `breakpoint();` statements an edit takes out of the file.
+ * A document may hold several: the build pauses on the first one it reaches
+ * (the ACTIVE one) and the rest stay pending for after it.
+ * - `passed`: every statement before the target — a move. A stop later in
+ *   the file is left pending, so dragging the bar up to an earlier feature
+ *   never loses the pause the user had set further down.
+ * - `active`: the one the build paused on (`active`), else the first in
+ *   document order — Continue: the build runs on to the next pending stop.
+ * - `all`: continue to the end of history.
+ */
+export type BreakpointRemoval = 'passed' | 'active' | 'all';
+
+/** One atomic edit of the document's breakpoints. */
 export type TimelineBreakpointSpec = {
-  before: { line: number; column: number } | null;
+  /** The statement the build should pause before next, or null to add no stop. */
+  before: BreakpointSite | null;
+  /** Absent on a spec from an older client: `passed` with a target, `all` without. */
+  remove?: BreakpointRemoval;
+  /** The breakpoint the build is paused on — `remove: 'active'` names it. */
+  active?: BreakpointSite | null;
+  /**
+   * Hash of the code `before` was captured against. Only a move checks it:
+   * the target is a position, and a position in a file that changed since
+   * means something else. A removal is resolved against the buffer it edits.
+   */
   sourceHash: string;
 };
 
 export class TimelineBreakpoint {
-  static capture(code: string, before: TimelineBreakpointSpec['before']): TimelineBreakpointSpec {
-    return { before, sourceHash: this.hash(code) };
+  static capture(code: string, before: BreakpointSite | null, remove?: BreakpointRemoval, active?: BreakpointSite | null): TimelineBreakpointSpec {
+    return {
+      before,
+      remove: remove ?? (before ? 'passed' : 'all'),
+      ...(active ? { active } : {}),
+      sourceHash: this.hash(code),
+    };
   }
 
   private static hash(code: string): string {
@@ -18,12 +49,14 @@ export class TimelineBreakpoint {
   }
 
   static async apply(code: string, spec: TimelineBreakpointSpec): Promise<ApplyFeatureEditResult> {
-    if (this.hash(code) !== spec.sourceHash) {
+    if (spec.before && this.hash(code) !== spec.sourceHash) {
       return { newCode: code, error: 'The file changed. Wait for the model to rebuild, then move the breakpoint again.' };
     }
+    const remove = spec.remove ?? (spec.before ? 'passed' : 'all');
     const tree = (await getJavaScriptParser()).parse(code);
     try {
       const edits: SpliceEdit[] = [];
+      let insertAt = Number.POSITIVE_INFINITY;
       if (spec.before) {
         const { line, column } = spec.before;
         const node = tree.rootNode.descendantForPosition({ row: line - 1, column: column - 1 });
@@ -32,6 +65,7 @@ export class TimelineBreakpoint {
           || !['expression_statement', 'lexical_declaration', 'variable_declaration', 'export_statement'].includes(statement.type)) {
           return { newCode: code, error: 'This feature no longer has a matching statement. Rebuild the model and try again.' };
         }
+        insertAt = statement.startIndex;
         const lineStart = code.lastIndexOf('\n', statement.startIndex - 1) + 1;
         const prefix = code.slice(lineStart, statement.startIndex);
         const indent = /^\s*$/.test(prefix) ? prefix : ' '.repeat(statement.startPosition.column);
@@ -42,13 +76,16 @@ export class TimelineBreakpoint {
       // adjacent feature statements must survive (BreakpointMarker.removals).
       // Coordinates all refer to the original buffer, so moving in either
       // direction cannot shift them.
-      const markers = BreakpointMarker.statementsIn(tree);
-      edits.push(...BreakpointMarker.removals(code, markers));
+      const doomed = remove === 'active'
+        ? [findActiveBreakpointStatement(tree, spec.active)].filter((n): n is NonNullable<typeof n> => n !== null)
+        : BreakpointMarker.statementsIn(tree).filter(node => remove === 'all' || node.startIndex < insertAt);
+      edits.push(...BreakpointMarker.removals(code, doomed));
       let newCode = applySpliceEdits(code, edits);
       if (spec.before) {
         newCode = await ensureSymbolImport(newCode, 'breakpoint');
-      } else if (markers.length > 0) {
-        // Resuming takes the last stop away, and its import with it.
+      } else if (doomed.length > 0) {
+        // Taking a stop away may take the last use of its import with it;
+        // a pending stop further down keeps it (BreakpointMarker.releaseImport).
         newCode = await BreakpointMarker.releaseImport(newCode);
       }
       return { newCode };

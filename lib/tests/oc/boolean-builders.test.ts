@@ -43,10 +43,12 @@ describe("releasing OCCT boolean algorithms", () => {
     const keptHistory = kept.History();
     expect(keptHistory.GetRefCount()).toBe(2);
     kept.delete();
-    // The binding's delete() left the algorithm's own reference in place —
-    // its destructor never ran. When an ocjs rebuild changes that, this
-    // reads 1 and BooleanBuilders.release is no longer needed.
-    expect(keptHistory.GetRefCount()).toBe(2);
+    // Since ocjs-fluidcad 1.9.1 delete() runs the algorithm's destructor,
+    // which drops its own reference to the history (1.8 left it in place,
+    // and BooleanBuilders.release was the one way to free it). release()
+    // still clears before deleting, so the engine frees the intersection
+    // data on either binding.
+    expect(keptHistory.GetRefCount()).toBe(1);
 
     const released = new oc.BRepAlgoAPI_Cut(boss.getShape(), bore.getShape(), progress);
     const history = released.History();

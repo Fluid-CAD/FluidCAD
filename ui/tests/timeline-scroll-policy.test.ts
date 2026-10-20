@@ -4,8 +4,9 @@ import { TimelinePanel } from '../src/ui/timeline-panel';
 import type { EngineClient } from '../src/engine-client';
 import type { SceneObjectRender } from '../src/types';
 
-// Leaving a breakpoint moves the current row to the tip of the timeline. The
-// panel keeps resting on the row it was paused on instead of following it.
+// The panel scrolls on its own for one reason only: a feature was added, and
+// then to that feature's row. Rebuilds, rollbacks, breakpoints placed or
+// lifted and edit dialogs opening or closing leave the scroll position alone.
 
 const ROW_HEIGHT = 20;
 const VIEW_HEIGHT = 100;
@@ -56,30 +57,91 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-describe('timeline hold view', () => {
-  it('follows the current row to the tip on an ordinary render', () => {
+describe('timeline scroll policy', () => {
+  it('does not scroll on the first load', () => {
+    const revealed = stubLayout();
+    const h = mount();
+    h.timeline.update(scene('a', 30), 29);
+    expect(revealed).toEqual([]);
+  });
+
+  it('does not follow the current row on a rebuild of the same features', () => {
     const revealed = stubLayout();
     const h = mount();
     h.timeline.update(scene('a', 30), 2);
     h.timeline.update(scene('b', 30), 29);
-    expect(revealed).toEqual([29]);
+    expect(revealed).toEqual([]);
   });
 
-  it('stays on the paused row when the render leaves a breakpoint', () => {
+  it('reveals a feature added at the tip', () => {
     const revealed = stubLayout();
     const h = mount();
-    h.timeline.update(scene('a', 3), 2, null, { paused: true });
+    h.timeline.update(scene('a', 12), 11);
+    h.timeline.update(scene('b', 13), 12);
+    expect(revealed).toEqual([12]);
+  });
+
+  it('does not scroll on a rollback preview of rows that share a call site', () => {
+    const revealed = stubLayout();
+    const h = mount();
+    // A repeat and its clones all report the repeat's own line.
+    const doc = (b: string) => [
+      ...scene(b, 10),
+      { ...feature(10, `${b}-rep`), type: 'repeat', name: 'Repeat 1', isContainer: true },
+      ...Array.from({ length: 4 }, (_, i) => ({ ...feature(10, `${b}-c${i}`), name: `clone ${i}`, parentId: `${b}-rep` })),
+    ] as SceneObjectRender[];
+    h.timeline.update(doc('a'), 14);
+    h.timeline.update(doc('b'), 3, null);
+    h.timeline.update(doc('c'), 14);
+    expect(revealed).toEqual([]);
+  });
+
+  it('does not scroll on a rollback preview', () => {
+    const revealed = stubLayout();
+    const h = mount();
+    h.timeline.update(scene('a', 30), 29);
+    h.timeline.update(scene('a', 30), 3, null);
+    expect(revealed).toEqual([]);
+  });
+
+  it('does not scroll when a breakpoint pauses the build (history retained)', () => {
+    const revealed = stubLayout();
+    const h = mount();
+    const full = scene('a', 30);
+    h.timeline.update(full, 29);
+    const live = scene('b', 10);
+    const timeline = [
+      ...live.map((_, index) => ({ kind: 'evaluated', index })),
+      ...full.slice(10).map((row) => ({ kind: 'unevaluated', row })),
+    ] as never;
+    h.timeline.update(live, 9, null, { paused: true, breakpointStop: 9, timeline });
+    expect(revealed).toEqual([]);
+  });
+
+  it('does not scroll when the render leaves a breakpoint, even away from the paused row', () => {
+    const revealed = stubLayout();
+    const h = mount();
+    h.timeline.update(scene('a', 13), 12, null, { paused: true });
     h.timeline.update(scene('b', 30), 29);
     expect(revealed).toEqual([]);
   });
 
-  it('brings the paused row back when the user had scrolled away from it', () => {
+  it('reveals a feature added while paused', () => {
     const revealed = stubLayout();
     const h = mount();
-    h.timeline.update(scene('a', 13), 12, null, { paused: true });
-    revealed.length = 0;
-    h.timeline.update(scene('b', 30), 29);
+    h.timeline.update(scene('a', 12), 11, null, { paused: true });
+    h.timeline.update(scene('b', 13), 12, null, { paused: true });
     expect(revealed).toEqual([12]);
+  });
+
+  it('does not scroll when the whole document is replaced', () => {
+    const revealed = stubLayout();
+    const h = mount();
+    h.timeline.update(scene('a', 12), 11);
+    const other = scene('b', 30).map((o, i) => ({ ...o, type: 'fillet', name: `fillet ${i}`,
+      sourceLocation: { filePath: 'b.fluid.js', line: 100 + i, column: 1 } }) as SceneObjectRender);
+    h.timeline.update(other, 29);
+    expect(revealed).toEqual([]);
   });
 
   describe('multi-part documents', () => {
@@ -92,6 +154,21 @@ describe('timeline hold view', () => {
       id, name: 'extrude', type: 'extrude', sceneShapes: [], ownShapes: [], visible: true, parentId,
       sourceLocation: { filePath: 'a.fluid.js', line, column: 1 },
     } as unknown as SceneObjectRender);
+
+    it('reveals a feature added inside the active part, not the tip of the list', () => {
+      const revealed = stubLayout();
+      const h = mount();
+      const doc = (b: string, extra: boolean) => [
+        part(`${b}-p1`, 1), ...Array.from({ length: 6 }, (_, i) => child(`${b}-e${i}`, `${b}-p1`, 2 + i)),
+        ...(extra ? [child(`${b}-new`, `${b}-p1`, 8)] : []),
+        part(`${b}-p2`, 20), child(`${b}-x`, `${b}-p2`, 21),
+      ];
+      h.timeline.update(doc('a', false), 8);
+      h.timeline.update(doc('b', true), 9);
+      // Row 7 is the added feature (inside p1); the tip, row 9, stays where it is.
+      expect(revealed).toEqual([7]);
+    });
+
     /** Two parts with one feature each; the pause lands inside the first. */
     const full = (b: string) => [part(`${b}-p1`, 1), child(`${b}-e1`, `${b}-p1`, 2), part(`${b}-p2`, 10), child(`${b}-e2`, `${b}-p2`, 11)];
     const cutOff = (b: string) => full(b).slice(0, 2);
@@ -128,12 +205,4 @@ describe('timeline hold view', () => {
     });
   });
 
-  it('falls back to the current row when the paused row is gone', () => {
-    const revealed = stubLayout();
-    const h = mount();
-    h.timeline.update(scene('a', 3), 2, null, { paused: true });
-    const next = scene('b', 30).map((o) => ({ ...o, type: 'fillet', name: 'fillet' }) as SceneObjectRender);
-    h.timeline.update(next, 29);
-    expect(revealed).toEqual([29]);
-  });
 });

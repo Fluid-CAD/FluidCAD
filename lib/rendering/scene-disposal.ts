@@ -49,8 +49,20 @@ export class SceneDisposal {
    * every reachable shape released.
    */
   static disposeScene(scene: Scene): void {
-    const shapes = SceneDisposal.collectShapes(scene.getAllSceneObjects());
-    for (const obj of scene.getAllSceneObjects()) {
+    SceneDisposal.disposeScenes([scene]);
+  }
+
+  /**
+   * Tear down several scenes dropped together. One pass over all of them:
+   * a compare moved state maps between scenes by reference, so two scenes
+   * can share wrappers and raw handles, and `release` is idempotent per
+   * wrapper but not across wrappers aliasing one handle — the shared
+   * deleted-handle set makes each handle go once.
+   */
+  static disposeScenes(scenes: Scene[]): void {
+    const objects = scenes.flatMap((scene) => scene.getAllSceneObjects());
+    const shapes = SceneDisposal.collectShapes(objects);
+    for (const obj of objects) {
       obj.destroy();
     }
     SceneDisposal.releaseShapes(shapes, new Set());

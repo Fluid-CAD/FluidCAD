@@ -1,4 +1,3 @@
-import type { TopoDS_Shape, TopTools_MapOfShape } from "ocjs-fluidcad";
 import { Matrix4 } from "../math/matrix4.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
@@ -8,7 +7,7 @@ import { ISelect } from "../core/interfaces.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { ShapeType } from "../common/shape-type.js";
-import { FromSceneObjectFilter } from "../filters/from-object.js";
+import { FromSceneObjectFilter, injectFromMembership } from "../filters/from-object.js";
 import { injectFilterScope } from "../filters/scope-injection.js";
 import { TopologyIndex } from "../oc/topology-index.js";
 import { Edge } from "../common/edge.js";
@@ -165,14 +164,11 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     if (type === "edge") {
       SelectSceneObject.injectScopeFaces(filters, sceneObjects, removalScope);
     }
-    const fromFilters = SelectSceneObject.injectFromMembershipSets(filters);
+    const releaseFrom = injectFromMembership(filters, removalScope);
     try {
       return SelectSceneObject.applyFilters(allShapes, filters);
     } finally {
-      for (const { filter, set } of fromFilters) {
-        filter.setMembershipSet(null);
-        set.delete();
-      }
+      releaseFrom();
     }
   }
 
@@ -214,38 +210,12 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
       }
     }
 
-    const fromFilters = SelectSceneObject.injectFromMembershipSets(filters);
+    const releaseFrom = injectFromMembership(filters);
     try {
       this.addShapes(SelectSceneObject.applyFilters(universe, filters));
     } finally {
-      for (const { filter, set } of fromFilters) {
-        filter.setMembershipSet(null);
-        set.delete();
-      }
+      releaseFrom();
     }
-  }
-
-  private static injectFromMembershipSets(filters: FilterBuilderBase<Shape>[]): { filter: FromSceneObjectFilter<Shape>; set: TopTools_MapOfShape }[] {
-    const allocated: { filter: FromSceneObjectFilter<Shape>; set: TopTools_MapOfShape }[] = [];
-    for (const builder of filters) {
-      for (const filter of builder.getFilters()) {
-        if (filter instanceof FromSceneObjectFilter) {
-          const shapeType = filter.getShapeType();
-          const rawShapes: TopoDS_Shape[] = [];
-          for (const obj of filter.getSceneObjects()) {
-            for (const owner of obj.getShapes()) {
-              for (const sub of owner.getSubShapes(shapeType)) {
-                rawShapes.push(sub.getShape());
-              }
-            }
-          }
-          const set = TopologyIndex.buildShapeSet(rawShapes);
-          filter.setMembershipSet(set);
-          allocated.push({ filter, set });
-        }
-      }
-    }
-    return allocated;
   }
 
   static collectFromSceneObjects(filters: FilterBuilderBase<Shape>[]): SceneObject[] {

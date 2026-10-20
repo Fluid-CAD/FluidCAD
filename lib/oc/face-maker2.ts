@@ -1,5 +1,6 @@
 import { TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { Edge } from "../common/edge.js";
+import type { Shape } from "../common/shape.js";
 import { Wire } from "../common/wire.js";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
@@ -17,20 +18,24 @@ export class FaceMaker2 {
   static getRegions(shapes: Array<Wire | Edge>, plane: Plane, drill: boolean = true) {
     const splitEdges = this.getSplitEdges(shapes);
 
-    if (drill) {
-      const faces = this.getDrilledFaces(splitEdges, plane);
-      return faces;
+    try {
+      return drill ? this.getDrilledFaces(splitEdges, plane) : this.getFaces(splitEdges, plane);
+    } finally {
+      // The split edges only feed the face splitter; the caller's own
+      // entities (handed back as they are for a lone edge) stay the caller's.
+      for (const edge of splitEdges) {
+        if (!(shapes as Shape[]).includes(edge)) edge.dispose();
+      }
     }
-
-    const faces = this.getFaces(splitEdges, plane);
-    return faces;
   }
 
   private static getDrilledFaces(edges: Edge[], plane: Plane) {
     const allFaces = this.getFaces(edges, plane);
     const oc = getOC();
 
-    // For each face, collect its outer wire edges and inner wire edges
+    // For each face, collect its outer wire edges and inner wire edges.
+    // Every raw copy taken here is freed once the containment tree is built.
+    const scratch: TopoDS_Shape[] = [];
     const faceData = allFaces.map(face => {
       const topoFace = oc.TopoDS.Face(face.getShape());
       const outerWire = oc.BRepTools.OuterWire(topoFace);
@@ -38,11 +43,11 @@ export class FaceMaker2 {
       const innerEdges: TopoDS_Shape[] = [];
       const wires = Explorer.findShapes(topoFace, oc.TopAbs_ShapeEnum.TopAbs_WIRE);
       for (const w of wires) {
-        const wire = oc.TopoDS.Wire(w);
-        if (!wire.IsSame(outerWire)) {
-          innerEdges.push(...Explorer.findShapes(wire, oc.TopAbs_ShapeEnum.TopAbs_EDGE));
+        if (!w.IsSame(outerWire)) {
+          innerEdges.push(...Explorer.findShapes(w, oc.TopAbs_ShapeEnum.TopAbs_EDGE));
         }
       }
+      scratch.push(topoFace, outerWire, ...wires, ...outerEdges, ...innerEdges);
       return { face, outerEdges, innerEdges };
     });
 
@@ -63,6 +68,8 @@ export class FaceMaker2 {
         }
       }
     }
+
+    Explorer.deleteAll(scratch);
 
     // Compute nesting depth for each face
     const depthCache = new Map<number, number>();
@@ -92,53 +99,61 @@ export class FaceMaker2 {
 
     const splitter = new oc.BRepAlgoAPI_Splitter();
 
+    // The splitter copies its argument and tool lists: ours go as soon as
+    // they are set.
     const args = new oc.TopTools_ListOfShape();
-    args.Append(planeFace);
+    args.Append(planeFace).delete();
     splitter.SetArguments(args);
+    args.delete();
     splitter.SetRunParallel(true);
 
     const toolsList = new oc.TopTools_ListOfShape();
 
     for (const edge of edges) {
-      toolsList.Append(edge.getShape());
+      toolsList.Append(edge.getShape()).delete();
     }
 
     splitter.SetTools(toolsList);
+    toolsList.delete();
 
     splitter.SetNonDestructive(true);
     splitter.SetCheckInverted(true);
 
     const progress = new oc.Message_ProgressRange();
-    splitter.Build(progress);
-    const result = splitter.Shape();
+    const scratch: TopoDS_Shape[] = [planeFace, ...boundaryEdges];
+    try {
+      splitter.Build(progress);
+      const result = splitter.Shape();
+      scratch.push(result);
 
-    // Collect all modified boundary edges
-    const modifiedBoundaryEdges: TopoDS_Shape[] = [];
-    for (const bEdge of boundaryEdges) {
-      const modified = ShapeOps.shapeListToArray(splitter.Modified(bEdge));
-      for (const mod of modified) {
-        modifiedBoundaryEdges.push(mod);
+      // Collect all modified boundary edges
+      const modifiedBoundaryEdges: TopoDS_Shape[] = [];
+      for (const bEdge of boundaryEdges) {
+        const modified = ShapeOps.shapeListToArray(splitter.Modified(bEdge));
+        scratch.push(...modified);
+        for (const mod of modified) {
+          modifiedBoundaryEdges.push(mod);
+        }
+        // Also include the original if it wasn't modified
+        if (!splitter.IsDeleted(bEdge) && modified.length === 0) {
+          modifiedBoundaryEdges.push(bEdge);
+        }
       }
-      // Also include the original if it wasn't modified
-      if (!splitter.IsDeleted(bEdge) && modified.length === 0) {
-        modifiedBoundaryEdges.push(bEdge);
-      }
+
+      // Filter: keep only faces with no boundary edges
+      const allFaces = Explorer.findShapes(result, oc.TopAbs_ShapeEnum.TopAbs_FACE);
+      scratch.push(...allFaces);
+      const filtered = allFaces.filter(f => Explorer.withShapes(f, oc.TopAbs_ShapeEnum.TopAbs_EDGE, faceEdges =>
+        !faceEdges.some(fe => modifiedBoundaryEdges.some(be => fe.IsSame(be))),
+      ));
+
+      return filtered.map(f => Face.fromTopoDSFace(this.stripDanglingWires(oc.TopoDS.Face(f))));
+    } finally {
+      Explorer.deleteAll(scratch);
+      progress.delete();
+      BooleanBuilders.release(splitter);
+      dispose();
     }
-
-    // Filter: keep only faces with no boundary edges
-    const allFaces = Explorer.findShapes(result, oc.TopAbs_ShapeEnum.TopAbs_FACE);
-    const filtered = allFaces.filter(f => {
-      const faceEdges = Explorer.findShapes(f, oc.TopAbs_ShapeEnum.TopAbs_EDGE);
-      return !faceEdges.some(fe =>
-        modifiedBoundaryEdges.some(be => oc.TopoDS.Edge(fe).IsSame(be))
-      );
-    });
-
-    progress.delete();
-    BooleanBuilders.release(splitter);
-    dispose();
-
-    return filtered.map(f => Face.fromTopoDSFace(this.stripDanglingWires(oc.TopoDS.Face(f))));
   }
 
   /**
@@ -158,6 +173,8 @@ export class FaceMaker2 {
       const wire = it.Value();
       if (this.isDanglingWire(wire)) {
         dangling.push(wire);
+      } else {
+        wire.delete();
       }
       it.Next();
     }
@@ -167,6 +184,7 @@ export class FaceMaker2 {
       const builder = new oc.BRep_Builder();
       for (const wire of dangling) {
         builder.Remove(face, wire);
+        wire.delete();
       }
       builder.delete();
     }
@@ -180,11 +198,11 @@ export class FaceMaker2 {
         || orientation === oc.TopAbs_Orientation.TopAbs_EXTERNAL) {
       return true;
     }
-    const edges = Explorer.findShapes(wire, oc.TopAbs_ShapeEnum.TopAbs_EDGE);
-    return edges.length > 0 && edges.every(e =>
-      e.Orientation() === oc.TopAbs_Orientation.TopAbs_INTERNAL
-      || e.Orientation() === oc.TopAbs_Orientation.TopAbs_EXTERNAL
-    );
+    return Explorer.withShapes(wire, oc.TopAbs_ShapeEnum.TopAbs_EDGE, edges =>
+      edges.length > 0 && edges.every(e =>
+        e.Orientation() === oc.TopAbs_Orientation.TopAbs_INTERNAL
+        || e.Orientation() === oc.TopAbs_Orientation.TopAbs_EXTERNAL,
+      ));
   }
 
   /**
@@ -240,24 +258,27 @@ export class FaceMaker2 {
     // (BooleanBuilders); BOPAlgo_CellsBuilder never does.
     const generalFuse = new oc.BRepAlgoAPI_BuilderAlgo();
     const argsList = new oc.TopTools_ListOfShape();
-
-    for (const shape of shapes) {
-      argsList.Append(shape.getShape());
-    }
-
-    generalFuse.SetArguments(argsList);
-    generalFuse.SetNonDestructive(true);
-
     const progress = new oc.Message_ProgressRange();
     try {
+      for (const shape of shapes) {
+        argsList.Append(shape.getShape()).delete();
+      }
+
+      generalFuse.SetArguments(argsList);
+      generalFuse.SetNonDestructive(true);
       generalFuse.Build(progress);
+
       if (!generalFuse.IsDone() || generalFuse.HasErrors()) {
         return shapes;
       }
+
       const allParts = generalFuse.Shape();
-      return Explorer.findShapes(allParts, oc.TopAbs_ShapeEnum.TopAbs_EDGE).map(e =>
-        Edge.fromTopoDSEdge(oc.TopoDS.Edge(e))
-      );
+      try {
+        return Explorer.withShapes(allParts, oc.TopAbs_ShapeEnum.TopAbs_EDGE, raws =>
+          raws.map(e => Edge.fromTopoDSEdge(oc.TopoDS.Edge(e))));
+      } finally {
+        allParts.delete();
+      }
     } finally {
       BooleanBuilders.release(generalFuse);
       argsList.delete();

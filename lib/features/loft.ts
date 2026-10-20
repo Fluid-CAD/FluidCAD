@@ -18,6 +18,7 @@ import { Point, PointLike } from "../math/point.js";
 import { AnchoredLazyVertex } from "./anchored-vertex.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { PointResolver } from "./point-resolver.js";
+import { disposeBuildTemporaries } from "./build-temporaries.js";
 
 export class Loft extends ExtrudeBase implements ILoft {
   private _profiles: SceneObject[] = [];
@@ -141,16 +142,29 @@ export class Loft extends ExtrudeBase implements ILoft {
     }
 
     const p = context.getProfiler();
-    const options = p.record('Resolve loft options', () => this.resolveLoftOptions());
+    // Wrappers this build makes for itself — profile regions, guide wires,
+    // the lofted solids a fuse or cut consumes, as-built faces a remap
+    // replaces — freed once the state is final; whatever it kept stays.
+    const scratch: Shape[] = [];
+    try {
+      this.buildLoft(context, scratch);
+    } finally {
+      disposeBuildTemporaries(this, scratch);
+    }
+  }
+
+  private buildLoft(context: BuildSceneObjectContext, scratch: Shape[]) {
+    const p = context.getProfiler();
+    const options = p.record('Resolve loft options', () => this.resolveLoftOptions(scratch));
     let newShapes: Shape[];
 
     if (this.isThin()) {
-      newShapes = p.record('Build thin loft', () => this.buildThinLoft(options));
+      newShapes = p.record('Build thin loft', () => this.buildThinLoft(options, scratch));
     } else {
       const allWires: Wire[] = [];
 
       for (const [i, profile] of this.profiles.entries()) {
-        const wires = p.record('Get profile wires', () => this.getWiresFromSceneObject(profile));
+        const wires = p.record('Get profile wires', () => this.getWiresFromSceneObject(profile, scratch));
 
         if (wires.length === 0) {
           if (this._connections.length > 0) {
@@ -172,6 +186,7 @@ export class Loft extends ExtrudeBase implements ILoft {
 
       newShapes = p.record('Make loft', () => LoftOps.makeLoft(allWires, options));
     }
+    scratch.push(...newShapes);
 
     for (const profile of this.profiles) {
       profile.removeShapes(this);
@@ -197,6 +212,7 @@ export class Loft extends ExtrudeBase implements ILoft {
 
     for (const shape of newShapes) {
       const faces = Explorer.findFacesWrapped(shape);
+      scratch.push(...faces);
       for (const f of faces) {
         if (firstPlane && FaceOps.faceOnPlaneWrapped(f as Face, firstPlane)) {
           startFaces.push(f as Face);
@@ -260,7 +276,7 @@ export class Loft extends ExtrudeBase implements ILoft {
    * with a curve and its mirror) — each connected chain counts as one guide.
    * Returns undefined for a plain loft.
    */
-  private resolveLoftOptions(): LoftOptions | undefined {
+  private resolveLoftOptions(scratch: Shape[]): LoftOptions | undefined {
     if (this._guides.length === 0 && !this.hasConditions() && this._connections.length === 0) {
       return undefined;
     }
@@ -268,6 +284,8 @@ export class Loft extends ExtrudeBase implements ILoft {
     let guides: Wire[] | undefined;
     if (this._guides.length > 0) {
       guides = this._guides.flatMap((guide, i) => wiresFromSceneObjectEdges(guide, `loft guide ${i + 1}`));
+      // Chained from the guides' edges for this build only.
+      scratch.push(...guides);
       if (guides.length > 2) {
         throw new Error(`Loft supports at most two guide curves, got ${guides.length}.`);
       }
@@ -297,7 +315,7 @@ export class Loft extends ExtrudeBase implements ILoft {
     };
   }
 
-  private buildThinLoft(options?: LoftOptions): Shape[] {
+  private buildThinLoft(options: LoftOptions | undefined, scratch: Shape[]): Shape[] {
     const outerWires: Wire[] = [];
     const innerWires: Wire[] = [];
     const walls: ThinLoftWalls[] = [];
@@ -311,6 +329,9 @@ export class Loft extends ExtrudeBase implements ILoft {
       const thinResult = ThinFaceMaker.make(
         extrudable.getGeometries(), profilePlane, this._thin[0], this._thin[1]
       );
+      // The thin faces (whose wires the sections are) and the profile wires
+      // they offset are this build's.
+      scratch.push(...thinResult.faces, ...thinResult.walls.map(wall => wall.source));
       for (const [f, face] of thinResult.faces.entries()) {
         const wires = face.getWires();
         const { source, outerDistance, innerDistance } = thinResult.walls[f];
@@ -341,7 +362,11 @@ export class Loft extends ExtrudeBase implements ILoft {
     return null;
   }
 
-  private getWiresFromSceneObject(obj: SceneObject): Wire[] {
+  /**
+   * The profile's section wires. Wires read off the object's own faces or
+   * wires are its; regions and wires built here go to `scratch`.
+   */
+  private getWiresFromSceneObject(obj: SceneObject, scratch: Shape[]): Wire[] {
     // Meta shapes are never geometry: a plane's quad or an axis's line a
     // consumer hid stays readable, and is no profile.
     const shapes = obj.getShapes();
@@ -372,6 +397,7 @@ export class Loft extends ExtrudeBase implements ILoft {
       const geometries = extrudable.getGeometries();
       const plane = extrudable.getPlane();
       const faces = FaceMaker2.getRegions(geometries, plane);
+      scratch.push(...faces);
       const wires: Wire[] = [];
       for (const face of faces) {
         const faceWires = face.getWires();
@@ -388,6 +414,7 @@ export class Loft extends ExtrudeBase implements ILoft {
       const wires: Wire[] = [];
       for (const solid of solidShapes) {
         const solidWires = Explorer.findWiresWrapped(solid);
+        scratch.push(...solidWires);
         if (solidWires.length > 0) {
           wires.push(solidWires[0]);
         }

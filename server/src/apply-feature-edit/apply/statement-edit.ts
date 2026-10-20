@@ -1,10 +1,11 @@
 // Editing an existing feature statement in place.
 
 import {
-  clearBreakpoints as stripBreakpoints,
+  BreakpointMarker,
   declarationImports,
   declareParamStatements,
   ensureSymbolImport,
+  findActiveBreakpointStatement,
   findEditableCallAt,
   findEnclosingPart,
   getJavaScriptParser,
@@ -182,6 +183,19 @@ export async function applyStatementEdit(
   // edit below lands inside that part's body, so its own line holds.
   const enclosingPart = findEnclosingPart(tree, (stmtNode ?? call).startPosition.row);
   const partLine = enclosingPart ? enclosingPart.call.startPosition.row + 1 : null;
+  // The edit's own breakpoint comes out in the same splice pass — one
+  // transform, one write, so the rewrite and the removal can't race — and
+  // only that one: a stop the user set further down the file stays pending.
+  // Original-buffer coordinates like every other edit here, so the rewrite
+  // changing the statement's line count can't shift the target.
+  if (spec.clearBreakpoints) {
+    const paused = findActiveBreakpointStatement(tree, spec.clearBreakpoints === true ? null : spec.clearBreakpoints);
+    if (paused) {
+      // The exact inverse of placing it (BreakpointMarker.removals): its
+      // line and line break, so Apply leaves only the statement's own change.
+      edits.push(...BreakpointMarker.removals(code, [paused]));
+    }
+  }
   // Ties (a pure insertion at the statement's own start) must splice after
   // the replacement, so the inserted text never lands inside the replaced
   // span — hence the end tie-break.
@@ -220,10 +234,11 @@ export async function applyStatementEdit(
   for (const symbol of imports) {
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
   }
-  // Clearing the edit's breakpoint here — one transform, one write — keeps
-  // the rewrite and the clear from racing had the UI cleared it separately.
+  // The marker's import goes with it once nothing calls `breakpoint` any
+  // more — the other half of placing it; a stop still pending further down
+  // the file keeps it.
   if (spec.clearBreakpoints) {
-    result = (await stripBreakpoints(result)).newCode;
+    result = await BreakpointMarker.releaseImport(result);
   }
   return { newCode: result };
 }

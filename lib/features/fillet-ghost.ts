@@ -1,3 +1,4 @@
+import type { TopoDS_Edge, TopoDS_Face } from "ocjs-fluidcad";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
@@ -89,12 +90,19 @@ export function buildFilletGhostBands(
     }
 
     for (const edge of edges) {
-      for (const raw of ShapeOps.shapeListToArray(maker.Generated(edge.getShape()))) {
-        if (!Explorer.isFace(raw)) {
-          continue;
+      // The list's entries are copies the band wrappers never hold — each
+      // takes a typed copy of its own — so they are freed once read.
+      const generated = ShapeOps.shapeListToArray(maker.Generated(edge.getShape()));
+      try {
+        for (const raw of generated) {
+          if (!Explorer.isFace(raw)) {
+            continue;
+          }
+          const face = Face.fromTopoDSFace(Explorer.toFace(raw));
+          bands.push({ face, kind: bandKind(target, face) });
         }
-        const face = Face.fromTopoDSFace(Explorer.toFace(raw));
-        bands.push({ face, kind: bandKind(target, face) });
+      } finally {
+        Explorer.deleteAll(generated);
       }
     }
     return { bands, scratch };
@@ -126,16 +134,9 @@ function addEdges(
   options: FilletGhostOptions,
   scratch: Shape[],
 ): boolean {
-  const oc = getOC();
-  if (options.feature === 'fillet') {
+  if (options.feature === 'fillet' || !options.distance2) {
     for (const edge of edges) {
-      maker.Add(options.value, oc.TopoDS.Edge(edge.getShape()));
-    }
-    return true;
-  }
-  if (!options.distance2) {
-    for (const edge of edges) {
-      maker.Add(options.value, oc.TopoDS.Edge(edge.getShape()));
+      withEdge(edge, raw => maker.Add(options.value, raw));
     }
     return true;
   }
@@ -149,15 +150,37 @@ function addEdges(
     if (!reference) {
       return false;
     }
-    if (options.isAngle) {
-      maker.AddDA(options.value, rad(options.distance2), oc.TopoDS.Edge(edge.getShape()),
-        oc.TopoDS.Face(reference.getShape()));
-    } else {
-      maker.Add(options.value, options.distance2, oc.TopoDS.Edge(edge.getShape()),
-        oc.TopoDS.Face(reference.getShape()));
-    }
+    withEdge(edge, rawEdge => withFace(reference, rawFace => {
+      if (options.isAngle) {
+        maker.AddDA(options.value, rad(options.distance2), rawEdge, rawFace);
+      } else {
+        maker.Add(options.value, options.distance2, rawEdge, rawFace);
+      }
+    }));
   }
   return true;
+}
+
+/**
+ * Hand the maker a typed copy of the wrapper's handle and free it after: the
+ * maker takes its own copy, and the cast is a fresh handle like any other.
+ */
+function withEdge(edge: Edge, fn: (raw: TopoDS_Edge) => void): void {
+  const raw = getOC().TopoDS.Edge(edge.getShape());
+  try {
+    fn(raw);
+  } finally {
+    raw.delete();
+  }
+}
+
+function withFace(face: Face, fn: (raw: TopoDS_Face) => void): void {
+  const raw = getOC().TopoDS.Face(face.getShape());
+  try {
+    fn(raw);
+  } finally {
+    raw.delete();
+  }
 }
 
 /**
@@ -172,25 +195,32 @@ function addEdges(
  */
 function bandKind(target: Solid, face: Face): BandKind {
   const oc = getOC();
-  const rawFace = oc.TopoDS.Face(face.getShape());
-  const bounds = oc.BRepTools.UVBounds(rawFace);
-  const surface = oc.BRep_Tool.Surface(rawFace);
-  const props = new oc.GeomLProp_SLProps(
-    surface,
-    (bounds.UMin + bounds.UMax) / 2,
-    (bounds.VMin + bounds.VMax) / 2,
-    1,
-    bandProbeTolerance(),
-  );
-  const classifier = new oc.BRepClass3d_SolidClassifier(target.getShape());
+  // Every handle made here is a temporary of this probe; a throw anywhere
+  // along the way frees whatever was built before it.
+  const owned: { delete(): void }[] = [];
+  const own = <T extends { delete(): void }>(handle: T): T => {
+    owned.push(handle);
+    return handle;
+  };
   try {
-    const point = props.Value();
+    const rawFace = own(oc.TopoDS.Face(face.getShape()));
+    const bounds = oc.BRepTools.UVBounds(rawFace);
+    const surface = own(oc.BRep_Tool.Surface(rawFace));
+    const props = own(new oc.GeomLProp_SLProps(
+      surface,
+      (bounds.UMin + bounds.UMax) / 2,
+      (bounds.VMin + bounds.VMax) / 2,
+      1,
+      bandProbeTolerance(),
+    ));
+    const classifier = own(new oc.BRepClass3d_SolidClassifier(target.getShape()));
+    const point = own(props.Value());
     classifier.Perform(point, bandProbeTolerance());
     return classifier.State() === oc.TopAbs_State.TopAbs_OUT ? 'add' : 'remove';
   } finally {
-    classifier.delete();
-    props.delete();
-    surface.delete();
+    while (owned.length > 0) {
+      owned.pop()!.delete();
+    }
   }
 }
 

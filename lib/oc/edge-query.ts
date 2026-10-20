@@ -213,6 +213,8 @@ export class EdgeQuery {
       return { kind: 'other' };
     } finally {
       adaptor.delete();
+      // The adaptor held its own reference; the typed copy goes with it.
+      ocEdge.delete();
     }
   }
 
@@ -284,6 +286,8 @@ export class EdgeQuery {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
     const curveAdaptor = new oc.BRepAdaptor_Curve(ocEdge);
+    // The adaptor holds its own reference to the edge; the typed copy goes.
+    ocEdge.delete();
 
     const uMin = curveAdaptor.FirstParameter();
     const uMax = curveAdaptor.LastParameter();
@@ -313,6 +317,7 @@ export class EdgeQuery {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
     const adaptor = new oc.BRepAdaptor_Curve(ocEdge);
+    ocEdge.delete();
 
     const firstParam = adaptor.FirstParameter();
     const lastParam = adaptor.LastParameter();
@@ -339,6 +344,7 @@ export class EdgeQuery {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
     const curveAdaptor = new oc.BRepAdaptor_Curve(ocEdge);
+    ocEdge.delete();
 
     const uMin = curveAdaptor.FirstParameter();
     const uMax = curveAdaptor.LastParameter();

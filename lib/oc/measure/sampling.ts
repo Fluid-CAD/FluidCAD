@@ -28,6 +28,7 @@ function sampleFacePoints(shape: TopoDS_Shape, options: SamplingOptions): Measur
   const triangulation = oc.BRep_Tool.Triangulation(face, location, 0);
   if (!triangulation) {
     location.delete();
+    face.delete();
     return [];
   }
 
@@ -47,6 +48,7 @@ function sampleFacePoints(shape: TopoDS_Shape, options: SamplingOptions): Measur
   transform.delete();
   triangulation.delete();
   location.delete();
+  face.delete();
   return points;
 }
 
@@ -66,6 +68,7 @@ function sampleEdgePoints(shape: TopoDS_Shape): MeasureVec[] {
   }
 
   adaptor.delete();
+  edge.delete();
   return points;
 }
 

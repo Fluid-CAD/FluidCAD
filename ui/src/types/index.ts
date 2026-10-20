@@ -488,6 +488,12 @@ export type SerializedAssemblyInstance = {
    */
   owner?: string;
   name: string;
+  /**
+   * EFFECTIVE `.transparent()` in (0, 1] — the instance's own value combined
+   * with every enclosing occurrence's. Absent when the instance renders
+   * opaque (and on engines predating it).
+   */
+  transparency?: number;
   /** Resolved parameter values of the instance's template variant. */
   paramValues?: Record<string, InstanceParamValue>;
   /** The variant's `property()` values as the assembly reads them; absent when the part declares none. */

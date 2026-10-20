@@ -112,6 +112,8 @@ class SceneManager {
    * these along with the module graph before trusting it.
    */
   renderInputs = new Set<string>();
+  /** @internal Listeners from onSceneStarted; public only because the class type is exported anonymously. */
+  sceneStartedListeners = new Set<(scene: Scene) => void>();
 
   constructor(public rootPath: string, public readonly meshQuality: MeshQuality, projectUnit: LengthUnit) {
     this.renderer = new SceneRenderer(meshQuality);
@@ -149,6 +151,7 @@ class SceneManager {
     this.renderInputs = new Set();
     this.currentScene = new Scene();
     console.log("Starting new scene");
+    this.notifySceneStarted(this.currentScene);
     return this.currentScene;
   }
 
@@ -158,7 +161,27 @@ class SceneManager {
     const scene = new AssemblyScene();
     this.currentScene = scene;
     console.log("Starting new assembly scene");
+    this.notifySceneStarted(scene);
     return scene;
+  }
+
+  /**
+   * Hear every scene startScene()/startAssemblyScene() creates. Starting a
+   * scene replaces the current one without disposing it — the host frees a
+   * replaced scene itself after the compare — so whoever else starts scenes
+   * (the test suite, per test) tracks them here to release them. Returns
+   * the unsubscribe.
+   */
+  onSceneStarted(listener: (scene: Scene) => void): () => void {
+    this.sceneStartedListeners.add(listener);
+    return () => { this.sceneStartedListeners.delete(listener); };
+  }
+
+  /** @internal */
+  notifySceneStarted(scene: Scene): void {
+    for (const listener of this.sceneStartedListeners) {
+      listener(scene);
+    }
   }
 
   renderScene(scene: Scene) {
@@ -271,6 +294,15 @@ class SceneManager {
     SceneDisposal.disposeScene(scene);
   }
 
+  /**
+   * Free several scenes dropped together in one pass: a compare moves state
+   * maps between scenes by reference, so two of them may share one raw
+   * kernel handle, which must be deleted once.
+   */
+  disposeScenes(scenes: Scene[]) {
+    SceneDisposal.disposeScenes(scenes);
+  }
+
   importFile(workspacePath: string, fileName: string, data: Uint8Array): ImportReport {
     const { solids, unit, sourceUnits } = FileImport.importFile(workspacePath, fileName, data);
     return { solidCount: solids.length, unit, sourceUnits };
@@ -291,11 +323,16 @@ class SceneManager {
     for (const obj of scene.getAllSceneObjects()) {
       for (const shape of obj.getAddedShapes()) {
         if (shape.id === shapeId) {
+          // The sub-shape wrappers only serve this read: all of them go with it.
           const faces = Explorer.findFacesWrapped(shape);
-          if (faceIndex < 0 || faceIndex >= faces.length) {
-            return null;
+          try {
+            if (faceIndex < 0 || faceIndex >= faces.length) {
+              return null;
+            }
+            return FaceProps.getProperties(faces[faceIndex].getShape());
+          } finally {
+            for (const face of faces) face.dispose();
           }
-          return FaceProps.getProperties(faces[faceIndex].getShape());
         }
       }
     }
@@ -307,10 +344,14 @@ class SceneManager {
       for (const shape of obj.getAddedShapes()) {
         if (shape.id === shapeId) {
           const edges = Explorer.findEdgesWrapped(shape);
-          if (edgeIndex < 0 || edgeIndex >= edges.length) {
-            return null;
+          try {
+            if (edgeIndex < 0 || edgeIndex >= edges.length) {
+              return null;
+            }
+            return EdgeProps.getProperties(edges[edgeIndex].getShape());
+          } finally {
+            for (const edge of edges) edge.dispose();
           }
-          return EdgeProps.getProperties(edges[edgeIndex].getShape());
         }
       }
     }
@@ -326,7 +367,13 @@ class SceneManager {
         if (!shape) {
           return null;
         }
+        // Every sub-shape wrapper only serves to find the picked one; all of
+        // them go once the measure has run (the picked one's handle lives
+        // until then, as does the moved copy taken from it below).
         const subShapes = ref.kind === 'face' ? Explorer.findFacesWrapped(shape) : Explorer.findEdgesWrapped(shape);
+        disposers.push(() => {
+          for (const sub of subShapes) sub.dispose();
+        });
         if (ref.index < 0 || ref.index >= subShapes.length) {
           return null;
         }
@@ -343,8 +390,10 @@ class SceneManager {
           }
           const [trsf, disposeTrsf] = Convert.toGpTrsfPose(pose.position, pose.quaternion);
           const location = new (getOC().TopLoc_Location)(trsf);
-          subShape = subShape.Moved(location, false);
+          const moved = subShape.Moved(location, false);
+          subShape = moved;
           disposers.push(() => {
+            moved.delete();
             location.delete();
             disposeTrsf();
           });

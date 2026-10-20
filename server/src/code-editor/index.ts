@@ -39,11 +39,17 @@ export { addGuide, getPointExpression, insertPoint, removeGuide, removePoint } f
 export {
   addBreakpoint,
   BreakpointMarker,
+  breakpointRemovalEdit,
+  breakpointSiteOf,
   clearBreakpoints,
+  findActiveBreakpointStatement,
+  findAllBreakpointStatements,
   isBreakpointStatement,
+  listBreakpoints,
   removeBreakpoint,
   toggleBreakpoint,
   type BreakpointEditResult,
+  type BreakpointSite,
 } from './breakpoints.ts';
 export {
   clearDocumentUnit,

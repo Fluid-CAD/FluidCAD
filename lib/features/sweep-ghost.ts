@@ -99,7 +99,11 @@ function collectSolids(
   // One body per region, as the kernel builds them (sweep-ops.ts:70) — no fuse
   // here, unlike the revolve: separate regions stay separate bodies through
   // the apply too, so the ghost has no coincident walls to merge away.
-  solids.push(...SweepOps.makeSweep(extendedSpine(options, scratch), faces, plane).solids);
+  const swept = SweepOps.makeSweep(extendedSpine(options, scratch), faces, plane);
+  solids.push(...swept.solids);
+  // The ghost only meshes bodies; the cap handles would outlive the scratch.
+  swept.firstShape.delete();
+  swept.lastShape.delete();
 }
 
 /**

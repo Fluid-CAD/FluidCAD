@@ -1,5 +1,5 @@
 import {
-  applyFeature, applyValueFeatureEdit, clearBreakpoints, expandBucket, featureGhostScope, fetchFeatureGhost,
+  applyFeature, applyValueFeatureEdit, continueBreakpoint, expandBucket, featureGhostScope, fetchFeatureGhost,
   fetchFeatureSources, parseFeatureAt, removeFeature, setSketchClosed, ApplyFeatureResponse,
   FeatureEditTarget, NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType,
   SketchSourceRef, ValueExpr,
@@ -915,7 +915,7 @@ export class ModifyPickService {
     // Clearing rebuilds to the tip, so that render carries the sketch-UI resume.
     this.closeSketchSession(ownsBreakpoint ? 'lazy' : resume);
     if (ownsBreakpoint) {
-      clearBreakpoints();
+      continueBreakpoint();
     }
   }
 
@@ -972,6 +972,9 @@ export class ModifyPickService {
    * while sketching, so Finish is also the Continue — the pause is lifted
    * whether this session placed the breakpoint or the user did ("Breakpoint
    * here"), or the finished sketch would leave the build stuck behind it.
+   * The exception is a sketch this session created: it was written just
+   * before a breakpoint the user already had, so finishing it returns to
+   * that breakpoint rather than lifting it.
    */
   async finishSketch(paused: boolean): Promise<void> {
     const session = this.sketchSession;
@@ -986,13 +989,13 @@ export class ModifyPickService {
         return;
       }
     }
-    if (session.breakpoint || paused) {
+    if (session.breakpoint || (paused && !session.created)) {
       // The chain edit's render may already have closed the session; the
       // breakpoint must not outlive the sketch either way.
       if (this.sketchSession === session && session.breakpoint) {
         this.closeSketchDialog();
       } else {
-        clearBreakpoints();
+        continueBreakpoint();
       }
     }
   }

@@ -1,7 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 import { SelectionIndex } from "./selection-index.js";
 import { attributePick } from "./attribution.js";
-import { synthesizeSelectors, SelectorPart } from "./synthesis.js";
+import { producerFeatureType, synthesizeSelectors, SelectorPart } from "./synthesis.js";
 import { allocateNames, collectImports, makeStatementBindable, renderPartArgs } from "./explain.js";
 import { nameHintFor } from "./types.js";
 import type { PickRef, SelectionScene, SynthesizeOptions } from "./types.js";
@@ -14,6 +14,10 @@ import type { SketchExportRequest, SolvedEmissionTarget } from './sketch-target.
 export type SynthesizedProducer = {
   sceneObjectId: string;
   sceneObjectName: string;
+  /**
+   * The type the code transform binds it as — the feature's own type, or
+   * `'feature'` when the selector only passes it whole (`from(f)`).
+   */
   featureType: string;
   /** The variable the source form uses for it — the statement's existing `const`, or the name to bind it to. */
   variable: string;
@@ -113,7 +117,8 @@ export class SelectionSynthesizer {
       }
 
       const winners = synthesis.groups.map(g => g.winner);
-      const sourceNames = allocateNames(synthesis.producers, options.namer);
+      const featureTypeOf = (producer: SceneObject) => producerFeatureType(producer, winners);
+      const sourceNames = allocateNames(synthesis.producers, options.namer, featureTypeOf);
       const toolNames = new Map(synthesis.producers.map(p => [p, `$obj["${p.id}"]`] as const));
       const render = (parts: SelectorPart[]): SynthesizedForm => ({
         expression: SelectionSynthesizer.renderToolExpression(parts, toolNames),
@@ -147,7 +152,7 @@ export class SelectionSynthesizer {
           tier: part.tier,
           ...(part.bakedConstants ? { bakedConstants: part.bakedConstants } : {}),
         })),
-        producers: synthesis.producers.map(p => SelectionSynthesizer.describeProducer(p, sourceNames)),
+        producers: synthesis.producers.map(p => SelectionSynthesizer.describeProducer(p, sourceNames, featureTypeOf(p))),
         imports: collectImports(winners),
         alternatives,
       };
@@ -175,12 +180,16 @@ export class SelectionSynthesizer {
     return rendered.length === 1 ? rendered[0] : `[${rendered.join(', ')}]`;
   }
 
-  private static describeProducer(producer: SceneObject, names: Map<SceneObject, string>): SynthesizedProducer {
+  private static describeProducer(
+    producer: SceneObject,
+    names: Map<SceneObject, string>,
+    featureType: string,
+  ): SynthesizedProducer {
     const loc = producer.getSourceLocation();
     return {
       sceneObjectId: producer.id,
       sceneObjectName: producer.getName(),
-      featureType: producer.getType(),
+      featureType,
       variable: names.get(producer) ?? nameHintFor(producer.getType()),
       filePath: loc?.filePath ?? null,
       line: loc?.line ?? null,

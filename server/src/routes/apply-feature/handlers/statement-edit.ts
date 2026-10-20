@@ -1001,12 +1001,12 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       imports: [...importSet],
       edit,
       newVariables,
-      // Applying an edit clears the breakpoint the double-click placed —
+      // Applying an edit lifts the breakpoint the double-click placed —
       // inside the same transform, so it can't race the rewrite — and the
-      // model rebuilds to its tip. The sketch retarget opens without a
-      // double-click, so it has no breakpoint to clear (and must not
-      // strip ones the user placed).
-      clearBreakpoints: request.feature !== 'sketch',
+      // model runs on (to the next pending stop, or its tip). The sketch
+      // retarget opens without a double-click, so it has no breakpoint to
+      // lift (and must not touch ones the user placed).
+      clearBreakpoints: request.feature !== 'sketch' ? (fluidCadServer.getActiveBreakpoint?.() ?? true) : false,
     };
     // Truthful preview: parse the live buffer and render the exact
     // statement the transform will write, with the same variable names

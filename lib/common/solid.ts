@@ -163,6 +163,9 @@ export class Solid extends Shape<TopoDS_Solid> {
   }
 
   override dispose() {
+    if (this.isReleased()) {
+      return;
+    }
     this.edgeToFacesIndex?.delete();
     this.edgeToFacesIndex = null;
     this.facesByEdgeSlot = null;
@@ -170,6 +173,15 @@ export class Solid extends Shape<TopoDS_Solid> {
     this.hiddenEdgeSet?.delete();
     this.hiddenEdgeSet = null;
     super.dispose();
+  }
+
+  protected override disposeSubShapes(): void {
+    for (const face of this.faces ?? []) face.dispose();
+    // `edges` is a subset of `allEdges`.
+    for (const edge of this.allEdges ?? []) edge.dispose();
+    this.faces = null;
+    this.edges = null;
+    this.allEdges = null;
   }
 
   override getLinkedShapes(): Shape[] {

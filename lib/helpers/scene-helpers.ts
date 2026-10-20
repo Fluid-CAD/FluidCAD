@@ -95,6 +95,7 @@ export function fuseWithSceneObjects(
 
   if (newShapes.length === 0 && modifiedShapes.length === 0) {
     dispose();
+    for (const shape of result) shape.dispose();
     if (opts?.recordHistoryFor) {
       const run = () => recordShapesAsAdditions(opts.recordHistoryFor!, extrusions);
       p ? p.record('Record fusion history', run) : run();
@@ -157,7 +158,8 @@ export function fuseWithSceneObjects(
       const recordHistory = () => {
         // One in-result orientation index over the fuse output, shared by every
         // history collect below (scene-side per shape, then tool-side).
-        const resultFaces = new OrientedFaces(maker.Shape());
+        const resultRaw = maker.Shape();
+        const resultFaces = new OrientedFaces(resultRaw);
         try {
           recordFusionHistory(
             opts.recordHistoryFor!, sceneShapes, objShapeMap, cleanedShapesToAdd, maker, cleanups, resultFaces, p,
@@ -169,8 +171,16 @@ export function fuseWithSceneObjects(
           const collectTools = () => ShapeHistoryTracker.collect(maker, extrusions, { skipAdded: true, resultFaces });
           const rawToolHistory = p ? p.record('Collect tool history', collectTools) : collectTools();
           toolHistory = remapHistoryThroughCleanups(rawToolHistory, cleanups, extrusions);
+          // The pre-clean wrappers the remap replaced are nobody's now; what
+          // it passed through lives on in `toolHistory`, whose wrappers are
+          // the caller's to keep in its buckets or free.
+          const remapped = new Set(ShapeHistoryTracker.shapesOf(toolHistory));
+          for (const shape of ShapeHistoryTracker.shapesOf(rawToolHistory)) {
+            if (!remapped.has(shape)) shape.dispose();
+          }
         } finally {
           resultFaces.delete();
+          resultRaw.delete();
         }
       };
       p ? p.record('Record fusion history', recordHistory) : recordHistory();
@@ -180,6 +190,11 @@ export function fuseWithSceneObjects(
   } finally {
     for (const cleanup of cleanups) cleanup.dispose();
     dispose();
+    // The fuse's result wrappers were the cleanup's inputs; what the scene
+    // takes is the cleaned twin (or the same wrapper, when nothing changed).
+    for (const shape of result) {
+      if (!cleanedShapesToAdd.includes(shape)) shape.dispose();
+    }
   }
 }
 
@@ -330,17 +345,22 @@ function cleanupOnlyRecords<T extends Shape>(
     }
     const records: ShapeHistoryRecord<T>[] = [];
     for (const input of inputs) {
-      for (const raw of Explorer.findShapes(input.getShape(), type)) {
-        if (recorded.Contains(raw)) {
-          continue;
+      Explorer.withShapes(input.getShape(), type, raws => {
+        for (const raw of raws) {
+          if (recorded.Contains(raw)) {
+            continue;
+          }
+          const source = wrap(raw);
+          const images = remap(source);
+          if (images.length === 1 && images[0].getShape().IsSame(raw)) {
+            // Unchanged: nothing to record, and the probe wrappers go.
+            if (images[0] !== source) images[0].dispose();
+            source.dispose();
+            continue;
+          }
+          records.push({ sources: [source], results: images });
         }
-        const source = wrap(raw);
-        const images = remap(source);
-        if (images.length === 1 && images[0].getShape().IsSame(raw)) {
-          continue;
-        }
-        records.push({ sources: [source], results: images });
-      }
+      });
     }
     return records;
   } finally {
@@ -357,12 +377,16 @@ function recordShapesAsAdditions(caller: SceneObject, shapes: Shape<any>[]) {
   const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
   const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
   for (const shape of shapes) {
-    for (const raw of Explorer.findShapes(shape.getShape(), FACE)) {
-      caller.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), caller);
-    }
-    for (const raw of Explorer.findShapes(shape.getShape(), EDGE)) {
-      caller.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), caller);
-    }
+    Explorer.withShapes(shape.getShape(), FACE, raws => {
+      for (const raw of raws) {
+        caller.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), caller);
+      }
+    });
+    Explorer.withShapes(shape.getShape(), EDGE, raws => {
+      for (const raw of raws) {
+        caller.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), caller);
+      }
+    });
   }
 }
 
@@ -443,19 +467,30 @@ function recordFusionHistory(
       // A stock face or edge the fuse hands back as it was is the stock's
       // still, and stays with whoever added it: each claims itself, so the
       // additions below are left with what descends from no stock sub-shape.
-      for (const raw of Explorer.findShapes(sceneShape.getShape(), FACE)) {
-        claimedFaces.Add(raw);
-      }
-      for (const raw of Explorer.findShapes(sceneShape.getShape(), EDGE)) {
-        claimedEdges.Add(raw);
-      }
+      Explorer.withShapes(sceneShape.getShape(), FACE, raws => {
+        for (const raw of raws) claimedFaces.Add(raw);
+      });
+      Explorer.withShapes(sceneShape.getShape(), EDGE, raws => {
+        for (const raw of raws) claimedEdges.Add(raw);
+      });
       // recordFusionHistory aggregates additions across the full result via
       // `claimedFaces`/`claimedEdges` below — each per-shape collect doesn't
       // need to compute its own added* sets.
       const history = ShapeHistoryTracker.collect(maker, [sceneShape], { skipAdded: true, resultFaces });
 
+      // The tracker's result wrappers are pre-clean: whatever the cleanup
+      // remap replaced (it hands back fresh face wrappers, and fresh edge
+      // wrappers for edges it rebuilt) is freed once recorded — as
+      // `recordCutHistory` does for a cut.
+      const retire = <T extends Shape<any>>(results: T[], kept: T[]) => {
+        for (const result of results) {
+          if (!kept.includes(result)) result.dispose();
+        }
+      };
+
       for (const record of history.modifiedFaces) {
         const postCleanResults = remapFaces(record.results);
+        retire(record.results, postCleanResults);
         if (postCleanResults.length === 0) {
           for (const src of record.sources) {
             owner.recordRemovedFace(src, caller);
@@ -469,6 +504,7 @@ function recordFusionHistory(
       }
       for (const record of history.modifiedEdges) {
         const postCleanResults = remapEdges(record.results);
+        retire(record.results, postCleanResults);
         if (postCleanResults.length === 0) {
           for (const src of record.sources) {
             owner.recordRemovedEdge(src, caller);
@@ -522,22 +558,39 @@ function recordFusionHistory(
 
   const recordAdditions = () => {
     for (const newShape of newShapes) {
-      for (const raw of Explorer.findShapes(newShape.getShape(), FACE)) {
-        if (!claimedFaces.Contains(raw)) {
-          caller.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), caller);
+      Explorer.withShapes(newShape.getShape(), FACE, raws => {
+        for (const raw of raws) {
+          if (!claimedFaces.Contains(raw)) {
+            caller.recordAddedFace(Face.fromTopoDSFace(Explorer.toFace(raw)), caller);
+          }
         }
-      }
-      for (const raw of Explorer.findShapes(newShape.getShape(), EDGE)) {
-        if (!claimedEdges.Contains(raw)) {
-          caller.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), caller);
+      });
+      Explorer.withShapes(newShape.getShape(), EDGE, raws => {
+        for (const raw of raws) {
+          if (!claimedEdges.Contains(raw)) {
+            caller.recordAddedEdge(Edge.fromTopoDSEdge(Explorer.toEdge(raw)), caller);
+          }
         }
-      }
+      });
     }
   };
   p ? p.record('Record additions', recordAdditions) : recordAdditions();
 
-  const remapRawFace = (raw: TopoDS_Shape): TopoDS_Shape[] =>
-    remapFaces([Face.fromTopoDSFace(Explorer.toFace(raw))]).map(f => f.getShape());
+  // The colour pass owns what it is answered: a typed copy of each image.
+  // The wrappers walked here — the input's and the fresh ones a cleanup
+  // hands back (or the input passed through) — are this remap's alone.
+  const remapRawFace = (raw: TopoDS_Shape): TopoDS_Shape[] => {
+    const face = Face.fromTopoDSFace(Explorer.toFace(raw));
+    const images = remapFaces([face]);
+    try {
+      return images.map(f => Explorer.toFace(f.getShape()));
+    } finally {
+      for (const image of images) {
+        if (image !== face) image.dispose();
+      }
+      face.dispose();
+    }
+  };
 
   // Each stock's colours, read from its owner, land on the caller: it holds
   // the fused result. Authors are kept (a bled colour takes its seed's).
@@ -706,9 +759,18 @@ export function cutWithSceneObjects(
   const replacedStock: Shape[] = [];
   // What each replaced stock solid became — none when cut away entirely.
   const successors = new Map<Shape, Shape[]>();
+  // The boolean's own result solids: the cleanup rebuilds each into the
+  // wrapper the caller keeps, so these are freed once it has run.
+  const preClean: Shape[] = [];
+  // The created faces/edges the cleanup remap replaced (it hands back fresh
+  // wrappers for faces, and for edges it rebuilt); the kept ones are these
+  // minus whatever the remap passed through unchanged.
+  let keptFaces: Face[] = [];
+  let keptEdges: Edge[] = [];
   try {
     for (const shape of stock) {
       const list = cutResult.modified(shape);
+      preClean.push(...list);
       if (list.length) {
         // Global face unification would collapse delicate same-domain geometry
         // (e.g. thread flanks) the stock already carries, so skip it when the
@@ -752,6 +814,8 @@ export function cutWithSceneObjects(
     // kernel history rather than a geometric comparison against the stock.
     const internalFaces = remapCreated(cutResult.internalFaces, cleanups, (c, f) => c.remapFace(f));
     const sectionEdges = remapCreated(cutResult.sectionEdges, cleanups, (c, e) => c.remapEdge(e));
+    keptFaces = internalFaces;
+    keptEdges = sectionEdges;
 
     if (options?.recordHistoryFor) {
       recordCutHistory(options.recordHistoryFor, replacedStock, shapeObjectMap, cleanedShapes, cutResult.makerOf,
@@ -769,6 +833,13 @@ export function cutWithSceneObjects(
   } finally {
     for (const cleanup of cleanups) cleanup.dispose();
     cutResult.dispose();
+    for (const shape of preClean) shape.dispose();
+    for (const face of cutResult.internalFaces) {
+      if (!keptFaces.includes(face)) face.dispose();
+    }
+    for (const edge of cutResult.sectionEdges) {
+      if (!keptEdges.includes(edge)) edge.dispose();
+    }
   }
 }
 
@@ -855,8 +926,18 @@ function recordCutHistory(
     // skip its own added* output traversal.
     const history = ShapeHistoryTracker.collect(makerOf(stockShape), [stockShape], { skipAdded: true });
 
+    // The tracker's result wrappers are pre-clean: whatever the cleanup
+    // remap replaced (it hands back fresh face wrappers, and fresh edge
+    // wrappers for edges it rebuilt) is freed once recorded.
+    const retire = <T extends Shape<any>>(results: T[], kept: T[]) => {
+      for (const result of results) {
+        if (!kept.includes(result)) result.dispose();
+      }
+    };
+
     for (const record of history.modifiedFaces) {
       const postCleanResults = remapPreCleanFaces(record.results);
+      retire(record.results, postCleanResults);
       if (postCleanResults.length === 0) {
         // Entire modification was removed by UnifySameDomain — record as removal instead.
         for (const src of record.sources) {
@@ -871,6 +952,7 @@ function recordCutHistory(
     }
     for (const record of history.modifiedEdges) {
       const postCleanResults = remapPreCleanEdges(record.results);
+      retire(record.results, postCleanResults);
       if (postCleanResults.length === 0) {
         for (const src of record.sources) {
           owner.recordRemovedEdge(src, caller);

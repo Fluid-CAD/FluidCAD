@@ -8,7 +8,8 @@ import { FaceQuery } from "../oc/face-query.js";
 import { BucketHit, BucketRecord, SelectionIndex } from "./selection-index.js";
 import { attributePick, inPartScope, pickPartScope, PickAttribution } from "./attribution.js";
 import {
-  BucketArguments, canBindProducer, checkBindable, producerBinding, synthesizeSelectors, SelectorChain, SelectorPart,
+  BucketArguments, canBindProducer, checkBindable, producerBinding, producerFeatureType, synthesizeSelectors, SelectorChain,
+  SelectorPart, StatementBindable,
 } from "./synthesis.js";
 import {
   ApplyFeatureEditSpec,
@@ -275,7 +276,8 @@ export function synthesizeApplyFeature(
     }
 
     const winners = synthesis.groups.map(g => g.winner);
-    const names = allocateNames(synthesis.producers, options.namer);
+    const featureTypeOf = (producer: SceneObject) => producerFeatureType(producer, winners);
+    const names = allocateNames(synthesis.producers, options.namer, featureTypeOf);
     const renderParts = (parts: SelectorPart[]) =>
       parts.map(part => renderPartArgs(part, names)).join(', ');
 
@@ -397,7 +399,7 @@ export function synthesizeApplyFeature(
         return {
           line: loc.line,
           column: loc.column,
-          featureType: l.feature.getType(),
+          featureType: featureTypeOf(l.feature),
           nameHint: nameHintFor(l.feature.getType()),
           bind: l.bind,
         };
@@ -683,17 +685,20 @@ function renderPreview(
  */
 export function makeStatementBindable(
   bindable?: ProducerBindable,
-): ((feature: SceneObject) => boolean) | undefined {
+): StatementBindable | undefined {
   if (!bindable) {
     return undefined;
   }
-  return (feature) => {
+  return (feature, whole = false) => {
     const loc = feature.getSourceLocation();
     if (!loc) {
       return true;
     }
     try {
-      return bindable({ line: loc.line, column: loc.column, featureType: feature.getType() });
+      // A whole-feature reference validates as the transform's `'feature'`
+      // producer type — the one the spec will carry (`producerFeatureType`).
+      const featureType = whole ? 'feature' : feature.getType();
+      return bindable({ line: loc.line, column: loc.column, featureType });
     } catch {
       return true;
     }
@@ -705,9 +710,14 @@ export function makeStatementBindable(
  * builds one over the live buffer with the transform's own binding logic),
  * its names win — so the preview shows the reused `const` name or the
  * collision-free allocation the transform will actually write. Without one,
- * fall back to the plain hint-suffix scheme.
+ * fall back to the plain hint-suffix scheme. `featureTypeOf` names the type
+ * the transform validates each producer as (see `producerFeatureType`).
  */
-export function allocateNames(producers: SceneObject[], namer?: ProducerNamer): Map<SceneObject, string> {
+export function allocateNames(
+  producers: SceneObject[],
+  namer?: ProducerNamer,
+  featureTypeOf: (producer: SceneObject) => string = producer => producer.getType(),
+): Map<SceneObject, string> {
   let external: (string | null)[] | null = null;
   if (namer) {
     try {
@@ -716,7 +726,7 @@ export function allocateNames(producers: SceneObject[], namer?: ProducerNamer): 
         return {
           line: loc.line,
           column: loc.column,
-          featureType: producer.getType(),
+          featureType: featureTypeOf(producer),
           nameHint: nameHintFor(producer.getType()),
         };
       });

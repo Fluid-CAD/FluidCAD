@@ -10,24 +10,30 @@ export function renderWire(shapeObj: Shape, meshConfig?: MeshConfig) {
 
   Mesh.ensureTriangulated(shape, meshConfig);
 
-  const edges = Explorer.findShapes(shape, Explorer.getOcShapeType("edge"));
-
   const allVertices: number[] = [];
   const allNormals: number[] = [];
   const allIndices: number[] = [];
 
-  for (const current of edges) {
-    const edge = Explorer.toEdge(current);
-    const edgeResult = renderEdge(Edge.fromTopoDSEdge(edge));
-    if (edgeResult) {
-      const vertexOffset = allVertices.length / 3;
-      allVertices.push(...edgeResult.vertices);
-      allNormals.push(...edgeResult.normals);
-      for (let i = 0; i < edgeResult.indices.length; i++) {
-        allIndices.push(edgeResult.indices[i] + vertexOffset);
+  // The explorer copies and the wrapper each edge is read through are this
+  // mesh's own; nothing keeps them past its tessellation.
+  Explorer.withShapes(shape, Explorer.getOcShapeType("edge"), edges => {
+    for (const current of edges) {
+      const edge = Edge.fromTopoDSEdge(Explorer.toEdge(current));
+      try {
+        const edgeResult = renderEdge(edge);
+        if (edgeResult) {
+          const vertexOffset = allVertices.length / 3;
+          allVertices.push(...edgeResult.vertices);
+          allNormals.push(...edgeResult.normals);
+          for (let i = 0; i < edgeResult.indices.length; i++) {
+            allIndices.push(edgeResult.indices[i] + vertexOffset);
+          }
+        }
+      } finally {
+        edge.dispose();
       }
     }
-  }
+  });
 
   return {
     vertices: allVertices,

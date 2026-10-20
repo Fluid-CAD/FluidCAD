@@ -117,7 +117,12 @@ export class EdgeConvexityOps {
   /** The face's outward normal at the edge's midpoint (see `FaceOps.outwardNormalOnEdge`). */
   private static outwardNormalAt(edge: TopoDS_Edge, face: TopoDS_Shape): Vector3d | null {
     const oc = getOC();
-    return FaceOps.outwardNormalOnEdge(oc.TopoDS.Face(face), edge);
+    const typed = oc.TopoDS.Face(face);
+    try {
+      return FaceOps.outwardNormalOnEdge(typed, edge);
+    } finally {
+      typed.delete();
+    }
   }
 
   /**

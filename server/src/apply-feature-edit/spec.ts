@@ -14,7 +14,7 @@ import type { MoveToPartSpec } from '../move-to-part.ts';
 import type { TimelineBreakpointSpec } from '../timeline-breakpoint.ts';
 import type { RemoveFeatureSpec } from '../remove-feature.ts';
 import type { InsertPartEditSpec } from '../part-catalog/insert-edit.ts';
-import type { InstancePoseEditSpec } from '../insert-chain-edit.ts';
+import type { InstancePoseEditSpec, InstanceTransparencySpec } from '../insert-chain-edit.ts';
 import type { InstanceRenameSpec } from '../instance-rename.ts';
 import type { PartRenameSpec } from '../part-rename.ts';
 import type { AssemblyConnectorEditSpec } from '../assembly-connector-edit.ts';
@@ -294,6 +294,12 @@ export type ApplyFeatureEditSpec = {
    */
   instanceRename?: InstanceRenameSpec;
   /**
+   * The parts panel's Transparency…: set or drop the `.transparent(v)` call
+   * of the `insert()` statement at `sourceLine`. Rides the same round trip
+   * as `instancePose`; every other spec field is ignored.
+   */
+  instanceTransparency?: InstanceTransparencySpec;
+  /**
    * The part row's Rename: rewrite the name of the `part()` statement at
    * `sourceLine` and rename the variable it binds after it. Rides the same
    * round trip as `instanceRename`; every other spec field is ignored.
@@ -419,12 +425,15 @@ export type ApplyFeatureEditSpec = {
    */
   activePart?: { line: number; column: number };
   /**
-   * Strip every `breakpoint();` after the rewrite. Set when an edit dialog
-   * applies: the double-click that opened it placed a breakpoint, and
-   * applying clears it so the model rebuilds to its tip. Done inside this
-   * one transform so the rewrite and the clear never race on the buffer.
+   * Take out the breakpoint the build is paused on, in the same rewrite.
+   * Set when an edit dialog applies: the double-click that opened it placed
+   * a breakpoint, and applying lifts it so the model runs on — to the next
+   * pending `breakpoint();` the file holds, or to its tip. The site names
+   * the paused statement; `true` stands for the first one in the file.
+   * Done inside this one transform so the rewrite and the removal never
+   * race on the buffer.
    */
-  clearBreakpoints?: boolean;
+  clearBreakpoints?: boolean | { line: number; column: number };
   /**
    * `const <name> = <initializer>;` declarations to write directly before
    * the statement — a dialog expression field's `myVar = 50` (or a fresh

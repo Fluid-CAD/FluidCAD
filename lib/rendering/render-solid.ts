@@ -59,9 +59,16 @@ function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
         continue;
       }
 
-      const parentFace = oc.TopoDS.Face(parents.First());
-      const edgeResult = Mesh.discretizeEdgeOnFace(edgeShape, parentFace);
-      parentFace.delete();
+      // `parents` is the index's own list (a pointer, never deleted);
+      // First()/Last() hand back copies that are.
+      const first = parents.First();
+      const parentFace = oc.TopoDS.Face(first);
+      let edgeResult: ReturnType<typeof Mesh.discretizeEdgeOnFace>;
+      try {
+        edgeResult = Mesh.discretizeEdgeOnFace(edgeShape, parentFace);
+      } finally {
+        parentFace.delete();
+      }
 
       if (edgeResult) {
         const mesh: SceneObjectMesh = {
@@ -73,16 +80,28 @@ function getEdgesMesh(shapeObj: Shape): SceneObjectMesh[] {
         // profile line running into its arc) marks no crease: the UI can draw
         // it dimmed (the dimTangentEdges preference). Non-manifold edges
         // (three or more faces) stay unflagged.
-        if (parents.Size() === 2 && !parents.First().IsSame(parents.Last())
-          && EdgeConvexityOps.isSmoothRaw(oc.TopoDS.Edge(edgeShape), parents.First(), parents.Last())) {
-          mesh.smooth = true;
+        if (parents.Size() === 2) {
+          const last = parents.Last();
+          const typedEdge = oc.TopoDS.Edge(edgeShape);
+          try {
+            if (!first.IsSame(last) && EdgeConvexityOps.isSmoothRaw(typedEdge, first, last)) {
+              mesh.smooth = true;
+            }
+          } finally {
+            typedEdge.delete();
+            last.delete();
+          }
         }
         result.push(mesh);
       }
+      first.delete();
     }
   } finally {
     hidden?.delete();
     spanSeams?.delete();
+    // The explorer wrappers are this pass's temporaries; the solid keeps its
+    // own edge wrappers (`getIndexedShapes`).
+    for (const edge of edges) edge.dispose();
   }
 
   return result;
@@ -92,11 +111,15 @@ function getFacePieces(shapeObj: Shape): FacePiece[] {
   const faces = Explorer.findFacesWrapped(shapeObj);
   const pieces: FacePiece[] = [];
 
-  for (let faceIdx = 0; faceIdx < faces.length; faceIdx++) {
-    const faceResult = Mesh.extractFaceTriangulationRaw(faces[faceIdx].getShape(), 0);
-    if (faceResult) {
-      pieces.push({ faceIdx, vertices: faceResult.vertices, normals: faceResult.normals, indices: faceResult.indices });
+  try {
+    for (let faceIdx = 0; faceIdx < faces.length; faceIdx++) {
+      const faceResult = Mesh.extractFaceTriangulationRaw(faces[faceIdx].getShape(), 0);
+      if (faceResult) {
+        pieces.push({ faceIdx, vertices: faceResult.vertices, normals: faceResult.normals, indices: faceResult.indices });
+      }
     }
+  } finally {
+    for (const face of faces) face.dispose();
   }
 
   return pieces;

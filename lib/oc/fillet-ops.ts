@@ -1,4 +1,4 @@
-import type { BRepBuilderAPI_MakeShape, gp_Pln, TopoDS_Edge, TopoDS_Wire } from "ocjs-fluidcad";
+import type { BRepBuilderAPI_MakeShape, gp_Pln, TopoDS_Edge, TopoDS_Face, TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Edge } from "../common/edge.js";
@@ -28,7 +28,7 @@ export class FilletOps {
     const maker = new oc.BRepFilletAPI_MakeFillet(solid.getShape(), oc.ChFi3d_FilletShape.ChFi3d_Rational);
 
     for (const edge of edges) {
-      maker.Add(radius, oc.TopoDS.Edge(edge.getShape()));
+      FilletOps.withEdge(edge, raw => maker.Add(radius, raw));
     }
 
     const progress = new oc.Message_ProgressRange();
@@ -55,7 +55,7 @@ export class FilletOps {
     const maker = new oc.BRepFilletAPI_MakeChamfer(solid.getShape());
 
     for (const edge of edges) {
-      maker.Add(distance, oc.TopoDS.Edge(edge.getShape()));
+      FilletOps.withEdge(edge, raw => maker.Add(distance, raw));
     }
 
     const progress = new oc.Message_ProgressRange();
@@ -83,13 +83,43 @@ export class FilletOps {
     return colors;
   }
 
-  private static wrapResultSolids(result: any): Solid[] {
+  /**
+   * The maker's `Shape()` is a copy of its own that the wrappers never hold —
+   * each takes a typed copy — so it is freed here with the explorer copies
+   * it was walked through. The maker keeps the result for its history.
+   */
+  private static wrapResultSolids(result: TopoDS_Shape): Solid[] {
     const oc = getOC();
-    if (Explorer.isSolid(result)) {
-      return [Solid.fromTopoDSSolid(Explorer.toSolid(result))];
+    try {
+      if (Explorer.isSolid(result)) {
+        return [Solid.fromTopoDSSolid(Explorer.toSolid(result))];
+      }
+      return Explorer.withShapes(result, oc.TopAbs_ShapeEnum.TopAbs_SOLID as any,
+        raws => raws.map(r => Solid.fromTopoDSSolid(Explorer.toSolid(r))));
+    } finally {
+      result.delete();
     }
-    const solidRaws = Explorer.findShapes(result, oc.TopAbs_ShapeEnum.TopAbs_SOLID as any);
-    return solidRaws.map(r => Solid.fromTopoDSSolid(Explorer.toSolid(r)));
+  }
+
+  /** Feed the maker a typed copy of the edge's handle and free it after — the maker keeps its own. */
+  private static withEdge(edge: Edge, fn: (raw: TopoDS_Edge) => void): void {
+    const oc = getOC();
+    const raw = oc.TopoDS.Edge(edge.getShape());
+    try {
+      fn(raw);
+    } finally {
+      raw.delete();
+    }
+  }
+
+  private static withEdgeAndFace(edge: Edge, face: Face, fn: (rawEdge: TopoDS_Edge, rawFace: TopoDS_Face) => void): void {
+    const oc = getOC();
+    const rawFace = oc.TopoDS.Face(face.getShape());
+    try {
+      FilletOps.withEdge(edge, rawEdge => fn(rawEdge, rawFace));
+    } finally {
+      rawFace.delete();
+    }
   }
 
   static makeChamferTwoDistances(source: SourceColors, edges: Edge[], distance1: number, distance2: number, faces: Face[], isAngle: boolean = false): FilletResult {
@@ -103,11 +133,13 @@ export class FilletOps {
         throw new Error("Chamfer: Failed to find common face for chamfer.");
       }
 
-      if (isAngle) {
-        maker.AddDA(distance1, rad(distance2), oc.TopoDS.Edge(edges[i].getShape()), oc.TopoDS.Face(face.getShape()));
-      } else {
-        maker.Add(distance1, distance2, oc.TopoDS.Edge(edges[i].getShape()), oc.TopoDS.Face(face.getShape()));
-      }
+      FilletOps.withEdgeAndFace(edges[i], face, (rawEdge, rawFace) => {
+        if (isAngle) {
+          maker.AddDA(distance1, rad(distance2), rawEdge, rawFace);
+        } else {
+          maker.Add(distance1, distance2, rawEdge, rawFace);
+        }
+      });
     }
 
     const progress = new oc.Message_ProgressRange();
@@ -150,7 +182,10 @@ export class FilletOps {
     {
       const explorer = new oc.BRepTools_WireExplorer(wire);
       while (explorer.More()) {
-        const raw = oc.TopoDS.Edge(explorer.Current());
+        // `Current()` is a fresh copy, and so is the typed cast: only the cast lives on.
+        const current = explorer.Current();
+        const raw = oc.TopoDS.Edge(current);
+        current.delete();
         const isReversed = raw.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED;
         if (!isReversed) {
           wireEdges.push(raw);
@@ -222,11 +257,18 @@ export class FilletOps {
     }
 
     const edgeList = new oc.TopTools_ListOfShape();
+    const append = (edge: TopoDS_Edge) => {
+      // The list stores its own copy; the cast and the reference `Append`
+      // hands back are both fresh handles to free.
+      const typed = oc.TopoDS.Edge(edge);
+      edgeList.Append(typed).delete();
+      typed.delete();
+    };
     for (let i = 0; i < currentEdges.length; i++) {
-      edgeList.Append(oc.TopoDS.Edge(currentEdges[i]));
+      append(currentEdges[i]);
       const arc = filletArcs.get(i);
       if (arc) {
-        edgeList.Append(oc.TopoDS.Edge(arc));
+        append(arc);
       }
     }
 

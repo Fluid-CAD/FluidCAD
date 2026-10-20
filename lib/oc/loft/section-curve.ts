@@ -75,12 +75,17 @@ export class SectionCurve {
     const explorer = new oc.BRepTools_WireExplorer(wire);
     try {
       while (explorer.More()) {
-        if (!oc.BRep_Tool.Degenerated(explorer.Current())) {
-          const vertex = explorer.CurrentVertex();
-          const point = oc.BRep_Tool.Pnt(vertex);
-          points.push(new Point(point.X(), point.Y(), point.Z()));
-          point.delete();
-          vertex.delete();
+        const edge = explorer.Current();
+        try {
+          if (!oc.BRep_Tool.Degenerated(edge)) {
+            const vertex = explorer.CurrentVertex();
+            const point = oc.BRep_Tool.Pnt(vertex);
+            points.push(new Point(point.X(), point.Y(), point.Z()));
+            point.delete();
+            vertex.delete();
+          }
+        } finally {
+          edge.delete();
         }
         explorer.Next();
       }
@@ -100,10 +105,16 @@ export class SectionCurve {
     const explorer = new oc.BRepTools_WireExplorer(wire);
     try {
       while (explorer.More()) {
+        // The explorer's copy is read here and nowhere else: the arc and
+        // the B-spline are the edge's geometry, not the edge.
         const edge = explorer.Current();
-        if (!oc.BRep_Tool.Degenerated(edge)) {
-          const arc = ConicArcs.ofEdge(edge);
-          edges.push({ arc, curve: arc ? null : SectionCurve.edgeToBSpline(edge) });
+        try {
+          if (!oc.BRep_Tool.Degenerated(edge)) {
+            const arc = ConicArcs.ofEdge(edge);
+            edges.push({ arc, curve: arc ? null : SectionCurve.edgeToBSpline(edge) });
+          }
+        } finally {
+          edge.delete();
         }
         explorer.Next();
       }
@@ -483,6 +494,8 @@ export class SectionCurve {
     const oc = getOC();
     const curveInfo = oc.BRep_Tool.Curve(edge, 0, 1);
     const trimmed = new oc.Geom_TrimmedCurve(curveInfo.returnValue, curveInfo.First, curveInfo.Last, true, true);
+    // The edge's curve handle: the trimmed curve took its own reference.
+    curveInfo.returnValue.delete();
     const bspline = oc.GeomConvert.CurveToBSplineCurve(trimmed);
     trimmed.delete();
 

@@ -2,6 +2,7 @@ import type { VariableInfo } from './ui/expression-input';
 import type { LengthUnit } from './units/units';
 import type { ContactEntity } from './solver/types';
 import type {
+  GlobalParamsSnapshot,
   SceneObjectMesh,
   SceneObjectRender,
   SerializedAssemblyConnector,
@@ -5172,6 +5173,12 @@ export type ParamSelectOption = { label: string; value: string | number };
 /** One `param()` declaration as the editor dialog wants it written. */
 export type ParamSpec = {
   label: string;
+  /**
+   * The exported identifier, for a declaration in a `*.params.js` file —
+   * what the import names and what expressions type. A part or assembly
+   * parameter's variable is derived from the label server-side instead.
+   */
+  name?: string;
   defaultValue: string | number | boolean | (string | number)[];
   type: ParamType;
   description?: string;
@@ -5300,6 +5307,34 @@ export function updateParam(target: ParamTarget, param: ParamSpec): Promise<Para
  */
 export function removeParam(target: ParamTarget): Promise<ParamEditResponse> {
   return postParamEdit('api/params/remove', { ...target });
+}
+
+// ---------------------------------------------------------------------------
+// Project (global) parameters — the exports of `*.params.js` files
+// ---------------------------------------------------------------------------
+
+/** Every params file's exports, as the server's catalog reads them. */
+export function getGlobalParams(): Promise<GlobalParamsSnapshot | null> {
+  return getJson('api/global-params');
+}
+
+/**
+ * Write a project parameter's value: the declaration's default literal is
+ * the value — there is no per-session override for a global, so this is a
+ * source edit of the params file that re-renders the current model.
+ */
+export function setGlobalParam(file: string, label: string, value: unknown): Promise<ParamEditResponse> {
+  return postParamEdit('api/global-params/set', { file, label, value });
+}
+
+/**
+ * Declare a new project parameter at the top level of the params file at
+ * `file` (absolute; a workspace-relative path is resolved server-side). The
+ * file is created when it does not exist yet. `param.name` is the exported
+ * identifier.
+ */
+export function addGlobalParam(file: string, param: ParamSpec): Promise<ParamEditResponse> {
+  return postParamEdit('api/params/add', { param, file });
 }
 
 // ---------------------------------------------------------------------------

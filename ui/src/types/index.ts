@@ -374,6 +374,13 @@ export type SceneObjectRender = {
 
 export type UIParamDefinition = {
   label: string;
+  /**
+   * Where the declaration lives: a `part()` body, an `assembly()` body, or
+   * — a project parameter — the top level of a `*.params.js` file. The
+   * model's Parameters section lists the first two; globals have their own
+   * column.
+   */
+  kind: 'part' | 'assembly' | 'global';
   defaultValue: string | number | boolean | (string | number)[];
   currentValue: string | number | boolean | (string | number)[];
   controlType: 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox' | 'color';
@@ -396,6 +403,63 @@ export type UIParamDefinition = {
    * dropdown filters on. Absent for a top-level declaration.
    */
   part?: SourceLocation;
+};
+
+// ---------------------------------------------------------------------------
+// Project (global) parameters — `export const x = param(...)` in `*.params.js`
+// ---------------------------------------------------------------------------
+
+/** The unit a params file's numbers are in: the project unit (`fluidcad.json`). */
+export type ProjectUnit = 'mm' | 'cm' | 'm' | 'in' | 'ft';
+
+/**
+ * One export of a `*.params.js` file as the server's catalog lists it
+ * (`GET api/global-params`). A `param()` export is a control; a plain
+ * `export const` (`derived`) is read-only — its value is the evaluated
+ * expression, or null when the server could not evaluate it statically.
+ */
+export type GlobalParam = {
+  /** Absolute, normalized. */
+  file: string;
+  /** Workspace-relative — what the import names. */
+  relPath: string;
+  /** The exported identifier — the token to type in an expression. */
+  name: string;
+  label: string;
+  controlType: 'number' | 'slider' | 'text' | 'select' | 'checkbox' | 'color';
+  defaultValue: string | number | boolean | (string | number)[];
+  /** The literal for a `param()`; the evaluated expression for a derived export; null when unknown. */
+  value: string | number | boolean | (string | number)[] | null;
+  derived: boolean;
+  /** A derived export's source expression. */
+  expression?: string;
+  numeric: boolean;
+  options?: { label: string; value: string | number }[];
+  multi?: boolean;
+  multiControlType?: 'select' | 'checkboxes' | 'chips';
+  min?: number;
+  max?: number;
+  step?: number;
+  group?: string;
+  description?: string;
+  line: number;
+  column: number;
+  /** Lint findings for the row — shown as a warning on it. */
+  problems?: string[];
+};
+
+export type GlobalParamsFile = {
+  file: string;
+  relPath: string;
+  params: GlobalParam[];
+  /** File-level findings (a parse error, an export the catalog could not read). */
+  problems: string[];
+};
+
+/** What the Parameters column shows: every params file, and the unit their numbers are in. */
+export type GlobalParamsSnapshot = {
+  files: GlobalParamsFile[];
+  projectUnit: ProjectUnit;
 };
 
 /**

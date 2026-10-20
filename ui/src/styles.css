@@ -191,15 +191,20 @@ html.fluidcad-editor-animating {
 }
 
 :root {
-  /* How far in the docked panel column starts: past the panel rail's gutter,
-     then past the editor pane the rail docks against. A host that mounts
-     neither (the embedded viewer) resolves it to 0px. */
-  --fluidcad-panel-left: calc(var(--fluidcad-rail-width, 0px) + var(--fluidcad-editor-width, 0px));
-  /* How far the scene's own left edge is pushed in. The same thing while the
-     rail is docked, which is why every overlay that lines up with the scene —
+  /* Where the chrome on the left ends: past the panel rail's gutter, then
+     past the editor pane the rail docks against. A host that mounts neither
+     (the embedded viewer) resolves it to 0px. */
+  --fluidcad-dock-left: calc(var(--fluidcad-rail-width, 0px) + var(--fluidcad-editor-width, 0px));
+  /* How far in the docked panel column starts: the chrome above, then the
+     project Parameters column while it is open (GLOBAL_PANEL_WIDTH_VARIABLE
+     in ui/rail-styles.ts, 0px while closed) — that column sits at the dock
+     and pushes the feature tree / parts column right by its width. */
+  --fluidcad-panel-left: calc(var(--fluidcad-dock-left) + var(--fluidcad-global-params-width, 0px));
+  /* How far the scene's own left edge is pushed in: the chrome, not the
+     floating columns over it. Every overlay that lines up with the scene —
      the centred toasts and pills — reads this rather than adding the pieces
      up itself. */
-  --fluidcad-scene-left: var(--fluidcad-panel-left);
+  --fluidcad-scene-left: var(--fluidcad-dock-left);
   /* How far a docked panel column sits in from the rail it clears, and down
      from the host's top chrome. One value on both axes: the column reads the
      same gap to its left as it does above it, so the corner it tucks into

@@ -1,4 +1,4 @@
-import { ICON_CODE, ICON_LIST_TREE } from './icons';
+import { ICON_CODE, ICON_LIST_TREE, ICON_SLIDERS } from './icons';
 
 /**
  * The gutter the rail owns down the left edge, published so everything to its
@@ -65,12 +65,19 @@ export interface PanelRailHandlers {
   isEditorOpen?: () => boolean;
   /** The editor button's tooltip — a read-only host says "Code" rather than "Code editor". */
   editorLabel?: string;
+  /**
+   * Toggle the project Parameters column (`*.params.js` exports). Absent on
+   * a host without one, which removes the button.
+   */
+  onToggleGlobalParams?: () => void;
+  isGlobalParamsOpen?: () => boolean;
 }
 
 /**
  * The panel rail: a full-height vertical bar pinned to the window's left edge,
  * holding one latch button per surface it opens — the feature tree (timeline)
- * on top, the code-editor pane beneath it. It replaces the top bar's hamburger menu, which hid both
+ * on top, the code-editor pane beneath it, the project Parameters column
+ * under that. It replaces the top bar's hamburger menu, which hid the
  * toggles behind a click and gave no sign of what was open.
  *
  * It is chrome, not an overlay: it takes width off the left the way the top
@@ -93,6 +100,7 @@ export class PanelRail {
   private readonly el: HTMLDivElement;
   private readonly editorBtn: RailButton | null;
   private readonly treeBtn: RailButton;
+  private readonly globalParamsBtn: RailButton | null;
   private readonly floatQuery: MediaQueryList | null;
 
   constructor(container: HTMLElement, private readonly handlers: PanelRailHandlers) {
@@ -108,10 +116,13 @@ export class PanelRail {
     container.appendChild(this.el);
     document.documentElement.style.setProperty(RAIL_WIDTH_VARIABLE, RAIL_WIDTH);
 
-    // Tree (timeline) first, editor beneath it.
+    // Tree (timeline) first, editor beneath it, project parameters last.
     this.treeBtn = this.addButton(ICON_LIST_TREE, handlers.onToggleTree);
     this.editorBtn = handlers.onToggleEditor
       ? this.addButton(ICON_CODE, handlers.onToggleEditor)
+      : null;
+    this.globalParamsBtn = handlers.onToggleGlobalParams
+      ? this.addButton(ICON_SLIDERS, handlers.onToggleGlobalParams)
       : null;
 
     this.floatQuery = window.matchMedia?.(FLOAT_QUERY) ?? null;
@@ -147,6 +158,13 @@ export class PanelRail {
       this.handlers.isTreeVisible(),
       this.handlers.treeLabel?.() ?? 'Feature tree',
     );
+    if (this.globalParamsBtn) {
+      this.setState(
+        this.globalParamsBtn,
+        this.handlers.isGlobalParamsOpen?.() === true,
+        'Parameters',
+      );
+    }
   }
 
   private addButton(icon: string, onToggle: () => void): RailButton {

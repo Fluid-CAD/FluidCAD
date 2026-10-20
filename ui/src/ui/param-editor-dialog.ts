@@ -1,4 +1,5 @@
 import {
+  addGlobalParam,
   addParam,
   getParamUsage,
   removeParam,
@@ -9,9 +10,11 @@ import {
   type ParamType,
   type ParamUsage,
 } from '../api';
-import type { SourceLocation, UIParamDefinition } from '../types';
+import type { GlobalParam, SourceLocation, UIParamDefinition } from '../types';
 import { ActivePartTracker, type PartChoice } from '../interactive/active-part-tracker';
 import { ICON_CLOSE, ICON_TRASH } from './icons';
+import { isValidNewIdentifier } from './expression-core';
+import { identifierFromLabel } from './label-identifier';
 import {
   MULTI_CONTROL_CHOICES,
   PARAM_TYPE_CHOICES,
@@ -33,6 +36,12 @@ export type PartChoices = { parts: PartChoice[]; selected: SourceLocation | null
  * itself, so each commit is a source edit the server applies through the
  * editor host and the resulting re-render feeds back into the panel.
  *
+ * The same dialog serves the project Parameters column: a declaration in a
+ * `*.params.js` file ({@link openForCreateInFile}, {@link openForEditGlobal})
+ * is addressed by file rather than by part, and carries an Identifier — the
+ * exported name expressions type — which follows the label as it is typed
+ * until the user writes one of their own.
+ *
  * Nothing the user types is ever interpolated into markup: the shell is static
  * and every value is assigned through `.value` / `.textContent`, so a label
  * with a quote in it is just a label.
@@ -41,6 +50,9 @@ export class ParamEditorDialog {
   private overlay: HTMLDivElement;
   private title: HTMLElement;
   private labelInput: HTMLInputElement;
+  private identifierRow: HTMLElement;
+  private identifierInput: HTMLInputElement;
+  private usageNote: HTMLElement;
   private partRow: HTMLElement;
   private partSelect: HTMLSelectElement;
   private typeSelect: HTMLSelectElement;
@@ -68,6 +80,12 @@ export class ParamEditorDialog {
 
   /** Null while adding; the declaration under edit otherwise. */
   private target: ParamTarget | null = null;
+  /** The params file a new project parameter goes into — set by {@link openForCreateInFile}. */
+  private globalFile: string | null = null;
+  /** Whether the form describes a project parameter: it then carries the Identifier. */
+  private isGlobal = false;
+  /** Once the user has typed in the Identifier it stops following the label. */
+  private identifierTouched = false;
   private usage: ParamUsage | null = null;
   private busy = false;
   /** Where the Part dropdown's entries come from — the timeline's part tracker. */
@@ -86,6 +104,9 @@ export class ParamEditorDialog {
 
     this.title = ref('title');
     this.labelInput = ref('label');
+    this.identifierRow = ref('identifier-row');
+    this.identifierInput = ref('identifier');
+    this.usageNote = ref('usage-note');
     this.partRow = ref('part-row');
     this.partSelect = ref('part');
     this.typeSelect = ref('type');
@@ -139,6 +160,7 @@ export class ParamEditorDialog {
   openForCreate(preferredPart?: SourceLocation | null): void {
     this.target = null;
     this.usage = null;
+    this.setGlobal(false);
     this.title.textContent = 'Add parameter';
     this.seed({ label: '', defaultValue: 0, type: 'number' });
     this.populateParts(preferredPart);
@@ -165,6 +187,7 @@ export class ParamEditorDialog {
       filePath: def.sourceLocation?.filePath,
     };
     this.usage = null;
+    this.setGlobal(false);
     this.title.textContent = 'Edit parameter';
     this.seed(specFromDefinition(def));
     // A declaration stays in the part it was written in — moving it is a
@@ -180,8 +203,83 @@ export class ParamEditorDialog {
     void this.loadUsage(this.target);
   }
 
+  /**
+   * Open on a blank project parameter for the params file at `file`
+   * (absolute, or workspace-relative for a file that does not exist yet —
+   * the server creates it). No Part to choose and nothing to expose: the
+   * declaration is a top-level export, read by whichever files import it.
+   */
+  openForCreateInFile(file: string): void {
+    this.target = null;
+    this.usage = null;
+    this.globalFile = file;
+    this.setGlobal(true);
+    this.identifierTouched = false;
+    this.identifierInput.value = '';
+    this.title.textContent = 'Add project parameter';
+    this.seed({ label: '', defaultValue: 0, type: 'number' });
+    this.partRow.classList.add('hidden');
+    this.partRow.classList.remove('flex');
+    this.exposeRow.classList.add('hidden');
+    this.exposeRow.classList.remove('flex');
+    this.editActions.classList.add('hidden');
+    this.show();
+    this.labelInput.focus();
+  }
+
+  /**
+   * Open on an existing project parameter. Its identifier is the exported
+   * name the file already has, so it does not follow the label: renaming
+   * either is a refactor the server carries through every importing file.
+   */
+  openForEditGlobal(def: GlobalParam): void {
+    this.target = { label: def.label, line: def.line, filePath: def.file };
+    this.usage = null;
+    this.globalFile = null;
+    this.setGlobal(true);
+    this.identifierTouched = true;
+    this.title.textContent = 'Edit project parameter';
+    this.seed(specFromDefinition({
+      label: def.label,
+      kind: 'global',
+      defaultValue: def.defaultValue,
+      currentValue: def.value ?? def.defaultValue,
+      controlType: def.controlType,
+      description: def.description,
+      group: def.group,
+      min: def.min,
+      max: def.max,
+      step: def.step,
+      options: def.options,
+      multi: def.multi,
+      multiControlType: def.multiControlType,
+    }));
+    this.identifierInput.value = def.name;
+    this.partRow.classList.add('hidden');
+    this.partRow.classList.remove('flex');
+    this.exposeRow.classList.add('hidden');
+    this.exposeRow.classList.remove('flex');
+    this.editActions.classList.remove('hidden');
+    this.show();
+    this.labelInput.focus();
+    this.labelInput.select();
+    void this.loadUsage(this.target);
+  }
+
   hide(): void {
     this.overlay.classList.add('hidden');
+  }
+
+  /** Switch the form between a part/assembly parameter and a project one. */
+  private setGlobal(global: boolean): void {
+    this.isGlobal = global;
+    if (!global) {
+      this.globalFile = null;
+    }
+    this.identifierRow.classList.toggle('hidden', !global);
+    this.identifierRow.classList.toggle('flex', global);
+    this.usageNote.classList.add('hidden');
+    this.usageNote.textContent = '';
   }
 
   // ---------------------------------------------------------------------------
@@ -212,6 +310,11 @@ export class ParamEditorDialog {
 
         <div class="flex flex-col gap-3">
           ${field('Label', '<input data-ref="label" type="text" class="input input-sm input-bordered w-full" placeholder="Wall thickness" />')}
+
+          <div data-ref="identifier-row" class="hidden flex-col gap-1">
+            ${field('Identifier', '<input data-ref="identifier" type="text" spellcheck="false" autocapitalize="off" class="input input-sm input-bordered w-full font-mono" placeholder="wallThickness" />')}
+            <span data-ref="usage-note" class="hidden text-xs text-base-content/50"></span>
+          </div>
 
           <div data-ref="part-row" class="hidden flex-col gap-1">
             ${field('Part', '<select data-ref="part" class="select select-sm select-bordered w-full"></select>')}
@@ -323,6 +426,23 @@ export class ParamEditorDialog {
       );
       this.syncTypeSections(type);
       this.renderDefaultControl(type, carried);
+    });
+
+    // A project parameter's identifier follows the label as it is typed —
+    // the camel-cased words, the way the server would derive it — until the
+    // user writes one of their own; clearing it hands it back to the label.
+    this.labelInput.addEventListener('input', () => {
+      if (this.isGlobal && !this.identifierTouched) {
+        const label = this.labelInput.value.trim();
+        this.identifierInput.value = label === '' ? '' : identifierFromLabel(label);
+      }
+    });
+    this.identifierInput.addEventListener('input', () => {
+      this.identifierTouched = this.identifierInput.value.trim() !== '';
+      if (!this.identifierTouched && this.isGlobal) {
+        const label = this.labelInput.value.trim();
+        this.identifierInput.value = label === '' ? '' : identifierFromLabel(label);
+      }
     });
 
     this.overlay.querySelector('[data-ref="add-option"]')!.addEventListener('click', () => {
@@ -552,6 +672,16 @@ export class ParamEditorDialog {
     }
     const type = this.typeSelect.value as ParamType;
     const spec: ParamSpec = { label, defaultValue: this.readDefaultValue(), type };
+    if (this.isGlobal) {
+      const identifier = this.identifierInput.value.trim();
+      if (identifier === '') {
+        return { error: 'Give the parameter an identifier — the name expressions read it by.' };
+      }
+      if (!isValidNewIdentifier(identifier)) {
+        return { error: `'${identifier}' is not a valid identifier.` };
+      }
+      spec.name = identifier;
+    }
 
     const group = this.groupInput.value.trim();
     if (group !== '') {
@@ -618,6 +748,11 @@ export class ParamEditorDialog {
     }
     const target = this.target;
     if (!target) {
+      const file = this.globalFile;
+      if (file !== null) {
+        await this.commit(() => addGlobalParam(file, spec));
+        return;
+      }
       const part = this.chosenPart();
       await this.commit(() => this.scope === 'assembly'
         ? addParam(spec, null, 'assembly')
@@ -688,6 +823,15 @@ export class ParamEditorDialog {
     this.usage = usage;
     if (usage && !usage.editable) {
       this.setMessage(usage.reason ?? 'This parameter has to be edited in the code.');
+    }
+    // A project parameter is read across files: say how many, so a rename
+    // or delete is weighed against what it touches.
+    if (this.isGlobal && usage?.usages) {
+      const files = usage.usages.filter((u) => u.count > 0).length;
+      this.usageNote.textContent = files === 0
+        ? 'Not read by any file yet.'
+        : `Used in ${files} ${files === 1 ? 'file' : 'files'}.`;
+      this.usageNote.classList.remove('hidden');
     }
   }
 

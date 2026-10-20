@@ -5,18 +5,23 @@ import type { EngineClient } from '../engine-client';
 import { ActivePartTracker, type PartChoice } from '../interactive/active-part-tracker';
 import { ICON_ADJUSTMENTS, ICON_CODE, ICON_PENCIL } from './icons';
 import { AccordionSection } from './accordion-section';
+import {
+  ParamDebouncer,
+  bindParamGroups,
+  bindParamHandlers,
+  controlSignature,
+  escapeHtml,
+  renderParamControl,
+  renderParamGroup,
+  updateParamValuesInPlace,
+} from './param-row';
 
-/**
- * What every control is drawn on. This section is the one whose rows are
- * controls rather than names, so it is the one that takes a sheet body
- * (`sheet: true` below): a field has to read as something you can type into,
- * and an outline with the scene showing through it does not.
- *
- * The tint is the panel's own ink rather than a value of its own, which
- * darkens the light theme and lightens the dark one — a recess in the sheet
- * either way, without the two themes needing separate colours.
- */
-const FIELD_SURFACE = 'bg-base-content/[0.06]';
+// This section is the one whose rows are controls rather than names, so it
+// is the one that takes a sheet body (`sheet: true` below): a field has to
+// read as something you can type into, and an outline with the scene showing
+// through it does not. The controls themselves — markup, wiring, the field
+// surface they are drawn on — live in param-row.ts, shared with the
+// project-wide Parameters column.
 
 /**
  * The band the Part dropdown sits in: scope chrome, not a parameter row. It
@@ -24,7 +29,7 @@ const FIELD_SURFACE = 'bg-base-content/[0.06]';
  * the header — `-mt-1` swallows the sheet's top padding so the band meets
  * the header's edge — and closes with the hairline the column's other chrome
  * draws, which is what parts it from the values below. Its tint is half the
- * fields' ({@link FIELD_SURFACE}): recessed enough to read as a different
+ * fields' (param-row.ts's `FIELD_SURFACE`): recessed enough to read as a different
  * kind of surface, not so much that it competes with a field.
  */
 const PART_BAND_CLASS =
@@ -82,7 +87,7 @@ export class ParamsPanel extends AccordionSection {
   private currentParams: UIParamDefinition[] = [];
   /** The rendered file's `property()` declarations — a part scene's published values. */
   private currentProperties: UIPropertyDefinition[] = [];
-  private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private debouncer = new ParamDebouncer();
   private collapsedGroups = new Set<string>();
   /** The header +'s open menu, while one is open. */
   private addMenu: HTMLDivElement | null = null;
@@ -269,14 +274,24 @@ export class ParamsPanel extends AccordionSection {
    */
   private visibleParams(): UIParamDefinition[] {
     if (this.scope === 'assembly') {
-      return this.currentParams.filter(p => p.part === undefined);
+      return this.currentParams.filter((p) => ParamsPanel.kindOf(p) === 'assembly');
     }
     const selected = this.partChoices.length === 0 ? null : this.selectedPart;
     if (selected === null) {
-      return this.currentParams;
+      return this.currentParams.filter((p) => ParamsPanel.kindOf(p) !== 'global');
     }
     return this.currentParams.filter((p) =>
-      p.part !== undefined && ActivePartTracker.sameStatement(p.part, selected));
+      ParamsPanel.kindOf(p) === 'part' && p.part !== undefined && ActivePartTracker.sameStatement(p.part, selected));
+  }
+
+  /**
+   * Where a declaration lives. A render from a server predating the field
+   * is read the way the panel always did: stamped with a part, it is the
+   * part's; otherwise the assembly's. A project parameter (`'global'`) is
+   * never one of this section's rows — it has its own column.
+   */
+  private static kindOf(p: UIParamDefinition): UIParamDefinition['kind'] {
+    return p.kind ?? (p.part !== undefined ? 'part' : 'assembly');
   }
 
   /**
@@ -402,25 +417,11 @@ export class ParamsPanel extends AccordionSection {
       return false;
     }
     for (let i = 0; i < prev.length; i++) {
-      if (ParamsPanel.controlSignature(prev[i]) !== ParamsPanel.controlSignature(next[i])) {
+      if (controlSignature(prev[i]) !== controlSignature(next[i])) {
         return false;
       }
     }
     return true;
-  }
-
-  /**
-   * Everything about a definition that decides what its control looks like.
-   * A value-only change (dragging a slider) leaves this identical and takes
-   * the cheap in-place path; a declaration edit that only moved a slider's
-   * bounds changes it, so the redrawn control actually honours them.
-   */
-  private static controlSignature(p: UIParamDefinition): string {
-    return JSON.stringify([
-      p.label, p.controlType, p.group ?? null, p.description ?? null,
-      p.min ?? null, p.max ?? null, p.step ?? null,
-      p.options ?? null, p.multi ?? false, p.multiControlType ?? null,
-    ]);
   }
 
   /** Whether two property lists draw the same rows — only their values may differ. */
@@ -441,28 +442,7 @@ export class ParamsPanel extends AccordionSection {
   }
 
   private updateValuesInPlace(params: UIParamDefinition[]): void {
-    for (const p of params) {
-      const el = this.body.querySelector<HTMLElement>(`[data-param-label="${CSS.escape(p.label)}"]`);
-      if (!el) {
-        continue;
-      }
-      const type = el.dataset.paramType;
-      if (type === 'slider') {
-        (el as HTMLInputElement).value = String(p.currentValue);
-        const display = this.body.querySelector(`[data-param-display="${CSS.escape(p.label)}"]`);
-        if (display) {
-          display.textContent = String(p.currentValue);
-        }
-      } else if (type === 'number' || type === 'text' || type === 'color') {
-        if (document.activeElement !== el) {
-          (el as HTMLInputElement).value = String(p.currentValue);
-        }
-      } else if (type === 'checkbox') {
-        (el as HTMLInputElement).checked = !!p.currentValue;
-      } else if (type === 'select') {
-        (el as HTMLSelectElement).value = String(p.currentValue);
-      }
-    }
+    updateParamValuesInPlace(this.list, params);
   }
 
   private renderParams(): void {
@@ -490,48 +470,35 @@ export class ParamsPanel extends AccordionSection {
       }
     }
 
+    const rowOptions = { editable: this.editor !== undefined };
     let html = '';
     for (const p of ungrouped) {
-      html += this.renderParamControl(p);
+      html += renderParamControl(p, rowOptions);
     }
     for (const [groupName, groupParams] of groups) {
-      const isCollapsed = this.collapsedGroups.has(groupName);
-      const checked = isCollapsed ? '' : ' checked';
       let controlsHtml = '';
       for (const p of groupParams) {
-        controlsHtml += this.renderParamControl(p);
+        controlsHtml += renderParamControl(p, rowOptions);
       }
-      // The card takes its inset from a wrapper rather than its own margin:
-      // daisyUI's .collapse is width:100%, so a margin would shift it past
-      // the column's right edge instead of narrowing it.
-      html += `
-        <div class="px-3">
-          <div class="collapse collapse-arrow border border-base-content/10 rounded-md mt-1.5" data-param-group="${this.escapeHtml(groupName)}">
-            <input type="checkbox"${checked} class="!min-h-0 !p-0 !h-8" />
-            <div class="collapse-title !min-h-0 !py-2 !px-3 !pr-8 text-xs font-medium text-base-content/65 uppercase tracking-wider">${this.escapeHtml(groupName)}</div>
-            <div class="collapse-content px-0 pb-0">${controlsHtml}</div>
-          </div>
-        </div>
-      `;
+      html += renderParamGroup(groupName, controlsHtml, this.collapsedGroups.has(groupName));
     }
 
     html += this.renderProperties(properties);
 
     this.list.innerHTML = html;
-    this.bindParamHandlers();
-    this.bindPropertyHandlers();
-
-    this.list.querySelectorAll<HTMLElement>('[data-param-group]').forEach((el) => {
-      const checkbox = el.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-      checkbox.addEventListener('change', () => {
-        const name = el.dataset.paramGroup!;
-        if (checkbox.checked) {
-          this.collapsedGroups.delete(name);
-        } else {
-          this.collapsedGroups.add(name);
+    bindParamHandlers(this.list, {
+      lookup: (label) => this.currentParams.find(p => p.label === label),
+      setValue: (label, value) => this.client.setParam(label, value),
+      onEdit: (label) => {
+        const def = this.currentParams.find(p => p.label === label);
+        if (def) {
+          this.editor?.openForEdit(def);
         }
-      });
+      },
+      debouncer: this.debouncer,
     });
+    this.bindPropertyHandlers();
+    bindParamGroups(this.list, this.collapsedGroups);
   }
 
   /**
@@ -545,8 +512,8 @@ export class ParamsPanel extends AccordionSection {
       return '';
     }
     const rows = properties.map((p) => {
-      const name = this.escapeHtml(p.name);
-      const label = this.escapeHtml(p.label ?? p.name);
+      const name = escapeHtml(p.name);
+      const label = escapeHtml(p.label ?? p.name);
       const editButton = !this.propertyEditor ? '' : `
         <button class="btn btn-ghost btn-xs btn-square h-4 min-h-0 w-4 opacity-0 group-hover:opacity-100 focus:opacity-100 text-base-content/40 hover:text-base-content/70"
           data-property-edit="${name}" title="Edit property">
@@ -555,7 +522,7 @@ export class ParamsPanel extends AccordionSection {
       return `
         <div class="px-3 py-1.5 group flex items-center gap-2" data-property-row="${name}">
           <span class="text-sm text-base-content/80 flex-1 truncate" title="${name}">${label}</span>
-          <span class="text-sm text-base-content/80 tabular-nums font-mono truncate max-w-[45%]" data-property-value="${name}">${this.escapeHtml(ParamsPanel.propertyValueText(p.value))}</span>
+          <span class="text-sm text-base-content/80 tabular-nums font-mono truncate max-w-[45%]" data-property-value="${name}">${escapeHtml(ParamsPanel.propertyValueText(p.value))}</span>
           ${editButton}
         </div>
       `;
@@ -606,298 +573,6 @@ export class ParamsPanel extends AccordionSection {
     const part = selected === null
       ? null
       : this.partChoices.find((c) => ActivePartTracker.sameStatement(c.sourceLocation, selected)) ?? null;
-    return `No parameters in ${this.escapeHtml(part?.name || 'this part')} yet — ${how} in its body.`;
-  }
-
-  private renderParamControl(p: UIParamDefinition): string {
-    const effectiveType = p.controlType === 'auto'
-      ? (typeof p.defaultValue === 'boolean' ? 'checkbox' : typeof p.defaultValue === 'number' ? 'number' : 'text')
-      : p.controlType;
-
-    // /65 rather than the /40 a dimmed note would take: at 12px this is body
-    // text on a surface, and /40 measures 2.3:1 against the light sheet.
-    const descHtml = p.description
-      ? `<div class="text-xs text-base-content/65 mt-0.5">${this.escapeHtml(p.description)}</div>`
-      : '';
-
-    const escapedLabel = this.escapeHtml(p.label);
-    let controlHtml = '';
-
-    switch (effectiveType) {
-      case 'slider': {
-        const min = p.min ?? 0;
-        const max = p.max ?? 100;
-        const step = p.step ?? 1;
-        controlHtml = `
-          <div class="flex items-center gap-2 mt-1">
-            <input type="range" class="range range-sm range-primary flex-1"
-              min="${min}" max="${max}" step="${step}"
-              value="${p.currentValue}"
-              data-param-label="${escapedLabel}" data-param-type="slider" />
-            <span class="text-sm text-base-content/80 tabular-nums w-10 text-right" data-param-display="${escapedLabel}">${p.currentValue}</span>
-          </div>
-        `;
-        break;
-      }
-      case 'number': {
-        const attrs: string[] = [];
-        if (p.min != null) { attrs.push(`min="${p.min}"`); }
-        if (p.max != null) { attrs.push(`max="${p.max}"`); }
-        if (p.step != null) { attrs.push(`step="${p.step}"`); }
-        controlHtml = `
-          <div class="mt-1">
-            <input type="number" class="input input-sm input-bordered w-full ${FIELD_SURFACE}"
-              value="${p.currentValue}" ${attrs.join(' ')}
-              data-param-label="${escapedLabel}" data-param-type="number" />
-          </div>
-        `;
-        break;
-      }
-      case 'text':
-        controlHtml = `
-          <div class="mt-1">
-            <input type="text" class="input input-sm input-bordered w-full ${FIELD_SURFACE}"
-              value="${this.escapeHtml(String(p.currentValue))}"
-              data-param-label="${escapedLabel}" data-param-type="text" />
-          </div>
-        `;
-        break;
-      case 'checkbox': {
-        const checked = p.currentValue ? ' checked' : '';
-        const toggle = `
-          <input type="checkbox" class="toggle toggle-sm toggle-primary"
-            ${checked}
-            data-param-label="${escapedLabel}" data-param-type="checkbox" />`;
-        return `
-          <div class="px-3 py-1.5 group">
-            ${this.renderLabelRow(p, toggle)}
-            ${descHtml}
-          </div>
-        `;
-      }
-      case 'select': {
-        const opts = p.options ?? [];
-        if (p.multi) {
-          const selected = new Set(
-            (Array.isArray(p.currentValue) ? p.currentValue : [p.currentValue]).map(String)
-          );
-          const variant = p.multiControlType ?? 'select';
-          if (variant === 'checkboxes') {
-            const items = opts.map(o => {
-              const checked = selected.has(String(o.value)) ? ' checked' : '';
-              return `
-                <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" class="checkbox checkbox-sm checkbox-primary"
-                    value="${this.escapeHtml(String(o.value))}"${checked} />
-                  <span class="text-sm text-base-content/80">${this.escapeHtml(o.label)}</span>
-                </label>`;
-            }).join('');
-            controlHtml = `
-              <div class="mt-1 flex flex-col gap-1"
-                data-param-label="${escapedLabel}" data-param-type="multi-checkboxes">
-                ${items}
-              </div>
-            `;
-          } else if (variant === 'chips') {
-            const chips = opts.map(o => {
-              const active = selected.has(String(o.value));
-              const cls = active ? 'badge-primary' : 'badge-outline';
-              return `<button class="badge badge-sm ${cls} cursor-pointer" data-chip-value="${this.escapeHtml(String(o.value))}">${this.escapeHtml(o.label)}</button>`;
-            }).join('');
-            controlHtml = `
-              <div class="mt-1 flex flex-wrap gap-1"
-                data-param-label="${escapedLabel}" data-param-type="multi-chips">
-                ${chips}
-              </div>
-            `;
-          } else {
-            const optionHtml = opts.map(o => {
-              const sel = selected.has(String(o.value)) ? ' selected' : '';
-              return `<option value="${this.escapeHtml(String(o.value))}"${sel}>${this.escapeHtml(o.label)}</option>`;
-            }).join('');
-            controlHtml = `
-              <div class="mt-1">
-                <select multiple class="select select-sm select-bordered w-full ${FIELD_SURFACE}"
-                  size="${Math.min(opts.length, 5)}"
-                  data-param-label="${escapedLabel}" data-param-type="multi-select">
-                  ${optionHtml}
-                </select>
-              </div>
-            `;
-          }
-        } else {
-          const optionHtml = opts.map(o => {
-            const sel = String(o.value) === String(p.currentValue) ? ' selected' : '';
-            return `<option value="${this.escapeHtml(String(o.value))}"${sel}>${this.escapeHtml(o.label)}</option>`;
-          }).join('');
-          controlHtml = `
-            <div class="mt-1">
-              <select class="select select-sm select-bordered w-full ${FIELD_SURFACE}"
-                data-param-label="${escapedLabel}" data-param-type="select">
-                ${optionHtml}
-              </select>
-            </div>
-          `;
-        }
-        break;
-      }
-      case 'color':
-        controlHtml = `
-          <div class="mt-1">
-            <input type="color" class="w-full h-8 cursor-pointer bg-transparent border border-base-content/20 rounded"
-              value="${this.escapeHtml(String(p.currentValue))}"
-              data-param-label="${escapedLabel}" data-param-type="color" />
-          </div>
-        `;
-        break;
-    }
-
-    return `
-      <div class="px-3 py-1.5 group">
-        ${this.renderLabelRow(p, '')}
-        ${descHtml}
-        ${controlHtml}
-      </div>
-    `;
-  }
-
-  /**
-   * A parameter's name plus the pencil that opens its declaration. The pencil
-   * only fades in on hover — the panel is a value surface first, and every row
-   * carrying a permanent button would read as a toolbar.
-   */
-  private renderLabelRow(p: UIParamDefinition, trailing: string): string {
-    const escapedLabel = this.escapeHtml(p.label);
-    const editButton = !this.editor ? '' : `
-        <button class="btn btn-ghost btn-xs btn-square h-4 min-h-0 w-4 opacity-0 group-hover:opacity-100 focus:opacity-100 text-base-content/40 hover:text-base-content/70"
-          data-param-edit="${escapedLabel}" title="Edit parameter">
-          <span class="[&>svg]:size-3">${ICON_PENCIL}</span>
-        </button>`;
-    return `
-      <div class="flex items-center gap-1">
-        <label class="text-sm text-base-content/80 flex-1 truncate">${escapedLabel}</label>
-        ${trailing}${editButton}
-      </div>
-    `;
-  }
-
-  private bindParamHandlers(): void {
-    this.list.querySelectorAll<HTMLElement>('[data-param-edit]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const def = this.currentParams.find(p => p.label === el.dataset.paramEdit);
-        if (def) {
-          this.editor?.openForEdit(def);
-        }
-      });
-    });
-
-    this.list.querySelectorAll<HTMLElement>('[data-param-label]').forEach((el) => {
-      const label = el.dataset.paramLabel!;
-      const type = el.dataset.paramType!;
-
-      const sendChange = (rawValue: string) => {
-        const def = this.currentParams.find(p => p.label === label);
-        const value: string | number = def && typeof def.defaultValue === 'number'
-          ? Number(rawValue)
-          : rawValue;
-        this.client.setParam(label, value);
-      };
-
-      const sendMultiChange = (rawValues: string[]) => {
-        const def = this.currentParams.find(p => p.label === label);
-        const numericOptions = def?.options?.[0] && typeof def.options[0].value === 'number';
-        const value = numericOptions ? rawValues.map(Number) : rawValues;
-        this.client.setParam(label, value);
-      };
-
-      if (type === 'slider') {
-        el.addEventListener('input', () => {
-          const display = this.body.querySelector(`[data-param-display="${CSS.escape(label)}"]`);
-          if (display) {
-            display.textContent = (el as HTMLInputElement).value;
-          }
-        });
-        el.addEventListener('change', () => {
-          sendChange((el as HTMLInputElement).value);
-        });
-      } else if (type === 'number' || type === 'text') {
-        el.addEventListener('input', () => {
-          this.debounceParam(label, () => sendChange((el as HTMLInputElement).value));
-        });
-        el.addEventListener('blur', () => {
-          this.flushParam(label, () => sendChange((el as HTMLInputElement).value));
-        });
-      } else if (type === 'checkbox') {
-        el.addEventListener('change', () => {
-          this.client.setParam(label, (el as HTMLInputElement).checked);
-        });
-      } else if (type === 'select') {
-        el.addEventListener('change', () => {
-          sendChange((el as HTMLSelectElement).value);
-        });
-      } else if (type === 'multi-select') {
-        el.addEventListener('change', () => {
-          const selected = Array.from((el as HTMLSelectElement).selectedOptions, o => o.value);
-          sendMultiChange(selected);
-        });
-      } else if (type === 'multi-checkboxes') {
-        el.addEventListener('change', () => {
-          const checked = Array.from(
-            el.querySelectorAll<HTMLInputElement>('input[type="checkbox"]:checked'),
-            cb => cb.value
-          );
-          sendMultiChange(checked);
-        });
-      } else if (type === 'color') {
-        el.addEventListener('input', () => {
-          sendChange((el as HTMLInputElement).value);
-        });
-      } else if (type === 'multi-chips') {
-        el.addEventListener('click', (e) => {
-          const chip = (e.target as HTMLElement).closest<HTMLElement>('[data-chip-value]');
-          if (!chip) { return; }
-          chip.classList.toggle('badge-primary');
-          chip.classList.toggle('badge-outline');
-          const active = Array.from(
-            el.querySelectorAll<HTMLElement>('.badge-primary[data-chip-value]'),
-            c => c.dataset.chipValue!
-          );
-          sendMultiChange(active);
-        });
-      }
-    });
-  }
-
-  private debounceParam(label: string, fn: () => void): void {
-    const existing = this.debounceTimers.get(label);
-    if (existing) {
-      clearTimeout(existing);
-    }
-    this.debounceTimers.set(label, setTimeout(() => {
-      this.debounceTimers.delete(label);
-      fn();
-    }, 500));
-  }
-
-  private flushParam(label: string, fn: () => void): void {
-    const existing = this.debounceTimers.get(label);
-    if (existing) {
-      clearTimeout(existing);
-      this.debounceTimers.delete(label);
-      fn();
-    }
-  }
-
-  /**
-   * Safe for both text and attribute positions. Labels are user-authored and
-   * now user-editable from this panel, so a quote in one has to stay inside
-   * the `data-param-label="…"` it lands in rather than ending it.
-   */
-  private escapeHtml(text: string): string {
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+    return `No parameters in ${escapeHtml(part?.name || 'this part')} yet — ${how} in its body.`;
   }
 }

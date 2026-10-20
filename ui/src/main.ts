@@ -20,6 +20,8 @@ import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
 import { ShareDialog } from './ui/share-dialog';
 import { PanelRail } from './ui/panel-rail';
+import { DEFAULT_PARAMS_FILE, GlobalParamsPanel } from './ui/global-params-panel';
+import { listWorkspaceFiles } from './editor/editor-api';
 import { Navbar } from './ui/navbar';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
@@ -55,7 +57,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, getGlobalParams, setGlobalParam, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey, findActiveSketch } from './helpers/scene-utils';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
@@ -946,6 +948,46 @@ topBar.addAction({
   onClick: () => shareDialog.show(currentSceneAbsPath),
 });
 
+// The project Parameters column: every `*.params.js` file's exports, the
+// same column in both workbenches — it is not part of the rail that
+// ensureRailFor() swaps. Declaration edits go through the part dialog in its
+// params-file mode; the + with no params file yet creates project.params.js
+// at the workspace root.
+const globalParamsPanel = new GlobalParamsPanel(container, {
+  fetch: getGlobalParams,
+  setValue: setGlobalParam,
+  openFile: (file, line, column) => withEditorSurface((surface) => {
+    void surface.gotoSource({ filePath: file, line, column });
+  }),
+  onAdd: (file) => {
+    if (file !== null) {
+      paramEditorDialog.openForCreateInFile(file);
+      return;
+    }
+    void workspaceRoot().then((root) => {
+      paramEditorDialog.openForCreateInFile(root ? `${root}/${DEFAULT_PARAMS_FILE}` : DEFAULT_PARAMS_FILE);
+    });
+  },
+  onEdit: (def) => paramEditorDialog.openForEditGlobal(def),
+  onError: (message) => showToast(message),
+  onOpenChange: () => panelRail.sync(),
+});
+
+/**
+ * The workspace's absolute root: what the editor learned from the file
+ * tree, or — the editor not loaded yet — the tree itself. Null when the
+ * server cannot be reached; the caller then sends a relative path for the
+ * server to resolve.
+ */
+async function workspaceRoot(): Promise<string | null> {
+  const known = editorSurface?.models.workspacePath;
+  if (known) {
+    return known;
+  }
+  const listing = await listWorkspaceFiles().catch(() => null);
+  return listing?.workspacePath ?? null;
+}
+
 // The panel rail on the window's left edge: one latch button per surface it
 // opens. Its tree button covers whichever rail the scene kind mounted — the
 // part-design timeline or the assembly parts/joints column — and the editor
@@ -964,6 +1006,8 @@ const panelRail = new PanelRail(container, {
   treeLabel: () => currentRail?.kind === 'assembly' ? 'Parts' : 'Feature tree',
   onToggleEditor: editorSurfaceEnabled ? () => toggleEditorPane() : undefined,
   isEditorOpen: editorSurfaceEnabled ? () => editorSurface?.isOpen() === true : undefined,
+  onToggleGlobalParams: () => globalParamsPanel.toggle(),
+  isGlobalParamsOpen: () => globalParamsPanel.isOpen,
 });
 
 const navbar = new Navbar(container);
@@ -3848,6 +3892,11 @@ function connectWebSocket() {
       case 'file-removed':
         // An edit made outside the page: an agent through MCP, a git checkout.
         void editorSurface?.onFileEvent(msg);
+        break;
+      case 'global-params':
+        // The params catalog changed — a value written from the column, a
+        // params file edited anywhere. Pushed even when no model imports it.
+        globalParamsPanel.update(msg);
         break;
     }
   });

@@ -6,6 +6,7 @@ import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import { DeclarationRefactor } from '../declaration-refactor.ts';
 import { DeclarationRewrite } from '../declaration-rewrite.ts';
+import { GlobalParamEdits, type GlobalParamsRouterDeps } from './global-params.ts';
 import {
   ParamEditor,
   MULTI_CONTROL_TYPES,
@@ -102,6 +103,7 @@ function validParamSpec(input: unknown): ParamSpec | null {
       spec[key] = value;
     }
   };
+  assign('name', optionalText(raw.name));
   assign('group', optionalText(raw.group));
   assign('description', optionalText(raw.description));
   assign('min', optionalNumber(raw.min));
@@ -141,12 +143,38 @@ export function createParamsRouter(
   dispatcher: FeatureEditDispatcher,
   awaitSceneApplied: (timeoutMs: number) => Promise<boolean> = async () => false,
   workspacePath = '',
+  globals?: GlobalParamsRouterDeps,
 ): Router {
   const router = Router();
   // A rename or delete reaches every file that reads the declaration, not
   // just the one on screen: the refactor finds them across the workspace and
   // sends their edits ahead of the declaring file's.
   const refactor = new DeclarationRefactor(fluidCadServer, workspacePath, dispatcher);
+  // The same three edits on a `*.params.js` file — a global parameter — take
+  // the disk when no editor host is attached, which needs the global-params
+  // deps; a server wired without them has no globals to edit.
+  const globalEdits = globals ? new GlobalParamEdits(globals, refactor) : null;
+
+  /**
+   * The params file a request targets, resolved; `'none'` when the request
+   * targets no params file; `'answered'` when it does but the request was
+   * refused here (no globals support, a file outside the workspace).
+   */
+  function globalTarget(res: Response, file: unknown): 'none' | 'answered' | { edits: GlobalParamEdits; absPath: string } {
+    if (!GlobalParamEdits.targets(file)) {
+      return 'none';
+    }
+    if (!globalEdits) {
+      res.status(422).json({ success: false, reason: 'this server cannot edit global parameters' });
+      return 'answered';
+    }
+    const resolved = globalEdits.resolveFile(file);
+    if ('reason' in resolved) {
+      res.status(resolved.status).json({ success: false, reason: resolved.reason });
+      return 'answered';
+    }
+    return { edits: globalEdits, absPath: resolved.absPath };
+  }
 
   /**
    * Re-render after a value override and fan the result out to editor and UI.
@@ -290,12 +318,21 @@ export function createParamsRouter(
   router.get('/params/usage', async (req, res) => {
     const label = typeof req.query.label === 'string' ? req.query.label : '';
     const line = Number(req.query.line);
-    const filePath = typeof req.query.filePath === 'string' && req.query.filePath !== ''
+    let filePath = typeof req.query.filePath === 'string' && req.query.filePath !== ''
       ? req.query.filePath
       : fluidCadServer.getCurrentFileName();
     if (label === '') {
       res.status(400).json({ error: 'label is required' });
       return;
+    }
+    // A global's usage is the same report — its reads are the consumers'
+    // imports, which the refactor finds across the workspace.
+    const global = globalTarget(res, filePath);
+    if (global === 'answered') {
+      return;
+    }
+    if (global !== 'none') {
+      filePath = global.absPath;
     }
     const code = filePath ? await refactor.readFile(filePath) : null;
     if (code === null) {
@@ -314,6 +351,22 @@ export function createParamsRouter(
     const spec = validParamSpec(req.body?.param);
     if (spec === null) {
       res.status(400).json({ error: 'a well-formed param is required' });
+      return;
+    }
+    // `file` names a `*.params.js` file (absolute, or relative to the
+    // workspace): the parameter is a global, appended there as an export —
+    // the file is created when it does not exist yet.
+    if (req.body?.file !== undefined) {
+      if (req.body.part != null || req.body.assembly === true) {
+        res.status(400).json({ error: 'Choose either a params file or a part/assembly scope' });
+        return;
+      }
+      const global = globalTarget(res, req.body.file);
+      if (global === 'none') {
+        res.status(422).json({ success: false, reason: `${req.body.file} is not a *.params.js file` });
+      } else if (global !== 'answered') {
+        await global.edits.add(res, global.absPath, spec);
+      }
       return;
     }
     if (req.body?.assembly === true) {
@@ -355,6 +408,16 @@ export function createParamsRouter(
     const sessionId = fluidCadServer.getCurrentFileName();
     const declaringFile = typeof filePath === 'string' && filePath !== '' ? filePath : sessionId;
     const at = Number.isInteger(line) ? line : undefined;
+    // A global: the identifier is the panel's to choose (`param.name`), the
+    // label change touches the literal alone, and there is no session
+    // override to carry across.
+    const global = globalTarget(res, declaringFile);
+    if (global !== 'none') {
+      if (global !== 'answered') {
+        await global.edits.update(res, global.absPath, label, at, spec);
+      }
+      return;
+    }
     let variable: string | undefined;
     if (spec.label !== label) {
       // A new label renames the variable it suggests — derived here, against
@@ -406,6 +469,13 @@ export function createParamsRouter(
     const sessionId = fluidCadServer.getCurrentFileName();
     const declaringFile = typeof filePath === 'string' && filePath !== '' ? filePath : sessionId;
     const at = Number.isInteger(line) ? line : undefined;
+    const global = globalTarget(res, declaringFile);
+    if (global !== 'none') {
+      if (global !== 'answered') {
+        await global.edits.remove(res, global.absPath, label, at);
+      }
+      return;
+    }
     // The default value stands in for every read of the parameter, in every
     // file. Where it cannot — it names things only its own scope has — the
     // whole delete is refused before any file changes.

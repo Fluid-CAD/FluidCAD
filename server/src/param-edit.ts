@@ -13,12 +13,14 @@ import {
   type TSTree,
 } from './code-editor/index.ts';
 import {
+  declaresName,
   findDeclarationCalls,
   isStandaloneDeclaration,
   locateDeclarationCall,
   outermostExpression,
   type DeclarationCall,
 } from './code-editor/declaration-calls.ts';
+import { PARAMS_FILE_TEMPLATE } from './file-kind.ts';
 import { PropertyEditor } from './property-edit.ts';
 import {
   emptyReport,
@@ -27,7 +29,7 @@ import {
   type DeclarationPlan,
   type DeclarationReport,
 } from './declaration-usages.ts';
-import { DeclarationRewrite } from './declaration-rewrite.ts';
+import { DeclarationRewrite, isUsableVariableName } from './declaration-rewrite.ts';
 
 /** The control types `param()` accepts as its third argument. */
 export const PARAM_TYPES = ['number', 'slider', 'text', 'select', 'checkbox', 'color'] as const;
@@ -57,6 +59,13 @@ export type ParamSpec = {
   options?: SelectOption[];
   multi?: boolean;
   multiControlType?: MultiControlType;
+  /**
+   * The identifier the declaration binds — a global parameter's exported
+   * name (`docs/global-parameters-plan.md` §2.4), which the panel lets the
+   * user edit. Only a params-file target reads it: a part parameter's
+   * variable is derived from its label.
+   */
+  name?: string;
 };
 
 /**
@@ -76,7 +85,11 @@ export type ParamPartTarget = { line: number; column: number };
  * more than once, and is omitted when the render carried no location. An
  * `add` names its part, or explicitly targets the current assembly body.
  * `exposeAsProperty` (part scope only) also declares a `property()` named
- * after the variable the parameter binds, valued with that variable.
+ * after the variable the parameter binds, valued with that variable. A
+ * `global` add targets a `*.params.js` file instead: the declaration is
+ * appended at the file's top level as `export const <name> = param(…)`,
+ * `name` being the identifier the panel chose (else one derived from the
+ * label).
  *
  * An `update` that changes the label follows it through the file's
  * `insert()` overrides, and with `variable` also renames the const the
@@ -86,8 +99,9 @@ export type ParamPartTarget = { line: number; column: number };
  * value would not mean the same where it is read.
  */
 export type ParamEditSpec =
-  | { kind: 'add'; param: ParamSpec; part: ParamPartTarget; assembly?: never; exposeAsProperty?: boolean }
-  | { kind: 'add'; param: ParamSpec; assembly: true; part?: never; exposeAsProperty?: never }
+  | { kind: 'add'; param: ParamSpec; part: ParamPartTarget; assembly?: never; global?: never; exposeAsProperty?: boolean }
+  | { kind: 'add'; param: ParamSpec; assembly: true; part?: never; global?: never; exposeAsProperty?: never }
+  | { kind: 'add'; param: ParamSpec; global: true; name?: string; part?: never; assembly?: never; exposeAsProperty?: never }
   | { kind: 'update'; line?: number; expectedLabel: string; param: ParamSpec; variable?: string }
   | { kind: 'remove'; line?: number; expectedLabel: string };
 
@@ -136,6 +150,9 @@ export class ParamEditor {
   static async apply(code: string, spec: ParamEditSpec, filePath = ''): Promise<ParamEditResult> {
     switch (spec?.kind) {
       case 'add':
+        if (spec.global) {
+          return ParamEditor.addGlobal(code, spec.param, spec.name ?? spec.param?.name);
+        }
         return ParamEditor.add(code, spec.param, spec.part, spec.assembly, spec.exposeAsProperty === true);
       case 'update':
         return ParamEditor.update(code, filePath, spec.line, spec.expectedLabel, spec.param, spec.variable);
@@ -263,6 +280,62 @@ export class ParamEditor {
       declared = exposed;
     }
     return { newCode: await ensureSymbolImport(declared.newCode, 'param') };
+  }
+
+  /** The identifier a global labelled `label` would bind in `code`, were none chosen — see {@link addGlobal}. */
+  static async globalNameFor(code: string, label: string): Promise<string> {
+    return DeclarationRewrite.variableNameFor(label, await ParamEditor.parse(code));
+  }
+
+  /**
+   * Declare a global parameter in a `*.params.js` file: `export const <name>
+   * = param(…)` appended after the file's last top-level statement — after
+   * the last export, or after the imports of a fresh file — with the `param`
+   * import ensured. `name` is the identifier the panel chose; without one the
+   * label's camel-case is used, stepped past the names the file declares.
+   * A chosen name that is no identifier, a reserved word, or already bound
+   * in the file is refused, as is a label the file already carries.
+   */
+  private static async addGlobal(code: string, param: ParamSpec, name?: string): Promise<ParamEditResult> {
+    const invalid = ParamEditor.validate(param);
+    if (invalid) {
+      return { newCode: code, error: invalid };
+    }
+    const tree = await ParamEditor.parse(code);
+    if (ParamEditor.findAll(tree).some((d) => d.key === param.label)) {
+      return { newCode: code, error: `this file already has a parameter labelled "${param.label}"` };
+    }
+    let variable: string;
+    if (typeof name === 'string' && name.trim() !== '') {
+      variable = name.trim();
+      if (!isUsableVariableName(variable)) {
+        return {
+          newCode: code,
+          error: `"${variable}" cannot name a parameter — use letters, digits and underscores, starting with a letter, and not a reserved word`,
+        };
+      }
+      if (declaresName(tree, variable)) {
+        return { newCode: code, error: `this file already declares "${variable}"` };
+      }
+    } else {
+      variable = DeclarationRewrite.variableNameFor(param.label, tree);
+    }
+    const statement = `export const ${variable} = ${ParamEditor.renderCall(param)};`;
+    const last = tree.rootNode.namedChildren.at(-1);
+    if (!last) {
+      // An empty file: the template, then the declaration.
+      return { newCode: `${PARAMS_FILE_TEMPLATE}${statement}\n` };
+    }
+    // The declaration goes on its own line below the last statement's last
+    // line (a trailing comment on that line stays with its statement); one
+    // blank line separates it from a file that is imports only. Whatever
+    // trailing whitespace the file ended with collapses to one newline.
+    const lineEnd = code.indexOf('\n', last.endIndex);
+    const at = lineEnd === -1 ? code.length : lineEnd;
+    const rest = code.slice(at).trim() === '' ? '\n' : code.slice(at);
+    const separator = last.type === 'import_statement' ? '\n\n' : '\n';
+    const declared = `${code.slice(0, at)}${separator}${statement}${rest}`;
+    return { newCode: await ensureSymbolImport(declared, 'param') };
   }
 
   /**

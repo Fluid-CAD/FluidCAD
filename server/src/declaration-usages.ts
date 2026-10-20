@@ -145,13 +145,31 @@ export type DeletionPlan = {
 /** Lines shown per file before the summary says "…". */
 const SUMMARY_LINES = 5;
 
-/** Summarize `sites` for one file — null when there are none. */
+/**
+ * The reads one site stands for, as 1-indexed lines. An import specifier
+ * stands for the reads of the name it binds — those are what a rename
+ * follows and a delete replaces — and for itself alone when the file
+ * imports the name without reading it.
+ */
+function usageLines(site: UsageSite): number[] {
+  if (site.kind === 'import' && site.references.length > 0) {
+    return site.references.map((reference) => reference.node.startPosition.row + 1);
+  }
+  return [usageLine(site)];
+}
+
+/**
+ * Summarize `sites` for one file — null when there are none. An importing
+ * file counts the reads of what it imports, not the specifier that brings
+ * it in (see {@link usageLines}).
+ */
 export function summarizeSites(filePath: string, sites: UsageSite[]): UsageFileSummary | null {
   if (sites.length === 0) {
     return null;
   }
-  const lines = [...new Set(sites.map(usageLine))].sort((a, b) => a - b);
-  return { filePath, count: sites.length, lines: lines.slice(0, SUMMARY_LINES) };
+  const all = sites.flatMap(usageLines);
+  const lines = [...new Set(all)].sort((a, b) => a - b);
+  return { filePath, count: all.length, lines: lines.slice(0, SUMMARY_LINES) };
 }
 
 /**
@@ -796,9 +814,15 @@ function importSpecifierRemoval(code: string, specifier: TSNode): SpliceEdit {
     const row = statement.startPosition.row;
     const aloneOnItsLine = lines[row].slice(0, statement.startPosition.column).trim() === ''
       && lines[statement.endPosition.row].slice(statement.endPosition.column).trim() === '';
-    const end = aloneOnItsLine && statement.endPosition.row < lines.length - 1
+    let end = aloneOnItsLine && statement.endPosition.row < lines.length - 1
       ? statement.endIndex + 1
       : statement.endIndex;
+    // The file's first line going leaves the blank line under it leading
+    // the file — that blank goes too.
+    const nextRow = statement.endPosition.row + 1;
+    if (aloneOnItsLine && row === 0 && nextRow < lines.length - 1 && lines[nextRow].trim() === '') {
+      end += lines[nextRow].length + 1;
+    }
     return { start: statement.startIndex, end, text: '' };
   }
   const index = specifiers.findIndex((s) => isSameNode(s, specifier));

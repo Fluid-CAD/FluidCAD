@@ -1321,7 +1321,7 @@ describe('the feature catalog on the page', () => {
     expect(ObjectIcons.srcFor(undefined, 'extrude')).toBe('icons/extrude.png');
   });
 
-  it('groups a package\'s features under it in the dropdown, marks a library one, and keeps the dialog when the project pins it', () => {
+  it('groups a package\'s features under it in the dropdown, notes a library one, and keeps the dialog when the project pins it', () => {
     const { dialogs, built, menuButton } = catalog();
     const kit = { name: '@acme/kit', version: '0.1.0', availability: 'library' as const };
     dialogs.apply([entry(BRACKET), entry(STANDOFF, { package: kit })]);
@@ -1330,16 +1330,16 @@ describe('the feature catalog on the page', () => {
     const headings = [...panel.querySelectorAll<HTMLElement>('[data-group-heading]')];
     expect(headings.map(h => h.dataset.groupHeading)).toEqual(['workspace', '@acme/kit']);
     expect(headings[0].textContent).toBe('This project');
-    expect(headings[1].querySelector('[data-ref="not-in-project"]')!.textContent).toBe('not in this project');
+    expect(headings[1].querySelector('[data-ref="pin"]')).not.toBeNull();
     const standoff = panel.querySelector<HTMLElement>('[data-tool="feature:acme.standoff"]')!;
     expect(standoff.closest<HTMLElement>('[data-group]')!.dataset.group).toBe('@acme/kit');
-    expect(standoff.title).toContain('From @acme/kit 0.1.0, in your library but not in this project yet');
+    // The tooltip is the description alone, as a built-in tool's: no word of the package.
+    expect(standoff.title).toBe('A boss with a bore');
 
-    // Using it pinned it: same metadata, so the same dialog — its cell drops the mark.
+    // Using it pinned it: same metadata, so the same dialog — its cell drops the note.
     dialogs.apply([entry(BRACKET), entry(STANDOFF, { package: { ...kit, availability: 'dependency' } })]);
     expect(built).toHaveLength(2);
-    expect(panel.querySelector('[data-ref="not-in-project"]')).toBeNull();
-    expect(panel.querySelector<HTMLElement>('[data-tool="feature:acme.standoff"]')!.title).toBe('Standoff — A boss with a bore\nFrom @acme/kit 0.1.0.');
+    expect(panel.querySelector<HTMLElement>('[data-tool="feature:acme.standoff"]')!.title).toBe('A boss with a bore');
   });
 
   it("offers a built-in that describes itself — Draft — as a regular button in its group, with the product's own icon", () => {
@@ -1468,7 +1468,7 @@ describe('the feature catalog on the page', () => {
     expect(navbar.getGroup('modify')!.querySelector('[data-tool="feature:draft"]')).not.toBeNull();
     menuButton.click();
     expect(cells().map(cell => cell.dataset.tool)).toEqual(['feature:acme.boltCircle', 'feature:acme.standoff', 'feature:acme.pocket']);
-    expect(cells()[1].title).toBe('Standoff — A boss with a bore');
+    expect(cells()[1].title).toBe('A boss with a bore');
     expect(cells()[1].querySelector('img')!.getAttribute('src')).toBe('api/features/asset?id=acme.standoff&path=.%2Fstandoff.svg');
     expect(cells()[0].querySelector('img')!.getAttribute('src')).toBe('icons/solid.png');
   });

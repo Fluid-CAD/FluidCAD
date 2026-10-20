@@ -1,9 +1,10 @@
 import type { PackageRef } from '../../../api';
-import { ICON_CHEVRON_DOWN } from '../../../ui/icons';
+import { ICON_CHEVRON_DOWN, ICON_PIN, ICON_PINNED_OFF } from '../../../ui/icons';
 import { HubIcons } from '../../../ui/hub/hub-icons';
 import { iconUrl } from '../../../ui/icon-url';
 import type { Navbar } from '../../../ui/navbar';
 import { ICON_IMG_FALLBACK } from '../../../ui/object-icons';
+import { showPopupMenu } from '../../../ui/popup-menu';
 import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from '../../../ui/toolbar-styles';
 import { viewportChrome } from '../../../ui/viewport-chrome';
 import type { FeatureLauncher } from '../feature-button';
@@ -15,16 +16,18 @@ export type CustomFeatureCellSpec = {
   id: string | null;
   label: string;
   iconSrc: string;
-  /** The cell's tooltip: the full label (with the description), or why the entry can't be offered. */
+  /** The cell's aria label: the full label (with the description), or why the entry can't be offered. */
   tip: string;
+  /** The feature's description — its tooltip, as a built-in tool's says what it does; absent, the tooltip is {@link tip}. */
+  description?: string;
   /** Create-group features list first, then modify. */
   group: 'create' | 'modify';
   /** An entry the catalog can't offer: greyed, and its tooltip says why. */
   disabled?: boolean;
   /**
    * The installed package the feature comes from; absent for the
-   * workspace's own. The menu groups by it, and a library package's group
-   * says it isn't in this project yet.
+   * workspace's own. The menu groups by it, and a package pinned to the
+   * toolbar takes its group there.
    */
   package?: PackageRef;
 };
@@ -39,12 +42,16 @@ const PANEL =
 const GRID = 'grid grid-cols-[repeat(3,minmax(0,5.5rem))] gap-1';
 /** A group's heading, once a package's features share the menu with the workspace's. */
 const GROUP_HEADING = 'flex items-center gap-1.5 px-1 pt-1.5 pb-1 text-[11px] text-base-content/55 min-w-0 first:pt-0.5';
-const NOT_IN_PROJECT = 'badge badge-xs badge-soft badge-warning shrink-0 whitespace-nowrap';
+const PIN_BUTTON = 'btn btn-ghost btn-xs btn-square size-5 min-h-0 ml-auto shrink-0 text-base-content/45 hover:text-base-content [&>svg]:size-3.5';
 // The toolbar's own idle and armed looks, stretched to the cell.
 const CELL_SHAPE = 'btn btn-sm h-auto w-full min-w-0 flex-col gap-1 px-1 py-2';
 const CELL_BASE = `${CELL_SHAPE} btn-ghost text-base-content/70`;
 const CELL_ACTIVE = `${CELL_SHAPE} btn-soft btn-primary`;
 const CELL_LABEL = 'block max-w-full truncate text-[11px] leading-tight';
+/** A cell pinned to the toolbar wears a toolbar button's look, in its tooltip wrapper. */
+const PINNED_WRAP = 'tooltip tooltip-bottom shrink-0';
+/** A pinned package's toolbar group key: `custom-package:<name>@<version>`. */
+const PINNED_GROUP_PREFIX = 'custom-package:';
 
 /** Clearance from the window's edges, in pixels. */
 const EDGE = 8;
@@ -54,7 +61,8 @@ const GAP = 6;
 /**
  * One feature in the menu's grid: its icon over its label, the click that
  * opens its dialog, and the armed styling while that dialog is open. The
- * dialog drives it as it would its own toolbar button.
+ * dialog drives it as it would its own toolbar button — and once its
+ * package is pinned to the toolbar, it is one, on the bar.
  */
 export class CustomFeatureCell implements FeatureLauncher {
   onClick?: () => void;
@@ -62,7 +70,9 @@ export class CustomFeatureCell implements FeatureLauncher {
   /** The grid cell — it carries the tooltip, so a greyed entry still explains itself. */
   readonly el: HTMLDivElement;
   private readonly button: HTMLButtonElement;
+  private readonly label: HTMLSpanElement;
   private _active = false;
+  private _pinned = false;
 
   constructor(
     readonly spec: CustomFeatureCellSpec,
@@ -75,8 +85,6 @@ export class CustomFeatureCell implements FeatureLauncher {
     },
   ) {
     this.el = document.createElement('div');
-    this.el.className = 'relative min-w-0 flex';
-    this.el.title = CustomFeatureCell.titleOf(spec);
     if (spec.id !== null) {
       this.el.dataset.tool = `feature:${spec.id}`;
     }
@@ -84,13 +92,13 @@ export class CustomFeatureCell implements FeatureLauncher {
     this.button.setAttribute('aria-label', spec.tip);
     this.button.disabled = this.disabled;
     this.button.innerHTML = `<img src="${spec.iconSrc}" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`;
-    const label = document.createElement('span');
-    label.className = CELL_LABEL;
-    label.textContent = spec.label;
-    this.button.appendChild(label);
+    this.label = document.createElement('span');
+    this.label.textContent = spec.label;
+    this.button.appendChild(this.label);
     this.button.addEventListener('click', () => this.events.press(this));
     this.el.appendChild(this.button);
     this.syncClass();
+    this.syncTip();
   }
 
   get active(): boolean {
@@ -99,6 +107,21 @@ export class CustomFeatureCell implements FeatureLauncher {
 
   get disabled(): boolean {
     return this.spec.disabled === true;
+  }
+
+  /** On the toolbar, its package pinned there, rather than in the dropdown's grid. */
+  get pinned(): boolean {
+    return this._pinned;
+  }
+
+  /** Wear the toolbar button's look (its package pinned to the bar) or the grid cell's. */
+  setPinned(pinned: boolean): void {
+    if (this._pinned === pinned) {
+      return;
+    }
+    this._pinned = pinned;
+    this.syncClass();
+    this.syncTip();
   }
 
   setActive(active: boolean): void {
@@ -118,7 +141,7 @@ export class CustomFeatureCell implements FeatureLauncher {
   /**
    * The package the feature comes from changed while its dialog stayed (the
    * project just pinned a library package by using it): the cell moves to
-   * that package's group and drops the "not in this project" mark.
+   * that package's group.
    */
   setPackage(pkg: PackageRef | undefined): void {
     const before = JSON.stringify(this.spec.package ?? null);
@@ -126,24 +149,30 @@ export class CustomFeatureCell implements FeatureLauncher {
       return;
     }
     (this.spec as { package?: PackageRef }).package = pkg;
-    this.el.title = CustomFeatureCell.titleOf(this.spec);
     this.events.regroup();
   }
 
-  /** The tooltip: the feature's own, then where it comes from. */
-  private static titleOf(spec: CustomFeatureCellSpec): string {
-    if (!spec.package) {
-      return spec.tip;
-    }
-    const from = `From ${spec.package.name} ${spec.package.version}`;
-    return spec.package.availability === 'library'
-      ? `${spec.tip}\n${from}, in your library but not in this project yet: using it adds it.`
-      : `${spec.tip}\n${from}.`;
+  private syncClass(): void {
+    const look = this._pinned
+      ? (this._active ? TOOLBAR_BTN_ACTIVE : TOOLBAR_BTN_BASE)
+      : (this._active ? CELL_ACTIVE : CELL_BASE);
+    // A greyed cell lets the hover through to the cell, whose tooltip says why.
+    this.button.className = `${look}${this.disabled ? ' pointer-events-none' : ''}`;
+    this.label.className = this._pinned ? TOOLBAR_BTN_LABEL : CELL_LABEL;
+    this.el.className = this._pinned ? PINNED_WRAP : 'relative min-w-0 flex';
   }
 
-  private syncClass(): void {
-    // A greyed cell lets the hover through to the cell, whose tooltip says why.
-    this.button.className = `${this._active ? CELL_ACTIVE : CELL_BASE}${this.disabled ? ' pointer-events-none' : ''}`;
+  /** On the bar the tooltip is the toolbar's own; in the grid, the native one. */
+  private syncTip(): void {
+    // A greyed entry's tip says why it can't be offered, so it wins.
+    const tip = (!this.disabled && this.spec.description) || this.spec.tip;
+    if (this._pinned) {
+      this.el.removeAttribute('title');
+      this.el.dataset.tip = tip;
+    } else {
+      delete this.el.dataset.tip;
+      this.el.title = tip;
+    }
   }
 }
 
@@ -166,10 +195,21 @@ export class CustomFeatureCell implements FeatureLauncher {
  * dialogs is open. The dropdown closes on a cell's click, Escape, a press
  * or a wheel anywhere else, and whenever a dialog opens; cells come and go
  * with the catalog under an open dropdown.
+ *
+ * A package's heading in the dropdown carries a pin: pinned, the package's
+ * features leave the dropdown for the toolbar, as buttons in a group of
+ * their own (between dividers) ahead of the Custom button, packages by
+ * name. A right-click on that group unpins it. The pins are the user's
+ * (a preference, by package name), so they follow the package into every
+ * project that offers it: the page hands them in ({@link setToolbarPackages})
+ * and hears every change ({@link onToolbarPackagesChange}).
  */
 export class CustomFeaturesMenu implements SketchHideable {
   /** The navbar group the button sits in. */
   static readonly GROUP = 'custom';
+
+  /** The user pinned or unpinned a package: every pinned package's name, sorted. */
+  onToolbarPackagesChange?: (names: string[]) => void;
 
   private readonly wrap: HTMLSpanElement;
   private readonly button: HTMLButtonElement;
@@ -177,6 +217,10 @@ export class CustomFeaturesMenu implements SketchHideable {
   private readonly cells: CustomFeatureCell[] = [];
   private sketchHidden = false;
   private opened = false;
+  /** The packages pinned to the toolbar, by name. */
+  private toolbarPackages = new Set<string>();
+  /** The toolbar groups of the pinned packages listed now, by group key. */
+  private readonly pinnedGroups = new Map<string, HTMLElement>();
   /** What the empty dropdown's button does (open the Hub panel); null hides the button with nothing to list. */
   private emptyAction: (() => void) | null = null;
   /** The dialogs open when the dropdown opened — one more closes it. */
@@ -241,9 +285,39 @@ export class CustomFeaturesMenu implements SketchHideable {
     return this.opened;
   }
 
-  /** Whether the button is on the bar: a feature to list (or the empty state's way to the hub), and no sketch up. */
+  /** Whether the button is on the bar: a feature left to list (or the empty state's way to the hub), and no sketch up. */
   get isVisible(): boolean {
-    return (this.cells.length > 0 || this.emptyAction !== null) && !this.sketchHidden;
+    return (this.cells.some(cell => !cell.pinned) || this.emptyAction !== null) && !this.sketchHidden;
+  }
+
+  /** The packages pinned to the toolbar, by name, sorted. */
+  get pinnedPackages(): string[] {
+    return [...this.toolbarPackages].sort();
+  }
+
+  /** The pins as stored (the preferences loaded, or reset): no {@link onToolbarPackagesChange}. */
+  setToolbarPackages(names: Iterable<string>): void {
+    this.toolbarPackages = new Set(names);
+    this.layout();
+  }
+
+  /** Put a package's features on the toolbar, ahead of the Custom button. */
+  pin(name: string): void {
+    if (this.toolbarPackages.has(name)) {
+      return;
+    }
+    this.toolbarPackages.add(name);
+    this.layout();
+    this.onToolbarPackagesChange?.(this.pinnedPackages);
+  }
+
+  /** Take a package's features off the toolbar, back into the dropdown. */
+  unpin(name: string): void {
+    if (!this.toolbarPackages.delete(name)) {
+      return;
+    }
+    this.layout();
+    this.onToolbarPackagesChange?.(this.pinnedPackages);
   }
 
   /**
@@ -256,9 +330,9 @@ export class CustomFeaturesMenu implements SketchHideable {
     this.layout();
   }
 
-  /** Armed: one of its features' dialogs is open. */
+  /** Armed: one of its listed features' dialogs is open (a pinned one arms its own button). */
   get isActive(): boolean {
-    return this.cells.some(cell => cell.active);
+    return this.cells.some(cell => cell.active && !cell.pinned);
   }
 
   toggle(): void {
@@ -300,7 +374,7 @@ export class CustomFeaturesMenu implements SketchHideable {
     window.removeEventListener('resize', this.onResize);
   }
 
-  /** Off the bar while a sketch is up, like the create buttons — and the dropdown with it. */
+  /** Off the bar while a sketch is up, like the create buttons — and the dropdown and the pinned groups with it. */
   setSketchHidden(hidden: boolean): void {
     if (this.sketchHidden === hidden) {
       return;
@@ -320,36 +394,40 @@ export class CustomFeaturesMenu implements SketchHideable {
   }
 
   /**
-   * Order the grid, then bring the button and an open dropdown in line with
-   * it. With a package's features in the menu, each source gets its own grid
-   * under a heading: the workspace's ("This project") first, then each
-   * package by name, a library one marked as not in this project yet.
+   * Order the grid, then bring the bar, the button and an open dropdown in
+   * line with it. Each pinned package's features go to its toolbar group;
+   * the rest stay in the dropdown. With a package's features there, each
+   * source gets its own grid under a heading: the workspace's ("This
+   * project") first, then each package by name, with its pin.
    */
   private layout(): void {
-    if (this.cells.length === 0 && this.emptyAction) {
-      this.panel.replaceChildren(this.emptyState());
-      this.syncActive();
-      this.syncVisible();
-      if (this.isOpen) {
-        this.position();
-      }
-      return;
-    }
     this.cells.sort(CustomFeaturesMenu.compare);
     const groups = CustomFeaturesMenu.groupsOf(this.cells);
-    const headed = groups.some(group => group.pkg !== null);
-    const children: HTMLElement[] = [];
+    const pinned = groups.filter(group => this.isPinned(group.pkg));
+    const listed = groups.filter(group => !this.isPinned(group.pkg));
     for (const group of groups) {
-      if (headed) {
-        children.push(CustomFeaturesMenu.heading(group.pkg));
+      for (const cell of group.cells) {
+        cell.setPinned(this.isPinned(group.pkg));
       }
-      const grid = document.createElement('div');
-      grid.className = GRID;
-      grid.dataset.group = group.pkg ? group.pkg.name : 'workspace';
-      grid.replaceChildren(...group.cells.map(cell => cell.el));
-      children.push(grid);
     }
-    this.panel.replaceChildren(...children);
+    this.layoutBar(pinned);
+    if (listed.length === 0 && this.emptyAction) {
+      this.panel.replaceChildren(this.emptyState(this.cells.length > 0));
+    } else {
+      const headed = listed.some(group => group.pkg !== null);
+      const children: HTMLElement[] = [];
+      for (const group of listed) {
+        if (headed) {
+          children.push(this.heading(group.pkg));
+        }
+        const grid = document.createElement('div');
+        grid.className = GRID;
+        grid.dataset.group = group.pkg ? group.pkg.name : 'workspace';
+        grid.replaceChildren(...group.cells.map(cell => cell.el));
+        children.push(grid);
+      }
+      this.panel.replaceChildren(...children);
+    }
     this.syncActive();
     this.syncVisible();
     if (this.isOpen) {
@@ -357,14 +435,65 @@ export class CustomFeaturesMenu implements SketchHideable {
     }
   }
 
-  /** No custom features: what that means, and the way to the Hub panel. */
-  private emptyState(): HTMLDivElement {
+  private isPinned(pkg: PackageRef | null): pkg is PackageRef {
+    return pkg !== null && this.toolbarPackages.has(pkg.name);
+  }
+
+  /**
+   * One toolbar group per pinned package, in menu order, right before the
+   * Custom button's: groups of packages no longer listed (or unpinned)
+   * leave the bar, new ones go in ahead of the next one kept.
+   */
+  private layoutBar(groups: readonly { pkg: PackageRef | null; cells: CustomFeatureCell[] }[]): void {
+    const keyOf = (pkg: PackageRef) => `${PINNED_GROUP_PREFIX}${pkg.name}@${pkg.version}`;
+    const keep = new Set(groups.map(group => keyOf(group.pkg!)));
+    for (const key of [...this.pinnedGroups.keys()]) {
+      if (!keep.has(key)) {
+        this.navbar.removeGroup(key);
+        this.pinnedGroups.delete(key);
+      }
+    }
+    let next = CustomFeaturesMenu.GROUP;
+    for (const group of [...groups].reverse()) {
+      const pkg = group.pkg!;
+      const key = keyOf(pkg);
+      let host = this.pinnedGroups.get(key);
+      if (!host) {
+        host = this.navbar.addGroup(key, { visible: false, before: next });
+        host.dataset.package = pkg.name;
+        host.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          this.showUnpinMenu(host!, e, pkg.name);
+        });
+        this.pinnedGroups.set(key, host);
+      }
+      host.replaceChildren(...group.cells.map(cell => cell.el));
+      next = key;
+    }
+  }
+
+  /** A pinned group's right-click menu: unpin its package. */
+  private showUnpinMenu(host: HTMLElement, e: MouseEvent, name: string): void {
+    showPopupMenu(host.closest<HTMLElement>('#fluidcad-viewer') ?? document.body, e, [{
+      icon: ICON_PINNED_OFF,
+      label: 'Unpin',
+      onSelect: () => this.unpin(name),
+    }]);
+  }
+
+  /**
+   * No custom features — or every one pinned to the toolbar (`allPinned`):
+   * what that means, and the way to the Hub panel.
+   */
+  private emptyState(allPinned: boolean): HTMLDivElement {
     const box = document.createElement('div');
     box.dataset.ref = 'empty';
     box.className = 'w-64 p-1.5 flex flex-col gap-2.5';
     const text = document.createElement('p');
     text.className = 'text-xs text-base-content/75 leading-snug';
-    text.textContent = 'No custom features installed. Check FluidCAD Hub for packages of features and parts.';
+    text.textContent = allPinned
+      ? 'Every custom feature is pinned to the toolbar. Right-click a pinned group to unpin it.'
+      : 'No custom features installed. Check FluidCAD Hub for packages of features and parts.';
     const open = document.createElement('button');
     open.type = 'button';
     open.dataset.ref = 'open-hub';
@@ -394,7 +523,7 @@ export class CustomFeaturesMenu implements SketchHideable {
       .map(([, group]) => group);
   }
 
-  private static heading(pkg: PackageRef | null): HTMLDivElement {
+  private heading(pkg: PackageRef | null): HTMLDivElement {
     const heading = document.createElement('div');
     heading.className = GROUP_HEADING;
     heading.dataset.groupHeading = pkg ? pkg.name : 'workspace';
@@ -408,13 +537,16 @@ export class CustomFeaturesMenu implements SketchHideable {
       version.textContent = pkg.version;
       heading.appendChild(version);
     }
-    if (pkg?.availability === 'library') {
-      const badge = document.createElement('span');
-      badge.className = NOT_IN_PROJECT;
-      badge.dataset.ref = 'not-in-project';
-      badge.textContent = 'not in this project';
-      badge.title = 'In your library, not used by this project yet: using one of its features adds it to the project.';
-      heading.appendChild(badge);
+    if (pkg) {
+      const pin = document.createElement('button');
+      pin.type = 'button';
+      pin.dataset.ref = 'pin';
+      pin.className = PIN_BUTTON;
+      pin.innerHTML = ICON_PIN;
+      pin.title = 'Pin to the toolbar';
+      pin.setAttribute('aria-label', `Pin ${pkg.name} to the toolbar`);
+      pin.addEventListener('click', () => this.pin(pkg.name));
+      heading.appendChild(pin);
     }
     return heading;
   }
@@ -434,6 +566,9 @@ export class CustomFeaturesMenu implements SketchHideable {
   private syncVisible(): void {
     // One vote, so a sketch hides the group whole — no empty group behind a divider.
     this.navbar.setGroupVisible(CustomFeaturesMenu.GROUP, this.isVisible);
+    for (const key of this.pinnedGroups.keys()) {
+      this.navbar.setGroupVisible(key, !this.sketchHidden);
+    }
     if (!this.isVisible) {
       this.close();
     }

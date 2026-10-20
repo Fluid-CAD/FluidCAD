@@ -170,6 +170,7 @@ export class FeatureCatalogDialogs {
       });
       const cell = entry.builtIn ? null : this.menu.add({
         id, label: schema.label, iconSrc: icon, tip: schema.tip, group: FeatureCatalogDialogs.groupOf(entry.meta),
+        ...(entry.meta.description ? { description: entry.meta.description } : {}),
         ...(entry.package ? { package: entry.package } : {}),
       });
       const service = cell ? this.create(schema, icon, cell) : this.create(schema, icon);

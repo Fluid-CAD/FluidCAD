@@ -252,6 +252,7 @@ function applyLoadedPreferences(prefs: UserPreferences): void {
   applyEnginePreferences(prefs);
   applyGlobalMaterialsPreferences(prefs);
   applyPackagePreferences(prefs);
+  featureCatalog.menu.setToolbarPackages(prefs.toolbarPackages ?? []);
   pendingShowBuildTimings = !!prefs.showBuildTimings;
   if (currentRail?.kind === 'part') {
     currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
@@ -2264,6 +2265,8 @@ const featureCatalog = new FeatureCatalogDialogs(featureDialogs, navbar, (schema
 // With no custom features the Custom dropdown stays on the bar (H11): it says
 // none are installed and opens the Hub panel.
 featureCatalog.menu.setEmptyAction(() => hubPanel.show());
+// A package pinned from the dropdown rides the toolbar in every project.
+featureCatalog.menu.onToolbarPackagesChange = (names) => savePreference('toolbarPackages', names);
 
 // While a sketch is active, a green "Finish Sketch" button heads the create
 // group and the create-feature buttons leave the bar. It marks the sketch

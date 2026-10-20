@@ -100,10 +100,15 @@ export class Navbar {
    * Register a tool group (in call order) and return its content host to fill
    * with buttons. `visible` controls whether the group is shown initially;
    * `exclusive` groups hide every other group whenever they are visible.
+   * `before` places it ahead of that registered group instead of last (a
+   * package pinned to the bar goes ahead of the Custom button).
    */
   addGroup(
     key: string,
-    opts: { visible?: boolean; exclusive?: boolean; anchor?: 'start' | 'end'; immune?: boolean; mode?: NavbarGroupMode } = {},
+    opts: {
+      visible?: boolean; exclusive?: boolean; anchor?: 'start' | 'end'; immune?: boolean; mode?: NavbarGroupMode;
+      before?: string;
+    } = {},
   ): HTMLElement {
     const divider = document.createElement('div');
     divider.className = 'w-px h-8 bg-base-content/[0.12] mx-1 shrink-0 hidden';
@@ -128,14 +133,13 @@ export class Navbar {
     // Keep 'end'-anchored groups after every 'start' group in both the array
     // and the DOM, so a trailing group stays last even when 'start' groups are
     // registered later.
-    const firstEnd = group.anchor === 'start'
-      ? this.groups.find((g) => g.anchor === 'end')
-      : undefined;
+    const next = this.groups.find((g) => g.key === opts.before && g.anchor === group.anchor)
+      ?? (group.anchor === 'start' ? this.groups.find((g) => g.anchor === 'end') : undefined);
     const track = this.scroller.track;
-    if (firstEnd) {
-      this.groups.splice(this.groups.indexOf(firstEnd), 0, group);
-      track.insertBefore(divider, firstEnd.divider);
-      track.insertBefore(host, firstEnd.divider);
+    if (next) {
+      this.groups.splice(this.groups.indexOf(next), 0, group);
+      track.insertBefore(divider, next.divider);
+      track.insertBefore(host, next.divider);
     } else {
       this.groups.push(group);
       track.appendChild(divider);
@@ -161,6 +165,18 @@ export class Navbar {
       return;
     }
     group.visible = next;
+    this.reflow();
+  }
+
+  /** Take a group, its buttons and its divider off the bar for good (a package unpinned from it). */
+  removeGroup(key: string): void {
+    const group = this.groups.find((g) => g.key === key);
+    if (!group) {
+      return;
+    }
+    this.groups.splice(this.groups.indexOf(group), 1);
+    group.divider.remove();
+    group.host.remove();
     this.reflow();
   }
 

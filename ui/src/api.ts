@@ -268,6 +268,8 @@ export interface UserPreferences {
   packageLibraryPath?: string;
   /** Settings → Packages "New packages go to". Default 'library'. */
   packageInstallTarget?: PackageTarget;
+  /** The packages whose custom features are pinned to the toolbar, by name. Default none. */
+  toolbarPackages?: string[];
 }
 
 /** Which of a sketch's children the timeline lists: every row, or only the features that open an edit dialog. */

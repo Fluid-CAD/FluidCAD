@@ -10,6 +10,7 @@ import {
   SNAP_RADIUS_PX_RANGE,
   TIMELINE_SKETCH_CHILDREN,
   loadPreferences,
+  parseToolbarPackages,
   resetPreferences,
   savePreferences,
   type Preferences,
@@ -175,6 +176,11 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
         }
         if (PACKAGE_INSTALL_TARGETS.includes(body.packageInstallTarget)) {
           current.packageInstallTarget = body.packageInstallTarget;
+        }
+        // The whole list, as the toolbar holds it (an empty one unpins all).
+        const toolbarPackages = parseToolbarPackages(body.toolbarPackages);
+        if (toolbarPackages !== null) {
+          current.toolbarPackages = toolbarPackages;
         }
         await savePreferences(current);
         return current;

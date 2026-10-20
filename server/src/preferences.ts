@@ -79,9 +79,33 @@ export interface Preferences {
   packageLibraryPath: string;
   /** Settings → Packages "New packages go to": the user library (default) or the open project's `packages/`. */
   packageInstallTarget: PackageInstallTarget;
+  /**
+   * The packages whose custom features the toolbar shows as buttons of
+   * their own (pinned from the Custom dropdown), by package name — in every
+   * project that offers them.
+   */
+  toolbarPackages: string[];
 }
 
 export const PACKAGE_INSTALL_TARGETS = ['library', 'project'] as const;
+
+/** Most packages the toolbar keeps pinned, and the longest name one may have (npm's limit). */
+const MAX_TOOLBAR_PACKAGES = 100;
+const MAX_PACKAGE_NAME_CHARS = 214;
+
+/**
+ * A list of pinned package names as stored: unique non-empty strings no
+ * longer than a package name may be, sorted; null when `value` is no list.
+ */
+export function parseToolbarPackages(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const names = value.filter(
+    (name): name is string => typeof name === 'string' && name.trim() !== '' && name.length <= MAX_PACKAGE_NAME_CHARS,
+  );
+  return [...new Set(names.map(name => name.trim()))].sort().slice(0, MAX_TOOLBAR_PACKAGES);
+}
 export type PackageInstallTarget = (typeof PACKAGE_INSTALL_TARGETS)[number];
 
 export const TIMELINE_SKETCH_CHILDREN = ['all', 'editable'] as const;
@@ -114,11 +138,12 @@ const DEFAULTS: Preferences = {
   materials: {},
   packageLibraryPath: '',
   packageInstallTarget: 'library',
+  toolbarPackages: [],
 };
 
 /** A fresh copy of the defaults — what "Reset all to defaults" writes. */
 export function defaultPreferences(): Preferences {
-  return { ...DEFAULTS, gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing }, materials: {} };
+  return { ...DEFAULTS, gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing }, materials: {}, toolbarPackages: [] };
 }
 
 function getConfigDir(): string {
@@ -171,6 +196,7 @@ function parsePreferences(data: string): Preferences {
     ...parsed,
     gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing, ...(parsed.gridFixedSpacing ?? {}) },
     materials: 'materials' in materials ? materials.materials : {},
+    toolbarPackages: parseToolbarPackages(parsed.toolbarPackages) ?? [],
   };
 }
 

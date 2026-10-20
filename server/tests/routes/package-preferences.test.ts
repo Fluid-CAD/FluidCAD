@@ -115,3 +115,19 @@ describe('packageInstallTarget', () => {
     expect((await post({ packageInstallTarget: 'library' })).body.packageInstallTarget).toBe('library');
   });
 });
+
+describe('toolbarPackages', () => {
+  it('defaults to none, and keeps the names a POST sends, trimmed, unique and sorted', async () => {
+    expect((await loadPreferences()).toolbarPackages).toEqual([]);
+    const { status, body } = await post({ toolbarPackages: ['@zeta/frames', ' @acme/kit ', '@zeta/frames', '', 7] });
+    expect(status).toBe(200);
+    expect(body.toolbarPackages).toEqual(['@acme/kit', '@zeta/frames']);
+    expect((await loadPreferences()).toolbarPackages).toEqual(['@acme/kit', '@zeta/frames']);
+  });
+
+  it('clears on an empty list and ignores a value that is no list', async () => {
+    await post({ toolbarPackages: ['@acme/kit'] });
+    expect((await post({ toolbarPackages: '@zeta/frames' })).body.toolbarPackages).toEqual(['@acme/kit']);
+    expect((await post({ toolbarPackages: [] })).body.toolbarPackages).toEqual([]);
+  });
+});

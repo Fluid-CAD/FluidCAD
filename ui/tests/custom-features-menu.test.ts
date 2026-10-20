@@ -4,6 +4,7 @@ import { CustomFeaturesMenu, type CustomFeatureCellSpec } from '../src/interacti
 import { FinishSketchButton } from '../src/interactive/create-feature/finish-sketch-button';
 import { Navbar } from '../src/ui/navbar/navbar';
 import { viewportChrome } from '../src/ui/viewport-chrome';
+import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE } from '../src/ui/toolbar-styles';
 
 // The toolbar's Custom button and its dropdown on their own: where the
 // group sits, the grid's order, what opens and closes it, the armed look,
@@ -313,7 +314,7 @@ describe('the Custom features button', () => {
 });
 
 describe('features from packages', () => {
-  it('lists the workspace first, then each package under its own heading, a library one marked', () => {
+  it('lists the workspace first, then each package under its own heading, with a pin', () => {
     const h = mount();
     h.menu.add(spec('acme.boss', 'Boss', { package: { name: '@acme/kit', version: '0.1.0', availability: 'dependency' } }));
     h.menu.add(spec('ws.taper', 'Taper'));
@@ -326,8 +327,9 @@ describe('features from packages', () => {
     expect(groups.map(g => [...g.children].map(c => c.textContent))).toEqual([['Bracket', 'Taper'], ['Boss'], ['Gear']]);
     expect(groups.every(g => g.className.includes('grid-cols-[repeat(3,'))).toBe(true);
     const headings = [...panel.querySelectorAll<HTMLElement>('[data-group-heading]')];
-    expect(headings.map(x => x.textContent)).toEqual(['This project', '@acme/kit0.1.0', '@beta/gears2.0.0not in this project']);
-    expect(panel.querySelectorAll('[data-ref="not-in-project"]')).toHaveLength(1);
+    expect(headings.map(x => x.textContent!.trim())).toEqual(['This project', '@acme/kit0.1.0', '@beta/gears2.0.0']);
+    expect(headings.map(x => x.querySelector('[data-ref="pin"]') !== null)).toEqual([false, true, true]);
+    expect(panel.querySelector('[data-ref="not-in-project"]')).toBeNull();
   });
 
   it('keeps the plain grid, with no headings, while no package is listed', () => {
@@ -343,11 +345,119 @@ describe('features from packages', () => {
     h.menu.add(spec('ws.taper', 'Taper'));
     const boss = h.menu.add(spec('acme.boss', 'Boss', { package: { name: '@acme/kit', version: '0.1.0', availability: 'library' } }));
     h.button.click();
-    expect(h.panel()!.querySelector('[data-ref="not-in-project"]')).not.toBeNull();
     boss.setPackage({ name: '@acme/kit', version: '0.1.0', availability: 'dependency' });
-    expect(h.panel()!.querySelector('[data-ref="not-in-project"]')).toBeNull();
-    expect(boss.el.title).toBe('Boss\nFrom @acme/kit 0.1.0.');
+    expect(boss.el.title).toBe('Boss');
     expect(h.cellButton('acme.boss')).not.toBeNull();
+  });
+});
+
+describe('packages pinned to the toolbar', () => {
+  const kit = { name: '@acme/kit', version: '0.1.0', availability: 'dependency' as const };
+  const gears = { name: '@beta/gears', version: '2.0.0', availability: 'library' as const };
+  /** The bar's groups that show, by key-ish marker: a pinned package's name, else the Custom button's. */
+  const barOrder = (container: HTMLElement) => [...container.querySelectorAll<HTMLElement>('[data-package], [data-tool="custom-features"]')]
+    .filter(el => !hidden(el.dataset.package ? el : el.parentElement!))
+    .map(el => el.dataset.package ?? 'custom');
+
+  function pinnedMount() {
+    const h = mount();
+    h.menu.add(spec('ws.taper', 'Taper'));
+    h.menu.add(spec('acme.boss', 'Boss', { package: kit }));
+    h.menu.add(spec('beta.gear', 'Gear', { package: gears, tip: 'Gear — A spur gear', description: 'A spur gear' }));
+    h.menu.add(spec('beta.rack', 'Rack', { package: gears }));
+    return h;
+  }
+
+  it("pins a package from its heading: its features leave the dropdown for a group of their own before the Custom button", () => {
+    const h = pinnedMount();
+    const changes = vi.fn();
+    h.menu.onToolbarPackagesChange = changes;
+    h.button.click();
+    h.panel()!.querySelector<HTMLElement>('[data-group-heading="@beta/gears"] [data-ref="pin"]')!.click();
+    expect(changes).toHaveBeenLastCalledWith(['@beta/gears']);
+    expect(h.panel()!.querySelector('[data-group="@beta/gears"]')).toBeNull();
+    const group = h.container.querySelector<HTMLElement>('[data-package="@beta/gears"]')!;
+    expect([...group.querySelectorAll<HTMLElement>('[data-tool]')].map(el => el.dataset.tool)).toEqual(['feature:beta.gear', 'feature:beta.rack']);
+    const gear = group.querySelector<HTMLElement>('[data-tool="feature:beta.gear"]')!;
+    expect(gear.className).toContain('tooltip');
+    // The description alone, as a built-in tool's tooltip — no label, no package.
+    expect(gear.dataset.tip).toBe('A spur gear');
+    expect(gear.hasAttribute('title')).toBe(false);
+    expect(gear.querySelector('button')!.className).toBe(TOOLBAR_BTN_BASE);
+    // Its own group, between dividers, right before the Custom button's.
+    expect(group.nextElementSibling).toBe(h.host.previousElementSibling);
+    expect(group.previousElementSibling!.className).toContain('w-px');
+    expect(barOrder(h.container)).toEqual(['@beta/gears', 'custom']);
+
+    h.menu.pin('@acme/kit');
+    expect(barOrder(h.container)).toEqual(['@acme/kit', '@beta/gears', 'custom']);
+    expect(changes).toHaveBeenLastCalledWith(['@acme/kit', '@beta/gears']);
+    // The workspace's own stay, now with no package beside them: no headings.
+    expect(h.panel()!.querySelector('[data-group-heading]')).toBeNull();
+    expect([...h.panel()!.querySelectorAll<HTMLElement>('[data-tool]')].map(el => el.dataset.tool)).toEqual(['feature:ws.taper']);
+  });
+
+  it('unpins from a right-click on the group, putting the features back in the dropdown', () => {
+    const h = pinnedMount();
+    const changes = vi.fn();
+    h.menu.onToolbarPackagesChange = changes;
+    h.menu.setToolbarPackages(['@beta/gears']);
+    expect(changes).not.toHaveBeenCalled();
+    const group = h.container.querySelector<HTMLElement>('[data-package="@beta/gears"]')!;
+    group.querySelector('button')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 30 }));
+    const rows = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    expect(rows.map(r => r.textContent!.trim())).toEqual(['Unpin']);
+    rows[0].click();
+    expect(changes).toHaveBeenLastCalledWith([]);
+    expect(h.container.querySelector('[data-package]')).toBeNull();
+    h.button.click();
+    const gear = h.panel()!.querySelector<HTMLElement>('[data-group="@beta/gears"] [data-tool="feature:beta.gear"]')!;
+    expect(gear.title).toBe('A spur gear');
+    expect(gear.dataset.tip).toBeUndefined();
+  });
+
+  it('arms the pinned button, not the Custom one, while its dialog is open', () => {
+    const h = pinnedMount();
+    h.menu.setToolbarPackages(['@acme/kit']);
+    const boss = h.menu.entries.find(c => c.spec.id === 'acme.boss')!;
+    const onClick = vi.fn();
+    boss.onClick = onClick;
+    h.container.querySelector<HTMLButtonElement>('[data-tool="feature:acme.boss"] button')!.click();
+    expect(onClick).toHaveBeenCalledOnce();
+    boss.setActive(true);
+    expect(h.menu.isActive).toBe(false);
+    expect(boss.el.querySelector('button')!.className).toBe(TOOLBAR_BTN_ACTIVE);
+    expect(h.button.className).toBe(TOOLBAR_BTN_BASE);
+  });
+
+  it('hides the pinned groups during a sketch, and drops a group whose package leaves the catalog', () => {
+    const h = pinnedMount();
+    h.menu.setToolbarPackages(['@beta/gears']);
+    const group = h.container.querySelector<HTMLElement>('[data-package="@beta/gears"]')!;
+    h.menu.setSketchHidden(true);
+    expect(hidden(group)).toBe(true);
+    h.menu.setSketchHidden(false);
+    expect(hidden(group)).toBe(false);
+    for (const cell of h.menu.entries.filter(c => c.spec.package?.name === '@beta/gears')) {
+      cell.remove();
+    }
+    expect(h.container.querySelector('[data-package]')).toBeNull();
+    // Still pinned: the package's features return to the bar once offered again.
+    expect(h.menu.pinnedPackages).toEqual(['@beta/gears']);
+    h.menu.add(spec('beta.gear', 'Gear', { package: gears }));
+    expect(h.container.querySelector('[data-package="@beta/gears"] [data-tool="feature:beta.gear"]')).not.toBeNull();
+  });
+
+  it('with every feature pinned, the Custom button says so — or leaves the bar with no way to the hub', () => {
+    const h = mount();
+    h.menu.add(spec('acme.boss', 'Boss', { package: kit }));
+    h.menu.setToolbarPackages(['@acme/kit']);
+    expect(h.menu.isVisible).toBe(false);
+    expect(hidden(h.host)).toBe(true);
+    h.menu.setEmptyAction(() => undefined);
+    expect(hidden(h.host)).toBe(false);
+    h.button.click();
+    expect(h.panel()!.querySelector('[data-ref="empty"]')!.textContent).toContain('Every custom feature is pinned to the toolbar');
   });
 });
 

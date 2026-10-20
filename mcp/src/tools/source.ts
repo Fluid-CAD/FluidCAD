@@ -96,7 +96,10 @@ function resolveWithinWorkspace(
 type DirtyFileEntry = { path: string; lastModifiedMs: number };
 
 type LintMissingImport = { symbol: string; module: string; line: number; column: number };
-/** A file-level rule violation the lint can prove statically (`unit()` placement). */
+/**
+ * A file-level rule violation the lint can prove statically: `unit()`
+ * placement in a model, the params-file rules in a `*.params.js`.
+ */
 type LintDiagnostic = { message: string; line: number; column: number };
 /** `diagnostics` is absent from servers that predate it. */
 type LintResult = { missing: LintMissingImport[]; suggestion: string; diagnostics?: LintDiagnostic[] };
@@ -138,6 +141,16 @@ function isFluidScriptPath(absPath: string): boolean {
 }
 
 /**
+ * A `*.params.js` project-parameters module (mirrors `isParamsFile` in
+ * `server/src/file-kind.ts`). Not a model: it is linted against its own
+ * rules and never rendered as the scene — a write folds into the open model
+ * as a dependency instead (`docs/global-parameters-plan.md` §2.2, §3.6).
+ */
+export function isParamsPath(absPath: string): boolean {
+  return absPath.toLowerCase().endsWith('.params.js');
+}
+
+/**
  * Refuse a write if the post-edit content uses FluidCAD APIs without the
  * matching `import { … } from "fluidcad/…"` line. Bypassable with
  * `force: true`, identical to the dirty-buffer guard, since both protect
@@ -152,7 +165,7 @@ async function assertImportsPresent(
   if (force === true) {
     return ok(undefined);
   }
-  if (!isFluidScriptPath(absPath)) {
+  if (!isFluidScriptPath(absPath) && !isParamsPath(absPath)) {
     return ok(undefined);
   }
   const lint = await lintFluidJsCode(entry, absPath, code);
@@ -160,6 +173,24 @@ async function assertImportsPresent(
     return ok(undefined);
   }
   const diagnostics = lint.diagnostics ?? [];
+  if (diagnostics.length > 0 && isParamsPath(absPath)) {
+    // The params-file rules: only imports and `export const` at the top
+    // level, every param() exported, no geometry / unit() / property(), no
+    // model-file imports. Refused before the write, with the rows, so the
+    // agent fixes the statement instead of every importer failing to build.
+    const listed = diagnostics.map((d) => `  line ${d.line + 1}: ${d.message}`).join('\n');
+    return err(
+      'params-file',
+      [
+        `Refusing to write "${absPath}" — ${diagnostics.length} project-parameters file rule violation(s)` +
+          ' (pass `force: true` to override):',
+        listed,
+        'A *.params.js file holds only imports (fluidcad/core, fluidcad/units, other *.params.js files)' +
+          ' and `export const <name> = param(…)` / `export const <name> = <expression>` declarations.',
+      ].join('\n'),
+      { diagnostics },
+    );
+  }
   if (diagnostics.length > 0) {
     // Placement rules the runtime would reject anyway — refusing here gives
     // the agent the row instead of a compile error after the render.
@@ -273,6 +304,8 @@ export type RenderOutcome =
     }
   | { state: 'superseded'; version: number; durationMs: number }
   | { state: 'no-scene-manager'; version: number; durationMs: number }
+  /** A `*.params.js` write with no model open: nothing to re-render; the file is on disk. */
+  | { state: 'no-model'; version: number; absPath: string; durationMs: number }
   | { state: 'render-failed'; error: string };
 
 /**
@@ -291,6 +324,11 @@ export type RenderOutcome =
  * `fitView` asks every connected page to frame the model once the render
  * is on screen: the person watching an agent model sees each edit land in
  * frame instead of off-screen. An older server ignores the flag.
+ *
+ * A `*.params.js` file is never the model: it is sent with `keepCurrent`,
+ * which re-renders the open model against the new text as a dependency
+ * (the server refuses the file with 422 otherwise), and answers `no-model`
+ * when nothing is open.
  */
 async function triggerRender(
   entry: RegistryEntry,
@@ -306,6 +344,7 @@ async function triggerRender(
       awaitUi: true,
       fitView: true,
       ...(changes ? { changes: true } : {}),
+      ...(isParamsPath(filePath) ? { keepCurrent: true } : {}),
     });
     return outcome;
   } catch (e: any) {

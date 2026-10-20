@@ -27,6 +27,7 @@ export type ToolErrorCode =
   | 'dirty-buffer'
   | 'missing-imports'
   | 'unit-statement'
+  | 'params-file'
   | 'internal';
 
 export function ok<T>(data: T): ToolResult<T> {

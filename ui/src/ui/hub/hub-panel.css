@@ -9,3 +9,21 @@
 [data-role='hub-panel'] {
   --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 }
+
+/* Like, pressed: the hub's own `.btn-like` look. The filled heart takes the
+   viewport's selection gold (the hub's --fc-picked is that gold), the words
+   and the border a darker ink of it in the light theme, where the gold
+   itself reads too faintly as text. */
+[data-role='hub-panel'] [data-ref='like'][data-liked='true'] {
+  --hub-like-ink: var(--scene-highlight-color);
+  color: var(--hub-like-ink);
+  border-color: color-mix(in oklab, var(--scene-highlight-color) 60%, transparent);
+}
+
+[data-theme='fluidcad-light'] [data-role='hub-panel'] [data-ref='like'][data-liked='true'] {
+  --hub-like-ink: #a35f00;
+}
+
+[data-role='hub-panel'] [data-ref='like'][data-liked='true'] > span:first-child {
+  color: var(--scene-highlight-color);
+}

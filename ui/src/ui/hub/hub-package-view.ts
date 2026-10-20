@@ -2,6 +2,7 @@ import type { HubCatalogFeature, HubCatalogModel, HubClient, HubMedia, HubPackag
 import { FeatureParamTable } from './feature-param-table';
 import { HubIcons, HubImage } from './hub-icons';
 import { HubInstallControl, type HubInstalled, type HubInstallTarget } from './hub-install-control';
+import { HubLikeControl } from './hub-like-control';
 import { HubMarkdown } from './hub-markdown';
 import { HubBadges, HubResultRow, type HubEngine } from './hub-row';
 import { HubText } from './hub-text';
@@ -23,6 +24,10 @@ export type HubPackageViewDeps = {
   onInstalled(installed: HubInstalled): void;
   /** The name's `@scope` (the publisher's handle) was clicked: list that publisher's packages. */
   onPublisher?(handle: string): void;
+  /** Like pressed while signed out (or the sign-in predates likes): start the panel's sign-in. */
+  signIn(): void;
+  /** A like or unlike answered the package's count: the results' copy of its row follows. */
+  onLikes?(name: string, likes: number): void;
   now?(): number;
 };
 
@@ -30,8 +35,8 @@ export type HubPackageViewDeps = {
  * One package in the Hub panel (hub-plan H11, the signed-off mock with the
  * user's decisions): the header (name, latest version, the publisher,
  * whose handle lists their packages, marks, a deprecated or incompatible
- * notice, the screenshot strip, the Install control, the facts), then four
- * tabs:
+ * notice, the screenshot strip, the Install control, the facts) with its
+ * Like toggle beside the name ({@link HubLikeControl}), then four tabs:
  * - **Features:** each feature with its icon and description; opening one
  *   shows its parameter table (decision 4), read from the version's
  *   manifest through the engine;
@@ -50,6 +55,7 @@ export class HubPackageView {
   private readonly body: HTMLDivElement;
   private readonly openLink: HTMLButtonElement;
   private readonly install: HubInstallControl;
+  private readonly like: HubLikeControl;
   private name: string | null = null;
   private pkg: HubPackage | null = null;
   private loadError: { code?: string; error: string } | null = null;
@@ -101,6 +107,17 @@ export class HubPackageView {
         void this.reload();
       },
     });
+    this.like = new HubLikeControl({
+      hub: deps.hub,
+      signIn: () => deps.signIn(),
+      hubHost: () => this.host(),
+      onLikes: (name, likes) => {
+        if (this.pkg?.name === name) {
+          this.pkg.counts.likes = likes;
+        }
+        deps.onLikes?.(name, likes);
+      },
+    });
   }
 
   get packageName(): string | null {
@@ -146,6 +163,8 @@ export class HubPackageView {
     } else {
       this.loadError = null;
       this.pkg = answer.pkg;
+      // Whether you like it is read beside the detail, never before it.
+      this.like.show(name, answer.pkg.counts.likes);
     }
     const scroll = this.body.scrollTop;
     this.render();
@@ -155,16 +174,22 @@ export class HubPackageView {
   /**
    * The account the engine signs in with changed (a sign-in or a sign-out
    * from the header): what the hub answered for the old one (an owner's
-   * open versions, each version read for the Features tab) is forgotten,
-   * and the package is read again when it is `showing`; a hidden one is
-   * read when it opens again.
+   * open versions, each version read for the Features tab, whether it
+   * likes the package) is forgotten, and the package is read again when it
+   * is `showing`; a hidden one is read when it opens again.
    */
-  accountChanged(showing: boolean): void {
+  accountChanged(showing: boolean, signedIn: boolean | null): void {
     this.versions.clear();
     this.readmes.clear();
+    this.like.accountChanged(signedIn, showing);
     if (showing && this.name) {
       void this.reload();
     }
+  }
+
+  /** The panel's status said whether anyone is signed in (null: not known yet), for Like. */
+  setSignedIn(signedIn: boolean | null): void {
+    this.like.setSignedIn(signedIn);
   }
 
   /** `<hub>/@scope/name`, the package's page on the hub. */
@@ -179,6 +204,7 @@ export class HubPackageView {
 
   destroy(): void {
     this.install.destroy();
+    this.like.destroy();
     this.el.remove();
   }
 
@@ -207,8 +233,11 @@ export class HubPackageView {
     const head = document.createElement('div');
     head.className = 'px-3 pt-3 pb-3 flex flex-col gap-2.5 border-b border-base-content/10';
 
+    // The name and byline, with Like at the right of them.
+    const top = document.createElement('div');
+    top.className = 'flex items-start gap-2';
     const titleBlock = document.createElement('div');
-    titleBlock.className = 'flex flex-col gap-0.5';
+    titleBlock.className = 'flex flex-col gap-0.5 flex-1 min-w-0';
     // The version and its badge go under the name when the panel is too narrow for both, rather than cutting the name short.
     const title = document.createElement('div');
     title.className = 'flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 min-w-0';
@@ -233,7 +262,8 @@ export class HubPackageView {
     const published = latest?.publishedAt ? `published ${HubText.ago(latest.publishedAt, this.now())}` : null;
     byline.textContent = [published, HubText.plural(pkg.counts.installs, 'install')].filter(Boolean).join(' · ');
     titleBlock.append(title, byline);
-    head.appendChild(titleBlock);
+    top.append(titleBlock, this.like.el);
+    head.append(top, this.like.notice);
 
     if (pkg.description) {
       const description = document.createElement('p');

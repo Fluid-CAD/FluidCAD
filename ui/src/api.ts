@@ -7233,6 +7233,21 @@ export type HubLogoutResult = {
 };
 
 /**
+ * `GET api/hub/packages/@s/n/me` (H13): what only the signed-in account sees
+ * about a package: whether it likes it, its lists (each with whether it
+ * holds the package) and the package's comments it marked helpful.
+ */
+export type HubSocialState = {
+  package: string;
+  liked: boolean;
+  lists: { slug: string; title: string; isPublic: boolean; items: number; contains: boolean }[];
+  helpful: string[];
+};
+
+/** `PUT`/`DELETE api/hub/packages/@s/n/like`: whether the account likes it now, and the package's count after the change. */
+export type HubLikeState = { package: string; liked: boolean; likes: number };
+
+/**
  * The bridge's routes as one object the Hub panel is handed (tests give it
  * a fake, `ui/tests/fixtures/fake-hub-client.ts`). Like the packages client,
  * every call answers a result rather than throwing; an aborted search
@@ -7254,6 +7269,18 @@ export interface HubClient {
   cancelLogin(): Promise<HubResult<{ login: HubLoginState | null }>>;
   /** Sign this computer out of the hub: the saved token revoked there, then forgotten. */
   logout(): Promise<HubResult<{ logout: HubLogoutResult }>>;
+  /**
+   * The signed-in account's own state on `name`. It acts as the account:
+   * `signed-out` (no sign-in, or one the hub refused), `sign-in-again` (a
+   * sign-in older than likes), never an anonymous answer.
+   */
+  socialState(name: string): Promise<HubResult<{ state: HubSocialState }>>;
+  /**
+   * Like (`liked`) or stop liking `name`; idempotent. Refused as
+   * {@link socialState} is, and with `forbidden`, `not-found`,
+   * `rate-limited` or `hub-unreachable`.
+   */
+  setLiked(name: string, liked: boolean): Promise<HubResult<{ like: HubLikeState }>>;
 }
 
 /** {@link HubClient} over the engine's `/api/hub/*` routes. */
@@ -7349,6 +7376,16 @@ export class HttpHubClient implements HubClient {
   async logout(): Promise<HubResult<{ logout: HubLogoutResult }>> {
     const answer = await HttpHubClient.send('api/hub/logout', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
     return answer.ok === false ? answer : { ok: true, logout: (answer.body as { logout: HubLogoutResult }).logout };
+  }
+
+  async socialState(name: string): Promise<HubResult<{ state: HubSocialState }>> {
+    const answer = await HttpHubClient.send(`api/hub/packages/${HttpHubClient.namePath(name)}/me`, {});
+    return answer.ok === false ? answer : { ok: true, state: answer.body as HubSocialState };
+  }
+
+  async setLiked(name: string, liked: boolean): Promise<HubResult<{ like: HubLikeState }>> {
+    const answer = await HttpHubClient.send(`api/hub/packages/${HttpHubClient.namePath(name)}/like`, { method: liked ? 'PUT' : 'DELETE' });
+    return answer.ok === false ? answer : { ok: true, like: answer.body as HubLikeState };
   }
 
   /** The panel's parameters as the bridge reads them: repeated keys for the lists, defaults left out. */

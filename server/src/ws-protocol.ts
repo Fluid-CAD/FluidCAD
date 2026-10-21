@@ -500,6 +500,26 @@ export type UIParamDefinition = {
   sourceLocation?: { filePath: string; line: number; column: number };
   /** The `part()` statement declaring it — `kind: 'part'` only. */
   part?: { filePath: string; line: number; column: number };
+  /**
+   * The active configuration row's cell for this label — present only while
+   * a row is active and names the label. The value a session override sits
+   * on; the panel draws such a row's label bold.
+   */
+  configuredValue?: string | number | boolean | (string | number)[];
+};
+
+/**
+ * The `configurations()` table of the rendered file and which row shows
+ * (`docs/assembly-configurations-plan.md` §3.3): `Default` is the literals
+ * and never among `names`; `modified` says session tweaks sit on top of the
+ * row; `notice` explains a fallback to Default.
+ */
+export type UIConfigurations = {
+  active: string;
+  names: string[];
+  rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
+  modified: boolean;
+  notice?: string;
 };
 
 /**
@@ -546,6 +566,8 @@ export type UISceneRenderedMessage = {
   params?: UIParamDefinition[];
   /** Part scenes only: the file's `property()` declarations. */
   properties?: UIPropertyDefinition[];
+  /** The file's configurations and the active one; absent on error replays. */
+  configurations?: UIConfigurations;
   /**
    * Non-fatal notices per row — `Unknown material: <id>` on a part row
    * whose material is in neither the built-in nor the project table. Same
@@ -836,6 +858,16 @@ export type UIResetParamsMessage = {
   type: 'reset-params';
 };
 
+/**
+ * Hub-mode mirror of `POST /api/configurations/select`: show the named
+ * configuration row (`'Default'` for the literals), dropping the session's
+ * overrides, then re-render. Handled like {@link UISetParamMessage}.
+ */
+export type UISelectConfigurationMessage = {
+  type: 'select-configuration';
+  name: string;
+};
+
 export type UIRecomputeMessage = {
   type: 'recompute';
 };
@@ -876,6 +908,7 @@ export type UIToServerMessage =
   | ScreenshotResultMessage
   | UISetParamMessage
   | UIResetParamsMessage
+  | UISelectConfigurationMessage
   | UIRecomputeMessage
   | UIEditorHelloMessage
   | UIEditorDirtyStateMessage

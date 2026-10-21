@@ -1,7 +1,7 @@
 // Render outcomes: object build errors, the rendered scene payload and render options.
 
 import type { FluidScriptKind } from '../file-kind.ts';
-import type { ParamDefinition, RenderChanges } from '../../../lib/dist/index.js';
+import type { ParamDefinition, ParamVal, RenderChanges } from '../../../lib/dist/index.js';
 import type { LengthUnit } from '../project-config.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import type { ScenePropertyDefinition } from './properties.ts';
@@ -29,6 +29,14 @@ export type ObjectBuildError = {
  * its geometry is right, only what depends on the material (mass) is not.
  */
 export type ObjectBuildWarning = ObjectBuildError;
+
+export type SceneConfigurations = {
+  active: string;
+  names: string[];
+  rows: Record<string, Record<string, ParamVal>>;
+  modified: boolean;
+  notice?: string;
+};
 
 export type SceneRenderedData = {
   absPath: string;
@@ -72,6 +80,14 @@ export type SceneRenderedData = {
   timeline?: TimelineEntry[];
   assembly?: SerializedAssembly;
   params?: ParamDefinition[];
+  /**
+   * The `configurations()` rows the render declared and which one it showed
+   * (`docs/assembly-configurations-plan.md` §3.3). `names` is empty when no
+   * body declared a table; `modified` says the session's override layer is
+   * non-empty — tweaks sit on top of the row; `notice` explains a fallback
+   * (the remembered row is no longer declared, so Default rendered).
+   */
+  configurations?: SceneConfigurations;
   /** The `property()` declarations of the rendered file's parts — see `collectSceneProperties`. */
   properties?: ScenePropertyDefinition[];
   /**

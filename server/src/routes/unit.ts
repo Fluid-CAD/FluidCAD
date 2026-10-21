@@ -44,6 +44,7 @@ export function broadcastProjectRecompute(
     params: data.params,
     properties: data.properties,
     objectWarnings: data.objectWarnings,
+    ...(data.configurations ? { configurations: data.configurations } : {}),
     ...(data.assembly ? { assembly: data.assembly } : {}),
   });
 }

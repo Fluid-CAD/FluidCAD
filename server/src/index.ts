@@ -7,6 +7,7 @@ import type { SceneRenderedData } from './fluidcad-server/index.ts';
 import { createServerCore } from './server-core.ts';
 import { createHostGuard, createHostGuardVerifyClient } from './host-guard.ts';
 import { createParamsRouter } from './routes/params.ts';
+import { createConfigurationsRouter } from './routes/configurations.ts';
 import { createPropertyEditsRouter } from './routes/property-edits.ts';
 import { createPropertiesRouter } from './routes/properties.ts';
 import { createHitTestRouter } from './routes/hit-test.ts';
@@ -232,6 +233,7 @@ app.use('/api', createHealthRouter({
 }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
 app.use('/api', createParamsRouter(fluidCadServer, sendToHost, broadcastToUI, editDispatcher, core.awaitLatestSceneApplied, WORKSPACE_PATH, globalParamsDeps));
+app.use('/api', createConfigurationsRouter(fluidCadServer, sendToHost, broadcastToUI));
 app.use('/api', createPropertyEditsRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));
 app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
@@ -374,6 +376,7 @@ function emitSuccess(version: number, data: SceneRenderedData, { fitView = false
     params,
     properties,
     objectWarnings,
+    ...(data.configurations ? { configurations: data.configurations } : {}),
     ...(assembly ? { assembly } : {}),
     ...(fitView ? { fitView: true } : {}),
   });

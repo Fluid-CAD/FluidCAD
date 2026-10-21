@@ -24,7 +24,6 @@ const RENDERED: UIConfigurations = {
   active: 'Wide',
   names: ['Compact', 'Wide'],
   rows: { Compact: { Width: 500, Lid: false }, Wide: { Width: 1400, Depth: 900 } },
-  modified: false,
 };
 
 const SOURCE: ConfigurationSourceTable = {
@@ -387,7 +386,6 @@ describe('ConfigurationsGrid — two parts', () => {
       { body: 'Plate', names: ['Wide', 'Thin'], rows: { Wide: { Width: 80 }, Thin: { Depth: 2 } } },
       { body: 'Lid', names: ['Wide'], rows: { Wide: { Width: 30 } } },
     ],
-    modified: false,
   };
   const twoParts = (overrides: Partial<ConfigurationsGridOptions> = {}) => open({
     params: TWO,

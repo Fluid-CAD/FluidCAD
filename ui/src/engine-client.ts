@@ -108,6 +108,19 @@ export interface EngineClient {
    * sets one part's only; a host that predates it reads the label alone.
    */
   setParam(label: string, value: unknown, body?: string): void;
+  /**
+   * Write a parameter's value into the source, where the configuration on
+   * screen keeps it: the active row's cell, or on Default the `param()`
+   * literal (`POST /api/params/value`). What the Parameters panel does with
+   * a committed value on a host that edits source; a read-only host leaves
+   * it out and the panel overrides values for the session instead
+   * ({@link setParam}). `configuration` is the row the panel shows — a
+   * session that moved on refuses the write. `value: null` clears the
+   * row's cell, so the parameter inherits its literal again. Resolves once
+   * the edit landed (one undo step), `success: false` with the `reason`
+   * otherwise.
+   */
+  writeParam?(label: string, value: unknown, body?: string, configuration?: string): Promise<ConfigurationEditResult>;
   resetParams(): void;
   /**
    * Show the named `configurations()` row (`'Default'` for the literals):
@@ -116,7 +129,7 @@ export interface EngineClient {
    */
   selectConfiguration(name: string): void;
   /**
-   * The `configurations()` row edits (`/api/configurations/add|save|rename|remove`):
+   * The `configurations()` row edits (`/api/configurations/add|rename|remove`):
    * each rewrites the table statement in source, so a read-only host leaves
    * them out and the Parameters panel offers none of its row actions. They
    * resolve once the edit landed — `success: false` with the refusal's
@@ -132,8 +145,6 @@ export interface EngineClient {
     values?: Record<string, CatalogParamValue>,
     part?: SourceLocation | null,
   ): Promise<ConfigurationEditResult>;
-  /** Write the session's tweaks (or `values`) into the active row; refused on Default. */
-  saveConfiguration?(values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult>;
   /** Rename a row; the active name follows. */
   renameConfiguration?(from: string, to: string): Promise<ConfigurationEditResult>;
   /** Remove a row; the active one falls back to Default. */

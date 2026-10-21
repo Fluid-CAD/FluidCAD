@@ -5,7 +5,7 @@ import {
   getConfigurationTables,
   removeConfiguration,
   renameConfiguration,
-  saveConfiguration,
+  writeParamValue,
   moveTimelineBreakpoint,
   editorRedo,
   editorUndo,
@@ -139,8 +139,8 @@ export class HttpEngineClient implements EngineClient {
     return addConfiguration(name, values, part);
   }
 
-  saveConfiguration(values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult> {
-    return saveConfiguration(values);
+  writeParam(label: string, value: unknown, body?: string, configuration?: string): Promise<ConfigurationEditResult> {
+    return writeParamValue(label, value, body, configuration);
   }
 
   renameConfiguration(from: string, to: string): Promise<ConfigurationEditResult> {

@@ -3,14 +3,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // The assembly Parameters panel's configuration band
 // (docs/assembly-configurations-plan.md §3.4, stage 2): a dropdown of
-// Default + the file's rows, the modified marker, bold labels for the cells
-// the row sets and a "default" hint on the rows it leaves out, ↺ retitled
-// while a row is active, and a Save / Discard / Cancel choice before a
-// switch drops tweaks. Stage 3: the band's Add configuration button on a
-// file without a table, and the ⋮ menu's Add / Save / Duplicate / Rename /
-// Delete over the client's row edits. Part configurations, stage 1
-// (plans/part-configurations-research.md): the same band in part scope, above
-// the Part band, shown once the scene has a part.
+// Default + the file's rows, bold labels for the cells the row sets and a
+// "default" hint on the rows it leaves out. Stage 3: the band's Add
+// configuration button on a file without a table, and the ⋮ menu's Add /
+// Duplicate / Rename / Delete / Manage over the client's row edits. Part
+// configurations, stage 1 (plans/part-configurations-research.md): the same
+// band in part scope, above the Part band, shown once the scene has a part.
+// Auto-save: on a host that edits source a value is written into the row on
+// screen (or the literal on Default) as it is committed — so there is no
+// modified marker, no Save and no prompt on a switch; a read-only host keeps
+// session tweaks and its header ↺. See params-panel-value-writes.test.ts.
 
 import { ParamsPanel } from '../src/ui/params-panel';
 import type { ParamEditorDialog, PartChoices } from '../src/ui/param-editor-dialog';
@@ -33,7 +35,6 @@ const TABLE: UIConfigurations = {
   active: 'Default',
   names: ['Compact', 'Wide'],
   rows: { Compact: { Width: 500 }, Wide: { Width: 1200 } },
-  modified: false,
 };
 
 function mount(scope: 'part' | 'assembly' = 'assembly', editable = true) {
@@ -41,7 +42,7 @@ function mount(scope: 'part' | 'assembly' = 'assembly', editable = true) {
   document.body.appendChild(host);
   const edits = editable ? {
     addConfiguration: vi.fn().mockResolvedValue({ success: true }),
-    saveConfiguration: vi.fn().mockResolvedValue({ success: true }),
+    writeParam: vi.fn().mockResolvedValue({ success: true }),
     renameConfiguration: vi.fn().mockResolvedValue({ success: true }),
     removeConfiguration: vi.fn().mockResolvedValue({ success: true }),
     getConfigurationTables: vi.fn().mockResolvedValue(null),
@@ -50,12 +51,14 @@ function mount(scope: 'part' | 'assembly' = 'assembly', editable = true) {
   const client = {
     setParam: vi.fn(), resetParams: vi.fn(), selectConfiguration: vi.fn(), ...edits,
   } as unknown as EngineClient & Required<Pick<EngineClient,
-    'addConfiguration' | 'saveConfiguration' | 'renameConfiguration' | 'removeConfiguration'
+    'addConfiguration' | 'writeParam' | 'renameConfiguration' | 'removeConfiguration'
     | 'getConfigurationTables' | 'commitConfigurationTable'>>;
   const editor = { openForCreate: vi.fn(), openForEdit: vi.fn() } as unknown as ParamEditorDialog;
   const panel = new ParamsPanel(host, client, editor, scope);
   const select = () => host.querySelector<HTMLSelectElement>('[data-configuration]');
   const marker = () => host.querySelector<HTMLElement>('[data-configuration-modified]');
+  const inheritOf = (label: string) =>
+    host.querySelector<HTMLElement>(`[data-param-label="${label}"]`)!.closest('.group')!.querySelector<HTMLButtonElement>('[data-param-inherit]');
   const reset = () => host.querySelector<HTMLButtonElement>('[data-reset-params]')!;
   const labelOf = (label: string) =>
     host.querySelector<HTMLElement>(`[data-param-label="${label}"]`)!.closest('.group')!.querySelector('label')!;
@@ -65,7 +68,7 @@ function mount(scope: 'part' | 'assembly' = 'assembly', editable = true) {
     select()!.value = name;
     select()!.dispatchEvent(new Event('change'));
   };
-  return { host, panel, client, select, marker, reset, labelOf, hintOf, pick };
+  return { host, panel, client, select, marker, reset, labelOf, hintOf, inheritOf, pick };
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -99,7 +102,7 @@ describe('ParamsPanel configuration dropdown', () => {
     const { panel, select, marker } = mount();
     panel.update([param('Width')]);
     expect(select()).toBeNull();
-    panel.update([param('Width')], [], { active: 'Default', names: [], rows: {}, modified: true });
+    panel.update([param('Width')], [], { active: 'Default', names: [], rows: {} });
     expect(select()).toBeNull();
     expect(marker()).toBeNull();
     expect(panel.activeConfiguration).toBe('Default');
@@ -147,83 +150,59 @@ describe('ParamsPanel configuration dropdown', () => {
     expect(hintOf('Depth')!.textContent).toBe('default');
   });
 
-  it('shows the modified marker while session tweaks sit on the row, and retitles ↺', () => {
-    const { panel, marker, reset, client } = mount();
-    panel.update([param('Width', 1200, 1200)], [], { ...TABLE, active: 'Wide' });
+  it('draws no modified marker, and hides the header ↺ where values are written into the source', () => {
+    const { panel, host, marker, reset } = mount();
+    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide' });
     expect(marker()).toBeNull();
+    expect(host.textContent).not.toContain('modified');
+    expect(reset().hidden).toBe(true);
+  });
+
+  it('a read-only host keeps the header ↺ for its session tweaks, retitled while a row is active — no marker either', () => {
+    const { panel, marker, reset, client } = mount('assembly', false);
+    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide' });
+    expect(marker()).toBeNull();
+    expect(reset().hidden).toBe(false);
     expect(reset().title).toBe('Revert changes');
-    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide', modified: true });
-    expect(marker()!.textContent).toContain('modified');
     reset().click();
     expect(client.resetParams).toHaveBeenCalledTimes(1);
-    panel.update([param('Width', 1200, 1200)], [], { ...TABLE, active: 'Wide' });
-    expect(marker()).toBeNull();
     panel.update([param('Width', 10)], [], TABLE);
     expect(reset().title).toBe('Reset all to defaults');
   });
 
-  it('asks Save / Discard / Cancel before a switch drops tweaks; Cancel keeps the dropdown on the active row', async () => {
-    const { panel, client, select, pick } = mount();
-    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide', modified: true });
-    const choose = vi.fn<(active: string, target: string, canSave: boolean) => Promise<'save' | 'discard' | 'cancel'>>()
-      .mockResolvedValueOnce('cancel').mockResolvedValueOnce('discard');
-    panel.chooseSwitch = choose;
-
+  it('switches rows straight away — nothing to save, nothing to ask', () => {
+    const { panel, client, host, pick } = mount();
+    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide' });
     pick('Compact');
-    await flush();
-    expect(choose).toHaveBeenCalledWith('Wide', 'Compact', true);
-    expect(client.selectConfiguration).not.toHaveBeenCalled();
-    expect(select()!.value).toBe('Wide');
-
-    pick('Compact');
-    await flush();
-    expect(client.saveConfiguration).not.toHaveBeenCalled();
     expect(client.selectConfiguration).toHaveBeenCalledWith('Compact');
+    expect(document.querySelector('[data-configuration-choice]')).toBeNull();
+    expect(host.querySelector('[data-configuration-choice]')).toBeNull();
   });
 
-  it('Save on a switch saves into the active row, then selects', async () => {
-    const { panel, client, pick } = mount();
-    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide', modified: true });
-    panel.chooseSwitch = vi.fn().mockResolvedValue('save');
-    pick('Compact');
-    await vi.waitFor(() => expect(client.selectConfiguration).toHaveBeenCalledWith('Compact'));
-    expect(client.saveConfiguration).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(client.saveConfiguration).mock.invocationCallOrder[0])
-      .toBeLessThan(vi.mocked(client.selectConfiguration).mock.invocationCallOrder[0]);
+  it('a read-only host switches straight away too, its tweaks dropped with the row', () => {
+    const { panel, client, pick } = mount('assembly', false);
+    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide' });
+    pick('Default');
+    expect(client.selectConfiguration).toHaveBeenCalledWith('Default');
+    expect(document.querySelector('[data-configuration-choice]')).toBeNull();
   });
 
-  it('a refused Save on a switch stays on the row and reports why', async () => {
-    const { panel, client, select, pick } = mount();
-    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide', modified: true });
-    panel.chooseSwitch = vi.fn().mockResolvedValue('save');
-    panel.onError = vi.fn();
-    vi.mocked(client.saveConfiguration).mockResolvedValueOnce({ success: false, reason: 'table is not a literal' });
-    pick('Compact');
-    await vi.waitFor(() => expect(panel.onError).toHaveBeenCalledWith(expect.stringContaining('table is not a literal')));
-    expect(client.selectConfiguration).not.toHaveBeenCalled();
-    expect(select()!.value).toBe('Wide');
-  });
-
-  it('offers no Save when the tweaks sit on Default', async () => {
-    const { panel, client, pick } = mount();
-    panel.update([param('Width', 1300)], [], { ...TABLE, modified: true });
-    const choose = vi.fn().mockResolvedValue('discard');
-    panel.chooseSwitch = choose;
-    pick('Wide');
-    await flush();
-    expect(choose).toHaveBeenCalledWith('Default', 'Wide', false);
-    expect(client.selectConfiguration).toHaveBeenCalledWith('Wide');
-  });
-
-  it('switches without asking when nothing is modified', async () => {
-    const { panel, client, pick } = mount();
+  it('a switch waits for the values still being written, so each lands in the row it was typed on', async () => {
+    const { panel, host, client, pick } = mount();
     panel.update([param('Width', 1200, 1200)], [], { ...TABLE, active: 'Wide' });
-    const choose = vi.fn().mockResolvedValue('discard');
-    panel.chooseSwitch = choose;
+    let land!: (value: { success: boolean }) => void;
+    vi.mocked(client.writeParam).mockReturnValueOnce(new Promise((resolve) => {
+      land = resolve;
+    }));
+    const input = host.querySelector<HTMLInputElement>('[data-param-label="Width"]')!;
+    input.value = '1300';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(client.writeParam).toHaveBeenCalledWith('Width', 1300, undefined, 'Wide');
     pick('Compact');
     await flush();
-    expect(choose).not.toHaveBeenCalled();
-    expect(client.selectConfiguration).toHaveBeenCalledWith('Compact');
+    expect(client.selectConfiguration).not.toHaveBeenCalled();
+    land({ success: true });
+    await vi.waitFor(() => expect(client.selectConfiguration).toHaveBeenCalledWith('Compact'));
   });
 });
 
@@ -243,7 +222,7 @@ describe('ParamsPanel configuration actions', () => {
 
   it('shows one Add configuration button while the file has no table', async () => {
     const { panel, host, client, select } = mount();
-    panel.update([param('Width', 1300)], [], { active: 'Default', names: [], rows: {}, modified: true });
+    panel.update([param('Width', 1300)], [], { active: 'Default', names: [], rows: {} });
     const add = host.querySelector<HTMLButtonElement>('[data-configuration-add]')!;
     expect(add.textContent).toContain('Add configuration');
     expect(select()).toBeNull();
@@ -290,37 +269,33 @@ describe('ParamsPanel configuration actions', () => {
     menuButton(host)!.click();
     const menu = document.querySelector<HTMLElement>('[data-configuration-actions]')!;
     expect(Array.from(menu.querySelectorAll('[role="menuitem"]'), (b) => b.textContent!.trim()))
-      .toEqual(['Add configuration…', 'Save', 'Duplicate…', 'Rename…', 'Delete', 'Manage…']);
+      .toEqual(['Add configuration…', 'Duplicate…', 'Rename…', 'Delete', 'Manage…']);
+    // A solid surface, never the docked chrome's see-through one: the
+    // bands and rows it opens over must not read through it.
+    expect(menu.className).toContain('bg-base-100');
+    expect(menu.className).not.toContain('panel-bg');
   });
 
-  it('enables Save only on a modified row, and Rename / Delete only on a row', () => {
+  it('enables Rename / Delete only on a row', () => {
     const { panel } = mount();
     panel.update([param('Width')], [], TABLE);
-    expect(item(panel, 'Save').disabled).toBe(true);
     expect(item(panel, 'Rename…').disabled).toBe(true);
     expect(item(panel, 'Delete').disabled).toBe(true);
     expect(item(panel, 'Add configuration…').disabled).toBeFalsy();
     expect(item(panel, 'Duplicate…').disabled).toBeFalsy();
 
-    // Tweaks on Default still have no row to save into.
-    panel.update([param('Width', 1300)], [], { ...TABLE, modified: true });
-    expect(item(panel, 'Save').disabled).toBe(true);
-
     panel.update([param('Width', 1200, 1200)], [], { ...TABLE, active: 'Wide' });
-    expect(item(panel, 'Save').disabled).toBe(true);
     expect(item(panel, 'Rename…').disabled).toBe(false);
     expect(item(panel, 'Delete').disabled).toBe(false);
-
-    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide', modified: true });
-    expect(item(panel, 'Save').disabled).toBe(false);
+    expect(item(panel, 'Save')).toBeUndefined();
   });
 
   it('Add and Duplicate add a row through the client and take the table the answer carries', async () => {
     const { panel, client, select } = mount();
-    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide', modified: true });
+    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide' });
     vi.mocked(client.addConfiguration).mockResolvedValueOnce({
       success: true,
-      configurations: { active: 'Wider', names: ['Compact', 'Wide', 'Wider'], rows: {}, modified: false },
+      configurations: { active: 'Wider', names: ['Compact', 'Wide', 'Wider'], rows: {} },
     });
     const { asked, refusals } = answerPrompt(panel, 'Wider');
     item(panel, 'Duplicate…').onSelect!();
@@ -350,26 +325,6 @@ describe('ParamsPanel configuration actions', () => {
     expect(refusals).toEqual(['Default is reserved']);
   });
 
-  it('Save writes the tweaks into the active row', async () => {
-    const { panel, client, marker } = mount();
-    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide', modified: true });
-    vi.mocked(client.saveConfiguration).mockResolvedValueOnce({ success: true, configurations: { ...TABLE, active: 'Wide' } });
-    item(panel, 'Save').onSelect!();
-    await flush();
-    expect(client.saveConfiguration).toHaveBeenCalledWith();
-    expect(marker()).toBeNull();
-  });
-
-  it('a refused Save is reported', async () => {
-    const { panel, client } = mount();
-    panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide', modified: true });
-    panel.onError = vi.fn();
-    vi.mocked(client.saveConfiguration).mockResolvedValueOnce({ success: false, reason: 'the editor did not apply' });
-    item(panel, 'Save').onSelect!();
-    await flush();
-    expect(panel.onError).toHaveBeenCalledWith('Couldn\'t save Wide: the editor did not apply');
-  });
-
   it('Rename renames the active row from its own name', async () => {
     const { panel, client } = mount();
     panel.update([param('Width', 1200, 1200)], [], { ...TABLE, active: 'Wide' });
@@ -396,16 +351,16 @@ describe('ParamsPanel configuration actions', () => {
 
   it('redraws the row hints when an answer switched the row ahead of the render', async () => {
     const { panel, client, hintOf } = mount();
-    panel.update([param('Width', 1300)], [], { ...TABLE, modified: true });
+    panel.update([param('Width', 1300)], [], { ...TABLE });
     vi.mocked(client.addConfiguration).mockResolvedValueOnce({
       success: true,
-      configurations: { active: 'Empty', names: ['Compact', 'Wide', 'Empty'], rows: { Empty: {} }, modified: false },
+      configurations: { active: 'Empty', names: ['Compact', 'Wide', 'Empty'], rows: { Empty: {} } },
     });
     answerPrompt(panel, 'Empty');
     item(panel, 'Add configuration…').onSelect!();
     await flush();
     // The render of the empty row: same controls, no cells — every row is "default".
-    panel.update([param('Width', 10)], [], { active: 'Empty', names: ['Compact', 'Wide', 'Empty'], rows: { Empty: {} }, modified: false });
+    panel.update([param('Width', 10)], [], { active: 'Empty', names: ['Compact', 'Wide', 'Empty'], rows: { Empty: {} } });
     expect(hintOf('Width')!.textContent).toBe('default');
   });
   it('Manage… opens the grid over the table and commits through the client', async () => {
@@ -429,7 +384,7 @@ describe('ParamsPanel configuration actions', () => {
     expect(client.commitConfigurationTable).toHaveBeenCalledWith({ rows: { Wide: { Width: 1300 } } });
     vi.mocked(client.commitConfigurationTable).mockResolvedValueOnce({
       success: true,
-      configurations: { active: 'Broad', names: ['Compact', 'Broad'], rows: {}, modified: false },
+      configurations: { active: 'Broad', names: ['Compact', 'Broad'], rows: {} },
     });
     expect(await opened[0].commit({ rows: {}, renames: { Wide: 'Broad' } })).toBeNull();
     expect(panel.activeConfiguration).toBe('Broad');
@@ -469,13 +424,13 @@ describe('ParamsPanel configuration band in part scope', () => {
     expect(bandStack(panel).contains(partSelect(host))).toBe(true);
   });
 
-  it('labels each band above its full-width dropdown: Configuration with its marker and ⋮, then Part', () => {
+  it('labels each band above its full-width dropdown: Configuration with its ⋮, then Part', () => {
     const { panel, host, select } = mount('part');
     panel.setPartProvider(onePart);
-    panel.update([partParam('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide', modified: true });
+    panel.update([partParam('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide' });
     const configurationLabel = select()!.previousElementSibling as HTMLElement;
     expect(configurationLabel.firstElementChild!.textContent).toBe('Configuration');
-    expect(configurationLabel.querySelector('[data-configuration-modified]')).not.toBeNull();
+    expect(configurationLabel.querySelector('[data-configuration-modified]')).toBeNull();
     expect(configurationLabel.querySelector('[data-configuration-menu]')).not.toBeNull();
     expect(select()!.className).toContain('select-bordered');
     expect(select()!.className).toContain('w-full');
@@ -514,19 +469,21 @@ describe('ParamsPanel configuration band in part scope', () => {
     expect(bandStack(panel).hidden).toBe(false);
   });
 
-  it('decorates the rows while a row is active and retitles ↺', () => {
-    const { panel, labelOf, hintOf, reset } = mount('part');
+  it('decorates the rows while a row is active: bold with ↺ for a set value, the default hint otherwise', () => {
+    const { panel, labelOf, hintOf, inheritOf, reset } = mount('part');
     panel.setPartProvider(onePart);
     panel.update([partParam('Width', 1200, 1200), partParam('Depth', 800)], [], { ...TABLE, active: 'Wide' });
     expect(labelOf('Width').className).toContain('font-semibold');
     expect(hintOf('Width')).toBeNull();
+    expect(inheritOf('Width')!.title).toBe('Use the default — Wide stops setting Width');
     expect(hintOf('Depth')!.textContent).toBe('default');
-    expect(reset().title).toBe('Revert changes');
+    expect(inheritOf('Depth')).toBeNull();
+    expect(reset().hidden).toBe(true);
 
     panel.update([partParam('Width', 10), partParam('Depth', 800)], [], TABLE);
     expect(labelOf('Width').className).not.toContain('font-semibold');
     expect(hintOf('Depth')).toBeNull();
-    expect(reset().title).toBe('Reset all to defaults');
+    expect(inheritOf('Width')).toBeNull();
   });
 
   it('survives a Part pick and a timeline selection move, and switches independently of them', () => {

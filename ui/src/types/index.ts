@@ -422,8 +422,9 @@ export type UIParamDefinition = {
 /**
  * The rendered file's `configurations()` table and which row is showing
  * (`scene-rendered.configurations`): `Default` is the literals and never
- * among `names`; `modified` says session tweaks sit on top of the row;
- * `notice` explains a fallback to Default.
+ * among `names`; `notice` explains a fallback to Default. (The server's
+ * summary also says whether session overrides sit on top of the row —
+ * `modified`, which the MCP reports; the panel draws nothing from it.)
  */
 export type UIConfigurations = {
   active: string;
@@ -437,7 +438,6 @@ export type UIConfigurations = {
    * server or host that predates it.
    */
   tables?: UIConfigurationTable[];
-  modified: boolean;
   notice?: string;
 };
 

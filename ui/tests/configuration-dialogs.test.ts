@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // The configuration band's own dialogs (docs/assembly-configurations-plan.md
 // §3.4): the row-name prompt — its checks, a server refusal kept on screen —
-// and the Save / Discard / Cancel choice before a switch drops tweaks.
+// and the confirm before a row is deleted. (A switch asks nothing: a value
+// edited in the panel is already written into its row.)
 
 import {
-  chooseConfigurationSwitch,
   configurationNameProblem,
   confirmConfigurationDelete,
   promptConfigurationName,
@@ -84,22 +84,8 @@ describe('promptConfigurationName', () => {
   });
 });
 
-describe('chooseConfigurationSwitch', () => {
+describe('confirmConfigurationDelete', () => {
   const buttons = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[data-configuration-choice] [data-choice]'));
-
-  it('offers Save / Discard / Cancel on a row, and resolves with the pick', async () => {
-    const choice = chooseConfigurationSwitch(document.body, { active: 'Wide', target: 'Compact', canSave: true });
-    expect(buttons().map((b) => b.textContent)).toEqual(['Cancel', 'Discard', 'Save']);
-    buttons().find((b) => b.dataset.choice === 'save')!.click();
-    expect(await choice).toBe('save');
-  });
-
-  it('offers only Discard / Cancel when there is no row to save into', async () => {
-    const choice = chooseConfigurationSwitch(document.body, { active: 'Default', target: 'Wide', canSave: false });
-    expect(buttons().map((b) => b.textContent)).toEqual(['Cancel', 'Discard']);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(await choice).toBe('cancel');
-  });
 
   it('the delete confirm resolves true only on Delete', async () => {
     const yes = confirmConfigurationDelete(document.body, 'Wide');

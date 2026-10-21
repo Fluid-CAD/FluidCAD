@@ -1,8 +1,8 @@
 /**
  * The small dialogs the Parameters panel's configuration band asks through
- * (`docs/assembly-configurations-plan.md` §3.4): a row name for Add / Save
- * as… / Rename…, the Save / Discard / Cancel choice before a switch would
- * drop the session's tweaks, and the confirm before a row is deleted.
+ * (`docs/assembly-configurations-plan.md` §3.4): a row name for Add /
+ * Duplicate… / Rename…, and the confirm before a row is deleted. A switch
+ * asks nothing — a value edited in the panel is already in its row.
  *
  * Same chrome as the parameter editor (`param-editor-dialog.ts`): a dimmed
  * full-window overlay, a bordered card with a title and ✕, the error box
@@ -33,9 +33,6 @@ export type ConfigurationNamePrompt = {
    */
   submit(name: string): Promise<string | null>;
 };
-
-/** What a switch away from a modified row does with the tweaks. */
-export type ConfigurationSwitchChoice = 'save' | 'discard' | 'cancel';
 
 /**
  * Why `name` cannot be a row name, or null when it can. `current` is the
@@ -157,28 +154,6 @@ export function promptConfigurationName(host: HTMLElement, opts: ConfigurationNa
     input.focus();
     input.select();
   });
-}
-
-/**
- * Before a switch away from `active` drops its tweaks: Save them into the
- * row first, Discard them, or Cancel the switch. Without `canSave` (Default
- * has no row to save into) the choice is Discard or Cancel.
- */
-export function chooseConfigurationSwitch(
-  host: HTMLElement,
-  opts: { active: string; target: string; canSave: boolean },
-): Promise<ConfigurationSwitchChoice> {
-  const message = opts.canSave
-    ? `${opts.active} has unsaved changes. Save them into ${opts.active} before switching to ${opts.target}?`
-    : `Discard the unsaved changes to ${opts.active} and switch to ${opts.target}?`;
-  const buttons: ChoiceButton<ConfigurationSwitchChoice>[] = [
-    { value: 'cancel', label: 'Cancel', className: 'btn-ghost' },
-    { value: 'discard', label: 'Discard', className: opts.canSave ? 'btn-ghost text-error/80' : 'btn-error' },
-  ];
-  if (opts.canSave) {
-    buttons.push({ value: 'save', label: 'Save', className: 'btn-primary' });
-  }
-  return choose(host, 'Switch configuration', message, buttons, 'cancel', opts.canSave ? 'save' : 'discard');
 }
 
 /** Before Delete removes the row `name` from the table. */

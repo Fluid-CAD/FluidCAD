@@ -5,7 +5,6 @@ import type { EngineClient } from '../engine-client';
 import { ActivePartTracker, type PartChoice } from '../interactive/active-part-tracker';
 import {
   ICON_ADJUSTMENTS,
-  ICON_CHECK,
   ICON_CODE,
   ICON_COPY,
   ICON_DOTS_VERTICAL,
@@ -16,12 +15,11 @@ import {
 } from './icons';
 import { showPopupMenu, type PopupMenuItem } from './popup-menu';
 import {
-  chooseConfigurationSwitch,
   confirmConfigurationDelete,
   promptConfigurationName,
   type ConfigurationNamePrompt,
-  type ConfigurationSwitchChoice,
 } from './configuration-dialogs';
+import { ParamWriteQueue } from './param-write-queue';
 import { openConfigurationsGrid, type ConfigurationsGridOptions } from './configurations-grid-dialog';
 import { AccordionSection } from './accordion-section';
 import {
@@ -61,7 +59,7 @@ const BAND_STACK_CLASS = 'pb-1.5 mb-1 border-b border-base-content/10';
  */
 const BAND_CLASS = 'px-3 py-1.5';
 
-/** A band's label line: the caption, then (configuration band) the modified marker and ⋮. */
+/** A band's label line: the caption, then (configuration band) the ⋮. */
 const BAND_LABEL_ROW_CLASS = 'flex items-center gap-1';
 
 /** A band's caption: the parameter rows' label typography. */
@@ -77,13 +75,6 @@ const BAND_SELECT_CLASS = 'select select-sm select-bordered w-full mt-1';
 
 /** The reserved row: the `param()` literals — never among a table's names, always first in the dropdown. */
 const DEFAULT_CONFIGURATION = 'Default';
-
-/**
- * On the label line, right of the caption, while session tweaks sit on top
- * of the active row — what ↺ (Revert) clears and what a Save would write
- * into the row.
- */
-const MODIFIED_MARKER_CLASS = 'shrink-0 text-xs text-base-content/60 whitespace-nowrap';
 
 /**
  * The label line's ⋮: the row actions' menu. A ghost square the label
@@ -103,6 +94,16 @@ const CONFIGURATION_ADD_BUTTON_CLASS =
  * the row rather than as a second value.
  */
 const DEFAULT_HINT = '<span class="shrink-0 text-xs text-base-content/40 italic" data-param-default-hint>default</span>';
+
+/**
+ * On a row the active configuration sets, beside the pencil: ↺ clears the
+ * row's cell, so the parameter reads its default again — the Manage grid's
+ * ↺, on the row on screen. Fades in on hover like the pencil, so the bold
+ * label stays the row's one mark of a set value.
+ */
+const INHERIT_BUTTON_CLASS =
+  'btn btn-ghost btn-xs btn-square h-4 min-h-0 w-4 opacity-0 group-hover:opacity-100 focus:opacity-100 '
+  + 'text-xs leading-none text-base-content/40 hover:text-base-content/70';
 
 /**
  * Add and reset sit in the header card rather than above the first row, so
@@ -140,17 +141,15 @@ export class ParamsPanel extends AccordionSection {
   private currentProperties: UIPropertyDefinition[] = [];
   /** The rendered file's `configurations()` rows and the active one; null until a render carries them. */
   private configurations: UIConfigurations | null = null;
-  /** The header's ↺: "Reset all to defaults" on Default, "Revert changes" while a row is active. */
+  /**
+   * The header's ↺, which drops the session's value overrides: "Reset all to
+   * defaults" on Default, "Revert changes" while a row is active. Only a
+   * read-only host has overrides to drop — where the panel writes values
+   * into the source there are none, and the button is hidden.
+   */
   private readonly resetButton: HTMLElement;
   /** Where the band's own dialogs mount; the host points it at its overlay container. */
   dialogHost: HTMLElement = document.body;
-  /**
-   * Asks before a switch drops the session's tweaks on the active row:
-   * save them into it first, discard them, or stay. `canSave` is false on
-   * Default (no row to save into) or a host that cannot edit the table.
-   */
-  chooseSwitch: (active: string, target: string, canSave: boolean) => Promise<ConfigurationSwitchChoice> =
-    (active, target, canSave) => chooseConfigurationSwitch(this.dialogHost, { active, target, canSave });
   /** Asks for a row name (Add, Duplicate…, Rename…); resolves when the prompt closes. */
   promptName: (prompt: ConfigurationNamePrompt) => Promise<void> =
     (prompt) => promptConfigurationName(this.dialogHost, prompt);
@@ -164,11 +163,13 @@ export class ParamsPanel extends AccordionSection {
   confirmGridDelete: (name: string) => Promise<boolean> = (name) => this.confirmDelete(name);
   /** Opens the Manage grid over the whole table; resolves when it closes. */
   openGrid: (opts: ConfigurationsGridOptions) => Promise<void> = (opts) => openConfigurationsGrid(this.dialogHost, opts);
-  /** A refused row edit with no dialog open to show it in (Save, Delete, a switch's Save). */
+  /** A refused edit with no dialog open to show it in: a value write, ↺ on a row, Delete. */
   onError: (message: string) => void = (message) => console.error(message);
   /** The rows' decoration key the list was last drawn with — what update() compares against. */
   private renderedDecor = '';
   private debouncer = new ParamDebouncer();
+  /** The value writes, one at a time and coalesced per parameter (source-editing hosts only). */
+  private readonly writes = new ParamWriteQueue();
   private collapsedGroups = new Set<string>();
   /** The header +'s open menu, while one is open. */
   private addMenu: HTMLDivElement | null = null;
@@ -178,7 +179,7 @@ export class ParamsPanel extends AccordionSection {
   private bands: HTMLDivElement;
   /**
    * The configuration band, first in the stack in both scopes: what the file
-   * renders (the dropdown, the modified marker, the ⋮ row actions) or, before
+   * renders (the dropdown and the ⋮ row actions) or, before
    * the file has a table, the Add configuration button.
    */
   private configurationBar: HTMLDivElement;
@@ -223,6 +224,7 @@ export class ParamsPanel extends AccordionSection {
 
     const resetButton = this.header.querySelector<HTMLElement>('[data-reset-params]')!;
     this.resetButton = resetButton;
+    resetButton.hidden = this.writesSource;
     resetButton.addEventListener('click', (e) => {
       e.stopPropagation();
       this.client.resetParams();
@@ -316,6 +318,17 @@ export class ParamsPanel extends AccordionSection {
     return JSON.stringify([this.rowActive, params.map((p) => p.configuredValue !== undefined)]);
   }
 
+  /**
+   * Whether a value edited here is written into the source: an editor-backed
+   * host whose client can write it. Then a committed value is the active
+   * configuration's — the row's cell, or on Default the `param()` literal —
+   * and there is no session-only value to mark, save or revert. A
+   * read-only host (the viewer embed) overrides values for the session.
+   */
+  get writesSource(): boolean {
+    return this.editor !== undefined && typeof this.client.writeParam === 'function';
+  }
+
   /** Whether the band offers the row edits: an editor-backed host whose client can rewrite the table. */
   private get canEditConfigurations(): boolean {
     return this.editor !== undefined && typeof this.client.addConfiguration === 'function';
@@ -333,7 +346,7 @@ export class ParamsPanel extends AccordionSection {
   /**
    * The configuration band, the same in both scopes. With a
    * `configurations()` table: the dropdown — Default, then the file's rows —
-   * the modified marker, and the ⋮ menu of row actions; the dropdown shows
+   * and the ⋮ menu of row actions; the dropdown shows
    * on any host, even one with nothing to edit or no part to add to. Without
    * a table: a single Add configuration button, which starts one — on a host
    * that can edit, in a file with a body to hold it ({@link hasTableBody}).
@@ -376,14 +389,6 @@ export class ParamsPanel extends AccordionSection {
       void this.pickConfiguration(select);
     });
     const labelRow: HTMLElement[] = [ParamsPanel.bandCaption('Configuration')];
-    if (configurations!.modified) {
-      const marker = document.createElement('span');
-      marker.className = MODIFIED_MARKER_CLASS;
-      marker.dataset.configurationModified = '';
-      marker.title = 'Values changed on top of the configuration — ↺ reverts them';
-      marker.textContent = '● modified';
-      labelRow.push(marker);
-    }
     if (this.canEditConfigurations) {
       const menuButton = document.createElement('button');
       menuButton.type = 'button';
@@ -408,14 +413,13 @@ export class ParamsPanel extends AccordionSection {
   }
 
   /**
-   * The row actions, acting on the active row. Save writes the tweaks into
-   * it, so it needs both a row and tweaks; Rename… and Delete need a row —
-   * Default is the literals, which the pencil edits.
+   * The row actions, acting on the active row. There is no Save: a value
+   * edited in the panel is already in the row. Rename… and Delete need a
+   * row — Default is the literals, which a value edit on Default writes.
    */
   configurationMenuItems(): PopupMenuItem[] {
     const active = this.activeConfiguration;
     const onDefault = active === DEFAULT_CONFIGURATION;
-    const modified = this.configurations?.modified ?? false;
     const noRow = 'Default is the parameters\' own values — pick a configuration first';
     const canManage = this.configurationNames.length > 0 && typeof this.client.commitConfigurationTable === 'function';
     return [
@@ -423,13 +427,6 @@ export class ParamsPanel extends AccordionSection {
         icon: ICON_PLUS,
         label: 'Add configuration…',
         onSelect: () => void this.addConfiguration('Add configuration', 'Add'),
-      },
-      {
-        icon: ICON_CHECK,
-        label: 'Save',
-        disabled: onDefault || !modified,
-        title: onDefault ? noRow : !modified ? 'No changes on top of the configuration' : `Write the changes into ${active}`,
-        onSelect: () => void this.saveConfiguration(),
       },
       {
         icon: ICON_COPY,
@@ -481,8 +478,8 @@ export class ParamsPanel extends AccordionSection {
 
   /**
    * Add (and Duplicate…): a new row holding every value that differs from its
-   * literal — the active row's cells plus the tweaks, or nothing on an
-   * untouched Default — selected once it lands. The server writes each
+   * literal — the values on screen: the active row's cells (plus a read-only
+   * session's tweaks), or nothing on Default — selected once it lands. The server writes each
    * part's values into that part's own table; a row with no value at all
    * goes into the Part band's part ({@link configurationHome}).
    */
@@ -527,20 +524,6 @@ export class ParamsPanel extends AccordionSection {
       taken: this.configurationNames,
       submit: async (to) => this.landed(await rename.call(this.client, from, to)),
     });
-  }
-
-  /** Save: the tweaks into the active row. True when it landed; a refusal goes to {@link onError}. */
-  private async saveConfiguration(): Promise<boolean> {
-    const save = this.client.saveConfiguration;
-    if (!save) {
-      return false;
-    }
-    const refused = this.landed(await save.call(this.client));
-    if (refused !== null) {
-      this.onError(`Couldn't save ${this.activeConfiguration}: ${refused}`);
-      return false;
-    }
-    return true;
   }
 
   private async deleteConfiguration(name: string): Promise<void> {
@@ -613,24 +596,19 @@ export class ParamsPanel extends AccordionSection {
   }
 
   /**
-   * The dropdown's choice. Tweaks on the active row would be lost by the
-   * switch (the session layer is cleared), so the user first chooses: save
-   * them into the row, discard them, or stay — a cancel (or a save that
-   * fails) puts the dropdown back.
+   * The dropdown's choice, shown straight away. Nothing is left to lose: on
+   * a source-editing host every value is already in its row, and a
+   * read-only host's session tweaks are exploratory — the switch drops them,
+   * as ↺ would. The values still being written finish first, so each lands
+   * in the row it was typed on.
    */
   private async pickConfiguration(select: HTMLSelectElement): Promise<void> {
     const name = select.value;
-    const active = this.activeConfiguration;
-    if (name === active) {
+    if (name === this.activeConfiguration) {
       return;
     }
-    if (this.configurations?.modified) {
-      const canSave = active !== DEFAULT_CONFIGURATION && typeof this.client.saveConfiguration === 'function';
-      const choice = await this.chooseSwitch(active, name, canSave);
-      if (choice === 'cancel' || (choice === 'save' && !await this.saveConfiguration())) {
-        select.value = active;
-        return;
-      }
+    if (!this.writes.idle) {
+      await this.writes.whenIdle();
     }
     this.client.selectConfiguration(name);
   }
@@ -661,7 +639,8 @@ export class ParamsPanel extends AccordionSection {
       return;
     }
     const menu = document.createElement('div');
-    menu.className = 'absolute right-0 top-full mt-1 z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
+    // Solid like every popup menu (menu-styles.ts): it opens over the rows.
+    menu.className = 'absolute right-0 top-full mt-1 z-[200] bg-base-100 border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
     menu.dataset.addMenu = '';
     menu.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
@@ -935,16 +914,21 @@ export class ParamsPanel extends AccordionSection {
     // rows read apart; a label shown once keeps the plain look.
     const shared = ParamsPanel.sharedLabels(params);
     // With a row active: a label the row sets is bold, one it leaves out
-    // says so — its value is the literal.
+    // says so — its value is the literal. Where values are written into the
+    // source, a set one also carries the ↺ that clears its cell.
     const rowActive = this.rowActive;
+    const inherit = rowActive && this.writesSource;
     const optionsFor = (p: UIParamDefinition) => {
       const base = shared.has(p.label) && p.body !== undefined ? { ...rowOptions, owner: p.body } : rowOptions;
       if (!rowActive) {
         return base;
       }
-      return p.configuredValue !== undefined
-        ? { ...base, labelBold: true }
-        : { ...base, labelTrailing: DEFAULT_HINT };
+      if (p.configuredValue === undefined) {
+        return { ...base, labelTrailing: DEFAULT_HINT };
+      }
+      return inherit
+        ? { ...base, labelBold: true, labelTrailing: this.inheritButton(p) }
+        : { ...base, labelBold: true };
     };
     let html = '';
     for (const p of ungrouped) {
@@ -968,7 +952,7 @@ export class ParamsPanel extends AccordionSection {
       setValue: (key, value) => {
         const def = this.paramFor(key);
         if (def) {
-          this.client.setParam(def.label, value, def.body);
+          this.commitValue(def, value);
         }
       },
       onEdit: (key) => {
@@ -978,9 +962,62 @@ export class ParamsPanel extends AccordionSection {
         }
       },
       debouncer: this.debouncer,
+      sendOn: this.writesSource ? 'commit' : 'live',
+    });
+    this.list.querySelectorAll<HTMLElement>('[data-param-inherit]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const def = this.paramFor(el.dataset.paramInherit!);
+        if (def) {
+          this.inheritValue(def);
+        }
+      });
     });
     this.bindPropertyHandlers();
     bindParamGroups(this.list, this.collapsedGroups);
+  }
+
+  /**
+   * A value the user finished editing. Where the panel writes source it is
+   * written into the configuration on screen — the row's cell, or on
+   * Default the literal — queued behind the writes before it; a refusal
+   * shows as an error and redraws the rows from the last render, so the
+   * control goes back to the value the source still holds. A read-only
+   * host overrides it for the session.
+   */
+  private commitValue(def: UIParamDefinition, value: unknown): void {
+    if (!this.writesSource) {
+      this.client.setParam(def.label, value, def.body);
+      return;
+    }
+    this.queueWrite(def, value, `Couldn't change ${def.label}`);
+  }
+
+  /** ↺ on a row-set parameter: clear the active row's cell, so the parameter reads its default again. */
+  private inheritValue(def: UIParamDefinition): void {
+    this.queueWrite(def, null, `Couldn't reset ${def.label} to its default`);
+  }
+
+  /** One value write into the source, for the configuration shown when it was made. */
+  private queueWrite(def: UIParamDefinition, value: unknown, failure: string): void {
+    const write = this.client.writeParam;
+    if (!write) {
+      return;
+    }
+    const configuration = this.activeConfiguration;
+    this.writes.enqueue(paramRowKey(def), async () => {
+      const refused = this.landed(await write.call(this.client, def.label, value, def.body, configuration));
+      if (refused !== null) {
+        this.onError(`${failure}: ${refused}`);
+        this.renderParams();
+      }
+    });
+  }
+
+  /** The ↺ markup of a row-set parameter's label line. */
+  private inheritButton(p: UIParamDefinition): string {
+    const key = escapeHtml(paramRowKey(p));
+    const title = escapeHtml(`Use the default — ${this.activeConfiguration} stops setting ${p.label}`);
+    return `<button type="button" class="${INHERIT_BUTTON_CLASS}" data-param-inherit="${key}" title="${title}" aria-label="${title}">↺</button>`;
   }
 
   /** The parameter a row key names, as the last render listed it. */

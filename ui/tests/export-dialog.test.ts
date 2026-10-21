@@ -199,7 +199,6 @@ const TABLE = {
   active: 'Wide',
   names: ['Compact', 'Wide', 'Extra tall'],
   rows: { Compact: { Width: 500 }, Wide: { Width: 1200 }, 'Extra tall': { Height: 900 } },
-  modified: false,
 };
 
 function pickConfiguration(q: <T extends HTMLElement>(ref: string) => T, label: string): void {
@@ -228,7 +227,7 @@ async function waitForStatus(q: <T extends HTMLElement>(ref: string) => T, done:
 describe('ExportDialog configurations', () => {
   it('offers no Configuration select without configurations() rows, and sends no configuration', async () => {
     const { dialog, exportShapes, q } = mount(provider());
-    dialog.setConfigurations({ active: 'Default', names: [], rows: {}, modified: false });
+    dialog.setConfigurations({ active: 'Default', names: [], rows: {} });
     dialog.show({ kind: 'assembly' });
     expect(q('configuration-section').classList.contains('hidden')).toBe(true);
 
@@ -393,7 +392,6 @@ describe('ExportDialog configurations in a part scene', () => {
     active: 'Default',
     names: ['M6', 'M8'],
     rows: { M6: { Hole: 6 }, M8: { Hole: 8 } },
-    modified: false,
   };
   const partTarget = { kind: 'shapes' as const, shapeIds: ['s-1', 's-2'], fileBase: 'plate' };
 
@@ -488,7 +486,6 @@ describe('ExportDialog every solid of a part scene (File ▸ Export)', () => {
     active: 'Default',
     names: ['Plain', 'WithBoss'],
     rows: { Plain: { Boss: 0 }, WithBoss: { Boss: 1 } },
-    modified: false,
   };
   const partDoc: SceneDocument = { absPath: '/work/plate.part.js', kind: 'part', declaredUnit: null, projectUnit: 'mm' };
 

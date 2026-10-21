@@ -124,33 +124,37 @@ describe('GlobalParamsPanel', () => {
     expect(group.contains(control('Finish'))).toBe(true);
   });
 
-  it('posts a typed number 500 ms after the last keystroke, as a number', async () => {
+  it('posts a typed number on Enter, as a number — never while typing, however long it pauses', async () => {
     vi.useFakeTimers();
     const { handlers, open, control } = mount();
     await open();
     const input = control<HTMLInputElement>('Wall thickness');
     input.value = '4';
     input.dispatchEvent(new Event('input'));
+    vi.advanceTimersByTime(2000);
     input.value = '4.5';
     input.dispatchEvent(new Event('input'));
-    vi.advanceTimersByTime(499);
+    vi.advanceTimersByTime(2000);
     expect(handlers.setValue).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     expect(handlers.setValue).toHaveBeenCalledTimes(1);
     expect(handlers.setValue).toHaveBeenCalledWith(FILE, 'Wall thickness', 4.5);
+    // The blur after the Enter does not post it again.
+    input.dispatchEvent(new Event('blur'));
+    expect(handlers.setValue).toHaveBeenCalledTimes(1);
   });
 
-  it('flushes a pending typed value on blur', async () => {
-    vi.useFakeTimers();
+  it('posts a typed value on blur, and nothing for a field left as it was', async () => {
     const { handlers, open, control } = mount();
     await open();
     const input = control<HTMLInputElement>('Wall thickness');
+    input.dispatchEvent(new Event('blur'));
+    expect(handlers.setValue).not.toHaveBeenCalled();
     input.value = '5';
     input.dispatchEvent(new Event('input'));
     input.dispatchEvent(new Event('blur'));
-    expect(handlers.setValue).toHaveBeenCalledWith(FILE, 'Wall thickness', 5);
-    vi.advanceTimersByTime(600);
     expect(handlers.setValue).toHaveBeenCalledTimes(1);
+    expect(handlers.setValue).toHaveBeenCalledWith(FILE, 'Wall thickness', 5);
   });
 
   it('posts a slider on change only, previewing the readout while dragging', async () => {

@@ -341,27 +341,29 @@ const propertyEditorDialog = new PropertyEditorDialog(container);
 const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog, 'part', propertyEditorDialog);
 const assemblyParamEditor = new ParamEditorDialog(container, 'assembly');
 const assemblyParamsPanel = new ParamsPanel(null, engineClient, assemblyParamEditor, 'assembly');
-// The configuration band's prompts sit over the scene with the other
+// Both panels' configuration bands prompt over the scene with the other
 // dialogs; deleting a row asks through the confirm the destructive flows
-// use, and a refused Save / Delete reads as a toast.
-assemblyParamsPanel.dialogHost = container;
-assemblyParamsPanel.confirmDelete = (name) => confirmDialog({
-  title: 'Delete configuration',
-  icon: ICON_TRASH,
-  message: `Delete the configuration ${name}? Its row is removed from the configurations() table.`,
-  confirmLabel: 'Delete',
-  danger: true,
-});
-assemblyParamsPanel.confirmGridDelete = (name) => confirmDialog({
-  title: 'Delete configuration',
-  icon: ICON_TRASH,
-  message: `Delete the configuration ${name}? It is removed from the configurations() table when you apply the grid.`,
-  confirmLabel: 'Delete',
-  danger: true,
-});
-assemblyParamsPanel.onError = (message) => showToast(message);
-// Manage… opens the table grid over the scene, its header noting the document's length unit.
-assemblyParamsPanel.openGrid = (opts) => openConfigurationsGrid(container, { ...opts, unit: sceneUnit.current });
+// use, and a refused value write, ↺ or Delete reads as a toast.
+for (const panel of [paramsPanel, assemblyParamsPanel]) {
+  panel.dialogHost = container;
+  panel.confirmDelete = (name) => confirmDialog({
+    title: 'Delete configuration',
+    icon: ICON_TRASH,
+    message: `Delete the configuration ${name}? Its row is removed from the configurations() table.`,
+    confirmLabel: 'Delete',
+    danger: true,
+  });
+  panel.confirmGridDelete = (name) => confirmDialog({
+    title: 'Delete configuration',
+    icon: ICON_TRASH,
+    message: `Delete the configuration ${name}? It is removed from the configurations() table when you apply the grid.`,
+    confirmLabel: 'Delete',
+    danger: true,
+  });
+  panel.onError = (message) => showToast(message);
+  // Manage… opens the table grid over the scene, its header noting the document's length unit.
+  panel.openGrid = (opts) => openConfigurationsGrid(container, { ...opts, unit: sceneUnit.current });
+}
 
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design

@@ -362,6 +362,9 @@ export class GlobalParamsPanel {
       },
       debouncer: this.debouncer,
       debounceKey: (label) => `${file.file}\n${label}`,
+      // Every value is a source edit and an undo step: a field sends on
+      // Enter or blur, never a half-typed number.
+      sendOn: 'commit',
     });
     list.querySelectorAll<HTMLElement>('[data-derived-open]').forEach((el) => {
       el.addEventListener('click', () => {

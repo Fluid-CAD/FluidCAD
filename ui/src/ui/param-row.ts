@@ -122,6 +122,7 @@ export function updateParamValuesInPlace(root: ParentNode, params: ParamRowDefin
     } else if (type === 'number' || type === 'text' || type === 'color') {
       if (document.activeElement !== el) {
         (el as HTMLInputElement).value = String(p.currentValue);
+        delete el.dataset.paramCommitted;
       }
     } else if (type === 'checkbox') {
       (el as HTMLInputElement).checked = !!p.currentValue;
@@ -312,8 +313,9 @@ export function renderParamControl(p: ParamRowDefinition, options: ParamRowRende
 }
 
 /**
- * Per-field typing timers: a number or text field sends its value 500 ms
- * after the last keystroke, or on blur, whichever comes first.
+ * Per-field typing timers for `'live'` sending ({@link ParamSendMode}): a
+ * number or text field sends its value 500 ms after the last keystroke, or
+ * on blur, whichever comes first.
  */
 export class ParamDebouncer {
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -354,7 +356,27 @@ export type ParamRowHandlers = {
   debouncer: ParamDebouncer;
   /** The debouncer's key for a row key; the row key itself when rows are unique under `root`. */
   debounceKey?: (key: string) => string;
+  /**
+   * When a value goes out ({@link ParamSendMode}); `'live'` when absent.
+   * Sliders (on release), selects, toggles, checkboxes and chips send once
+   * per change in either mode.
+   */
+  sendOn?: ParamSendMode;
 };
+
+/**
+ * How eagerly a typed or picked value is sent.
+ *
+ * - `'live'`: as the user goes — a number or text field 500 ms after the
+ *   last keystroke (or on blur), a colour while its picker is dragged. For a
+ *   session override, which costs a render and nothing else.
+ * - `'commit'`: once per finished edit — Enter or leaving the field, the
+ *   colour picker's change. For a value written into the source, where every
+ *   send is an edit and an undo step: half-typed numbers must not land. A
+ *   field left unchanged sends nothing; Escape puts the value back; a number
+ *   field that does not hold a number is put back rather than sent.
+ */
+export type ParamSendMode = 'live' | 'commit';
 
 /** Wire every control under `root` that {@link renderParamControl} drew. */
 export function bindParamHandlers(root: ParentNode, handlers: ParamRowHandlers): void {
@@ -368,6 +390,7 @@ export function bindParamHandlers(root: ParentNode, handlers: ParamRowHandlers):
     const rowKey = el.dataset.paramKey!;
     const type = el.dataset.paramType!;
     const key = handlers.debounceKey ? handlers.debounceKey(rowKey) : rowKey;
+    const commit = handlers.sendOn === 'commit';
 
     const sendChange = (rawValue: string) => {
       const def = handlers.lookup(rowKey);
@@ -394,6 +417,8 @@ export function bindParamHandlers(root: ParentNode, handlers: ParamRowHandlers):
       el.addEventListener('change', () => {
         sendChange((el as HTMLInputElement).value);
       });
+    } else if ((type === 'number' || type === 'text') && commit) {
+      bindCommitField(el as HTMLInputElement, rowKey, handlers, sendChange);
     } else if (type === 'number' || type === 'text') {
       el.addEventListener('input', () => {
         handlers.debouncer.debounce(key, () => sendChange((el as HTMLInputElement).value));
@@ -423,7 +448,8 @@ export function bindParamHandlers(root: ParentNode, handlers: ParamRowHandlers):
         sendMultiChange(checked);
       });
     } else if (type === 'color') {
-      el.addEventListener('input', () => {
+      // Live, the picker's every drag tick; committed, the colour it closes on.
+      el.addEventListener(commit ? 'change' : 'input', () => {
         sendChange((el as HTMLInputElement).value);
       });
     } else if (type === 'multi-chips') {
@@ -440,6 +466,47 @@ export function bindParamHandlers(root: ParentNode, handlers: ParamRowHandlers):
       });
     }
   });
+}
+
+/**
+ * A number or text field in `'commit'` mode: its value goes out on Enter or
+ * when the field is left, once — the text last sent is kept on the field
+ * (`data-param-committed`, cleared when a render writes the field) so the
+ * blur after an Enter does not send it again — and only when it differs
+ * from the value the row shows. Escape puts the shown value back. A number
+ * field holding no number (cleared, `-`) is put back rather than sent.
+ */
+function bindCommitField(
+  el: HTMLInputElement,
+  rowKey: string,
+  handlers: ParamRowHandlers,
+  sendChange: (rawValue: string) => void,
+): void {
+  const shown = (): string => {
+    const def = handlers.lookup(rowKey);
+    return def === undefined ? el.defaultValue : String(def.currentValue);
+  };
+  const commitNow = () => {
+    const raw = el.value;
+    if (raw === el.dataset.paramCommitted || raw === shown()) {
+      return;
+    }
+    if (el.dataset.paramType === 'number' && (raw.trim() === '' || !Number.isFinite(Number(raw)))) {
+      el.value = shown();
+      return;
+    }
+    el.dataset.paramCommitted = raw;
+    sendChange(raw);
+  };
+  el.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      commitNow();
+    } else if (event.key === 'Escape') {
+      el.value = el.dataset.paramCommitted ?? shown();
+    }
+  });
+  el.addEventListener('blur', commitNow);
 }
 
 /**

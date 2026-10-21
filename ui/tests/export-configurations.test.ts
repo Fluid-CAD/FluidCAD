@@ -6,7 +6,7 @@ import { ConfigurationExport } from '../src/ui/export-configurations';
 // export offers, the select's option values, the archive's entry names
 // (the CLI's --all-configurations names) and the archive itself.
 
-const table = (names: string[], active = 'Default') => ({ active, names, rows: {}, modified: false });
+const table = (names: string[], active = 'Default') => ({ active, names, rows: {} });
 
 describe('ConfigurationExport', () => {
   it('offers Default first, then the rows in declaration order', () => {

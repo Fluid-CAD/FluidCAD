@@ -5276,7 +5276,7 @@ export type ConfigurationEditResult = { success: boolean; reason?: string; confi
  * Add a row to the current file's `configurations()` tables (creating a
  * statement in a body that has none) and select it. Without `values` the
  * server writes every parameter whose current value differs from its
- * literal — the session's tweaks on top of the active row — each part's
+ * literal — the active row's cells, plus any session tweaks — each part's
  * into its own table. `values` keys a cell by its parameter's row key
  * (`paramRowKey`: part + label). `part` is the `part()` statement a row
  * with no cell at all goes into — the Part band's part; the file's only body
@@ -5295,12 +5295,27 @@ export function addConfiguration(
 }
 
 /**
- * Write cells into the ACTIVE row — without `values`, the session's touched
- * labels at their current values — and clear the session layer. The server
- * refuses on Default, which has no row.
+ * The Parameters panel's committed value, written into the source where the
+ * configuration on screen keeps it (`POST /api/params/value`): the active
+ * row's cell, or on Default the `param()` literal. `body` names the part
+ * (or assembly) that declares `label`; `configuration` is the row the panel
+ * shows, which the server refuses to write past when its session moved on.
+ * `value: null` clears the row's cell, so the parameter inherits its
+ * literal again. Resolves once the edit landed; the re-render follows on
+ * the scene stream.
  */
-export function saveConfiguration(values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult> {
-  return postParamEdit('api/configurations/save', values ? { values } : {});
+export function writeParamValue(
+  label: string,
+  value: unknown,
+  body?: string,
+  configuration?: string,
+): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/params/value', {
+    label,
+    value,
+    ...(body !== undefined ? { body } : {}),
+    ...(configuration !== undefined ? { configuration } : {}),
+  });
 }
 
 /** Rename a row; the session's active name follows when it was the one renamed. */

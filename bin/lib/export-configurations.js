@@ -8,6 +8,44 @@ import { basename, dirname, extname, resolve } from 'path';
 
 export const DEFAULT_CONFIGURATION = 'Default';
 
+/** `shapeIds: "all"` — every solid of the scene the server exports (a row's own render when it is not on screen). */
+export const EVERY_SOLID = 'all';
+
+/**
+ * What a `fluidcad export step|stl` request selects when `--shapes` is not
+ * given: an assembly file exports whole (`{ assembly: {} }`); any other file
+ * every solid of the scene exported (`{ shapeIds: "all" }`), so each
+ * configuration row writes its own bodies — one a row adds included, one it
+ * drops left out. With `--shapes` (`requested` non-null) this is null: the
+ * tokens resolve to ids of the scene on screen, which the server maps onto
+ * each row and refuses where a row does not build them.
+ */
+export function defaultSelector({ assembly, requested }) {
+  if (requested !== null) {
+    return null;
+  }
+  return assembly ? { assembly: {} } : { shapeIds: EVERY_SOLID };
+}
+
+/**
+ * `--all-configurations`: every target's file, fetched through
+ * `exportRow(configuration)` (resolving `{ ok, buffer }` or a failed
+ * response) before any is written — a row that fails stops the run, naming
+ * it, and writes nothing: a partial set would pass for a complete one.
+ * `describeFailure(response)` turns a failed response into its message.
+ */
+export async function collectConfigurationExports(targets, exportRow, describeFailure) {
+  const files = [];
+  for (const target of targets) {
+    const result = await exportRow(target.configuration);
+    if (!result.ok) {
+      throw new Error(`Export of ${target.configuration} failed, so nothing was written: ${describeFailure(result)}`);
+    }
+    files.push({ ...target, buffer: result.buffer });
+  }
+  return files;
+}
+
 /**
  * The configuration flags as a request plan: `null` (export the row on
  * screen), `{ kind: 'one', name }` or `{ kind: 'all' }`. `allowAll` is false

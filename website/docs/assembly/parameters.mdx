@@ -75,3 +75,5 @@ They are plain values, so they go anywhere a number goes: a pose, a mate offset,
 <ExplainedCode code={asmParams} fileName="frame.assembly.js" title="Overrides per instance and a parametric sub-assembly">
   `plate` is the [mounting plate from the Param page](/docs/part/param); its parameters are `Width`, `Depth`, `Thickness`, `Hole` and `Chamfer top edges`.
 </ExplainedCode>
+
+To keep named sets of an assembly's parameter values — a compact and a wide frame, a 2:1 and a 3:1 gearbox — and switch between them, or insert one by name with `insert(frame, 'Wide')`, declare them as [Configurations](./configurations).

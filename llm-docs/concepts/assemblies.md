@@ -3,7 +3,7 @@ id: concepts/assemblies
 title: "Parts and assemblies — files, inserting, grounding, mating"
 summary: "A .part.js file exports a part() with param() values, connector() mate frames and expose()d geometry; a .assembly.js file exports an assembly() whose body insert()s parts, .grounded()s one and mate()s the rest. Mates are solved live in the viewport. Units are the project's; parts are scaled in; overrides are in the part's unit."
 tags: [concept, assembly, part]
-seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly, api/insert, api/mate, api/replicate, concepts/units, concepts/global-parameters]
+seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly, api/insert, api/mate, api/replicate, concepts/units, concepts/global-parameters, concepts/configurations]
 ---
 
 # Parts and assemblies
@@ -26,15 +26,22 @@ can be inserted elsewhere. A new assembly file is scaffolded as one exported
 | statement | in | out |
 |-----------|----|-----|
 | `param('Label', default, type?, opts?)` | `insert(def, { Label: value })` | the Parameters panel / Insert wizard controls |
+| `connector('name', geometry)` | — | `instance.connectors.name` for `mate()` |
+| `copy(…, name)` of that connector | — | `instance.connectors.name.instance(k)`, one per copy |
+| `expose('name', sceneObject)` | — | `def.features.name` (another part), `instance.features.name` (tangent mate) |
 
 A dimension that must agree across parts (a wall thickness both halves of a
 housing share, a bolt size) is not a part parameter overridden in every
 `insert()`: it is a project parameter in `project.params.js`, imported by
 each part (`import { wall } from "./project.params.js"`). An override that
 names one is warned about, not applied. See [[concepts/global-parameters]].
-| `connector('name', geometry)` | — | `instance.connectors.name` for `mate()` |
-| `copy(…, name)` of that connector | — | `instance.connectors.name.instance(k)`, one per copy |
-| `expose('name', sceneObject)` | — | `def.features.name` (another part), `instance.features.name` (tangent mate) |
+
+A definition that comes in known variants declares them as named rows of
+its parameters — `configurations({ Wide: { Width: 1200 } })`, the first
+statement of the body — and a parent inserts one by name:
+`insert(frame, "Wide")` or `insert(frame, "Wide", { Depth: 1000 })`. Never
+copy a row's numbers into an override object. See
+[[concepts/configurations]].
 
 Connectors and exposures must be declared directly in the part body. A
 connector is a frame (origin, X, Z) derived from a face (centre + outward

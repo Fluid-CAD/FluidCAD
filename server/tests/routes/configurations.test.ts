@@ -10,7 +10,7 @@ import { ParamKey } from '../../../lib/dist/index.js';
 // `GET /api/configurations` answers the current file's table and active row;
 // `POST /api/configurations/select` switches the session and re-renders,
 // fanning the render out the way `/set-param` does. The row edits
-// (`/add`, `/save`, `/rename`, `/remove`) rewrite the `configurations()`
+// (`/add`, `/rename`, `/remove`, `/table`) rewrite the `configurations()`
 // statement through the acked apply-feature round trip — the fake editor
 // below plays the host — and then move the session. The engine is stubbed;
 // the session semantics are covered in ../configurations-session.test.ts.
@@ -309,52 +309,6 @@ describe('configuration routes', () => {
     });
   });
 
-  describe('save', () => {
-    it('writes the touched labels into the active row and clears the session layer', async () => {
-      overrides = { Width: 1300, Depth: 650 };
-      const result = await actAsEditor(post('/configurations/save', {}));
-      expect(result.status).toBe(200);
-      expect(relayed[0].spec.configurationEdit).toEqual({ kind: 'set', name: 'Wide', bodies: [{ values: { Width: 1300, Depth: 650 } }] });
-      expect(buffer).toContain(`    Wide: { Width: 1300, Depth: 650 },`);
-      expect(buffer).toContain(`    Compact: { Width: 500 },`);
-      expect(selected).toEqual([[FILE, 'Wide']]);
-      expect(overrides).toEqual({});
-      expect(result.body).toEqual({
-        success: true,
-        configurations: {
-          active: 'Wide',
-          names: ['Compact', 'Wide'],
-          rows: { Compact: { Width: 500 }, Wide: { Width: 1300, Depth: 650 } },
-          modified: false,
-        },
-      });
-    });
-
-    it('takes explicit values', async () => {
-      const result = await actAsEditor(post('/configurations/save', { values: { Depth: 900 } }));
-      expect(result.status).toBe(200);
-      expect(buffer).toContain(`    Wide: { Width: 1200, Depth: 900 },`);
-    });
-
-    it('refuses on Default', async () => {
-      active = 'Default';
-      overrides = { Width: 1300 };
-      const { status, body } = await post('/configurations/save', {});
-      expect(status).toBe(400);
-      expect(body.error).toContain('Default');
-      expect(body.error).toContain('or Duplicate… to make a new one');
-      expect(relayed).toEqual([]);
-      expect(selected).toEqual([]);
-    });
-
-    it('refuses with nothing touched', async () => {
-      const { status, body } = await post('/configurations/save', {});
-      expect(status).toBe(400);
-      expect(body.error).toContain('Nothing to save');
-      expect(relayed).toEqual([]);
-    });
-  });
-
   describe('rename', () => {
     it('renames the row; the active name follows with its tweaks', async () => {
       overrides = { Depth: 650 };
@@ -556,7 +510,6 @@ describe('configuration routes', () => {
     const LID = { filePath: PAIR, line: 13, column: 19 };
     const plateWidth = ParamKey.of('Plate', 'Width').id;
     const lidWidth = ParamKey.of('Lid', 'Width').id;
-    const plateDepth = ParamKey.of('Plate', 'Depth').id;
 
     beforeEach(() => {
       currentFile = PAIR;
@@ -648,34 +601,6 @@ describe('configuration routes', () => {
       expect(result.status).toBe(200);
       expect(buffer).toContain(`    X: { Depth: 7 },`);
       expect(buffer).toContain(`    X: { Width: 11 },`);
-    });
-
-    it('Save writes each part\'s overrides into the active row of its own table', async () => {
-      active = 'Wide';
-      overrides = { [plateDepth]: 6, [lidWidth]: 33 };
-      const result = await actAsEditor(post('/configurations/save', {}));
-      expect(result.status).toBe(200);
-      expect(relayed[0].spec.configurationEdit).toEqual({
-        kind: 'set',
-        name: 'Wide',
-        bodies: [
-          { body: 'Plate', part: { line: 3, column: 21 }, values: { Depth: 6 } },
-          { body: 'Lid', part: { line: 13, column: 19 }, values: { Width: 33 } },
-        ],
-      });
-      expect(buffer).toContain(`    Wide: { Width: 80, Depth: 6 },`);
-      expect(buffer).toContain(`part('Lid', () => {\n  const configuration = configurations({\n    Wide: { Width: 33 },\n  });`);
-      expect(selected).toEqual([[PAIR, 'Wide']]);
-      expect(result.body.configurations).toEqual({
-        active: 'Wide',
-        names: ['Wide', 'Thin'],
-        rows: { Wide: { Width: 33 }, Thin: { Depth: 2 } },
-        tables: [
-          { body: 'Plate', names: ['Wide', 'Thin'], rows: { Wide: { Width: 80, Depth: 6 }, Thin: { Depth: 2 } } },
-          { body: 'Lid', names: ['Wide'], rows: { Wide: { Width: 33 } } },
-        ],
-        modified: false,
-      });
     });
 
     describe('with a table in each part', () => {

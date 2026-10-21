@@ -7,6 +7,7 @@ import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import { DeclarationRefactor } from '../declaration-refactor.ts';
 import { DeclarationRewrite } from '../declaration-rewrite.ts';
 import { GlobalParamEdits, type GlobalParamsRouterDeps } from './global-params.ts';
+import { ParamValueWrite } from '../param-value-write.ts';
 import {
   ParamEditor,
   MULTI_CONTROL_TYPES,
@@ -310,6 +311,64 @@ export function createParamsRouter(
     if (await recomputeAndBroadcast(res)) {
       res.json({ success: true });
     }
+  });
+
+  /**
+   * The Parameters panel's committed value on a host that edits source:
+   * written where the configuration on screen keeps it, never a session
+   * override — into the active row's cell, or on Default into the
+   * `param()` literal ({@link ParamValueWrite}). `{ label, body?, value,
+   * configuration? }`; `value: null` clears the row's cell, so it inherits
+   * the literal again. ONE acked edit (one undo step); the host's save
+   * re-renders. Answers `{ success, value, configurations? }` — the row's
+   * summary as that render will report it — or the refusal: `400` for a
+   * value the declaration does not take, `409` when the session shows
+   * another configuration than the panel did, `422` from the transform (a
+   * non-literal table, a default that is no plain value). The read-only
+   * hosts keep `/set-param`.
+   */
+  router.post('/params/value', async (req, res) => {
+    const { label, body, value, configuration } = req.body ?? {};
+    if (typeof label !== 'string' || label === '') {
+      res.status(400).json({ success: false, reason: 'label is required' });
+      return;
+    }
+    if (body !== undefined && body !== null && (typeof body !== 'string' || body === '')) {
+      res.status(400).json({ success: false, reason: 'body must be the name of the part() or assembly() that declares the parameter' });
+      return;
+    }
+    if (value === undefined) {
+      res.status(400).json({ success: false, reason: 'value is required — null clears the configuration\'s cell' });
+      return;
+    }
+    if (configuration !== undefined && configuration !== null && typeof configuration !== 'string') {
+      res.status(400).json({ success: false, reason: 'configuration must be the name of the configuration on screen' });
+      return;
+    }
+    const file = fluidCadServer.getCurrentFileName();
+    if (!file) {
+      res.status(404).json({ success: false, reason: 'No active scene' });
+      return;
+    }
+    const plan = ParamValueWrite.plan(
+      fluidCadServer.getParamDefinitions(),
+      file,
+      fluidCadServer.getConfigurations(file),
+      { label, value, ...(body ? { body } : {}), ...(configuration ? { configuration } : {}) },
+    );
+    if (ParamValueWrite.refused(plan)) {
+      res.status(plan.status).json({ success: false, reason: plan.error });
+      return;
+    }
+    // The source is about to hold the value: a session override of it would
+    // only hide it from the render the host's save triggers, which may run
+    // before this request hears the ack — so it goes first.
+    fluidCadServer.forgetParam(file, plan.key);
+    await dispatcher.dispatch(res, plan.spec, {
+      success: true,
+      value: plan.value,
+      ...(plan.configurations ? { configurations: plan.configurations } : {}),
+    });
   });
 
   router.post('/reset-params', async (_req, res) => {

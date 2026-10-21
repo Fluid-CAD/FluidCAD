@@ -1,6 +1,6 @@
 // The parameters panel writing `param()` declarations back to the source.
-// Values the panel sets are runtime overrides and never touch the file; the
-// declaration itself — its label, its control, its very existence — only lives
+// A value the panel commits on Default swaps the default literal (`value`);
+// the declaration itself — its label, its control, its very existence — only lives
 // in the code, so editing one from the panel is a source transform with the
 // same refusal contract as every other: anything it cannot do safely leaves
 // the file byte-identical and says why.
@@ -535,6 +535,43 @@ const CONFIGURED = [
   `});`,
   ``,
 ].join('\n');
+
+describe('ParamEditor value — the panel\'s value on Default', () => {
+  it('swaps the default literal alone; the label, type, options and the rest of the line keep their source', async () => {
+    const code = CODE.replace(`param('Width', 100);`, `param('Width', 100, 'slider', { min: lo, max: 200 }).slider(); // mm`);
+    const result = await ParamEditor.apply(code, { kind: 'value', expectedLabel: 'Width', line: WIDTH_LINE, value: 85.5 });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(code.replace(`param('Width', 100,`, `param('Width', 85.5,`));
+  });
+
+  it('writes a negative number, a string, a boolean and a list the way a literal is spelled', async () => {
+    let result = await ParamEditor.apply(CODE, { kind: 'value', expectedLabel: 'Width', value: -4 });
+    expect(result.newCode).toContain(`param('Width', -4);`);
+    result = await ParamEditor.apply(CODE, { kind: 'value', expectedLabel: 'Rounded', value: false });
+    expect(result.newCode).toContain(`param('Rounded', false);`);
+    const select = CODE.replace(`param('Rounded', true)`, `param('Finish', 'raw', 'select', { options: [{ label: 'Raw', value: 'raw' }, { label: 'It\\'s anodised', value: "it's" }] })`);
+    result = await ParamEditor.apply(select, { kind: 'value', expectedLabel: 'Finish', value: "it's" });
+    expect(result.newCode).toContain(`param('Finish', 'it\\'s', 'select'`);
+    const multi = CODE.replace(`param('Rounded', true)`, `param('Holes', [1, 2], 'select', { options: [{ label: 'A', value: 1 }, { label: 'B', value: 2 }], multi: true })`);
+    result = await ParamEditor.apply(multi, { kind: 'value', expectedLabel: 'Holes', value: [2] });
+    expect(result.newCode).toContain(`param('Holes', [2], 'select'`);
+  });
+
+  it('refuses a default that is not a plain value, and a call with no default, leaving the code as it was', async () => {
+    const expression = CODE.replace(`param('Width', 100)`, `param('Width', base * 2)`);
+    let result = await ParamEditor.apply(expression, { kind: 'value', expectedLabel: 'Width', value: 80 });
+    expect(result).toEqual({ newCode: expression, error: 'the default of "Width" is not a plain value (base * 2) — edit it in the code' });
+    const bare = CODE.replace(`param('Width', 100)`, `param('Width')`);
+    result = await ParamEditor.apply(bare, { kind: 'value', expectedLabel: 'Width', value: 80 });
+    expect(result.newCode).toBe(bare);
+    expect(result.error).toContain('no default value');
+    result = await ParamEditor.apply(CODE, { kind: 'value', expectedLabel: 'Width', value: { expr: 'x' } as never });
+    expect(result.error).toContain('not a literal');
+    result = await ParamEditor.apply(CODE, { kind: 'value', expectedLabel: 'Height', value: 3 });
+    expect(result.newCode).toBe(CODE);
+    expect(result.error).toBeDefined();
+  });
+});
 
 describe('ParamEditor.add — configurations() table', () => {
   it('lands below the configurations() table when the body has no params yet', async () => {

@@ -29,7 +29,7 @@ import {
   type DeclarationReport,
 } from './declaration-usages.ts';
 import { DeclarationRewrite, isUsableVariableName } from './declaration-rewrite.ts';
-import { renderValue } from './part-catalog/insert-edit.ts';
+import { literalValueOf, renderValue } from './part-catalog/insert-edit.ts';
 
 /** The control types `param()` accepts as its third argument. */
 export const PARAM_TYPES = ['number', 'slider', 'text', 'select', 'checkbox', 'color'] as const;
@@ -91,6 +91,10 @@ export type ParamPartTarget = { line: number; column: number };
  * `name` being the identifier the panel chose (else one derived from the
  * label).
  *
+ * A `value` swaps the default literal alone — the Parameters panel's value
+ * edit on Default — and leaves the label, type and options as the source
+ * spells them; it refuses a default that is not a plain value.
+ *
  * An `update` that changes the label follows it through the file's
  * `insert()` overrides, and with `variable` also renames the const the
  * declaration binds, every read of it included — the route derives that
@@ -103,6 +107,7 @@ export type ParamEditSpec =
   | { kind: 'add'; param: ParamSpec; assembly: true; part?: never; global?: never; exposeAsProperty?: never }
   | { kind: 'add'; param: ParamSpec; global: true; name?: string; part?: never; assembly?: never; exposeAsProperty?: never }
   | { kind: 'update'; line?: number; expectedLabel: string; param: ParamSpec; variable?: string }
+  | { kind: 'value'; line?: number; expectedLabel: string; value: ParamLiteral }
   | { kind: 'remove'; line?: number; expectedLabel: string };
 
 export type ParamEditResult = { newCode: string; error?: string };
@@ -156,6 +161,8 @@ export class ParamEditor {
         return ParamEditor.add(code, spec.param, spec.part, spec.assembly, spec.exposeAsProperty === true);
       case 'update':
         return ParamEditor.update(code, filePath, spec.line, spec.expectedLabel, spec.param, spec.variable);
+      case 'value':
+        return ParamEditor.setValue(code, spec.line, spec.expectedLabel, spec.value);
       case 'remove':
         return ParamEditor.remove(code, filePath, spec.line, spec.expectedLabel);
       default:
@@ -384,6 +391,47 @@ export class ParamEditor {
     }
     edits.push(...followed.edits);
     return { newCode: applySpliceEdits(code, edits) };
+  }
+
+  /**
+   * Swap the default literal of an existing declaration for `value` — what
+   * a Parameters panel edit on Default writes. Only the value argument is
+   * spliced, so the label, the type, an options object (expressions
+   * included) and a chained tail all keep their source. A default that is
+   * not a plain value (`base * 2`, a variable) is the code's to change, and
+   * is refused rather than overwritten.
+   */
+  private static async setValue(
+    code: string,
+    line: number | undefined,
+    expectedLabel: string,
+    value: ParamLiteral,
+  ): Promise<ParamEditResult> {
+    const scalar = typeof value === 'string' || typeof value === 'boolean'
+      || (typeof value === 'number' && Number.isFinite(value));
+    if (!scalar && !ParamEditor.isValueArray(value)) {
+      return { newCode: code, error: 'malformed param edit spec: the value is not a literal' };
+    }
+    const tree = await ParamEditor.parse(code);
+    const found = ParamEditor.locate(tree, line, expectedLabel);
+    if ('error' in found) {
+      return { newCode: code, error: found.error };
+    }
+    const current = found.declaration.value;
+    if (current === null) {
+      return { newCode: code, error: `the param() call for "${expectedLabel}" has no default value to change — edit it in the code` };
+    }
+    if (literalValueOf(current) === undefined) {
+      return {
+        newCode: code,
+        error: `the default of "${expectedLabel}" is not a plain value (${current.text}) — edit it in the code`,
+      };
+    }
+    return {
+      newCode: applySpliceEdits(code, [
+        { start: current.startIndex, end: current.endIndex, text: ParamEditor.renderLiteral(value) },
+      ]),
+    };
   }
 
   /**

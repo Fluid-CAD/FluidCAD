@@ -139,6 +139,14 @@ export class FluidCadServer {
   /** Sessions whose active configuration was read back from the editor state (or chosen explicitly) — seeded once. */
   private configurationSeeded = new Set<string>();
   /** The rows each session's last render declared, merged and per table — what `GET /api/configurations` answers between renders. */
+  /**
+   * Each session's parameter definitions as its last finished render
+   * declared them. Requests read these rather than the live registry: a
+   * render in progress (the one an edit's save just triggered) clears and
+   * refills the registry between its awaits, and a request handled in
+   * between would see half a model.
+   */
+  private lastParamDefinitions = new Map<string, ParamDefinition[]>();
   private lastConfigurations = new Map<string, Pick<ConfigurationsSummary, 'names' | 'rows'> & { tables: SceneConfigurationTable[] }>();
   // What file each session is rendering. For desktop, sessionId === filePath
   // (set lazily on first processFile call). For hub, set explicitly via
@@ -209,11 +217,14 @@ export class FluidCadServer {
   }
 
   /**
-   * Param definitions from the last render — currentValue is override-aware,
-   * and sourceLocation addresses the `param()` call that declared each one.
+   * Param definitions from the current file's last finished render —
+   * currentValue is override-aware, and sourceLocation addresses the
+   * `param()` call that declared each one. Never a render still in
+   * progress ({@link lastParamDefinitions}); the live registry only before
+   * the file has rendered at all.
    */
   getParamDefinitions(): ParamDefinition[] {
-    return getParamRegistry().getDefinitions();
+    return this.lastParamDefinitions.get(normalizePath(this.currentFileName)) ?? getParamRegistry().getDefinitions();
   }
 
   /**
@@ -335,6 +346,7 @@ export class FluidCadServer {
     this.activeConfigurations.delete(sessionId);
     this.configurationSeeded.delete(sessionId);
     this.lastConfigurations.delete(sessionId);
+    this.lastParamDefinitions.delete(sessionId);
     this.sessionFiles.delete(sessionId);
   }
 
@@ -576,6 +588,7 @@ export class FluidCadServer {
         }
 
         const params = getParamRegistry().getDefinitions();
+        this.lastParamDefinitions.set(normalizePath(sessionId), params);
         this.paramSession(sessionId).settle(registry);
         const configurations = this.settleConfiguration(sessionId, normalizedFileName, registry, breakpointHit);
         // After the overrides settled: a render can drop overrides the source

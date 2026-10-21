@@ -13,6 +13,7 @@ import { FluidCadServer } from '../../src/fluidcad-server/index.ts';
 import type { SceneHost } from '../../src/host/scene-host.ts';
 import { createManager, getSceneManager } from '../../../lib/dist/scene-manager.js';
 import param from '../../../lib/dist/core/param.js';
+import { getParamRegistry } from '../../../lib/dist/index.js';
 import part from '../../../lib/dist/core/part.js';
 
 const FILE = '/ws/pair.part.js';
@@ -134,6 +135,16 @@ describe('POST /api/set-param', () => {
     const res = await post('/set-param', { label: 'Depth', value: 9 });
     expect(res.status).toBe(200);
     expect(lastValues()).toEqual({ 'Plate/Width': 100, 'Plate/Depth': 9, 'Lid/Width': 40 });
+  });
+
+  it('answers definitions from the last finished render, not a registry a new render is refilling', async () => {
+    // A render clears the registry and refills it between its awaits; a
+    // request served in between — the panel's next value write, while the
+    // render its previous write triggered is running — must not see that.
+    getParamRegistry().clear();
+    expect(fluid.getParamDefinitions().map((d) => `${d.body}/${d.label}`)).toEqual(['Plate/Width', 'Plate/Depth', 'Lid/Width']);
+    const res = await post('/set-param', { label: 'Width', value: 60, body: 'Lid' });
+    expect(res.status).toBe(200);
   });
 
   it('refuses a body that is not a name', async () => {

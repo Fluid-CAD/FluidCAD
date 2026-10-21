@@ -4,7 +4,7 @@ import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constr
 
 // Two parts in one file. Each part() is an isolation boundary: the pillar
 // stands on the base but never fuses with it, so the scene keeps two solids.
-part("base", () => {
+export const base = part("base", () => {
     sketch("xy", () => {
         const sg1 = line([-60, -40], [60, -40]);
         const sg2 = line([60, -40], [60, 40]);
@@ -27,7 +27,7 @@ part("base", () => {
 
 // A second boundary — inside it, the cylinder would fuse with anything else
 // drawn in THIS part, and with nothing outside it.
-part("pillar", () => {
+export const pillar = part("pillar", () => {
     sketch("xy", () => {
         circle([0, 0], 30);
       })

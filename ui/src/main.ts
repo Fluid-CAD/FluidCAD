@@ -13,7 +13,7 @@ import { ParamsPanel } from './ui/params-panel';
 import { openConfigurationsGrid } from './ui/configurations-grid-dialog';
 import { ParamEditorDialog } from './ui/param-editor-dialog';
 import { PropertyEditorDialog } from './ui/property-editor-dialog';
-import { ExportDialog, exportBaseName } from './ui/export-dialog';
+import { ExportDialog, exportBaseName, type ExportTarget } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
 import { LoadingOverlay } from './ui/loading-overlay';
@@ -435,7 +435,7 @@ function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
     container,
     engineClient,
     (shapeId) => viewer.highlightShape(shapeId),
-    (shapeIds) => exportDialog.show({ kind: 'shapes', shapeIds }),
+    (shapeIds) => exportDialog.show(shapesExportTarget(shapeIds)),
     (shapeId, visible) => viewer.setShapeVisibility(shapeId, visible),
     (shapeId) => viewer.isShapeHidden(shapeId),
     (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
@@ -972,7 +972,7 @@ const topBar = new TopBar(container, {
   // the choice — or, in an assembly, the whole assembly where it sits;
   // File ▸ Export stays the whole-scene path.
   export: {
-    onExport: (shapeId) => exportDialog.show({ kind: 'shapes', shapeIds: [shapeId] }),
+    onExport: (shapeId) => exportDialog.show(shapesExportTarget([shapeId])),
     captureThumbnail: (shapeId) => viewer.captureSolidThumbnail(shapeId),
     onExportAssembly: () => exportDialog.show({ kind: 'assembly' }),
     captureAssemblyThumbnail: () => viewer.captureSceneThumbnail(),
@@ -1143,9 +1143,23 @@ installDesktopMenu({
   // An assembly exports whole, where its parts sit; a part scene offers
   // every solid in it.
   export: () => exportDialog.show(
-    currentRail?.kind === 'assembly' ? { kind: 'assembly' } : { kind: 'shapes', shapeIds: exportableShapeIds() },
+    currentRail?.kind === 'assembly' ? { kind: 'assembly' } : shapesExportTarget(exportableShapeIds()),
   ),
 });
+
+/**
+ * An export of `shapeIds`. A part scene's solids are its file's output, so
+ * the target names the file: the download is called after it and the dialog
+ * offers the file's configurations() rows. An assembly's solids are part
+ * templates and export as on screen, unnamed.
+ */
+function shapesExportTarget(shapeIds: string[]): ExportTarget {
+  const doc = sceneDocument.current;
+  if (doc?.kind !== 'part') {
+    return { kind: 'shapes', shapeIds };
+  }
+  return { kind: 'shapes', shapeIds, fileBase: exportBaseName(doc.absPath) };
+}
 
 /** Every solid in the current part scene — what File ▸ Export offers by default. */
 function exportableShapeIds(): string[] {

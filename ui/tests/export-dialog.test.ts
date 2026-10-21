@@ -11,9 +11,15 @@ import type { MeasurePose } from '../src/api';
 // live pose per instance (the browser solver owns them, the server only knows
 // the statement pose), the download is named after the assembly file, and an
 // instance the solver has not placed yet stops the export before any request.
+// A part scene's solids name their file: the download is called after it and
+// the dialog offers the file's configurations() rows, as for the assembly.
 
 vi.mock('../src/desktop', () => ({
   deliverFile: vi.fn(async () => 'downloaded'),
+}));
+
+vi.mock('../src/screenshot', () => ({
+  captureScreenshot: vi.fn(async () => new Blob(['png'])),
 }));
 
 import { deliverFile } from '../src/desktop';
@@ -98,6 +104,22 @@ describe('ExportDialog shapes target', () => {
       scaleTo: 'mm',
     });
     expect(deliverFileMock.mock.calls[0][1]).toBe('export.stl');
+  });
+
+  it('names a part scene\'s download after its file, with or without configurations', async () => {
+    const { dialog, exportShapes, q, pickFormat } = mount();
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'], fileBase: 'plate' });
+    expect(q('configuration-section').classList.contains('hidden')).toBe(true);
+
+    await clickExport(q);
+    expect(exportShapes).toHaveBeenCalledWith({ format: 'step', shapeIds: ['s-1'], includeColors: true });
+    expect(deliverFileMock.mock.calls[0][1]).toBe('plate.step');
+
+    deliverFileMock.mockClear();
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'], fileBase: 'plate' });
+    pickFormat('png');
+    await clickExport(q);
+    expect(deliverFileMock.mock.calls[0][1]).toBe('plate.png');
   });
 });
 
@@ -214,7 +236,7 @@ describe('ExportDialog configurations', () => {
     expect(exportShapes.mock.calls[0][0]).not.toHaveProperty('configuration');
   });
 
-  it('offers no Configuration select for a list of solids, which exports what is on screen', async () => {
+  it('offers no Configuration select for solids that name no file (an assembly\'s part template), which export what is on screen', async () => {
     const { dialog, exportShapes, q } = mount(provider());
     dialog.setConfigurations(TABLE);
     dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
@@ -365,11 +387,94 @@ describe('ExportDialog configurations', () => {
   });
 });
 
+describe('ExportDialog configurations in a part scene', () => {
+  const PART_TABLE = {
+    active: 'Default',
+    names: ['M6', 'M8'],
+    rows: { M6: { Hole: 6 }, M8: { Hole: 8 } },
+    modified: false,
+  };
+  const partTarget = { kind: 'shapes' as const, shapeIds: ['s-1', 's-2'], fileBase: 'plate' };
+
+  it('offers the select for a part scene\'s solids, without the assembly\'s poses note', () => {
+    const { dialog, q } = mount();
+    dialog.setConfigurations(PART_TABLE);
+    dialog.show(partTarget);
+    expect(q('configuration-section').classList.contains('hidden')).toBe(false);
+    expect([...q<HTMLSelectElement>('configuration').options].map((o) => o.textContent)).toEqual([
+      'Default (on screen)', 'M6', 'M8', 'All configurations (.zip)',
+    ]);
+    pickConfiguration(q, 'M8');
+    expect(q('configuration-note').classList.contains('hidden')).toBe(true);
+    pickConfiguration(q, 'All configurations (.zip)');
+    expect(q('configuration-note').textContent).toBe('Each configuration is its own file in one .zip.');
+  });
+
+  it('sends the picked row with the shape ids and names the file after the part', async () => {
+    const { dialog, exportShapes, q } = mount();
+    dialog.setConfigurations(PART_TABLE);
+    dialog.show(partTarget);
+    pickConfiguration(q, 'M8');
+
+    await clickExport(q);
+
+    expect(exportShapes).toHaveBeenCalledWith({
+      format: 'step', shapeIds: ['s-1', 's-2'], includeColors: true, configuration: 'M8',
+    });
+    expect(deliverFileMock.mock.calls[0][1]).toBe('plate.step');
+  });
+
+  it('sends the row on screen when nothing was picked', async () => {
+    const { dialog, exportShapes, q } = mount();
+    dialog.setConfigurations({ ...PART_TABLE, active: 'M6' });
+    dialog.show(partTarget);
+
+    await clickExport(q);
+
+    expect((exportShapes.mock.calls[0][0] as any).configuration).toBe('M6');
+  });
+
+  it('All configurations exports every row\'s solids into <file>-configurations.zip', async () => {
+    const { dialog, exportShapes, q } = mount();
+    exportShapes.mockImplementation(async (body: any) => new Blob([`step ${body.configuration}`]));
+    dialog.setConfigurations(PART_TABLE);
+    dialog.show(partTarget);
+    pickConfiguration(q, 'All configurations (.zip)');
+
+    q<HTMLButtonElement>('export-btn').click();
+    await waitForStatus(q, () => deliverFileMock.mock.calls.length > 0);
+
+    expect(exportShapes.mock.calls.map((call) => (call[0] as any).configuration)).toEqual(['Default', 'M6', 'M8']);
+    expect(exportShapes.mock.calls.every((call) => {
+      const body = call[0] as any;
+      return body.format === 'step' && body.shapeIds.join() === 's-1,s-2' && !('assembly' in body);
+    })).toBe(true);
+    const [archive, name] = deliverFileMock.mock.calls[0];
+    expect(name).toBe('plate-configurations.zip');
+    const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+    expect(Object.keys(zip.files)).toEqual(['plate.step', 'plate-M6.step', 'plate-M8.step']);
+    expect(await zip.file('plate-M8.step')!.async('string')).toBe('step M8');
+  });
+
+  it('holds the select on the row on screen for a PNG', () => {
+    const { dialog, q, pickFormat } = mount();
+    dialog.setConfigurations(PART_TABLE);
+    dialog.show(partTarget);
+    pickConfiguration(q, 'M8');
+    pickFormat('png');
+    expect(q<HTMLSelectElement>('configuration').disabled).toBe(true);
+    expect(selectedLabel(q)).toBe('Default (on screen)');
+    expect(q('configuration-note').textContent).toBe('A PNG captures the configuration on screen.');
+  });
+});
+
 describe('exportBaseName', () => {
-  it('strips the directory and the assembly / js suffix', () => {
+  it('strips the directory and the model suffix', () => {
     expect(exportBaseName('/work/robot.assembly.js')).toBe('robot');
     expect(exportBaseName('C:\\work\\arm.assembly.js')).toBe('arm');
     expect(exportBaseName('/work/bracket.js')).toBe('bracket');
+    expect(exportBaseName('/work/plate.part.js')).toBe('plate');
+    expect(exportBaseName('/work/hinge.fluid.js')).toBe('hinge');
     expect(exportBaseName('')).toBe('');
   });
 });

@@ -43,16 +43,24 @@ import {
 // project-wide Parameters column.
 
 /**
- * The band the Part dropdown sits in: scope chrome, not a parameter row. It
- * answers the header's + ("add to which part?"), so it hangs directly off
- * the header — `-mt-1` swallows the sheet's top padding so the band meets
- * the header's edge — and closes with the hairline the column's other chrome
- * draws, which is what parts it from the values below. Its tint is half the
- * fields' (param-row.ts's `FIELD_SURFACE`): recessed enough to read as a different
- * kind of surface, not so much that it competes with a field.
+ * The bands above the controls — the configuration band, then the Add to
+ * band — as one stack: scope chrome, not parameter rows. The stack hangs
+ * directly off the header — `-mt-1` swallows the sheet's top padding so the
+ * first band meets the header's edge — and keeps the sheet's spacing below
+ * the last one. Hidden with both its bands, so an empty stack shifts nothing.
  */
-const PART_BAND_CLASS =
-  '-mt-1 mb-1 flex items-center gap-2 px-3 h-10 bg-base-content/[0.03] border-b border-base-content/10';
+const BAND_STACK_CLASS = '-mt-1 mb-1';
+
+/**
+ * One band: the configuration dropdown, or the Part dropdown answering the
+ * header's + ("add to which part?"). Each closes with the hairline the
+ * column's other chrome draws, which is what parts it from the band or the
+ * values below. Its tint is half the fields' (param-row.ts's
+ * `FIELD_SURFACE`): recessed enough to read as a different kind of surface,
+ * not so much that it competes with a field.
+ */
+const BAND_CLASS =
+  'flex items-center gap-2 px-3 h-10 bg-base-content/[0.03] border-b border-base-content/10';
 
 /**
  * The dropdown itself: a picker, so it takes the ghost form — no field
@@ -170,7 +178,15 @@ export class ParamsPanel extends AccordionSection {
   private addMenu: HTMLDivElement | null = null;
   private addMenuCleanup: (() => void) | null = null;
 
-  /** The Part dropdown's row, above the controls; its own element so a re-render of the list leaves it be. */
+  /** The two bands' stack, hidden while both of them are. */
+  private bands: HTMLDivElement;
+  /**
+   * The configuration band, first in the stack in both scopes: what the file
+   * renders (the dropdown, the modified marker, the ⋮ row actions) or, before
+   * the file has a table, the Add configuration button.
+   */
+  private configurationBar: HTMLDivElement;
+  /** The Part dropdown's row (part scope), under the configuration band; its own element so a re-render of the list leaves it be. */
   private partBar: HTMLDivElement;
   /** Where the parameter controls are drawn. */
   private list: HTMLDivElement;
@@ -234,23 +250,29 @@ export class ParamsPanel extends AccordionSection {
       addButton.remove();
     }
 
-    // The Part band and the controls are two rows of the body: the band
-    // survives a re-render of the list, and the list's in-place value
-    // updates never touch it.
+    // The bands and the controls are separate rows of the body: the bands
+    // survive a re-render of the list, and the list's in-place value updates
+    // never touch them.
+    this.configurationBar = document.createElement('div');
+    this.configurationBar.className = BAND_CLASS;
+    this.configurationBar.hidden = true;
     this.partBar = document.createElement('div');
-    this.partBar.className = PART_BAND_CLASS;
+    this.partBar.className = BAND_CLASS;
     this.partBar.hidden = true;
+    this.bands = document.createElement('div');
+    this.bands.className = BAND_STACK_CLASS;
+    this.bands.hidden = true;
+    this.bands.append(this.configurationBar, this.partBar);
     this.list = document.createElement('div');
-    this.body.appendChild(this.partBar);
+    this.body.appendChild(this.bands);
     this.body.appendChild(this.list);
 
     // The empty state is part of the section, not something the first render
     // brings: a model with no parameters at all never sends an update.
     this.renderParams();
-    // The configuration band offers Add configuration from the start, too.
-    if (this.scope === 'assembly') {
-      this.syncConfigurations();
-    }
+    // The configuration band offers Add configuration from the start, too —
+    // in part scope once the scene has a part to start the table in.
+    this.syncConfigurations();
 
     if (container) {
       this.mount(container);
@@ -288,9 +310,9 @@ export class ParamsPanel extends AccordionSection {
     return this.configurations?.active ?? DEFAULT_CONFIGURATION;
   }
 
-  /** Whether the rows carry configuration decorations: assembly scope with a row active. */
+  /** Whether the rows carry configuration decorations: a row, not Default, is active. */
   private get rowActive(): boolean {
-    return this.scope === 'assembly' && this.activeConfiguration !== DEFAULT_CONFIGURATION;
+    return this.activeConfiguration !== DEFAULT_CONFIGURATION;
   }
 
   /** Everything about the configuration that decides how `params` rows are decorated. */
@@ -304,23 +326,35 @@ export class ParamsPanel extends AccordionSection {
   }
 
   /**
-   * The band in assembly scope. With a `configurations()` table: the
-   * dropdown — Default, then the file's rows — the modified marker, and the
-   * ⋮ menu of row actions. Without one: a single Add configuration button,
-   * which starts the table. Hidden only on a host that cannot edit and has
-   * no table to pick from. Redrawn by every render through {@link update}.
+   * Whether the file has a body a new `configurations()` table can start in:
+   * the assembly's own body, or — in part scope — a part. A top-level file
+   * without `part()` cannot declare `param()`, so it has no table to start.
+   */
+  private get hasTableBody(): boolean {
+    return this.scope === 'assembly' || this.partChoices.length > 0;
+  }
+
+  /**
+   * The configuration band, the same in both scopes. With a
+   * `configurations()` table: the dropdown — Default, then the file's rows —
+   * the modified marker, and the ⋮ menu of row actions; the dropdown shows
+   * on any host, even one with nothing to edit or no part to add to. Without
+   * a table: a single Add configuration button, which starts one — on a host
+   * that can edit, in a file with a body to hold it ({@link hasTableBody}).
+   * Otherwise hidden. Redrawn by every render through {@link update}.
    */
   private syncConfigurations(): void {
     const configurations = this.configurations;
     const names = configurations?.names ?? [];
     this.resetButton.title = this.rowActive ? 'Revert changes' : 'Reset all to defaults';
     if (names.length === 0) {
-      if (!this.canEditConfigurations) {
-        this.partBar.hidden = true;
-        this.partBar.replaceChildren();
+      if (!this.canEditConfigurations || !this.hasTableBody) {
+        this.configurationBar.hidden = true;
+        this.configurationBar.replaceChildren();
+        this.syncBandStack();
         return;
       }
-      this.partBar.hidden = false;
+      this.configurationBar.hidden = false;
       const add = document.createElement('button');
       add.type = 'button';
       add.className = CONFIGURATION_ADD_BUTTON_CLASS;
@@ -328,10 +362,11 @@ export class ParamsPanel extends AccordionSection {
       add.title = 'Name the values on screen as a configuration — a row the file and its inserts can pick';
       add.innerHTML = `${ICON_PLUS}<span>Add configuration</span>`;
       add.addEventListener('click', () => void this.addConfiguration('Add configuration', 'Add'));
-      this.partBar.replaceChildren(add);
+      this.configurationBar.replaceChildren(add);
+      this.syncBandStack();
       return;
     }
-    this.partBar.hidden = false;
+    this.configurationBar.hidden = false;
     const select = document.createElement('select');
     select.className = PART_SELECT_CLASS;
     select.title = 'The configuration the file renders';
@@ -367,7 +402,13 @@ export class ParamsPanel extends AccordionSection {
       });
       children.push(menuButton);
     }
-    this.partBar.replaceChildren(...children);
+    this.configurationBar.replaceChildren(...children);
+    this.syncBandStack();
+  }
+
+  /** The stack shows while either band does. */
+  private syncBandStack(): void {
+    this.bands.hidden = this.configurationBar.hidden && this.partBar.hidden;
   }
 
   /**
@@ -428,7 +469,7 @@ export class ParamsPanel extends AccordionSection {
   }
 
   private openConfigurationMenu(anchor: HTMLElement): void {
-    const host = this.partBar.closest<HTMLElement>('#fluidcad-viewer') ?? document.body;
+    const host = this.configurationBar.closest<HTMLElement>('#fluidcad-viewer') ?? document.body;
     const rect = anchor.getBoundingClientRect();
     const menu = showPopupMenu(host, { clientX: rect.right, clientY: rect.bottom + 4 }, this.configurationMenuItems(), {
       align: 'end',
@@ -502,8 +543,9 @@ export class ParamsPanel extends AccordionSection {
 
   /**
    * Manage…: the whole table in a grid, committed as one rewrite. The
-   * columns are the rows this section lists — the definition's own
-   * parameters — and the cells come from the source, so expressions stay.
+   * columns are the rows this section lists — the assembly's own parameters,
+   * or in part scope the Add to part's, which in a single-part file is every
+   * part parameter — and the cells come from the source, so expressions stay.
    */
   private manageConfigurations(): Promise<void> {
     const commitTable = this.client.commitConfigurationTable;
@@ -702,12 +744,16 @@ export class ParamsPanel extends AccordionSection {
    * through {@link update}; the timeline calls it when a part-row click moves
    * the selection without a render. The row hides when the scene has no
    * parts, and so does the +: there is no part to declare a parameter in.
+   * The configuration band above it is redrawn too — whether it offers Add
+   * configuration depends on the scene having a part. An assembly has no
+   * Part dropdown (its parameters live in its own body), only that band.
    */
   syncParts(): void {
     if (this.scope === 'assembly') {
-      // The band is the configuration dropdown's here.
       this.syncConfigurations();
-      if (this.addButton) this.addButton.hidden = false;
+      if (this.addButton) {
+        this.addButton.hidden = false;
+      }
       return;
     }
     const choices = this.partProvider?.() ?? { parts: [], selected: null };
@@ -728,12 +774,14 @@ export class ParamsPanel extends AccordionSection {
       this.renderParams();
     }
 
+    this.syncConfigurations();
     this.partBar.hidden = choices.parts.length === 0;
     if (this.addButton) {
       this.addButton.hidden = choices.parts.length === 0;
     }
     if (choices.parts.length === 0) {
       this.partBar.replaceChildren();
+      this.syncBandStack();
       return;
     }
     const select = document.createElement('select');
@@ -762,6 +810,7 @@ export class ParamsPanel extends AccordionSection {
     caption.className = 'shrink-0 text-sm text-base-content/60';
     caption.textContent = 'Add to';
     this.partBar.replaceChildren(caption, select);
+    this.syncBandStack();
   }
 
   private static option(value: string, label: string): HTMLOptionElement {

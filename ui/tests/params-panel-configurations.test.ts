@@ -8,10 +8,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // while a row is active, and a Save / Discard / Cancel choice before a
 // switch drops tweaks. Stage 3: the band's Add configuration button on a
 // file without a table, and the ⋮ menu's Add / Save / Save as / Rename /
-// Delete over the client's row edits.
+// Delete over the client's row edits. Part configurations, stage 1
+// (plans/part-configurations-research.md): the same band in part scope, above
+// the Add to band, shown once the scene has a part.
 
 import { ParamsPanel } from '../src/ui/params-panel';
-import type { ParamEditorDialog } from '../src/ui/param-editor-dialog';
+import type { ParamEditorDialog, PartChoices } from '../src/ui/param-editor-dialog';
 import type { EngineClient } from '../src/engine-client';
 import type { UIConfigurations, UIParamDefinition } from '../src/types';
 import type { ConfigurationNamePrompt } from '../src/ui/configuration-dialogs';
@@ -68,6 +70,16 @@ function mount(scope: 'part' | 'assembly' = 'assembly', editable = true) {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+const FILE = '/ws/plate.part.js';
+const plate = { name: 'Plate', sourceLocation: { filePath: FILE, line: 3, column: 0 } };
+const lid = { name: 'Lid', sourceLocation: { filePath: FILE, line: 20, column: 0 } };
+const onePart = (): PartChoices => ({ parts: [plate], selected: plate.sourceLocation });
+
+/** A part parameter of `owner` — what a part scene's render carries. */
+function partParam(label: string, currentValue = 10, configuredValue?: number, owner = plate): UIParamDefinition {
+  return { ...param(label, currentValue, configuredValue), kind: 'part', part: owner.sourceLocation };
+}
+
 afterEach(() => {
   document.body.innerHTML = '';
 });
@@ -93,10 +105,12 @@ describe('ParamsPanel configuration dropdown', () => {
     expect(panel.activeConfiguration).toBe('Default');
   });
 
-  it('never shows in part scope', () => {
+  it('shows in part scope too, on the active row', () => {
     const { panel, select } = mount('part');
-    panel.update([{ ...param('Width'), kind: 'part' }], [], { ...TABLE, active: 'Wide' });
-    expect(select()).toBeNull();
+    panel.setPartProvider(onePart);
+    panel.update([partParam('Width', 1200, 1200)], [], { ...TABLE, active: 'Wide' });
+    expect(Array.from(select()!.options, (o) => o.textContent)).toEqual(['Default', 'Compact', 'Wide']);
+    expect(select()!.value).toBe('Wide');
   });
 
   it('selecting a row calls the client; Default is a row like any other', () => {
@@ -256,10 +270,18 @@ describe('ParamsPanel configuration actions', () => {
     expect(menuButton(readOnly.host)).toBeNull();
   });
 
-  it('never shows in part scope, Add button included', () => {
-    const { panel, host } = mount('part');
+  it('offers Add configuration in part scope once the scene has a part', async () => {
+    const { panel, host, client } = mount('part');
     panel.update([{ ...param('Width'), kind: 'part' }]);
     expect(host.querySelector('[data-configuration-add]')).toBeNull();
+    panel.setPartProvider(onePart);
+    panel.update([partParam('Width')]);
+    const add = host.querySelector<HTMLButtonElement>('[data-configuration-add]')!;
+    expect(add).not.toBeNull();
+    answerPrompt(panel, 'M8');
+    add.click();
+    await flush();
+    expect(client.addConfiguration).toHaveBeenCalledWith('M8');
   });
 
   it('opens the ⋮ menu beside the dropdown with every row action', () => {
@@ -424,5 +446,113 @@ describe('ParamsPanel configuration actions', () => {
     delete (client as Partial<EngineClient>).commitConfigurationTable;
     panel.update([param('Width')], [], TABLE);
     expect(item(panel, 'Manage…').disabled).toBe(true);
+  });
+});
+
+describe('ParamsPanel configuration band in part scope', () => {
+  const partSelect = (host: HTMLElement) => host.querySelector<HTMLSelectElement>('[data-param-part]');
+  /** The bands' stack: the body's first row, above the list. */
+  const bandStack = (panel: ParamsPanel) => panel.body.firstElementChild as HTMLElement;
+
+  it('sits above the Add to band, both above the controls', () => {
+    const { panel, host, select } = mount('part');
+    panel.setPartProvider(onePart);
+    panel.update([partParam('Width', 1200, 1200)], [], { ...TABLE, active: 'Wide' });
+    const order = Array.from(host.querySelectorAll('[data-configuration], [data-param-part], [data-param-label]'));
+    expect(order[0]).toBe(select());
+    expect(order[1]).toBe(partSelect(host));
+    expect(order[2]).toBe(host.querySelector('[data-param-label="Width"]'));
+    // One stack holds both bands.
+    expect(bandStack(panel).contains(select())).toBe(true);
+    expect(bandStack(panel).contains(partSelect(host))).toBe(true);
+  });
+
+  it('keeps one band per row in assembly scope: the configuration band, no Add to', () => {
+    const { panel, host, select } = mount('assembly');
+    panel.update([param('Width')], [], TABLE);
+    expect(select()).not.toBeNull();
+    expect(partSelect(host)).toBeNull();
+    expect(bandStack(panel).hidden).toBe(false);
+  });
+
+  it('hides with the + when the scene has no part and no rows', () => {
+    const { panel, host } = mount('part');
+    panel.setPartProvider(() => ({ parts: [], selected: null }));
+    panel.update([{ ...param('Width'), kind: 'part' }]);
+    expect(host.querySelector('[data-configuration-add]')).toBeNull();
+    expect(host.querySelector('[data-configuration]')).toBeNull();
+    expect(partSelect(host)).toBeNull();
+    expect(host.querySelector<HTMLElement>('[data-add-param]')!.hidden).toBe(true);
+    // The empty stack is hidden with its bands.
+    expect(bandStack(panel).hidden).toBe(true);
+  });
+
+  it('shows a table\'s dropdown with no part to add to, as on a read-only host', () => {
+    const { panel, host, select } = mount('part', false);
+    panel.update([{ ...param('Width', 1200, 1200), kind: 'part' }], [], { ...TABLE, active: 'Wide' });
+    expect(select()!.value).toBe('Wide');
+    expect(partSelect(host)).toBeNull();
+    expect(host.querySelector('[data-configuration-menu]')).toBeNull();
+    expect(bandStack(panel).hidden).toBe(false);
+  });
+
+  it('decorates the rows while a row is active and retitles ↺', () => {
+    const { panel, labelOf, hintOf, reset } = mount('part');
+    panel.setPartProvider(onePart);
+    panel.update([partParam('Width', 1200, 1200), partParam('Depth', 800)], [], { ...TABLE, active: 'Wide' });
+    expect(labelOf('Width').className).toContain('font-semibold');
+    expect(hintOf('Width')).toBeNull();
+    expect(hintOf('Depth')!.textContent).toBe('default');
+    expect(reset().title).toBe('Revert changes');
+
+    panel.update([partParam('Width', 10), partParam('Depth', 800)], [], TABLE);
+    expect(labelOf('Width').className).not.toContain('font-semibold');
+    expect(hintOf('Depth')).toBeNull();
+    expect(reset().title).toBe('Reset all to defaults');
+  });
+
+  it('survives an Add to pick and a timeline selection move, and switches independently of them', () => {
+    let selected = plate.sourceLocation;
+    const { panel, host, client, select, pick } = mount('part');
+    panel.setPartProvider(() => ({ parts: [plate, lid], selected }));
+    panel.update([partParam('Width', 1200, 1200), partParam('Height', 5, undefined, lid)], [], { ...TABLE, active: 'Wide' });
+
+    // Add to: the other part — the configuration stays, the list follows the part.
+    const parts = partSelect(host)!;
+    parts.value = '1';
+    parts.dispatchEvent(new Event('change'));
+    expect(select()!.value).toBe('Wide');
+    expect(host.querySelector('[data-param-label="Height"]')).not.toBeNull();
+    expect(host.querySelector('[data-param-label="Width"]')).toBeNull();
+
+    // A timeline click moves the selection without a render.
+    selected = plate.sourceLocation;
+    panel.syncParts();
+    selected = lid.sourceLocation;
+    panel.syncParts();
+    expect(select()!.value).toBe('Wide');
+    expect(partSelect(host)!.selectedOptions[0].textContent).toBe('Lid');
+
+    // Picking a configuration leaves the Add to choice alone.
+    pick('Compact');
+    expect(client.selectConfiguration).toHaveBeenCalledWith('Compact');
+    expect(partSelect(host)!.selectedOptions[0].textContent).toBe('Lid');
+  });
+
+  it('Manage… takes the single part\'s parameters as the grid\'s columns', async () => {
+    const { panel } = mount('part');
+    panel.setPartProvider(onePart);
+    panel.update([
+      partParam('Width', 1200, 1200),
+      partParam('Depth', 800),
+      { ...param('Wall'), kind: 'global' },
+    ], [], { ...TABLE, active: 'Wide' });
+    const opened: any[] = [];
+    panel.openGrid = async (opts) => {
+      opened.push(opts);
+    };
+    panel.configurationMenuItems().find((i) => i.label === 'Manage…')!.onSelect!();
+    await flush();
+    expect(opened[0].params.map((p: UIParamDefinition) => p.label)).toEqual(['Width', 'Depth']);
   });
 });

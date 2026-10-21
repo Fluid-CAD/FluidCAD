@@ -13,9 +13,16 @@ import { ICON_CLOSE } from './icons';
  * What the dialog exports: the listed solids, each in its own frame (a
  * part-scene solid, an assembly's part template), or the whole assembly —
  * every instance where it sits.
+ *
+ * `fileBase` is set when the solids are a part scene's — the output of the
+ * file on screen ({@link exportBaseName} of it). It names the download
+ * (`plate.step`, `plate-M8.step`, `plate-configurations.zip`) and lets the
+ * Configuration select export another `configurations()` row of that file.
+ * Without it (an assembly's part template, a host that knows no file) the
+ * solids export as on screen, as `export.<ext>`.
  */
 export type ExportTarget =
-  | { kind: 'shapes'; shapeIds: string[] }
+  | { kind: 'shapes'; shapeIds: string[]; fileBase?: string }
   | { kind: 'assembly' };
 
 /**
@@ -32,7 +39,7 @@ export interface ExportAssemblyProvider {
   fileBaseName(): string;
 }
 
-/** The per-solid download name; the assembly download is named after its file. */
+/** The download name of solids that name no file; a part scene's and the assembly's are named after their file. */
 const SHAPES_FILE_BASE = 'export';
 
 const ZIP_FILTER: DesktopFileFilter = { name: 'ZIP Archives', extensions: ['zip'] };
@@ -42,12 +49,13 @@ const OFF_SCREEN_POSES = 'place their parts where the source puts them, not wher
 
 /**
  * The download's base name for a document: the file name without its
- * directory and without the `.assembly.js` / `.js` suffix —
- * `/work/robot.assembly.js` → `robot`, so the export lands as `robot.step`.
+ * directory and without its model suffix — `.assembly.js`, `.part.js`,
+ * `.fluid.js`, else `.js` — so `/work/robot.assembly.js` exports as
+ * `robot.step` and `/work/plate.part.js` as `plate.step`.
  */
 export function exportBaseName(absPath: string): string {
   const file = absPath.split(/[\\/]/).pop() ?? '';
-  return file.replace(/\.assembly\.js$/, '').replace(/\.js$/, '');
+  return file.replace(/\.(?:assembly|part|fluid)\.js$/, '').replace(/\.js$/, '');
 }
 
 export class ExportDialog {
@@ -318,11 +326,24 @@ export class ExportDialog {
   }
 
   /**
-   * The Configuration select belongs to the whole-assembly export of a file
-   * with `configurations()` rows; a list of solids exports what is on screen.
+   * The Configuration select belongs to an export of a file's own output —
+   * the whole assembly, or a part scene's solids (a target naming its file)
+   * — when that file has `configurations()` rows. Solids that name no file
+   * (an assembly's part templates) export what is on screen.
    */
   private configurationsOffered(): boolean {
-    return this.target.kind === 'assembly' && this.configurations !== null;
+    if (this.configurations === null) {
+      return false;
+    }
+    return this.target.kind === 'assembly' || this.target.fileBase !== undefined;
+  }
+
+  /** The download's base name: the assembly's or the part scene's file, else {@link SHAPES_FILE_BASE}. */
+  private downloadBase(): string {
+    if (this.target.kind === 'assembly') {
+      return this.assembly?.fileBaseName() || 'assembly';
+    }
+    return this.target.fileBase || SHAPES_FILE_BASE;
   }
 
   /**
@@ -339,10 +360,12 @@ export class ExportDialog {
   /**
    * Show the select for {@link configurationsOffered}, on the pick. A PNG is
    * captured from the viewport, so for it the select is held on the row on
-   * screen (the pick comes back with STEP or STL). The note says when the
-   * export is not what the viewport shows: a row other than the one on
+   * screen (the pick comes back with STEP or STL). The note says how the
+   * export differs from the viewport: All configurations is one file per
+   * row in a zip, and — the assembly only — a row other than the one on
    * screen sits at its statement poses, the viewer having solved the mates
-   * for the row it shows.
+   * for the row it shows. A part scene's other row needs no note: its
+   * solids are simply that row's.
    */
   private syncConfigurationControls(): void {
     const offered = this.configurationsOffered();
@@ -352,13 +375,16 @@ export class ExportDialog {
       const png = this.selectedFormat === 'png';
       const active = this.configurations!.active;
       const pick: ConfigurationPick = png ? { kind: 'one', name: active } : this.configurationToExport()!;
+      const whole = this.target.kind === 'assembly';
       this.configurationSelect.disabled = png;
       this.configurationSelect.value = ConfigurationExport.optionValue(pick);
       if (png) {
         note = 'A PNG captures the configuration on screen.';
       } else if (pick.kind === 'all') {
-        note = `Each configuration is its own file in one .zip. Those not on screen ${OFF_SCREEN_POSES}.`;
-      } else if (pick.name !== active) {
+        note = whole
+          ? `Each configuration is its own file in one .zip. Those not on screen ${OFF_SCREEN_POSES}.`
+          : 'Each configuration is its own file in one .zip.';
+      } else if (whole && pick.name !== active) {
         note = `A configuration other than the one on screen will ${OFF_SCREEN_POSES}.`;
       }
     }
@@ -405,7 +431,6 @@ export class ExportDialog {
     const options = this.formatOptions(format);
 
     let body: ExportRequestBody;
-    let fileBase: string;
     if (this.target.kind === 'assembly') {
       const poses = this.collectAssemblyPoses();
       if ('reason' in poses) {
@@ -413,11 +438,10 @@ export class ExportDialog {
         return;
       }
       body = { format, assembly: { poses: poses.poses }, ...options };
-      fileBase = this.assembly?.fileBaseName() || 'assembly';
     } else {
       body = { format, shapeIds: this.target.shapeIds, ...options };
-      fileBase = SHAPES_FILE_BASE;
     }
+    const fileBase = this.downloadBase();
 
     const configuration = this.configurationToExport();
     if (configuration?.kind === 'all') {
@@ -603,10 +627,7 @@ export class ExportDialog {
         margin: this.autoCropToggle.checked ? Math.max(0, parseInt(this.marginInput.value) || 0) : 0,
       });
 
-      const fileBase = this.target.kind === 'assembly'
-        ? this.assembly?.fileBaseName() || 'assembly'
-        : SHAPES_FILE_BASE;
-      const outcome = await deliverFile(blob, `${fileBase}.png`, [
+      const outcome = await deliverFile(blob, `${this.downloadBase()}.png`, [
         { name: 'PNG Images', extensions: ['png'] },
       ]);
       if (outcome === 'failed') {

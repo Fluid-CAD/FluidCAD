@@ -438,12 +438,17 @@ export class BrowserEngineHost {
 
   /**
    * Value-flow only: pick the `configurations()` row the next pass renders
-   * (`'Default'` or null for the literals) and re-render. Session overrides
-   * stay installed and sit on top of the row, as in the desktop panel. A
-   * name no table declares renders the literals, with a console warning.
+   * (`'Default'` or null for the literals) and re-render. The session's
+   * overrides go with the switch, as in the desktop panel (the row's cells
+   * are what shows); `keepOverrides` leaves them installed on top of the
+   * row instead. A name no table declares renders the literals, with a
+   * console warning.
    */
-  async setConfiguration(name: string | null): Promise<BrowserRenderResult> {
+  async setConfiguration(name: string | null, options: { keepOverrides?: boolean } = {}): Promise<BrowserRenderResult> {
     this.activeConfiguration = name === null || name === "Default" ? null : name;
+    if (!options.keepOverrides) {
+      this.overrides.clear();
+    }
     return this.render();
   }
 

@@ -1,3 +1,4 @@
+// @screenshot hideGrid noAxes solidsOnly crop 13,16,74,68
 import { assembly, insert, mate, relation, connector } from 'fluidcad/core';
 import { plate } from './asm-plate.part.js';
 import { gear } from './asm-gear.part.js';
@@ -7,7 +8,10 @@ export const gearTrain = assembly('gear-train', () => {
     // A 12-tooth pinion driving a 24-tooth wheel, 54 mm apart (the sum of
     // their pitch radii, 18 + 36).
     const pinion = insert(gear, { teeth: 12 }).translate(-27, 0, 10);
-    const wheel = insert(gear, { teeth: 24 }).translate(27, 0, 10);
+    // The part has a tooth gap on its +X side. Turned 180° the wheel would
+    // face the pinion with a gap too; half a tooth pitch more (180° / 24)
+    // puts a tooth there instead, into the pinion's gap.
+    const wheel = insert(gear, { teeth: 24 }).rotate('z', 180 + 180 / 24).translate(27, 0, 10);
 
     // Two axle frames on the plate's top face, as assembly connectors.
     const axle1 = connector('axle1', [-27, 0, 10]);

@@ -1,4 +1,4 @@
-// @screenshot hideGrid
+// @screenshot hideGrid noAxes
 import { assembly, insert, param, configurations, mate, relation } from 'fluidcad/core';
 import { plate } from './asm-plate.part.js';
 import { gear } from './asm-gear.part.js';
@@ -24,12 +24,13 @@ export const gearbox = assembly('gearbox', () => {
 
     // Everything a configuration changes follows from the values: the gears'
     // tooth counts, the axle spacing (module 3: each pitch radius is
-    // 1.5 × the teeth, and the axles sit the sum of the two apart) and the
-    // gear relation's ratio.
+    // 1.5 × the teeth, and the axles sit the sum of the two apart), the
+    // wheel's mesh phase (turned to face the pinion, then half a tooth pitch
+    // on, so a tooth meets the pinion's gap) and the gear relation's ratio.
     const centre = 1.5 * (pinionTeeth + wheelTeeth);
     const base = insert(plate).grounded();
     const pinion = insert(gear, { teeth: pinionTeeth }).translate(-centre / 2, 0, 10);
-    const wheel = insert(gear, { teeth: wheelTeeth }).translate(centre / 2, 0, 10);
+    const wheel = insert(gear, { teeth: wheelTeeth }).rotate('z', 180 + 180 / wheelTeeth).translate(centre / 2, 0, 10);
     const pinionAxle = mate('revolute', base.connectors.top, pinion.connectors.bore).offset(-centre / 2, 0, 0);
     const wheelAxle = mate('revolute', base.connectors.top, wheel.connectors.bore).offset(centre / 2, 0, 0);
     relation('gear', pinionAxle, wheelAxle, pinionTeeth / wheelTeeth).reverse();

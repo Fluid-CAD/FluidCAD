@@ -67,10 +67,14 @@ const PART_BAND_CLASS =
  * a wash, or daisyUI's 200 ms fade still on its first frame, came out as a
  * see-through menu over the scene.
  */
+// The open list (`::picker(select)`) inherits the select's background,
+// which is the ghost's transparent one once the pointer leaves the field —
+// it gets the popup menus' own surface instead.
 const PART_SELECT_CLASS =
   'select select-sm select-ghost flex-1 min-w-0 h-8 min-h-0 pl-2 pr-7 text-sm font-medium transition-none '
   + 'text-base-content/85 hover:bg-base-100 focus:bg-base-100 '
-  + 'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/60';
+  + 'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 '
+  + '[&::picker(select)]:panel-bg';
 
 /** The reserved row: the `param()` literals — never among a table's names, always first in the dropdown. */
 const DEFAULT_CONFIGURATION = 'Default';

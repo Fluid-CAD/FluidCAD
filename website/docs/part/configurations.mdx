@@ -1,0 +1,217 @@
+---
+sidebar_position: 3.5
+title: "Configurations"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import partConfigurations from '!!raw-loader!./_examples/part-configurations.js';
+
+# Configurations
+
+A configuration is a named set of values for a part's [parameters](./param). An angle bracket made for M6, M8 and M10 screws, a spacer in three lengths, a housing with or without a lid: the parameters are declared once, and each configuration is one row of a table that lists only the values it changes. Everything else stays shared, so a fix to the part is a fix to every configuration.
+
+The table is a `configurations({...})` statement at the top of the part body. The Parameters panel switches between its rows, an assembly inserts a row by name, and export writes one file per row.
+
+```js
+const configuration = configurations({
+    M8: { Screw: 'M8', Width: 50, Leg: 50, Thickness: 5 },
+    M10: { Screw: 'M10', Width: 60, Leg: 60, Thickness: 6, Gusset: true },
+});
+const screw = param('Screw', 'M6', 'select', { options: [/* M6, M8, M10 */] });
+const width = param('Width', 40, 'number', { min: 30, max: 120, step: 5 });
+```
+
+**Default** is always there: it is the `param()` literals, the values the declarations themselves carry. A row leaves a parameter out to keep its literal.
+
+## In the viewport
+
+All of this happens in the part workspace's **Parameters** panel, in the configuration band under its header. The band sits above **Add to**, which still names the part a new parameter goes into.
+
+### Creating a configuration
+
+1. Set the parameters until the part looks the way the configuration should: a screw size picked, a typed width, a ticked checkbox. These are session values, as always — nothing is written yet.
+2. Click **Add configuration** in the band (it is the band's only control while the file has no table). Type a name — spaces are fine, `Default` is taken — and confirm.
+3. The new row holds every parameter whose value on screen differs from its literal. The first row creates the `configurations({...})` statement as the first line of the part body and adds `configurations` to the import line. The new configuration is now the one on screen.
+
+Adding a configuration without changing anything creates an empty row: a copy of Default to make changes to.
+
+### Switching
+
+<img src="/img/docs/ui/part-configuration-band.png" alt="The Parameters panel with the M8 configuration on screen and one value changed" width="232" style={{float: 'right', marginLeft: '1.5rem'}} />
+
+Once the file has a table, the band shows a dropdown: **Default**, then the rows in the order the table declares them. Picking one re-renders the part with that row's values. The choice is not written into the source — switching never creates a diff — and it is remembered per file, so the workspace reopens on the configuration you left.
+
+While a row is active, the label of each parameter the row sets is bold, and a parameter the row leaves out says *default* beside its control: its value is the literal. In the picture, the M8 row sets **Screw**, **Width**, **Leg** and **Thickness**, and leaves **Gusset** at its literal.
+
+<div style={{clear: 'both'}} />
+
+### Changing a configuration
+
+<img src="/img/docs/ui/part-configuration-menu.png" alt="The configuration band's row actions" width="232" style={{float: 'right', marginLeft: '1.5rem'}} />
+
+Change a control with a row active and the band shows **● modified**: the change sits on top of the row for this session, exactly as a change sits on top of the literals on Default. The ⋮ button beside the dropdown opens the row actions:
+
+| Action | What it does |
+|--------|--------------|
+| **Add configuration…** | A new row from the values on screen — the active row's values plus your changes — then shows it. |
+| **Save** | Writes the parameters you changed into the active row, as literals, and clears **● modified**. Disabled on Default, which has no row (the pencil on a parameter edits its literal), and when nothing is modified. |
+| **Save as…** | The same as Add configuration; with a row active, the name is prefilled as `<row> copy`. The active row is left as it was. |
+| **Rename…** | Renames the active row in the table. |
+| **Delete** | Removes the active row after asking, and shows Default. Deleting the last row removes the statement and its import too — or leaves `configurations({})` when the body reads its return value. |
+| **Manage…** | Opens the whole table as a grid (below). |
+
+<div style={{clear: 'both'}} />
+
+The header's ↺ reads *Revert changes* while a row is active: it drops the session changes and shows the row again. On Default it is the familiar *Reset all to defaults*.
+
+Switching to another row while **● modified** is showing asks first: **Save** writes the changes into the row you are leaving, **Discard** drops them, **Cancel** stays. Leaving Default with changes offers only Discard and Cancel.
+
+Renaming a parameter through its pencil renames its key in every row; deleting a parameter removes its value from every row.
+
+### The Manage configurations grid
+
+**Manage…** opens the table as a grid: one row per configuration, one column per parameter of the part, every cell the parameter's own control.
+
+![The Manage configurations grid for the bracket: Default, M8 and M10](/img/docs/ui/part-configurations-grid.png)
+
+- The first row is **Default**, read-only: the literals. Edit those with the parameter's pencil.
+- A blank cell inherits the literal and shows it dimmed. Edit the cell to set it; its ↺ clears it back to inheriting.
+- A cell the source writes as an expression (`Width: base * 2`) is shown as its source text and is read-only; ↺ still clears it.
+- Each row's name is a text field: type to rename it. Click a row to select it; **Add row** adds an empty configuration, **Duplicate row** copies the selected one, and **Delete row** marks it for removal after asking.
+- A range copied from a spreadsheet pastes into the grid. With a header row, its columns are matched to the parameters by label, and a first column of names adds or updates the rows of those names; without one, the range is laid out from the selected cell. A paste that cannot land changes nothing and says why under the grid; a column that matches no parameter is ignored with a warning.
+- Nothing is written until **Apply**, which rewrites the table statement once — one undo step, one render. **Cancel** drops everything.
+
+The grid lists the parameters the current render declared. A parameter that only one row declares (see [In code](#a-parameter-only-one-row-has)) appears only while that row is on screen.
+
+### Exporting from the viewport
+
+In a part with configurations, the **Export** dialog has a **Configuration** select at the top, set to the row on screen. Pick another row to export that one instead, or **All configurations (.zip)** to export Default and then every row into one zip.
+
+![The Export dialog with All configurations selected](/img/docs/ui/part-export-configurations.png)
+
+Downloads are named after the part's file: `bracket.part.js` exports as `bracket.step`, its M8 row as `bracket-M8.step`, and All configurations as `bracket-configurations.zip`, holding `bracket.step`, `bracket-M8.step` and `bracket-M10.step`. Row names become file-safe: anything other than letters, digits, `.`, `_` and `-` turns into `-`.
+
+What goes into the file depends on how you opened the dialog:
+
+- **File ▸ Export…** in the desktop app (<kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>E</kbd>) exports every solid the chosen configuration builds. A row that adds a body, or leaves one out, exports exactly its own bodies, whatever is on screen.
+- **Export** in the top bar, or a solid's row menu, exports the solid you picked. For another configuration, that solid is found by its history — the feature that made it — and exported as that row builds it. If the row does not build it, the export is refused with a message naming the solid and the configuration, rather than exporting a different body.
+
+**All configurations** is all or nothing: if any row fails, no zip is delivered and the message names the row. PNG always captures the configuration on screen.
+
+### Inserting the part
+
+When an assembly inserts a part that has configurations, the **Insert** dialog shows a **Configuration** select above the part's parameter form, and **Edit parameters…** has the same select. Picking a row writes its name into the statement: `insert(bracket, 'M8')`. See [Configurations](/docs/assembly/configurations#inserting-a-configuration) in the assembly section.
+
+## In code
+
+<ModeTable columns={[
+  {title: 'Default', image: '/img/docs/part/part-configurations.png', code: 'M6, 40 × 40, 4 thick', description: 'The param() literals.'},
+  {title: 'M8', image: '/img/docs/part/part-configurations-m8.png', code: 'M8, 50 × 50, 5 thick', description: 'Sets Screw, Width, Leg and Thickness.'},
+  {title: 'M10', image: '/img/docs/part/part-configurations-m10.png', code: 'M10, 60 × 60, 6 thick', description: 'Also sets Gusset, so this one has the gusset.'},
+]} />
+
+<ExplainedCode code={partConfigurations} fileName="bracket.part.js" title="An angle bracket in three screw sizes" />
+
+`configurations()` takes an object of rows. Each key is a configuration's name; each value is a `{ label: value }` object in the same shape an `insert()` override takes, keyed by the **labels** of the body's `param()` calls. Values may be literals or expressions over variables in scope. A `select` parameter's cell is the option's `value`, not its label: `Screw: 'M8'` here because the options' values are the screw sizes themselves.
+
+It returns the name of the configuration being built: the row's name, or `'Default'` when the literals are. That makes `Default` a reserved name; a row cannot take it.
+
+### Everything else is code
+
+A configuration changes parameter values and nothing else, because everything else already follows from them. Which features exist, a hole size, a count, a colour: write them in terms of the parameters, as the bracket does with its holes and its gusset, and every row gets them right.
+
+| To vary | Write |
+|---------|-------|
+| Whether a feature is there | `if (gusset) { … }` with a `checkbox` parameter |
+| A fastener size | `hole(screw, …)` with a `select` parameter whose values are sizes |
+| A dimension that follows another | `const inset = width / 4` |
+| How many | a `repeat()` whose count is a number parameter |
+
+### A parameter only one row has
+
+Branch on the return value to declare a parameter that only one configuration needs. Here the gusset's thickness exists only while `M10` is built — in the Parameters panel, in the grid, and as a key the `M10` row may set:
+
+```js
+if (configuration === 'M10') {
+    const rib = param('Gusset thickness', 6, 'number', { min: 3, max: 12, step: 1 });
+    // … the gusset, extruded rib thick
+}
+```
+
+### Inserting a configuration by name
+
+An assembly inserts a configuration with a string second argument. An override object then moves to the third position and applies on top of the row:
+
+```js
+import { bracket } from './bracket.part.js';
+
+insert(bracket);                         // Default — the literals
+insert(bracket, 'M8');                   // the row
+insert(bracket, 'M10', { Width: 80 });   // the row, with one value changed
+```
+
+A name the table does not declare is an error on the `insert()` statement, listing the names it does declare. Insert a configuration by name rather than copying its numbers into an override object: the row stays the one place those values live. The [assembly guide](/docs/assembly/configurations#inserting-a-configuration-by-name) has the rest.
+
+## Several parts in one file
+
+A file can hold more than one `part()`, and each part may have its own table. The rows belong to the file:
+
+- **One dropdown for the file.** The band lists every row name of every table, and the row you pick is built by every part that declares it. A part whose table does not have that row, or that has no table, builds Default.
+- **Each part's values live in its own table**, first in that part's body. **Add configuration** and **Save** write each part's changed values into that part's table, creating it if needed; a part the row changes nothing in gets no entry for it. A row with nothing changed goes into the part named in **Add to**.
+- **Rename** and **Delete** act on every table that has the row. A table that a delete empties is removed.
+- **Each part's parameters are separate**, even when two parts use the same label: the bracket's `Width` and the backing plate's `Width` are two parameters, and a row sets them independently.
+
+```js
+export const bracket = part('Bracket', () => {
+    configurations({
+        M8: { Screw: 'M8', Width: 50, Thickness: 5 },
+        M10: { Screw: 'M10', Width: 60, Thickness: 6 },
+    });
+    // … the bracket's parameters and geometry
+});
+
+export const backing = part('Backing plate', () => {
+    configurations({
+        M8: { Width: 70 },
+        M10: { Width: 80, Thickness: 8 },
+    });
+    // … the plate's parameters and geometry
+});
+```
+
+The **Manage configurations** grid shows every part's parameters, grouped under a header naming the part:
+
+![The Manage configurations grid for two parts, with a header per part](/img/docs/ui/part-configurations-grid-parts.png)
+
+When pasting into this grid with a header row, a label that two parts share is written as `Part · Label` — `Bracket · Width`, `Backing plate · Width` (`Part / Label`, `Part: Label` and `Part.Label` work too) — and a bare shared label refuses the paste, since it could be either. A label only one part has can stay bare.
+
+The parts must have different names for their configurations to be edited from the panel: in a file with two `part('Plate', …)` the tables cannot be told apart, so adding, saving, renaming or deleting a configuration is refused with a message asking you to give each part its own name.
+
+## Rules
+
+- **`configurations()` is the first statement of the body.** It must run before the body's first `param()`, because the active row has to be in place before any value is read. A `param()` before it is an error at the statement — *declare configurations() before the body's first param()* — and the editor flags it as you type. The panel always writes it first.
+- **Once per body.** A second `configurations()` in the same body is an error: merge the rows into the first.
+- **Only inside a body.** At a file's top level, or in a `*.params.js` file, it is an error.
+- **Values are checked.** The argument must be an object of objects; a row name must be non-empty and not `Default`; a value must be something a `param()` can produce — a number, string, boolean, or an array of numbers and strings.
+- **Unknown keys warn.** A key that no `param()` of the build read is reported as a warning, not an error, naming the configuration — a key can belong to a parameter declared in a branch the row does not take.
+- **A name no table declares** renders Default with a warning that lists the declared names.
+- **Project parameters cannot be set by a row.** A [project parameter](/docs/extra/global-parameters)'s value is its literal everywhere; a row key naming one warns and is ignored.
+- **Numbers are in the file's unit**, like an `insert()` override.
+
+## Exporting
+
+`fluidcad export` exports the configuration on screen unless told otherwise, and by default exports every solid that configuration builds. Two flags choose the configuration:
+
+| Flag | Commands | Effect |
+|------|----------|--------|
+| `--configuration <name>` | `step`, `stl`, `png` | Export that configuration (`Default` for the literals). STEP and STL render it for the export alone; PNG shows it in the viewer for the capture and switches back. Either way the configuration on screen is the same afterwards. A name the model does not declare is an error that lists the declared names. |
+| `--all-configurations` | `step`, `stl` | Write one file per configuration: Default as `<model>.step`, each row as `<model>-<Row>.step`. |
+
+```bash
+npx fluidcad export step --configuration M8      # bracket.step, the M8 row
+npx fluidcad export step --all-configurations    # bracket.step, bracket-M8.step, bracket-M10.step
+npx fluidcad export stl --all-configurations -o build/bracket.stl
+```
+
+`--shapes` exports chosen solids instead of every solid. Each one is found in the exported configuration by its history, as in the viewport, and a configuration that does not build one fails with a message naming it. `--all-configurations` writes nothing unless every row exports. With `-o`, its path without the extension is the base name. The two flags cannot be combined, and `--all-configurations` does not apply to `png`. See [CLI Reference](/docs/cli#configurations).

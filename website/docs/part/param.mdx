@@ -69,7 +69,11 @@ Here the distance between two hole centres is typed as `pitch = 64`. The commit 
 
 ### In the Parameters panel
 
-Every `param()` of the part is one control: a number field, a slider, a text field, a select, a checkbox or a colour swatch. Parameters with the same `group` fold together; a `description` is the control's help text. Change a value and the model re-renders; the new value is written back into the `param()` statement as its default, so the panel edits the source. The arrow at the top resets every parameter to its default.
+Every `param()` of the part is one control: a number field, a slider, a text field, a select, a checkbox or a colour swatch. Parameters with the same `group` fold together; a `description` is the control's help text. Change a value and the model re-renders with it. The change is a session value, not written into the source: the arrow at the top resets every parameter to its default, and the pencil on a row edits the default itself in the `param()` statement.
+
+### In configurations
+
+A part that comes in a few known variants — an M6, M8 and M10 bracket — names each set of values as a configuration: a row of a `configurations({...})` table at the top of the body, listing only the parameters it changes. The band at the top of the Parameters panel creates rows from the values on screen and switches between them, an assembly inserts a row by name, and export writes one file per row. See [Configurations](./configurations).
 
 ### In code
 

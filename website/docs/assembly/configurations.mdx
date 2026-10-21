@@ -23,6 +23,8 @@ const wheelTeeth = param('Wheel teeth', 12, 'number', { min: 8, max: 48, step: 1
 
 **Default** is always there: it is the `param()` literals, the values the declarations themselves carry. A row leaves a parameter out to keep its literal.
 
+A part declares configurations the same way, in its own body; [Part configurations](/docs/part/configurations) covers them in the part workspace.
+
 ## In the viewport
 
 All of this happens in the assembly workspace's **Parameters** panel, in the band under its header.
@@ -68,6 +70,7 @@ Renaming a parameter through its pencil renames its key in every row; deleting a
 - A blank cell inherits the literal and shows it dimmed. Edit the cell to set it; its ↺ clears it back to inheriting.
 - A cell the source writes as an expression (`Width: base * 2`) is shown as its source text and is read-only; ↺ still clears it.
 - Each row's name is a text field: type to rename it. Click a row to select it; **Add row** adds an empty configuration, **Duplicate row** copies the selected one, and **Delete row** marks it for removal after asking.
+- A range copied from a spreadsheet pastes into the grid. With a header row, its columns are matched to the parameters by label, and a first column of names adds or updates the rows of those names; without one, the range is laid out from the selected cell. A paste that cannot land changes nothing and says why under the grid; a column that matches no parameter is ignored with a warning.
 - Nothing is written until **Apply**, which rewrites the table statement once — one undo step, one render. **Cancel** drops everything.
 
 The grid lists the parameters the current render declared. A parameter that only one row declares (see [In code](#a-parameter-only-one-row-has)) appears only while that row is on screen.
@@ -85,7 +88,9 @@ The **Edit parameters…** dialog (the instance's row menu in the **Parts** pane
 
 ### Exporting from the viewport
 
-In an assembly with configurations, exporting the **Whole assembly** opens the **Export** dialog with a **Configuration** select at the top, set to the row on screen. Pick another row to export that one instead, or **All configurations (.zip)** to export Default and then every row into one zip, `gearbox-configurations.zip`, holding `gearbox.step`, `gearbox-Ratio-2-1.step` and `gearbox-Ratio-3-1.step`.
+In an assembly with configurations, exporting the **Whole assembly** opens the **Export** dialog with a **Configuration** select at the top, set to the row on screen. Pick another row to export that one instead, or **All configurations (.zip)** to export Default and then every row into one zip, `gearbox-configurations.zip`, holding `gearbox.step`, `gearbox-Ratio-2-1.step` and `gearbox-Ratio-3-1.step`. All configurations is all or nothing: if any row fails, no zip is delivered and the message names the row.
+
+A single part chosen from the Export menu exports in its own frame, as on screen, without the select.
 
 :::note
 Mates are solved in the viewport for the configuration on screen. A configuration exported without being on screen — another row in the select, or every row but the one on screen under All configurations — is rendered for the export alone and places its parts where the source puts them (`.translate()` / `.rotate()`), not where the joints would. Switch to the row first for its mated layout. PNG export always captures the configuration on screen.
@@ -191,6 +196,6 @@ npx fluidcad export step --all-configurations   # gearbox.step, gearbox-Ratio-2-
 npx fluidcad export stl --all-configurations -o build/gearbox.stl
 ```
 
-Row names become file-safe in the file name: anything other than letters, digits, `.`, `_` and `-` turns into `-`. With `-o`, its path without the extension is the base name. The two flags cannot be combined, and `--all-configurations` does not apply to `png`.
+Row names become file-safe in the file name: anything other than letters, digits, `.`, `_` and `-` turns into `-`. With `-o`, its path without the extension is the base name. `--all-configurations` renders every row before writing anything, so a row that fails leaves no files behind. The two flags cannot be combined, and `--all-configurations` does not apply to `png`.
 
 In a STEP file, an instance or sub-assembly inserted with a configuration carries the row in its name — `gearbox (Ratio 3:1)` — so a BOM downstream can tell the variants apart. As with every CLI export of an assembly, parts sit where the source places them; see [CLI Reference](/docs/cli#assemblies).

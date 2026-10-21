@@ -34,6 +34,14 @@ Choosing a part writes that part on its own, in its own frame. Choosing the whol
 
 An assembly with [configurations](/docs/assembly/configurations) adds a **Configuration** select at the top of the whole-assembly dialog, set to the one on screen. It also offers **All configurations (.zip)**, which exports every configuration as its own file in one zip. A configuration other than the one on screen is exported with its parts where the source places them, since the joints are solved for the configuration on screen. PNG always captures the configuration on screen.
 
+## Configurations
+
+A part with [configurations](/docs/part/configurations) gets the same **Configuration** select in its export dialog, set to the row on screen, with **All configurations (.zip)** after the rows. The files are named after the part's file: `bracket.step`, `bracket-M8.step`, `bracket-configurations.zip`.
+
+- **File ▸ Export…** in the desktop app exports every solid the chosen configuration builds, so a row that adds or leaves out a body exports exactly its own bodies.
+- A solid picked from the top bar's Export menu or the Shapes panel is found in the chosen configuration by its history. If that configuration does not build it, the export is refused with a message naming the solid, rather than exporting a different body.
+- **All configurations** is all or nothing: if any row fails, no zip is delivered.
+
 ## Units
 
 STEP files carry their unit, so a STEP export is physically correct whatever the document's [unit](/docs/extra/units): a 2 in boss opens as 2 in elsewhere. STL is unitless and slicers assume millimetres, so STL exports are scaled to mm by default; an export option keeps document units instead when the consumer expects them. BRep is written as-is.
@@ -43,7 +51,7 @@ STEP files carry their unit, so a STEP export is physically correct whatever the
 The same exports run from a terminal, which is what you want for build scripts and CI:
 
 ```bash
-npx fluidcad export step                     # every shape → <entry>.step
+npx fluidcad export step                     # every solid → <entry>.step
 npx fluidcad export stl --resolution fine -o parts/bracket.stl
 npx fluidcad export png --view front --open
 ```

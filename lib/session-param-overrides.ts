@@ -1,4 +1,4 @@
-import { ParamKey, type ParamBodyHolder, type ParamLabelResolution } from './param-key.js';
+import { ParamKey, type ParamLabelResolution } from './param-key.js';
 import type { ParamRegistry, ParamVal } from './param-registry.js';
 
 /** One session override: the parameter it sets and the value. */
@@ -18,11 +18,6 @@ export type SessionParamOverride = { key: ParamKey; value: unknown };
  * several do it is refused rather than guessed. A label-only entry already
  * in the map stands for every body of that label until the next
  * {@link settle} splits it into one entry per body.
- *
- * A body is its identity (`ParamKey.body`): two parts of one name are two
- * bodies. A reference from before bodies had an identity names the body by
- * its definition name — it means the one body of that name, and is refused
- * when parts share the name (`ParamKey.resolveBody`).
  */
 export class SessionParamOverrides {
 
@@ -35,8 +30,8 @@ export class SessionParamOverrides {
    * shadowing the value the code now asks for.
    */
   private readonly baselines = new Map<string, ParamVal>();
-  /** label → the bodies declaring it in the last settled render — what a label-only or name-keyed reference resolves against. */
-  private holders = new Map<string, ParamBodyHolder[]>();
+  /** label → the bodies declaring it in the last settled render — what a label-only reference resolves against. */
+  private holders = new Map<string, string[]>();
 
   /** How many overrides are set. */
   get size(): number {
@@ -44,13 +39,12 @@ export class SessionParamOverrides {
   }
 
   /**
-   * The parameter `label` names: `body`'s when given (by identity, or by
-   * the definition name of the one part so named), else the one body
-   * declaring the label, else a refusal naming the bodies it could mean.
+   * The parameter `label` names: `body`'s when given, else the one body
+   * declaring the label, else a refusal naming the bodies that do.
    */
   keyFor(label: string, body?: string | null): ParamLabelResolution {
     if (body !== undefined && body !== null) {
-      return ParamKey.resolveBody(body, label, this.holdersWithEntries());
+      return { key: ParamKey.of(body, label) };
     }
     return ParamKey.resolveLabel(label, this.holdersWithEntries());
   }
@@ -94,9 +88,8 @@ export class SessionParamOverrides {
    * Close the loop on a render's param bookkeeping: remember what each
    * `param()` declared so the next render can tell an edited default from an
    * unchanged one, give each body a label-only entry stood for its own
-   * entry, forget the overrides this render found stale, learn which
-   * bodies declare which label, and move an entry keyed by a body's
-   * definition name to the one body of that name.
+   * entry, forget the overrides this render found stale, and learn which
+   * bodies declare which label.
    *
    * Baselines merge rather than replace — a param that didn't run this pass
    * (breakpoint, untaken branch) keeps the default it last declared, so an
@@ -107,7 +100,6 @@ export class SessionParamOverrides {
     for (const [id, authored] of registry.getAuthoredDefaults()) {
       this.baselines.set(id, authored);
     }
-    const holders = ParamKey.holdersOf(registry.getDefinitions());
     for (const [label, ids] of registry.getLabelOverrideUse()) {
       const value = this.overrides.get(label);
       this.overrides.delete(label);
@@ -117,9 +109,8 @@ export class SessionParamOverrides {
         }
       }
       if (ids.length > 1) {
-        const bodies = (holders.get(label) ?? []).filter(holder => ids.includes(ParamKey.of(holder.body, label).id));
         console.warn(
-          `Parameter override '${label}' names no part, and ${ParamKey.labels(bodies).join(', ')} `
+          `Parameter override '${label}' names no part, and ${ids.map(id => `'${ParamKey.parse(id).body}'`).join(', ')} `
           + `all declare it — it was applied to each. Each part's '${label}' is now set on its own.`,
         );
       }
@@ -127,10 +118,7 @@ export class SessionParamOverrides {
     for (const id of registry.getDiscardedOverrides()) {
       this.overrides.delete(id);
     }
-    this.holders = holders;
-    for (const refusal of this.rekeyNamedEntries()) {
-      console.warn(refusal);
-    }
+    this.holders = ParamKey.holdersOf(registry.getDefinitions());
   }
 
   /** Every override, keyed. */
@@ -158,33 +146,18 @@ export class SessionParamOverrides {
 
   /**
    * Replace the overrides with a record {@link toRecord} produced (or a
-   * label-keyed one from before keys had a body, or one whose keys name a
-   * body by its definition name): each name is parsed back. A bare label
-   * resolves to the one body declaring it when the last render knows one —
-   * else it stays label-only for the next render. A body named by its
-   * definition name resolves to the one part of that name; when parts share
-   * the name the entry is refused — left out, its message returned (and
-   * logged).
+   * label-keyed one from before keys had a body): each name is parsed back,
+   * and a bare label resolves to the one body declaring it when the last
+   * render knows one — else it stays label-only for the next render.
    */
-  restore(record: Record<string, unknown>): string[] {
+  restore(record: Record<string, unknown>): void {
     this.overrides.clear();
-    const refusals: string[] = [];
     for (const [name, value] of Object.entries(record)) {
       const parsed = ParamKey.parse(name);
-      const resolved = parsed.labelOnly
-        ? ParamKey.resolveLabel(parsed.label, this.holders)
-        : ParamKey.resolveBody(parsed.body!, parsed.label, this.holders);
-      if ('error' in resolved && !parsed.labelOnly) {
-        refusals.push(resolved.error);
-        continue;
-      }
-      const key = 'key' in resolved ? resolved.key : parsed;
+      const resolved = parsed.labelOnly ? ParamKey.resolveLabel(parsed.label, this.holders) : null;
+      const key = resolved && 'key' in resolved ? resolved.key : parsed;
       this.overrides.set(key.id, value);
     }
-    for (const refusal of refusals) {
-      console.warn(`Parameter override not restored: ${refusal}`);
-    }
-    return refusals;
   }
 
   /** The overrides in a canonical, order-independent form — for a render cache key. */
@@ -192,12 +165,8 @@ export class SessionParamOverrides {
     return Array.from(this.overrides.entries()).sort(([a], [b]) => a.localeCompare(b));
   }
 
-  /**
-   * The last render's holders plus the body of every keyed override — a
-   * label two bodies override is shared too. An override's body no render
-   * declared the label in is its own name, as far as anything here knows.
-   */
-  private holdersWithEntries(): Map<string, ParamBodyHolder[]> {
+  /** The last render's holders plus the body of every keyed override — a label two bodies override is shared too. */
+  private holdersWithEntries(): Map<string, string[]> {
     const holders = new Map(Array.from(this.holders, ([label, bodies]) => [label, bodies.slice()]));
     for (const id of this.overrides.keys()) {
       const key = ParamKey.parse(id);
@@ -205,44 +174,12 @@ export class SessionParamOverrides {
         continue;
       }
       const bodies = holders.get(key.label) ?? [];
-      if (!bodies.some(holder => holder.body === key.body || holder.name === key.body)) {
-        bodies.push({ body: key.body, name: key.body });
+      if (!bodies.includes(key.body)) {
+        bodies.push(key.body);
       }
       holders.set(key.label, bodies);
     }
     return holders;
-  }
-
-  /**
-   * Entries whose body is no body declaring the label but the definition
-   * NAME of some — a name-keyed entry set before the render that names it
-   * (an older client, a record from before bodies had an identity). Each
-   * moves to the one body of that name; when parts share the name it is
-   * dropped, and the refusals are returned.
-   */
-  private rekeyNamedEntries(): string[] {
-    const refusals: string[] = [];
-    for (const [id, value] of Array.from(this.overrides)) {
-      const key = ParamKey.parse(id);
-      if (key.body === null) {
-        continue;
-      }
-      const resolved = ParamKey.resolveBody(key.body, key.label, this.holders);
-      if ('error' in resolved) {
-        this.overrides.delete(id);
-        refusals.push(`Parameter override ${id} was dropped: ${resolved.error}`);
-        continue;
-      }
-      if (resolved.key.id !== id) {
-        this.overrides.delete(id);
-        if (!this.overrides.has(resolved.key.id)) {
-          this.overrides.set(resolved.key.id, value);
-        }
-        // The body's own baseline is this render's literal.
-        this.baselines.delete(id);
-      }
-    }
-    return refusals;
   }
 
   private static moveKey<T>(map: Map<string, T>, from: string, to: string): void {

@@ -15,15 +15,11 @@ import { getCurrentScene } from "../scene-manager.js";
 import { BrowserEngineHost } from "../browser/index.js";
 import { createParamRegistry, ParamRegistry, type ParamDefinition, type ParamVal } from "../param-registry.js";
 import { ParamKey } from "../param-key.js";
-import { PartDefinition } from "../features/part-definition.js";
 import { SessionParamOverrides } from "../session-param-overrides.js";
 import { setupOC } from "./setup.js";
 
-// The parts are exported as `plate` and `lid`: a part's body is its export
-// binding (PartIdentity), its name only a label.
-const PLATE_WIDTH = ParamKey.of("plate", "Width");
-const LID_WIDTH = ParamKey.of("lid", "Width");
-const PLATE_DEPTH = ParamKey.of("plate", "Depth");
+const PLATE_WIDTH = ParamKey.of("Plate", "Width");
+const LID_WIDTH = ParamKey.of("Lid", "Width");
 
 function freshRegistry(overrides?: Record<string, ParamVal>, baselines?: Record<string, ParamVal>, active?: string): ParamRegistry {
   const registry = createParamRegistry();
@@ -41,20 +37,19 @@ function plateAndLid(
   seen: Record<string, unknown>,
   tables: { plate?: Record<string, Record<string, ParamVal>>; lid?: Record<string, Record<string, ParamVal>> } = {},
 ): void {
-  const plate = part("Plate", () => {
+  part("Plate", () => {
     if (tables.plate) {
       configurations(tables.plate);
     }
     seen.plate = param("Width", 100);
     seen.depth = param("Depth", 5);
   });
-  const lid = part("Lid", () => {
+  part("Lid", () => {
     if (tables.lid) {
       configurations(tables.lid);
     }
     seen.lid = param("Width", 40);
   });
-  PartDefinition.bindExports({ plate, lid });
   getCurrentScene().materializeLeftoverDefinitions();
 }
 
@@ -63,7 +58,7 @@ const widths = (registry: ParamRegistry): ParamDefinition[] =>
 
 describe("ParamKey", () => {
   it("encodes a body's parameter as a pair and a bodiless one as its label", () => {
-    expect(PLATE_WIDTH.id).toBe('["plate","Width"]');
+    expect(PLATE_WIDTH.id).toBe('["Plate","Width"]');
     expect(ParamKey.of(null, "Width").id).toBe("Width");
     expect(ParamKey.parse(PLATE_WIDTH.id).equals(PLATE_WIDTH)).toBe(true);
     expect(ParamKey.parse("Width").labelOnly).toBe(true);
@@ -79,19 +74,19 @@ describe("ParamKey", () => {
   });
 
   it("keys a definition by its body, a project parameter by its label", () => {
-    expect(ParamKey.ofDefinition({ kind: "part", label: "Width", body: "plate", bodyName: "Plate" }).equals(PLATE_WIDTH)).toBe(true);
+    expect(ParamKey.ofDefinition({ kind: "part", label: "Width", body: "Plate" }).equals(PLATE_WIDTH)).toBe(true);
     expect(ParamKey.ofDefinition({ kind: "global", label: "Wall", body: "Plate" }).id).toBe("Wall");
   });
 
   it("resolves a label to the one body declaring it, keeps an undeclared label, refuses a shared one", () => {
     const holders = ParamKey.holdersOf([
-      { kind: "part", label: "Width", body: "plate", bodyName: "Plate" },
-      { kind: "part", label: "Width", body: "lid", bodyName: "Lid" },
-      { kind: "part", label: "Depth", body: "plate", bodyName: "Plate" },
+      { kind: "part", label: "Width", body: "Plate" },
+      { kind: "part", label: "Width", body: "Lid" },
+      { kind: "part", label: "Depth", body: "Plate" },
       { kind: "global", label: "Wall" },
     ]);
     const depth = ParamKey.resolveLabel("Depth", holders);
-    expect("key" in depth && depth.key.equals(PLATE_DEPTH)).toBe(true);
+    expect("key" in depth && depth.key.equals(ParamKey.of("Plate", "Depth"))).toBe(true);
     const later = ParamKey.resolveLabel("Height", holders);
     expect("key" in later && later.key.labelOnly).toBe(true);
     const wall = ParamKey.resolveLabel("Wall", holders);
@@ -99,7 +94,7 @@ describe("ParamKey", () => {
     const width = ParamKey.resolveLabel("Width", holders);
     expect(width).toEqual({
       error: "Parameter 'Width' is declared by 'Plate' and 'Lid' — name the part (body) whose parameter to set.",
-      bodies: ["plate", "lid"],
+      bodies: ["Plate", "Lid"],
     });
   });
 });
@@ -116,9 +111,9 @@ describe("ParamRegistry — the same label in two parts", () => {
     const seen: Record<string, unknown> = {};
     plateAndLid(seen);
     expect(seen).toEqual({ plate: 100, depth: 5, lid: 40 });
-    expect(widths(registry).map(d => [d.body, d.bodyName, d.currentValue])).toEqual([["plate", "Plate", 100], ["lid", "Lid", 40]]);
+    expect(widths(registry).map(d => [d.body, d.currentValue])).toEqual([["Plate", 100], ["Lid", 40]]);
     expect(registry.getAuthoredDefaults()).toEqual(new Map<string, ParamVal>([
-      [PLATE_WIDTH.id, 100], [PLATE_DEPTH.id, 5], [LID_WIDTH.id, 40],
+      [PLATE_WIDTH.id, 100], [ParamKey.of("Plate", "Depth").id, 5], [LID_WIDTH.id, 40],
     ]));
   });
 
@@ -148,7 +143,7 @@ describe("ParamRegistry — the same label in two parts", () => {
     plateAndLid(seen, { plate: { Wide: { Width: 200 } }, lid: { Wide: { Width: 80 } } });
     expect(seen).toEqual({ plate: 200, depth: 5, lid: 80 });
     expect(widths(registry).map(d => [d.body, d.configuredValue, d.currentValue])).toEqual([
-      ["plate", 200, 200], ["lid", 80, 80],
+      ["Plate", 200, 200], ["Lid", 80, 80],
     ]);
   });
 
@@ -157,7 +152,7 @@ describe("ParamRegistry — the same label in two parts", () => {
     const seen: Record<string, unknown> = {};
     plateAndLid(seen);
     expect(seen.depth).toBe(9);
-    expect(registry.getLabelOverrideUse()).toEqual(new Map([["Depth", [PLATE_DEPTH.id]]]));
+    expect(registry.getLabelOverrideUse()).toEqual(new Map([["Depth", [ParamKey.of("Plate", "Depth").id]]]));
   });
 
   it("applies a label-only override to every part declaring the label, and reports each", () => {
@@ -189,14 +184,13 @@ describe("SessionParamOverrides", () => {
     const registry = createParamRegistry();
     session.install(registry);
     const seen: Record<string, unknown> = {};
-    const plate = part("Plate", () => {
+    part("Plate", () => {
       seen.plate = param("Width", plateWidth);
       seen.depth = param("Depth", 5);
     });
-    const lid = part("Lid", () => {
+    part("Lid", () => {
       seen.lid = param("Width", 40);
     });
-    PartDefinition.bindExports({ plate, lid });
     getCurrentScene().materializeLeftoverDefinitions();
     session.settle(registry);
     return { seen, registry };
@@ -213,7 +207,7 @@ describe("SessionParamOverrides", () => {
   it("sets one part's Width without touching the other's", () => {
     const session = new SessionParamOverrides();
     renderWith(session);
-    session.set(keyOf(session, "Width", "lid"), 55);
+    session.set(keyOf(session, "Width", "Lid"), 55);
     expect(renderWith(session).seen).toEqual({ plate: 100, depth: 5, lid: 55 });
     expect(session.entries().map(e => [e.key.id, e.value])).toEqual([[LID_WIDTH.id, 55]]);
   });
@@ -221,10 +215,10 @@ describe("SessionParamOverrides", () => {
   it("resolves a label-only set to the one part declaring it, and refuses a shared label", () => {
     const session = new SessionParamOverrides();
     renderWith(session);
-    expect(keyOf(session, "Depth").equals(PLATE_DEPTH)).toBe(true);
+    expect(keyOf(session, "Depth").equals(ParamKey.of("Plate", "Depth"))).toBe(true);
     expect(session.keyFor("Width")).toEqual({
       error: "Parameter 'Width' is declared by 'Plate' and 'Lid' — name the part (body) whose parameter to set.",
-      bodies: ["plate", "lid"],
+      bodies: ["Plate", "Lid"],
     });
   });
 
@@ -233,7 +227,7 @@ describe("SessionParamOverrides", () => {
     session.set(keyOf(session, "Depth"), 8);
     expect(session.entries()[0].key.labelOnly).toBe(true);
     expect(renderWith(session).seen.depth).toBe(8);
-    expect(session.entries().map(e => [e.key.id, e.value])).toEqual([[PLATE_DEPTH.id, 8]]);
+    expect(session.entries().map(e => [e.key.id, e.value])).toEqual([[ParamKey.of("Plate", "Depth").id, 8]]);
     expect(session.toRecord()).toEqual({ Depth: 8 });
   });
 
@@ -265,7 +259,7 @@ describe("SessionParamOverrides", () => {
   it("names an override by its label while one part has it, by its key once two do", () => {
     const session = new SessionParamOverrides();
     renderWith(session);
-    session.set(PLATE_DEPTH, 7);
+    session.set(ParamKey.of("Plate", "Depth"), 7);
     session.set(LID_WIDTH, 50);
     expect(session.toRecord()).toEqual({ Depth: 7, [LID_WIDTH.id]: 50 });
 
@@ -273,16 +267,15 @@ describe("SessionParamOverrides", () => {
     const copy = new SessionParamOverrides();
     renderWith(copy);
     copy.restore(session.toRecord());
-    expect(copy.entries().map(e => e.key.id).sort()).toEqual([LID_WIDTH.id, PLATE_DEPTH.id].sort());
+    expect(copy.entries().map(e => e.key.id).sort()).toEqual([LID_WIDTH.id, ParamKey.of("Plate", "Depth").id].sort());
   });
 
   it("names a single-part session's overrides by label, as before keys had a body", () => {
     const session = new SessionParamOverrides();
     const registry = createParamRegistry();
-    const plate = part("Plate", () => {
+    part("Plate", () => {
       param("Width", 100);
     });
-    PartDefinition.bindExports({ plate });
     getCurrentScene().materializeLeftoverDefinitions();
     session.settle(registry);
     session.set(keyOf(session, "Width"), 120);
@@ -297,27 +290,27 @@ describe("SessionParamOverrides", () => {
     session.set(LID_WIDTH, 50);
     session.rename(PLATE_WIDTH, "Breadth");
     expect(session.entries().map(e => [e.key.id, e.value])).toEqual([
-      [LID_WIDTH.id, 50], [ParamKey.of("plate", "Breadth").id, 120],
+      [LID_WIDTH.id, 50], [ParamKey.of("Plate", "Breadth").id, 120],
     ]);
     session.forget(LID_WIDTH);
-    expect(session.entries().map(e => e.key.id)).toEqual([ParamKey.of("plate", "Breadth").id]);
+    expect(session.entries().map(e => e.key.id)).toEqual([ParamKey.of("Plate", "Breadth").id]);
   });
 });
 
 describe("BrowserEngineHost — the same label in two parts", () => {
   const host = new BrowserEngineHost();
   const evaluator = async () => {
-    const plate = part("Plate", () => {
+    part("Plate", () => {
       const width = param("Width", 100);
       sketch("xy", () => { testRect(width, 20); });
       extrude(10);
     });
-    const lid = part("Lid", () => {
+    part("Lid", () => {
       const width = param("Width", 40);
       sketch("xy", () => { testRect(width, 20); });
       extrude(2);
     });
-    return { plate, lid };
+    return {};
   };
   const widthOf = (outcome: { params?: ParamDefinition[] }, body: string) =>
     outcome.params?.find(p => p.label === "Width" && p.body === body)?.currentValue;
@@ -328,18 +321,15 @@ describe("BrowserEngineHost — the same label in two parts", () => {
     host.setModuleEvaluator(evaluator);
     let outcome = await host.render();
     expect(outcome.compileError).toBeNull();
-    expect(outcome.params?.filter(p => p.label === "Width").map(p => p.body)).toEqual(["plate", "lid"]);
+    expect(outcome.params?.filter(p => p.label === "Width").map(p => p.body)).toEqual(["Plate", "Lid"]);
 
-    outcome = await host.setParam("Width", 60, "lid");
-    expect(widthOf(outcome, "plate")).toBe(100);
-    expect(widthOf(outcome, "lid")).toBe(60);
-    // A part named the way keys named it before bodies had an identity.
-    outcome = await host.setParam("Width", 65, "Lid");
-    expect(widthOf(outcome, "lid")).toBe(65);
+    outcome = await host.setParam("Width", 60, "Lid");
+    expect(widthOf(outcome, "Plate")).toBe(100);
+    expect(widthOf(outcome, "Lid")).toBe(60);
 
     await expect(host.setParam("Width", 10)).rejects.toThrow("Parameter 'Width' is declared by 'Plate' and 'Lid'");
     outcome = await host.resetParams();
-    expect(widthOf(outcome, "lid")).toBe(40);
+    expect(widthOf(outcome, "Lid")).toBe(40);
     host.unloadModel();
   });
 });

@@ -152,10 +152,8 @@ describe("param() inside a body — unchanged", () => {
     expect(width.part?.filePath).toBe(PART_FILE);
     expect(width.sourceLocation?.filePath).toBe(PART_FILE);
     expect(width.currentValue).toBe(160);
-    // Not exported: the body is the part's name and order (PartIdentity).
-    expect(width.body).toBe("Plate#1");
-    expect(width.bodyName).toBe("Plate");
-    expect(registry.getAuthoredDefaults().get(ParamKey.of("Plate#1", "Width").id)).toBe(100);
+    expect(width.body).toBe("Plate");
+    expect(registry.getAuthoredDefaults().get(ParamKey.of("Plate", "Width").id)).toBe(100);
   });
 
   it("is an assembly parameter inside an assembly body", () => {

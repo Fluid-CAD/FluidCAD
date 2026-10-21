@@ -19,6 +19,12 @@ import { PartDefinition } from "../features/part-definition.js";
  * Equal override values share one template per scene (repeat inserts are
  * cheap); geometry published with `expose('name', source)` is read back as
  * `def.features.<name>` (the callback's return value is ignored).
+ *
+ * Every part is exported from the top level of its file, and its name is
+ * unique within the file. A `part()` nothing exports (or exports only as
+ * `default`), one written inside another part's or assembly's body, and a
+ * second part of a name the file already used are build errors on that
+ * `part()`: the part does not build, and its row says why.
  */
 function part<T>(name: string, callback: () => T): PartDefinition<T> {
   if (typeof name !== "string" || name.length === 0) {
@@ -27,18 +33,18 @@ function part<T>(name: string, callback: () => T): PartDefinition<T> {
   if (typeof callback !== "function") {
     throw new Error("part(): the second argument is the body callback building the part's geometry.");
   }
-  const location = captureSourceLocation();
+  const definition = new PartDefinition<T>(name, callback, captureSourceLocation());
   const scene = getCurrentScene();
-  // The place among the file's parts of this name — the identity a part
-  // without an export binding falls back on (`Plate#2`, see PartIdentity).
-  const ordinal = scene?.nextPartOrdinal(name, location?.filePath ?? null) ?? 1;
-  const definition = new PartDefinition<T>(name, callback, location, ordinal);
   // Track on the scene (when one is current) so an entry render can
   // materialize definitions nothing exported or inserted — the open part
   // file stays WYSIWYG. Definitions created outside any scene (a library
   // module imported before init) are legal; only insert/export can build
   // those.
   scene?.trackPartDefinition(definition);
+  // A part is exported from the top level of its file and named uniquely
+  // in it (PartRules): a call inside another body or a second name is
+  // refused here, an unexported part once the module's exports are known.
+  definition.checkDeclaration(scene);
   return definition;
 }
 

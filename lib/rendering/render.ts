@@ -11,7 +11,7 @@ import { Sketch } from "../features/2d/sketch.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { Exposed } from "../features/exposed.js";
 import { SelectSceneObject } from "../features/select.js";
-import type { Part } from "../features/part.js";
+import { Part } from "../features/part.js";
 import { scaleForeignPart } from "../features/part-scale.js";
 import { MeshPieces, type ShapeMeshPieces } from "./mesh-pieces.js";
 import { attachSketchSnapVertices } from "./sketch-snap.js";
@@ -136,6 +136,10 @@ export class SceneRenderer {
     this.occurrenceIndexes = computeCallSiteOccurrences(sceneObjects);
 
     const skippedContainers = new Set<SceneObject>();
+    // Members of a part a part rule refused (PartRules) after its body had
+    // already run — read while the module was still evaluating. They never
+    // build and show nothing; the part's own row carries the refusal.
+    const withheld = new Set<SceneObject>();
     const buildDurations = new Map<SceneObject, number>();
     const profilers = new Map<SceneObject, Profiler>();
     const foreignParts = collectForeignParts(scene, sceneObjects);
@@ -145,7 +149,9 @@ export class SceneRenderer {
       // Skip descendants of cloned sketches — their edges are already
       // computed by the parent sketch's clone-mode build.
       const parent = object.getParent();
-      if (parent && skippedContainers.has(parent)) {
+      if (parent && (withheld.has(parent) || (parent instanceof Part && parent.getRefusal() !== null))) {
+        withheld.add(object);
+      } else if (parent && skippedContainers.has(parent)) {
         skippedContainers.add(object);
       } else {
         debug("Rendering object:", object.getUniqueType());
@@ -172,6 +178,9 @@ export class SceneRenderer {
       const due = foreignParts.get(i);
       if (due) {
         for (const { part, members } of due) {
+          if (part.getRefusal() !== null) {
+            continue;
+          }
           const built = members.filter(m => !scene.isCached(m));
           if (built.length > 0) {
             scaleForeignPart(part, built, scene);
@@ -184,7 +193,7 @@ export class SceneRenderer {
     // the scene per object is a list copy per object.
     const cleanScopes = new Map<Part | null, SceneObject[]>();
     for (const object of sceneObjects) {
-      if (skippedContainers.has(object)) {
+      if (skippedContainers.has(object) || withheld.has(object)) {
         continue;
       }
       const part = scene.findEnclosingPart(object);
@@ -196,7 +205,7 @@ export class SceneRenderer {
       object.clean(scope);
     }
 
-    this.batchTriangulate(sceneObjects, skippedContainers);
+    this.batchTriangulate(sceneObjects, new Set([...skippedContainers, ...withheld]));
 
     // The render scope: every object in the scene. Passing it makes the
     // shape collection honor render-only (soft) removals — an exposure's
@@ -208,6 +217,9 @@ export class SceneRenderer {
 
     const prepared = new Map<SceneObject, PreparedShapes>();
     for (const object of sceneObjects) {
+      if (withheld.has(object)) {
+        continue;
+      }
       const profiler = profilers.get(object);
       const start = performance.now();
       prepared.set(object, this.prepareRenderedShapes(object, profiler, renderScope));

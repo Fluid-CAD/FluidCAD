@@ -267,17 +267,17 @@ export class BrowserEngineHost {
     let breakpointHit = false;
     try {
       const mod = await this.evaluator();
-      // Every exported part learns its binding — its body's identity —
-      // before the first body builds, so a part another reads on demand is
-      // named too (the desktop's LocalSceneHost does the same).
-      PartDefinition.bindExports(mod);
-      for (const [exportName, value] of Object.entries(mod)) {
-        let result: unknown = value;
-        if (typeof value === "function") {
-          result = await (value as () => unknown)();
-        }
+      // Every export resolved first (a factory called for the definition it
+      // returns), so the parts the module does not export are refused
+      // (PartRules) before any export builds — the desktop's LocalSceneHost
+      // does the same.
+      const exports: [string, unknown][] = [];
+      for (const [name, value] of Object.entries(mod)) {
+        exports.push([name, typeof value === "function" ? await (value as () => unknown)() : value]);
+      }
+      scene.refuseUnexportedParts(exports, this.entryPath);
+      for (const [, result] of exports) {
         if (result instanceof PartDefinition) {
-          result.bindExport(exportName);
           result.materializeInto(scene);
         }
         // assembly() definitions are lazy — an exported definition (or a
@@ -289,8 +289,9 @@ export class BrowserEngineHost {
           result.run();
         }
       }
-      // part() is lazy — definitions nothing exported still render standalone
-      // in a part scene; assembly scenes build strictly via insert().
+      // part() is lazy — every definition the module created shows in a
+      // part scene (a refused one as its error row); assembly scenes build
+      // strictly via insert().
       if (sceneKind !== "assembly") {
         scene.materializeLeftoverDefinitions();
       }

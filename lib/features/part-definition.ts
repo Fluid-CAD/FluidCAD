@@ -15,7 +15,7 @@ import type { ParamOverrides, ParamVal } from "../param-registry.js";
 import { canonicalVariantKey, collectedParamValues, toOverrideMap, warnUnknownOverrides } from "./param-overrides.js";
 import { getActiveUnit, getUnitRegistry, withUnit } from "../units/registry.js";
 import type { LengthUnit } from "../units/units.js";
-import { PartIdentity } from "./part-identity.js";
+import { PartRules } from "./part-rules.js";
 
 /**
  * A lazy part definition created by `part(name, callback)`.
@@ -54,54 +54,65 @@ export class PartDefinition<T = unknown> {
   /** One warning per definition when a callback still returns a features object. */
   private warnedReturn = false;
 
-  /** The body's hidden identity — the export binding, else `Name#n`. */
-  private readonly identity: PartIdentity;
+  /** Why a part rule refuses this definition ({@link PartRules}), or null — see {@link refuse}. */
+  private refusal: string | null = null;
 
-  /**
-   * @param ordinal - 1-based place among the parts named `partName` that the
-   *   file created — what the identity falls back on without a binding.
-   */
   constructor(
     public readonly partName: string,
     private readonly callback: () => T,
     private sourceLocation: SourceLocation | null = null,
-    ordinal = 1,
   ) {
     this.displayName = partName;
-    this.identity = new PartIdentity(partName, ordinal);
   }
 
   /**
-   * The host names the definition by an export binding of its module
-   * (`export const lid = part('Plate', …)` → `'lid'`), once the module
-   * evaluated and before it builds any body: the binding is the body's
-   * identity. See {@link PartIdentity}.
+   * The rules a `part()` call is checked against where it runs
+   * ({@link PartRules}): a call inside a body of its own file — which no
+   * export can reach — and a second `part()` of a name the file already
+   * used are refused on the spot, before anything builds. The export rule
+   * waits for the module's exports (`Scene.refuseUnexportedParts`). A
+   * definition no script frame located (engine code, a test calling
+   * `part()` directly) has no file, so the file rules do not apply.
    */
-  bindExport(exportName: string): this {
-    this.identity.bind(exportName);
-    return this;
-  }
-
-  /**
-   * Hand every part definition among a module's exports its binding — what
-   * an entry render does after evaluating the module, before it builds the
-   * first body, so a body another reads on demand is named too. A factory's
-   * definition is bound by the caller once the factory returned it.
-   */
-  static bindExports(mod: Record<string, unknown>): void {
-    for (const [exportName, value] of Object.entries(mod)) {
-      if (value instanceof PartDefinition) {
-        value.bindExport(exportName);
-      }
+  checkDeclaration(scene: Scene | null): void {
+    const location = this.sourceLocation;
+    if (!location) {
+      return;
+    }
+    if (getParamRegistry().currentBodyFile() === location.filePath) {
+      this.refuse(PartRules.nestedMessage(this.partName));
+      return;
+    }
+    if (scene && !scene.claimPartName(this.partName, location)) {
+      this.refuse(PartRules.duplicateMessage(this.partName));
     }
   }
 
   /**
-   * The body's hidden identity: what its parameters, overrides and table
-   * are filed under. Fixed by the first build.
+   * Refuse the definition under a part rule: its body never runs, and every
+   * variant is an empty part whose build error is `message`, reported on
+   * its row at its `part()` call. A variant `scene` already built (a read
+   * while the module was still evaluating, before its exports were known)
+   * is refused in place, and the renderer leaves its members unbuilt. The
+   * first refusal stands.
    */
-  getBodyId(): string {
-    return this.identity.id;
+  refuse(message: string, scene?: Scene): void {
+    if (this.refusal === null) {
+      this.refusal = message;
+    }
+    for (const variant of scene ? this.builtVariantsIn(scene) : []) {
+      variant.refuse(this.refusal);
+    }
+  }
+
+  /** The export rule's refusal — `Scene.refuseUnexportedParts` calls it for a part its module does not export. */
+  refuseUnexported(scene: Scene): void {
+    this.refuse(PartRules.unexportedMessage(this.partName), scene);
+  }
+
+  /** Why a part rule refuses this definition, or null when it builds. */
+  getRefusal(): string | null {
+    return this.refusal;
   }
 
   /** Re-stamp where the definition was authored — variants built after this call carry it. */
@@ -137,7 +148,7 @@ export class PartDefinition<T = unknown> {
    * never a build error: the geometry builds and the raw id stays on the
    * part. Variants materialized after this call carry it, like `.name()`.
    *
-   *     part('Bracket', () => { … }).material('fluidcad-aluminum-6061')
+   *     export const bracket = part('Bracket', () => { … }).material('fluidcad-aluminum-6061')
    *
    * @param id - A material id from the built-in list or the project's `fluidcad.json` `materials` map.
    */
@@ -230,19 +241,23 @@ export class PartDefinition<T = unknown> {
     if (cached) {
       return cached;
     }
+    if (this.refusal !== null) {
+      // A refused definition never runs its body: the variant is the empty
+      // part its row shows the refusal on.
+      const refused = this.newVariant(definitionUnit, targetUnit);
+      refused.refuse(this.refusal);
+      scene.runTopLevel(() => {
+        scene.startProgressiveContainer(refused);
+        scene.endProgressiveContainer();
+      });
+      variants.set(key, refused);
+      return refused;
+    }
     // A read that lands here while THIS definition's body is still running
     // is a dependency loop — refused with the loop named, never recursed.
     PartBuildStack.enter(scene, this);
 
-    const partObj = new Part(this.displayName);
-    if (this.sourceLocation) {
-      partObj.setSourceLocation(this.sourceLocation);
-    }
-    partObj.setMaterial(this.materialId);
-    partObj.setBodyId(this.getBodyId());
-    // The Part itself bypasses registerBuilder so it is stamped here.
-    partObj.setUnit(definitionUnit);
-    partObj.setTargetUnit(targetUnit);
+    const partObj = this.newVariant(definitionUnit, targetUnit);
 
     const scope = scoped ? pushParamScope(overrides, configuration) : null;
     // The registry's body frame is what `configurations()` checks: it must
@@ -255,7 +270,7 @@ export class PartDefinition<T = unknown> {
       // not become that container's child.
       extensions = withUnit(definitionUnit, () => scene.runTopLevel(() => {
         scene.startProgressiveContainer(partObj);
-        registry.beginBody(this.getBodyId(), "part", this.partName);
+        registry.beginBody(this.partName, "part", this.sourceLocation?.filePath ?? null);
         try {
           return this.callback();
         } finally {
@@ -309,6 +324,19 @@ export class PartDefinition<T = unknown> {
     // geometry does not exist yet here. Geometry and part-owned connectors
     // are scaled, never the instance pose.
     variants.set(key, partObj);
+    return partObj;
+  }
+
+  /** A new, empty variant: the definition's name, location and material, in its unit, consumed in `targetUnit`. */
+  private newVariant(definitionUnit: LengthUnit, targetUnit: LengthUnit): Part {
+    const partObj = new Part(this.displayName);
+    if (this.sourceLocation) {
+      partObj.setSourceLocation(this.sourceLocation);
+    }
+    partObj.setMaterial(this.materialId);
+    // The Part itself bypasses registerBuilder so it is stamped here.
+    partObj.setUnit(definitionUnit);
+    partObj.setTargetUnit(targetUnit);
     return partObj;
   }
 

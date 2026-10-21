@@ -33,13 +33,13 @@ function mount(withGlobal = true) {
   };
 }
 
-describe('panel rail — Parameters button', () => {
+describe('panel rail — Global Parameters button', () => {
   it('sits below the Code button', () => {
     const h = mount();
     expect(h.buttons().map((b) => b.getAttribute('aria-label')))
-      .toEqual(['Feature tree', 'Code editor', 'Parameters']);
-    expect(h.button('Parameters').querySelector('svg')).not.toBeNull();
-    expect(h.button('Parameters').parentElement!.dataset.tip).toBe('Parameters');
+      .toEqual(['Feature tree', 'Code editor', 'Global Parameters']);
+    expect(h.button('Global Parameters').querySelector('svg')).not.toBeNull();
+    expect(h.button('Global Parameters').parentElement!.dataset.tip).toBe('Global Parameters');
   });
 
   it('is absent without a handler', () => {
@@ -49,7 +49,7 @@ describe('panel rail — Parameters button', () => {
 
   it('latches with the column and follows a toggle made elsewhere on sync', () => {
     const h = mount();
-    const button = h.button('Parameters');
+    const button = h.button('Global Parameters');
     expect(button.getAttribute('aria-pressed')).toBe('false');
     button.click();
     expect(button.className).toContain('btn-primary');

@@ -221,6 +221,8 @@ describe('GlobalParamsPanel', () => {
   it('shows the empty state, whose + creates the first params file', async () => {
     const { container, handlers, open } = mount(snapshot([]));
     await open();
+    const headers = Array.from(container.querySelectorAll('[data-ref="chevron"] + span'), (el) => el.textContent);
+    expect(headers).toEqual(['Global Parameters']);
     expect(container.textContent).toContain('No project parameters yet');
     expect(container.textContent).toContain('project.params.js');
     container.querySelector<HTMLButtonElement>('[data-add-global]')!.click();

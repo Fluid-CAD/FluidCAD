@@ -162,7 +162,7 @@ export class PanelRail {
       this.setState(
         this.globalParamsBtn,
         this.handlers.isGlobalParamsOpen?.() === true,
-        'Parameters',
+        'Global Parameters',
       );
     }
   }

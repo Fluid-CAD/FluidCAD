@@ -76,6 +76,12 @@ const BAND_SELECT_CLASS = 'select select-sm select-bordered w-full mt-1';
 /** The reserved row: the `param()` literals — never among a table's names, always first in the dropdown. */
 const DEFAULT_CONFIGURATION = 'Default';
 
+/** The header each scope's panel carries: the part panel and the assembly panel read differently. */
+const PANEL_TITLES: Record<'part' | 'assembly', string> = {
+  part: 'Part Parameters',
+  assembly: 'Assembly Parameters',
+};
+
 /**
  * The label line's ⋮: the row actions' menu. A ghost square the label
  * line's own height, like a parameter row's pencil, so the line keeps the
@@ -216,7 +222,7 @@ export class ParamsPanel extends AccordionSection {
   ) {
     // Hidden until a host shows it — the floating hosts toggle it from a
     // button, and the docked column turns it on for good when it mounts it.
-    super('Parameters', {
+    super(PANEL_TITLES[scope], {
       visible: false,
       trailing: HEADER_BUTTONS,
       sheet: true,

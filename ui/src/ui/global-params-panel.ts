@@ -253,7 +253,7 @@ export class GlobalParamsPanel {
    * with no params file. The + is still there: it creates the file.
    */
   private renderEmpty(loading: boolean): void {
-    const section = new AccordionSection('Parameters', {
+    const section = new AccordionSection(PANEL_TITLE, {
       sheet: true,
       trailing: `
         <span class="ml-auto flex items-center">

@@ -154,5 +154,5 @@ function globalsHint(labels: string[], registry = getParamRegistry()): string {
   return ' '
     + `${globals.map(l => `'${l}'`).join(', ')} `
     + (globals.length > 1 ? 'are project parameters — edit them' : 'is a project parameter — edit it')
-    + ' in the Parameters panel, not per instance.';
+    + ' in the Global Parameters panel, not per instance.';
 }

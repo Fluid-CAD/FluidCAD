@@ -194,7 +194,7 @@ describe("insert() override naming a project parameter", () => {
     createParamRegistry();
   });
 
-  it("warns that the key is edited in the Parameters panel, not per instance", () => {
+  it("warns that the key is edited in the Global Parameters panel, not per instance", () => {
     freshRegistry();
     runTopLevel(PARAMS_FILE, `param("Wall thickness", 3);`);
     getSceneManager().startAssemblyScene();
@@ -204,7 +204,7 @@ describe("insert() override naming a project parameter", () => {
     expect(console.warn).toHaveBeenCalledTimes(1);
     const message = (console.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0] as string;
     expect(message).toContain("unknown parameter override 'Wall thickness'");
-    expect(message).toContain("'Wall thickness' is a project parameter — edit it in the Parameters panel, not per instance.");
+    expect(message).toContain("'Wall thickness' is a project parameter — edit it in the Global Parameters panel, not per instance.");
   });
 
   it("keeps the plain wording for a key that names no parameter at all", () => {

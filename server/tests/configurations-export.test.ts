@@ -35,6 +35,10 @@ class FakeHost implements SceneHost {
   moduleRuns = 0;
   invalidations = 0;
   runs: Record<string, unknown>[] = [];
+  /** Called with each run's resolved values, after the body ran. */
+  onRun: ((values: Record<string, unknown>) => void) | null = null;
+
+  constructor(private table: Record<string, Record<string, number>> = { Compact: { width: 500 }, Wide: { width: 1200 } }) {}
 
   async init(): Promise<void> {}
 
@@ -44,13 +48,14 @@ class FakeHost implements SceneHost {
     const scene = (getSceneManager() ?? createManager('')).startScene();
     const values: Record<string, unknown> = {};
     part('Model', () => {
-      configurations({ Compact: { width: 500 }, Wide: { width: 1200 } });
+      configurations(this.table);
       for (const m of code.matchAll(/param\("([^"]+)",\s*([\d.]+)\)/g)) {
         values[m[1]] = param(m[1], Number(m[2]));
       }
     });
     scene.materializeLeftoverDefinitions();
     this.runs.push(values);
+    this.onRun?.(values);
     return {};
   }
 
@@ -67,14 +72,20 @@ class FakeHost implements SceneHost {
   }
 }
 
-type FakeScene = { no: number; getRenderedObjects: () => any[]; getAllSceneObjects: () => any[] };
+type FakeScene = { no: number; values?: Record<string, unknown>; getRenderedObjects: () => any[]; getAllSceneObjects: () => any[] };
+
+/** A scene's rendered rows from its number and the values its run resolved. */
+type RowsFor = (no: number, values: Record<string, unknown>) => any[];
+
+/** One solid with the lineage key every render shares and an id minted per scene. */
+const ONE_SOLID: RowsFor = (no) => [{ id: `o${no}`, sceneShapes: [{ shapeId: `s${no}`, shapeType: 'solid', lineageKey: 'Extrude#1' }] }];
 
 /**
- * The engine side: every scene a numbered stub whose one solid has the
- * lineage key every render shares and an id minted per scene, as a real
- * render mints them. Exports and disposals are recorded by scene number.
+ * The engine side: every scene a numbered stub whose rows `rowsFor` draws
+ * (by default {@link ONE_SOLID}), ids minted per scene as a real render
+ * mints them. Exports and disposals are recorded by scene number.
  */
-function makeFakeManager() {
+function makeFakeManager(rowsFor: RowsFor = ONE_SOLID) {
   let counter = 0;
   const manager = {
     currentScene: null as FakeScene | null,
@@ -88,7 +99,7 @@ function makeFakeManager() {
       const no = ++counter;
       const scene: FakeScene = {
         no,
-        getRenderedObjects: () => [{ id: `o${no}`, sceneShapes: [{ shapeId: `s${no}`, lineageKey: 'Extrude#1' }] }],
+        getRenderedObjects: () => rowsFor(no, scene.values ?? {}),
         getAllSceneObjects: () => [],
       };
       manager.currentScene = scene;
@@ -300,6 +311,181 @@ describe('POST /api/export with a configuration', () => {
     expect(manager.assemblies[0].livePoses).toBeUndefined();
     expect(res.headers.get('x-fluidcad-assembly-poses')).toBe('statement');
     expect(manager.disposed).toEqual([manager.assemblies[0].scene]);
+  });
+});
+
+/**
+ * A part whose rows change which solids exist (part-configurations Stage 4):
+ * Base is a solid; WithBoss adds a Boss body; Fused fuses Base and Boss into
+ * one body that keeps Base's lineage on a Fuse row; Empty builds nothing.
+ */
+const BODIES_SOURCE = 'const base = param("base", 1)\nconst bosses = param("bosses", 0)\nconst fused = param("fused", 0)';
+const BODIES_TABLE = { WithBoss: { bosses: 1 }, Fused: { fused: 1 }, Empty: { base: 0 } };
+
+const BODY_ROWS: RowsFor = (no, values) => {
+  const at = (line: number) => ({ filePath: '/ws/plate.part.js', line, column: 1 });
+  const fused = values.fused === 1;
+  const rows: any[] = [];
+  if (values.base !== 0) {
+    rows.push({
+      id: `base${no}`, name: 'Base', uniqueType: 'extrude', sourceLocation: at(3),
+      sceneShapes: fused ? [] : [{ shapeId: `s${no}`, shapeType: 'solid', lineageKey: 'extrude@3:1' }],
+    });
+  }
+  if (values.bosses === 1 || fused) {
+    rows.push({ id: `sk${no}`, name: 'Sketch 2', uniqueType: 'sketch', sourceLocation: at(5), sceneShapes: [{ shapeId: `e${no}`, shapeType: 'edge' }] });
+    rows.push({
+      id: `boss${no}`, name: 'Boss', uniqueType: 'extrude', sourceLocation: at(6),
+      sceneShapes: fused ? [] : [{ shapeId: `b${no}`, shapeType: 'solid', lineageKey: 'extrude@6:1' }],
+    });
+  }
+  if (fused) {
+    rows.push({ id: `fuse${no}`, name: 'Fuse', uniqueType: 'fuse', sourceLocation: at(7), sceneShapes: [{ shapeId: `f${no}`, shapeType: 'solid', lineageKey: 'extrude@3:1' }] });
+  }
+  return rows;
+};
+
+describe('POST /api/export — every solid of the row, and listed solids the row lacks', () => {
+  let app: { url: string; close: () => Promise<void> };
+
+  beforeEach(async () => {
+    host = new FakeHost(BODIES_TABLE);
+    fluid = new FluidCadServer(host);
+    await fluid.init(ws);
+    manager = makeFakeManager(BODY_ROWS);
+    fluid.setSceneManager(manager as any);
+    host.onRun = (values) => {
+      if (manager.currentScene) {
+        manager.currentScene.values = values;
+      }
+    };
+    app = await listen(createExportRouter(fluid, ws));
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  /** Render the file live, on `row` when given. */
+  const renderOn = async (row?: string): Promise<FakeScene> => {
+    await fluid.updateLiveCode(file, BODIES_SOURCE);
+    if (row) {
+      fluid.selectConfiguration(file, row);
+      await fluid.updateLiveCode(file, BODIES_SOURCE);
+    }
+    return manager.currentScene!;
+  };
+
+  it('"all" exports the solids of the row\'s own render, including a body the screen does not have', async () => {
+    const live = await renderOn();
+    const res = await post(`${app.url}/api/export`, { format: 'step', shapeIds: 'all', configuration: 'WithBoss' });
+    expect(res.status).toBe(200);
+    expect(manager.exported).toHaveLength(1);
+    const { scene, shapeIds } = manager.exported[0];
+    expect(scene).not.toBe(live.no);
+    expect(shapeIds).toEqual([`s${scene}`, `b${scene}`]);
+    expect(manager.disposed).toEqual([scene]);
+  });
+
+  it('"all" leaves out a body the screen has but the row does not build', async () => {
+    const live = await renderOn('WithBoss');
+    expect(live.getRenderedObjects().flatMap((r) => r.sceneShapes).filter((s: any) => s.shapeType === 'solid')).toHaveLength(2);
+    const res = await post(`${app.url}/api/export`, { format: 'stl', shapeIds: 'all', configuration: 'Default' });
+    expect(res.status).toBe(200);
+    const { scene, shapeIds } = manager.exported[0];
+    expect(shapeIds).toEqual([`s${scene}`]);
+  });
+
+  it('"all" without a configuration, or on the row on screen, is every solid of the live scene', async () => {
+    const live = await renderOn('WithBoss');
+    expect((await post(`${app.url}/api/export`, { format: 'step', shapeIds: 'all' })).status).toBe(200);
+    expect((await post(`${app.url}/api/export`, { format: 'step', shapeIds: 'all', configuration: 'WithBoss' })).status).toBe(200);
+    expect(manager.exported).toEqual([
+      { scene: live.no, shapeIds: [`s${live.no}`, `b${live.no}`] },
+      { scene: live.no, shapeIds: [`s${live.no}`, `b${live.no}`] },
+    ]);
+  });
+
+  it('All configurations: each row exports its own solid count', async () => {
+    const live = await renderOn();
+    const counts: Record<string, number> = {};
+    for (const configuration of ['Default', 'WithBoss', 'Fused']) {
+      const res = await post(`${app.url}/api/export`, { format: 'step', shapeIds: 'all', configuration });
+      expect(res.status).toBe(200);
+      counts[configuration] = manager.exported.at(-1)!.shapeIds.length;
+    }
+    expect(counts).toEqual({ Default: 1, WithBoss: 2, Fused: 1 });
+    // Default is on screen: the live scene, no scratch render.
+    expect(manager.exported[0].scene).toBe(live.no);
+    expect(manager.disposed).toHaveLength(2);
+  });
+
+  it('"all" on a row that builds no solid is a 422 naming the row', async () => {
+    await renderOn();
+    const res = await post(`${app.url}/api/export`, { format: 'step', shapeIds: 'all', configuration: 'Empty' });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("Configuration 'Empty' builds no solids to export.");
+    expect(manager.exported).toEqual([]);
+    expect(manager.disposed).toHaveLength(1);
+  });
+
+  it('a listed solid the row does not build is a 400 naming the solid and the row, and nothing is exported', async () => {
+    const live = await renderOn('WithBoss');
+    const res = await post(`${app.url}/api/export`, { format: 'step', shapeIds: [`s${live.no}`, `b${live.no}`], configuration: 'Default' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe(
+      "Configuration 'Default' does not build Solid 2 (Boss), which the configuration on screen does. "
+        + 'Export every solid instead, or pick shapes that configuration builds.',
+    );
+    expect(res.body.missing).toEqual([{ shapeId: `b${live.no}`, label: 'Solid 2 (Boss)' }]);
+    expect(manager.exported).toEqual([]);
+    expect(manager.disposed).toHaveLength(1);
+  });
+
+  it('a listed solid the row builds on another holder maps by its lineage', async () => {
+    const live = await renderOn();
+    const res = await post(`${app.url}/api/export`, { format: 'step', shapeIds: [`s${live.no}`], configuration: 'Fused' });
+    expect(res.status).toBe(200);
+    const { scene, shapeIds } = manager.exported[0];
+    expect(shapeIds).toEqual([`f${scene}`]);
+  });
+
+  it('a listed shape without a lineage maps to the same statement\'s shape, and is refused where the row lacks that statement', async () => {
+    const live = await renderOn('WithBoss');
+    const res = await post(`${app.url}/api/export`, { format: 'step', shapeIds: [`s${live.no}`, `e${live.no}`], configuration: 'Fused' });
+    expect(res.status).toBe(200);
+    const { scene, shapeIds } = manager.exported[0];
+    expect(shapeIds).toEqual([`f${scene}`, `e${scene}`]);
+
+    const refused = await post(`${app.url}/api/export`, { format: 'step', shapeIds: [`s${live.no}`, `e${live.no}`], configuration: 'Default' });
+    expect(refused.status).toBe(400);
+    expect(refused.body.missing).toEqual([{ shapeId: `e${live.no}`, label: 'Edge 1 (Sketch 2)' }]);
+  });
+
+  it('an id that is no shape of the scene on screen is a 400, with or without a configuration', async () => {
+    await renderOn();
+    for (const body of [{ shapeIds: ['nope'] }, { shapeIds: ['nope'], configuration: 'WithBoss' }]) {
+      const res = await post(`${app.url}/api/export`, { format: 'step', ...body });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/^Unknown shape id 'nope': not a shape of the scene on screen/);
+    }
+    expect(manager.exported).toEqual([]);
+  });
+
+  it('a selection with no solid in it is a 422', async () => {
+    const live = await renderOn('WithBoss');
+    const res = await post(`${app.url}/api/export`, { format: 'step', shapeIds: [`e${live.no}`] });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/None of the selected shapes is a solid/);
+  });
+
+  it('refuses a selector that is neither ids nor "all"', async () => {
+    await renderOn();
+    for (const shapeIds of ['everything', [], [''], [3]]) {
+      const res = await post(`${app.url}/api/export`, { format: 'step', shapeIds });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/shapeIds must be a non-empty array of shape ids, or "all"/);
+    }
   });
 });
 

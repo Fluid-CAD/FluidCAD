@@ -68,6 +68,7 @@ import type { SerializedAssembly } from './assembly-types.ts';
 import { TimelineHistory } from './timeline-history.ts';
 import type { SceneSummary, SceneSummaryObject, SceneSummaryShape, ShapeList, ShapeListEntry } from './scene-summary.ts';
 import { ShapeLabels } from '../../../lib/dist/rendering/shape-labels.js';
+import { ShapeExportSelection, type ShapeExportRefusal, type ShapeSelection } from './shape-export-selection.ts';
 
 /** How many synthesis answers one rendered scene keeps (see `synthesizeApplyFeatureCached`). */
 const SYNTHESIS_MEMO_LIMIT = 32;
@@ -1769,13 +1770,16 @@ export class FluidCadServer {
   }
 
   /**
-   * Export the listed solids of the current scene — or, given a
-   * {@link ScratchRender}, of that render: the ids are the live scene's and
-   * are mapped onto the scratch scene's bodies (same lineage, else the same
-   * statement and position), since every render mints shape ids afresh.
+   * Export a shapes selection (see {@link ShapeExportSelection}) of the
+   * current scene — or, given a {@link ScratchRender}, of that render:
+   * `'all'` is every solid the render builds; listed ids are the live
+   * scene's and are mapped onto the render's bodies (same lineage, else the
+   * same statement and position), since every render mints shape ids
+   * afresh. Null when nothing is rendered; a refusal when the selection
+   * names nothing the exported scene has.
    */
   exportShapes(
-    shapeIds: string[],
+    selection: ShapeSelection,
     options: {
       format: 'step' | 'stl';
       includeColors?: boolean;
@@ -1784,7 +1788,7 @@ export class FluidCadServer {
       customAngularDeflectionDeg?: number;
     },
     scratch?: Extract<ScratchRender, { ok: true }>,
-  ): { data: string | Uint8Array; fileName: string } | null {
+  ): { data: string | Uint8Array; fileName: string } | ShapeExportRefusal | null {
     if (!this.sceneManager) {
       return null;
     }
@@ -1792,42 +1796,12 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
-    if (scratch) {
-      return this.sceneManager.exportShapes(scratch.scene, FluidCadServer.mapShapeIds(scene, scratch.scene, shapeIds), options);
+    const target = scratch ? { scene: scratch.scene, configuration: scratch.configurations.active } : undefined;
+    const resolved = ShapeExportSelection.resolve(scene, selection, target);
+    if ('reason' in resolved) {
+      return resolved;
     }
-    return this.sceneManager.exportShapes(scene, shapeIds, options);
-  }
-
-  /**
-   * The scratch scene's ids for the live scene's `shapeIds`: a solid is
-   * found again by its lineage key, anything else (or a body the
-   * configuration re-shaped past its lineage) by the statement index and
-   * the position in that statement's shapes. An id with no counterpart is
-   * kept as is, so the export reports it unknown like any other.
-   */
-  private static mapShapeIds(live: any, scratch: any, shapeIds: string[]): string[] {
-    const liveRows = (live.getRenderedObjects?.() ?? []) as any[];
-    const scratchRows = (scratch.getRenderedObjects?.() ?? []) as any[];
-    const byLineage = new Map<string, string>();
-    scratchRows.forEach((row) => {
-      for (const shape of (row.sceneShapes ?? []) as any[]) {
-        if (typeof shape.lineageKey === 'string' && !byLineage.has(shape.lineageKey)) {
-          byLineage.set(shape.lineageKey, shape.shapeId);
-        }
-      }
-    });
-    const mapped = new Map<string, string>();
-    liveRows.forEach((row, index) => {
-      ((row.sceneShapes ?? []) as any[]).forEach((shape, position) => {
-        const sameLineage = typeof shape.lineageKey === 'string' ? byLineage.get(shape.lineageKey) : undefined;
-        const samePlace = (scratchRows[index]?.sceneShapes as any[] | undefined)?.[position]?.shapeId;
-        const target = sameLineage ?? samePlace;
-        if (typeof target === 'string') {
-          mapped.set(shape.shapeId, target);
-        }
-      });
-    });
-    return shapeIds.map((id) => mapped.get(id) ?? id);
+    return this.sceneManager.exportShapes(target?.scene ?? scene, resolved.shapeIds, options);
   }
 
   /**

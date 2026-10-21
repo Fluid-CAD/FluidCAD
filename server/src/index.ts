@@ -715,7 +715,14 @@ async function handleExtensionMessage(msg: any) {
               posesSource = outcome.posesSource;
             }
           } else {
-            result = fluidCadServer.exportShapes(msg.shapeIds ?? [], msg.options);
+            const exported = fluidCadServer.exportShapes(msg.shapeIds ?? [], msg.options);
+            if (exported) {
+              if ('reason' in exported) {
+                sendToExtension({ type: 'export-complete', success: false, error: exported.reason });
+                break;
+              }
+              result = exported;
+            }
           }
           if (result) {
             const data = typeof result.data === 'string'

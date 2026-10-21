@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
-import type { FluidCadServer, ScratchRender } from '../fluidcad-server/index.ts';
+import { ShapeExportSelection, type FluidCadServer, type ScratchRender } from '../fluidcad-server/index.ts';
 import type { AssemblyExportPose } from '../../../lib/dist/index.js';
 
 type ExportFormatOptions = {
@@ -66,6 +66,12 @@ function parseAssemblyPoses(assembly: unknown): AssemblyExportPose[] | undefined
  * sits at its statement poses — the viewer's solved poses belong to the
  * configuration on screen — and says so in `X-FluidCAD-Assembly-Poses`.
  * A name the file does not declare is a 400 listing the declared names.
+ *
+ * `shapeIds: "all"` exports every solid of the scene exported — the row's
+ * own render when it is not on screen, so a row that adds or drops a body
+ * exports its own set. Listed ids are the scene on screen's; one the row
+ * does not build is a 400 naming the solid and the row (`missing`), never
+ * some other body (`ShapeExportSelection`).
  */
 export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath: string): Router {
   const router = Router();
@@ -94,8 +100,8 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
       res.status(400).json({ error: 'Pass exactly one of shapeIds (solids to export) or assembly (the whole assembly).' });
       return;
     }
-    if (hasShapeIds && (!Array.isArray(shapeIds) || shapeIds.length === 0)) {
-      res.status(400).json({ error: 'shapeIds must be a non-empty array.' });
+    if (hasShapeIds && !ShapeExportSelection.isSelection(shapeIds)) {
+      res.status(400).json({ error: 'shapeIds must be a non-empty array of shape ids, or "all" (every solid of the scene exported).' });
       return;
     }
     let livePoses: AssemblyExportPose[] | undefined;
@@ -195,6 +201,10 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
         const exported = fluidCadServer.exportShapes(shapeIds, options, scratch);
         if (!exported) {
           res.status(404).json({ error: 'No active scene to export.' });
+          return;
+        }
+        if ('reason' in exported) {
+          res.status(exported.status).json({ error: exported.reason, ...(exported.missing ? { missing: exported.missing } : {}) });
           return;
         }
         result = exported;

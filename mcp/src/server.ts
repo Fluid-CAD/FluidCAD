@@ -53,6 +53,7 @@ import {
   packModel,
   recompute,
   rollbackTo,
+  selectConfiguration,
 } from './tools/engine.ts';
 import { loadDocsIndex, type DocsIndex } from './docs-index.ts';
 import { loadSkillsIndex, type SkillsIndex } from './skills-index.ts';
@@ -351,7 +352,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get the feature tree for a workspace',
       description:
-        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. `name` is the object\'s display label — the text of its `.name(\'…\')` chain when `hasCustomName` is true, else the default `<Type> <n>` ("Extrude 2") the timeline shows; `.name()` is optional and the UI writes it for statements it creates. `shapes` lists the same shapes as `shapeIds` with `label` + `part` ("Solid 2" of "Bracket", the Shapes panel\'s row; `part` null = the top-level "Model" group) and, for solids, `lineageKey` — the body\'s identity across renders, stable through your own edits where `shapeId` is not. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. `globalParams` lists the project parameters of every `*.params.js` file as `{ name, label, value, file }` — `name` is the identifier a model imports (`import { name } from "./<file>"`), `file` is workspace-relative, `value` is the declared literal (a derived export\'s evaluated value, or null when it is only computed at render) in the project unit; the list is the whole project\'s, whether or not the open model imports them. Use this before list_shapes when you need feature-tree context.',
+        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. `name` is the object\'s display label — the text of its `.name(\'…\')` chain when `hasCustomName` is true, else the default `<Type> <n>` ("Extrude 2") the timeline shows; `.name()` is optional and the UI writes it for statements it creates. `shapes` lists the same shapes as `shapeIds` with `label` + `part` ("Solid 2" of "Bracket", the Shapes panel\'s row; `part` null = the top-level "Model" group) and, for solids, `lineageKey` — the body\'s identity across renders, stable through your own edits where `shapeId` is not. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. `globalParams` lists the project parameters of every `*.params.js` file as `{ name, label, value, file }` — `name` is the identifier a model imports (`import { name } from "./<file>"`), `file` is workspace-relative, `value` is the declared literal (a derived export\'s evaluated value, or null when it is only computed at render) in the project unit; the list is the whole project\'s, whether or not the open model imports them. A model with a `configurations()` table adds `configurations: { active, names, rows, modified }` — the named value sets of its params (`rows[name]` maps a param label to its value; `active` is the row on screen, "Default" for the param() literals; `modified` = session tweaks on top); switch with select_configuration, or pass `configuration` to export/screenshot. Use this before list_shapes when you need feature-tree context.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await getSceneSummary({ workspace })),
@@ -796,6 +797,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace, entities, image }) => toMcp(await measure({ workspace, entities: entities as any, image: image as any })),
   );
 
+  const configurationArg = z
+    .string()
+    .min(1)
+    .optional()
+    .describe('A configurations() row name (get_scene_summary().configurations.names), or "Default" for the param() literals. Omit for the row on screen.');
+
   server.registerTool(
     'screenshot',
     {
@@ -819,6 +826,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         showPositional: z.boolean().optional().describe('Show sketch positional-constraint badges and coincidence dots. Default true.'),
         framePlanes: z.boolean().optional().describe('Include construction-plane quads (plane(…) features) in the bounds that fitting and auto-crop frame. Default false: a plane quad is 200 mm square whatever the model, so it is left out unless the picture is about the planes.'),
         pixelRatio: z.number().min(1).max(4).optional().describe('Device-pixel ratio of the export (default 1). Overlays such as constraint badges and dimension readouts are sized for a width/pixelRatio CSS-pixel canvas, so a 2× export viewed at half size shows them at on-screen size.'),
+        configuration: configurationArg.describe('Capture this configurations() row ("Default" for the param() literals): the viewer shows it for the capture, then the session\'s row and tweaks come back. Omit for the row on screen.'),
         ...screenshotOverlayArgs,
       },
     },
@@ -849,6 +857,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         transparent: z.boolean().optional(),
         margin: marginArg,
         pixelRatio: z.number().min(1).max(4).optional().describe('Device-pixel ratio of the export (default 1); cell labels and annotations scale with it.'),
+        configuration: configurationArg.describe('Capture every cell with this configurations() row ("Default" for the param() literals); the session\'s row and tweaks come back afterwards. Omit for the row on screen.'),
         ...screenshotOverlayArgs,
       },
     },
@@ -1047,9 +1056,27 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       title: 'Force a full recompute of the current file',
       description:
         'Discards the cached scene and re-runs the current `.fluid.js` file. Synchronous — returns once the render settles. Reports `state` (rendered | build-error) and `objectErrors` for any feature that failed to build, `uiApplied` (true once a connected viewer has the render on screen), plus `changes` (unless `includeChanges: false`): every object is `rebuilt` since nothing is cached, each with exact `bounds.before` / `bounds.after` of its solids (no volumes), so a differing pair is geometry that changed since the last render.',
-      inputSchema: { ...workspaceArg, includeChanges: includeChangesArg },
+      inputSchema: {
+        ...workspaceArg,
+        includeChanges: includeChangesArg,
+        configuration: configurationArg.describe('Switch the session to this configurations() row first (as select_configuration does; "Default" for the param() literals), then recompute.'),
+      },
     },
-    async ({ workspace, includeChanges }) => toMcp(await recompute({ workspace, includeChanges })),
+    async ({ workspace, includeChanges, configuration }) => toMcp(await recompute({ workspace, includeChanges, configuration })),
+  );
+
+  server.registerTool(
+    'select_configuration',
+    {
+      title: 'Show a configurations() row of the open model',
+      description:
+        'Switches the session to a named value set of the open model\'s `configurations()` table — what the Parameters panel\'s configuration dropdown does: the row\'s values render, session param tweaks are dropped, and the choice is remembered for the file. "Default" is the param() literals. The source is not edited. A name the model does not declare fails with code "unknown-configuration" and `details.names` (the declared rows). Returns `{ success, configurations: { active, names, rows, modified } }` once the render settles. To export or capture another row without switching, pass `configuration` to export / screenshot instead.',
+      inputSchema: {
+        ...workspaceArg,
+        name: z.string().min(1).describe('The row name (get_scene_summary().configurations.names), or "Default".'),
+      },
+    },
+    async ({ workspace, name }) => toMcp(await selectConfiguration({ workspace, name })),
   );
 
   server.registerTool(
@@ -1149,9 +1176,10 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .enum(['mm', 'document'])
           .optional()
           .describe('STL only. "mm" (default) scales the mesh into millimetres for slicers; "document" keeps the document\'s units.'),
+        configuration: configurationArg.describe('Export this configurations() row ("Default" for the param() literals) instead of the one on screen. The server renders it for this export alone — the session\'s row and tweaks stay as they are; `shapeIds` are the on-screen scene\'s and are mapped onto the row\'s bodies. An assembly of another row exports at its statement poses. Omit for the row on screen, tweaks included.'),
       },
     },
-    async ({ workspace, format, shapeIds, assembly, saveAsPath, resolution, includeColors, scaleTo }) =>
+    async ({ workspace, format, shapeIds, assembly, saveAsPath, resolution, includeColors, scaleTo, configuration }) =>
       toMcp(
         await exportShapes({
           workspace,
@@ -1162,6 +1190,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           resolution,
           includeColors,
           scaleTo,
+          configuration,
         }),
       ),
   );
@@ -1171,7 +1200,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Package the current model into a shareable .fluidpkg archive',
       description:
-        'Produces a self-contained .fluidpkg (zip) capturing the current `.fluid.js` entry as an esbuild ES module bundle, any STEP assets in the workspace (as raw bytes), the live param overrides, and the latest camera state. Inside the archive: `manifest.json` (schemaVersion 3: `name`, `entry`, `fluidcadVersion`, `hasInit`, `unit` — the project unit from fluidcad.json, `fileUnits` — per-file `unit()` declarations, `assets`, `files`, `params`, `camera`), `bundle.js`, optional `init.js`, `assets/<path>` and `files/<path>` entries. Prefer `saveAsPath` — the binary payload can be multi-MB and shouldn\'t round-trip through the agent\'s context as base64. Returns `{ savedTo, bytesWritten, packageName }` when saved, or `{ mimeType, base64, bytes, packageName }` otherwise.',
+        'Produces a self-contained .fluidpkg (zip) capturing the current `.fluid.js` entry as an esbuild ES module bundle, any STEP assets in the workspace (as raw bytes), the live param overrides, and the latest camera state. Inside the archive: `manifest.json` (schemaVersion 3: `name`, `entry`, `fluidcadVersion`, `hasInit`, `unit` — the project unit from fluidcad.json, `fileUnits` — per-file `unit()` declarations, `assets`, `files`, `params`, `camera`, and for a model with a `configurations()` table `configuration` — the row it opens on — and `configurations: { names, rows }`), `bundle.js`, optional `init.js`, `assets/<path>` and `files/<path>` entries. Prefer `saveAsPath` — the binary payload can be multi-MB and shouldn\'t round-trip through the agent\'s context as base64. Returns `{ savedTo, bytesWritten, packageName }` when saved, or `{ mimeType, base64, bytes, packageName }` otherwise.',
       inputSchema: {
         ...workspaceArg,
         name: z.string().optional().describe('Optional package name; defaults to the entry file basename. Becomes the file name when `saveAsPath` is omitted.'),
@@ -1180,10 +1209,11 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .string()
           .optional()
           .describe('Absolute path to write the .fluidpkg to. If omitted, the package is returned inline (base64).'),
+        configuration: configurationArg.describe('The configurations() row the package opens on ("Default" for the param() literals). Omit for the row on screen, tweaks included; another row is recorded without the session\'s tweaks.'),
       },
     },
-    async ({ workspace, name, description, saveAsPath }) =>
-      toMcp(await packModel({ workspace, name, description, saveAsPath })),
+    async ({ workspace, name, description, saveAsPath, configuration }) =>
+      toMcp(await packModel({ workspace, name, description, saveAsPath, configuration })),
   );
 
   return server;

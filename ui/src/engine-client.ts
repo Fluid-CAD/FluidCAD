@@ -101,7 +101,12 @@ export interface EngineClient {
    * predate the scope simply ignore it and stay global.
    */
   rollback(index: number, scope?: 'part'): void;
-  setParam(label: string, value: unknown): void;
+  /**
+   * Override a parameter's value. `body` names the part (or assembly) whose
+   * `label` it is — the definition's `body` — so a label two parts declare
+   * sets one part's only; a host that predates it reads the label alone.
+   */
+  setParam(label: string, value: unknown, body?: string): void;
   resetParams(): void;
   /**
    * Show the named `configurations()` row (`'Default'` for the literals):

@@ -404,6 +404,14 @@ export type UIParamDefinition = {
    */
   part?: SourceLocation;
   /**
+   * The name of the `part()` / `assembly()` body that declared it — with the
+   * label, the parameter's identity: two parts may both declare `Width`, and
+   * a value set on one row goes to that part's only (`setParam`'s `body`).
+   * Absent for a project parameter, and on renders from an engine that
+   * predates it (the label alone then names the row).
+   */
+  body?: string;
+  /**
    * The active configuration row's cell for this label — present only while
    * a row is active and names the label. A session override sits on it; the
    * panel draws such a row's label bold.

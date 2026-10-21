@@ -30,6 +30,7 @@ import {
   bindParamHandlers,
   controlSignature,
   escapeHtml,
+  paramRowKey,
   renderParamControl,
   renderParamGroup,
   updateParamValuesInPlace,
@@ -885,16 +886,20 @@ export class ParamsPanel extends AccordionSection {
     }
 
     const rowOptions = { editable: this.editor !== undefined };
+    // A label two listed parts both declare names its part after it, so the
+    // rows read apart; a label shown once keeps the plain look.
+    const shared = ParamsPanel.sharedLabels(params);
     // With a row active: a label the row sets is bold, one it leaves out
     // says so — its value is the literal.
     const rowActive = this.rowActive;
     const optionsFor = (p: UIParamDefinition) => {
+      const base = shared.has(p.label) && p.body !== undefined ? { ...rowOptions, owner: p.body } : rowOptions;
       if (!rowActive) {
-        return rowOptions;
+        return base;
       }
       return p.configuredValue !== undefined
-        ? { ...rowOptions, labelBold: true }
-        : { ...rowOptions, labelTrailing: DEFAULT_HINT };
+        ? { ...base, labelBold: true }
+        : { ...base, labelTrailing: DEFAULT_HINT };
     };
     let html = '';
     for (const p of ungrouped) {
@@ -911,11 +916,18 @@ export class ParamsPanel extends AccordionSection {
     html += this.renderProperties(properties);
 
     this.list.innerHTML = html;
+    // A row is its part + label: the value goes to that part's parameter
+    // only, even when another part declares the same label.
     bindParamHandlers(this.list, {
-      lookup: (label) => this.currentParams.find(p => p.label === label),
-      setValue: (label, value) => this.client.setParam(label, value),
-      onEdit: (label) => {
-        const def = this.currentParams.find(p => p.label === label);
+      lookup: (key) => this.paramFor(key),
+      setValue: (key, value) => {
+        const def = this.paramFor(key);
+        if (def) {
+          this.client.setParam(def.label, value, def.body);
+        }
+      },
+      onEdit: (key) => {
+        const def = this.paramFor(key);
         if (def) {
           this.editor?.openForEdit(def);
         }
@@ -924,6 +936,24 @@ export class ParamsPanel extends AccordionSection {
     });
     this.bindPropertyHandlers();
     bindParamGroups(this.list, this.collapsedGroups);
+  }
+
+  /** The parameter a row key names, as the last render listed it. */
+  private paramFor(key: string): UIParamDefinition | undefined {
+    return this.currentParams.find((p) => paramRowKey(p) === key);
+  }
+
+  /** The labels more than one of `params` carries — two parts' `Width` listed together. */
+  private static sharedLabels(params: UIParamDefinition[]): Set<string> {
+    const seen = new Set<string>();
+    const shared = new Set<string>();
+    for (const p of params) {
+      if (seen.has(p.label)) {
+        shared.add(p.label);
+      }
+      seen.add(p.label);
+    }
+    return shared;
   }
 
   /**

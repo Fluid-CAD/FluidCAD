@@ -114,11 +114,11 @@ export class HttpEngineClient implements EngineClient {
     rollback(index, scope);
   }
 
-  setParam(label: string, value: unknown): void {
+  setParam(label: string, value: unknown, body?: string): void {
     fetch('api/set-param', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label, value }),
+      body: JSON.stringify(body === undefined ? { label, value } : { label, value, body }),
     }).catch(err => console.error('Set param failed:', err));
   }
 

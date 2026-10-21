@@ -22,6 +22,12 @@ export const FIELD_SURFACE = 'bg-base-content/[0.06]';
 /** The slice of a parameter definition a control is drawn from. */
 export type ParamRowDefinition = {
   label: string;
+  /**
+   * The `part()` / `assembly()` body that declared it, by name — with the
+   * label, the row's identity ({@link paramRowKey}). Absent for a project
+   * parameter, which its label alone names.
+   */
+  body?: string;
   defaultValue: string | number | boolean | (string | number)[];
   currentValue: string | number | boolean | (string | number)[];
   controlType: 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox' | 'color';
@@ -42,7 +48,23 @@ export type ParamRowRenderOptions = {
   labelTrailing?: string;
   /** Draw the label bold — a value the active configuration row sets. */
   labelBold?: boolean;
+  /**
+   * The declaring part's name, drawn dimmed after the label — set when the
+   * same label shows twice in one list, so the two rows read apart.
+   */
+  owner?: string;
 };
+
+/**
+ * A row's identity under its root: the body + label pair a parameter is
+ * (the encoding `ParamKey.id` uses in the engine), or the bare label for a
+ * parameter no body declared. Every control, display and pencil of the row
+ * carries it as `data-param-key`, and the handlers hand it back, so two
+ * parts' `Width` rows never answer for each other.
+ */
+export function paramRowKey(p: Pick<ParamRowDefinition, 'label' | 'body'>): string {
+  return p.body === undefined ? p.label : JSON.stringify([p.body, p.label]);
+}
 
 /**
  * Safe for both text and attribute positions. Labels are user-authored and
@@ -65,7 +87,7 @@ export function escapeHtml(text: string): string {
  */
 export function controlSignature(p: ParamRowDefinition): string {
   return JSON.stringify([
-    p.label, p.controlType, p.group ?? null, p.description ?? null,
+    paramRowKey(p), p.controlType, p.group ?? null, p.description ?? null,
     p.min ?? null, p.max ?? null, p.step ?? null,
     p.options ?? null, p.multi ?? false, p.multiControlType ?? null,
   ]);
@@ -85,14 +107,15 @@ export function effectiveControlType(p: ParamRowDefinition): Exclude<ParamRowDef
  */
 export function updateParamValuesInPlace(root: ParentNode, params: ParamRowDefinition[]): void {
   for (const p of params) {
-    const el = root.querySelector<HTMLElement>(`[data-param-label="${CSS.escape(p.label)}"]`);
+    const key = paramRowKey(p);
+    const el = root.querySelector<HTMLElement>(`[data-param-key="${CSS.escape(key)}"]`);
     if (!el) {
       continue;
     }
     const type = el.dataset.paramType;
     if (type === 'slider') {
       (el as HTMLInputElement).value = String(p.currentValue);
-      const display = root.querySelector(`[data-param-display="${CSS.escape(p.label)}"]`);
+      const display = root.querySelector(`[data-param-display="${CSS.escape(key)}"]`);
       if (display) {
         display.textContent = String(p.currentValue);
       }
@@ -117,13 +140,18 @@ function renderLabelRow(p: ParamRowDefinition, trailing: string, options: ParamR
   const escapedLabel = escapeHtml(p.label);
   const editButton = !options.editable ? '' : `
         <button class="btn btn-ghost btn-xs btn-square h-4 min-h-0 w-4 opacity-0 group-hover:opacity-100 focus:opacity-100 text-base-content/40 hover:text-base-content/70"
-          data-param-edit="${escapedLabel}" title="Edit parameter">
+          data-param-edit="${escapeHtml(paramRowKey(p))}" title="Edit parameter">
           <span class="[&>svg]:size-3">${ICON_PENCIL}</span>
         </button>`;
   const labelClass = options.labelBold ? 'text-sm font-semibold text-base-content/90' : 'text-sm text-base-content/80';
+  // The owner sits inside the label so the two share its truncation: the
+  // name the row is told apart by is the first thing to go, never the label.
+  const owner = options.owner === undefined
+    ? ''
+    : ` <span class="text-xs font-normal text-base-content/50" data-param-owner>${escapeHtml(options.owner)}</span>`;
   return `
       <div class="flex items-center gap-1">
-        <label class="${labelClass} flex-1 truncate">${escapedLabel}</label>
+        <label class="${labelClass} flex-1 truncate">${escapedLabel}${owner}</label>
         ${options.labelTrailing ?? ''}${trailing}${editButton}
       </div>
     `;
@@ -140,6 +168,9 @@ export function renderParamControl(p: ParamRowDefinition, options: ParamRowRende
     : '';
 
   const escapedLabel = escapeHtml(p.label);
+  // Every control carries the row's identity beside its label: handlers and
+  // in-place updates find the row by `data-param-key`.
+  const identity = `data-param-label="${escapedLabel}" data-param-key="${escapeHtml(paramRowKey(p))}"`;
   let controlHtml = '';
 
   switch (effectiveType) {
@@ -152,8 +183,8 @@ export function renderParamControl(p: ParamRowDefinition, options: ParamRowRende
             <input type="range" class="range range-sm range-primary flex-1"
               min="${min}" max="${max}" step="${step}"
               value="${p.currentValue}"
-              data-param-label="${escapedLabel}" data-param-type="slider" />
-            <span class="text-sm text-base-content/80 tabular-nums w-10 text-right" data-param-display="${escapedLabel}">${p.currentValue}</span>
+              ${identity} data-param-type="slider" />
+            <span class="text-sm text-base-content/80 tabular-nums w-10 text-right" data-param-display="${escapeHtml(paramRowKey(p))}">${p.currentValue}</span>
           </div>
         `;
       break;
@@ -167,7 +198,7 @@ export function renderParamControl(p: ParamRowDefinition, options: ParamRowRende
           <div class="mt-1">
             <input type="number" class="input input-sm input-bordered w-full ${FIELD_SURFACE}"
               value="${p.currentValue}" ${attrs.join(' ')}
-              data-param-label="${escapedLabel}" data-param-type="number" />
+              ${identity} data-param-type="number" />
           </div>
         `;
       break;
@@ -177,7 +208,7 @@ export function renderParamControl(p: ParamRowDefinition, options: ParamRowRende
           <div class="mt-1">
             <input type="text" class="input input-sm input-bordered w-full ${FIELD_SURFACE}"
               value="${escapeHtml(String(p.currentValue))}"
-              data-param-label="${escapedLabel}" data-param-type="text" />
+              ${identity} data-param-type="text" />
           </div>
         `;
       break;
@@ -186,7 +217,7 @@ export function renderParamControl(p: ParamRowDefinition, options: ParamRowRende
       const toggle = `
           <input type="checkbox" class="toggle toggle-sm toggle-primary"
             ${checked}
-            data-param-label="${escapedLabel}" data-param-type="checkbox" />`;
+            ${identity} data-param-type="checkbox" />`;
       return `
           <div class="px-3 py-1.5 group">
             ${renderLabelRow(p, toggle, options)}
@@ -213,7 +244,7 @@ export function renderParamControl(p: ParamRowDefinition, options: ParamRowRende
           }).join('');
           controlHtml = `
               <div class="mt-1 flex flex-col gap-1"
-                data-param-label="${escapedLabel}" data-param-type="multi-checkboxes">
+                ${identity} data-param-type="multi-checkboxes">
                 ${items}
               </div>
             `;
@@ -225,7 +256,7 @@ export function renderParamControl(p: ParamRowDefinition, options: ParamRowRende
           }).join('');
           controlHtml = `
               <div class="mt-1 flex flex-wrap gap-1"
-                data-param-label="${escapedLabel}" data-param-type="multi-chips">
+                ${identity} data-param-type="multi-chips">
                 ${chips}
               </div>
             `;
@@ -238,7 +269,7 @@ export function renderParamControl(p: ParamRowDefinition, options: ParamRowRende
               <div class="mt-1">
                 <select multiple class="select select-sm select-bordered w-full ${FIELD_SURFACE}"
                   size="${Math.min(opts.length, 5)}"
-                  data-param-label="${escapedLabel}" data-param-type="multi-select">
+                  ${identity} data-param-type="multi-select">
                   ${optionHtml}
                 </select>
               </div>
@@ -252,7 +283,7 @@ export function renderParamControl(p: ParamRowDefinition, options: ParamRowRende
         controlHtml = `
             <div class="mt-1">
               <select class="select select-sm select-bordered w-full ${FIELD_SURFACE}"
-                data-param-label="${escapedLabel}" data-param-type="select">
+                ${identity} data-param-type="select">
                 ${optionHtml}
               </select>
             </div>
@@ -265,7 +296,7 @@ export function renderParamControl(p: ParamRowDefinition, options: ParamRowRende
           <div class="mt-1">
             <input type="color" class="w-full h-8 cursor-pointer bg-transparent border border-base-content/20 rounded"
               value="${escapeHtml(String(p.currentValue))}"
-              data-param-label="${escapedLabel}" data-param-type="color" />
+              ${identity} data-param-type="color" />
           </div>
         `;
       break;
@@ -309,16 +340,20 @@ export class ParamDebouncer {
   }
 }
 
+/**
+ * Where a row's events go. Each callback is handed the row's
+ * {@link paramRowKey} — the label itself for a row no body declared.
+ */
 export type ParamRowHandlers = {
-  /** The definition a label names — what decides whether a typed value is a number. */
-  lookup: (label: string) => ParamRowDefinition | undefined;
+  /** The definition a row key names — what decides whether a typed value is a number. */
+  lookup: (key: string) => ParamRowDefinition | undefined;
   /** A control's new value, typed the way the definition's default is. */
-  setValue: (label: string, value: unknown) => void;
+  setValue: (key: string, value: unknown) => void;
   /** The pencil — absent when rows were drawn without one. */
-  onEdit?: (label: string) => void;
+  onEdit?: (key: string) => void;
   debouncer: ParamDebouncer;
-  /** The debouncer's key for a label; the label itself when rows are unique under `root`. */
-  debounceKey?: (label: string) => string;
+  /** The debouncer's key for a row key; the row key itself when rows are unique under `root`. */
+  debounceKey?: (key: string) => string;
 };
 
 /** Wire every control under `root` that {@link renderParamControl} drew. */
@@ -329,29 +364,29 @@ export function bindParamHandlers(root: ParentNode, handlers: ParamRowHandlers):
     });
   });
 
-  root.querySelectorAll<HTMLElement>('[data-param-label]').forEach((el) => {
-    const label = el.dataset.paramLabel!;
+  root.querySelectorAll<HTMLElement>('[data-param-key]').forEach((el) => {
+    const rowKey = el.dataset.paramKey!;
     const type = el.dataset.paramType!;
-    const key = handlers.debounceKey ? handlers.debounceKey(label) : label;
+    const key = handlers.debounceKey ? handlers.debounceKey(rowKey) : rowKey;
 
     const sendChange = (rawValue: string) => {
-      const def = handlers.lookup(label);
+      const def = handlers.lookup(rowKey);
       const value: string | number = def && typeof def.defaultValue === 'number'
         ? Number(rawValue)
         : rawValue;
-      handlers.setValue(label, value);
+      handlers.setValue(rowKey, value);
     };
 
     const sendMultiChange = (rawValues: string[]) => {
-      const def = handlers.lookup(label);
+      const def = handlers.lookup(rowKey);
       const numericOptions = def?.options?.[0] && typeof def.options[0].value === 'number';
       const value = numericOptions ? rawValues.map(Number) : rawValues;
-      handlers.setValue(label, value);
+      handlers.setValue(rowKey, value);
     };
 
     if (type === 'slider') {
       el.addEventListener('input', () => {
-        const display = root.querySelector(`[data-param-display="${CSS.escape(label)}"]`);
+        const display = root.querySelector(`[data-param-display="${CSS.escape(rowKey)}"]`);
         if (display) {
           display.textContent = (el as HTMLInputElement).value;
         }
@@ -368,7 +403,7 @@ export function bindParamHandlers(root: ParentNode, handlers: ParamRowHandlers):
       });
     } else if (type === 'checkbox') {
       el.addEventListener('change', () => {
-        handlers.setValue(label, (el as HTMLInputElement).checked);
+        handlers.setValue(rowKey, (el as HTMLInputElement).checked);
       });
     } else if (type === 'select') {
       el.addEventListener('change', () => {

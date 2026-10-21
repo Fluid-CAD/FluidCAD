@@ -1,4 +1,4 @@
-import type { SourceLocation, UIParamDefinition, UIPropertyDefinition } from '../types';
+import type { SourceLocation, UIConfigurations, UIParamDefinition, UIPropertyDefinition } from '../types';
 import type { ParamEditorDialog, PartChoices } from './param-editor-dialog';
 import type { PropertyEditorDialog } from './property-editor-dialog';
 import type { EngineClient } from '../engine-client';
@@ -53,6 +53,22 @@ const PART_SELECT_CLASS =
   + 'text-base-content/85 hover:bg-base-100 focus:bg-base-100 '
   + 'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/60';
 
+/** The reserved row: the `param()` literals — never among a table's names, always first in the dropdown. */
+const DEFAULT_CONFIGURATION = 'Default';
+
+/**
+ * Beside the dropdown while session tweaks sit on top of the active row —
+ * what ↺ (Revert) clears and what a Save would write into the row.
+ */
+const MODIFIED_MARKER_CLASS = 'shrink-0 text-xs text-base-content/60 whitespace-nowrap';
+
+/**
+ * The hint on a row the active configuration leaves out: its value is the
+ * literal. Dimmed and italic like an empty state, so it reads as a note on
+ * the row rather than as a second value.
+ */
+const DEFAULT_HINT = '<span class="shrink-0 text-xs text-base-content/40 italic" data-param-default-hint>default</span>';
+
 /**
  * Add and reset sit in the header card rather than above the first row, so
  * the section reads as one row of chrome like the History's menu does. Both
@@ -87,6 +103,17 @@ export class ParamsPanel extends AccordionSection {
   private currentParams: UIParamDefinition[] = [];
   /** The rendered file's `property()` declarations — a part scene's published values. */
   private currentProperties: UIPropertyDefinition[] = [];
+  /** The rendered file's `configurations()` rows and the active one; null until a render carries them. */
+  private configurations: UIConfigurations | null = null;
+  /** The header's ↺: "Reset all to defaults" on Default, "Revert changes" while a row is active. */
+  private readonly resetButton: HTMLElement;
+  /**
+   * Asks before a switch discards the session's tweaks on the active row;
+   * resolves true to discard. The host sets it to its confirm dialog; without
+   * one the browser's own confirm stands in.
+   */
+  confirmDiscard: (active: string) => Promise<boolean> = (active) =>
+    Promise.resolve(window.confirm(`Discard unsaved changes to ${active}?`));
   private debouncer = new ParamDebouncer();
   private collapsedGroups = new Set<string>();
   /** The header +'s open menu, while one is open. */
@@ -132,7 +159,8 @@ export class ParamsPanel extends AccordionSection {
       sheet: true,
     });
 
-    const resetButton = this.header.querySelector('[data-reset-params]')!;
+    const resetButton = this.header.querySelector<HTMLElement>('[data-reset-params]')!;
+    this.resetButton = resetButton;
     resetButton.addEventListener('click', (e) => {
       e.stopPropagation();
       this.client.resetParams();
@@ -175,11 +203,13 @@ export class ParamsPanel extends AccordionSection {
     }
   }
 
-  update(params: UIParamDefinition[], properties: UIPropertyDefinition[] = []): void {
+  update(params: UIParamDefinition[], properties: UIPropertyDefinition[] = [], configurations?: UIConfigurations): void {
     const prev = this.visibleParams();
     const prevProperties = this.visibleProperties();
+    const prevDecor = this.rowDecorKey(prev);
     this.currentParams = params;
     this.currentProperties = properties;
+    this.configurations = configurations ?? null;
     this.syncing = true;
     try {
       this.syncParts();
@@ -188,12 +218,91 @@ export class ParamsPanel extends AccordionSection {
     }
     const next = this.visibleParams();
     const nextProperties = this.visibleProperties();
-    if (this.canUpdateInPlace(prev, next) && ParamsPanel.samePropertyRows(prevProperties, nextProperties)) {
+    // A configuration switch changes which labels are bold and which rows
+    // carry the "default" hint — not something the in-place path redraws.
+    if (this.canUpdateInPlace(prev, next)
+      && ParamsPanel.samePropertyRows(prevProperties, nextProperties)
+      && this.rowDecorKey(next) === prevDecor) {
       this.updateValuesInPlace(next);
       this.updatePropertyValuesInPlace(nextProperties);
     } else {
       this.renderParams();
     }
+  }
+
+  /** The configuration the rendered file shows: a row name, or Default. */
+  get activeConfiguration(): string {
+    return this.configurations?.active ?? DEFAULT_CONFIGURATION;
+  }
+
+  /** Whether the rows carry configuration decorations: assembly scope with a row active. */
+  private get rowActive(): boolean {
+    return this.scope === 'assembly' && this.activeConfiguration !== DEFAULT_CONFIGURATION;
+  }
+
+  /** Everything about the configuration that decides how `params` rows are decorated. */
+  private rowDecorKey(params: UIParamDefinition[]): string {
+    return JSON.stringify([this.rowActive, params.map((p) => p.configuredValue !== undefined)]);
+  }
+
+  /**
+   * The band in assembly scope: the configuration dropdown — Default, then
+   * the file's rows — with the modified marker beside it. Hidden while the
+   * file declares no table. Redrawn by every render through {@link update}.
+   */
+  private syncConfigurations(): void {
+    const configurations = this.configurations;
+    const names = configurations?.names ?? [];
+    this.resetButton.title = this.rowActive ? 'Revert changes' : 'Reset all to defaults';
+    if (!configurations || names.length === 0) {
+      this.partBar.hidden = true;
+      this.partBar.replaceChildren();
+      return;
+    }
+    this.partBar.hidden = false;
+    const select = document.createElement('select');
+    select.className = PART_SELECT_CLASS;
+    select.title = 'The configuration the file renders';
+    select.setAttribute('aria-label', 'Configuration');
+    select.dataset.configuration = '';
+    for (const name of [DEFAULT_CONFIGURATION, ...names]) {
+      select.appendChild(ParamsPanel.option(name, name));
+    }
+    select.value = this.activeConfiguration;
+    select.addEventListener('change', () => {
+      void this.pickConfiguration(select);
+    });
+    const children: HTMLElement[] = [select];
+    if (configurations.modified) {
+      const marker = document.createElement('span');
+      marker.className = MODIFIED_MARKER_CLASS;
+      marker.dataset.configurationModified = '';
+      marker.title = 'Values changed on top of the configuration — ↺ reverts them';
+      marker.textContent = '● modified';
+      children.push(marker);
+    }
+    this.partBar.replaceChildren(...children);
+  }
+
+  /**
+   * The dropdown's choice. Tweaks on the active row would be lost by the
+   * switch (the session layer is cleared), so they are confirmed away first;
+   * a cancel puts the dropdown back.
+   */
+  private async pickConfiguration(select: HTMLSelectElement): Promise<void> {
+    const name = select.value;
+    const active = this.activeConfiguration;
+    if (name === active) {
+      return;
+    }
+    if (this.configurations?.modified) {
+      const discard = await this.confirmDiscard(active);
+      if (!discard) {
+        select.value = active;
+        return;
+      }
+    }
+    this.client.selectConfiguration(name);
   }
 
   /**
@@ -342,7 +451,8 @@ export class ParamsPanel extends AccordionSection {
    */
   syncParts(): void {
     if (this.scope === 'assembly') {
-      this.partBar.hidden = true;
+      // The band is the configuration dropdown's here.
+      this.syncConfigurations();
       if (this.addButton) this.addButton.hidden = false;
       return;
     }
@@ -471,14 +581,25 @@ export class ParamsPanel extends AccordionSection {
     }
 
     const rowOptions = { editable: this.editor !== undefined };
+    // With a row active: a label the row sets is bold, one it leaves out
+    // says so — its value is the literal.
+    const rowActive = this.rowActive;
+    const optionsFor = (p: UIParamDefinition) => {
+      if (!rowActive) {
+        return rowOptions;
+      }
+      return p.configuredValue !== undefined
+        ? { ...rowOptions, labelBold: true }
+        : { ...rowOptions, labelTrailing: DEFAULT_HINT };
+    };
     let html = '';
     for (const p of ungrouped) {
-      html += renderParamControl(p, rowOptions);
+      html += renderParamControl(p, optionsFor(p));
     }
     for (const [groupName, groupParams] of groups) {
       let controlsHtml = '';
       for (const p of groupParams) {
-        controlsHtml += renderParamControl(p, rowOptions);
+        controlsHtml += renderParamControl(p, optionsFor(p));
       }
       html += renderParamGroup(groupName, controlsHtml, this.collapsedGroups.has(groupName));
     }

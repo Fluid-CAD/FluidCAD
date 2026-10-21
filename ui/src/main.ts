@@ -73,7 +73,7 @@ import { AssemblyConnectorService } from './interactive/assembly-connector/conne
 import { AssemblyConnectorCopyService } from './interactive/assembly-connector-copy/copy-service';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
-import { ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
+import { ICON_ADJUSTMENTS, ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
 import { applyEditorPreferences } from './editor/editor-prefs';
@@ -320,6 +320,15 @@ const propertyEditorDialog = new PropertyEditorDialog(container);
 const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog, 'part', propertyEditorDialog);
 const assemblyParamEditor = new ParamEditorDialog(container, 'assembly');
 const assemblyParamsPanel = new ParamsPanel(null, engineClient, assemblyParamEditor, 'assembly');
+// Switching configuration rows with tweaks on the current one: the same
+// confirm the destructive flows use, Discard as the accept.
+assemblyParamsPanel.confirmDiscard = (active) => confirmDialog({
+  title: 'Switch configuration',
+  icon: ICON_ADJUSTMENTS,
+  message: `Discard unsaved changes to ${active}?`,
+  confirmLabel: 'Discard',
+  danger: true,
+});
 
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
@@ -3754,7 +3763,7 @@ function applySceneRendered(msg: any): void {
     assemblyConnectorCopyService.handleSceneRendered(sceneKind);
     assemblyRelationService.handleSceneRendered(sceneKind);
     if (msg.params !== undefined) {
-      (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? []);
+      (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? [], msg.configurations);
     }
     errorBanner.update(msg.result, msg.compileError ?? null);
     topBar.updateSolids(msg.result, renderedAssembly);

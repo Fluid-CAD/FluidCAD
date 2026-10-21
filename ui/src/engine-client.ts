@@ -99,6 +99,12 @@ export interface EngineClient {
   rollback(index: number, scope?: 'part'): void;
   setParam(label: string, value: unknown): void;
   resetParams(): void;
+  /**
+   * Show the named `configurations()` row (`'Default'` for the literals):
+   * the session's overrides go, the file re-renders with the row's cells
+   * under the controls. Fire-and-forget like `setParam`.
+   */
+  selectConfiguration(name: string): void;
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null>;
   getFaceProperties(shapeId: string, faceIndex: number, signal?: AbortSignal): Promise<FaceProperties | null>;
   getEdgeProperties(shapeId: string, edgeIndex: number, signal?: AbortSignal): Promise<EdgeProperties | null>;

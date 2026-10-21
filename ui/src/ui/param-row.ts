@@ -40,6 +40,8 @@ export type ParamRowRenderOptions = {
   editable: boolean;
   /** Markup placed between the label and the control's trailing slot — a chip, a warning. */
   labelTrailing?: string;
+  /** Draw the label bold — a value the active configuration row sets. */
+  labelBold?: boolean;
 };
 
 /**
@@ -118,9 +120,10 @@ function renderLabelRow(p: ParamRowDefinition, trailing: string, options: ParamR
           data-param-edit="${escapedLabel}" title="Edit parameter">
           <span class="[&>svg]:size-3">${ICON_PENCIL}</span>
         </button>`;
+  const labelClass = options.labelBold ? 'text-sm font-semibold text-base-content/90' : 'text-sm text-base-content/80';
   return `
       <div class="flex items-center gap-1">
-        <label class="text-sm text-base-content/80 flex-1 truncate">${escapedLabel}</label>
+        <label class="${labelClass} flex-1 truncate">${escapedLabel}</label>
         ${options.labelTrailing ?? ''}${trailing}${editButton}
       </div>
     `;

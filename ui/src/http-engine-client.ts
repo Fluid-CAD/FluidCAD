@@ -121,6 +121,14 @@ export class HttpEngineClient implements EngineClient {
       .catch(err => console.error('Reset params failed:', err));
   }
 
+  selectConfiguration(name: string): void {
+    fetch('api/configurations/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }).catch(err => console.error('Select configuration failed:', err));
+  }
+
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null> {
     return getShapeProperties(shapeId);
   }

@@ -403,6 +403,26 @@ export type UIParamDefinition = {
    * dropdown filters on. Absent for a top-level declaration.
    */
   part?: SourceLocation;
+  /**
+   * The active configuration row's cell for this label — present only while
+   * a row is active and names the label. A session override sits on it; the
+   * panel draws such a row's label bold.
+   */
+  configuredValue?: string | number | boolean | (string | number)[];
+};
+
+/**
+ * The rendered file's `configurations()` table and which row is showing
+ * (`scene-rendered.configurations`): `Default` is the literals and never
+ * among `names`; `modified` says session tweaks sit on top of the row;
+ * `notice` explains a fallback to Default.
+ */
+export type UIConfigurations = {
+  active: string;
+  names: string[];
+  rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
+  modified: boolean;
+  notice?: string;
 };
 
 // ---------------------------------------------------------------------------

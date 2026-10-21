@@ -28,6 +28,12 @@ export type ViewerModel = {
   name?: string;
   /** Omission clears animation when switching models. */
   animation?: ViewerAnimation | null;
+  /**
+   * The `configurations()` row to open on — the viewer installs it with
+   * `host.setConfiguration(name)` before the first render, as a share link's
+   * `configuration=` does. Omitted, null or `'Default'`: the literals.
+   */
+  configuration?: string | null;
 };
 
 export type ViewerReadyEvent = {
@@ -39,7 +45,7 @@ export type ViewerReadyEvent = {
 
 export type ViewerSceneEvent = {
   entry: string | null;
-  reason: 'load' | 'rollback' | 'recompute' | 'set-param' | 'reset-params';
+  reason: 'load' | 'rollback' | 'recompute' | 'set-param' | 'reset-params' | 'set-configuration';
   ms: number;
   sceneKind: 'part' | 'assembly';
   objects: number;
@@ -165,6 +171,17 @@ export class ViewerEmbed {
 
   replay(command: ReplayCommand): void {
     this.post({type: 'replay', ...command});
+  }
+
+  /**
+   * Show another row of the model's `configurations()` table (`'Default'` or
+   * null for the literals): the viewer re-renders through
+   * `host.setConfiguration(name)`, and the `scene` event follows with
+   * `reason: 'set-configuration'`. A name the table does not declare renders
+   * the literals.
+   */
+  setConfiguration(name: string | null): void {
+    this.post({type: 'set-configuration', name});
   }
 
   /** Roll the scene back to a feature index (the timeline's own numbering). */

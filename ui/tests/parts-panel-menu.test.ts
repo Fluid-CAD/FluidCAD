@@ -216,4 +216,14 @@ describe('parts panel name cells', () => {
     expect(row?.querySelector<HTMLInputElement>('[data-rename-input="instance"]')?.value).toBe('bracket1');
     expect(sourceName(row)).toBe('Bracket');
   });
+
+  it('names the configuration an insert picked after its source', () => {
+    const { container } = mount(
+      [{ ...instance('a', false), partName: 'frame', configuration: 'Wide' }, { ...instance('b', false), partName: 'frame' }],
+      [{ ...occurrence('g'), configuration: 'Long' }],
+    );
+    expect(sourceName(container.querySelector('[data-instance-id="a"]'))).toBe('frame · Wide');
+    expect(sourceName(container.querySelector('[data-instance-id="b"]'))).toBe('frame');
+    expect(sourceName(container.querySelector('[data-occurrence-id="g"]'))).toBe('sub-g · Long');
+  });
 });

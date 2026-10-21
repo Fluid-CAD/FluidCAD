@@ -65,6 +65,7 @@ const fakeServer = {
   getCurrentCode: () => buffers[currentFile],
   getCurrentFileName: () => currentFile,
   getLiveBuffer: (filePath: string) => buffers[filePath] ?? null,
+  paramKeyOf: () => null,
   renameParam: () => {},
   forgetParam: () => {},
 };
@@ -171,6 +172,7 @@ describe('declaration rename and delete across the workspace', () => {
       value: '60',
       replaced: [{ filePath: join(workspace, 'parts/housing.part.js'), count: 2, lines: [7, 10] }],
       dropped: [{ filePath: join(workspace, 'frame.assembly.js'), count: 2, lines: [4, 5] }],
+      configurations: [],
       blocked: [],
     });
   });

@@ -38,7 +38,8 @@ function count(files: UsageFileSummary[]): number {
  * Word a delete from its plan. A read the value cannot replace blocks the
  * delete outright — the model would stop building — so the wording names
  * the reads to rewrite instead of asking for confirmation. Otherwise it
- * says what the reads become and which overrides go.
+ * says what the reads become, which overrides go, and in how many
+ * `configurations()` rows the label's cell goes.
  */
 export function describeDeletionPlan(noun: DeclarationNoun, key: string, plan: DeletionPlan): DeletionWording {
   const quoted = `“${key}”`;
@@ -54,7 +55,9 @@ export function describeDeletionPlan(noun: DeclarationNoun, key: string, plan: D
   }
   const replaced = count(plan.replaced);
   const dropped = count(plan.dropped);
-  if (replaced === 0 && dropped === 0) {
+  // One cell per row that sets the label — so the count is the rows'.
+  const rows = count(plan.configurations ?? []);
+  if (replaced === 0 && dropped === 0 && rows === 0) {
     return { blocked: false, text: `Delete ${quoted}? Its declaration is removed from the code.` };
   }
   const effects: string[] = [];
@@ -67,6 +70,11 @@ export function describeDeletionPlan(noun: DeclarationNoun, key: string, plan: D
     const inserts = dropped === 1 ? 'one insert' : `${dropped} inserts`;
     const subject = effects.length === 0 ? 'The' : 'the';
     effects.push(`${subject} ${key} override on ${inserts} in ${describeFiles(plan.dropped)} is dropped`);
+  }
+  if (rows > 0) {
+    const where = rows === 1 ? 'one configuration row' : `${rows} configuration rows`;
+    const subject = effects.length === 0 ? 'Its' : 'its';
+    effects.push(`${subject} value in ${where} of ${describeFiles(plan.configurations!)} is dropped`);
   }
   return { blocked: false, text: `Delete ${quoted}? ${effects.join(', and ')}.` };
 }

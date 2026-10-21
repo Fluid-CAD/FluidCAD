@@ -1,5 +1,6 @@
 import { InProcessEngine } from '../packages/in-process-engine.ts';
 import type { ParamDefinition } from '../../../lib/dist/index.js';
+import type { ModelPackageConfigurations } from './types.ts';
 
 /**
  * Render a model once, headlessly, and return its full parameter schema.

@@ -28,6 +28,9 @@ export type ToolErrorCode =
   | 'missing-imports'
   | 'unit-statement'
   | 'pack-refused'
+  | 'part-rules'
+  | 'params-file'
+  | 'unknown-configuration'
   | 'internal';
 
 export function ok<T>(data: T): ToolResult<T> {

@@ -55,7 +55,7 @@ Each `insert()` returns a handle. Chain a starting pose, a name and a look on it
 
 On a sub-assembly, `.transparent(v)` fades every part inside; a part that is transparent on its own gets more transparent (`0.5` inside `0.5` shows at `0.75`).
 
-Parameter overrides go in the second argument: `insert(plate, { Width: 120 })`. See [Part parameters](./parameters).
+Parameter overrides go in the second argument: `insert(plate, { Width: 120 })`. See [Part parameters](./parameters). A definition with [configurations](./configurations) takes a row's name there instead, with overrides third: `insert(frame, 'Wide', { Depth: 1000 })`.
 
 ## Moving instances
 

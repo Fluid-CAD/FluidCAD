@@ -41,6 +41,7 @@ import {
 } from './transforms.ts';
 import { CustomGhostRoute, type GhostFeatureCatalog } from './custom.ts';
 import { ValueScope } from './value-scope.ts';
+import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { isThin, isValueExprOrNull, type ValueExpr } from './values.ts';
 import { BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, type GhostBody } from './vocabulary.ts';
 
@@ -56,10 +57,14 @@ import { BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, type Ghost
  * `catalog` is where a custom feature's ghost (`feature: 'custom'`) looks
  * the feature up; without one, custom features draw no ghost.
  */
-export function createFeatureGhostRouter(
-  fluidCadServer: FluidCadServer,
-  options: { catalog?: GhostFeatureCatalog } = {},
-): Router {
+export type FeatureGhostRouterOptions = {
+  /** The workspace's feature catalog: what a custom feature ghost names by id. */
+  catalog?: GhostFeatureCatalog;
+  /** The global-parameters catalog, so a dialog value reading an imported global previews (§2.8). */
+  globals?: GlobalParamCatalog;
+};
+
+export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options: FeatureGhostRouterOptions = {}): Router {
   const router = Router();
 
   router.post('/feature-ghost', async (req, res) => {
@@ -351,6 +356,7 @@ export function createFeatureGhostRouter(
       definitions: fluidCadServer.getParamDefinitions(),
       instances: fluidCadServer.getRenderedInstances(),
       parts: fluidCadServer.getRenderedParts(),
+      ...(options.globals ? { globals: options.globals } : {}),
     }, valueScope);
     const values: (number | null)[] = [];
     const resolve = (value: unknown): number | null => {

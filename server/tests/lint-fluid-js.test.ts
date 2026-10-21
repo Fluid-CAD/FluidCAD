@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { lintFluidJs } from '../src/lint-fluid-js.ts';
+import { CONFIGURATIONS_AFTER_PARAM_MESSAGE, lintFluidJs } from '../src/lint-fluid-js.ts';
+import { CONFIGURATIONS_IN_PARAMS_FILE_MESSAGE } from '../src/global-params/lint.ts';
+import { PartRules } from '../../lib/dist/index.js';
 
 describe('lintFluidJs', () => {
   it('reports every FluidCAD symbol used without an import', async () => {
@@ -215,7 +217,7 @@ describe('lintFluidJs — unit() placement diagnostics', () => {
 
   it('rejects unit() inside a part() callback', async () => {
     const result = await lintFluidJs(
-      `${header}\npart('a', () => {\n  unit('in');\n  sketch('xy', () => { rect(1, 1); });\n});\n`,
+      `${header}\nexport const a = part('a', () => {\n  unit('in');\n  sketch('xy', () => { rect(1, 1); });\n});\n`,
     );
     expect(result.diagnostics).toHaveLength(1);
     expect(result.diagnostics[0].message).toContain('top level');
@@ -278,5 +280,133 @@ describe('lintFluidJs — sketch curve symbols', () => {
     const result = await lintFluidJs(code);
     expect(result.missing.map((m) => m.symbol).sort()).toEqual(['bezier', 'sketch', 'spline']);
     expect(result.suggestion).toBe('import { bezier, sketch, spline } from "fluidcad/core";');
+  });
+});
+
+describe('lintFluidJs — configurations() rules', () => {
+  const header = `import { assembly, part, param, configurations, sketch, circle } from 'fluidcad/core';`;
+
+  it('is clean for a table declared first in the body', async () => {
+    const result = await lintFluidJs(
+      `${header}\nexport const f = assembly('f', () => {\n  const c = configurations({ Wide: { Width: 1 } });\n  const w = param('Width', 1);\n});\n`,
+      { filePath: '/ws/f.assembly.js' },
+    );
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('rejects a table after a param() of the same body, with the fix', async () => {
+    const result = await lintFluidJs(
+      `${header}\nexport const f = part('f', () => {\n  const w = param('Width', 1);\n  configurations({ Wide: { Width: 2 } });\n});\n`,
+      { filePath: '/ws/f.part.js' },
+    );
+    expect(result.diagnostics).toEqual([{ message: CONFIGURATIONS_AFTER_PARAM_MESSAGE, line: 3, column: 2 }]);
+  });
+
+  it('counts a param() nested in an earlier statement, but not one in another body', async () => {
+    const nested = await lintFluidJs(
+      `${header}\nexport const f = part('f', () => {\n  sketch('xy', () => { circle(param('R', 5)); });\n  configurations({});\n});\n`,
+    );
+    expect(nested.diagnostics.map((d) => d.message)).toEqual([CONFIGURATIONS_AFTER_PARAM_MESSAGE]);
+    // The part() inside the body breaks the export rule, nothing else.
+    const other = await lintFluidJs(
+      `${header}\nexport const a = assembly('a', () => {\n  const p = part('p', () => { const w = param('W', 1); });\n  configurations({});\n});\n`,
+    );
+    expect(other.diagnostics.map((d) => d.message)).toEqual([PartRules.nestedMessage('p')]);
+  });
+
+  it('checks each part() body of a file on its own', async () => {
+    const result = await lintFluidJs(
+      `${header}\nexport const a = part('A', () => {\n  configurations({ Wide: { W: 2 } });\n  const w = param('W', 1);\n});\n`
+      + `export const b = part('B', () => {\n  configurations({ Wide: { W: 4 } });\n  const w = param('W', 3);\n});\n`
+      + `export const c = part('C', () => {\n  const w = param('W', 5);\n  configurations({ Wide: { W: 6 } });\n});\n`,
+      { filePath: '/ws/three.part.js' },
+    );
+    expect(result.diagnostics).toEqual([{ message: CONFIGURATIONS_AFTER_PARAM_MESSAGE, line: 11, column: 2 }]);
+  });
+
+  it('rejects configurations() in a params file', async () => {
+    const result = await lintFluidJs(
+      `import { param, configurations } from 'fluidcad/core';\nexport const w = param('Width', 1);\nconfigurations({ Wide: { Width: 2 } });\n`,
+      { filePath: '/ws/project.params.js' },
+    );
+    expect(result.diagnostics).toEqual([{ message: CONFIGURATIONS_IN_PARAMS_FILE_MESSAGE, line: 2, column: 0 }]);
+  });
+});
+
+describe('lintFluidJs — part rules', () => {
+  const header = `import { assembly, part, param, sketch, extrude } from 'fluidcad/core';`;
+  const lint = async (body: string) => (await lintFluidJs(`${header}\n${body}`, { filePath: '/ws/pair.part.js' })).diagnostics;
+
+  it('accepts every exported shape: export const, a chain, an export clause, a factory', async () => {
+    expect(await lint([
+      "export const plate = part('Plate', () => {});",
+      "export const lid = part('Lid', () => {}).name('Lid').material('fluidcad-steel-1020');",
+      "const base = part('Base', () => {});",
+      "const rib = part('Rib', () => {});",
+      "export { base, rib as stiffener };",
+      "export const bolt = (length = 10) => part('Bolt', () => {});",
+      "export function nut() {\n  return part('Nut', () => {});\n}",
+      "export const washer = () => {\n  const w = part('Washer', () => {});\n  return w;\n};",
+      '',
+    ].join('\n'))).toEqual([]);
+  });
+
+  it('refuses a part nothing exports, at its part() call', async () => {
+    expect(await lint("part('Plate', () => {});\nconst lid = part('Lid', () => {});\n")).toEqual([
+      { message: PartRules.unexportedMessage('Plate'), line: 1, column: 0, rule: 'part-export' },
+      { message: PartRules.unexportedMessage('Lid', 'lid'), line: 2, column: 12, rule: 'part-export' },
+    ]);
+  });
+
+  it('refuses a default export, an export as default, and a part made in a loop', async () => {
+    const diagnostics = await lint([
+      "export default part('Plate', () => {});",
+      "const lid = part('Lid', () => {});",
+      "export { lid as default };",
+      "for (const n of [1, 2]) {\n  part(`Rib ${n}`, () => {});\n}",
+      "function helper() {\n  return part('Helper', () => {});\n}",
+      '',
+    ].join('\n'));
+    expect(diagnostics.map((d) => [d.line, d.message])).toEqual([
+      [1, PartRules.unexportedMessage('Plate')],
+      [2, PartRules.unexportedMessage('Lid', 'lid')],
+      [5, PartRules.unexportedMessage('`Rib ${n}`')],
+      [8, PartRules.unexportedMessage('Helper')],
+    ]);
+  });
+
+  it('refuses a part() inside another part or assembly body, and only with that message', async () => {
+    const diagnostics = await lint([
+      "export const plate = part('Plate', () => {",
+      "  const inner = part('Plate', () => {});",
+      '});',
+      "export const rig = assembly('Rig', () => {",
+      "  part('Loose', () => {});",
+      '});',
+      '',
+    ].join('\n'));
+    expect(diagnostics).toEqual([
+      { message: PartRules.nestedMessage('Plate'), line: 2, column: 16, rule: 'part-export' },
+      { message: PartRules.nestedMessage('Loose'), line: 5, column: 2, rule: 'part-export' },
+    ]);
+  });
+
+  it('refuses a second part of a name, and keeps the first', async () => {
+    const diagnostics = await lint([
+      "export const plate = part('Plate', () => {});",
+      "export const lid = part('Lid', () => {});",
+      "export const cover = part('Plate', () => {});",
+      "const spare = part('Plate', () => {});",
+      '',
+    ].join('\n'));
+    expect(diagnostics).toEqual([
+      { message: PartRules.duplicateMessage('Plate'), line: 3, column: 21, rule: 'part-name' },
+      { message: PartRules.unexportedMessage('Plate', 'spare'), line: 4, column: 14, rule: 'part-export' },
+      { message: PartRules.duplicateMessage('Plate'), line: 4, column: 14, rule: 'part-name' },
+    ]);
+  });
+
+  it('leaves a file without part() alone', async () => {
+    expect(await lint("sketch('xy', () => {});\nextrude(5);\n")).toEqual([]);
   });
 });

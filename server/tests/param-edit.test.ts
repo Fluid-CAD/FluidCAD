@@ -1,6 +1,6 @@
 // The parameters panel writing `param()` declarations back to the source.
-// Values the panel sets are runtime overrides and never touch the file; the
-// declaration itself — its label, its control, its very existence — only lives
+// A value the panel commits on Default swaps the default literal (`value`);
+// the declaration itself — its label, its control, its very existence — only lives
 // in the code, so editing one from the panel is a source transform with the
 // same refusal contract as every other: anything it cannot do safely leaves
 // the file byte-identical and says why.
@@ -515,6 +515,168 @@ describe('ParamEditor.update', () => {
   });
 });
 
+const CONFIGURED = [
+  `import { part, param, configurations, sketch, circle, extrude } from 'fluidcad/core';`,
+  ``,
+  `export const plate = part('Plate', () => {`,
+  `  const configuration = configurations({`,
+  `    Compact: { Width: 60, Rounded: false },`,
+  `    'Extra Wide': { 'Width': base * 2 },`,
+  `    Plain: { Rounded: false },`,
+  `  });`,
+  `  const width = param('Width', 100);`,
+  `  const rounded = param('Rounded', true);`,
+  `  extrude(width);`,
+  `});`,
+  `export const other = part('Other', () => {`,
+  `  configurations({ Big: { Width: 1 } });`,
+  `  const width = param('Width', 5);`,
+  `  extrude(width);`,
+  `});`,
+  ``,
+].join('\n');
+
+describe('ParamEditor value — the panel\'s value on Default', () => {
+  it('swaps the default literal alone; the label, type, options and the rest of the line keep their source', async () => {
+    const code = CODE.replace(`param('Width', 100);`, `param('Width', 100, 'slider', { min: lo, max: 200 }).slider(); // mm`);
+    const result = await ParamEditor.apply(code, { kind: 'value', expectedLabel: 'Width', line: WIDTH_LINE, value: 85.5 });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(code.replace(`param('Width', 100,`, `param('Width', 85.5,`));
+  });
+
+  it('writes a negative number, a string, a boolean and a list the way a literal is spelled', async () => {
+    let result = await ParamEditor.apply(CODE, { kind: 'value', expectedLabel: 'Width', value: -4 });
+    expect(result.newCode).toContain(`param('Width', -4);`);
+    result = await ParamEditor.apply(CODE, { kind: 'value', expectedLabel: 'Rounded', value: false });
+    expect(result.newCode).toContain(`param('Rounded', false);`);
+    const select = CODE.replace(`param('Rounded', true)`, `param('Finish', 'raw', 'select', { options: [{ label: 'Raw', value: 'raw' }, { label: 'It\\'s anodised', value: "it's" }] })`);
+    result = await ParamEditor.apply(select, { kind: 'value', expectedLabel: 'Finish', value: "it's" });
+    expect(result.newCode).toContain(`param('Finish', 'it\\'s', 'select'`);
+    const multi = CODE.replace(`param('Rounded', true)`, `param('Holes', [1, 2], 'select', { options: [{ label: 'A', value: 1 }, { label: 'B', value: 2 }], multi: true })`);
+    result = await ParamEditor.apply(multi, { kind: 'value', expectedLabel: 'Holes', value: [2] });
+    expect(result.newCode).toContain(`param('Holes', [2], 'select'`);
+  });
+
+  it('refuses a default that is not a plain value, and a call with no default, leaving the code as it was', async () => {
+    const expression = CODE.replace(`param('Width', 100)`, `param('Width', base * 2)`);
+    let result = await ParamEditor.apply(expression, { kind: 'value', expectedLabel: 'Width', value: 80 });
+    expect(result).toEqual({ newCode: expression, error: 'the default of "Width" is not a plain value (base * 2) — edit it in the code' });
+    const bare = CODE.replace(`param('Width', 100)`, `param('Width')`);
+    result = await ParamEditor.apply(bare, { kind: 'value', expectedLabel: 'Width', value: 80 });
+    expect(result.newCode).toBe(bare);
+    expect(result.error).toContain('no default value');
+    result = await ParamEditor.apply(CODE, { kind: 'value', expectedLabel: 'Width', value: { expr: 'x' } as never });
+    expect(result.error).toContain('not a literal');
+    result = await ParamEditor.apply(CODE, { kind: 'value', expectedLabel: 'Height', value: 3 });
+    expect(result.newCode).toBe(CODE);
+    expect(result.error).toBeDefined();
+  });
+});
+
+describe('ParamEditor.add — configurations() table', () => {
+  it('lands below the configurations() table when the body has no params yet', async () => {
+    const assembly = [
+      `import { assembly, configurations, insert } from 'fluidcad/core';`,
+      ``,
+      `assembly(() => {`,
+      `  const configuration = configurations({`,
+      `    Wide: {},`,
+      `  });`,
+      `  insert(base);`,
+      `});`,
+      ``,
+    ].join('\n');
+    const result = await ParamEditor.apply(assembly, {
+      kind: 'add', param: spec({ label: 'Gap', defaultValue: 1 }), assembly: true,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `    Wide: {},`,
+      `  });`,
+      `  const gap = param('Gap', 1);`,
+      `  insert(base);`,
+    ].join('\n'));
+  });
+
+  it('lands after the params that follow the configurations() table', async () => {
+    const assembly = [
+      `import { assembly, configurations, param, insert } from 'fluidcad/core';`,
+      ``,
+      `assembly(() => {`,
+      `  configurations({ Wide: { Width: 9 } });`,
+      `  const width = param('Width', 5);`,
+      `  insert(base);`,
+      `});`,
+      ``,
+    ].join('\n');
+    const result = await ParamEditor.apply(assembly, {
+      kind: 'add', param: spec({ label: 'Gap', defaultValue: 1 }), assembly: true,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `  configurations({ Wide: { Width: 9 } });`,
+      `  const width = param('Width', 5);`,
+      `  const gap = param('Gap', 1);`,
+      `  insert(base);`,
+    ].join('\n'));
+  });
+});
+
+describe('ParamEditor.update — configurations() table', () => {
+  it('renames the key in every row of the body\'s table, and in no other body\'s', async () => {
+    const result = await ParamEditor.apply(CONFIGURED, {
+      kind: 'update', line: 9, expectedLabel: 'Width', param: spec({ label: 'Overall width' }), variable: 'overallWidth',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`    Compact: { 'Overall width': 60, Rounded: false },`);
+    expect(result.newCode).toContain(`    'Extra Wide': { 'Overall width': base * 2 },`);
+    expect(result.newCode).toContain(`  configurations({ Big: { Width: 1 } });`);
+    expect(result.newCode).toContain(`const overallWidth = param('Overall width', 100);`);
+  });
+
+  it('renames the second part\'s same-labelled parameter in its own table alone', async () => {
+    const result = await ParamEditor.apply(CONFIGURED, {
+      kind: 'update', line: 15, expectedLabel: 'Width', param: spec({ label: 'Lid width', defaultValue: 5 }), variable: 'lidWidth',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  configurations({ Big: { 'Lid width': 1 } });`);
+    expect(result.newCode).toContain(`    Compact: { Width: 60, Rounded: false },`);
+    expect(result.newCode).toContain(`    'Extra Wide': { 'Width': base * 2 },`);
+    expect(result.newCode).toContain(`  const lidWidth = param('Lid width', 5);\n  extrude(lidWidth);`);
+    expect(result.newCode).toContain(`  const width = param('Width', 100);\n  const rounded = param('Rounded', true);\n  extrude(width);`);
+  });
+
+  it('counts the cells as usages of their own', async () => {
+    const usage = await ParamEditor.inspect(CONFIGURED, 'Width', 9, '/ws/plate.part.js');
+    expect(usage.usages).toEqual([{ filePath: '/ws/plate.part.js', count: 3, lines: [5, 6, 11] }]);
+    expect(usage.deletion.configurations).toEqual([{ filePath: '/ws/plate.part.js', count: 2, lines: [5, 6] }]);
+    expect(usage.deletion.replaced).toEqual([{ filePath: '/ws/plate.part.js', count: 1, lines: [11] }]);
+    expect(usage.deletion.dropped).toEqual([]);
+  });
+});
+
+describe('ParamEditor.remove — configurations() table', () => {
+  it('drops the label\'s cells from every row, an emptied row staying as {}', async () => {
+    const result = await ParamEditor.apply(CONFIGURED, { kind: 'remove', line: 9, expectedLabel: 'Width' });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`    Compact: { Rounded: false },`);
+    expect(result.newCode).toContain(`    'Extra Wide': {},`);
+    expect(result.newCode).toContain(`    Plain: { Rounded: false },`);
+    expect(result.newCode).toContain(`  configurations({ Big: { Width: 1 } });`);
+    expect(result.newCode).not.toContain(`param('Width', 100)`);
+    expect(result.newCode).toContain(`  const rounded = param('Rounded', true);\n  extrude(100);`);
+  });
+
+  it('drops only the second part\'s cells when its same-labelled parameter goes', async () => {
+    const result = await ParamEditor.apply(CONFIGURED, { kind: 'remove', line: 15, expectedLabel: 'Width' });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  configurations({ Big: {} });\n  extrude(5);`);
+    expect(result.newCode).toContain(`    Compact: { Width: 60, Rounded: false },`);
+    expect(result.newCode).toContain(`    'Extra Wide': { 'Width': base * 2 },`);
+    expect(result.newCode).toContain(`  const width = param('Width', 100);\n  const rounded = param('Rounded', true);\n  extrude(width);`);
+  });
+});
+
 describe('ParamEditor.remove', () => {
   it('deletes the whole declaration statement', async () => {
     const result = await ParamEditor.apply(CODE, {
@@ -620,6 +782,7 @@ describe('ParamEditor.inspect', () => {
       value: '100',
       replaced: [{ filePath: '/ws/plate.part.js', count: 2, lines: [8, 11] }],
       dropped: [],
+      configurations: [],
       blocked: [],
     });
   });

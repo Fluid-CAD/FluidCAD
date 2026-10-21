@@ -386,6 +386,13 @@ export type SceneObjectRender = {
 
 export type UIParamDefinition = {
   label: string;
+  /**
+   * Where the declaration lives: a `part()` body, an `assembly()` body, or
+   * — a project parameter — the top level of a `*.params.js` file. The
+   * model's Parameters section lists the first two; globals have their own
+   * column.
+   */
+  kind: 'part' | 'assembly' | 'global';
   defaultValue: string | number | boolean | (string | number)[];
   currentValue: string | number | boolean | (string | number)[];
   controlType: 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox' | 'color';
@@ -408,6 +415,106 @@ export type UIParamDefinition = {
    * dropdown filters on. Absent for a top-level declaration.
    */
   part?: SourceLocation;
+  /**
+   * The name of the `part()` / `assembly()` body that declared it — with the
+   * label, the parameter's identity: two parts may both declare `Width`, and
+   * a value set on one row goes to that part's only (`setParam`'s `body`).
+   * Absent for a project parameter, and on renders from an engine that
+   * predates it (the label alone then names the row).
+   */
+  body?: string;
+  /**
+   * The active configuration row's cell for this label — present only while
+   * a row is active and names the label. A session override sits on it; the
+   * panel draws such a row's label bold.
+   */
+  configuredValue?: string | number | boolean | (string | number)[];
+};
+
+/**
+ * The rendered file's `configurations()` table and which row is showing
+ * (`scene-rendered.configurations`): `Default` is the literals and never
+ * among `names`; `notice` explains a fallback to Default. (The server's
+ * summary also says whether session overrides sit on top of the row —
+ * `modified`, which the MCP reports; the panel draws nothing from it.)
+ */
+export type UIConfigurations = {
+  active: string;
+  names: string[];
+  rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
+  /**
+   * The same rows per table, each under the body (definition name) that
+   * declares it — `rows` is their merge, the last table winning a name two
+   * share. A part file with several `part()` bodies keeps each part's cells
+   * in its own table; the Manage grid reads them from here. Absent from a
+   * server or host that predates it.
+   */
+  tables?: UIConfigurationTable[];
+  notice?: string;
+};
+
+/** One body's `configurations()` table as the render recorded it. */
+export type UIConfigurationTable = {
+  body: string;
+  names: string[];
+  rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
+};
+
+// ---------------------------------------------------------------------------
+// Project (global) parameters — `export const x = param(...)` in `*.params.js`
+// ---------------------------------------------------------------------------
+
+/** The unit a params file's numbers are in: the project unit (`fluidcad.json`). */
+export type ProjectUnit = 'mm' | 'cm' | 'm' | 'in' | 'ft';
+
+/**
+ * One export of a `*.params.js` file as the server's catalog lists it
+ * (`GET api/global-params`). A `param()` export is a control; a plain
+ * `export const` (`derived`) is read-only — its value is the evaluated
+ * expression, or null when the server could not evaluate it statically.
+ */
+export type GlobalParam = {
+  /** Absolute, normalized. */
+  file: string;
+  /** Workspace-relative — what the import names. */
+  relPath: string;
+  /** The exported identifier — the token to type in an expression. */
+  name: string;
+  label: string;
+  controlType: 'number' | 'slider' | 'text' | 'select' | 'checkbox' | 'color';
+  defaultValue: string | number | boolean | (string | number)[];
+  /** The literal for a `param()`; the evaluated expression for a derived export; null when unknown. */
+  value: string | number | boolean | (string | number)[] | null;
+  derived: boolean;
+  /** A derived export's source expression. */
+  expression?: string;
+  numeric: boolean;
+  options?: { label: string; value: string | number }[];
+  multi?: boolean;
+  multiControlType?: 'select' | 'checkboxes' | 'chips';
+  min?: number;
+  max?: number;
+  step?: number;
+  group?: string;
+  description?: string;
+  line: number;
+  column: number;
+  /** Lint findings for the row — shown as a warning on it. */
+  problems?: string[];
+};
+
+export type GlobalParamsFile = {
+  file: string;
+  relPath: string;
+  params: GlobalParam[];
+  /** File-level findings (a parse error, an export the catalog could not read). */
+  problems: string[];
+};
+
+/** What the Parameters column shows: every params file, and the unit their numbers are in. */
+export type GlobalParamsSnapshot = {
+  files: GlobalParamsFile[];
+  projectUnit: ProjectUnit;
 };
 
 /**
@@ -496,6 +603,8 @@ export type SerializedAssemblyInstance = {
   transparency?: number;
   /** Resolved parameter values of the instance's template variant. */
   paramValues?: Record<string, InstanceParamValue>;
+  /** The `configurations()` row `insert(def, 'Name')` named; absent for the literals (Default). */
+  configuration?: string;
   /** The variant's `property()` values as the assembly reads them; absent when the part declares none. */
   properties?: Record<string, InstanceParamValue>;
   sourceLocation?: { filePath: string; line: number; column: number };
@@ -555,6 +664,10 @@ export type SerializedAssemblyOccurrence = {
   params?: InstanceParamDef[];
   /** Resolved parameter values of this occurrence's run. */
   paramValues?: Record<string, InstanceParamValue>;
+  /** The `configurations()` row `insert(def, 'Name')` named; absent for the literals (Default). */
+  configuration?: string;
+  /** The row names the definition's `configurations()` declares, in table order; absent without a table. */
+  configurations?: string[];
   /**
    * Handles the assembly() callback RETURNED, keyed by return-object path
    * (plain-object nesting flattened: `{ left: { p1 } }` → `["left","p1"]`).

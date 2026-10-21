@@ -1,5 +1,11 @@
 import {
   addBreakpoint,
+  addConfiguration,
+  commitConfigurationTable,
+  getConfigurationTables,
+  removeConfiguration,
+  renameConfiguration,
+  writeParamValue,
   moveTimelineBreakpoint,
   editorRedo,
   editorUndo,
@@ -25,13 +31,13 @@ import {
   setPartMaterial,
   setProjectUnit,
 } from './api';
-import type { EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { CatalogParamValue, ConfigurationEditResult, ConfigurationSourceTable, ConfigurationTableCommit, EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocation, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
 class HttpEngineEditorClient implements EngineEditorClient {
-  moveTimelineBreakpoint(filePath: string, before: { line: number; column: number } | null, remove?: 'passed' | 'all'): Promise<SetUnitResult> {
-    return moveTimelineBreakpoint(filePath, before, remove);
+  moveTimelineBreakpoint(filePath: string, before: { line: number; column: number } | null): Promise<SetUnitResult> {
+    return moveTimelineBreakpoint(filePath, before);
   }
 
   addBreakpoint(sourceLocation: SourceLocationParam): void {
@@ -108,17 +114,49 @@ export class HttpEngineClient implements EngineClient {
     rollback(index, scope);
   }
 
-  setParam(label: string, value: unknown): void {
+  setParam(label: string, value: unknown, body?: string): void {
     fetch('api/set-param', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label, value }),
+      body: JSON.stringify(body === undefined ? { label, value } : { label, value, body }),
     }).catch(err => console.error('Set param failed:', err));
   }
 
   resetParams(): void {
     fetch('api/reset-params', { method: 'POST' })
       .catch(err => console.error('Reset params failed:', err));
+  }
+
+  selectConfiguration(name: string): void {
+    fetch('api/configurations/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }).catch(err => console.error('Select configuration failed:', err));
+  }
+
+  addConfiguration(name: string, values?: Record<string, CatalogParamValue>, part?: SourceLocation | null): Promise<ConfigurationEditResult> {
+    return addConfiguration(name, values, part);
+  }
+
+  writeParam(label: string, value: unknown, body?: string, configuration?: string): Promise<ConfigurationEditResult> {
+    return writeParamValue(label, value, body, configuration);
+  }
+
+  renameConfiguration(from: string, to: string): Promise<ConfigurationEditResult> {
+    return renameConfiguration(from, to);
+  }
+
+  removeConfiguration(name: string): Promise<ConfigurationEditResult> {
+    return removeConfiguration(name);
+  }
+
+  getConfigurationTables(): Promise<ConfigurationSourceTable[] | null> {
+    return getConfigurationTables();
+  }
+
+  commitConfigurationTable(commit: ConfigurationTableCommit): Promise<ConfigurationEditResult> {
+    return commitConfigurationTable(commit);
   }
 
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null> {

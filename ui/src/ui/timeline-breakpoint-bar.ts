@@ -110,6 +110,12 @@ export class TimelineBreakpointBar {
     const text = this.pending ? 'Updating…' : preview ? this.state.stops[this.candidate]?.label ?? '' : '';
     this.label.textContent = text;
     this.label.hidden = text === '';
+    // Below the last row there is nothing for the label to cover: hang it
+    // above the line there, so a drag never pushes the list into overflow.
+    if (text !== '') {
+      const room = this.boundaryY(last) - this.boundaryY(this.candidate);
+      this.label.dataset.side = room < this.label.offsetHeight ? 'above' : 'below';
+    }
     this.resume.hidden = !this.state.paused;
     this.resume.disabled = this.disabled;
   }

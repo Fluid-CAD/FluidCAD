@@ -309,8 +309,8 @@ describe('a model importing an installed package', () => {
 });
 
 /**
- * A part file with a part of its own: a riser it declares and never exports,
- * beside the package's standoff — and the workspace plate part file imported
+ * A part file with a part of its own: a riser it declares and exports (every
+ * part is), beside the package's standoff — and the workspace plate part file imported
  * for nothing but its definition.
  */
 const RISER_MODEL = [
@@ -320,7 +320,7 @@ const RISER_MODEL = [
   `import { coincident, fix } from 'fluidcad/constraints';`,
   `import { face } from 'fluidcad/filters';`,
   ``,
-  `part('Riser', () => {`,
+  `export const riser = part('Riser', () => {`,
   `  sketch('xy', () => {`,
   rectangle(0, 0, 20, 10),
   `  });`,

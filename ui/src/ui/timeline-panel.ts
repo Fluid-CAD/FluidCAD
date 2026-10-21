@@ -411,9 +411,9 @@ export class TimelinePanel {
       this.breakpointBar = new TimelineBreakpointBar(this.timelineBody, async stop => {
         const row = stop.before ? this.timelineView.rows[Number(stop.before.dataset.displayIndex)] : undefined;
         if (row) this.enterScopeOf(row);
-        // A move takes out the stops it passes and leaves any further down
-        // pending; the end of history takes them all.
-        return this.client.editor!.moveTimelineBreakpoint!(this.breakpointFilePath!, stop.source, stop.source ? 'passed' : 'all');
+        // The bar is one stop: a move takes every other `breakpoint();` out,
+        // wherever it sits. Several stops only come from editing a feature.
+        return this.client.editor!.moveTimelineBreakpoint!(this.breakpointFilePath!, stop.source);
       });
     }
     this.historyTotalLabel = this.historySection.header.querySelector<HTMLSpanElement>('[data-ref="history-total"]')!;

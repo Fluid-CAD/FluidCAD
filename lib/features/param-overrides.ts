@@ -1,4 +1,4 @@
-import type { ParamDefinition, ParamOverrides, ParamScope, ParamVal } from "../param-registry.js";
+import { getParamRegistry, type ParamDefinition, type ParamOverrides, type ParamScope, type ParamVal } from "../param-registry.js";
 
 /**
  * Shared plumbing for definition parameter overrides — used by
@@ -67,17 +67,92 @@ export function collectedParamValues(scope: ParamScope): Record<string, ParamVal
 /**
  * Override keys the build never resolved. A warning, not an error: a key can
  * legitimately target a `param()` in a branch the current values don't take
- * (e.g. `Length` declared only under one `Size`).
+ * (e.g. `Length` declared only under one `Size`). A key that names a project
+ * parameter (a `*.params.js` global the live registry holds) is called out
+ * as such: a global's value is its declaration's literal, edited in the
+ * Parameters panel, and cannot be set per instance.
  */
 export function warnUnknownOverrides(kind: 'part' | 'assembly', name: string, scope: ParamScope): void {
   const unknown = Array.from(scope.overrides.keys()).filter(label => !scope.consumed.has(label));
-  if (unknown.length === 0) {
+  if (unknown.length > 0) {
+    console.warn(
+      `${kind} '${name}': unknown parameter override${unknown.length > 1 ? 's' : ''} `
+      + `${unknown.map(l => `'${l}'`).join(', ')} — this build declared `
+      + `${declaredList(scope.consumed)}.${globalsHint(unknown)}`,
+    );
+  }
+  if (scope.configuration === undefined) {
     return;
   }
-  const declared = Array.from(scope.consumed);
-  console.warn(
-    `${kind} '${name}': unknown parameter override${unknown.length > 1 ? 's' : ''} `
-    + `${unknown.map(l => `'${l}'`).join(', ')} — this build declared `
-    + `${declared.length > 0 ? declared.map(l => `'${l}'`).join(', ') : 'no parameters'}.`,
-  );
+  // The name `insert(def, 'Name')` asked for never met a configurations():
+  // the body has no table, so nothing could look the row up (a name a table
+  // does not declare throws from the body instead).
+  if (!scope.configurationValues) {
+    console.warn(
+      `${kind} '${name}': inserted with configuration '${scope.configuration}', but its body declares no configurations() — the literals were built.`,
+    );
+    return;
+  }
+  // The same rule for the row the insert picked: a cell whose label the
+  // body never read, with the configuration named so the author knows which
+  // table to fix.
+  const unread = Array.from(scope.configurationValues.keys()).filter(label => !scope.consumed.has(label));
+  if (unread.length > 0) {
+    console.warn(
+      `${kind} '${name}': configuration '${scope.configuration}' sets unknown parameter${unread.length > 1 ? 's' : ''} `
+      + `${unread.map(l => `'${l}'`).join(', ')} — this build declared `
+      + `${declaredList(scope.consumed)}.${globalsHint(unread)}`,
+    );
+  }
+}
+
+/**
+ * The end-of-render check of a root run with a configuration active, called
+ * by the host once the evaluation is over (every body has run, lazy parts
+ * included). A render a breakpoint paused stopped early — tables and
+ * `param()` calls after the pause never ran — so it is skipped.
+ *
+ * - The active name no table of the render declares: one warning, the
+ *   render shows Default. A body whose own table lacks the name is not
+ *   reported while another table declares it — rows are file-wide names.
+ * - Otherwise, per body, the cells of its installed row its `param()`
+ *   calls never resolved.
+ */
+export function warnConfigurationRun(registry = getParamRegistry(), paused = false): void {
+  const active = registry.getActiveConfiguration();
+  if (active === null || paused) {
+    return;
+  }
+  const { names } = registry.getConfigurations();
+  if (!names.includes(active)) {
+    console.warn(
+      `configurations(): no table in this render declares '${active}' — rendering Default. `
+      + (names.length > 0 ? `Declared: ${names.map(n => `'${n}'`).join(', ')}.` : 'The render declares no configurations() table.'),
+    );
+    return;
+  }
+  for (const entry of registry.getUnconsumedConfigurationCells()) {
+    console.warn(
+      `${entry.kind} '${entry.definition}': configuration '${active}' sets unknown parameter${entry.labels.length > 1 ? 's' : ''} `
+      + `${entry.labels.map(l => `'${l}'`).join(', ')} — this body declared `
+      + `${declaredList(entry.declared)}.${globalsHint(entry.labels, registry)}`,
+    );
+  }
+}
+
+function declaredList(declared: Iterable<string>): string {
+  const labels = Array.from(declared);
+  return labels.length > 0 ? labels.map(l => `'${l}'`).join(', ') : 'no parameters';
+}
+
+/** A key naming a project parameter is called out: a global is never set per instance or per row. */
+function globalsHint(labels: string[], registry = getParamRegistry()): string {
+  const globals = labels.filter(label => registry.hasGlobal(label));
+  if (globals.length === 0) {
+    return '';
+  }
+  return ' '
+    + `${globals.map(l => `'${l}'`).join(', ')} `
+    + (globals.length > 1 ? 'are project parameters — edit them' : 'is a project parameter — edit it')
+    + ' in the Global Parameters panel, not per instance.';
 }

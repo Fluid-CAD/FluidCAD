@@ -1,9 +1,10 @@
 import { init, type FluidCADOptions } from "../index.js";
 import { createParamRegistry, getParamRegistry } from "../param-registry.js";
-import type { ParamRegistry, ParamVal } from "../param-registry.js";
+import { SessionParamOverrides } from "../session-param-overrides.js";
 import { createManager } from "../scene-manager.js";
 import { setAssetProvider } from "../io/file-import.js";
 import { BreakpointHit } from "../common/breakpoint-hit.js";
+import { warnConfigurationRun } from "../features/param-overrides.js";
 import { PartDefinition } from "../features/part-definition.js";
 import { Scene } from "../rendering/scene.js";
 import type { ExportOptions } from "../io/file-export.js";
@@ -150,8 +151,10 @@ export class BrowserEngineHost {
   private manager: SceneManagerInstance | null = null;
   private evaluator: ModuleEvaluator | null = null;
   private previousScene: Scene | null = null;
-  private overrides = new Map<string, unknown>();
-  private lastParamDefaults = new Map<string, ParamVal>();
+  /** The session's Parameters-panel values, keyed by part + label, with their baselines. */
+  private overrides = new SessionParamOverrides();
+  /** The configuration the next pass renders; null is the literals (`Default`). */
+  private activeConfiguration: string | null = null;
   private lastBreakpointHit = false;
   private lastRollbackStop = -1;
   private entryPath = "/model.fluid.js";
@@ -289,18 +292,25 @@ export class BrowserEngineHost {
     this.manager.setCurrentFile(this.entryPath);
 
     const registry = createParamRegistry();
-    if (this.overrides.size > 0) {
-      registry.setOverrides(new Map(this.overrides), new Map(this.lastParamDefaults));
-    }
+    this.overrides.install(registry);
+    // The entry file's `configurations()` reads this at root and installs
+    // the row as the registry's configuration layer — the same handshake the
+    // desktop server does before evaluating the file.
+    registry.setActiveConfiguration(this.activeConfiguration);
 
     let breakpointHit = false;
     try {
       const mod = await this.evaluator();
-      for (const value of Object.values(mod)) {
-        let result: unknown = value;
-        if (typeof value === "function") {
-          result = await (value as () => unknown)();
-        }
+      // Every export resolved first (a factory called for the definition it
+      // returns), so the parts the module does not export are refused
+      // (PartRules) before any export builds — the desktop's LocalSceneHost
+      // does the same.
+      const exports: [string, unknown][] = [];
+      for (const [name, value] of Object.entries(mod)) {
+        exports.push([name, typeof value === "function" ? await (value as () => unknown)() : value]);
+      }
+      scene.refuseUnexportedParts(exports, this.entryPath);
+      for (const [, result] of exports) {
         if (result instanceof PartDefinition) {
           result.materializeInto(scene);
         }
@@ -313,9 +323,9 @@ export class BrowserEngineHost {
           result.run();
         }
       }
-      // part() is lazy — the entry file's definitions nothing exported still
-      // render standalone in a part scene; assembly scenes build strictly
-      // via insert().
+      // part() is lazy — every definition the entry file created shows in a
+      // part scene (a refused one as its error row); assembly scenes build
+      // strictly via insert().
       if (sceneKind !== "assembly") {
         scene.materializeLeftoverDefinitions();
       }
@@ -351,7 +361,11 @@ export class BrowserEngineHost {
     this.lastBreakpointHit = breakpointHit;
 
     const params = getParamRegistry().getDefinitions();
-    this.settleParamOverrides(registry);
+    const configurations = getParamRegistry().getConfigurations();
+    // The end-of-render configuration check: a name no table declares, row
+    // cells a body never read. A paused pass stopped early — skipped.
+    warnConfigurationRun(getParamRegistry(), breakpointHit);
+    this.overrides.settle(registry);
 
     if (this.previousScene) {
       scene = this.manager.compare(this.previousScene, scene);
@@ -375,6 +389,7 @@ export class BrowserEngineHost {
       projectUnit: this.manager.projectUnit,
       breakpointHit,
       params,
+      configurations,
       objectErrors: BrowserEngineHost.collectObjectErrors(result),
       objectWarnings: this.collectObjectWarnings(result),
       compileError: null,
@@ -393,22 +408,48 @@ export class BrowserEngineHost {
       this.manager?.disposeScene(this.previousScene);
       this.previousScene = null;
     }
-    this.overrides.clear();
-    this.lastParamDefaults.clear();
+    this.overrides = new SessionParamOverrides();
+    this.activeConfiguration = null;
     this.lastBreakpointHit = false;
     this.lastRollbackStop = -1;
     this.evaluator = null;
   }
 
-  /** Value-flow only: override a param and re-render. Source is never touched. */
-  async setParam(label: string, value: unknown): Promise<BrowserRenderResult> {
-    this.overrides.set(label, value);
+  /**
+   * Value-flow only: override a param and re-render. Source is never
+   * touched. `body` names the part (or assembly) whose `label` it is — the
+   * `body` of the definition the render listed. Without it the label must
+   * name one body's parameter: a label two parts declare is refused (the
+   * promise rejects) rather than set on both.
+   */
+  async setParam(label: string, value: unknown, body?: string): Promise<BrowserRenderResult> {
+    const resolved = this.overrides.keyFor(label, body);
+    if ('error' in resolved) {
+      throw new Error(resolved.error);
+    }
+    this.overrides.set(resolved.key, value);
     return this.render();
   }
 
   async resetParams(): Promise<BrowserRenderResult> {
     this.overrides.clear();
     return this.render();
+  }
+
+  /**
+   * Value-flow only: pick the `configurations()` row the next pass renders
+   * (`'Default'` or null for the literals) and re-render. Session overrides
+   * stay installed and sit on top of the row, as in the desktop panel. A
+   * name no table declares renders the literals, with a console warning.
+   */
+  async setConfiguration(name: string | null): Promise<BrowserRenderResult> {
+    this.activeConfiguration = name === null || name === "Default" ? null : name;
+    return this.render();
+  }
+
+  /** The configuration the next pass renders, or null for the literals. */
+  getActiveConfiguration(): string | null {
+    return this.activeConfiguration;
   }
 
   /**
@@ -488,22 +529,6 @@ export class BrowserEngineHost {
       this.previousScene = null;
     }
     setAssetProvider(null);
-  }
-
-  /**
-   * Ported from FluidCadServer.settleParamOverrides (single implicit
-   * session): remember what each param() declared so the next render can tell
-   * an edited default from an unchanged one, and forget the overrides this
-   * render found stale. Baselines merge rather than replace — a param that
-   * didn't run this pass keeps the default it last declared.
-   */
-  private settleParamOverrides(registry: ParamRegistry): void {
-    for (const [label, authored] of registry.getAuthoredDefaults()) {
-      this.lastParamDefaults.set(label, authored);
-    }
-    for (const label of registry.getDiscardedOverrides()) {
-      this.overrides.delete(label);
-    }
   }
 
   /** Ported from FluidCadServer.collectObjectErrors — see that doc comment. */

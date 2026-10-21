@@ -136,6 +136,7 @@ const FEATURE_ROOT_CALLEES: Set<string> = (() => {
   );
   out.delete('breakpoint');
   out.delete('param');
+  out.delete('configurations');
   return out;
 })();
 

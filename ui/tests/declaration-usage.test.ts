@@ -9,6 +9,26 @@ const FILE = '/ws/parts/plate.part.js';
 const FRAME = '/ws/frame.assembly.js';
 
 describe('describeDeletionPlan', () => {
+  it('counts the configuration rows that lose the label\'s cell', () => {
+    const one = describeDeletionPlan('parameter', 'Width', {
+      value: '100', replaced: [], dropped: [], blocked: [], configurations: [{ filePath: FRAME, count: 1, lines: [3] }],
+    });
+    expect(one.text).toBe('Delete “Width”? Its value in one configuration row of frame.assembly.js (line 3) is dropped.');
+    const alongside = describeDeletionPlan('parameter', 'Width', {
+      value: '100',
+      replaced: [{ filePath: FRAME, count: 1, lines: [9] }],
+      dropped: [],
+      blocked: [],
+      configurations: [{ filePath: FRAME, count: 2, lines: [3, 4] }],
+    });
+    expect(alongside.text).toBe(
+      'Delete “Width”? Its read in frame.assembly.js (line 9) becomes its default value 100, '
+      + 'and its value in 2 configuration rows of frame.assembly.js (lines 3, 4) is dropped.',
+    );
+    const none = describeDeletionPlan('parameter', 'Width', { value: '100', replaced: [], dropped: [], blocked: [], configurations: [] });
+    expect(none.text).toBe('Delete “Width”? Its declaration is removed from the code.');
+  });
+
   it('says plainly that only the declaration goes when nothing reads it', () => {
     const wording = describeDeletionPlan('parameter', 'Width', { value: '100', replaced: [], dropped: [], blocked: [] });
     expect(wording).toEqual({ blocked: false, text: 'Delete “Width”? Its declaration is removed from the code.' });

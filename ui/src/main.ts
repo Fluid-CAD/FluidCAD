@@ -10,9 +10,10 @@ import { ConnectorsPanel } from './ui/connectors-panel';
 import { DragReadout } from './ui/drag-readout';
 import { AnimateBar } from './ui/animate-bar';
 import { ParamsPanel } from './ui/params-panel';
+import { openConfigurationsGrid } from './ui/configurations-grid-dialog';
 import { ParamEditorDialog } from './ui/param-editor-dialog';
 import { PropertyEditorDialog } from './ui/property-editor-dialog';
-import { ExportDialog, exportBaseName } from './ui/export-dialog';
+import { ExportDialog, exportBaseName, type ExportTarget } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
 import { EngineSuspectBanner } from './ui/engine-suspect-banner';
@@ -21,6 +22,8 @@ import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
 import { ShareDialog } from './ui/share-dialog';
 import { PanelRail } from './ui/panel-rail';
+import { DEFAULT_PARAMS_FILE, GlobalParamsPanel } from './ui/global-params-panel';
+import { listWorkspaceFiles } from './editor/editor-api';
 import { Navbar } from './ui/navbar';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
@@ -58,7 +61,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, restartEngine, type UserPreferences } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, restartEngine, getGlobalParams, setGlobalParam, EVERY_SOLID, type ShapeSelection, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey, findActiveSketch } from './helpers/scene-utils';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
@@ -75,7 +78,7 @@ import { AssemblyConnectorCopyService } from './interactive/assembly-connector-c
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import { FeatureDialogRegistry } from './interactive/feature-dialog-registry';
 import { PartFeatureDialogs } from './interactive/part-feature-dialogs';
-import type { SceneObjectRender } from './types';
+import type { ConnectorData, SceneObjectRender, UIConfigurations } from './types';
 import { ICON_LIST_TREE, ICON_PACKAGE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
@@ -150,6 +153,7 @@ function startEditorSurface(): void {
       setTabs: (tabs, activePath, currentModelPath) => topBar.setTabs(tabs, activePath, currentModelPath),
       setWorkspaceName: (name) => topBar.setWorkspaceName(name),
       onEditRefused: (message) => showToast(message),
+      onOpenParamsFile: (absPath) => globalParamsPanel.showFile(absPath),
       initialOpen: editorPaneOpenOnArrival || editorPreferences.open,
       initialWidth: editorPreferences.width,
       // Whether the pane opens at startup is a Settings choice, not the last
@@ -328,6 +332,26 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
   fileBaseName: () => exportBaseName(sceneDocument.current?.absPath ?? ''),
 });
 
+/** The rendered file's `configurations()` table as its last render reported it — the export and share dialogs read it. */
+let renderedConfigurations: UIConfigurations | null = null;
+/**
+ * `?configuration=Name` — a link that opens on a `configurations()` row.
+ * Selected once, on the first render of a file, when that render shows
+ * another row; the server falls back to Default (with a notice) on a name
+ * the file does not declare.
+ */
+let urlConfiguration: string | null = new URLSearchParams(window.location.search).get('configuration');
+function selectUrlConfiguration(absPath: string | undefined): void {
+  if (urlConfiguration === null || !absPath) {
+    return;
+  }
+  const wanted = urlConfiguration;
+  urlConfiguration = null;
+  if (wanted !== (renderedConfigurations?.active ?? 'Default')) {
+    engineClient.selectConfiguration(wanted);
+  }
+}
+
 // Built detached: it is a section of the part rail's docked column, and that
 // column is torn down and rebuilt on every part/assembly swap. Owning the
 // panel here is what carries the parameter values, their groups' collapse
@@ -338,6 +362,29 @@ const propertyEditorDialog = new PropertyEditorDialog(container);
 const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog, 'part', propertyEditorDialog);
 const assemblyParamEditor = new ParamEditorDialog(container, 'assembly');
 const assemblyParamsPanel = new ParamsPanel(null, engineClient, assemblyParamEditor, 'assembly');
+// Both panels' configuration bands prompt over the scene with the other
+// dialogs; deleting a row asks through the confirm the destructive flows
+// use, and a refused value write, ↺ or Delete reads as a toast.
+for (const panel of [paramsPanel, assemblyParamsPanel]) {
+  panel.dialogHost = container;
+  panel.confirmDelete = (name) => confirmDialog({
+    title: 'Delete configuration',
+    icon: ICON_TRASH,
+    message: `Delete the configuration ${name}? Its row is removed from the configurations() table.`,
+    confirmLabel: 'Delete',
+    danger: true,
+  });
+  panel.confirmGridDelete = (name) => confirmDialog({
+    title: 'Delete configuration',
+    icon: ICON_TRASH,
+    message: `Delete the configuration ${name}? It is removed from the configurations() table when you apply the grid.`,
+    confirmLabel: 'Delete',
+    danger: true,
+  });
+  panel.onError = (message) => showToast(message);
+  // Manage… opens the table grid over the scene, its header noting the document's length unit.
+  panel.openGrid = (opts) => openConfigurationsGrid(container, { ...opts, unit: sceneUnit.current });
+}
 
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
@@ -411,7 +458,7 @@ function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
     container,
     engineClient,
     (shapeId) => viewer.highlightShape(shapeId),
-    (shapeIds) => exportDialog.show({ kind: 'shapes', shapeIds }),
+    (shapeIds) => exportDialog.show(shapesExportTarget(shapeIds)),
     (shapeId, visible) => viewer.setShapeVisibility(shapeId, visible),
     (shapeId) => viewer.isShapeHidden(shapeId),
     (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
@@ -517,6 +564,8 @@ function buildAssemblyRail(): LeftRail {
           currentValues: inst.paramValues ?? {},
           filePath: inst.sourceLocation.filePath,
           line: inst.sourceLocation.line,
+          configuration: inst.configuration,
+          configurations: lastPartTemplates.get(inst.partId)?.configurations,
         });
       } else {
         const occ = findOccurrence(id);
@@ -528,6 +577,8 @@ function buildAssemblyRail(): LeftRail {
           currentValues: occ.paramValues ?? {},
           filePath: occ.sourceLocation.filePath,
           line: occ.sourceLocation.line,
+          configuration: occ.configuration,
+          configurations: occ.configurations,
         });
       }
     },
@@ -1001,7 +1052,7 @@ const topBar = new TopBar(container, {
   // the choice — or, in an assembly, the whole assembly where it sits;
   // File ▸ Export stays the whole-scene path.
   export: {
-    onExport: (shapeId) => exportDialog.show({ kind: 'shapes', shapeIds: [shapeId] }),
+    onExport: (shapeId) => exportDialog.show(shapesExportTarget([shapeId])),
     captureThumbnail: (shapeId) => viewer.captureSolidThumbnail(shapeId),
     onExportAssembly: () => exportDialog.show({ kind: 'assembly' }),
     captureAssemblyThumbnail: () => viewer.captureSceneThumbnail(),
@@ -1021,7 +1072,7 @@ topBar.addAction({
   icon: ICON_SHARE,
   title: 'Share this model in the FluidCAD viewer',
   label: 'Share',
-  onClick: () => shareDialog.show(currentSceneAbsPath),
+  onClick: () => shareDialog.show(currentSceneAbsPath, renderedConfigurations?.active ?? null),
 });
 
 // Packages: the project's pins and where each loads from. A project action
@@ -1081,6 +1132,46 @@ const hubPanel = new HubPanel({
   onOpenChange: () => panelRail.sync(),
 });
 
+// The project Parameters column: every `*.params.js` file's exports, the
+// same column in both workbenches — it is not part of the rail that
+// ensureRailFor() swaps. Declaration edits go through the part dialog in its
+// params-file mode; the + with no params file yet creates project.params.js
+// at the workspace root.
+const globalParamsPanel = new GlobalParamsPanel(container, {
+  fetch: getGlobalParams,
+  setValue: setGlobalParam,
+  openFile: (file, line, column) => withEditorSurface((surface) => {
+    void surface.gotoSource({ filePath: file, line, column });
+  }),
+  onAdd: (file) => {
+    if (file !== null) {
+      paramEditorDialog.openForCreateInFile(file);
+      return;
+    }
+    void workspaceRoot().then((root) => {
+      paramEditorDialog.openForCreateInFile(root ? `${root}/${DEFAULT_PARAMS_FILE}` : DEFAULT_PARAMS_FILE);
+    });
+  },
+  onEdit: (def) => paramEditorDialog.openForEditGlobal(def),
+  onError: (message) => showToast(message),
+  onOpenChange: () => panelRail.sync(),
+});
+
+/**
+ * The workspace's absolute root: what the editor learned from the file
+ * tree, or — the editor not loaded yet — the tree itself. Null when the
+ * server cannot be reached; the caller then sends a relative path for the
+ * server to resolve.
+ */
+async function workspaceRoot(): Promise<string | null> {
+  const known = editorSurface?.models.workspacePath;
+  if (known) {
+    return known;
+  }
+  const listing = await listWorkspaceFiles().catch(() => null);
+  return listing?.workspacePath ?? null;
+}
+
 // The panel rail on the window's left edge: one latch button per surface it
 // opens. Its tree button covers whichever rail the scene kind mounted — the
 // part-design timeline or the assembly parts/joints column — the editor
@@ -1099,6 +1190,8 @@ const panelRail = new PanelRail(container, {
   treeLabel: () => currentRail?.kind === 'assembly' ? 'Parts' : 'Feature tree',
   onToggleEditor: editorSurfaceEnabled ? () => toggleEditorPane() : undefined,
   isEditorOpen: editorSurfaceEnabled ? () => editorSurface?.isOpen() === true : undefined,
+  onToggleGlobalParams: () => globalParamsPanel.toggle(),
+  isGlobalParamsOpen: () => globalParamsPanel.isOpen,
   onToggleHub: () => hubPanel.toggle(),
   isHubOpen: () => hubPanel.isOpen(),
 });
@@ -1187,23 +1280,16 @@ installDesktopMenu({
   redo: () => runEditorHistory('redo'),
   import: () => fileImporter.openPicker(),
   // An assembly exports whole, where its parts sit; a part scene offers
-  // every solid in it.
+  // every solid of the scene exported — the server collects them from the
+  // configuration's own render, so a row that adds a body exports it.
   export: () => exportDialog.show(
-    currentRail?.kind === 'assembly' ? { kind: 'assembly' } : { kind: 'shapes', shapeIds: exportableShapeIds() },
+    currentRail?.kind === 'assembly' ? { kind: 'assembly' } : shapesExportTarget(EVERY_SOLID),
   ),
 });
 
-/** Every solid in the current part scene — what File ▸ Export offers by default. */
-function exportableShapeIds(): string[] {
-  const ids: string[] = [];
-  for (const object of viewer.currentSceneObjects) {
-    for (const shape of object.sceneShapes ?? []) {
-      if (shape.shapeType === 'solid' && !shape.isMetaShape && !shape.isGuide) {
-        ids.push(shape.shapeId);
-      }
-    }
-  }
-  return ids;
+/** An export of `shapeIds` in the scene on screen — see {@link ExportDialog.shapesTarget}. */
+function shapesExportTarget(shapeIds: ShapeSelection): ExportTarget {
+  return ExportDialog.shapesTarget(shapeIds, sceneDocument.current);
 }
 
 // Assembly workbench groups (Insert / Translate / mates), shown instead of
@@ -3253,7 +3339,10 @@ function applySceneRendered(msg: any): void {
     assemblyConnectorCopyService.handleSceneRendered(sceneKind);
     assemblyRelationService.handleSceneRendered(sceneKind);
     if (msg.params !== undefined) {
-      (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? []);
+      (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? [], msg.configurations);
+      renderedConfigurations = msg.configurations ?? null;
+      exportDialog.setConfigurations(renderedConfigurations);
+      selectUrlConfiguration(msg.absPath);
     }
     errorBanner.update(msg.result, msg.compileError ?? null);
     if (msg.compileError?.packageProblems?.length) {
@@ -3414,6 +3503,11 @@ function connectWebSocket() {
       case 'file-removed':
         // An edit made outside the page: an agent through MCP, a git checkout.
         void editorSurface?.onFileEvent(msg);
+        break;
+      case 'global-params':
+        // The params catalog changed — a value written from the column, a
+        // params file edited anywhere. Pushed even when no model imports it.
+        globalParamsPanel.update(msg);
         break;
     }
   });

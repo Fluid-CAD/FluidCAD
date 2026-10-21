@@ -169,7 +169,7 @@ describe('timeline breakpoint targets', () => {
     expect(handle.getAttribute('aria-valuetext')).toBe('Before fillet');
     handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
     handle.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown' }));
-    expect(h.editor.moveTimelineBreakpoint).toHaveBeenCalledExactlyOnceWith('/model.part.js', { line: 7, column: 1 }, 'passed');
+    expect(h.editor.moveTimelineBreakpoint).toHaveBeenCalledExactlyOnceWith('/model.part.js', { line: 7, column: 1 });
     expect(h.editor.addBreakpoint).not.toHaveBeenCalled();
     expect(h.client.rollback).not.toHaveBeenCalled();
   });
@@ -210,20 +210,20 @@ describe('timeline breakpoint targets', () => {
     expect(h.container.querySelectorAll('[data-pending-breakpoint]')).toHaveLength(0);
   });
 
-  it('moves with passed-stop removal and continues to the end with a full clear', async () => {
+  it('moves as the single stop and continues to the end with a full clear', async () => {
     const h = mountPanel();
     h.panel.update([row('base', 3), row('fillet', 5)], 0, null, { paused: true, breakpointStop: 0 });
     const handle = h.container.querySelector<HTMLElement>('[role="slider"]')!;
     handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
     handle.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown' }));
-    expect(h.editor.moveTimelineBreakpoint).toHaveBeenLastCalledWith('/model.part.js', null, 'all');
+    expect(h.editor.moveTimelineBreakpoint).toHaveBeenLastCalledWith('/model.part.js', null);
     // The panel's apply wraps the client call in its own async step: let the ack settle.
     await new Promise((resolve) => setTimeout(resolve, 0));
     h.panel.update([row('base', 3), row('fillet', 5)], 1, null, { paused: true, breakpointStop: 1 });
     const again = h.container.querySelector<HTMLElement>('[role="slider"]')!;
     again.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
     again.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowUp' }));
-    expect(h.editor.moveTimelineBreakpoint).toHaveBeenLastCalledWith('/model.part.js', { line: 5, column: 1 }, 'passed');
+    expect(h.editor.moveTimelineBreakpoint).toHaveBeenLastCalledWith('/model.part.js', { line: 5, column: 1 });
   });
 
   it('hides the bar in a read-only viewer and an empty document', () => {

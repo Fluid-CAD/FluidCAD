@@ -1,3 +1,4 @@
+import { captureSourceLocation } from "../index.js";
 import { Assembly } from "../features/assembly.js";
 import { getCurrentScene } from "../scene-manager.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
@@ -35,7 +36,7 @@ function assembly<T>(name: string, callback: () => T): Assembly<T> {
   if (typeof callback !== "function") {
     throw new Error("assembly(): the second argument is the body callback inserting and mating the assembly's instances.");
   }
-  const definition = new Assembly<T>(name, callback);
+  const definition = new Assembly<T>(name, callback, captureSourceLocation());
   // Track the definition so an entry render whose scene stays EMPTY can
   // name the never-run definitions instead of rendering silently blank
   // (the classic mistake: a bare `assembly('x', () => {...});` statement

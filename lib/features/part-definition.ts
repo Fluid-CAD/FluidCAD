@@ -10,11 +10,12 @@ import { AssemblyScene } from "../rendering/assembly-scene.js";
 import type { SourceLocation } from "../common/scene-object.js";
 import { BreakpointHit } from "../common/breakpoint-hit.js";
 import { getCurrentScene } from "../scene-manager.js";
-import { popParamScope, pushParamScope } from "../param-registry.js";
+import { getParamRegistry, popParamScope, pushParamScope } from "../param-registry.js";
 import type { ParamOverrides, ParamVal } from "../param-registry.js";
 import { canonicalVariantKey, collectedParamValues, toOverrideMap, warnUnknownOverrides } from "./param-overrides.js";
 import { getActiveUnit, getUnitRegistry, withUnit } from "../units/registry.js";
 import type { LengthUnit } from "../units/units.js";
+import { PartRules } from "./part-rules.js";
 
 /**
  * A lazy part definition created by `part(name, callback)`.
@@ -53,12 +54,65 @@ export class PartDefinition<T = unknown> {
   /** One warning per definition when a callback still returns a features object. */
   private warnedReturn = false;
 
+  /** Why a part rule refuses this definition ({@link PartRules}), or null — see {@link refuse}. */
+  private refusal: string | null = null;
+
   constructor(
     public readonly partName: string,
     private readonly callback: () => T,
     private sourceLocation: SourceLocation | null = null,
   ) {
     this.displayName = partName;
+  }
+
+  /**
+   * The rules a `part()` call is checked against where it runs
+   * ({@link PartRules}): a call inside a body of its own file — which no
+   * export can reach — and a second `part()` of a name the file already
+   * used are refused on the spot, before anything builds. The export rule
+   * waits for the module's exports (`Scene.refuseUnexportedParts`). A
+   * definition no script frame located (engine code, a test calling
+   * `part()` directly) has no file, so the file rules do not apply.
+   */
+  checkDeclaration(scene: Scene | null): void {
+    const location = this.sourceLocation;
+    if (!location) {
+      return;
+    }
+    if (getParamRegistry().currentBodyFile() === location.filePath) {
+      this.refuse(PartRules.nestedMessage(this.partName));
+      return;
+    }
+    if (scene && !scene.claimPartName(this.partName, location)) {
+      this.refuse(PartRules.duplicateMessage(this.partName));
+    }
+  }
+
+  /**
+   * Refuse the definition under a part rule: its body never runs, and every
+   * variant is an empty part whose build error is `message`, reported on
+   * its row at its `part()` call. A variant `scene` already built (a read
+   * while the module was still evaluating, before its exports were known)
+   * is refused in place, and the renderer leaves its members unbuilt. The
+   * first refusal stands.
+   */
+  refuse(message: string, scene?: Scene): void {
+    if (this.refusal === null) {
+      this.refusal = message;
+    }
+    for (const variant of scene ? this.builtVariantsIn(scene) : []) {
+      variant.refuse(this.refusal);
+    }
+  }
+
+  /** The export rule's refusal — `Scene.refuseUnexportedParts` calls it for a part its module does not export. */
+  refuseUnexported(scene: Scene): void {
+    this.refuse(PartRules.unexportedMessage(this.partName), scene);
+  }
+
+  /** Why a part rule refuses this definition, or null when it builds. */
+  getRefusal(): string | null {
+    return this.refusal;
   }
 
   /** Re-stamp where the definition was authored — variants built after this call carry it. */
@@ -94,7 +148,7 @@ export class PartDefinition<T = unknown> {
    * never a build error: the geometry builds and the raw id stays on the
    * part. Variants materialized after this call carry it, like `.name()`.
    *
-   *     part('Bracket', () => { … }).material('fluidcad-aluminum-6061')
+   *     export const bracket = part('Bracket', () => { … }).material('fluidcad-aluminum-6061')
    *
    * @param id - A material id from the built-in list or the project's `fluidcad.json` `materials` map.
    */
@@ -133,10 +187,12 @@ export class PartDefinition<T = unknown> {
   /**
    * The insert path: always builds under a parameter scope (even with zero
    * overrides), so an inserted part's `param()` calls never reach the
-   * consuming file's global registry / params panel.
+   * consuming file's global registry / params panel. `configuration` is the
+   * row `insert(def, 'Name', extra)` asked for: the body's `configurations()`
+   * resolves it, and `extra` layers on top of the row.
    */
-  materializeVariant(scene: Scene, extra?: ParamOverrides): Part {
-    return this.buildVariant(scene, toOverrideMap(extra), true);
+  materializeVariant(scene: Scene, extra?: ParamOverrides, configuration?: string): Part {
+    return this.buildVariant(scene, toOverrideMap(extra), true, configuration);
   }
 
   /**
@@ -170,7 +226,7 @@ export class PartDefinition<T = unknown> {
     return this.materializeInto(scene);
   }
 
-  private buildVariant(scene: Scene, overrides: Map<string, ParamVal>, scoped: boolean): Part {
+  private buildVariant(scene: Scene, overrides: Map<string, ParamVal>, scoped: boolean, configuration?: string): Part {
     const variants = this.variantsIn(scene);
     // The body's numbers are in the DEFINING file's unit, whatever the
     // consumer runs in. The consumer is the ACTIVE unit at this call: the
@@ -180,25 +236,33 @@ export class PartDefinition<T = unknown> {
     // latter (part-scale.ts) — nothing is built here, only registered.
     const definitionUnit = getUnitRegistry().resolve(this.sourceLocation?.filePath);
     const targetUnit = getActiveUnit();
-    const key = variantKey(overrides, targetUnit);
+    const key = variantKey(overrides, targetUnit, configuration);
     const cached = variants.get(key);
     if (cached) {
       return cached;
+    }
+    if (this.refusal !== null) {
+      // A refused definition never runs its body: the variant is the empty
+      // part its row shows the refusal on.
+      const refused = this.newVariant(definitionUnit, targetUnit);
+      refused.refuse(this.refusal);
+      scene.runTopLevel(() => {
+        scene.startProgressiveContainer(refused);
+        scene.endProgressiveContainer();
+      });
+      variants.set(key, refused);
+      return refused;
     }
     // A read that lands here while THIS definition's body is still running
     // is a dependency loop — refused with the loop named, never recursed.
     PartBuildStack.enter(scene, this);
 
-    const partObj = new Part(this.displayName);
-    if (this.sourceLocation) {
-      partObj.setSourceLocation(this.sourceLocation);
-    }
-    partObj.setMaterial(this.materialId);
-    // The Part itself bypasses registerBuilder so it is stamped here.
-    partObj.setUnit(definitionUnit);
-    partObj.setTargetUnit(targetUnit);
+    const partObj = this.newVariant(definitionUnit, targetUnit);
 
-    const scope = scoped ? pushParamScope(overrides) : null;
+    const scope = scoped ? pushParamScope(overrides, configuration) : null;
+    // The registry's body frame is what `configurations()` checks: it must
+    // run before this body's first `param()`, once per run.
+    const registry = getParamRegistry();
     let extensions: T;
     try {
       // Templates are always top-level: a definition referenced mid-build of
@@ -206,9 +270,11 @@ export class PartDefinition<T = unknown> {
       // not become that container's child.
       extensions = withUnit(definitionUnit, () => scene.runTopLevel(() => {
         scene.startProgressiveContainer(partObj);
+        registry.beginBody(this.partName, "part", this.sourceLocation?.filePath ?? null);
         try {
           return this.callback();
         } finally {
+          registry.endBody();
           scene.endProgressiveContainer();
         }
       }));
@@ -247,6 +313,9 @@ export class PartDefinition<T = unknown> {
         partObj.params = Array.from(scope.collected.values());
         partObj.paramValues = collectedParamValues(scope);
       }
+      if (scope.configurationNames) {
+        partObj.configurations = scope.configurationNames;
+      }
       warnUnknownOverrides('part', this.partName, scope);
     }
 
@@ -255,6 +324,19 @@ export class PartDefinition<T = unknown> {
     // geometry does not exist yet here. Geometry and part-owned connectors
     // are scaled, never the instance pose.
     variants.set(key, partObj);
+    return partObj;
+  }
+
+  /** A new, empty variant: the definition's name, location and material, in its unit, consumed in `targetUnit`. */
+  private newVariant(definitionUnit: LengthUnit, targetUnit: LengthUnit): Part {
+    const partObj = new Part(this.displayName);
+    if (this.sourceLocation) {
+      partObj.setSourceLocation(this.sourceLocation);
+    }
+    partObj.setMaterial(this.materialId);
+    // The Part itself bypasses registerBuilder so it is stamped here.
+    partObj.setUnit(definitionUnit);
+    partObj.setTargetUnit(targetUnit);
     return partObj;
   }
 
@@ -303,15 +385,19 @@ export class PartDefinition<T = unknown> {
 }
 
 /**
- * Variant cache key: the canonical override map plus the unit the variant
- * is consumed in. One render has one root, so a definition normally meets a
- * single target unit per scene — but a foreign-unit part reading another
- * definition mid-body consumes it in ITS unit, and the root may consume the
- * same definition in the scene's, so the two scaled templates must not
- * share a slot.
+ * Variant cache key: the configuration name, the canonical override map and
+ * the unit the variant is consumed in. One render has one root, so a
+ * definition normally meets a single target unit per scene — but a
+ * foreign-unit part reading another definition mid-body consumes it in ITS
+ * unit, and the root may consume the same definition in the scene's, so the
+ * two scaled templates must not share a slot. The configuration is part of
+ * the identity, not expanded into values: `insert(def, 'Wide')` twice shares
+ * one template, while `insert(def, 'Wide')` and `insert(def, { Width: 1200 })`
+ * build their own even when the row holds exactly that value — the row is
+ * only known once the body runs, after the cache is consulted.
  */
-function variantKey(overrides: Map<string, ParamVal>, targetUnit: LengthUnit): string {
-  return `${targetUnit}\u0000${canonicalVariantKey(overrides)}`;
+function variantKey(overrides: Map<string, ParamVal>, targetUnit: LengthUnit, configuration?: string): string {
+  return `${targetUnit}\u0000${configuration ?? ''}\u0000${canonicalVariantKey(overrides)}`;
 }
 
 /**

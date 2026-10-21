@@ -1,6 +1,7 @@
 import { Sketch } from "../features/2d/sketch.js";
 import { SelectSceneObject } from "../features/select.js";
 import { SceneObject } from "../common/scene-object.js";
+import type { SourceLocation } from "../common/scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { Part } from "../features/part.js";
 import { getUnitRegistry } from "../units/registry.js";
@@ -132,8 +133,10 @@ export type TrackedPartDefinition = {
   materializeInto(scene: Scene): unknown;
   /** The variants built into `scene`, in build order. */
   builtVariantsIn(scene: Scene): readonly SceneObject[];
-  /** Where the `part()` call ran, or null when the capture found no script frame. */
-  getSourceLocation(): { filePath: string } | null;
+  /** Where the `part()` call ran, when a script frame named it. */
+  getSourceLocation(): SourceLocation | null;
+  /** Refuse the definition under the export rule (`PartRules`), its variants in `scene` included. */
+  refuseUnexported(scene: Scene): void;
 };
 
 /**
@@ -176,6 +179,8 @@ export class Scene {
 
   /** Every part definition created while this scene was current — see materializeLeftoverDefinitions. */
   private partDefinitions: TrackedPartCall[] = [];
+  /** The `part()` call that first took each (file, name) while this scene was current — see claimPartName. */
+  private partNames: Map<string, SourceLocation> = new Map();
   /** The timeline order, for one (list version, structure epoch) pair — see getTimelineObjects. */
   private timelineIndex: { version: number; epoch: number; objects: SceneObject[] } | null = null;
   /** Where a breakpoint() stopped this build — see markBreakpoint. */
@@ -222,6 +227,55 @@ export class Scene {
     return this.resolveUnits().declaredUnit;
   }
 
+  /**
+   * The name rule (`PartRules`): a part's name is unique within its file.
+   * The first `part()` call of a (file, name) takes the name; the same call
+   * site running again (a factory called twice) keeps it; another call site
+   * of that file asking for it is refused — false. Each render evaluates
+   * into a fresh scene, so the claims restart with it.
+   */
+  claimPartName(name: string, location: SourceLocation): boolean {
+    const key = `${Scene.normalizeFile(location.filePath)}\u0000${name}`;
+    const first = this.partNames.get(key);
+    if (!first) {
+      this.partNames.set(key, location);
+      return true;
+    }
+    return first.line === location.line && first.column === location.column;
+  }
+
+  /**
+   * The export rule (`PartRules`), once the entry module evaluated and its
+   * exports resolved (factories called), before any export builds: every
+   * tracked definition declared in `file` that `exports` does not hold is
+   * refused. `exports` is the module's export names with their resolved
+   * values — a part exported only as `default` is not exported, since no
+   * assembly can import it by name. Definitions of other files (imported
+   * modules) are left alone: whatever reaches them came through an import.
+   */
+  refuseUnexportedParts(exports: Iterable<readonly [string, unknown]>, file: string): void {
+    const exported = new Set<unknown>();
+    for (const [name, value] of exports) {
+      if (name !== 'default') {
+        exported.add(value);
+      }
+    }
+    const entry = Scene.normalizeFile(file);
+    for (const { definition } of this.partDefinitions) {
+      const location = definition.getSourceLocation();
+      if (!location || exported.has(definition) || Scene.normalizeFile(location.filePath) !== entry) {
+        continue;
+      }
+      definition.refuseUnexported(this);
+    }
+  }
+
+  /** A file path as source locations and hosts may spell it, compared: forward slashes, no live-buffer prefix, upper-case drive. */
+  private static normalizeFile(file: string): string {
+    const slashed = file.replace('virtual:live-render:', '').replace(/\\/g, '/');
+    return /^[a-z]:/.test(slashed) ? slashed.charAt(0).toUpperCase() + slashed.slice(1) : slashed;
+  }
+
   trackPartDefinition(definition: TrackedPartDefinition): void {
     const callSite = this.getActiveContainer() ? null : this.sceneObjects.length;
     this.partDefinitions.push({ definition, callSite });
@@ -230,8 +284,9 @@ export class Scene {
   /**
    * Build every tracked definition the entry file declares that has no
    * variant in this scene yet — the pass that keeps an open part file
-   * WYSIWYG: `part()` is lazy, so a part the file declares but never
-   * exports, inserts or reads would otherwise vanish from its own render.
+   * WYSIWYG: `part()` is lazy, so a definition nothing built would
+   * otherwise silently vanish from its own render. One a part rule refused
+   * (an unexported part, a second name) builds as its empty error row.
    * A definition another file declares — an imported `.part.js`, every part
    * a package's index re-exports next to the feature the file imported — is
    * left unbuilt: a part file shows the parts it declares, and other files'

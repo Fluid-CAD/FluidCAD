@@ -53,7 +53,7 @@ import { part, sketch, circle, extrude, chamfer, select, connector, origin } fro
 import { coincident, diameter } from "fluidcad/constraints";
 import { face } from "fluidcad/filters";
 
-const pin = part("Pivot pin", () => {
+export const pin = part("Pivot pin", () => {
   sketch("xy", () => {
     const c = circle([0, 0], 8);
     coincident(c.center(), origin());
@@ -171,7 +171,7 @@ import { part, sketch, circle, extrude, cut, repeat, connector, copy, origin } f
 import { coincident, diameter, fix } from "fluidcad/constraints";
 
 // A Ø120 flange with six Ø10 bolt holes; one connector per hole.
-const flange = part("Flange", () => {
+export const flange = part("Flange", () => {
   sketch("xy", () => {
     const rim = circle([0, 0], 120);
     coincident(rim.center(), origin());

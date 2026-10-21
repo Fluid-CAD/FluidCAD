@@ -13,12 +13,12 @@ import type { SceneRenderedData } from '../src/fluidcad-server/render-types.ts';
 // part file's must not; the host must still know the real-path modules for
 // its own (re-evaluated every render, scanned for blocked imports).
 
-/** A part the file declares and never exports or inserts — a 5 × 8 cylinder — beside an imported part file. */
+/** A part the file declares and exports but never inserts — a 5 × 8 cylinder — beside an imported part file. */
 const MODEL = [
   `import { part, cylinder } from 'fluidcad/core';`,
   `import { plate } from './plate.part.js';`,
   ``,
-  `part('Block', () => {`,
+  `export const block = part('Block', () => {`,
   `  cylinder(5, 8);`,
   `});`,
   ``,

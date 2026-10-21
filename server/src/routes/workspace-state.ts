@@ -22,9 +22,30 @@ export type WorkspaceEditorState = {
   openTabs: string[];
   /** Which of them was focused. */
   activeTab: string | null;
+  /**
+   * The configuration each model file was showing, workspace-relative path →
+   * row name (`docs/assembly-configurations-plan.md` §3.3). A file on
+   * `Default` has no entry. Written by the server on every select; the
+   * editor's tab writes leave it alone.
+   */
+  configurations?: Record<string, string>;
 };
 
 const EMPTY: WorkspaceEditorState = { openTabs: [], activeTab: null };
+
+/** `configurations` as the file holds it: string keys to non-empty string names, anything else dropped. */
+function readConfigurations(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return undefined;
+  }
+  const out: Record<string, string> = {};
+  for (const [relPath, name] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof name === 'string' && name !== '') {
+      out[relPath] = name;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
 
 function stateFilePath(workspacePath: string): string {
   return path.join(workspacePath, INSTANCE_DIR_NAME, STATE_FILE_NAME);
@@ -39,9 +60,11 @@ export function readWorkspaceEditorState(workspacePath: string): WorkspaceEditor
     const openTabs = Array.isArray(parsed?.openTabs)
       ? parsed.openTabs.filter((tab: unknown): tab is string => typeof tab === 'string')
       : [];
+    const configurations = readConfigurations(parsed?.configurations);
     return {
       openTabs,
       activeTab: typeof parsed?.activeTab === 'string' ? parsed.activeTab : null,
+      ...(configurations ? { configurations } : {}),
     };
   } catch {
     // Absent or unreadable — a workspace opened for the first time, which is
@@ -143,6 +166,30 @@ export class WorkspaceUiStateError extends Error {
   }
 }
 
+/** The configuration the workspace remembers for `relPath`, or null for Default (or no memory). */
+export function readWorkspaceConfiguration(workspacePath: string, relPath: string): string | null {
+  return readWorkspaceEditorState(workspacePath).configurations?.[relPath] ?? null;
+}
+
+/**
+ * Remember which configuration `relPath` shows — `null` forgets it (the file
+ * is back on Default). The file's other fields are read back and kept.
+ */
+export function rememberWorkspaceConfiguration(workspacePath: string, relPath: string, name: string | null): void {
+  const state = readWorkspaceEditorState(workspacePath);
+  const configurations = { ...(state.configurations ?? {}) };
+  if (name === null) {
+    delete configurations[relPath];
+  } else {
+    configurations[relPath] = name;
+  }
+  const { configurations: _previous, ...rest } = state;
+  writeWorkspaceEditorState(workspacePath, {
+    ...rest,
+    ...(Object.keys(configurations).length > 0 ? { configurations } : {}),
+  });
+}
+
 export function createWorkspaceStateRouter(workspacePath: string): Router {
   const router = Router();
 
@@ -181,9 +228,13 @@ export function createWorkspaceStateRouter(workspacePath: string): Router {
       res.status(400).json({ error: '`openTabs` must be an array of strings.' });
       return;
     }
+    // The tab strip owns the tabs; the configurations the server remembers
+    // per file ride along untouched.
+    const { configurations } = readWorkspaceEditorState(workspacePath);
     const state: WorkspaceEditorState = {
       openTabs,
       activeTab: typeof activeTab === 'string' ? activeTab : null,
+      ...(configurations ? { configurations } : {}),
     };
     try {
       writeWorkspaceEditorState(workspacePath, state);

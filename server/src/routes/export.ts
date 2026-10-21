@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
-import type { FluidCadServer } from '../fluidcad-server/index.ts';
+import { ShapeExportSelection, type FluidCadServer, type ScratchRender } from '../fluidcad-server/index.ts';
 import type { AssemblyExportPose } from '../../../lib/dist/index.js';
 
 type ExportFormatOptions = {
@@ -56,6 +56,23 @@ function parseAssemblyPoses(assembly: unknown): AssemblyExportPose[] | undefined
   return parsed;
 }
 
+/**
+ * `POST /api/export` with `configuration`: the named `configurations()` row
+ * is rendered for the request alone (`FluidCadServer.renderWithConfiguration`)
+ * and exported from — the session's active row, overrides and the scene the
+ * viewer shows are untouched (`docs/assembly-configurations-plan.md` §3.7).
+ * The row that is already active exports the live scene, tweaks included;
+ * `'Default'` is the literals. An assembly exported from a scratch render
+ * sits at its statement poses — the viewer's solved poses belong to the
+ * configuration on screen — and says so in `X-FluidCAD-Assembly-Poses`.
+ * A name the file does not declare is a 400 listing the declared names.
+ *
+ * `shapeIds: "all"` exports every solid of the scene exported — the row's
+ * own render when it is not on screen, so a row that adds or drops a body
+ * exports its own set. Listed ids are the scene on screen's; one the row
+ * does not build is a 400 naming the solid and the row (`missing`), never
+ * some other body (`ShapeExportSelection`).
+ */
 export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath: string): Router {
   const router = Router();
   // Resolve the workspace root once so symlink checks below match the path
@@ -68,8 +85,8 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
     }
   })();
 
-  router.post('/export', (req, res) => {
-    const { format, shapeIds, assembly, includeColors, resolution, customAngularDeflectionDeg, customLinearDeflection, saveAsPath, scaleTo } = req.body;
+  router.post('/export', async (req, res) => {
+    const { format, shapeIds, assembly, includeColors, resolution, customAngularDeflectionDeg, customLinearDeflection, saveAsPath, scaleTo, configuration } = req.body;
 
     if (format !== 'step' && format !== 'stl') {
       res.status(400).json({ error: 'Invalid format. Must be "step" or "stl".' });
@@ -83,8 +100,8 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
       res.status(400).json({ error: 'Pass exactly one of shapeIds (solids to export) or assembly (the whole assembly).' });
       return;
     }
-    if (hasShapeIds && (!Array.isArray(shapeIds) || shapeIds.length === 0)) {
-      res.status(400).json({ error: 'shapeIds must be a non-empty array.' });
+    if (hasShapeIds && !ShapeExportSelection.isSelection(shapeIds)) {
+      res.status(400).json({ error: 'shapeIds must be a non-empty array of shape ids, or "all" (every solid of the scene exported).' });
       return;
     }
     let livePoses: AssemblyExportPose[] | undefined;
@@ -119,6 +136,41 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
       res.status(400).json({ error: 'saveAsPath must be a string.' });
       return;
     }
+    if (configuration !== undefined && (typeof configuration !== 'string' || configuration.trim() === '')) {
+      res.status(400).json({ error: 'configuration must be a non-empty string — a configurations() row name, or Default.' });
+      return;
+    }
+
+    // A row other than the one showing is a scratch render of its own; the
+    // active row (or no row asked for) is the live scene.
+    let scratch: Extract<ScratchRender, { ok: true }> | undefined;
+    if (configuration !== undefined) {
+      const file = fluidCadServer.getCurrentFileName();
+      if (!file) {
+        res.status(404).json({ error: 'No active scene to export.' });
+        return;
+      }
+      if (configuration !== fluidCadServer.getActiveConfiguration(file)) {
+        let rendered: ScratchRender | null;
+        try {
+          rendered = await fluidCadServer.renderWithConfiguration(file, configuration);
+        } catch (err: any) {
+          res.status(500).json({ error: err?.message || String(err) });
+          return;
+        }
+        if (!rendered) {
+          res.status(404).json({ error: 'No active scene to export.' });
+          return;
+        }
+        if (rendered.ok === false) {
+          res.status(400).json({ error: rendered.reason, names: rendered.names });
+          return;
+        }
+        scratch = rendered;
+        // The viewer's poses were solved for the configuration on screen.
+        livePoses = undefined;
+      }
+    }
 
     const options: ExportFormatOptions = {
       format,
@@ -134,7 +186,7 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
     try {
       let result: { data: string | Uint8Array; fileName: string };
       if (hasAssembly) {
-        const outcome = fluidCadServer.exportAssembly(options, livePoses);
+        const outcome = fluidCadServer.exportAssembly(options, livePoses, scratch);
         if (!outcome) {
           res.status(404).json({ error: 'No active scene to export.' });
           return;
@@ -146,9 +198,13 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
         res.setHeader('X-FluidCAD-Assembly-Poses', outcome.posesSource);
         result = outcome;
       } else {
-        const exported = fluidCadServer.exportShapes(shapeIds, options);
+        const exported = fluidCadServer.exportShapes(shapeIds, options, scratch);
         if (!exported) {
           res.status(404).json({ error: 'No active scene to export.' });
+          return;
+        }
+        if ('reason' in exported) {
+          res.status(exported.status).json({ error: exported.reason, ...(exported.missing ? { missing: exported.missing } : {}) });
           return;
         }
         result = exported;
@@ -187,6 +243,8 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
       res.send(bytes);
     } catch (err: any) {
       res.status(500).json({ error: err.message || String(err) });
+    } finally {
+      scratch?.dispose();
     }
   });
 

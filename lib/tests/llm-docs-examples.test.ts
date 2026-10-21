@@ -54,11 +54,21 @@ function stripImports(block: string): string {
   return block.replace(IMPORT_LINE_RE, "");
 }
 
+// Examples are written as real files: every part is exported
+// (`export const bracket = part(...)`). A `new Function` body cannot hold an
+// `export`, so a top-level declaration loses the keyword and keeps its
+// binding.
+const EXPORT_DECLARATION_RE = /^export\s+(?=(?:const|let|var|function|class)\b)/gm;
+
+function stripExports(block: string): string {
+  return block.replace(EXPORT_DECLARATION_RE, "");
+}
+
 function runBlock(block: string, file: string, line: number): void {
   const globals = buildGlobals();
   const paramNames = Object.keys(globals);
   const paramValues = paramNames.map((n) => globals[n]);
-  const wrapped = `"use strict";\n${stripImports(block)}\n//# sourceURL=llm-docs/${file}:${line}`;
+  const wrapped = `"use strict";\n${stripExports(stripImports(block))}\n//# sourceURL=llm-docs/${file}:${line}`;
   const fn = new Function(...paramNames, wrapped);
   fn(...paramValues);
 }

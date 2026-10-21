@@ -281,9 +281,11 @@ If the workspace holds more than one `.fluid.js` file, `--entry` is required —
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--shapes <ids...>` | Export a subset of the scene's shapes | All shapes (an assembly: the [whole assembly](#assemblies)) |
+| `--shapes <ids...>` | Export a subset of the scene's shapes | Every solid (an assembly: the [whole assembly](#assemblies)) |
 | `--list-shapes` | Print the scene's shapes and exit without exporting | — |
 | `--no-colors` | Write plain geometry instead of per-shape colors | _colors on_ |
+| `--configuration <name>` | Export this [configuration](/docs/part/configurations) (`Default` for the `param()` literals) | The one on screen |
+| `--all-configurations` | Write one file per configuration: `<model>.step` for Default, `<model>-<Row>.step` per row | — |
 
 ```bash
 npx fluidcad export step --no-colors -o build/housing.step
@@ -293,12 +295,14 @@ npx fluidcad export step --no-colors -o build/housing.step
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--shapes <ids...>` | Export a subset of the scene's shapes | All shapes (an assembly: the [whole assembly](#assemblies)) |
+| `--shapes <ids...>` | Export a subset of the scene's shapes | Every solid (an assembly: the [whole assembly](#assemblies)) |
 | `--list-shapes` | Print the scene's shapes and exit without exporting | — |
 | `--resolution <r>` | Mesh resolution: `coarse`, `medium`, `fine`, or `custom` | `medium` |
 | `--linear-deflection <length>` | Custom linear deflection, in document units | — |
 | `--angular-deflection <deg>` | Custom angular deflection, in degrees | — |
 | `--scale-to <mm\|document>` | Write the STL in millimetres (what slicers expect) or keep the document's unit | `mm` |
+| `--configuration <name>` | Export this [configuration](/docs/part/configurations) (`Default` for the `param()` literals) | The one on screen |
+| `--all-configurations` | Write one file per configuration: `<model>.stl` for Default, `<model>-<Row>.stl` per row | — |
 
 The two deflection flags imply `--resolution custom`, and `custom` needs both of them:
 
@@ -345,6 +349,18 @@ npx fluidcad export step --shapes 1      # a single part template instead, in it
 
 Mates are solved in the viewer, and the CLI has no viewer, so parts land where the source places them (`insert().translate()` / `.rotate()`). The CLI prints a note when that is the case; for the mated layout, export from the viewer's Export menu.
 
+### Configurations
+
+A model with a `configurations()` table ([parts](/docs/part/configurations), [assemblies](/docs/assembly/configurations)) exports the configuration on screen unless `--configuration` names another; the configuration on screen is left as it is. Without `--shapes`, a part file exports every solid that configuration builds, so a row that adds or leaves out a body exports exactly its own bodies. With `--shapes`, each listed solid is found in the configuration by its history, and one the configuration does not build fails the export with a message naming it. `--all-configurations` writes one file per configuration, with row names made file-safe (anything but letters, digits, `.`, `_` and `-` becomes `-`); with `-o`, that path minus its extension is the base name:
+
+```bash
+npx fluidcad export step --configuration Wide              # frame.step, the Wide row
+npx fluidcad export step --all-configurations              # frame.step, frame-Compact.step, frame-Wide.step
+npx fluidcad export stl --all-configurations -o build/frame.stl
+```
+
+`--all-configurations` renders every configuration before writing anything: if one fails, no file is written. Pass one flag or the other, not both. `--all-configurations` is not available for `png`, which captures one image. In a STEP file, an instance inserted with a configuration carries it in its name: `frame (Wide)`.
+
 ### `fluidcad export png`
 
 | Flag | Description | Default |
@@ -359,6 +375,7 @@ Mates are solved in the viewer, and the CLI has no viewer, so parts land where t
 | `--no-auto-crop` | Keep the full frame instead of cropping to the model | _crop on_ |
 | `--no-fit` | Don't fit the camera to the model | _fit on_ |
 | `--open` | Open the viewport in a browser to render the capture | _off_ |
+| `--configuration <name>` | Capture this [configuration](/docs/part/configurations): the viewer shows it for the capture, then switches back | The one on screen |
 
 `--view` takes `current` (whatever the connected browser is looking at) or a named view:
 

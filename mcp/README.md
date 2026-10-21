@@ -293,7 +293,7 @@ You should see two JSON-RPC responses on stdout: the `initialize` reply and a
 | Discovery       | `list_workspaces`                                                     |
 | Docs            | `list_docs`, `read_doc`, `search_docs`, `get_api_signature`, `get_type_definition` |
 | Skills          | `list_skills`, `read_skill` (plus SEP-2640 `skills/list`, `skills/get`, `skill://` resources) |
-| Inspection      | `get_scene_summary`, `list_shapes`, `get_shape_properties`, `get_face_properties`, `get_edge_properties`, `get_compile_error`, `hit_test`, `resolve_selection`, `measure`, `validate` |
+| Inspection      | `get_scene_summary`, `list_shapes`, `list_global_params`, `get_shape_properties`, `get_face_properties`, `get_edge_properties`, `get_compile_error`, `hit_test`, `resolve_selection`, `measure`, `validate` |
 | Visual          | `screenshot`, `screenshot_multi`, `screenshot_shape`, `get_camera_state` |
 | Coordination    | `wait_for_idle`                                                       |
 | Source editing  | `list_fluid_files`, `read_file`, `write_file`, `edit_range`           |

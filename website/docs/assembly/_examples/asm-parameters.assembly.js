@@ -14,7 +14,7 @@ const stack = assembly('stack', () => {
 
 export const frame = assembly('frame', () => {
     // highlight-start
-    // The assembly's own parameter — shown in its Parameters panel and
+    // The assembly's own parameter — shown in its Assembly Parameters panel and
     // passed on to the inserts below.
     const rail = param('Rail width', 120, 'number', { min: 80, max: 200, step: 10 });
     // Overrides are keyed by the part's labels. These two share one build.

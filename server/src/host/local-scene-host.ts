@@ -4,7 +4,7 @@ import { realpathSync } from 'fs';
 import { dirname, resolve, isAbsolute } from 'path';
 import { ENGINE_NAMESPACE_SPECIFIERS } from '../../../lib/dist/browser/linking.js';
 import { normalizePath } from '../normalize-path.ts';
-import type { SceneHost } from './scene-host.ts';
+import type { LoadModuleOptions, SceneHost } from './scene-host.ts';
 import { isAssemblyDefinition, isPartDefinition } from './scene-host.ts';
 import { BlockedImports } from './blocked-imports.ts';
 import {
@@ -294,13 +294,17 @@ export class LocalSceneHost implements SceneHost {
     return this.buffers.get(`virtual:live-render:${fileName}`) ?? null;
   }
 
-  async loadModule(filePath: string) {
+  async loadModule(filePath: string, options: LoadModuleOptions = {}) {
     const mod = await this.runner.import(filePath);
-    for (const value of Object.values(mod)) {
-      let result: unknown = value;
-      if (typeof value === 'function') {
-        result = await value();
-      }
+    // Every export resolved first (a factory called for what it returns),
+    // so the render can refuse the parts the module does not export before
+    // any export builds.
+    const exports: [string, unknown][] = [];
+    for (const [name, value] of Object.entries(mod)) {
+      exports.push([name, typeof value === 'function' ? await value() : value]);
+    }
+    options.onExports?.(exports);
+    for (const [, result] of exports) {
       // assembly() definitions are LAZY — an exported factory (or a direct
       // definition export) creates no scene records until run. Entry-file
       // renders execute the definition at ROOT scope, so its `.grounded()`

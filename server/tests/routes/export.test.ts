@@ -8,15 +8,20 @@ let baseUrl: string;
 
 /** Options each exportShapes call received. */
 let exportCalls: Record<string, unknown>[];
+/** The selection each exportShapes call received. */
+let selections: unknown[];
+/** What the fake engine answers a shapes export with. */
+let shapesOutcome: unknown;
 /** (options, livePoses) each exportAssembly call received. */
 let assemblyCalls: { options: Record<string, unknown>; livePoses: unknown }[];
 /** What the fake engine answers an assembly export with. */
 let assemblyOutcome: unknown;
 
 const fakeServer = {
-  exportShapes: (_shapeIds: string[], options: Record<string, unknown>) => {
+  exportShapes: (selection: unknown, options: Record<string, unknown>) => {
+    selections.push(selection);
     exportCalls.push(options);
-    return { data: 'solid', fileName: 'export.stl' };
+    return shapesOutcome;
   },
   exportAssembly: (options: Record<string, unknown>, livePoses: unknown) => {
     assemblyCalls.push({ options, livePoses });
@@ -69,6 +74,8 @@ describe('export route', () => {
 
   beforeEach(() => {
     exportCalls = [];
+    selections = [];
+    shapesOutcome = { data: 'solid', fileName: 'export.stl' };
     assemblyCalls = [];
     assemblyOutcome = { ok: true, data: 'ISO-10303-21;', fileName: 'rig.step', posesSource: 'live' };
   });
@@ -157,6 +164,34 @@ describe('export route', () => {
     const { status } = await postExport({ format: 'step', shapeIds: ['s1'], scaleTo: 'document' });
     expect(status).toBe(200);
     expect('scaleTo' in exportCalls[0]).toBe(false);
+  });
+
+  it('passes "all" through as the selection', async () => {
+    const { status } = await postExport({ format: 'step', shapeIds: 'all' });
+    expect(status).toBe(200);
+    expect(selections).toEqual(['all']);
+  });
+
+  it('rejects a selector that is neither ids nor "all"', async () => {
+    for (const shapeIds of ['every', [], [''], [1]]) {
+      const { status, body } = await postExport({ format: 'step', shapeIds });
+      expect(status).toBe(400);
+      expect(body.error).toMatch(/non-empty array of shape ids, or "all"/);
+    }
+    expect(selections).toEqual([]);
+  });
+
+  it('relays a selection refusal with its status and the missing shapes', async () => {
+    const missing = [{ shapeId: 's2', label: 'Solid 2 (Boss)' }];
+    shapesOutcome = { status: 400, reason: "Configuration 'Default' does not build Solid 2 (Boss).", missing };
+    const refused = await postExport({ format: 'step', shapeIds: ['s2'] });
+    expect(refused.status).toBe(400);
+    expect(refused.body).toEqual({ error: "Configuration 'Default' does not build Solid 2 (Boss).", missing });
+
+    shapesOutcome = { status: 422, reason: 'The scene has no solids to export.' };
+    const empty = await postExport({ format: 'step', shapeIds: 'all' });
+    expect(empty.status).toBe(422);
+    expect(empty.body).toEqual({ error: 'The scene has no solids to export.' });
   });
 
   it('never lets the client assert the shapes\' unit', async () => {

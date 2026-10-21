@@ -35,7 +35,7 @@ describe('timeline breakpoint route', () => {
     const spec = h.dispatch.mock.calls[0][1];
     expect(spec.filePath).toBe(FILE);
     expect(spec.timelineBreakpoint.before).toEqual({ line: 4, column: 1 });
-    expect(spec.timelineBreakpoint.remove).toBe('passed');
+    expect(spec.timelineBreakpoint.remove).toBe('all');
     expect(spec.timelineBreakpoint.sourceHash).toHaveLength(64);
   });
 

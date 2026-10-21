@@ -4,6 +4,7 @@ import {
   type FeatureEditTarget, type FeatureListValue, type FeatureScalarValue, type GhostCustomRef, type GhostSolid, type NewVariable,
   type ParsedFeatureStatement, type ScopeTargetRef, type ValueExpr,
 } from '../../../api';
+import { SceneIndex } from '../../../helpers/scene-index';
 import type { StandardAxisId } from '../../../scene/standard-axes';
 import type { StandardPlaneId } from '../../../scene/standard-planes';
 import type { SceneObjectRender, SourceLocation, SubSelection } from '../../../types';
@@ -604,7 +605,8 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.owners.set(key, 'pending');
     void fetchShapeOwners(shapeId, sub)
       .then(owners => {
-        const rows = (owners ?? []).flatMap(owner => this.sceneObjects.filter(row => row.id === owner.id));
+        const index = SceneIndex.of(this.sceneObjects);
+        const rows = (owners ?? []).flatMap(owner => index.byId(owner.id) ?? []);
         return rows.reverse().find(row => picker.takesFeatureRow(row)) ?? null;
       }, () => null)
       .then(row => {

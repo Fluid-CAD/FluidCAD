@@ -55,16 +55,21 @@ export function findPartAt(tree: TSTree, lines: string[], partLine: number): Par
   return { call, body };
 }
 
-/** A `const x = param(…)` / `param(…);` statement — one of a body's leading declaration block. */
-function isParamDeclarationStatement(node: TSNode): boolean {
-  // Only a statement whose OWN value is the `param()` call counts — a
+/**
+ * A `const x = param(…)` / `param(…);` statement, or the body's
+ * `configurations(…)` table — one of a body's leading declaration block.
+ * The table runs before the body's first `param()` (the engine refuses it
+ * after one), so a declaration landed in the block goes below it.
+ */
+function isLeadingDeclarationStatement(node: TSNode): boolean {
+  // Only a statement whose OWN value is the call counts — a
   // `const x = param(…)` or a bare `param(…)`. A statement that merely
   // contains one deeper down (a sketch body with an inline `param()` in a
   // dimension) is geometry, and a declaration spliced after it would be
   // read before it is initialized.
   if (node.type === 'expression_statement') {
     const expr = node.namedChildren[0];
-    return expr !== undefined && isParamCall(expr);
+    return expr !== undefined && isLeadingDeclarationCall(expr);
   }
   if (node.type !== 'lexical_declaration' && node.type !== 'variable_declaration') {
     return false;
@@ -74,23 +79,23 @@ function isParamDeclarationStatement(node: TSNode): boolean {
       return false;
     }
     const value = child.childForFieldName('value');
-    return value !== null && isParamCall(value);
+    return value !== null && isLeadingDeclarationCall(value);
   });
 }
 
-function isParamCall(node: TSNode): boolean {
+function isLeadingDeclarationCall(node: TSNode): boolean {
   if (node.type !== 'call_expression') {
     return false;
   }
   const fn = node.childForFieldName('function');
-  return fn?.type === 'identifier' && fn.text === 'param';
+  return fn?.type === 'identifier' && (fn.text === 'param' || fn.text === 'configurations');
 }
 
 /**
  * Put `statements` at the top of a part's callback `body`. Declarations read
  * as a block at the top of the body, so they go after the last of the body's
- * leading `param()` declarations when it has any, and above the first
- * statement otherwise — never at the end, where the features that should
+ * leading `param()` declarations (and its `configurations()` table) when it
+ * has any, and above the first statement otherwise — never at the end, where the features that should
  * read them have already run. An empty body opens up around them, a
  * one-line `{}` included.
  */
@@ -111,7 +116,7 @@ export function declareInPartBody(code: string, lines: string[], body: TSNode, s
   }
   let lastParam: TSNode | null = null;
   for (const node of existing) {
-    if (!isParamDeclarationStatement(node)) {
+    if (!isLeadingDeclarationStatement(node)) {
       break;
     }
     lastParam = node;
@@ -258,7 +263,7 @@ function bindPropertyInBody(code: string, lines: string[], body: TSNode, stateme
   );
   let anchor: TSNode | null = null;
   for (const node of others) {
-    if (!isParamDeclarationStatement(node)) {
+    if (!isLeadingDeclarationStatement(node)) {
       break;
     }
     anchor = node;

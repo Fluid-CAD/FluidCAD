@@ -3,6 +3,12 @@ import { basename, dirname, resolve } from 'path';
 import open from 'open';
 import { findEntry } from '../lib/workspace.js';
 import {
+  allConfigurationTargets,
+  collectConfigurationExports,
+  defaultSelector,
+  parseConfigurationOptions,
+} from '../lib/export-configurations.js';
+import {
   discoverInstance,
   getFreePort,
   getJson,
@@ -48,19 +54,23 @@ export function registerExportCommand(program) {
 
   withCommonOptions(exportCommand.command('step'))
     .description('Export the model as a STEP file (an assembly exports as one STEP assembly)')
-    .option('--shapes <ids...>', 'shapes to export by position, feature name, or id (defaults to all; on an assembly, to the whole assembly)')
+    .option('--shapes <ids...>', 'shapes to export by position, feature name, or id (defaults to every solid; on an assembly, to the whole assembly)')
     .option('--list-shapes', 'print the scene\'s shapes and exit without exporting')
     .option('--no-colors', 'write plain geometry instead of per-shape colors')
+    .option('--all-configurations', 'export every configurations() row: <model>.step for Default, <model>-<Row>.step per row')
+    .addHelpText('after', CONFIGURATION_HELP)
     .action(runner(runStepExport));
 
   withCommonOptions(exportCommand.command('stl'))
     .description('Export the model as an STL mesh (an assembly exports as one mesh of every placed part)')
-    .option('--shapes <ids...>', 'shapes to export by position, feature name, or id (defaults to all; on an assembly, to the whole assembly)')
+    .option('--shapes <ids...>', 'shapes to export by position, feature name, or id (defaults to every solid; on an assembly, to the whole assembly)')
     .option('--list-shapes', 'print the scene\'s shapes and exit without exporting')
     .option('--resolution <r>', `mesh resolution: ${STL_RESOLUTIONS.join(', ')} (default: medium)`)
     .option('--linear-deflection <length>', 'custom linear deflection in document units (implies --resolution custom)')
     .option('--angular-deflection <deg>', 'custom angular deflection in degrees (implies --resolution custom)')
     .option('--scale-to <target>', 'write the mesh in mm (what slicers expect) or in the document\'s units: mm, document', 'mm')
+    .option('--all-configurations', 'export every configurations() row: <model>.stl for Default, <model>-<Row>.stl per row')
+    .addHelpText('after', CONFIGURATION_HELP)
     .action(runner(runStlExport));
 
   withCommonOptions(exportCommand.command('png'))
@@ -84,8 +94,20 @@ function withCommonOptions(command) {
     .option('-e, --entry <file>', 'entry model file: .part.js, .assembly.js or .fluid.js (auto-detected if only one exists)')
     .option('-o, --out <path>', 'output file (defaults to <entry>.<ext> in the current directory)')
     .option('-p, --port <port>', 'export from the running server on this port instead of discovering one')
-    .option('--timeout <sec>', 'seconds to wait for the server to come up (and for a UI client, for png)', '60');
+    .option('--timeout <sec>', 'seconds to wait for the server to come up (and for a UI client, for png)', '60')
+    .option('--configuration <name>', 'the configurations() row to export (Default for the param() literals); defaults to the row on screen');
 }
+
+const CONFIGURATION_HELP = `
+Configurations:
+  A model with a configurations() table exports the row on screen unless
+  --configuration names one; the session's active row is left as it is.
+  --all-configurations writes one file per row, row names made file-safe:
+    fluidcad export step --all-configurations   → frame.step, frame-Wide.step, frame-Compact.step
+  With -o, its path (minus the extension) is the base name.
+  Without --shapes each row exports its own solids, a body the row adds
+  included. --shapes picks solids of the row on screen; a row that does not
+  build one fails the export, and --all-configurations then writes nothing.`;
 
 /**
  * Every failure reaches the user as one line, never a stack trace. The `await`
@@ -115,18 +137,28 @@ function runStlExport(opts) {
 
 async function runShapeExport(format, opts, formatBody) {
   const requested = parseShapeIds(opts.shapes);
+  const configurations = parseConfigurationOptions(opts);
+  const configurationBody = configurations?.kind === 'one' ? { configuration: configurations.name } : {};
 
   await withServer(opts, async (ctx) => {
     const extension = format === 'step' ? '.step' : '.stl';
-    // An assembly file exports as a whole — every instance where it sits —
-    // unless the caller picked shapes, which are the part templates.
-    if (isAssemblyFile(ctx.file) && requested === null && !opts.listShapes) {
-      const result = await postForBuffer(ctx.port, '/api/export', { format, assembly: {}, ...formatBody });
+    const assembly = isAssemblyFile(ctx.file);
+    // No --shapes: an assembly exports as a whole — every instance where it
+    // sits — and any other file every solid of the scene exported, which
+    // for another configuration row is that row's own set of bodies.
+    const selector = opts.listShapes ? null : defaultSelector({ assembly, requested });
+    if (selector) {
+      const detail = assembly ? 'whole assembly' : 'every solid';
+      if (configurations?.kind === 'all') {
+        await exportEachConfiguration(ctx, opts, extension, { format, ...selector, ...formatBody }, detail);
+        return;
+      }
+      const result = await postForBuffer(ctx.port, '/api/export', { format, ...selector, ...formatBody, ...configurationBody });
       if (!result.ok) {
-        throw new Error(`Export failed: ${responseError(result)}`);
+        throw new Error(`Export failed: ${exportFailure(ctx, result)}`);
       }
       const outPath = resolveOut(opts.out, ctx.modelName, extension);
-      writeOutput(outPath, result.buffer, 'whole assembly');
+      writeOutput(outPath, result.buffer, detail);
       if (result.headers.get('x-fluidcad-assembly-poses') === 'statement') {
         process.stderr.write(
           'Note: parts sit where the source places them. Mates are solved in the viewer, ' +
@@ -136,6 +168,8 @@ async function runShapeExport(format, opts, formatBody) {
       return;
     }
 
+    // --shapes (or --list-shapes): ids of the scene on screen; the server
+    // maps them onto another row's render and refuses one it does not build.
     const shapes = await fetchShapes(ctx);
     const owners = await fetchOwners(ctx, shapes);
     if (opts.listShapes) {
@@ -144,14 +178,55 @@ async function runShapeExport(format, opts, formatBody) {
     }
 
     const shapeIds = selectShapes(shapes, requested, owners);
-    const result = await postForBuffer(ctx.port, '/api/export', { format, shapeIds, ...formatBody });
+    const detail = `${shapeIds.length} shape${shapeIds.length === 1 ? '' : 's'}`;
+    if (configurations?.kind === 'all') {
+      await exportEachConfiguration(ctx, opts, extension, { format, shapeIds, ...formatBody }, detail);
+      return;
+    }
+    const result = await postForBuffer(ctx.port, '/api/export', { format, shapeIds, ...formatBody, ...configurationBody });
     if (!result.ok) {
       throw new Error(`Export failed: ${responseError(result)}`);
     }
 
     const outPath = resolveOut(opts.out, ctx.modelName, extension);
-    writeOutput(outPath, result.buffer, `${shapeIds.length} shape${shapeIds.length === 1 ? '' : 's'}`);
+    writeOutput(outPath, result.buffer, detail);
   });
+}
+
+/**
+ * `--all-configurations`: the rows come from `GET /api/configurations` (what
+ * the server's render declared), and each is one export request — the
+ * server renders a row other than the one on screen for that request alone.
+ * `shapeIds: "all"` gives each row its own solids; listed ids are the scene
+ * on screen's, mapped onto each row's render. Every row is exported before
+ * any file is written, so a row that fails leaves no partial set behind.
+ */
+async function exportEachConfiguration(ctx, opts, extension, body, detail) {
+  const table = await getJson(ctx.port, '/api/configurations');
+  if (!table.ok) {
+    throw new Error(`Could not read the model's configurations: ${table.body?.error ?? `HTTP ${table.status}`}`);
+  }
+  const names = Array.isArray(table.body?.names) ? table.body.names : [];
+  if (names.length === 0) {
+    process.stderr.write('Note: the model declares no configurations() table — exporting Default only.\n');
+  }
+  const targets = allConfigurationTargets(names, { outOption: opts.out, modelName: ctx.modelName, extension });
+  const files = await collectConfigurationExports(
+    targets,
+    (configuration) => postForBuffer(ctx.port, '/api/export', { ...body, configuration }),
+    (result) => exportFailure(ctx, result),
+  );
+  for (const { configuration, outPath, buffer } of files) {
+    writeOutput(outPath, buffer, `${detail}, ${configuration}`);
+  }
+}
+
+/** A failed export's message; a 404 means the server has no scene, which the export route words for the UI. */
+function exportFailure(ctx, result) {
+  if (result.status === 404) {
+    return `The server on port ${ctx.port} has not rendered a model yet — open a model file in it first.`;
+  }
+  return responseError(result);
 }
 
 function isAssemblyFile(filePath) {
@@ -316,7 +391,8 @@ function printShapes(shapes, owners) {
 // ─── png ────────────────────────────────────────────────────────────────
 
 async function runPngExport(opts) {
-  const body = screenshotBody(opts);
+  const configuration = parseConfigurationOptions(opts, { allowAll: false });
+  const body = { ...screenshotBody(opts), ...(configuration ? { configuration: configuration.name } : {}) };
 
   await withServer(opts, async (ctx) => {
     const png = await capturePng(ctx, opts, body);

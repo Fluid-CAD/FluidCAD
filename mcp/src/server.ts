@@ -25,6 +25,7 @@ import {
   getSceneSummary,
   getShapeProperties,
   hitTest,
+  listGlobalParams,
   listShapes,
   measure,
   resolveSelection,
@@ -52,6 +53,7 @@ import {
   packPackage,
   recompute,
   rollbackTo,
+  selectConfiguration,
 } from './tools/engine.ts';
 import { loadDocsIndex, type DocsIndex } from './docs-index.ts';
 import { loadSkillsIndex, type SkillsIndex } from './skills-index.ts';
@@ -140,6 +142,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         '("Extrude 2") in the timeline and in get_scene_summary, and you may',
         'name the features you want to refer to later.',
         '',
+        'Every `part()` is exported from the top level of its file —',
+        '`export const bracket = part("Bracket", () => { … })`, never inside',
+        'another part() or assembly() body — and no two parts of a file share',
+        'a name. write_file and edit_range refuse a write that breaks either',
+        '(code: "part-rules"); the render fails such a part with a build error.',
+        '',
         '`.fluid.js` files MUST import every FluidCAD symbol they use:',
         '  import { sketch, line, extrude } from "fluidcad/core";',
         '  import { face, edge } from "fluidcad/filters";',
@@ -173,6 +181,17 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'write_file and edit_range refuse to clobber a buffer the editor has',
         'unsaved changes for (code: "dirty-buffer"). Surface the conflicting',
         'paths to the user before retrying with `force: true`.',
+        '',
+        'Dimensions shared by several files are project parameters: a',
+        '`*.params.js` module (`project.params.js` by convention) holding only',
+        'imports and `export const wall = param("Wall thickness", 3)` /',
+        '`export const inner = width - 2 * wall` declarations, in the project',
+        'unit. Models `import { wall } from "./project.params.js"`; never copy',
+        'the number. A params file is not a model: write_file and edit_range',
+        'lint it against its own rules (code: "params-file", `details.diagnostics`',
+        'lists the rows) and re-render the OPEN model against it (`render.state`',
+        'is "no-model" when nothing is open). list_global_params and the',
+        '`globalParams` block of get_scene_summary tell what exists.',
       ].join('\n'),
     },
   );
@@ -349,7 +368,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get the feature tree for a workspace',
       description:
-        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. `name` is the object\'s display label — the text of its `.name(\'…\')` chain when `hasCustomName` is true, else the default `<Type> <n>` ("Extrude 2") the timeline shows; `.name()` is optional and the UI writes it for statements it creates. `shapes` lists the same shapes as `shapeIds` with `label` + `part` ("Solid 2" of "Bracket", the Shapes panel\'s row; `part` null = the top-level "Model" group) and, for solids, `lineageKey` — the body\'s identity across renders, stable through your own edits where `shapeId` is not. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. Use this before list_shapes when you need feature-tree context. ' +
+        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. `name` is the object\'s display label — the text of its `.name(\'…\')` chain when `hasCustomName` is true, else the default `<Type> <n>` ("Extrude 2") the timeline shows; `.name()` is optional and the UI writes it for statements it creates. `shapes` lists the same shapes as `shapeIds` with `label` + `part` ("Solid 2" of "Bracket", the Shapes panel\'s row; `part` null = the top-level "Model" group) and, for solids, `lineageKey` — the body\'s identity across renders, stable through your own edits where `shapeId` is not. A `part` object also carries `material` (the id its `.material()` assigned, or null) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. `globalParams` lists the project parameters of every `*.params.js` file as `{ name, label, value, file }` — `name` is the identifier a model imports (`import { name } from "./<file>"`), `file` is workspace-relative, `value` is the declared literal (a derived export\'s evaluated value, or null when it is only computed at render) in the project unit; the list is the whole project\'s, whether or not the open model imports them. A model with a `configurations()` table adds `configurations: { active, names, rows, modified }` — the named value sets of its params (`rows[name]` maps a param label to its value; `active` is the row on screen, "Default" for the param() literals; `modified` = session tweaks on top); switch with select_configuration, or pass `configuration` to export/screenshot. Use this before list_shapes when you need feature-tree context. ' +
         'In an assembly file it also returns `instances`, one per inserted instance (sub-assemblies\' included): `instanceId` (what ' +
         'validate, interfere, measure, resolve_selection and the screenshot `hide`/`focus`/`fitTo` take), `name`, `partId`/`partName` ' +
         '(the `part` row it inserts; `partId` feeds get_shape_properties), `owner` (the sub-assembly occurrence path, "" at the root), ' +
@@ -385,6 +404,17 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await getCompileError({ workspace })),
+  );
+
+  server.registerTool(
+    'list_global_params',
+    {
+      title: 'List the project parameters (*.params.js exports)',
+      description:
+        'Returns `{ files: [{ file, relPath, params: [{ name, label, value, defaultValue, controlType, derived, expression?, numeric, min?, max?, step?, options?, group?, description?, line, column, problems? }], problems }], projectUnit }`: every `*.params.js` file of the workspace with its exported declarations, from a static scan of the files — works with no model open. `name` is the identifier a model imports (`import { name } from "./<relPath>"`), `label` the Parameters-panel name, `value` the declared literal (a `derived` row\'s evaluated value, null when it is only computed at render); numbers are in `projectUnit`. `problems` are the params-file rule violations write_file would refuse. Read this before copying a dimension into a model: a value that already exists here is imported, not retyped.',
+      inputSchema: workspaceArg,
+    },
+    async ({ workspace }) => toMcp(await listGlobalParams({ workspace })),
   );
 
   server.registerTool(
@@ -818,6 +848,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace, entities, image }) => toMcp(await measure({ workspace, entities: entities as any, image: image as any })),
   );
 
+  const configurationArg = z
+    .string()
+    .min(1)
+    .optional()
+    .describe('A configurations() row name (get_scene_summary().configurations.names), or "Default" for the param() literals. Omit for the row on screen.');
+
   server.registerTool(
     'screenshot',
     {
@@ -841,6 +877,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         showPositional: z.boolean().optional().describe('Show sketch positional-constraint badges and coincidence dots. Default true.'),
         framePlanes: z.boolean().optional().describe('Include construction-plane quads (plane(…) features) in the bounds that fitting and auto-crop frame. Default false: a plane quad is 200 mm square whatever the model, so it is left out unless the picture is about the planes.'),
         pixelRatio: z.number().min(1).max(4).optional().describe('Device-pixel ratio of the export (default 1). Overlays such as constraint badges and dimension readouts are sized for a width/pixelRatio CSS-pixel canvas, so a 2× export viewed at half size shows them at on-screen size.'),
+        configuration: configurationArg.describe('Capture this configurations() row ("Default" for the param() literals): the viewer shows it for the capture, then the session\'s row and tweaks come back. Omit for the row on screen.'),
         ...screenshotOverlayArgs,
       },
     },
@@ -871,6 +908,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         transparent: z.boolean().optional(),
         margin: marginArg,
         pixelRatio: z.number().min(1).max(4).optional().describe('Device-pixel ratio of the export (default 1); cell labels and annotations scale with it.'),
+        configuration: configurationArg.describe('Capture every cell with this configurations() row ("Default" for the param() literals); the session\'s row and tweaks come back afterwards. Omit for the row on screen.'),
         ...screenshotOverlayArgs,
       },
     },
@@ -1025,7 +1063,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a file inside the workspace (atomic)',
       description:
-        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | build-error | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). `render.uiApplied` is true once a connected viewer has the render on screen — false means built but not (yet) visible: no viewer is connected, or it is still applying the scene. `build-error` means the file ran but one or more features failed to build — `render.objectErrors` lists each one (`name`, `uniqueKind`, `message`, 1-based `sourceLocation`) and the scene is missing their geometry; only `rendered` means the model matches the source. `render.changes` (unless `includeChanges: false`) says what the render actually rebuilt: `rebuilt` (objects built again, each with `sceneObjectId`, `name`, `kind`, `sourceLocation`, `shapes` and exact `bounds.before` / `bounds.after` of its solids — volumes are not included), `added`, `removed`, `reused` (count served from cache, geometry untouched) and `truncated` when a list hit its 50-entry cap. Re-verify the rebuilt objects; an object you did not mean to touch appearing under `rebuilt` with different bounds is an unintended downstream change. For FluidCAD script files (`.fluid.js`, `.part.js`, `.assembly.js`), refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add — and writes whose `unit()` statement breaks a placement rule (must be top-level, before any geometry, once per file, a string literal, never in a `*.assembly.js` file) — fails with code `unit-statement` and `details.diagnostics` lists each violation with its 0-based line. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard. Only a model file renders itself. Any other file is never rendered as the model: a JavaScript module the open model may import (a `*.feature.js` custom feature, a helper) or `fluidcad.json` re-renders the open model in full instead, so new feature code takes effect — `render` then carries `openModel: true` with `state` (rendered | build-error), `objectErrors` and `changes` (every object rebuilt), or `state: no-open-model` when no model is open, or `render-failed` with the error the model hit; any other file (an icon, a note) re-renders nothing (`state: not-rendered`).',
+        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | build-error | compile-error | superseded | no-scene-manager | no-model | render-failed, plus `version`, `durationMs`, optional `compileError`). A `*.params.js` file (project parameters) is never rendered as the model: the write re-renders the OPEN model against the new declarations as a dependency, and `render.state` is `no-model` when nothing is open — the file is on disk either way. `render.uiApplied` is true once a connected viewer has the render on screen — false means built but not (yet) visible: no viewer is connected, or it is still applying the scene. `build-error` means the file ran but one or more features failed to build — `render.objectErrors` lists each one (`name`, `uniqueKind`, `message`, 1-based `sourceLocation`) and the scene is missing their geometry; only `rendered` means the model matches the source. `render.changes` (unless `includeChanges: false`) says what the render actually rebuilt: `rebuilt` (objects built again, each with `sceneObjectId`, `name`, `kind`, `sourceLocation`, `shapes` and exact `bounds.before` / `bounds.after` of its solids — volumes are not included), `added`, `removed`, `reused` (count served from cache, geometry untouched) and `truncated` when a list hit its 50-entry cap. Re-verify the rebuilt objects; an object you did not mean to touch appearing under `rebuilt` with different bounds is an unintended downstream change. For FluidCAD script files (`.fluid.js`, `.part.js`, `.assembly.js`), refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add — and writes whose `unit()` statement breaks a placement rule (must be top-level, before any geometry, once per file, a string literal, never in a `*.assembly.js` file) — fails with code `unit-statement` and `details.diagnostics` lists each violation with its 0-based line — and writes that break a part rule (every `part()` is `export const <name> = part("Name", …)` at the top level of its file, never inside another body, and no two parts of a file share a name) — fails with code `part-rules` and the same `details.diagnostics` shape (the render would fail each such part() with the same message). For a `*.params.js` file, refuses writes that break the params-file rules (only imports and `export const` at the top level, every `param()` the initializer of an `export const`, no geometry / `unit()` / `property()`, imports limited to `fluidcad/core`, `fluidcad/units` and other `*.params.js` files) — fails with code `params-file` and the same `details.diagnostics` shape. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard. Only a model file renders itself. Any other file is never rendered as the model: a JavaScript module the open model may import (a `*.feature.js` custom feature, a helper) or `fluidcad.json` re-renders the open model in full instead, so new feature code takes effect — `render` then carries `openModel: true` with `state` (rendered | build-error), `objectErrors` and `changes` (every object rebuilt), or `state: no-open-model` when no model is open, or `render-failed` with the error the model hit; any other file (an icon, a note) re-renders nothing (`state: not-rendered`).',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
@@ -1043,7 +1081,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a [start, end) range inside a workspace file (atomic)',
       description:
-        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, missing-imports and unit-statement guards (for FluidCAD script files), `force` semantics, and synchronous `render` outcome (including `render.changes`: rebuilt / added / removed objects with exact before and after bounds, plus the reused count) as `write_file` — a file that is not a model re-renders the open model (`render.openModel: true`), as there.',
+        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, missing-imports, unit-statement, part-rules and params-file guards (for FluidCAD script files and `*.params.js` modules), `force` semantics, and synchronous `render` outcome (including `render.changes`: rebuilt / added / removed objects with exact before and after bounds, plus the reused count) as `write_file` — a file that is not a model re-renders the open model (`render.openModel: true`; a `*.params.js` file as a dependency, `no-model` when none is open), as there.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
@@ -1068,9 +1106,27 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       title: 'Force a full recompute of the current file',
       description:
         'Discards the cached scene and re-runs the current `.fluid.js` file. Synchronous — returns once the render settles. Reports `state` (rendered | build-error) and `objectErrors` for any feature that failed to build, `uiApplied` (true once a connected viewer has the render on screen), plus `changes` (unless `includeChanges: false`): every object is `rebuilt` since nothing is cached, each with exact `bounds.before` / `bounds.after` of its solids (no volumes), so a differing pair is geometry that changed since the last render.',
-      inputSchema: { ...workspaceArg, includeChanges: includeChangesArg },
+      inputSchema: {
+        ...workspaceArg,
+        includeChanges: includeChangesArg,
+        configuration: configurationArg.describe('Switch the session to this configurations() row first (as select_configuration does; "Default" for the param() literals), then recompute.'),
+      },
     },
-    async ({ workspace, includeChanges }) => toMcp(await recompute({ workspace, includeChanges })),
+    async ({ workspace, includeChanges, configuration }) => toMcp(await recompute({ workspace, includeChanges, configuration })),
+  );
+
+  server.registerTool(
+    'select_configuration',
+    {
+      title: 'Show a configurations() row of the open model',
+      description:
+        'Switches the session to a named value set of the open model\'s `configurations()` table — what the Parameters panel\'s configuration dropdown does: the row\'s values render, session param tweaks are dropped, and the choice is remembered for the file. "Default" is the param() literals. The source is not edited. A name the model does not declare fails with code "unknown-configuration" and `details.names` (the declared rows). Returns `{ success, configurations: { active, names, rows, modified } }` once the render settles. To export or capture another row without switching, pass `configuration` to export / screenshot instead.',
+      inputSchema: {
+        ...workspaceArg,
+        name: z.string().min(1).describe('The row name (get_scene_summary().configurations.names), or "Default".'),
+      },
+    },
+    async ({ workspace, name }) => toMcp(await selectConfiguration({ workspace, name })),
   );
 
   server.registerTool(
@@ -1170,9 +1226,10 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .enum(['mm', 'document'])
           .optional()
           .describe('STL only. "mm" (default) scales the mesh into millimetres for slicers; "document" keeps the document\'s units.'),
+        configuration: configurationArg.describe('Export this configurations() row ("Default" for the param() literals) instead of the one on screen. The server renders it for this export alone — the session\'s row and tweaks stay as they are; `shapeIds` are the on-screen scene\'s and are mapped onto the row\'s bodies. An assembly of another row exports at its statement poses. Omit for the row on screen, tweaks included.'),
       },
     },
-    async ({ workspace, format, shapeIds, assembly, saveAsPath, resolution, includeColors, scaleTo }) =>
+    async ({ workspace, format, shapeIds, assembly, saveAsPath, resolution, includeColors, scaleTo, configuration }) =>
       toMcp(
         await exportShapes({
           workspace,
@@ -1183,6 +1240,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           resolution,
           includeColors,
           scaleTo,
+          configuration,
         }),
       ),
   );

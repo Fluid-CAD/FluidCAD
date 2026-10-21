@@ -188,14 +188,18 @@ export function createInstancePoseRouter(
   // insert() statement's second argument. Same shape as /instance-pose —
   // cross-file targets 422 (a sub-assembly's insert() lives in its own file).
   router.post('/update-insert-params', async (req, res) => {
-    const { filePath, sourceLine, set, unset, newVariables } = req.body ?? {};
+    const { filePath, sourceLine, set, unset, newVariables, configuration } = req.body ?? {};
     const unsetList: unknown = unset ?? [];
+    // `configuration`: a row name sets the statement's string argument, null
+    // clears it (back to the literals); absent leaves it alone.
+    const configurationGiven = configuration !== undefined;
     if (
       typeof filePath !== 'string' || filePath.length === 0
       || !Number.isInteger(sourceLine) || sourceLine < 1
       || set === null || typeof set !== 'object' || Array.isArray(set)
       || !Array.isArray(unsetList) || !unsetList.every(l => typeof l === 'string' && l.length > 0)
-      || (Object.keys(set).length === 0 && unsetList.length === 0)
+      || (configurationGiven && configuration !== null && (typeof configuration !== 'string' || configuration.trim() === ''))
+      || (Object.keys(set).length === 0 && unsetList.length === 0 && !configurationGiven)
       || (newVariables !== undefined && newVariables !== null && !isNewVariables(newVariables))
     ) {
       res.status(400).json({ error: 'Invalid request body' });
@@ -223,6 +227,7 @@ export function createInstancePoseRouter(
         line: sourceLine,
         set,
         ...(unsetList.length > 0 ? { unset: unsetList as string[] } : {}),
+        ...(configurationGiven ? { configuration: configuration as string | null } : {}),
       },
       newVariables: newVariables ?? undefined,
     };

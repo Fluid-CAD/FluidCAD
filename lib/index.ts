@@ -12,7 +12,13 @@ import { getActiveUnit, getUnitRegistry } from "./units/registry.js";
 // After the kernel's own modules: the feature base extends SceneObject.
 import { FeatureMetas, type FeatureMeta } from "./sdk/meta.js";
 
-const SCRIPT_SUFFIXES = ['.part.js', '.assembly.js', '.fluid.js'];
+/**
+ * The suffixes a FluidCAD script carries. A `*.params.js` file is one too —
+ * not a model (it never renders as the scene), but a frame in it is a frame
+ * the engine attributes, so a top-level `param()` can be told apart from one
+ * misplaced in a part file (see `isParamsFile`).
+ */
+const SCRIPT_SUFFIXES = ['.part.js', '.assembly.js', '.fluid.js', '.params.js'];
 
 export function isFluidScriptFile(p: string): boolean {
   return SCRIPT_SUFFIXES.some(s => p.endsWith(s));
@@ -26,6 +32,10 @@ export function isFluidScriptFile(p: string): boolean {
  * its line.
  */
 const CAPTURE_STACK_LIMIT = 50;
+/** Whether `p` is a global-parameters module — the one legal home of a top-level `param()`. */
+export function isParamsFile(p: string): boolean {
+  return p.endsWith('.params.js');
+}
 
 export function captureSourceLocation(): SourceLocation | null {
   // Raised for this one capture only: every other error keeps the limit the
@@ -259,7 +269,12 @@ export type {
 
 export { createParamRegistry, getParamRegistry, setParamRegistry, pushParamScope, popParamScope, activeParamScope, coerceParamOverride } from './param-registry.js';
 export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar, ParamOverrides, ParamScope } from './param-registry.js';
+export { ParamKey } from './param-key.js';
+export type { ParamLabelResolution } from './param-key.js';
+export { SessionParamOverrides } from './session-param-overrides.js';
+export type { SessionParamOverride } from './session-param-overrides.js';
 export { PartDefinition } from './features/part-definition.js';
+export { PartRules } from './features/part-rules.js';
 export { Assembly } from './features/assembly.js';
 export { setAssetProvider } from './io/file-import.js';
 export type { AssetProvider, ImportMeta, ImportFileResult } from './io/file-import.js';

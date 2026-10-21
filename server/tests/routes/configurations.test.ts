@@ -342,6 +342,7 @@ describe('configuration routes', () => {
       const { status, body } = await post('/configurations/save', {});
       expect(status).toBe(400);
       expect(body.error).toContain('Default');
+      expect(body.error).toContain('or Duplicate… to make a new one');
       expect(relayed).toEqual([]);
       expect(selected).toEqual([]);
     });

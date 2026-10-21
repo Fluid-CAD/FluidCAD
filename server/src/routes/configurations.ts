@@ -46,7 +46,7 @@ import { ParamKey, type ParamDefinition, type SessionParamOverride } from '../..
  * - `POST /api/configurations/add { name, values?, part?, body? }` → add a
  *   row. Without `values`, the row holds every parameter of the last render
  *   whose current value differs from its literal: the active row's cells
- *   plus the session tweaks (a "Save as…"), or nothing at all on an
+ *   plus the session tweaks (a "Duplicate…"), or nothing at all on an
  *   untouched Default. Each body's cells go into its own table (created
  *   when it has none); a row with no cell at all goes into the body `part`
  *   (`{ filePath?, line, column }` of its `part()` statement, as
@@ -256,7 +256,7 @@ export function createConfigurationsRouter(
     const active = before.active;
     if (active === DEFAULT_CONFIGURATION_NAME) {
       res.status(400).json({
-        error: `${DEFAULT_CONFIGURATION_NAME} is the param() literals — the pencil edits them. Pick a row to save into, or Save as… a new one.`,
+        error: `${DEFAULT_CONFIGURATION_NAME} is the param() literals — the pencil edits them. Pick a row to save into, or Duplicate… to make a new one.`,
       });
       return;
     }

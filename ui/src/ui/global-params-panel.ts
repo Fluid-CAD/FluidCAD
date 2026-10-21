@@ -18,6 +18,9 @@ import {
 /** The file a workspace with no params file yet gets from the +. */
 export const DEFAULT_PARAMS_FILE = 'project.params.js';
 
+const PANEL_TITLE = 'Global Parameters';
+const PANEL_SUBTITLE = 'Parameters you define here are available from any part or assembly';
+
 const PLUS_ICON = `
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
     <path d="M10 4.25a.75.75 0 01.75.75v4.25H15a.75.75 0 010 1.5h-4.25V15a.75.75 0 01-1.5 0v-4.25H5a.75.75 0 010-1.5h4.25V5a.75.75 0 01.75-.75z" />
@@ -93,8 +96,17 @@ export class GlobalParamsPanel {
     this.el.dataset.globalParams = '';
     container.appendChild(this.el);
 
+    // The column's title and what it is for, flush with its edges like the
+    // pane it docks beside; the file sections scroll under it.
+    const header = document.createElement('div');
+    header.className = 'shrink-0 px-3 py-2 border-b border-base-content/10';
+    header.innerHTML = `
+      <div class="text-sm font-semibold text-base-content" data-global-params-title>${PANEL_TITLE}</div>
+      <div class="mt-0.5 text-xs leading-snug text-base-content/60" data-global-params-subtitle>${PANEL_SUBTITLE}</div>`;
+    this.el.appendChild(header);
+
     this.column = document.createElement('div');
-    this.column.className = 'flex-1 min-h-0 flex flex-col gap-1 overflow-y-auto';
+    this.column.className = 'flex-1 min-h-0 flex flex-col gap-1 p-1 overflow-y-auto';
     this.el.appendChild(this.column);
 
     this.render();

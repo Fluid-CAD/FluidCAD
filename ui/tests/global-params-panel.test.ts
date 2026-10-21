@@ -93,6 +93,9 @@ describe('GlobalParamsPanel', () => {
     expect(column.classList.contains('hidden')).toBe(false);
     expect(panel.isOpen).toBe(true);
     expect(document.documentElement.style.getPropertyValue(GLOBAL_PANEL_WIDTH_VARIABLE)).toContain('260px');
+    expect(column.querySelector('[data-global-params-title]')!.textContent).toBe('Global Parameters');
+    expect(column.querySelector('[data-global-params-subtitle]')!.textContent)
+      .toBe('Parameters you define here are available from any part or assembly');
     expect(handlers.onOpenChange).toHaveBeenCalledTimes(1);
 
     panel.toggle();

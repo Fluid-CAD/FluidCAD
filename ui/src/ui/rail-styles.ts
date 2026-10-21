@@ -46,5 +46,5 @@ export const GLOBAL_PANEL_WIDTH_VARIABLE = '--fluidcad-global-params-width';
  */
 export const GLOBAL_PANEL_CLASS =
   'absolute left-[var(--fluidcad-dock-left,0px)] top-[var(--fluidcad-chrome-top,104px)] bottom-0 ' +
-  'w-[260px] z-[99] flex flex-col gap-1 p-1 select-none hidden ' +
+  'w-[260px] z-[99] flex flex-col select-none hidden ' +
   'bg-base-100 border-r border-base-content/10';

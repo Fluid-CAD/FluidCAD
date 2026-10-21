@@ -2,7 +2,7 @@ import {
   addBreakpoint,
   addConfiguration,
   commitConfigurationTable,
-  getConfigurationTable,
+  getConfigurationTables,
   removeConfiguration,
   renameConfiguration,
   saveConfiguration,
@@ -31,7 +31,7 @@ import {
   setPartMaterial,
   setProjectUnit,
 } from './api';
-import type { CatalogParamValue, ConfigurationEditResult, ConfigurationSourceTable, ConfigurationTableCommit, EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { CatalogParamValue, ConfigurationEditResult, ConfigurationSourceTable, ConfigurationTableCommit, EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocation, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
@@ -135,8 +135,8 @@ export class HttpEngineClient implements EngineClient {
     }).catch(err => console.error('Select configuration failed:', err));
   }
 
-  addConfiguration(name: string, values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult> {
-    return addConfiguration(name, values);
+  addConfiguration(name: string, values?: Record<string, CatalogParamValue>, part?: SourceLocation | null): Promise<ConfigurationEditResult> {
+    return addConfiguration(name, values, part);
   }
 
   saveConfiguration(values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult> {
@@ -151,8 +151,8 @@ export class HttpEngineClient implements EngineClient {
     return removeConfiguration(name);
   }
 
-  getConfigurationTable(): Promise<ConfigurationSourceTable | null> {
-    return getConfigurationTable();
+  getConfigurationTables(): Promise<ConfigurationSourceTable[] | null> {
+    return getConfigurationTables();
   }
 
   commitConfigurationTable(commit: ConfigurationTableCommit): Promise<ConfigurationEditResult> {

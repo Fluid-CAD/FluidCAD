@@ -19,6 +19,11 @@
  *   matched by its header row when it has one, else laid from the active
  *   cell. A paste that cannot land changes nothing and says why in the
  *   footer; ignored columns and kept expressions are a warning there.
+ * - In a part file with several `part()` bodies the columns are every
+ *   part's parameters, grouped under a header row naming the part
+ *   (`GridColumns`): two parts may both declare `Width`, so columns, cells
+ *   and the commit are keyed by part + label. A single part or an assembly
+ *   has no part header.
  *
  * Nothing is written until Apply, which sends ONE commit — renames,
  * removals and only the cells that changed — so the table statement is
@@ -27,11 +32,18 @@
  * `.value` / `.textContent`, never markup.
  */
 
-import type { CatalogParamDef, CatalogParamExpr, CatalogParamValue, ConfigurationSourceTable, ConfigurationTableCommit } from '../api';
+import type {
+  CatalogParamDef,
+  CatalogParamExpr,
+  CatalogParamValue,
+  ConfigurationSourceTable,
+  ConfigurationTableCommit,
+  SourceLocation,
+} from '../api';
 import type { UIConfigurations, UIParamDefinition } from '../types';
 import { ICON_CLOSE, ICON_COPY, ICON_PLUS, ICON_TRASH } from './icons';
 import { configurationNameProblem } from './configuration-dialogs';
-import { DEFAULT_CONFIGURATION, type Cell, type GridCellRef, type GridRow } from './configurations-grid-model';
+import { DEFAULT_CONFIGURATION, GridColumns, type Cell, type GridCellRef, type GridRow } from './configurations-grid-model';
 import { ConfigurationsPaste } from './configurations-paste';
 import { createParamControl, effectiveControlType, type ParamControl } from './param-controls';
 import { SpreadsheetClipboard } from './spreadsheet-clipboard';
@@ -63,14 +75,27 @@ const RESET_BUTTON_CLASS = 'btn btn-ghost btn-square btn-xs size-6 min-h-0 shrin
 /** A right-aligned header or Default value ends where a cell's number does: its padding plus the ↺ slot. */
 const NUMERIC_TEXT_CLASS = 'text-right tabular-nums pr-[2.125rem]';
 const MESSAGE_TONE_CLASS = { error: 'bg-error text-error-content', warning: 'bg-warning text-warning-content' } as const;
+/** A part's name over its run of columns, in a grid whose columns come from several parts. */
+const PART_HEADER_CLASS = 'sticky top-0 z-20 text-left text-base-content/85 font-semibold';
+/** The divider before each part's run of columns after the first. */
+const GROUP_EDGE_CLASS = 'border-l border-l-base-content/30';
 
 export type ConfigurationsGridOptions = {
-  /** The columns: the definition's own parameters (no project globals). */
+  /**
+   * The columns: the parameters the file's tables can set (no project
+   * globals) — every part's, in a part file with several; grouped by part
+   * in the order given.
+   */
   params: UIParamDefinition[];
-  /** The table as the last render carried it — the fallback when the source cannot be read. */
+  /** The tables as the last render carried them — the fallback when the source cannot be read. */
   configurations: UIConfigurations;
-  /** The table as the source writes it, which tells literal cells from expressions. */
-  loadTable?: () => Promise<ConfigurationSourceTable | null>;
+  /** The tables as the source writes them, which tells literal cells from expressions. */
+  loadTable?: () => Promise<ConfigurationSourceTable[] | null>;
+  /**
+   * Where a row the grid adds with no cell set goes: the Add to part's
+   * `part()` statement. Without it, the file's only body.
+   */
+  home?: SourceLocation | null;
   /** Write the commit. Resolves null when it landed — the dialog closes — or the refusal's text. */
   commit(commit: ConfigurationTableCommit): Promise<string | null>;
   /** Asks before a row is deleted from the grid; resolves true to delete. Without it, deletes at once. */
@@ -98,6 +123,7 @@ class ConfigurationsGrid {
   private readonly apply: HTMLButtonElement;
   private readonly duplicateButton: HTMLButtonElement;
   private readonly deleteButton: HTMLButtonElement;
+  private readonly columns: GridColumns;
   private readonly params: UIParamDefinition[];
   private rows: GridRow[] = [];
   /** Source rows the grid deleted — the commit's `removed`. */
@@ -144,7 +170,8 @@ class ConfigurationsGrid {
     private readonly opts: ConfigurationsGridOptions,
     private readonly resolve: () => void,
   ) {
-    this.params = opts.params;
+    this.columns = new GridColumns(opts.params);
+    this.params = this.columns.params;
     this.overlay = document.createElement('div');
     this.overlay.className = OVERLAY_CLASS;
     this.overlay.dataset.configurationsGrid = '';
@@ -184,7 +211,8 @@ class ConfigurationsGrid {
     this.deleteButton = ref<HTMLButtonElement>('delete');
     const unitNote = opts.unit ? ` Lengths in ${opts.unit}.` : '';
     ref('subtitle').textContent = 'A blank cell inherits the parameter\'s own value (dimmed); edit it to set it, ↺ to clear it. '
-      + 'Paste a range from a spreadsheet — with a header row, its columns match the parameters by name.'
+      + 'Paste a range from a spreadsheet — with a header row, its columns match the parameters by name'
+      + (this.columns.grouped ? ' (a part\'s parameter as “Part · Label”).' : '.')
       + unitNote;
 
     ref('close').addEventListener('click', () => this.close());
@@ -211,7 +239,7 @@ class ConfigurationsGrid {
   }
 
   private async load(): Promise<void> {
-    let source: ConfigurationSourceTable | null = null;
+    let source: ConfigurationSourceTable[] | null = null;
     try {
       source = (await this.opts.loadTable?.()) ?? null;
     } catch {
@@ -220,7 +248,9 @@ class ConfigurationsGrid {
     if (this.settled) {
       return;
     }
-    this.rows = source ? rowsFromSource(source, this.params) : rowsFromRender(this.opts.configurations, this.params);
+    this.rows = source
+      ? ConfigurationsGrid.rowsFromSource(source, this.columns)
+      : ConfigurationsGrid.rowsFromRender(this.opts.configurations, this.columns);
     const active = this.opts.configurations.active;
     this.selected = this.rows.find((row) => row.name === active) ?? this.rows[0] ?? null;
     this.loaded = true;
@@ -447,28 +477,62 @@ class ConfigurationsGrid {
     this.syncApply();
   }
 
+  /**
+   * The header: one row of parameter labels — under a row of part names,
+   * each spanning its part's columns, when the columns come from several
+   * parts. The gutter and the name corner span both rows.
+   */
   private headRow(): HTMLTableSectionElement {
     const head = document.createElement('thead');
-    const tr = document.createElement('tr');
+    const grouped = this.columns.grouped;
+    const labels = document.createElement('tr');
     const gutter = document.createElement('th');
     gutter.className = `${GUTTER_CELL_CLASS} top-0 z-30`;
     gutter.setAttribute('aria-label', 'Row');
     const corner = document.createElement('th');
     corner.className = `${HEADER_CELL_CLASS} ${NAME_CELL_CLASS} px-2 top-0 z-30 text-left`;
     corner.textContent = 'Configuration';
-    tr.append(gutter, corner);
+    if (grouped) {
+      gutter.rowSpan = 2;
+      corner.rowSpan = 2;
+      const parts = document.createElement('tr');
+      parts.dataset.partHeader = '';
+      parts.append(gutter, corner);
+      for (const group of this.columns.groups) {
+        const th = document.createElement('th');
+        th.className = `${HEADER_CELL_CLASS} ${PART_HEADER_CLASS}`;
+        th.colSpan = group.params.length;
+        th.dataset.part = group.body ?? '';
+        th.textContent = group.body ?? '';
+        parts.appendChild(th);
+      }
+      head.appendChild(parts);
+    } else {
+      labels.append(gutter, corner);
+    }
     for (const param of this.params) {
       const th = document.createElement('th');
-      th.className = `${HEADER_CELL_CLASS} sticky top-0 z-20 ${ConfigurationsGrid.isNumeric(param) ? NUMERIC_TEXT_CLASS : 'text-left'}`;
+      th.className = `${HEADER_CELL_CLASS} sticky ${grouped ? 'top-8' : 'top-0'} z-20 `
+        + `${ConfigurationsGrid.isNumeric(param) ? NUMERIC_TEXT_CLASS : 'text-left'} ${this.groupEdge(param)}`;
       th.dataset.column = param.label;
+      th.dataset.key = GridColumns.keyOf(param);
       th.textContent = param.label;
       if (param.description) {
         th.title = param.description;
       }
-      tr.appendChild(th);
+      labels.appendChild(th);
     }
-    head.appendChild(tr);
+    head.appendChild(labels);
     return head;
+  }
+
+  /** The divider before a part's first column, past the first part's — so the groups read apart. */
+  private groupEdge(param: UIParamDefinition): string {
+    if (!this.columns.grouped) {
+      return '';
+    }
+    const first = this.columns.groups.slice(1).some((group) => group.params[0] === param);
+    return first ? GROUP_EDGE_CLASS : '';
   }
 
   /** The pinned Default row: the literals, read-only. */
@@ -485,8 +549,9 @@ class ConfigurationsGrid {
     tr.append(gutter, name);
     for (const param of this.params) {
       const td = document.createElement('td');
-      td.className = `${VALUE_CELL_CLASS} px-2 bg-base-200 text-base-content/60 ${ConfigurationsGrid.isNumeric(param) ? NUMERIC_TEXT_CLASS : ''}`;
+      td.className = `${VALUE_CELL_CLASS} px-2 bg-base-200 text-base-content/60 ${ConfigurationsGrid.isNumeric(param) ? NUMERIC_TEXT_CLASS : ''} ${this.groupEdge(param)}`;
       td.dataset.cell = param.label;
+      td.dataset.key = GridColumns.keyOf(param);
       td.textContent = displayValue(param, param.defaultValue);
       tr.appendChild(td);
     }
@@ -551,9 +616,11 @@ class ConfigurationsGrid {
    * it inherits), or an expression's source text; ↺ once it sets anything.
    */
   private valueCell(row: GridRow, param: UIParamDefinition, column: number): HTMLTableCellElement {
+    const key = GridColumns.keyOf(param);
     const td = document.createElement('td');
-    td.className = `${VALUE_CELL_CLASS} ${SELECTED_TINT_CLASS} ${ACTIVE_CELL_CLASS}`;
+    td.className = `${VALUE_CELL_CLASS} ${SELECTED_TINT_CLASS} ${ACTIVE_CELL_CLASS} ${this.groupEdge(param)}`;
     td.dataset.cell = param.label;
+    td.dataset.key = key;
     td.dataset.col = String(column);
     const wrap = document.createElement('div');
     wrap.className = 'flex items-center h-8';
@@ -571,7 +638,7 @@ class ConfigurationsGrid {
     resetSlot.className = 'flex size-6 shrink-0 mr-0.5';
 
     const draw = () => {
-      const cell = row.cells.get(param.label) ?? { kind: 'inherit' as const };
+      const cell = row.cells.get(key) ?? { kind: 'inherit' as const };
       td.dataset.state = cell.kind;
       if (cell.kind === 'expr') {
         const expr = document.createElement('div');
@@ -591,7 +658,7 @@ class ConfigurationsGrid {
       const host = document.createElement('div');
       host.className = 'flex flex-1 min-w-0 items-center';
       const control = this.control(param, cell.kind === 'literal' ? cell.value : param.defaultValue, (value) => {
-        row.cells.set(param.label, { kind: 'literal', value });
+        row.cells.set(key, { kind: 'literal', value });
         if (td.dataset.state !== 'literal') {
           td.dataset.state = 'literal';
           host.classList.remove('opacity-45');
@@ -611,7 +678,7 @@ class ConfigurationsGrid {
     };
     reset.addEventListener('click', (e) => {
       e.preventDefault();
-      row.cells.delete(param.label);
+      row.cells.delete(key);
       draw();
       this.syncApply();
     });
@@ -686,7 +753,7 @@ class ConfigurationsGrid {
     return Object.keys(commit.rows).length > 0 || commit.renames !== undefined || commit.removed !== undefined;
   }
 
-  /** The commit: renames, removals, and only the cells that changed. */
+  /** The commit: renames, removals, and only the cells that changed — keyed by column (part + label). */
   build(): ConfigurationTableCommit {
     const rows: ConfigurationTableCommit['rows'] = {};
     const renames: Record<string, string> = {};
@@ -694,11 +761,11 @@ class ConfigurationsGrid {
       const name = row.name.trim();
       if (row.original === null) {
         const cells: Record<string, CatalogParamValue | CatalogParamExpr> = {};
-        for (const [label, cell] of row.cells) {
+        for (const [key, cell] of row.cells) {
           if (cell.kind === 'literal') {
-            cells[label] = cell.value;
+            cells[key] = cell.value;
           } else if (cell.kind === 'expr') {
-            cells[label] = { expr: cell.text };
+            cells[key] = { expr: cell.text };
           }
         }
         rows[name] = cells;
@@ -708,18 +775,18 @@ class ConfigurationsGrid {
         renames[row.original] = name;
       }
       const changed: Record<string, CatalogParamValue | CatalogParamExpr | null> = {};
-      for (const label of new Set([...row.initial.keys(), ...row.cells.keys()])) {
-        const before = row.initial.get(label);
-        const after = row.cells.get(label);
+      for (const key of new Set([...row.initial.keys(), ...row.cells.keys()])) {
+        const before = row.initial.get(key);
+        const after = row.cells.get(key);
         if (sameCell(before, after)) {
           continue;
         }
         if (!after) {
-          changed[label] = null;
+          changed[key] = null;
         } else if (after.kind === 'literal') {
-          changed[label] = after.value;
+          changed[key] = after.value;
         } else if (after.kind === 'expr') {
-          changed[label] = { expr: after.text };
+          changed[key] = { expr: after.text };
         }
       }
       if (Object.keys(changed).length > 0) {
@@ -733,11 +800,17 @@ class ConfigurationsGrid {
     };
   }
 
+  /** The commit as Apply sends it: {@link build} plus the home of a row added with no cell. */
+  private request(): ConfigurationTableCommit {
+    const commit = this.build();
+    return this.opts.home ? { ...commit, part: this.opts.home } : commit;
+  }
+
   private async commit(): Promise<void> {
     if (this.busy || this.apply.disabled) {
       return;
     }
-    const commit = this.build();
+    const commit = this.request();
     this.busy = true;
     this.refusal = null;
     this.notice = null;
@@ -756,39 +829,53 @@ class ConfigurationsGrid {
     }
     this.close();
   }
-}
 
-/**
- * The grid's rows from the source table: a literal cell is a value, any
- * other an expression. Cells for labels that are no column stay out of the
- * grid — and out of every commit, so the source keeps them.
- */
-function rowsFromSource(source: ConfigurationSourceTable, params: UIParamDefinition[]): GridRow[] {
-  const labels = new Set(params.map((p) => p.label));
-  return Object.entries(source.rows).map(([name, cells]) => {
-    const initial = new Map<string, Cell>();
-    for (const [label, cell] of Object.entries(cells)) {
-      if (!labels.has(label)) {
-        continue;
-      }
-      initial.set(label, cell.literal !== undefined ? { kind: 'literal', value: cell.literal } : { kind: 'expr', text: cell.text });
-    }
-    return { original: name, name, cells: new Map(initial), initial };
-  });
-}
-
-/** Without the source: the render's rows, every cell taken as the literal it resolved to. */
-function rowsFromRender(configurations: UIConfigurations, params: UIParamDefinition[]): GridRow[] {
-  const labels = new Set(params.map((p) => p.label));
-  return configurations.names.map((name) => {
-    const initial = new Map<string, Cell>();
-    for (const [label, value] of Object.entries(configurations.rows[name] ?? {})) {
-      if (labels.has(label)) {
-        initial.set(label, { kind: 'literal', value });
+  /**
+   * The grid's rows from the source tables, a row name once however many
+   * tables have it (first table first, as the dropdown lists them): a
+   * literal cell is a value, any other an expression. Each cell lands in its
+   * own part's column; a cell no column takes stays out of the grid — and
+   * out of every commit, so the source keeps it.
+   */
+  private static rowsFromSource(tables: ConfigurationSourceTable[], columns: GridColumns): GridRow[] {
+    const byName = new Map<string, Map<string, Cell>>();
+    for (const table of tables) {
+      for (const [name, cells] of Object.entries(table.rows)) {
+        const initial = byName.get(name) ?? new Map<string, Cell>();
+        byName.set(name, initial);
+        for (const [label, cell] of Object.entries(cells)) {
+          const key = columns.keyFor(table.body, label);
+          if (key === undefined) {
+            continue;
+          }
+          initial.set(key, cell.literal !== undefined ? { kind: 'literal', value: cell.literal } : { kind: 'expr', text: cell.text });
+        }
       }
     }
-    return { original: name, name, cells: new Map(initial), initial };
-  });
+    return Array.from(byName, ([name, initial]) => ({ original: name, name, cells: new Map(initial), initial }));
+  }
+
+  /**
+   * Without the source: the render's rows, every cell taken as the literal
+   * it resolved to — per table when the render lists them, else the merged
+   * rows (a host that predates per-body tables).
+   */
+  private static rowsFromRender(configurations: UIConfigurations, columns: GridColumns): GridRow[] {
+    const tables = configurations.tables
+      ?? [{ body: null, names: configurations.names, rows: configurations.rows }];
+    return configurations.names.map((name) => {
+      const initial = new Map<string, Cell>();
+      for (const table of tables) {
+        for (const [label, value] of Object.entries(table.rows[name] ?? {})) {
+          const key = columns.keyFor(table.body, label);
+          if (key !== undefined) {
+            initial.set(key, { kind: 'literal', value });
+          }
+        }
+      }
+      return { original: name, name, cells: new Map(initial), initial };
+    });
+  }
 }
 
 /** A literal as the Default row prints it: an option's label, yes/no, a list joined. */

@@ -44,14 +44,14 @@ function mount(scope: 'part' | 'assembly' = 'assembly', editable = true) {
     saveConfiguration: vi.fn().mockResolvedValue({ success: true }),
     renameConfiguration: vi.fn().mockResolvedValue({ success: true }),
     removeConfiguration: vi.fn().mockResolvedValue({ success: true }),
-    getConfigurationTable: vi.fn().mockResolvedValue(null),
+    getConfigurationTables: vi.fn().mockResolvedValue(null),
     commitConfigurationTable: vi.fn().mockResolvedValue({ success: true }),
   } : {};
   const client = {
     setParam: vi.fn(), resetParams: vi.fn(), selectConfiguration: vi.fn(), ...edits,
   } as unknown as EngineClient & Required<Pick<EngineClient,
     'addConfiguration' | 'saveConfiguration' | 'renameConfiguration' | 'removeConfiguration'
-    | 'getConfigurationTable' | 'commitConfigurationTable'>>;
+    | 'getConfigurationTables' | 'commitConfigurationTable'>>;
   const editor = { openForCreate: vi.fn(), openForEdit: vi.fn() } as unknown as ParamEditorDialog;
   const panel = new ParamsPanel(host, client, editor, scope);
   const select = () => host.querySelector<HTMLSelectElement>('[data-configuration]');
@@ -281,7 +281,7 @@ describe('ParamsPanel configuration actions', () => {
     answerPrompt(panel, 'M8');
     add.click();
     await flush();
-    expect(client.addConfiguration).toHaveBeenCalledWith('M8');
+    expect(client.addConfiguration).toHaveBeenCalledWith('M8', undefined, plate.sourceLocation);
   });
 
   it('opens the ⋮ menu beside the dropdown with every row action', () => {
@@ -421,7 +421,7 @@ describe('ParamsPanel configuration actions', () => {
     expect(opened[0].params.map((p: UIParamDefinition) => p.label)).toEqual(['Width']);
     expect(opened[0].configurations).toMatchObject({ active: 'Wide', names: ['Compact', 'Wide'] });
     await opened[0].loadTable();
-    expect(client.getConfigurationTable).toHaveBeenCalled();
+    expect(client.getConfigurationTables).toHaveBeenCalled();
     vi.mocked(client.commitConfigurationTable).mockResolvedValueOnce({ success: false, reason: 'nope' });
     expect(await opened[0].commit({ rows: { Wide: { Width: 1300 } } })).toBe('nope');
     expect(client.commitConfigurationTable).toHaveBeenCalledWith({ rows: { Wide: { Width: 1300 } } });
@@ -554,5 +554,44 @@ describe('ParamsPanel configuration band in part scope', () => {
     panel.configurationMenuItems().find((i) => i.label === 'Manage…')!.onSelect!();
     await flush();
     expect(opened[0].params.map((p: UIParamDefinition) => p.label)).toEqual(['Width', 'Depth']);
+    expect(opened[0].home).toEqual(plate.sourceLocation);
+  });
+
+  describe('two parts in one file', () => {
+    const twoParts = (selected = lid): (() => PartChoices) => () => ({ parts: [plate, lid], selected: selected.sourceLocation });
+    const keyed = (label: string, owner: typeof plate, value = 10): UIParamDefinition =>
+      ({ ...partParam(label, value, undefined, owner), body: owner.name });
+
+    it('Manage… takes every part\'s parameters, each part\'s run together in the parts\' order', async () => {
+      const { panel } = mount('part');
+      panel.setPartProvider(twoParts());
+      panel.update([
+        keyed('Width', lid, 20),
+        keyed('Width', plate, 40),
+        keyed('Depth', plate, 5),
+        { ...param('Wall'), kind: 'global' },
+      ], [], { ...TABLE, active: 'Wide' });
+      const opened: any[] = [];
+      panel.openGrid = async (opts) => {
+        opened.push(opts);
+      };
+      panel.configurationMenuItems().find((i) => i.label === 'Manage…')!.onSelect!();
+      await flush();
+      expect(opened[0].params.map((p: UIParamDefinition) => `${p.body}.${p.label}`)).toEqual(['Plate.Width', 'Plate.Depth', 'Lid.Width']);
+      expect(opened[0].home).toEqual(lid.sourceLocation);
+    });
+
+    it('Add sends the Add to part, where a row with no value goes', async () => {
+      const { panel, host, client } = mount('part');
+      panel.setPartProvider(twoParts(plate));
+      panel.update([keyed('Width', plate), keyed('Width', lid)], [], { ...TABLE, active: 'Wide' });
+      panel.promptName = async (prompt) => {
+        await prompt.submit('Blank');
+      };
+      panel.configurationMenuItems().find((i) => i.label === 'Add configuration…')!.onSelect!();
+      await flush();
+      expect(client.addConfiguration).toHaveBeenCalledWith('Blank', undefined, plate.sourceLocation);
+      expect(host.querySelector('[data-configuration]')).not.toBeNull();
+    });
   });
 });

@@ -429,8 +429,23 @@ export type UIConfigurations = {
   active: string;
   names: string[];
   rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
+  /**
+   * The same rows per table, each under the body (definition name) that
+   * declares it — `rows` is their merge, the last table winning a name two
+   * share. A part file with several `part()` bodies keeps each part's cells
+   * in its own table; the Manage grid reads them from here. Absent from a
+   * server or host that predates it.
+   */
+  tables?: UIConfigurationTable[];
   modified: boolean;
   notice?: string;
+};
+
+/** One body's `configurations()` table as the render recorded it. */
+export type UIConfigurationTable = {
+  body: string;
+  names: string[];
+  rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
 };
 
 // ---------------------------------------------------------------------------

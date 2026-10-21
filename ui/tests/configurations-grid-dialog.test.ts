@@ -45,7 +45,7 @@ async function open(overrides: Partial<ConfigurationsGridOptions> = {}) {
   void openConfigurationsGrid(host, {
     params: PARAMS,
     configurations: RENDERED,
-    loadTable: async () => SOURCE,
+    loadTable: async () => [SOURCE],
     commit,
     ...overrides,
   }).then(closed);
@@ -344,5 +344,101 @@ describe('configurations grid', () => {
       key(finish, { key: 'ArrowDown' });
       expect(document.activeElement).toBe(finish);
     });
+  });
+});
+
+// A part file with two part() bodies (plans/part-configurations-research.md
+// D1): every part's parameters, grouped under a part header; Plate and Lid
+// both declare Width, so columns, cells and the commit are keyed by part +
+// label; each table's cells land in their own part's columns.
+describe('ConfigurationsGrid — two parts', () => {
+  const FILE = '/ws/pair.part.js';
+  const part = (body: string, line: number) => ({ body, part: { filePath: FILE, line, column: 0 } });
+  const TWO: UIParamDefinition[] = [
+    { label: 'Width', kind: 'part', defaultValue: 40, currentValue: 40, controlType: 'number', ...part('Plate', 3) },
+    { label: 'Depth', kind: 'part', defaultValue: 5, currentValue: 5, controlType: 'number', ...part('Plate', 3) },
+    { label: 'Width', kind: 'part', defaultValue: 20, currentValue: 20, controlType: 'number', ...part('Lid', 13) },
+  ];
+  const plateWidth = JSON.stringify(['Plate', 'Width']);
+  const plateDepth = JSON.stringify(['Plate', 'Depth']);
+  const lidWidth = JSON.stringify(['Lid', 'Width']);
+  const TABLES: ConfigurationSourceTable[] = [
+    { body: 'Plate', line: 4, rows: { Wide: { Width: { literal: 80, text: '80' } }, Thin: { Depth: { literal: 2, text: '2' } } } },
+    { body: 'Lid', line: 14, rows: { Wide: { Width: { literal: 30, text: '30' }, Stale: { literal: 1, text: '1' } } } },
+  ];
+  const RENDER: UIConfigurations = {
+    active: 'Wide',
+    names: ['Wide', 'Thin'],
+    rows: { Wide: { Width: 30 }, Thin: { Depth: 2 } },
+    tables: [
+      { body: 'Plate', names: ['Wide', 'Thin'], rows: { Wide: { Width: 80 }, Thin: { Depth: 2 } } },
+      { body: 'Lid', names: ['Wide'], rows: { Wide: { Width: 30 } } },
+    ],
+    modified: false,
+  };
+  const twoParts = (overrides: Partial<ConfigurationsGridOptions> = {}) => open({
+    params: TWO,
+    configurations: RENDER,
+    loadTable: async () => TABLES,
+    home: { filePath: FILE, line: 13, column: 0 },
+    ...overrides,
+  });
+  const keyCell = (rowEl: HTMLTableRowElement, key: string) => rowEl.querySelector<HTMLElement>(`td[data-key='${key}']`)!;
+
+  it('draws a part header over each part\'s columns, the labels under it', async () => {
+    const { grid } = await twoParts();
+    const partRow = grid()!.querySelector('thead tr[data-part-header]')!;
+    expect(Array.from(partRow.querySelectorAll('th[data-part]'), (th) => [th.textContent, (th as HTMLTableCellElement).colSpan]))
+      .toEqual([['Plate', 2], ['Lid', 1]]);
+    const labels = grid()!.querySelectorAll('thead tr')[1];
+    expect(Array.from(labels.querySelectorAll('th'), (th) => [th.textContent, th.dataset.key]))
+      .toEqual([['Width', plateWidth], ['Depth', plateDepth], ['Width', lidWidth]]);
+    expect(Array.from(grid()!.querySelectorAll('[data-default-row] td'), (td) => td.textContent)).toEqual(['Default', '40', '5', '20']);
+  });
+
+  it('puts each table\'s cells in its own part\'s columns, a stale label of a part in none', async () => {
+    const { rowEl } = await twoParts();
+    expect(keyCell(rowEl(0), plateWidth).querySelector<HTMLInputElement>('input')!.value).toBe('80');
+    expect(keyCell(rowEl(0), lidWidth).querySelector<HTMLInputElement>('input')!.value).toBe('30');
+    expect(keyCell(rowEl(0), plateDepth).dataset.state).toBe('inherit');
+    expect(keyCell(rowEl(1), plateDepth).querySelector<HTMLInputElement>('input')!.value).toBe('2');
+    expect(keyCell(rowEl(1), lidWidth).dataset.state).toBe('inherit');
+  });
+
+  it('reads the render\'s per-part tables when the source cannot be read', async () => {
+    const { rowEl } = await twoParts({ loadTable: async () => null });
+    expect(keyCell(rowEl(0), plateWidth).querySelector<HTMLInputElement>('input')!.value).toBe('80');
+    expect(keyCell(rowEl(0), lidWidth).querySelector<HTMLInputElement>('input')!.value).toBe('30');
+  });
+
+  it('commits the cells keyed by part + label, with the home of a row added with nothing set', async () => {
+    const { rowEl, apply, commit, type, button } = await twoParts();
+    type(keyCell(rowEl(0), lidWidth).querySelector<HTMLInputElement>('input')!, '35');
+    type(keyCell(rowEl(1), lidWidth).querySelector<HTMLInputElement>('input')!, '18');
+    button('add').click();
+    apply().click();
+    await flush();
+    expect(commit).toHaveBeenCalledWith({
+      rows: { Wide: { [lidWidth]: 35 }, Thin: { [lidWidth]: 18 }, Configuration: {} },
+      part: { filePath: FILE, line: 13, column: 0 },
+    });
+  });
+
+  it('pastes a header naming a part\'s column as "Part · Label", and refuses a label two parts share', async () => {
+    const { rowEl, paste, message } = await twoParts();
+    const field = keyCell(rowEl(0), plateDepth).querySelector<HTMLInputElement>('input')!;
+    expect(paste(field, 'Configuration\tWidth\tDepth\nThin\t9\t3\n')).toBe(true);
+    expect(message().textContent).toBe('Nothing was pasted — “Width” is a parameter of Plate and Lid: title the column “Plate · Width” or “Lid · Width”.');
+    expect(keyCell(rowEl(1), plateWidth).dataset.state).toBe('inherit');
+    paste(field, 'Configuration\tlid · width\tPlate/Width\tdepth\nThin\t9\t44\t3\n');
+    expect(keyCell(rowEl(1), lidWidth).querySelector<HTMLInputElement>('input')!.value).toBe('9');
+    expect(keyCell(rowEl(1), plateWidth).querySelector<HTMLInputElement>('input')!.value).toBe('44');
+    expect(keyCell(rowEl(1), plateDepth).querySelector<HTMLInputElement>('input')!.value).toBe('3');
+  });
+
+  it('a single part\'s grid has no part header and its usual titles', async () => {
+    const { grid } = await open({ params: TWO.slice(0, 2), loadTable: async () => [TABLES[0]] });
+    expect(grid()!.querySelector('[data-part-header]')).toBeNull();
+    expect(Array.from(grid()!.querySelectorAll('thead th'), (th) => th.textContent)).toEqual(['', 'Configuration', 'Width', 'Depth']);
   });
 });

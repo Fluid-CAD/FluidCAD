@@ -16,6 +16,7 @@ import type {
   RemoveFeatureResult,
   SetUnitResult,
   ShapeProperties,
+  SourceLocation,
   SourceLocationParam,
   UserPreferences,
 } from './api';
@@ -122,9 +123,15 @@ export interface EngineClient {
    * `reason` otherwise — and the re-render arrives on the scene stream.
    *
    * Add a row named `name` and select it; without `values`, the row holds
-   * every label whose current value differs from its literal.
+   * every parameter whose current value differs from its literal, each
+   * part's in its own table. `part` is where a row with no cell goes (the
+   * Add to part).
    */
-  addConfiguration?(name: string, values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult>;
+  addConfiguration?(
+    name: string,
+    values?: Record<string, CatalogParamValue>,
+    part?: SourceLocation | null,
+  ): Promise<ConfigurationEditResult>;
   /** Write the session's tweaks (or `values`) into the active row; refused on Default. */
   saveConfiguration?(values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult>;
   /** Rename a row; the active name follows. */
@@ -132,11 +139,12 @@ export interface EngineClient {
   /** Remove a row; the active one falls back to Default. */
   removeConfiguration?(name: string): Promise<ConfigurationEditResult>;
   /**
-   * The table as the file's live code writes it — which cells are literals
-   * and which are expressions — for the Manage grid; null without one.
+   * The tables as the file's live code writes them — one per body that has
+   * one; which cells are literals and which are expressions — for the
+   * Manage grid; null when the host cannot say.
    */
-  getConfigurationTable?(): Promise<ConfigurationSourceTable | null>;
-  /** The Manage grid's commit: renames, removals and cell edits as ONE rewrite of the table. */
+  getConfigurationTables?(): Promise<ConfigurationSourceTable[] | null>;
+  /** The Manage grid's commit: renames, removals and cell edits as ONE rewrite of the file's tables. */
   commitConfigurationTable?(commit: ConfigurationTableCommit): Promise<ConfigurationEditResult>;
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null>;
   getFaceProperties(shapeId: string, faceIndex: number, signal?: AbortSignal): Promise<FaceProperties | null>;

@@ -184,3 +184,59 @@ describe('ConfigurationsPaste validation', () => {
     expect('error' in result).toBe(false);
   });
 });
+
+// Two parts' columns (plans/part-configurations-research.md D1): cells are
+// keyed by part + label; a title names a part's column as "Part · Label"
+// (or "Part / Label", "Part: Label", "Part.Label"); a bare label two parts
+// share is ambiguous and refuses the paste, one only a part has still works.
+describe('ConfigurationsPaste into two parts\' columns', () => {
+  const part = (body: string) => ({ body, part: { filePath: '/ws/pair.part.js', line: body === 'Plate' ? 3 : 13, column: 0 } });
+  const TWO: UIParamDefinition[] = [
+    { label: 'Width', kind: 'part', defaultValue: 40, currentValue: 40, controlType: 'number', ...part('Plate') },
+    { label: 'Depth', kind: 'part', defaultValue: 5, currentValue: 5, controlType: 'number', ...part('Plate') },
+    { label: 'Width', kind: 'part', defaultValue: 20, currentValue: 20, controlType: 'number', ...part('Lid') },
+  ];
+  const plateWidth = JSON.stringify(['Plate', 'Width']);
+  const plateDepth = JSON.stringify(['Plate', 'Depth']);
+  const lidWidth = JSON.stringify(['Lid', 'Width']);
+  const twoPlan = (table: string[][], anchor = { row: 0, column: 0 }) =>
+    new ConfigurationsPaste(TWO, [gridRow('Wide', { [lidWidth]: { kind: 'expr', text: 'base' } })]).plan(table, anchor);
+
+  it('matches "Part · Label" titles in any spelling, and a label only one part has', () => {
+    const result = twoPlan([
+      ['Configuration', 'Plate · Width', 'lid/width', 'DEPTH'],
+      ['Tall', '50', '25', '7'],
+    ]);
+    if ('error' in result) {
+      throw new Error(result.error);
+    }
+    expect(summary(result.rows)).toEqual([
+      { target: null, name: 'Tall', cells: { [plateWidth]: 50, [lidWidth]: 25, [plateDepth]: 7 } },
+    ]);
+  });
+
+  it('refuses a bare label two parts declare, naming the titles that would match', () => {
+    expect(twoPlan([['Configuration', 'Width'], ['Tall', '50']])).toEqual({
+      error: 'Nothing was pasted — “Width” is a parameter of Plate and Lid: title the column “Plate · Width” or “Lid · Width”.',
+    });
+  });
+
+  it('keeps an expression cell of its own part, and names columns by part in messages', () => {
+    const kept = twoPlan([['Configuration', 'Lid: Width', 'Plate.Width'], ['Wide', '9', '8']]);
+    if ('error' in kept) {
+      throw new Error(kept.error);
+    }
+    expect(summary(kept.rows)).toEqual([{ target: 'Wide', cells: { [plateWidth]: 8 } }]);
+    expect(kept.warnings).toEqual(['Kept 1 expression cell — edit them in the code.']);
+    const twice = twoPlan([['Configuration', 'Plate · Width', 'plate·width'], ['Wide', '1', '2']]);
+    expect(twice).toEqual({ error: 'Nothing was pasted — the column “Plate · Width” is pasted twice.' });
+    const positional = twoPlan([['1', '2', '3', '4']], { row: 0, column: 1 });
+    if ('error' in positional) {
+      throw new Error(positional.error);
+    }
+    expect(positional.warnings).toEqual([
+      'Ignored 1 column past “Lid · Width”, the grid\'s last column.',
+      'Kept 1 expression cell — edit them in the code.',
+    ]);
+  });
+});

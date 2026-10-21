@@ -487,20 +487,37 @@ export class ParamsPanel extends AccordionSection {
   /**
    * Add (and Save as…): a new row holding every value that differs from its
    * literal — the active row's cells plus the tweaks, or nothing on an
-   * untouched Default — selected once it lands.
+   * untouched Default — selected once it lands. The server writes each
+   * part's values into that part's own table; a row with no value at all
+   * goes into the Add to part ({@link configurationHome}).
    */
   private addConfiguration(title: string, confirmLabel: string, initial = ''): Promise<void> {
     const add = this.client.addConfiguration;
     if (!add) {
       return Promise.resolve();
     }
+    const home = this.configurationHome;
     return this.promptName({
       title,
       confirmLabel,
       initial,
       taken: this.configurationNames,
-      submit: async (name) => this.landed(await add.call(this.client, name)),
+      submit: async (name) => this.landed(await (home
+        ? add.call(this.client, name, undefined, home)
+        : add.call(this.client, name))),
     });
+  }
+
+  /**
+   * Where a configuration row with no value of its own goes: the Add to
+   * part's `part()` statement, in part scope. Null in assembly scope (the
+   * assembly body is the only one) and in a scene with no part.
+   */
+  private get configurationHome(): SourceLocation | null {
+    if (this.scope === 'assembly' || this.partChoices.length === 0) {
+      return null;
+    }
+    return this.selectedPart;
   }
 
   private renameConfiguration(from: string): Promise<void> {
@@ -543,24 +560,45 @@ export class ParamsPanel extends AccordionSection {
   }
 
   /**
-   * Manage…: the whole table in a grid, committed as one rewrite. The
-   * columns are the rows this section lists — the assembly's own parameters,
-   * or in part scope the Add to part's, which in a single-part file is every
-   * part parameter — and the cells come from the source, so expressions stay.
+   * Manage…: every table of the file in one grid, committed as one rewrite
+   * of the file. The columns are {@link gridParams} — the assembly's own
+   * parameters, or every part's, grouped by part — and the cells come from
+   * the source, so expressions stay.
    */
   private manageConfigurations(): Promise<void> {
     const commitTable = this.client.commitConfigurationTable;
     if (!commitTable || !this.configurations) {
       return Promise.resolve();
     }
-    const getTable = this.client.getConfigurationTable;
+    const getTables = this.client.getConfigurationTables;
+    const home = this.configurationHome;
     return this.openGrid({
-      params: this.visibleParams(),
+      params: this.gridParams(),
       configurations: this.configurations,
-      ...(getTable ? { loadTable: () => getTable.call(this.client) } : {}),
+      ...(getTables ? { loadTable: () => getTables.call(this.client) } : {}),
+      ...(home ? { home } : {}),
       commit: async (commit) => this.landed(await commitTable.call(this.client, commit)),
       confirmDelete: (name) => this.confirmGridDelete(name),
     });
+  }
+
+  /**
+   * The Manage grid's columns. A configuration row is file-wide and sets
+   * any part's parameters, so in part scope these are every part's
+   * parameters — not just the Add to part's — in the parts' order, each
+   * part's run kept together (the grid draws a part header over each run
+   * when there are several). In assembly scope, the assembly's own.
+   */
+  private gridParams(): UIParamDefinition[] {
+    if (this.scope === 'assembly') {
+      return this.visibleParams();
+    }
+    if (this.partChoices.length === 0) {
+      return this.currentParams.filter((p) => ParamsPanel.kindOf(p) !== 'global');
+    }
+    const parts = this.currentParams.filter((p) => ParamsPanel.kindOf(p) === 'part' && p.part !== undefined);
+    return this.partChoices.flatMap((choice) =>
+      parts.filter((p) => ActivePartTracker.sameStatement(p.part!, choice.sourceLocation)));
   }
 
   /**

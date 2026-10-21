@@ -5273,13 +5273,25 @@ async function postParamEdit(url: string, body: unknown): Promise<ParamEditRespo
 export type ConfigurationEditResult = { success: boolean; reason?: string; configurations?: UIConfigurations };
 
 /**
- * Append a row to the current file's `configurations()` table (creating the
- * statement when the body has none) and select it. Without `values` the
- * server writes every label whose current value differs from its literal —
- * the session's tweaks on top of the active row.
+ * Add a row to the current file's `configurations()` tables (creating a
+ * statement in a body that has none) and select it. Without `values` the
+ * server writes every parameter whose current value differs from its
+ * literal — the session's tweaks on top of the active row — each part's
+ * into its own table. `values` keys a cell by its parameter's row key
+ * (`paramRowKey`: part + label). `part` is the `part()` statement a row
+ * with no cell at all goes into — the Add to part; the file's only body
+ * without it.
  */
-export function addConfiguration(name: string, values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult> {
-  return postParamEdit('api/configurations/add', values ? { name, values } : { name });
+export function addConfiguration(
+  name: string,
+  values?: Record<string, CatalogParamValue>,
+  part?: SourceLocation | null,
+): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/add', {
+    name,
+    ...(values ? { values } : {}),
+    ...(part ? { part } : {}),
+  });
 }
 
 /**
@@ -5308,8 +5320,18 @@ export function removeConfiguration(name: string): Promise<ConfigurationEditResu
  */
 export type ConfigurationSourceCell = { literal?: CatalogParamValue; text: string };
 
-/** The table as the current file's live code writes it (`GET /api/configurations/table`). */
+/**
+ * One table as the current file's live code writes it (`GET
+ * /api/configurations/table`): a part file has one per `part()` body that
+ * declares one, an assembly file one in its `assembly()` body.
+ */
 export type ConfigurationSourceTable = {
+  /**
+   * The definition name of the body the table sits in — the parameters'
+   * `body` — or null when the source names it with no string literal.
+   * Absent from a server predating several tables per file.
+   */
+  body?: string | null;
   /** 1-based line the statement starts on. */
   line: number;
   /** Row name → label → cell, in source order. */
@@ -5318,23 +5340,30 @@ export type ConfigurationSourceTable = {
 
 /**
  * The Manage grid's commit (`POST /api/configurations/table`): `renames`
- * (from → to) and `removed` name rows as the table has them now; `rows` maps
- * a row name after the renames to its changed cells — a value sets the cell,
- * null puts it back to the literal. A row the table lacks is appended.
+ * (from → to) and `removed` name rows as the tables have them now; `rows`
+ * maps a row name after the renames to its changed cells, keyed by the
+ * parameter's row key (`paramRowKey`: part + label) — a value sets the cell
+ * in its part's table, null puts it back to the literal. A row a table
+ * lacks is added there; a new row with no cell goes into `part` (the Add to
+ * part's `part()` statement), or the file's only body.
  */
 export type ConfigurationTableCommit = {
   rows: Record<string, Record<string, CatalogParamValue | CatalogParamExpr | null>>;
   renames?: Record<string, string>;
   removed?: string[];
+  part?: SourceLocation;
 };
 
-/** The current file's table as written; null without one (or when the server cannot say). */
-export async function getConfigurationTable(): Promise<ConfigurationSourceTable | null> {
-  const data = await getJson<{ table: ConfigurationSourceTable | null }>('api/configurations/table');
-  return data?.table ?? null;
+/** The current file's tables as written, one per body that has one; null when the server cannot say. */
+export async function getConfigurationTables(): Promise<ConfigurationSourceTable[] | null> {
+  const data = await getJson<{ tables?: ConfigurationSourceTable[]; table?: ConfigurationSourceTable | null }>('api/configurations/table');
+  if (!data) {
+    return null;
+  }
+  return data.tables ?? (data.table ? [data.table] : []);
 }
 
-/** Commit the grid as one rewrite of the table statement. */
+/** Commit the grid as one rewrite of the file's tables — one edit, one undo step. */
 export function commitConfigurationTable(commit: ConfigurationTableCommit): Promise<ConfigurationEditResult> {
   return postParamEdit('api/configurations/table', commit);
 }

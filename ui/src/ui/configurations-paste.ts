@@ -6,6 +6,11 @@
  *   columns match by label in any order, and the first column, if it names
  *   no parameter, holds the configuration names. Each row then lands on the
  *   configuration of that name, or adds one.
+ * - In a grid whose columns come from several parts (`GridColumns`), a
+ *   title names a part's parameter as `Part · Label` (also `Part / Label`,
+ *   `Part: Label` or `Part.Label`, any case). A bare label still names the
+ *   one column with that label; a label two parts declare is ambiguous on
+ *   its own and refuses the paste, naming the titles that would match.
  * - Without one, the range lands where it is pasted: from the anchor cell
  *   rightwards and downwards. Rows past the last
  *   configuration are added.
@@ -19,7 +24,7 @@
 import type { CatalogParamValue } from '../api';
 import type { UIParamDefinition } from '../types';
 import { configurationNameProblem } from './configuration-dialogs';
-import { DEFAULT_CONFIGURATION, type GridCellRef, type GridRow } from './configurations-grid-model';
+import { DEFAULT_CONFIGURATION, GridColumns, type GridCellRef, type GridRow } from './configurations-grid-model';
 import { ParamTextParser } from './param-text-parser';
 
 /** What the paste does to one grid row. */
@@ -28,7 +33,7 @@ export type PastedRow = {
   target: GridRow | null;
   /** The name it gives the row; absent keeps the target's, or leaves a new row to be named by the grid. */
   name?: string;
-  /** Label → the literal to set, or null to clear the cell back to inherit. */
+  /** Column key (part + label) → the literal to set, or null to clear the cell back to inherit. */
   cells: Map<string, CatalogParamValue | null>;
 };
 
@@ -41,14 +46,26 @@ type Column =
 
 type Columns = { header: boolean; list: Column[]; warnings: string[] };
 
+/** What a header title names: one column, several (a label two parts declare), or none. */
+type TitleMatch = { param: UIParamDefinition } | { ambiguous: UIParamDefinition[] } | undefined;
+
 export class ConfigurationsPaste {
   /** How many ignored column titles a warning names before it says "…". */
   private static readonly LISTED_TITLES = 3;
+  /** What may stand between a part's name and a label in a title: `Plate · Width`, `Plate / Width`, `Plate: Width`, `Plate.Width`. */
+  private static readonly PART_SEPARATORS = ['·', '/', ':', '.'];
+
+  /** The grid's columns, grouped by part. */
+  private readonly grid: GridColumns;
+  private readonly params: UIParamDefinition[];
 
   constructor(
-    private readonly params: UIParamDefinition[],
+    params: UIParamDefinition[],
     private readonly rows: readonly GridRow[],
-  ) {}
+  ) {
+    this.grid = new GridColumns(params);
+    this.params = this.grid.params;
+  }
 
   plan(table: string[][], anchor: GridCellRef): PastePlan | { error: string } {
     const columns = this.columns(table, anchor);
@@ -99,16 +116,16 @@ export class ConfigurationsPaste {
         if (column.kind !== 'param' || text === undefined) {
           return;
         }
-        const label = column.param.label;
-        if (target?.cells.get(label)?.kind === 'expr') {
+        const key = GridColumns.keyOf(column.param);
+        if (target?.cells.get(key)?.kind === 'expr') {
           expressionsKept++;
           return;
         }
         const parsed = ParamTextParser.parse(column.param, text);
         if ('error' in parsed) {
-          errors.push(`${rowLabel}, ${label}: ${parsed.error}.`);
+          errors.push(`${rowLabel}, ${this.grid.title(column.param)}: ${parsed.error}.`);
         } else {
-          row.cells.set(label, parsed.value);
+          row.cells.set(key, parsed.value);
         }
       });
       rows.push(row);
@@ -135,7 +152,7 @@ export class ConfigurationsPaste {
   // -------------------------------------------------------------------------
 
   private columns(table: string[][], anchor: GridCellRef): Columns | { error: string } {
-    const header = table.length > 1 && table[0].some((title) => this.paramFor(title) !== undefined);
+    const header = table.length > 1 && table[0].some((title) => this.match(title) !== undefined);
     return header ? this.headerColumns(table) : this.positionalColumns(table, anchor.column);
   }
 
@@ -147,12 +164,19 @@ export class ConfigurationsPaste {
     const seen = new Set<string>();
     for (let j = 0; j < width; j++) {
       const title = (titles[j] ?? '').trim();
-      const param = this.paramFor(title);
-      if (param) {
-        if (seen.has(param.label)) {
-          return { error: `Nothing was pasted — the column “${param.label}” is pasted twice.` };
+      const match = this.match(title);
+      if (match && 'ambiguous' in match) {
+        const choices = match.ambiguous.map((param) => `“${this.grid.title(param)}”`).join(' or ');
+        const parts = match.ambiguous.map((param) => param.body).join(' and ');
+        return { error: `Nothing was pasted — “${title}” is a parameter of ${parts}: title the column ${choices}.` };
+      }
+      if (match && 'param' in match) {
+        const { param } = match;
+        const key = GridColumns.keyOf(param);
+        if (seen.has(key)) {
+          return { error: `Nothing was pasted — the column “${this.grid.title(param)}” is pasted twice.` };
         }
-        seen.add(param.label);
+        seen.add(key);
         list.push({ kind: 'param', param });
       } else if (j === 0) {
         list.push({ kind: 'name' });
@@ -188,19 +212,54 @@ export class ConfigurationsPaste {
       }
     }
     const ignored = list.filter((column, j) => column.kind === 'extra' && ConfigurationsPaste.hasContent(table, j)).length;
-    const last = this.params.length > 0 ? `“${this.params[this.params.length - 1].label}”` : 'the names';
+    const last = this.params.length > 0 ? `“${this.grid.title(this.params[this.params.length - 1])}”` : 'the names';
     const warnings = ignored > 0
       ? [`Ignored ${ConfigurationsPaste.count(ignored, 'column')} past ${last}, the grid's last column.`]
       : [];
     return { header: false, list, warnings };
   }
 
-  /** The parameter a title names — its exact label, else ignoring case. */
-  private paramFor(title: string): UIParamDefinition | undefined {
+  /**
+   * The column a title names: a part's parameter as `Part · Label` (any of
+   * the {@link PART_SEPARATORS}, spaces around it optional, any case), else
+   * a bare label — exact, else ignoring case — which is ambiguous when two
+   * parts' columns carry it.
+   */
+  private match(title: string): TitleMatch {
     const text = title.trim();
     const lower = text.toLowerCase();
-    return this.params.find((param) => param.label === text)
-      ?? this.params.find((param) => param.label.toLowerCase() === lower);
+    if (this.grid.grouped) {
+      const qualified = this.params.find((param) => param.body !== undefined
+        && ConfigurationsPaste.PART_SEPARATORS.some((separator) =>
+          ConfigurationsPaste.qualifiedTitle(param.body!, separator, param.label) === ConfigurationsPaste.squeeze(lower, separator)));
+      if (qualified) {
+        return { param: qualified };
+      }
+    }
+    for (const same of [(param: UIParamDefinition) => param.label === text, (param: UIParamDefinition) => param.label.toLowerCase() === lower]) {
+      const found = this.params.filter(same);
+      if (found.length === 1) {
+        return { param: found[0] };
+      }
+      if (found.length > 1) {
+        return { ambiguous: found };
+      }
+    }
+    return undefined;
+  }
+
+  /** `part<separator>label` lower-cased, with no space around the separator — what {@link squeeze} makes of a title. */
+  private static qualifiedTitle(part: string, separator: string, label: string): string {
+    return `${part.trim()}${separator}${label.trim()}`.toLowerCase();
+  }
+
+  /** A lower-cased title with the spaces around its first `separator` dropped. */
+  private static squeeze(title: string, separator: string): string {
+    const at = title.indexOf(separator);
+    if (at === -1) {
+      return title;
+    }
+    return `${title.slice(0, at).trim()}${separator}${title.slice(at + separator.length).trim()}`;
   }
 
   // -------------------------------------------------------------------------

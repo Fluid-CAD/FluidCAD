@@ -34,8 +34,24 @@ export type SceneConfigurations = {
   active: string;
   names: string[];
   rows: Record<string, Record<string, ParamVal>>;
+  /**
+   * The same rows per table, each under the body that declares it (the
+   * `part()` / `assembly()` definition name, `ParamDefinition.body`), in the
+   * order the render recorded them. `rows` merges them for the dropdown —
+   * the last table wins for a name two tables share — while a part file
+   * with several `part()` bodies keeps each part's cells in its own table,
+   * which the Manage grid reads from here.
+   */
+  tables?: SceneConfigurationTable[];
   modified: boolean;
   notice?: string;
+};
+
+/** One body's `configurations()` table as the render recorded it: its row names in order, and their cells. */
+export type SceneConfigurationTable = {
+  body: string;
+  names: string[];
+  rows: Record<string, Record<string, ParamVal>>;
 };
 
 /**

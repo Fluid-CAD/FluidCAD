@@ -518,6 +518,16 @@ export type UIConfigurations = {
   active: string;
   names: string[];
   rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
+  /**
+   * The rows per table, each under the body (definition name) that declares
+   * it — `rows` is their merge. A part file with several `part()` bodies has
+   * one table per body; the Manage grid reads each part's cells here.
+   */
+  tables?: {
+    body: string;
+    names: string[];
+    rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
+  }[];
   modified: boolean;
   notice?: string;
 };

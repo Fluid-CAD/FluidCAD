@@ -11,7 +11,7 @@ export type {
   ValidateUnavailable,
 } from './query-types.ts';
 export type { SerializedAssembly } from './assembly-types.ts';
-export type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneConfigurations, SceneRenderedData, ScratchRender } from './render-types.ts';
+export type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneConfigurations, SceneConfigurationTable, SceneRenderedData, ScratchRender } from './render-types.ts';
 export { ShapeExportSelection, type ShapeExportRefusal, type ShapeSelection, type UnmappedShape } from './shape-export-selection.ts';
 export { PartPropertiesAggregator, type PartMaterialSummary, type PartProperties } from './part-properties.ts';
 export type {

@@ -5,6 +5,7 @@ import { createConfigurationsRouter } from '../../src/routes/configurations.ts';
 import { createApplyFeatureRouter } from '../../src/routes/apply-feature/index.ts';
 import { FeatureEditDispatcher } from '../../src/edit-dispatch.ts';
 import type { FluidCadServer } from '../../src/fluidcad-server/index.ts';
+import { ParamKey } from '../../../lib/dist/index.js';
 
 // `GET /api/configurations` answers the current file's table and active row;
 // `POST /api/configurations/select` switches the session and re-renders,
@@ -48,13 +49,22 @@ let overrides: Record<string, unknown>;
 let active: string;
 let names: string[];
 let rows: Record<string, Record<string, unknown>>;
-let definitions: { label: string; kind: string; defaultValue: unknown; currentValue: unknown }[];
+/** The render's tables per body — left undefined by the assembly cases, as a server predating them answered. */
+let tables: { body: string; names: string[]; rows: Record<string, Record<string, unknown>> }[] | undefined;
+let definitions: {
+  label: string;
+  kind: string;
+  defaultValue: unknown;
+  currentValue: unknown;
+  body?: string;
+  part?: { filePath: string; line: number; column: number };
+}[];
 let recomputes: number;
 let relayed: any[];
 let broadcast: any[];
 
 function summary() {
-  return { active, names, rows, modified: Object.keys(overrides).length > 0 };
+  return { active, names, rows, ...(tables ? { tables } : {}), modified: Object.keys(overrides).length > 0 };
 }
 
 const engine = {
@@ -71,6 +81,7 @@ const engine = {
     overrides = { ...record };
   },
   getParamOverrides: () => ({ ...overrides }),
+  getParamOverrideEntries: () => Object.entries(overrides).map(([id, value]) => ({ key: ParamKey.parse(id), value })),
   getParamDefinitions: () => definitions,
   recomputeCurrentFile: async () => {
     recomputes++;
@@ -162,6 +173,7 @@ describe('configuration routes', () => {
     active = 'Wide';
     names = ['Compact', 'Wide'];
     rows = { Compact: { Width: 500 }, Wide: { Width: 1200 } };
+    tables = undefined;
     definitions = [
       { label: 'Width', kind: 'assembly', defaultValue: 700, currentValue: 1200 },
       { label: 'Depth', kind: 'assembly', defaultValue: 400, currentValue: 400 },
@@ -225,7 +237,7 @@ describe('configuration routes', () => {
       definitions[1].currentValue = 650;
       const result = await actAsEditor(post('/configurations/add', { name: 'Deep' }));
       expect(result.status).toBe(200);
-      expect(relayed[0].spec.configurationEdit).toEqual({ kind: 'add', name: 'Deep', values: { Width: 1200, Depth: 650 } });
+      expect(relayed[0].spec.configurationEdit).toEqual({ kind: 'add', name: 'Deep', bodies: [{ values: { Width: 1200, Depth: 650 } }] });
       expect(buffer).toContain(`    Wide: { Width: 1200 },\n    Deep: { Width: 1200, Depth: 650 },\n  });`);
       expect(selected).toEqual([[FILE, 'Deep']]);
       expect(result.body).toEqual({
@@ -249,7 +261,7 @@ describe('configuration routes', () => {
       ];
       const result = await actAsEditor(post('/configurations/add', { name: 'Copy' }));
       expect(result.status).toBe(200);
-      expect(relayed[0].spec.configurationEdit).toEqual({ kind: 'add', name: 'Copy', values: {} });
+      expect(relayed[0].spec.configurationEdit).toEqual({ kind: 'add', name: 'Copy', bodies: [] });
       expect(buffer).toContain(`    Copy: {},\n  });`);
     });
 
@@ -302,7 +314,7 @@ describe('configuration routes', () => {
       overrides = { Width: 1300, Depth: 650 };
       const result = await actAsEditor(post('/configurations/save', {}));
       expect(result.status).toBe(200);
-      expect(relayed[0].spec.configurationEdit).toEqual({ kind: 'set', name: 'Wide', values: { Width: 1300, Depth: 650 } });
+      expect(relayed[0].spec.configurationEdit).toEqual({ kind: 'set', name: 'Wide', bodies: [{ values: { Width: 1300, Depth: 650 } }] });
       expect(buffer).toContain(`    Wide: { Width: 1300, Depth: 650 },`);
       expect(buffer).toContain(`    Compact: { Width: 500 },`);
       expect(selected).toEqual([[FILE, 'Wide']]);
@@ -419,19 +431,20 @@ describe('configuration routes', () => {
       const { status, body } = await get('/configurations/table');
       expect(status).toBe(200);
       expect(body).toEqual({
-        table: {
+        tables: [{
+          body: 'Frame',
           line: 3,
           rows: {
             Compact: { Width: { text: 'base / 2' }, Depth: { literal: 300, text: '300' } },
             Wide: { Width: { literal: 1200, text: '1200' } },
           },
-        },
+        }],
       });
     });
 
-    it('GET answers a null table without one, and 404s with no scene', async () => {
+    it('GET answers no tables without one, and 404s with no scene', async () => {
       buffer = BARE_CODE;
-      expect(await get('/configurations/table')).toEqual({ status: 200, body: { table: null } });
+      expect(await get('/configurations/table')).toEqual({ status: 200, body: { tables: [] } });
       currentFile = '';
       expect((await get('/configurations/table')).status).toBe(404);
     });
@@ -447,7 +460,7 @@ describe('configuration routes', () => {
       expect(relayed[0].spec.configurationEdit).toEqual({
         kind: 'table',
         renames: { Wide: 'Broad' },
-        rows: { Broad: { Width: 1300, Depth: 800 }, Compact: { Width: null }, Tall: { Depth: 900 } },
+        bodies: [{ rows: { Broad: { Width: 1300, Depth: 800 }, Compact: { Width: null }, Tall: { Depth: 900 } } }],
       });
       expect(buffer).toContain([
         `  const configuration = configurations({`,
@@ -511,6 +524,244 @@ describe('configuration routes', () => {
       currentFile = '';
       const { status } = await post('/configurations/table', { rows: {} });
       expect(status).toBe(404);
+    });
+  });
+
+  // A part file with two part() bodies (plans/part-configurations-research.md
+  // D1): rows are file-wide, each part's cells live in its own table, and a
+  // cell is keyed by its part + label as the Parameters panel keys its rows.
+  describe('a part file with two parts', () => {
+    const PAIR = '/ws/pair.part.js';
+    const PAIR_CODE = [
+      `import { part, param, configurations, extrude } from 'fluidcad/core';`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  const configuration = configurations({`,
+      `    Wide: { Width: 80 },`,
+      `    Thin: { Depth: 2 },`,
+      `  });`,
+      `  const width = param('Width', 40);`,
+      `  const depth = param('Depth', 5);`,
+      `  extrude(width);`,
+      `});`,
+      ``,
+      `export const lid = part('Lid', () => {`,
+      `  const width = param('Width', 20);`,
+      `  extrude(width);`,
+      `});`,
+      ``,
+    ].join('\n');
+    const PLATE = { filePath: PAIR, line: 3, column: 21 };
+    const LID = { filePath: PAIR, line: 13, column: 19 };
+    const plateWidth = ParamKey.of('Plate', 'Width').id;
+    const lidWidth = ParamKey.of('Lid', 'Width').id;
+    const plateDepth = ParamKey.of('Plate', 'Depth').id;
+
+    beforeEach(() => {
+      currentFile = PAIR;
+      buffer = PAIR_CODE;
+      active = 'Default';
+      names = ['Wide', 'Thin'];
+      rows = { Wide: { Width: 80 }, Thin: { Depth: 2 } };
+      tables = [{ body: 'Plate', names: ['Wide', 'Thin'], rows: { Wide: { Width: 80 }, Thin: { Depth: 2 } } }];
+      definitions = [
+        { label: 'Width', kind: 'part', body: 'Plate', part: PLATE, defaultValue: 40, currentValue: 40 },
+        { label: 'Depth', kind: 'part', body: 'Plate', part: PLATE, defaultValue: 5, currentValue: 5 },
+        { label: 'Width', kind: 'part', body: 'Lid', part: LID, defaultValue: 20, currentValue: 20 },
+      ];
+    });
+
+    it('Add with one part changed writes the row into that part\'s table alone, creating it', async () => {
+      overrides = { [lidWidth]: 30 };
+      definitions[2].currentValue = 30;
+      const result = await actAsEditor(post('/configurations/add', { name: 'Tall', part: PLATE }));
+      expect(result.status).toBe(200);
+      expect(relayed.filter((m) => m.type === 'apply-feature-edit')).toHaveLength(1);
+      expect(relayed[0].spec.configurationEdit).toEqual({
+        kind: 'add',
+        name: 'Tall',
+        bodies: [{ body: 'Lid', part: { line: 13, column: 19 }, values: { Width: 30 } }],
+        home: { body: 'Plate', part: { line: 3, column: 21 } },
+      });
+      expect(buffer).toContain(`    Thin: { Depth: 2 },\n  });`);
+      expect(buffer).toContain(`export const lid = part('Lid', () => {\n  const configuration = configurations({\n    Tall: { Width: 30 },\n  });\n  const width`);
+      expect(selected).toEqual([[PAIR, 'Tall']]);
+      expect(result.body.configurations).toEqual({
+        active: 'Tall',
+        names: ['Wide', 'Thin', 'Tall'],
+        rows: { Wide: { Width: 80 }, Thin: { Depth: 2 }, Tall: { Width: 30 } },
+        tables: [
+          { body: 'Plate', names: ['Wide', 'Thin'], rows: { Wide: { Width: 80 }, Thin: { Depth: 2 } } },
+          { body: 'Lid', names: ['Tall'], rows: { Tall: { Width: 30 } } },
+        ],
+        modified: false,
+      });
+    });
+
+    it('Add with both parts\' Width changed writes each part\'s cell into its own table', async () => {
+      definitions[0].currentValue = 90;
+      definitions[2].currentValue = 45;
+      const result = await actAsEditor(post('/configurations/add', { name: 'Big', part: LID }));
+      expect(result.status).toBe(200);
+      expect(buffer).toContain(`    Thin: { Depth: 2 },\n    Big: { Width: 90 },\n  });`);
+      expect(buffer).toContain(`  const configuration = configurations({\n    Big: { Width: 45 },\n  });\n  const width = param('Width', 20);`);
+      expect(result.body.configurations.tables).toEqual([
+        { body: 'Plate', names: ['Wide', 'Thin', 'Big'], rows: { Wide: { Width: 80 }, Thin: { Depth: 2 }, Big: { Width: 90 } } },
+        { body: 'Lid', names: ['Big'], rows: { Big: { Width: 45 } } },
+      ]);
+    });
+
+    it('Add with nothing changed puts the empty row into the Add-to part', async () => {
+      const result = await actAsEditor(post('/configurations/add', { name: 'Blank', part: LID }));
+      expect(result.status).toBe(200);
+      expect(relayed[0].spec.configurationEdit).toEqual({
+        kind: 'add', name: 'Blank', bodies: [], home: { body: 'Lid', part: { line: 13, column: 19 } },
+      });
+      expect(buffer).toContain(`part('Lid', () => {\n  const configuration = configurations({\n    Blank: {},\n  });`);
+      expect(result.body.configurations.names).toEqual(['Wide', 'Thin', 'Blank']);
+      expect(result.body.configurations.tables[1]).toEqual({ body: 'Lid', names: ['Blank'], rows: { Blank: {} } });
+    });
+
+    it('Add with nothing changed and no part named is the editor\'s 400', async () => {
+      const { status, body } = await post('/configurations/add', { name: 'Blank' });
+      expect(status).toBe(400);
+      expect(body.error).toContain('several part() bodies');
+      expect(relayed).toEqual([]);
+    });
+
+    it('400s a part of another file and a malformed part', async () => {
+      let result = await post('/configurations/add', { name: 'Blank', part: { filePath: '/ws/other.part.js', line: 3, column: 0 } });
+      expect(result.status).toBe(400);
+      expect(result.body.error).toContain('current file');
+      result = await post('/configurations/add', { name: 'Blank', part: { line: 0 } });
+      expect(result.status).toBe(400);
+      expect(result.body.error).toContain('part must be');
+      expect(relayed).toEqual([]);
+    });
+
+    it('explicit values are keyed by part + label; a bare label two parts declare is refused, one part\'s is that part\'s', async () => {
+      let result = await post('/configurations/add', { name: 'X', values: { Width: 1 }, part: PLATE });
+      expect(result.status).toBe(400);
+      expect(result.body.error).toBe(`Parameter 'Width' is declared by 'Plate' and 'Lid' — key its cell by its part: ["Plate","Width"] or ["Lid","Width"].`);
+      result = await actAsEditor(post('/configurations/add', { name: 'X', values: { Depth: 7, [lidWidth]: 11 } }));
+      expect(result.status).toBe(200);
+      expect(buffer).toContain(`    X: { Depth: 7 },`);
+      expect(buffer).toContain(`    X: { Width: 11 },`);
+    });
+
+    it('Save writes each part\'s overrides into the active row of its own table', async () => {
+      active = 'Wide';
+      overrides = { [plateDepth]: 6, [lidWidth]: 33 };
+      const result = await actAsEditor(post('/configurations/save', {}));
+      expect(result.status).toBe(200);
+      expect(relayed[0].spec.configurationEdit).toEqual({
+        kind: 'set',
+        name: 'Wide',
+        bodies: [
+          { body: 'Plate', part: { line: 3, column: 21 }, values: { Depth: 6 } },
+          { body: 'Lid', part: { line: 13, column: 19 }, values: { Width: 33 } },
+        ],
+      });
+      expect(buffer).toContain(`    Wide: { Width: 80, Depth: 6 },`);
+      expect(buffer).toContain(`part('Lid', () => {\n  const configuration = configurations({\n    Wide: { Width: 33 },\n  });`);
+      expect(selected).toEqual([[PAIR, 'Wide']]);
+      expect(result.body.configurations).toEqual({
+        active: 'Wide',
+        names: ['Wide', 'Thin'],
+        rows: { Wide: { Width: 33 }, Thin: { Depth: 2 } },
+        tables: [
+          { body: 'Plate', names: ['Wide', 'Thin'], rows: { Wide: { Width: 80, Depth: 6 }, Thin: { Depth: 2 } } },
+          { body: 'Lid', names: ['Wide'], rows: { Wide: { Width: 33 } } },
+        ],
+        modified: false,
+      });
+    });
+
+    describe('with a table in each part', () => {
+      beforeEach(() => {
+        buffer = PAIR_CODE.replace(
+          `export const lid = part('Lid', () => {\n`,
+          `export const lid = part('Lid', () => {\n  configurations({\n    Wide: { Width: 30 },\n  });\n`,
+        );
+        tables = [
+          { body: 'Plate', names: ['Wide', 'Thin'], rows: { Wide: { Width: 80 }, Thin: { Depth: 2 } } },
+          { body: 'Lid', names: ['Wide'], rows: { Wide: { Width: 30 } } },
+        ];
+        rows = { Wide: { Width: 30 }, Thin: { Depth: 2 } };
+        definitions[2].part = { ...LID, line: 13 };
+      });
+
+      it('GET answers both tables, each under its part', async () => {
+        const { body } = await get('/configurations/table');
+        expect(body.tables.map((t: any) => [t.body, Object.keys(t.rows)])).toEqual([['Plate', ['Wide', 'Thin']], ['Lid', ['Wide']]]);
+      });
+
+      it('rename renames the row in both tables; a name either table has is refused', async () => {
+        let result = await post('/configurations/rename', { from: 'Thin', to: 'Wide' });
+        expect(result.status).toBe(400);
+        expect(result.body.error).toBe('a configuration named "Wide" already exists');
+        result = await actAsEditor(post('/configurations/rename', { from: 'Wide', to: 'Broad' }));
+        expect(result.status).toBe(200);
+        expect(buffer).toContain(`    Broad: { Width: 80 },`);
+        expect(buffer).toContain(`    Broad: { Width: 30 },`);
+        expect(result.body.configurations.tables.map((t: any) => t.names)).toEqual([['Broad', 'Thin'], ['Broad']]);
+      });
+
+      it('remove takes the row out of both tables, Lid\'s emptied statement with it, the import kept', async () => {
+        active = 'Wide';
+        const result = await actAsEditor(post('/configurations/remove', { name: 'Wide' }));
+        expect(result.status).toBe(200);
+        expect(buffer).toContain(`import { part, param, configurations, extrude } from 'fluidcad/core';`);
+        expect(buffer).toContain(`  const configuration = configurations({\n    Thin: { Depth: 2 },\n  });`);
+        expect(buffer).toContain(`export const lid = part('Lid', () => {\n  const width = param('Width', 20);`);
+        expect(selected).toEqual([[PAIR, 'Default']]);
+        expect(result.body.configurations).toEqual({
+          active: 'Default',
+          names: ['Thin'],
+          rows: { Thin: { Depth: 2 } },
+          tables: [{ body: 'Plate', names: ['Thin'], rows: { Thin: { Depth: 2 } } }],
+          modified: false,
+        });
+      });
+
+      it('the grid commits cells keyed by part + label as ONE edit across both tables', async () => {
+        const result = await actAsEditor(post('/configurations/table', {
+          rows: {
+            Wide: { [plateWidth]: 85, [lidWidth]: null },
+            Thin: { [lidWidth]: 18 },
+            Blank: {},
+          },
+          part: LID,
+        }));
+        expect(result.status).toBe(200);
+        expect(relayed.filter((m) => m.type === 'apply-feature-edit')).toHaveLength(1);
+        expect(relayed[0].spec.configurationEdit).toEqual({
+          kind: 'table',
+          bodies: [
+            { body: 'Plate', part: { line: 3, column: 21 }, rows: { Wide: { Width: 85 } } },
+            { body: 'Lid', part: { line: 13, column: 19 }, rows: { Wide: { Width: null }, Thin: { Width: 18 }, Blank: {} } },
+          ],
+          home: { body: 'Lid', part: { line: 13, column: 19 } },
+        });
+        expect(buffer).toContain(`    Wide: { Width: 85 },\n    Thin: { Depth: 2 },\n  });`);
+        expect(buffer).toContain(`  configurations({\n    Wide: {},\n    Thin: { Width: 18 },\n    Blank: {},\n  });`);
+        expect(result.body.configurations.tables).toEqual([
+          { body: 'Plate', names: ['Wide', 'Thin'], rows: { Wide: { Width: 85 }, Thin: { Depth: 2 } } },
+          { body: 'Lid', names: ['Wide', 'Thin', 'Blank'], rows: { Wide: {}, Thin: { Width: 18 }, Blank: {} } },
+        ]);
+        expect(result.body.configurations.names).toEqual(['Wide', 'Thin', 'Blank']);
+      });
+    });
+
+    it('ignores a parameter of a part from another file', async () => {
+      definitions.push({ label: 'Hinge', kind: 'part', body: 'Hinge', part: { filePath: '/ws/hinge.part.js', line: 1, column: 0 }, defaultValue: 1, currentValue: 9 });
+      definitions[0].currentValue = 41;
+      const result = await actAsEditor(post('/configurations/add', { name: 'Odd', part: PLATE }));
+      expect(result.status).toBe(200);
+      expect(relayed[0].spec.configurationEdit.bodies).toEqual([{ body: 'Plate', part: { line: 3, column: 21 }, values: { Width: 41 } }]);
+      const refused = await post('/configurations/add', { name: 'Odder', values: { [ParamKey.of('Hinge', 'Hinge').id]: 2 } });
+      expect(refused.status).toBe(400);
+      expect(refused.body.error).toBe(`'Hinge' of 'Hinge' is no parameter of this file's parts — a configuration sets the parameters of the file that declares it.`);
     });
   });
 });

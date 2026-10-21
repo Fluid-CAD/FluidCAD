@@ -65,7 +65,7 @@ import type {
   SelectionSynthesisOptions,
   ValidateUnavailable,
 } from './query-types.ts';
-import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneConfigurations, SceneRenderedData, ScratchRender } from './render-types.ts';
+import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneConfigurations, SceneConfigurationTable, SceneRenderedData, ScratchRender } from './render-types.ts';
 import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import { TimelineHistory } from './timeline-history.ts';
@@ -138,8 +138,8 @@ export class FluidCadServer {
   private activeConfigurations = new Map<string, string>();
   /** Sessions whose active configuration was read back from the editor state (or chosen explicitly) — seeded once. */
   private configurationSeeded = new Set<string>();
-  /** The rows each session's last render declared — what `GET /api/configurations` answers between renders. */
-  private lastConfigurations = new Map<string, Pick<ConfigurationsSummary, 'names' | 'rows'>>();
+  /** The rows each session's last render declared, merged and per table — what `GET /api/configurations` answers between renders. */
+  private lastConfigurations = new Map<string, Pick<ConfigurationsSummary, 'names' | 'rows'> & { tables: SceneConfigurationTable[] }>();
   // What file each session is rendering. For desktop, sessionId === filePath
   // (set lazily on first processFile call). For hub, set explicitly via
   // createSession with the bundle's manifest entry.
@@ -764,7 +764,8 @@ export class FluidCadServer {
     breakpointHit: boolean,
   ): SceneConfigurations {
     const summary = registry.getConfigurations();
-    this.lastConfigurations.set(sessionId, { names: summary.names, rows: summary.rows });
+    const tables = FluidCadServer.configurationTables(registry);
+    this.lastConfigurations.set(sessionId, { names: summary.names, rows: summary.rows, tables });
     const wanted = this.activeConfigurations.get(sessionId);
     let notice: string | undefined;
     if (wanted !== undefined && !breakpointHit && !summary.names.includes(wanted)) {
@@ -778,9 +779,19 @@ export class FluidCadServer {
       active: summary.active,
       names: summary.names,
       rows: summary.rows,
+      tables,
       modified: this.isModified(sessionId),
       ...(notice ? { notice } : {}),
     };
+  }
+
+  /** The render's tables, each under the body that declares it — `SceneConfigurations.tables`. */
+  private static configurationTables(registry: ParamRegistry): SceneConfigurationTable[] {
+    return registry.getConfigurationTables().map((table) => ({
+      body: table.definition,
+      names: table.names.slice(),
+      rows: table.rows,
+    }));
   }
 
   /** Whether the session's override layer holds anything — tweaks on top of the active row. */
@@ -2030,12 +2041,13 @@ export class FluidCadServer {
    */
   getConfigurations(sessionId: string): SceneConfigurations {
     sessionId = normalizePath(sessionId);
-    const last = this.lastConfigurations.get(sessionId) ?? { names: [], rows: {} };
+    const last = this.lastConfigurations.get(sessionId) ?? { names: [], rows: {}, tables: [] };
     const wanted = this.activeConfigurations.get(sessionId);
     return {
       active: wanted !== undefined && last.names.includes(wanted) ? wanted : DEFAULT_CONFIGURATION,
       names: last.names,
       rows: last.rows,
+      tables: last.tables,
       modified: this.isModified(sessionId),
     };
   }

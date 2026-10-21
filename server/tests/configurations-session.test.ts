@@ -102,6 +102,7 @@ describe('active configuration per session', () => {
       active: 'Default',
       names: ['Compact', 'Wide'],
       rows: { Compact: { width: 500, depth: 600 }, Wide: { width: 1200 } },
+      tables: [{ body: 'Model', names: ['Compact', 'Wide'], rows: { Compact: { width: 500, depth: 600 }, Wide: { width: 1200 } } }],
       modified: false,
     });
     expect(paramOf(data, 'width')).toMatchObject({ currentValue: 700 });
@@ -110,7 +111,7 @@ describe('active configuration per session', () => {
   });
 
   it('answers no rows and Default before any render', () => {
-    expect(server.getConfigurations(file)).toEqual({ active: 'Default', names: [], rows: {}, modified: false });
+    expect(server.getConfigurations(file)).toEqual({ active: 'Default', names: [], rows: {}, tables: [], modified: false });
   });
 
   it('renders the selected row: its cells are the values, the others keep their literals', async () => {
@@ -231,6 +232,6 @@ describe('active configuration per session', () => {
     server.selectConfiguration(file, 'Wide');
     server.destroySession(file);
     expect(server.getActiveConfiguration(file)).toBe('Default');
-    expect(server.getConfigurations(file)).toEqual({ active: 'Default', names: [], rows: {}, modified: false });
+    expect(server.getConfigurations(file)).toEqual({ active: 'Default', names: [], rows: {}, tables: [], modified: false });
   });
 });

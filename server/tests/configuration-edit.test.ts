@@ -42,10 +42,11 @@ function failure(result: { newCode: string } | { error: string }): string {
   return (result as { error: string }).error;
 }
 
-describe('ConfigurationEditor.readTable', () => {
+describe('ConfigurationEditor.readTables', () => {
   it('reads literal cells as values and expression cells as source text, quoted names included', async () => {
-    const table = await ConfigurationEditor.readTable(TABLE);
-    expect(table).toEqual({
+    const tables = await ConfigurationEditor.readTables(TABLE);
+    expect(tables).toEqual([{
+      body: 'frame',
       line: 4,
       rows: {
         Compact: {
@@ -59,24 +60,26 @@ describe('ConfigurationEditor.readTable', () => {
           Holes: { literal: [1, 2, 'x'], text: `[1, 2, 'x']` },
         },
       },
-    });
+    }]);
   });
 
   it('reads a negative number and a shorthand cell', async () => {
     const code = `part('p', () => {\n  configurations({ A: { Offset: -5, Width } });\n});\n`;
-    const table = await ConfigurationEditor.readTable(code);
-    expect(table?.rows).toEqual({ A: { Offset: { literal: -5, text: '-5' }, Width: { text: 'Width' } } });
+    const tables = await ConfigurationEditor.readTables(code);
+    expect(tables[0]?.rows).toEqual({ A: { Offset: { literal: -5, text: '-5' }, Width: { text: 'Width' } } });
   });
 
-  it('is null without a table, without a single body, or for a non-literal argument', async () => {
-    expect(await ConfigurationEditor.readTable(NO_TABLE)).toBeNull();
-    expect(await ConfigurationEditor.readTable(`const x = 1;\n`)).toBeNull();
-    expect(await ConfigurationEditor.readTable(`assembly('a', () => {\n  configurations(rows);\n});\n`)).toBeNull();
+  it('is empty without a table, without a body, or for a non-literal argument', async () => {
+    expect(await ConfigurationEditor.readTables(NO_TABLE)).toEqual([]);
+    expect(await ConfigurationEditor.readTables(`const x = 1;\n`)).toEqual([]);
+    expect(await ConfigurationEditor.readTables(`assembly('a', () => {\n  configurations(rows);\n});\n`)).toEqual([]);
   });
 
   it('finds the table in a single part() body too', async () => {
     const code = `import { part, configurations } from 'fluidcad/core';\nexport const p = part('p', () => {\n  configurations({ Wide: { Width: 1 } });\n});\n`;
-    expect((await ConfigurationEditor.readTable(code))?.rows).toEqual({ Wide: { Width: { literal: 1, text: '1' } } });
+    expect(await ConfigurationEditor.readTables(code)).toEqual([
+      { body: 'p', line: 3, rows: { Wide: { Width: { literal: 1, text: '1' } } } },
+    ]);
   });
 });
 
@@ -147,9 +150,9 @@ describe('ConfigurationEditor.addRow', () => {
     expect(failure(await ConfigurationEditor.addRow(TABLE, 'X', { Width: NaN }))).toBe("Parameter 'Width' has an unsupported value.");
   });
 
-  it('refuses a file without a single definition body, and a non-literal table', async () => {
+  it('refuses a file without a definition body, two assembly() bodies, and a non-literal table', async () => {
     expect(failure(await ConfigurationEditor.addRow(`const x = 1;\n`, 'Wide')))
-      .toBe('Editing configurations requires a single part() or assembly() callback body in the current file.');
+      .toBe('Editing configurations requires a part() or assembly() callback body in the current file.');
     const two = `assembly('a', () => {});\nassembly('b', () => {});\n`;
     expect(failure(await ConfigurationEditor.addRow(two, 'Wide')))
       .toBe('Editing configurations requires a single assembly() callback body in the current file.');
@@ -384,5 +387,222 @@ describe('ConfigurationEditor.applyTable', () => {
     const result = await ConfigurationEditor.apply(TABLE, { kind: 'table', rows: { Compact: { Depth: 610 } } });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`    Compact: { Width: 500, Depth: 610, Lid: false },`);
+  });
+});
+
+// A part file with two part() bodies (plans/part-configurations-research.md
+// D1): one table per body, rows file-wide, each body's cells in its own
+// table. Plate and Lid both declare Width — two parameters.
+const TWO_PARTS = [
+  `import { part, param, configurations, extrude } from 'fluidcad/core';`,
+  ``,
+  `export const plate = part('Plate', () => {`,
+  `  const configuration = configurations({`,
+  `    Wide: { Width: 80 },`,
+  `    Thin: { Depth: 2 },`,
+  `  });`,
+  `  const width = param('Width', 40);`,
+  `  const depth = param('Depth', 5);`,
+  `  extrude(width);`,
+  `});`,
+  ``,
+  `export const lid = part('Lid', () => {`,
+  `  const width = param('Width', 20);`,
+  `  extrude(width);`,
+  `});`,
+  ``,
+].join('\n');
+
+/** Lid with its own table: Wide (also Plate's) and Cap (Lid's alone). */
+const BOTH_TABLES = TWO_PARTS.replace(
+  `export const lid = part('Lid', () => {\n`,
+  `export const lid = part('Lid', () => {\n  configurations({\n    Wide: { Width: 30 },\n    Cap: { Width: 25 },\n  });\n`,
+);
+
+describe('ConfigurationEditor — several part() bodies', () => {
+  it('reads one table per body, named by its part', async () => {
+    const tables = await ConfigurationEditor.readTables(BOTH_TABLES);
+    expect(tables.map((t) => [t.body, t.line, Object.keys(t.rows)])).toEqual([
+      ['Plate', 4, ['Wide', 'Thin']],
+      ['Lid', 14, ['Wide', 'Cap']],
+    ]);
+    expect(tables[1].rows.Wide).toEqual({ Width: { literal: 30, text: '30' } });
+  });
+
+  it('adds a row with each part\'s cells in its own table, creating the table a part lacks first in its body', async () => {
+    const newCode = ok(await ConfigurationEditor.addRow(TWO_PARTS, 'Big', [
+      { body: 'Plate', values: { Width: 90 } },
+      { body: 'Lid', values: { Width: 45 } },
+    ]));
+    expect(newCode).toBe([
+      `import { part, param, configurations, extrude } from 'fluidcad/core';`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  const configuration = configurations({`,
+      `    Wide: { Width: 80 },`,
+      `    Thin: { Depth: 2 },`,
+      `    Big: { Width: 90 },`,
+      `  });`,
+      `  const width = param('Width', 40);`,
+      `  const depth = param('Depth', 5);`,
+      `  extrude(width);`,
+      `});`,
+      ``,
+      `export const lid = part('Lid', () => {`,
+      `  const configuration = configurations({`,
+      `    Big: { Width: 45 },`,
+      `  });`,
+      `  const width = param('Width', 20);`,
+      `  extrude(width);`,
+      `});`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('leaves out of a part\'s table a row that sets nothing there, and pulls the import in for a first table', async () => {
+    const bare = TWO_PARTS.replace(/  const configuration = configurations\(\{\n[^]*?\n  \}\);\n/, '')
+      .replace('param, configurations, extrude', 'param, extrude');
+    const newCode = ok(await ConfigurationEditor.addRow(bare, 'Big', [{ body: 'Lid', values: { Width: 45 } }]));
+    expect(newCode).toContain(`import { configurations, part, param, extrude } from 'fluidcad/core';`);
+    expect(newCode).toContain(`export const plate = part('Plate', () => {\n  const width = param('Width', 40);`);
+    expect(newCode).toContain(`export const lid = part('Lid', () => {\n  const configuration = configurations({\n    Big: { Width: 45 },\n  });`);
+  });
+
+  it('puts a row with no cells into the named part — by name or by its part() line — and refuses one with no home', async () => {
+    const byName = ok(await ConfigurationEditor.addRow(TWO_PARTS, 'Blank', [], { body: 'Lid' }));
+    expect(byName).toContain(`part('Lid', () => {\n  const configuration = configurations({\n    Blank: {},\n  });`);
+    const byLine = ok(await ConfigurationEditor.addRow(TWO_PARTS, 'Blank', {}, { part: { line: 13, column: 20 } }));
+    expect(byLine).toBe(byName);
+    const toPlate = ok(await ConfigurationEditor.addRow(TWO_PARTS, 'Blank', {}, { body: 'Plate' }));
+    expect(toPlate).toContain(`    Thin: { Depth: 2 },\n    Blank: {},\n  });`);
+    expect(failure(await ConfigurationEditor.addRow(TWO_PARTS, 'Blank')))
+      .toBe('this file has several part() bodies — name the part whose configurations() table to write');
+    expect(failure(await ConfigurationEditor.addRow(TWO_PARTS, 'Blank', {}, { body: 'Hinge' })))
+      .toBe('no part() named "Hinge" in this file — is the file in sync with the last render?');
+  });
+
+  it('refuses a name any table has', async () => {
+    expect(failure(await ConfigurationEditor.addRow(BOTH_TABLES, 'Cap', [], { body: 'Plate' })))
+      .toBe('a configuration named "Cap" already exists');
+  });
+
+  it('saves into a row file-wide: set where a table has it, added where a table lacks it', async () => {
+    const newCode = ok(await ConfigurationEditor.setCells(BOTH_TABLES, 'Thin', [
+      { body: 'Plate', values: { Depth: 3 } },
+      { body: 'Lid', values: { Width: 18 } },
+    ]));
+    expect(newCode).toContain(`    Thin: { Depth: 3 },\n  });\n  const width = param('Width', 40);`);
+    expect(newCode).toContain(`    Cap: { Width: 25 },\n    Thin: { Width: 18 },\n  });`);
+    expect(failure(await ConfigurationEditor.setCells(BOTH_TABLES, 'Huge', [{ body: 'Lid', values: { Width: 1 } }])))
+      .toBe('no configuration named "Huge" — is the file in sync with the last render?');
+  });
+
+  it('renames a row in every table that has it, refusing a name any table has', async () => {
+    const newCode = ok(await ConfigurationEditor.renameRow(BOTH_TABLES, 'Wide', 'Broad'));
+    expect(newCode).toContain(`    Broad: { Width: 80 },\n    Thin: { Depth: 2 },`);
+    expect(newCode).toContain(`    Broad: { Width: 30 },\n    Cap: { Width: 25 },`);
+    expect(newCode).not.toContain('Wide');
+    expect(failure(await ConfigurationEditor.renameRow(BOTH_TABLES, 'Thin', 'Cap')))
+      .toBe('a configuration named "Cap" already exists');
+    expect(failure(await ConfigurationEditor.renameRow(BOTH_TABLES, 'Cap', 'Thin')))
+      .toBe('a configuration named "Thin" already exists');
+  });
+
+  it('removes a row from every table; a table it empties goes, and the import stays while another body has one', async () => {
+    const lidOnlyWide = BOTH_TABLES.replace(`    Cap: { Width: 25 },\n`, '');
+    const newCode = ok(await ConfigurationEditor.removeRow(lidOnlyWide, 'Wide'));
+    expect(newCode).toContain(`import { part, param, configurations, extrude } from 'fluidcad/core';`);
+    expect(newCode).toContain(`  const configuration = configurations({\n    Thin: { Depth: 2 },\n  });`);
+    expect(newCode).toContain(`export const lid = part('Lid', () => {\n  const width = param('Width', 20);`);
+  });
+
+  it('drops the import once the last table of the file goes', async () => {
+    const code = [
+      `import { part, param, configurations } from 'fluidcad/core';`,
+      `export const a = part('A', () => {`,
+      `  configurations({ Wide: { Width: 2 } });`,
+      `  const width = param('Width', 1);`,
+      `});`,
+      `export const b = part('B', () => {`,
+      `  configurations({ Wide: { Width: 4 } });`,
+      `  const width = param('Width', 3);`,
+      `});`,
+      ``,
+    ].join('\n');
+    expect(ok(await ConfigurationEditor.removeRow(code, 'Wide'))).toBe([
+      `import { part, param } from 'fluidcad/core';`,
+      `export const a = part('A', () => {`,
+      `  const width = param('Width', 1);`,
+      `});`,
+      `export const b = part('B', () => {`,
+      `  const width = param('Width', 3);`,
+      `});`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('commits a grid across both tables as one rewrite', async () => {
+    const newCode = ok(await ConfigurationEditor.applyTable(BOTH_TABLES, {
+      renames: { Wide: 'Broad' },
+      removed: ['Cap'],
+      bodies: [
+        { body: 'Plate', rows: { Broad: { Width: null, Depth: 4 }, Tall: { Depth: 9 } } },
+        { body: 'Lid', rows: { Thin: { Width: 15 }, Broad: { Width: 33 }, Empty: { Width: null } } },
+      ],
+      home: { body: 'Lid' },
+    }));
+    expect(newCode).toContain([
+      `  const configuration = configurations({`,
+      `    Broad: { Depth: 4 },`,
+      `    Thin: { Depth: 2 },`,
+      `    Tall: { Depth: 9 },`,
+      `  });`,
+    ].join('\n'));
+    expect(newCode).toContain([
+      `  configurations({`,
+      `    Broad: { Width: 33 },`,
+      `    Thin: { Width: 15 },`,
+      `    Empty: {},`,
+      `  });`,
+    ].join('\n'));
+  });
+
+  it('refuses a grid commit whose rename clashes in another table, untouched', async () => {
+    expect(failure(await ConfigurationEditor.applyTable(BOTH_TABLES, { rows: {}, renames: { Thin: 'Cap' } })))
+      .toBe('a configuration named "Cap" already exists');
+  });
+
+  it('refuses a file whose parts cannot be told apart', async () => {
+    const twins = TWO_PARTS.replace(`part('Lid'`, `part('Plate'`);
+    const message = 'Two part() bodies in this file are named "Plate", so their configurations cannot be told apart — give each part its own name to edit configurations.';
+    expect(failure(await ConfigurationEditor.addRow(twins, 'Big', [{ body: 'Plate', values: { Width: 1 } }]))).toBe(message);
+    expect(failure(await ConfigurationEditor.renameRow(twins, 'Wide', 'Broad'))).toBe(message);
+    expect(await ConfigurationEditor.readTables(twins)).toEqual([]);
+  });
+
+  it('rides apply() with per-body cells and a home', async () => {
+    const added = await ConfigurationEditor.apply(TWO_PARTS, {
+      kind: 'add', name: 'Big', bodies: [{ body: 'Lid', part: { line: 13, column: 20 }, values: { Width: 45 } }],
+    });
+    expect(added.error).toBeUndefined();
+    expect(added.newCode).toContain(`    Big: { Width: 45 },`);
+    const saved = await ConfigurationEditor.apply(TWO_PARTS, { kind: 'set', name: 'Wide', bodies: [{ part: { line: 13, column: 20 }, values: { Width: 50 } }] });
+    expect(saved.error).toBeUndefined();
+    expect(saved.newCode).toContain(`part('Lid', () => {\n  const configuration = configurations({\n    Wide: { Width: 50 },\n  });`);
+  });
+});
+
+describe('ConfigurationEditor — a single body is written as before', () => {
+  it('a single part() file takes its row the same with or without the part named', async () => {
+    const code = `import { part, param } from 'fluidcad/core';\nexport const p = part('Plate', () => {\n  const w = param('Width', 1);\n});\n`;
+    const plain = ok(await ConfigurationEditor.addRow(code, 'Wide', { Width: 2 }));
+    expect(plain).toBe(`import { configurations, part, param } from 'fluidcad/core';\nexport const p = part('Plate', () => {\n  const configuration = configurations({\n    Wide: { Width: 2 },\n  });\n  const w = param('Width', 1);\n});\n`);
+    expect(ok(await ConfigurationEditor.addRow(code, 'Wide', [{ body: 'Plate', part: { line: 2, column: 17 }, values: { Width: 2 } }]))).toBe(plain);
+  });
+
+  it('an assembly file\'s table is the assembly body\'s, whatever name the request gives it', async () => {
+    const plain = ok(await ConfigurationEditor.addRow(NO_TABLE, 'Wide', { Width: 1200 }));
+    expect(ok(await ConfigurationEditor.addRow(NO_TABLE, 'Wide', [{ body: 'frame', values: { Width: 1200 } }]))).toBe(plain);
+    expect(ok(await ConfigurationEditor.addRow(NO_TABLE, 'Wide', [{ body: 'Frame', values: { Width: 1200 } }]))).toBe(plain);
   });
 });

@@ -686,8 +686,16 @@ export class DeclarationUsages {
 
   /** The binding of the declaration's own `const <name> = <kind>(…, '<key>', …)`. */
   private declaringBinding(name: string): Binding | null {
-    const declaration = findDeclarationCalls(this.tree, this.declaration.kind)
-      .find((d) => d.key === this.declaration.key && d.variable === name);
+    const candidates = findDeclarationCalls(this.tree, this.declaration.kind)
+      .filter((d) => d.key === this.declaration.key && d.variable === name);
+    // Two parts of one file may each declare the key under the same name
+    // (`const width = param('Width', …)` in both): the declaration is the
+    // one in the declaring definition's body, whose reads are its own.
+    const bodies = candidates.length > 1 ? this.declaringDefinitionCalls() : [];
+    const declaration = candidates.find((d) => {
+      const definition = enclosingDefinitionCall(d.call);
+      return bodies.some((body) => (body === null && definition === null) || (body !== null && isSameNode(body, definition)));
+    }) ?? candidates[0];
     const nameNode = declaration ? outermostExpression(declaration.call).parent?.childForFieldName('name') ?? null : null;
     return nameNode ? bindingOfDeclarator(this.bindings, nameNode) : null;
   }

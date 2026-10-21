@@ -597,6 +597,18 @@ describe('ParamEditor.update — configurations() table', () => {
     expect(result.newCode).toContain(`const overallWidth = param('Overall width', 100);`);
   });
 
+  it('renames the second part\'s same-labelled parameter in its own table alone', async () => {
+    const result = await ParamEditor.apply(CONFIGURED, {
+      kind: 'update', line: 15, expectedLabel: 'Width', param: spec({ label: 'Lid width', defaultValue: 5 }), variable: 'lidWidth',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  configurations({ Big: { 'Lid width': 1 } });`);
+    expect(result.newCode).toContain(`    Compact: { Width: 60, Rounded: false },`);
+    expect(result.newCode).toContain(`    'Extra Wide': { 'Width': base * 2 },`);
+    expect(result.newCode).toContain(`  const lidWidth = param('Lid width', 5);\n  extrude(lidWidth);`);
+    expect(result.newCode).toContain(`  const width = param('Width', 100);\n  const rounded = param('Rounded', true);\n  extrude(width);`);
+  });
+
   it('counts the cells as usages of their own', async () => {
     const usage = await ParamEditor.inspect(CONFIGURED, 'Width', 9, '/ws/plate.part.js');
     expect(usage.usages).toEqual([{ filePath: '/ws/plate.part.js', count: 3, lines: [5, 6, 11] }]);
@@ -616,6 +628,15 @@ describe('ParamEditor.remove — configurations() table', () => {
     expect(result.newCode).toContain(`  configurations({ Big: { Width: 1 } });`);
     expect(result.newCode).not.toContain(`param('Width', 100)`);
     expect(result.newCode).toContain(`  const rounded = param('Rounded', true);\n  extrude(100);`);
+  });
+
+  it('drops only the second part\'s cells when its same-labelled parameter goes', async () => {
+    const result = await ParamEditor.apply(CONFIGURED, { kind: 'remove', line: 15, expectedLabel: 'Width' });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  configurations({ Big: {} });\n  extrude(5);`);
+    expect(result.newCode).toContain(`    Compact: { Width: 60, Rounded: false },`);
+    expect(result.newCode).toContain(`    'Extra Wide': { 'Width': base * 2 },`);
+    expect(result.newCode).toContain(`  const width = param('Width', 100);\n  const rounded = param('Rounded', true);\n  extrude(width);`);
   });
 });
 

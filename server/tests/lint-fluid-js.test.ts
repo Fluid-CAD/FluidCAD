@@ -293,6 +293,16 @@ describe('lintFluidJs — configurations() rules', () => {
     expect(other.diagnostics).toEqual([]);
   });
 
+  it('checks each part() body of a file on its own', async () => {
+    const result = await lintFluidJs(
+      `${header}\nexport const a = part('A', () => {\n  configurations({ Wide: { W: 2 } });\n  const w = param('W', 1);\n});\n`
+      + `export const b = part('B', () => {\n  configurations({ Wide: { W: 4 } });\n  const w = param('W', 3);\n});\n`
+      + `export const c = part('C', () => {\n  const w = param('W', 5);\n  configurations({ Wide: { W: 6 } });\n});\n`,
+      { filePath: '/ws/three.part.js' },
+    );
+    expect(result.diagnostics).toEqual([{ message: CONFIGURATIONS_AFTER_PARAM_MESSAGE, line: 11, column: 2 }]);
+  });
+
   it('rejects configurations() in a params file', async () => {
     const result = await lintFluidJs(
       `import { param, configurations } from 'fluidcad/core';\nexport const w = param('Width', 1);\nconfigurations({ Wide: { Width: 2 } });\n`,

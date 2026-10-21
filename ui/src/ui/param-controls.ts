@@ -287,18 +287,47 @@ export class ParamForm {
   }
 }
 
+/** How a control is drawn: a dialog's bordered field, or a borderless one filling a grid cell. */
+export type ParamControlVariant = 'form' | 'cell';
+
+type ControlClasses = { text: string; number: string; checkbox: string; select: string; multiSelect: string; color: string };
+
+const CELL_INPUT_CLASS = 'w-full h-8 px-2 bg-transparent text-[13px] border-0 outline-none focus:outline-none';
+
+const CONTROL_CLASSES: Record<ParamControlVariant, ControlClasses> = {
+  form: {
+    text: 'input input-sm input-bordered w-full text-xs bg-transparent',
+    number: 'input input-sm input-bordered w-full text-xs bg-transparent',
+    checkbox: 'toggle toggle-sm toggle-primary',
+    select: 'select select-sm select-bordered w-full text-xs',
+    multiSelect: 'select select-sm select-bordered w-full text-xs',
+    color: 'w-full h-8 cursor-pointer bg-transparent border border-base-content/20 rounded',
+  },
+  cell: {
+    text: CELL_INPUT_CLASS,
+    // Numbers sit right-aligned, without spinners, as in a spreadsheet.
+    number: `${CELL_INPUT_CLASS} text-right tabular-nums [appearance:textfield] `
+      + '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
+    checkbox: 'checkbox checkbox-sm checkbox-primary mx-2 rounded-[4px]',
+    select: 'select select-ghost select-sm w-full h-8 min-h-8 rounded-none border-0 bg-transparent text-[13px] '
+      + 'focus:outline-none focus-within:outline-none',
+    multiSelect: 'select select-ghost select-sm w-full h-auto rounded-none border-0 bg-transparent py-1 text-[13px] focus:outline-none',
+    color: 'mx-2 h-5 w-[calc(100%-1rem)] cursor-pointer bg-transparent border border-base-content/20 rounded',
+  },
+};
+
 /**
  * One parameter's literal control — the slider, number, toggle, select,
  * multi-select, color or text field the dialogs draw for its control type —
- * reporting every edit through `onChange`. `compact` draws the xs sizes the
- * Manage-configurations grid's cells take.
+ * reporting every edit through `onChange`. The `cell` variant draws the
+ * borderless fields the Manage-configurations grid's cells take.
  */
 export function createParamControl(
   def: CatalogParamDef,
   onChange: (value: CatalogParamValue) => void,
-  opts: { compact?: boolean } = {},
+  opts: { variant?: ParamControlVariant } = {},
 ): ParamControl {
-  const size = opts.compact ? 'xs' : 'sm';
+  const classes = CONTROL_CLASSES[opts.variant ?? 'form'];
   const type = effectiveControlType(def);
   switch (type) {
     case 'slider': {
@@ -331,7 +360,7 @@ export function createParamControl(
     case 'number': {
       const input = document.createElement('input');
       input.type = 'number';
-      input.className = `input input-${size} input-bordered w-full text-xs bg-transparent`;
+      input.className = classes.number;
       input.step = def.step != null ? String(def.step) : 'any';
       if (def.min != null) { input.min = String(def.min); }
       if (def.max != null) { input.max = String(def.max); }
@@ -347,17 +376,17 @@ export function createParamControl(
     case 'checkbox': {
       const input = document.createElement('input');
       input.type = 'checkbox';
-      input.className = `toggle toggle-${size} toggle-primary`;
+      input.className = classes.checkbox;
       input.checked = def.currentValue === true;
       input.addEventListener('change', () => onChange(input.checked));
       return { element: input, setValue: (v) => { input.checked = v === true; } };
     }
     case 'select': {
       if (def.multi) {
-        return buildMultiSelect(def, onChange, size);
+        return buildMultiSelect(def, onChange, classes.multiSelect);
       }
       const select = document.createElement('select');
-      select.className = `select select-${size} select-bordered w-full text-xs`;
+      select.className = classes.select;
       for (const opt of def.options ?? []) {
         const el = document.createElement('option');
         el.value = String(opt.value);
@@ -373,7 +402,7 @@ export function createParamControl(
     case 'color': {
       const input = document.createElement('input');
       input.type = 'color';
-      input.className = `w-full ${size === 'xs' ? 'h-6' : 'h-8'} cursor-pointer bg-transparent border border-base-content/20 rounded`;
+      input.className = classes.color;
       input.value = String(def.currentValue);
       input.addEventListener('input', () => onChange(input.value));
       return { element: input, setValue: (v) => { input.value = String(v); } };
@@ -381,7 +410,7 @@ export function createParamControl(
     default: {
       const input = document.createElement('input');
       input.type = 'text';
-      input.className = `input input-${size} input-bordered w-full text-xs bg-transparent`;
+      input.className = classes.text;
       input.value = String(def.currentValue);
       input.addEventListener('input', () => onChange(input.value));
       return { element: input, setValue: (v) => { input.value = String(v); } };
@@ -392,13 +421,13 @@ export function createParamControl(
 function buildMultiSelect(
   def: CatalogParamDef,
   onChange: (value: CatalogParamValue) => void,
-  size: 'xs' | 'sm',
+  className: string,
 ): ParamControl {
   const select = document.createElement('select');
   select.multiple = true;
   const opts = def.options ?? [];
   select.size = Math.min(opts.length, 5);
-  select.className = `select select-${size} select-bordered w-full text-xs`;
+  select.className = className;
   const applySelection = (value: CatalogParamValue) => {
     const selected = new Set((Array.isArray(value) ? value : [value]).map(String));
     for (const el of Array.from(select.options)) {

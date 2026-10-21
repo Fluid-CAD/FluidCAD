@@ -56,30 +56,7 @@ export function createConfigurationsRouter(
   dispatcher?: FeatureEditDispatcher,
 ): Router {
   const router = Router();
-
-  function broadcastRender(data: SceneRenderedData): void {
-    sendToExtension({
-      type: 'scene-rendered',
-      absPath: data.absPath,
-      sceneKind: data.sceneKind,
-      ...sceneUnitFields(data),
-      result: data.result,
-      ...sceneStopFields(data),
-      ...(data.assembly ? { assembly: data.assembly } : {}),
-    });
-    broadcastToUI({
-      type: 'scene-rendered',
-      result: data.result,
-      absPath: data.absPath,
-      sceneKind: data.sceneKind,
-      ...sceneUnitFields(data),
-      ...sceneStopFields(data),
-      params: data.params,
-      properties: data.properties,
-      ...(data.configurations ? { configurations: data.configurations } : {}),
-      ...(data.assembly ? { assembly: data.assembly } : {}),
-    });
-  }
+  const broadcastRender = sceneRenderedBroadcaster(sendToExtension, broadcastToUI);
 
   /** The current file, or a 404 answered. */
   function currentFile(res: Response): string | null {
@@ -343,6 +320,40 @@ export function createConfigurationsRouter(
   });
 
   return router;
+}
+
+/**
+ * Fan a configuration re-render out to the editor host and the pages, as
+ * `/set-param` does — shared with the screenshot route's configuration
+ * round trip (`screenshot-configuration.ts`).
+ */
+export function sceneRenderedBroadcaster(
+  sendToExtension: (msg: any) => void,
+  broadcastToUI: (msg: any) => void,
+): (data: SceneRenderedData) => void {
+  return (data) => {
+    sendToExtension({
+      type: 'scene-rendered',
+      absPath: data.absPath,
+      sceneKind: data.sceneKind,
+      ...sceneUnitFields(data),
+      result: data.result,
+      ...sceneStopFields(data),
+      ...(data.assembly ? { assembly: data.assembly } : {}),
+    });
+    broadcastToUI({
+      type: 'scene-rendered',
+      result: data.result,
+      absPath: data.absPath,
+      sceneKind: data.sceneKind,
+      ...sceneUnitFields(data),
+      ...sceneStopFields(data),
+      params: data.params,
+      properties: data.properties,
+      ...(data.configurations ? { configurations: data.configurations } : {}),
+      ...(data.assembly ? { assembly: data.assembly } : {}),
+    });
+  };
 }
 
 /** The cells as the render will report them: literals as they are, an `{ expr }` cell by its source text. */

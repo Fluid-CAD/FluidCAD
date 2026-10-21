@@ -38,6 +38,16 @@ export type SceneConfigurations = {
   notice?: string;
 };
 
+/**
+ * A render of the current file with one configuration row active, made for
+ * an export and nothing else — see `FluidCadServer.renderWithConfiguration`.
+ * `scene` is the caller's until `dispose()`; `ok: false` names the row the
+ * file does not declare, with the rows it does.
+ */
+export type ScratchRender =
+  | { ok: true; scene: any; configurations: { active: string; names: string[]; rows: Record<string, Record<string, ParamVal>> }; dispose: () => void }
+  | { ok: false; reason: string; names: string[] };
+
 export type SceneRenderedData = {
   absPath: string;
   sceneKind: FluidScriptKind;

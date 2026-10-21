@@ -69,7 +69,7 @@ export type { PackInputs, PackResult } from './model-package/pack.ts';
 // Renders a model once to capture its full param schema for the manifest
 // (`fluidcad publish`); boots OC wasm, so it lives behind this side-effect-free
 // surface rather than being called at import time.
-export { captureParamDefinitions } from './model-package/capture-params.ts';
+export { captureModelParams, captureParamDefinitions } from './model-package/capture-params.ts';
 export type {
   ModelPackageManifest,
   ModelPackageCamera,

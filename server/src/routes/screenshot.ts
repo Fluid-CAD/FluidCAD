@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { ScreenshotRequests, type ScreenshotSelectionResolver } from './screenshot-overlays.ts';
 import type { SectionSceneObjectLookup } from './screenshot-section.ts';
 import type { ScreenshotView } from '../ws-protocol.ts';
+import { ConfigurationSwitchError } from './screenshot-configuration.ts';
 
 /**
  * POST /screenshot — validate the capture options and forward them to the
@@ -10,12 +11,17 @@ import type { ScreenshotView } from '../ws-protocol.ts';
  * {@link ScreenshotRequests}; highlight expressions resolve through
  * `resolveSelection` here so the page only receives index refs, and a
  * section on a face or a `plane()`/`section()` statement resolves through
- * it and `sceneObject` to the plane the page clips at.
+ * it and `sceneObject` to the plane the page clips at. `configuration` names
+ * a `configurations()` row to capture: the page draws the scene, so the
+ * session is switched to the row for the capture and put back afterwards
+ * (`withConfiguration`, see `screenshot-configuration.ts`); without the
+ * hook the option is refused.
  */
 export function createScreenshotRouter(
   requestScreenshot: (options: Record<string, unknown>) => Promise<Buffer>,
   resolveSelection?: ScreenshotSelectionResolver,
   sceneObject?: SectionSceneObjectLookup,
+  withConfiguration?: (name: string, capture: () => Promise<Buffer>) => Promise<Buffer>,
 ): Router {
   const router = Router();
 
@@ -36,9 +42,21 @@ export function createScreenshotRouter(
       showPositional,
       framePlanes,
       pixelRatio,
+      configuration,
     } = req.body;
 
     const options: Record<string, unknown> = {};
+
+    if (configuration !== undefined) {
+      if (typeof configuration !== 'string' || configuration.trim() === '') {
+        res.status(400).json({ error: 'configuration must be a non-empty string — a configurations() row name, or Default.' });
+        return;
+      }
+      if (!withConfiguration) {
+        res.status(400).json({ error: 'This server cannot switch configurations for a screenshot.' });
+        return;
+      }
+    }
 
     if (width !== undefined) {
       if (typeof width !== 'number' || width < 1 || width > 8192) {
@@ -165,11 +183,17 @@ export function createScreenshotRouter(
     }
 
     try {
-      const png = await requestScreenshot(options);
+      const png = typeof configuration === 'string' && withConfiguration
+        ? await withConfiguration(configuration, () => requestScreenshot(options))
+        : await requestScreenshot(options);
       res.setHeader('Content-Type', 'image/png');
       res.setHeader('Content-Disposition', 'inline; filename="screenshot.png"');
       res.send(png);
     } catch (err: any) {
+      if (err instanceof ConfigurationSwitchError) {
+        res.status(err.status).json({ error: err.message, ...(err.names.length > 0 ? { names: err.names } : {}) });
+        return;
+      }
       const message = err.message || String(err);
       const status = message.includes('No UI client') || message.includes('timed out') ? 503 : 500;
       res.status(status).json({ error: message });

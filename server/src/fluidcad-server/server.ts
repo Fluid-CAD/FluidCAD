@@ -16,7 +16,9 @@ import { listBreakpoints, type BreakpointSite } from '../code-editor/index.ts';
 import {
   createParamRegistry,
   getParamRegistry,
+  getUnitRegistry,
   setParamRegistry,
+  setUnitRegistry,
   type AssemblyExportOutcome,
   type AssemblyExportPose,
   type ImportReport,
@@ -60,7 +62,7 @@ import type {
   SelectionSynthesisOptions,
   ValidateUnavailable,
 } from './query-types.ts';
-import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneConfigurations, SceneRenderedData } from './render-types.ts';
+import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneConfigurations, SceneRenderedData, ScratchRender } from './render-types.ts';
 import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import { TimelineHistory } from './timeline-history.ts';
@@ -1766,6 +1768,12 @@ export class FluidCadServer {
     return this.sceneManager.resolveFeatureSources(scene, before);
   }
 
+  /**
+   * Export the listed solids of the current scene — or, given a
+   * {@link ScratchRender}, of that render: the ids are the live scene's and
+   * are mapped onto the scratch scene's bodies (same lineage, else the same
+   * statement and position), since every render mints shape ids afresh.
+   */
   exportShapes(
     shapeIds: string[],
     options: {
@@ -1775,6 +1783,7 @@ export class FluidCadServer {
       customLinearDeflection?: number;
       customAngularDeflectionDeg?: number;
     },
+    scratch?: Extract<ScratchRender, { ok: true }>,
   ): { data: string | Uint8Array; fileName: string } | null {
     if (!this.sceneManager) {
       return null;
@@ -1783,7 +1792,42 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
+    if (scratch) {
+      return this.sceneManager.exportShapes(scratch.scene, FluidCadServer.mapShapeIds(scene, scratch.scene, shapeIds), options);
+    }
     return this.sceneManager.exportShapes(scene, shapeIds, options);
+  }
+
+  /**
+   * The scratch scene's ids for the live scene's `shapeIds`: a solid is
+   * found again by its lineage key, anything else (or a body the
+   * configuration re-shaped past its lineage) by the statement index and
+   * the position in that statement's shapes. An id with no counterpart is
+   * kept as is, so the export reports it unknown like any other.
+   */
+  private static mapShapeIds(live: any, scratch: any, shapeIds: string[]): string[] {
+    const liveRows = (live.getRenderedObjects?.() ?? []) as any[];
+    const scratchRows = (scratch.getRenderedObjects?.() ?? []) as any[];
+    const byLineage = new Map<string, string>();
+    scratchRows.forEach((row) => {
+      for (const shape of (row.sceneShapes ?? []) as any[]) {
+        if (typeof shape.lineageKey === 'string' && !byLineage.has(shape.lineageKey)) {
+          byLineage.set(shape.lineageKey, shape.shapeId);
+        }
+      }
+    });
+    const mapped = new Map<string, string>();
+    liveRows.forEach((row, index) => {
+      ((row.sceneShapes ?? []) as any[]).forEach((shape, position) => {
+        const sameLineage = typeof shape.lineageKey === 'string' ? byLineage.get(shape.lineageKey) : undefined;
+        const samePlace = (scratchRows[index]?.sceneShapes as any[] | undefined)?.[position]?.shapeId;
+        const target = sameLineage ?? samePlace;
+        if (typeof target === 'string') {
+          mapped.set(shape.shapeId, target);
+        }
+      });
+    });
+    return shapeIds.map((id) => mapped.get(id) ?? id);
   }
 
   /**
@@ -1803,16 +1847,118 @@ export class FluidCadServer {
       scaleTo?: 'mm' | 'document';
     },
     livePoses?: AssemblyExportPose[],
+    scratch?: Extract<ScratchRender, { ok: true }>,
   ): AssemblyExportOutcome | null {
     if (!this.sceneManager) {
       return null;
     }
-    const scene = this.previousScenes.get(this.currentFileName);
+    const scene = scratch?.scene ?? this.previousScenes.get(this.currentFileName);
     if (!scene) {
       return null;
     }
     const name = basename(this.currentFileName).replace(/\.(assembly|part|fluid)?\.?js$/, '');
     return this.sceneManager.exportAssembly(scene, { ...options, name, livePoses });
+  }
+
+  /**
+   * Render the current file with the configuration row `name` active — a
+   * scratch render for an export that must not disturb the session
+   * (`docs/assembly-configurations-plan.md` §3.7): no override layer, no
+   * session state touched (active name, override map, dedup cache, render
+   * cache, the live scene the viewer shows, the timeline), nothing
+   * broadcast. The caller exports from `scene` and then `dispose()`s it.
+   *
+   * `'Default'` renders the literals. A name the file's last render did not
+   * declare — or that this render does not — answers `ok: false` with the
+   * declared names; null means there is no scene to render.
+   */
+  async renderWithConfiguration(sessionId: string, name: string): Promise<ScratchRender | null> {
+    sessionId = normalizePath(sessionId);
+    const filePath = this.sessionFiles.get(sessionId) ?? sessionId;
+    if (!this.sceneManager || !this.previousScenes.has(sessionId)) {
+      return null;
+    }
+    const declared = this.lastConfigurations.get(sessionId)?.names ?? [];
+    if (name !== DEFAULT_CONFIGURATION && !declared.includes(name)) {
+      return { ok: false, reason: FluidCadServer.unknownConfiguration(name, declared), names: declared };
+    }
+    return this.serialized(async () => {
+      const manager = this.sceneManager!;
+      const normalizedFileName = filePath.replace('virtual:live-render:', '');
+      const sceneKind: FluidScriptKind = detectKind(normalizedFileName) ?? 'part';
+      // Everything a render leaves behind on the engine side, captured to be
+      // put back (as the part-catalog scan does): the param and unit
+      // registries the live scene's queries read, and the manager's current
+      // scene / file / render inputs that `startScene` replaces.
+      const liveRegistry = getParamRegistry();
+      const liveUnits = getUnitRegistry();
+      const managerState = manager as unknown as { currentScene?: unknown; currentFile?: string; renderInputs?: unknown };
+      const liveScene = managerState.currentScene;
+      const liveFile = managerState.currentFile;
+      const liveInputs = managerState.renderInputs;
+      let scene: any = null;
+      try {
+        this.reseedProjectConfig();
+        scene = sceneKind === 'assembly' ? manager.startAssemblyScene() : manager.startScene();
+        manager.setCurrentFile(normalizedFileName);
+        this.host.invalidateModule();
+        const registry = createParamRegistry();
+        registry.setActiveConfiguration(name === DEFAULT_CONFIGURATION ? null : name);
+        // A breakpoint() stops the scratch render where it stops the live
+        // one: what ran before it is the export, as on screen.
+        try {
+          await this.host.loadModule(filePath);
+          if (sceneKind !== 'assembly') {
+            (scene as { materializeLeftoverDefinitions?: () => void }).materializeLeftoverDefinitions?.();
+          }
+        } catch (e) {
+          if (!(e instanceof BreakpointHit)) {
+            throw e;
+          }
+        }
+        const summary = registry.getConfigurations();
+        if (name !== DEFAULT_CONFIGURATION && !summary.names.includes(name)) {
+          manager.disposeScene?.(scene);
+          return { ok: false, reason: FluidCadServer.unknownConfiguration(name, summary.names), names: summary.names };
+        }
+        manager.renderScene(scene);
+        const rendered = scene;
+        scene = null;
+        return {
+          ok: true,
+          scene: rendered,
+          configurations: summary,
+          dispose: () => manager.disposeScene?.(rendered),
+        };
+      } catch (error) {
+        if (scene) {
+          manager.disposeScene?.(scene);
+        }
+        throw error;
+      } finally {
+        // The module cache now holds the scratch evaluation; drop it so the
+        // next render (which always reloads) cannot see it, and put the
+        // live file's registry back for the params the server answers with.
+        this.host.invalidateModule();
+        setParamRegistry(liveRegistry);
+        setUnitRegistry(liveUnits);
+        if (liveFile !== undefined) {
+          manager.setCurrentFile(liveFile);
+        }
+        if (liveScene !== undefined) {
+          managerState.currentScene = liveScene;
+        }
+        if (liveInputs !== undefined) {
+          managerState.renderInputs = liveInputs;
+        }
+      }
+    });
+  }
+
+  private static unknownConfiguration(name: string, names: string[]): string {
+    return names.length > 0
+      ? `Unknown configuration '${name}'. Declared: ${names.map(n => `'${n}'`).join(', ')} (and Default).`
+      : `Unknown configuration '${name}': the file declares no configurations() table (only Default).`;
   }
 
   hitTest(
@@ -1869,6 +2015,24 @@ export class FluidCadServer {
     sessionId = normalizePath(sessionId);
     this.paramOverrides.delete(sessionId);
     this.lastRendered.delete(sessionId);
+  }
+
+  /**
+   * Put a session's override map back as {@link getParamOverrides} reported
+   * it — for a route that switched the configuration for one capture
+   * (`selectConfiguration` drops the overrides) and restores the session
+   * afterwards. Internal to that round trip: not a public route.
+   */
+  restoreParamOverrides(sessionId: string, overrides: Record<string, any>): void {
+    sessionId = normalizePath(sessionId);
+    const entries = Object.entries(overrides);
+    if (entries.length === 0) {
+      this.paramOverrides.delete(sessionId);
+    } else {
+      this.paramOverrides.set(sessionId, new Map(entries));
+    }
+    this.lastRendered.delete(sessionId);
+    this.renderingCache.delete(sessionId);
   }
 
   /**

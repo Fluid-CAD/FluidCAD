@@ -91,7 +91,26 @@ export interface ModelPackageManifest {
    * boots the engine to render); plain `fluidcad pack` leaves it undefined.
    */
   paramDefinitions?: ParamDefinition[];
+  /**
+   * The `configurations()` row that was showing when the model was packed
+   * (`'Default'` for the literals), so the hub's param form opens on it.
+   * Present only when the model declares a table (`configurations`).
+   */
+  configuration?: string;
+  /**
+   * The model's `configurations()` table as its render declared it: the row
+   * names in declaration order and each row's cells (sparse — a label a row
+   * leaves out inherits the literal). The hub builds its configuration
+   * dropdown from this without a live worker; absent for a model without a
+   * table.
+   */
+  configurations?: ModelPackageConfigurations;
   camera?: ModelPackageCamera;
+}
+
+export interface ModelPackageConfigurations {
+  names: string[];
+  rows: Record<string, Record<string, ParamValue>>;
 }
 
 /**

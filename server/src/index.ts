@@ -7,7 +7,7 @@ import type { SceneRenderedData } from './fluidcad-server/index.ts';
 import { createServerCore } from './server-core.ts';
 import { createHostGuard, createHostGuardVerifyClient } from './host-guard.ts';
 import { createParamsRouter } from './routes/params.ts';
-import { createConfigurationsRouter } from './routes/configurations.ts';
+import { createConfigurationsRouter, sceneRenderedBroadcaster } from './routes/configurations.ts';
 import { createPropertyEditsRouter } from './routes/property-edits.ts';
 import { createPropertiesRouter } from './routes/properties.ts';
 import { createHitTestRouter } from './routes/hit-test.ts';
@@ -20,12 +20,13 @@ import { createSketchEditsRouter } from './routes/sketch-edits.ts';
 import { createApplyFeatureRouter } from './routes/apply-feature/index.ts';
 import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
+import { createConfigurationScreenshot } from './routes/screenshot-configuration.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
 import { loadPreferences } from './preferences.ts';
 import { createHealthRouter } from './routes/health.ts';
 import { createSceneRouter } from './routes/scene.ts';
 import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
-import { createRenderRouter, type LiveRenderOptions, type RenderOutcome } from './routes/render.ts';
+import { createRenderRouter, UI_APPLY_WAIT_MS, type LiveRenderOptions, type RenderOutcome } from './routes/render.ts';
 import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
 import { createShareRouter } from './routes/share.ts';
@@ -249,6 +250,11 @@ app.use('/api', createScreenshotRouter(
   requestScreenshot,
   request => fluidCadServer.resolveSelection(request),
   id => fluidCadServer.getSceneSummary()?.objects.find(o => o.id === id) ?? null,
+  createConfigurationScreenshot(
+    fluidCadServer,
+    sceneRenderedBroadcaster(sendToHost, broadcastToUI),
+    () => core.awaitLatestSceneApplied(UI_APPLY_WAIT_MS),
+  ),
 ));
 app.use('/api', createPreferencesRouter((prefs) => setMaxWorkers(prefs.maxWorkers)));
 app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState, async () =>

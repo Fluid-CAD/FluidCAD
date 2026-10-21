@@ -83,6 +83,7 @@ const fakeServer = {
   getCurrentFileName: () => bracket,
   getCurrentCode: () => buffers[bracket] ?? readFileSync(bracket, 'utf8'),
   getLiveBuffer: (absPath: string) => buffers[normalizePath(absPath)] ?? null,
+  paramKeyOf: () => null,
   renameParam: () => {},
   forgetParam: () => {},
 };

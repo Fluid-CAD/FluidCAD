@@ -23,9 +23,12 @@ import {
   type AssemblyExportPose,
   type ImportReport,
   type InterferenceRequest,
+  ParamKey,
+  SessionParamOverrides,
   type ParamDefinition,
   type ParamRegistry,
   type ParamVal,
+  type SessionParamOverride,
   type RenderChangeTracker,
   type ResolveSelectionRequest,
   type ResolveSelectionResult,
@@ -119,12 +122,13 @@ export class FluidCadServer {
   // Live buffers this server seeded from disk (no editor sent them), with the
   // hashes of what was seeded — a seed follows its file when the disk changes.
   private diskSeeds = new Map<string, { bufferHash: string; diskHash: string }>();
-  private paramOverrides: Map<string, Map<string, any>> = new Map();
-  // Per session, the default each `param()` was authored with as of the last
-  // render — `label → the literal in the source`. An override is a delta over
-  // that default, so when the file re-declares it the override is stale and
-  // gets dropped instead of shadowing the value the code now asks for.
-  private lastParamDefaults = new Map<string, Map<string, ParamVal>>();
+  // Per session, the Parameters-panel values (never written to source) and
+  // the bookkeeping behind them: keyed by part + label (`ParamKey`), with the
+  // default each `param()` was authored with as of the last render — an
+  // override is a delta over that default, so when the file re-declares it
+  // the override is stale and gets dropped instead of shadowing the value
+  // the code now asks for. See `SessionParamOverrides`.
+  private paramSessions = new Map<string, SessionParamOverrides>();
   /**
    * The `configurations()` row each session shows, by name — absent means
    * `Default`, the literals (`docs/assembly-configurations-plan.md` §3.3).
@@ -327,8 +331,7 @@ export class FluidCadServer {
     this.renderingCache.delete(sessionId);
     this.lastRendered.delete(sessionId);
     this.renderFingerprints.delete(sessionId);
-    this.paramOverrides.delete(sessionId);
-    this.lastParamDefaults.delete(sessionId);
+    this.paramSessions.delete(sessionId);
     this.activeConfigurations.delete(sessionId);
     this.configurationSeeded.delete(sessionId);
     this.lastConfigurations.delete(sessionId);
@@ -505,10 +508,7 @@ export class FluidCadServer {
         this.host.invalidateModule();
 
         const registry = createParamRegistry();
-        const overrides = this.paramOverrides.get(sessionId);
-        if (overrides) {
-          registry.setOverrides(overrides, this.lastParamDefaults.get(sessionId));
-        }
+        this.paramSessions.get(sessionId)?.install(registry);
         // The row `configurations()` installs as the layer under the
         // overrides; null is the literals.
         registry.setActiveConfiguration(this.activeConfigurations.get(sessionId) ?? null);
@@ -576,7 +576,7 @@ export class FluidCadServer {
         }
 
         const params = getParamRegistry().getDefinitions();
-        this.settleParamOverrides(sessionId, registry);
+        this.paramSession(sessionId).settle(registry);
         const configurations = this.settleConfiguration(sessionId, normalizedFileName, registry, breakpointHit);
         // After the overrides settled: a render can drop overrides the source
         // re-declared (or fall back from a configuration the file no longer
@@ -739,34 +739,14 @@ export class FluidCadServer {
     return this.renderInputs.isCurrent(fingerprint, this.overridesKey(sessionId));
   }
 
-  /**
-   * Close the loop on a render's param bookkeeping: remember what each
-   * `param()` declared so the next render can tell an edited default from an
-   * unchanged one, and forget the overrides this render found stale.
-   *
-   * Baselines merge rather than replace — a param that didn't run this pass
-   * (breakpoint, untaken branch) keeps the default it last declared, so an
-   * edit to *its* literal is still recognized later. Absence alone never
-   * drops an override for the same reason: not running is not un-declaring.
-   */
-  private settleParamOverrides(sessionId: string, registry: ParamRegistry): void {
-    const baselines = this.lastParamDefaults.get(sessionId) ?? new Map<string, ParamVal>();
-    for (const [label, authored] of registry.getAuthoredDefaults()) {
-      baselines.set(label, authored);
+  /** The session's override state, created on first use. */
+  private paramSession(sessionId: string): SessionParamOverrides {
+    let session = this.paramSessions.get(sessionId);
+    if (!session) {
+      session = new SessionParamOverrides();
+      this.paramSessions.set(sessionId, session);
     }
-    this.lastParamDefaults.set(sessionId, baselines);
-
-    const discarded = registry.getDiscardedOverrides();
-    const overrides = this.paramOverrides.get(sessionId);
-    if (!overrides || discarded.length === 0) {
-      return;
-    }
-    for (const label of discarded) {
-      overrides.delete(label);
-    }
-    if (overrides.size === 0) {
-      this.paramOverrides.delete(sessionId);
-    }
+    return session;
   }
 
   /**
@@ -805,7 +785,7 @@ export class FluidCadServer {
 
   /** Whether the session's override layer holds anything — tweaks on top of the active row. */
   private isModified(sessionId: string): boolean {
-    return (this.paramOverrides.get(sessionId)?.size ?? 0) > 0;
+    return (this.paramSessions.get(sessionId)?.size ?? 0) > 0;
   }
 
   /** `fileName` as the editor state keys it: workspace-relative, forward slashes. */
@@ -1976,35 +1956,42 @@ export class FluidCadServer {
     return this.compileError;
   }
 
-  setParam(sessionId: string, label: string, value: any): void {
+  /**
+   * Override a parameter's value for the session (the source is never
+   * touched). `body` names the part (or assembly) whose `label` it is — the
+   * `body` of the definition the render listed. Without it the label must
+   * name one body's parameter in the last render: a label two parts declare
+   * is refused, and the refusal's text returned (null when set). A label no
+   * render has declared yet is kept by label and applies once it renders.
+   */
+  setParam(sessionId: string, label: string, value: any, body?: string): string | null {
     sessionId = normalizePath(sessionId);
-    if (!this.paramOverrides.has(sessionId)) {
-      this.paramOverrides.set(sessionId, new Map());
+    const session = this.paramSession(sessionId);
+    const resolved = session.keyFor(label, body);
+    if ('error' in resolved) {
+      return resolved.error;
     }
-    this.paramOverrides.get(sessionId)!.set(label, value);
+    session.set(resolved.key, value);
     this.lastRendered.delete(sessionId);
+    return null;
   }
 
   resetParams(sessionId: string): void {
     sessionId = normalizePath(sessionId);
-    this.paramOverrides.delete(sessionId);
+    this.paramSessions.get(sessionId)?.clear();
     this.lastRendered.delete(sessionId);
   }
 
   /**
-   * Put a session's override map back as {@link getParamOverrides} reported
-   * it — for a route that switched the configuration for one capture
+   * Put a session's overrides back as {@link getParamOverrides} reported
+   * them — for a route that switched the configuration for one capture
    * (`selectConfiguration` drops the overrides) and restores the session
-   * afterwards. Internal to that round trip: not a public route.
+   * afterwards, or one that re-selects a renamed row with its tweaks.
+   * Internal to those round trips: not a public route.
    */
   restoreParamOverrides(sessionId: string, overrides: Record<string, any>): void {
     sessionId = normalizePath(sessionId);
-    const entries = Object.entries(overrides);
-    if (entries.length === 0) {
-      this.paramOverrides.delete(sessionId);
-    } else {
-      this.paramOverrides.set(sessionId, new Map(entries));
-    }
+    this.paramSession(sessionId).restore(overrides);
     this.lastRendered.delete(sessionId);
     this.renderingCache.delete(sessionId);
   }
@@ -2025,7 +2012,7 @@ export class FluidCadServer {
       this.activeConfigurations.set(sessionId, name);
     }
     this.configurationSeeded.add(sessionId);
-    this.paramOverrides.delete(sessionId);
+    this.paramSessions.get(sessionId)?.clear();
     this.lastRendered.delete(sessionId);
     this.renderingCache.delete(sessionId);
     this.persistActiveConfiguration(sessionId, this.sessionFiles.get(sessionId) ?? sessionId);
@@ -2054,45 +2041,64 @@ export class FluidCadServer {
   }
 
   /**
-   * Follow a label rename in the source. Both the override and the baseline
-   * it was set against are keyed by label, so without this the renamed param
-   * would come back at its declared default while a ghost entry kept holding
-   * the value under the old name. Only ever called after the source edit
-   * landed, and that edit refuses a rename onto a label the file already
-   * declares — so anything sitting under `to` here belongs to a param that no
-   * longer exists.
+   * The parameter a declaration edit addresses — `label` as declared at
+   * `filePath`:`line` — keyed by its body: the definition the last render
+   * listed for that call, else the one body declaring the label, else the
+   * label alone (a parameter that has not rendered, or an older override).
    */
-  renameParam(sessionId: string, from: string, to: string): void {
+  paramKeyOf(sessionId: string, label: string, filePath?: string, line?: number): ParamKey {
+    const site = (def: ParamDefinition): boolean => {
+      const loc = def.sourceLocation;
+      if (!loc) {
+        return false;
+      }
+      return (filePath === undefined || normalizePath(loc.filePath.replace('virtual:live-render:', '')) === normalizePath(filePath))
+        && (line === undefined || loc.line === line);
+    };
+    const declared = this.getParamDefinitions().filter(def => def.kind !== 'global' && def.label === label && site(def));
+    if (declared.length === 1) {
+      return ParamKey.ofDefinition(declared[0]);
+    }
+    const resolved = this.paramSession(normalizePath(sessionId)).keyFor(label);
+    return 'key' in resolved ? resolved.key : ParamKey.of(null, label);
+  }
+
+  /**
+   * Follow a label rename in the source. Both the override and the baseline
+   * it was set against are keyed by part + label, so without this the
+   * renamed param would come back at its declared default while a ghost
+   * entry kept holding the value under the old name. Only ever called after
+   * the source edit landed, and that edit refuses a rename onto a label the
+   * body already declares — so anything sitting under the new key belongs
+   * to a param that no longer exists.
+   */
+  renameParam(sessionId: string, key: ParamKey, to: string): void {
     sessionId = normalizePath(sessionId);
-    FluidCadServer.moveKey(this.paramOverrides.get(sessionId), from, to);
-    FluidCadServer.moveKey(this.lastParamDefaults.get(sessionId), from, to);
+    this.paramSessions.get(sessionId)?.rename(key, to);
     this.lastRendered.delete(sessionId);
   }
 
   /** Forget a deleted param's override and the baseline behind it. */
-  forgetParam(sessionId: string, label: string): void {
+  forgetParam(sessionId: string, key: ParamKey): void {
     sessionId = normalizePath(sessionId);
-    const overrides = this.paramOverrides.get(sessionId);
-    overrides?.delete(label);
-    if (overrides?.size === 0) {
-      this.paramOverrides.delete(sessionId);
-    }
-    this.lastParamDefaults.get(sessionId)?.delete(label);
+    this.paramSessions.get(sessionId)?.forget(key);
     this.lastRendered.delete(sessionId);
   }
 
-  private static moveKey<T>(map: Map<string, T> | undefined, from: string, to: string): void {
-    if (!map || !map.has(from)) {
-      return;
-    }
-    map.set(to, map.get(from)!);
-    map.delete(from);
+  /**
+   * The session's overrides as a plain record: each under its label while
+   * one part declares that label — a single-part file's record is the
+   * label-keyed one it always was — else under its `ParamKey.id`.
+   * {@link restoreParamOverrides} and {@link setParam}'s label rule read
+   * both forms back.
+   */
+  getParamOverrides(sessionId: string): Record<string, any> {
+    return this.paramSessions.get(normalizePath(sessionId))?.toRecord() ?? {};
   }
 
-  getParamOverrides(sessionId: string): Record<string, any> {
-    const map = this.paramOverrides.get(normalizePath(sessionId));
-    if (!map) return {};
-    return Object.fromEntries(map);
+  /** The session's overrides, each with the parameter it sets. */
+  getParamOverrideEntries(sessionId: string): SessionParamOverride[] {
+    return this.paramSessions.get(normalizePath(sessionId))?.entries() ?? [];
   }
 
   getCurrentFileName(): string {
@@ -2257,8 +2263,7 @@ export class FluidCadServer {
    * render produces as surely as an override does.
    */
   private overridesKey(sessionId: string): string {
-    const overrides = this.paramOverrides.get(sessionId);
-    const sortedEntries = overrides ? [...overrides.entries()].sort(([a], [b]) => a.localeCompare(b)) : [];
+    const sortedEntries = this.paramSessions.get(sessionId)?.fingerprint() ?? [];
     return JSON.stringify([this.activeConfigurations.get(sessionId) ?? null, sortedEntries]);
   }
 }

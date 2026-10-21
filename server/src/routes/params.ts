@@ -288,13 +288,25 @@ export function createParamsRouter(
     });
   });
 
+  // `body` names the part (or assembly) whose `label` this is — the
+  // definition's `body`. Without it the label must name one part's
+  // parameter: a label two parts of the file declare is refused, never set
+  // on both.
   router.post('/set-param', async (req, res) => {
-    const { label, value } = req.body;
+    const { label, value, body } = req.body;
     if (typeof label !== 'string') {
       res.status(400).json({ error: 'Invalid label' });
       return;
     }
-    fluidCadServer.setParam(fluidCadServer.getCurrentFileName(), label, value);
+    if (body !== undefined && body !== null && (typeof body !== 'string' || body === '')) {
+      res.status(400).json({ error: 'body must be the name of the part() or assembly() that declares the parameter' });
+      return;
+    }
+    const refused = fluidCadServer.setParam(fluidCadServer.getCurrentFileName(), label, value, body ?? undefined);
+    if (refused !== null) {
+      res.status(400).json({ error: refused });
+      return;
+    }
     if (await recomputeAndBroadcast(res)) {
       res.json({ success: true });
     }
@@ -448,6 +460,7 @@ export function createParamsRouter(
         return;
       }
     }
+    const key = fluidCadServer.paramKeyOf(sessionId, label, declaringFile, at);
     const applied = await dispatchParamEdit(res, {
       kind: 'update',
       expectedLabel: label,
@@ -455,10 +468,11 @@ export function createParamsRouter(
       param: spec,
       ...(variable !== undefined ? { variable } : {}),
     }, declaringFile);
-    // Overrides are keyed by label, so a rename has to carry the user's
-    // current value across with it — but only once the edit actually landed.
+    // Overrides are keyed by part + label, so a rename has to carry the
+    // user's current value across with it — this part's only, and only once
+    // the edit actually landed. The key is read before the edit re-renders.
     if (applied && spec.label !== label) {
-      fluidCadServer.renameParam(sessionId, label, spec.label);
+      fluidCadServer.renameParam(sessionId, key, spec.label);
     }
   });
 
@@ -505,8 +519,9 @@ export function createParamsRouter(
     if (!await refactor.dispatchConsumers(res, consumers.specs)) {
       return;
     }
+    const key = fluidCadServer.paramKeyOf(sessionId, label, declaringFile, at);
     if (await dispatchParamEdit(res, { kind: 'remove', expectedLabel: label, line: at }, declaringFile)) {
-      fluidCadServer.forgetParam(sessionId, label);
+      fluidCadServer.forgetParam(sessionId, key);
     }
   });
 

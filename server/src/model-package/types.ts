@@ -82,6 +82,12 @@ export interface ModelPackageManifest {
    * `BrowserEngineHost.setWorkspace(…, { materials })`.
    */
   materials?: ProjectMaterials;
+  /**
+   * The session's override values at pack time, each under its label while
+   * one part declares that label, else under its `ParamKey.id`
+   * (`["Plate","Width"]`) — so a single-part model's record is label-keyed
+   * as it always was. `SessionParamOverrides.restore` reads both forms.
+   */
   params?: Record<string, ParamValue>;
   /**
    * Full parameter schema captured by rendering the model once at pack time

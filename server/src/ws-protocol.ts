@@ -851,6 +851,12 @@ export type ScreenshotResultMessage = {
 export type UISetParamMessage = {
   type: 'set-param';
   label: string;
+  /**
+   * The part (or assembly) whose `label` it is — the definition's `body`.
+   * Optional for a label only one part declares; a label two parts declare
+   * is refused without it.
+   */
+  body?: string;
   value: string | number | boolean | (string | number)[];
 };
 

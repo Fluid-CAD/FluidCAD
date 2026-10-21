@@ -281,9 +281,7 @@ export function createConfigurationsRouter(
       // since selecting is what persists the name and it clears the layer.
       const overrides = fluidCadServer.getParamOverrides(file);
       fluidCadServer.selectConfiguration(file, to);
-      for (const [label, value] of Object.entries(overrides)) {
-        fluidCadServer.setParam(file, label, value);
-      }
+      fluidCadServer.restoreParamOverrides(file, overrides);
     }
     const rows: SceneConfigurations['rows'] = {};
     for (const [rowKey, cells] of Object.entries(before.rows)) {
@@ -369,9 +367,7 @@ export function createConfigurationsRouter(
       active = renames[before.active];
       const overrides = fluidCadServer.getParamOverrides(file);
       fluidCadServer.selectConfiguration(file, active);
-      for (const [label, value] of Object.entries(overrides)) {
-        fluidCadServer.setParam(file, label, value);
-      }
+      fluidCadServer.restoreParamOverrides(file, overrides);
     }
     const names: string[] = [];
     const rows: SceneConfigurations['rows'] = {};

@@ -43,7 +43,7 @@ let baseUrl: string;
 let currentFile: string;
 let buffer: string;
 let selected: [string, string][];
-let setParams: [string, string, unknown][];
+let restored: [string, Record<string, unknown>][];
 let overrides: Record<string, unknown>;
 let active: string;
 let names: string[];
@@ -66,9 +66,9 @@ const engine = {
     selected.push([sessionId, name]);
     overrides = {};
   },
-  setParam: (sessionId: string, label: string, value: unknown) => {
-    setParams.push([sessionId, label, value]);
-    overrides[label] = value;
+  restoreParamOverrides: (sessionId: string, record: Record<string, unknown>) => {
+    restored.push([sessionId, { ...record }]);
+    overrides = { ...record };
   },
   getParamOverrides: () => ({ ...overrides }),
   getParamDefinitions: () => definitions,
@@ -157,7 +157,7 @@ describe('configuration routes', () => {
     currentFile = FILE;
     buffer = TABLE_CODE;
     selected = [];
-    setParams = [];
+    restored = [];
     overrides = {};
     active = 'Wide';
     names = ['Compact', 'Wide'];
@@ -350,7 +350,7 @@ describe('configuration routes', () => {
       expect(relayed[0].spec.configurationEdit).toEqual({ kind: 'rename', from: 'Wide', to: 'Broad' });
       expect(buffer).toContain(`    Broad: { Width: 1200 },`);
       expect(selected).toEqual([[FILE, 'Broad']]);
-      expect(setParams).toEqual([[FILE, 'Depth', 650]]);
+      expect(restored).toEqual([[FILE, { Depth: 650 }]]);
       expect(result.body).toEqual({
         success: true,
         configurations: {
@@ -457,7 +457,7 @@ describe('configuration routes', () => {
         `  });`,
       ].join('\n'));
       expect(selected).toEqual([[FILE, 'Broad']]);
-      expect(setParams).toEqual([[FILE, 'Depth', 650]]);
+      expect(restored).toEqual([[FILE, { Depth: 650 }]]);
       expect(result.body).toEqual({
         success: true,
         configurations: {

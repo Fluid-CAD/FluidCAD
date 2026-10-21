@@ -65,6 +65,7 @@ const fakeServer = {
   getCurrentCode: () => buffers[currentFile],
   getCurrentFileName: () => currentFile,
   getLiveBuffer: (filePath: string) => buffers[filePath] ?? null,
+  paramKeyOf: () => null,
   renameParam: () => {},
   forgetParam: () => {},
 };

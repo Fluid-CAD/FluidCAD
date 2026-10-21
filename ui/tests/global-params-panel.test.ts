@@ -77,6 +77,8 @@ afterEach(() => {
   document.body.innerHTML = '';
   document.documentElement.style.removeProperty(GLOBAL_PANEL_WIDTH_VARIABLE);
   vi.useRealTimers();
+  // jsdom has no scrollIntoView; the showFile tests stub it.
+  delete (HTMLElement.prototype as any).scrollIntoView;
 });
 
 describe('GlobalParamsPanel', () => {
@@ -241,5 +243,41 @@ describe('GlobalParamsPanel', () => {
     input.value = '12';
     panel.update(snapshot([param({ value: 8 }), CLEARANCE, FINISH, HALF]));
     expect(input.value).toBe('12');
+  });
+
+  it('showFile opens the column and, once the catalog lands, unfolds and scrolls to that file', async () => {
+    const scrolled = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrolled;
+    const { container, panel, handlers } = mount();
+    const chevron = () => container.querySelector<HTMLElement>('[data-ref="chevron"]')!;
+
+    panel.showFile(FILE);
+    expect(panel.isOpen).toBe(true);
+    expect(handlers.fetch).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(container.querySelector('[data-param-label]')).not.toBeNull());
+    expect(chevron().classList.contains('rotate-90')).toBe(true);
+    expect(scrolled).toHaveBeenCalledTimes(1);
+
+    // A folded section unfolds when its file is opened again.
+    chevron().closest<HTMLElement>('.cursor-pointer')!.click();
+    expect(chevron().classList.contains('rotate-90')).toBe(false);
+    panel.showFile(FILE);
+    expect(chevron().classList.contains('rotate-90')).toBe(true);
+    expect(scrolled).toHaveBeenCalledTimes(2);
+  });
+
+  it('showFile forgets a file the catalog never listed once the column closes', async () => {
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    const { container, panel } = mount();
+    panel.showFile('/ws/other.params.js');
+    await vi.waitFor(() => expect(container.querySelector('[data-param-label]')).not.toBeNull());
+    panel.setOpen(false);
+
+    // The file shows up later; nothing jumps to it on its own.
+    panel.update({
+      projectUnit: 'mm',
+      files: [{ file: '/ws/other.params.js', relPath: 'other.params.js', params: [param({ file: '/ws/other.params.js' })], problems: [] }],
+    });
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 });

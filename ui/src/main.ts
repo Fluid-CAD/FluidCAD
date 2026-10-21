@@ -138,6 +138,7 @@ function startEditorSurface(): void {
       setTabs: (tabs, activePath, currentModelPath) => topBar.setTabs(tabs, activePath, currentModelPath),
       setWorkspaceName: (name) => topBar.setWorkspaceName(name),
       onEditRefused: (message) => showToast(message),
+      onOpenParamsFile: (absPath) => globalParamsPanel.showFile(absPath),
       initialOpen: editorPaneOpenOnArrival || editorPreferences.open,
       initialWidth: editorPreferences.width,
       // Whether the pane opens at startup is a Settings choice, not the last

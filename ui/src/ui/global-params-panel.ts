@@ -80,6 +80,10 @@ export class GlobalParamsPanel {
   private readonly collapsedGroups = new Set<string>();
   /** The sections on screen, by file — what an in-place update writes into. */
   private readonly lists = new Map<string, HTMLDivElement>();
+  /** The file sections on screen, by file — what {@link showFile} unfolds. */
+  private readonly sections = new Map<string, AccordionSection>();
+  /** The file {@link showFile} asked for, until a render puts its section on screen. */
+  private revealFile: string | null = null;
   /** What the last full render drew, structurally; the same again means values only. */
   private renderedSignature: string | null = null;
 
@@ -104,6 +108,29 @@ export class GlobalParamsPanel {
     this.setOpen(!this.open);
   }
 
+  /**
+   * Open the column on one params file — what opening that file from a tab
+   * or quick-open means, since its declarations are edited here rather than
+   * as code. Its section unfolds and scrolls into view; before the first
+   * fetch answers, as soon as the catalog lists it.
+   */
+  showFile(file: string): void {
+    this.revealFile = file;
+    this.setOpen(true);
+    this.applyReveal();
+  }
+
+  private applyReveal(): void {
+    const section = this.revealFile === null ? undefined : this.sections.get(this.revealFile);
+    if (!section) {
+      return;
+    }
+    this.revealFile = null;
+    // Unfolding through the section keeps collapsedFiles in step (onToggle).
+    section.setExpanded(true);
+    section.header.scrollIntoView?.({ block: 'nearest' });
+  }
+
   setOpen(open: boolean): void {
     if (this.open === open) {
       return;
@@ -124,6 +151,7 @@ export class GlobalParamsPanel {
       }
     } else {
       root.style.removeProperty(GLOBAL_PANEL_WIDTH_VARIABLE);
+      this.revealFile = null;
     }
     this.handlers.onOpenChange?.();
   }
@@ -194,6 +222,7 @@ export class GlobalParamsPanel {
   private render(): void {
     this.column.replaceChildren();
     this.lists.clear();
+    this.sections.clear();
     const snapshot = this.snapshot;
     this.renderedSignature = snapshot ? GlobalParamsPanel.signatureOf(snapshot) : null;
 
@@ -204,6 +233,7 @@ export class GlobalParamsPanel {
     for (const file of snapshot.files) {
       this.renderFile(file);
     }
+    this.applyReveal();
   }
 
   /**
@@ -261,6 +291,7 @@ export class GlobalParamsPanel {
     list.dataset.paramsFile = file.file;
     section.body.appendChild(list);
     this.lists.set(file.file, list);
+    this.sections.set(file.file, section);
 
     let html = '';
     if (file.problems.length > 0) {

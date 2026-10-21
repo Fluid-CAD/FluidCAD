@@ -29,7 +29,7 @@ import {
 } from './code-editor/index.ts';
 import { assemblyBodies } from './code-editor/assembly.ts';
 import { bindingOfDeclarator, findBindingReferences } from './code-editor/binding-references.ts';
-import { isSameNode } from './code-editor/declaration-calls.ts';
+import { boundVariable, isSameNode } from './code-editor/declaration-calls.ts';
 import { countIdentifierUses } from './code-editor/imports.ts';
 import type { ParamPartTarget } from './param-edit.ts';
 import {
@@ -56,11 +56,23 @@ export type ConfigurationCell = { literal?: ParamLiteralValue; text: string };
 export type ConfigurationTable = {
   /**
    * The definition name of the body the table sits in — the `part()` /
-   * `assembly()` call's first argument, which is the name the render files
-   * the body's parameters under (`ParamDefinition.body`). Null when the
-   * source names the body with something other than a string literal.
+   * `assembly()` call's first argument (`ParamDefinition.bodyName`). Null
+   * when the source names the body with something other than a string
+   * literal.
    */
   body: string | null;
+  /**
+   * The body's identity as the source spells it — what the render files
+   * the body's parameters under (`ParamDefinition.body`): a part's export
+   * binding, else its name and place among the file's parts of that name
+   * (`Plate#2`); an assembly's name. Null without a literal name or a
+   * binding. A part whose body built before its binding was known renders
+   * under the fallback — the route maps a table to the render's identity by
+   * {@link call} first.
+   */
+  id: string | null;
+  /** Where the `part()` / `assembly()` call starts: 1-based line, 0-based column — `ParamDefinition.part` of a part's parameters. */
+  call: { line: number; column: number };
   /** 1-based line the `configurations()` statement starts on. */
   line: number;
   /** Row name → label → cell, in source order. */
@@ -73,13 +85,15 @@ export type ConfigurationCellValue = InsertParamValue;
 export type ConfigurationEditResult = { newCode: string } | { error: string };
 
 /**
- * Which body's table a write goes to. `body` is the body's definition name
- * (`ParamDefinition.body`, the call's string-literal first argument);
- * `part` the `part()` statement's location as the render captured it
- * (`ParamDefinition.part`, the address `routes/params.ts` gives a part).
- * The name wins when the source spells it; the location covers a part
- * whose name is no literal. Neither — or a file with one body — means the
- * file's only body.
+ * Which body's table a write goes to. `body` is the body's identity as the
+ * render files its parameters (`ParamDefinition.body`: a part's export
+ * binding or `Name#n`, an assembly's name) — or, from an older client, its
+ * definition name; `part` the `part()` statement's location as the render
+ * captured it (`ParamDefinition.part`, the address `routes/params.ts` gives
+ * a part). An export binding the source spells wins, then the location,
+ * then a `Name#n` identity, then the one body of that name (refused when
+ * parts share it). Neither — or a file with one body — means the file's
+ * only body.
  */
 export type ConfigurationBodyRef = { body?: string; part?: ParamPartTarget };
 
@@ -143,6 +157,10 @@ type DefinitionBody = {
   node: TSNode;
   /** The source's name for it: the call's string-literal first argument, or null. */
   name: string | null;
+  /** Its identity as the source spells it — see `ConfigurationTable.id`. */
+  id: string | null;
+  /** Whether {@link id} is an export binding (as opposed to a name or a `Name#n` fallback). */
+  bound: boolean;
   /** The statement holding the call, the call, and its table literal (null for a non-literal argument). */
   table: { statement: TSNode; call: TSNode; object: TSNode | null } | null;
 };
@@ -195,8 +213,8 @@ export class ConfigurationEditor {
   /**
    * Every table as written, in source order — one per body that has a
    * `configurations()` statement whose argument is an object literal. Empty
-   * when the file has no addressable body (none, two `assembly()` bodies,
-   * two parts of one name).
+   * when the file has no addressable body (none, two `assembly()` bodies).
+   * Two parts of one name are two bodies, each with its own table.
    */
   static async readTables(code: string): Promise<ConfigurationTable[]> {
     const file = await ConfigurationEditor.read(code);
@@ -219,7 +237,14 @@ export class ConfigurationEditor {
         }
         rows[row.name] = cells;
       }
-      tables.push({ body: body.name, line: body.table.statement.startPosition.row + 1, rows });
+      const call = ConfigurationEditor.definitionCall(body.node);
+      tables.push({
+        body: body.name,
+        id: body.id,
+        call: { line: (call?.startPosition.row ?? body.node.startPosition.row) + 1, column: call?.startPosition.column ?? 0 },
+        line: body.table.statement.startPosition.row + 1,
+        rows,
+      });
     }
     return tables;
   }
@@ -715,47 +740,124 @@ export class ConfigurationEditor {
     return {
       tree,
       lines: splitLines(code),
-      bodies: bodies.map((body) => ({ node: body.node, name: body.name, table: findTable(body.node) })),
+      bodies: bodies.map((body) => ({ ...body, table: findTable(body.node) })),
     };
   }
 
   /**
    * The callback bodies a table may belong to: the file's single
    * `assembly()` body, else every `part()` body — nested ones included, in
-   * source order. Refused: no body, two `assembly()` bodies, and two parts
-   * of one name, which the render files under one definition name, so a
-   * row's cells could not be told apart between them.
+   * source order. Refused: no body, and two `assembly()` bodies. Two parts
+   * of one name are two bodies: the render files each under its own
+   * identity (its export binding, else `Name#n`), never its name.
    */
-  private static definitionBodies(root: TSNode): { node: TSNode; name: string | null }[] | { error: string } {
+  private static definitionBodies(root: TSNode): Omit<DefinitionBody, 'table'>[] | { error: string } {
     const assemblies = assemblyBodies(root);
     if (assemblies.length === 1) {
-      return [{ node: assemblies[0], name: ConfigurationEditor.bodyName(assemblies[0]) }];
+      const name = ConfigurationEditor.bodyName(assemblies[0]);
+      return [{ node: assemblies[0], name, id: name, bound: false }];
     }
     if (assemblies.length > 1) {
       return { error: 'Editing configurations requires a single assembly() callback body in the current file.' };
     }
-    const parts = partBodies(root).map((node) => ({ node, name: ConfigurationEditor.bodyName(node) }));
+    const parts = partBodies(root);
     if (parts.length === 0) {
       return { error: 'Editing configurations requires a part() or assembly() callback body in the current file.' };
     }
-    const named = parts.map((part) => part.name).filter((name): name is string => name !== null);
-    const twice = named.find((name, index) => named.indexOf(name) !== index);
-    if (twice !== undefined) {
-      return {
-        error: `Two part() bodies in this file are named "${twice}", so their configurations cannot be told apart — give each part its own name to edit configurations.`,
-      };
-    }
-    return parts;
+    const ordinals = ConfigurationEditor.partOrdinals(root);
+    return parts.map((node) => {
+      const name = ConfigurationEditor.bodyName(node);
+      const call = ConfigurationEditor.definitionCall(node);
+      const binding = call ? ConfigurationEditor.exportBinding(root, call) : null;
+      const ordinal = call ? ordinals.get(call.startIndex) : undefined;
+      const id = binding ?? (name !== null && ordinal !== undefined ? `${name}#${ordinal}` : null);
+      return { node, name, id, bound: binding !== null };
+    });
+  }
+
+  /** The `part()` / `assembly()` call a callback body belongs to. */
+  private static definitionCall(body: TSNode): TSNode | null {
+    const call = body.parent?.parent?.parent;
+    return call?.type === 'call_expression' ? call : null;
   }
 
   /** The definition call's name for a callback body: its string-literal first argument, else null. */
   private static bodyName(body: TSNode): string | null {
-    const call = body.parent?.parent?.parent;
-    if (call?.type !== 'call_expression') {
+    const call = ConfigurationEditor.definitionCall(body);
+    if (!call) {
       return null;
     }
     const first = call.childForFieldName('arguments')?.namedChildren.find((c) => c.type !== 'comment');
     return first ? stringLiteralValue(first) : null;
+  }
+
+  /**
+   * Each literal-named `part()` call's place among the file's calls of
+   * that name, in source order, by the call's start index — what the
+   * engine's `Name#n` fallback counts (lib `PartIdentity`). A nested
+   * part's call runs when its enclosing body builds, so for those the
+   * engine's order can differ; the route addresses parts by location.
+   */
+  private static partOrdinals(root: TSNode): Map<number, number> {
+    const counts = new Map<string, number>();
+    const ordinals = new Map<number, number>();
+    for (const node of walkTree(root)) {
+      if (node.type !== 'call_expression') {
+        continue;
+      }
+      const fn = node.childForFieldName('function');
+      if (fn?.type !== 'identifier' || fn.text !== 'part') {
+        continue;
+      }
+      const first = node.childForFieldName('arguments')?.namedChildren.find((c) => c.type !== 'comment');
+      const name = first ? stringLiteralValue(first) : null;
+      if (name === null) {
+        continue;
+      }
+      const ordinal = (counts.get(name) ?? 0) + 1;
+      counts.set(name, ordinal);
+      ordinals.set(node.startIndex, ordinal);
+    }
+    return ordinals;
+  }
+
+  /**
+   * The export binding of a top-level `const <x> = part(…)` — `x` when the
+   * declaration is exported, and every name an `export { x as y }` clause
+   * gives it — the first in code-unit order, as the engine picks it
+   * (lib `PartIdentity`). Null for a part no export names (`default`
+   * names no binding).
+   */
+  private static exportBinding(root: TSNode, call: TSNode): string | null {
+    const local = boundVariable(call);
+    if (local === null) {
+      return null;
+    }
+    let declaration: TSNode | null = call.parent;
+    while (declaration && declaration.type !== 'lexical_declaration' && declaration.type !== 'variable_declaration') {
+      declaration = declaration.parent;
+    }
+    const statement = declaration?.parent?.type === 'export_statement' ? declaration.parent : declaration;
+    if (!statement || statement.parent?.type !== 'program') {
+      return null;
+    }
+    const names: string[] = statement.type === 'export_statement' ? [local] : [];
+    for (const node of root.namedChildren) {
+      if (node.type !== 'export_statement' || node.childForFieldName('source')) {
+        continue;
+      }
+      const clause = node.namedChildren.find((c) => c.type === 'export_clause');
+      for (const specifier of clause?.namedChildren ?? []) {
+        if (specifier.type !== 'export_specifier' || specifier.childForFieldName('name')?.text !== local) {
+          continue;
+        }
+        const exported = (specifier.childForFieldName('alias') ?? specifier.childForFieldName('name'))!.text;
+        if (exported !== 'default' && !names.includes(exported)) {
+          names.push(exported);
+        }
+      }
+    }
+    return names.length > 0 ? names.sort()[0] : null;
   }
 
   /** Body `index` of the file as `code` stands, with its table. */
@@ -769,12 +871,14 @@ export class ConfigurationEditor {
 
   /**
    * The body a reference names, as its position among the file's bodies:
-   * by name when the source spells it, else by the `part()` statement's
-   * location, else the file's only body.
+   * by the export binding the source spells, else by the `part()`
+   * statement's location, else by a `Name#n` identity, else by the one body
+   * of that name (an older client's reference; refused when parts share
+   * it), else the file's only body.
    */
   private static target(file: FileBodies, ref: ConfigurationBodyRef | undefined): number | { error: string } {
     if (ref?.body !== undefined) {
-      const index = file.bodies.findIndex((body) => body.name === ref.body);
+      const index = file.bodies.findIndex((body) => body.bound && body.id === ref.body);
       if (index !== -1) {
         return index;
       }
@@ -789,6 +893,19 @@ export class ConfigurationEditor {
         return index;
       }
       return { error: `the part() at line ${ref.part.line} cannot hold a configurations() table in this file` };
+    }
+    if (ref?.body !== undefined) {
+      const index = file.bodies.findIndex((body) => body.id === ref.body);
+      if (index !== -1) {
+        return index;
+      }
+      const named = file.bodies.filter((body) => body.name === ref.body);
+      if (named.length === 1) {
+        return file.bodies.indexOf(named[0]);
+      }
+      if (named.length > 1) {
+        return { error: `${named.length} part() bodies in this file are named "${ref.body}" — address the part by its export name or its part() statement's line.` };
+      }
     }
     if (file.bodies.length === 1) {
       return 0;

@@ -501,6 +501,14 @@ export type UIParamDefinition = {
   /** The `part()` statement declaring it — `kind: 'part'` only. */
   part?: { filePath: string; line: number; column: number };
   /**
+   * The declaring body's identity — with the label, the parameter's key:
+   * a part's export binding (`export const lid = part('Plate', …)` → `lid`),
+   * else `Name#n`; an assembly's name. Two parts of one name are two bodies.
+   */
+  body?: string;
+  /** The declaring body's definition name — what the part is shown as. */
+  bodyName?: string;
+  /**
    * The active configuration row's cell for this label — present only while
    * a row is active and names the label. The value a session override sits
    * on; the panel draws such a row's label bold.
@@ -519,12 +527,14 @@ export type UIConfigurations = {
   names: string[];
   rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
   /**
-   * The rows per table, each under the body (definition name) that declares
-   * it — `rows` is their merge. A part file with several `part()` bodies has
-   * one table per body; the Manage grid reads each part's cells here.
+   * The rows per table, each under the body that declares it (its identity,
+   * the parameters' `body`, and its definition `name`) — `rows` is their
+   * merge. A part file with several `part()` bodies has one table per body;
+   * the Manage grid reads each part's cells here.
    */
   tables?: {
     body: string;
+    name?: string;
     names: string[];
     rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
   }[];
@@ -862,7 +872,8 @@ export type UISetParamMessage = {
   type: 'set-param';
   label: string;
   /**
-   * The part (or assembly) whose `label` it is — the definition's `body`.
+   * The part (or assembly) whose `label` it is — the definition's `body`
+   * (its identity; a part name still names the one part so named).
    * Optional for a label only one part declares; a label two parts declare
    * is refused without it.
    */

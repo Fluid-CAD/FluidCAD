@@ -47,6 +47,8 @@ describe('ConfigurationEditor.readTables', () => {
     const tables = await ConfigurationEditor.readTables(TABLE);
     expect(tables).toEqual([{
       body: 'frame',
+      id: 'frame',
+      call: { line: 3, column: 21 },
       line: 4,
       rows: {
         Compact: {
@@ -78,7 +80,7 @@ describe('ConfigurationEditor.readTables', () => {
   it('finds the table in a single part() body too', async () => {
     const code = `import { part, configurations } from 'fluidcad/core';\nexport const p = part('p', () => {\n  configurations({ Wide: { Width: 1 } });\n});\n`;
     expect(await ConfigurationEditor.readTables(code)).toEqual([
-      { body: 'p', line: 3, rows: { Wide: { Width: { literal: 1, text: '1' } } } },
+      { body: 'p', id: 'p', call: { line: 2, column: 17 }, line: 3, rows: { Wide: { Width: { literal: 1, text: '1' } } } },
     ]);
   });
 });
@@ -572,12 +574,10 @@ describe('ConfigurationEditor — several part() bodies', () => {
       .toBe('a configuration named "Cap" already exists');
   });
 
-  it('refuses a file whose parts cannot be told apart', async () => {
+  it('refuses a part name two parts share, naming how to address them', async () => {
     const twins = TWO_PARTS.replace(`part('Lid'`, `part('Plate'`);
-    const message = 'Two part() bodies in this file are named "Plate", so their configurations cannot be told apart — give each part its own name to edit configurations.';
-    expect(failure(await ConfigurationEditor.addRow(twins, 'Big', [{ body: 'Plate', values: { Width: 1 } }]))).toBe(message);
-    expect(failure(await ConfigurationEditor.renameRow(twins, 'Wide', 'Broad'))).toBe(message);
-    expect(await ConfigurationEditor.readTables(twins)).toEqual([]);
+    expect(failure(await ConfigurationEditor.addRow(twins, 'Big', [{ body: 'Plate', values: { Width: 1 } }])))
+      .toBe('2 part() bodies in this file are named "Plate" — address the part by its export name or its part() statement\'s line.');
   });
 
   it('rides apply() with per-body cells and a home', async () => {
@@ -589,6 +589,78 @@ describe('ConfigurationEditor — several part() bodies', () => {
     const saved = await ConfigurationEditor.apply(TWO_PARTS, { kind: 'set', name: 'Wide', bodies: [{ part: { line: 13, column: 20 }, values: { Width: 50 } }] });
     expect(saved.error).toBeUndefined();
     expect(saved.newCode).toContain(`part('Lid', () => {\n  const configuration = configurations({\n    Wide: { Width: 50 },\n  });`);
+  });
+});
+
+// Two part() bodies with the same NAME (plans/part-configurations-research.md
+// Stage 6): two bodies, each with its own table, addressed by the identity
+// the render files them under — the export binding (`plate`, `lid`), else
+// `Plate#n` — or by the part() statement's line.
+const TWINS = [
+  `import { part, param, configurations, extrude } from 'fluidcad/core';`,
+  ``,
+  `export const plate = part('Plate', () => {`,
+  `  const configuration = configurations({`,
+  `    Wide: { Width: 80 },`,
+  `  });`,
+  `  const width = param('Width', 40);`,
+  `  extrude(width);`,
+  `});`,
+  ``,
+  `export const lid = part('Plate', () => {`,
+  `  const width = param('Width', 20);`,
+  `  extrude(width);`,
+  `});`,
+  ``,
+].join('\n');
+
+describe('ConfigurationEditor — two parts of one name', () => {
+  it('reads each body\'s table under its binding, with its name and call', async () => {
+    const both = TWINS.replace(`export const lid = part('Plate', () => {\n`, `export const lid = part('Plate', () => {\n  configurations({ Wide: { Width: 30 } });\n`);
+    const tables = await ConfigurationEditor.readTables(both);
+    expect(tables.map((t) => [t.body, t.id, t.call, t.line, t.rows.Wide.Width.literal])).toEqual([
+      ['Plate', 'plate', { line: 3, column: 21 }, 4, 80],
+      ['Plate', 'lid', { line: 11, column: 19 }, 12, 30],
+    ]);
+  });
+
+  it('writes a row\'s cells into the body its binding names, each table its own', async () => {
+    const added = ok(await ConfigurationEditor.addRow(TWINS, 'Big', [
+      { body: 'lid', values: { Width: 45 } },
+      { body: 'plate', values: { Width: 90 } },
+    ]));
+    expect(added).toContain(`export const plate = part('Plate', () => {\n  const configuration = configurations({\n    Wide: { Width: 80 },\n    Big: { Width: 90 },\n  });`);
+    expect(added).toContain(`export const lid = part('Plate', () => {\n  const configuration = configurations({\n    Big: { Width: 45 },\n  });`);
+  });
+
+  it('addresses a body by its part() line, and an empty row\'s home by its binding', async () => {
+    const saved = ok(await ConfigurationEditor.setCells(TWINS, 'Wide', [{ part: { line: 11, column: 19 }, values: { Width: 33 } }]));
+    expect(saved).toContain(`export const lid = part('Plate', () => {\n  const configuration = configurations({\n    Wide: { Width: 33 },\n  });`);
+    expect(saved).toContain(`    Wide: { Width: 80 },`);
+    const empty = ok(await ConfigurationEditor.addRow(TWINS, 'Plain', [], { body: 'lid' }));
+    expect(empty).toContain(`export const lid = part('Plate', () => {\n  const configuration = configurations({\n    Plain: {},\n  });`);
+  });
+
+  it('addresses an unexported pair by name and order, and an export clause\'s name as the binding', async () => {
+    const unexported = TWINS.replace('export const plate', 'const plate').replace('export const lid', 'const lid');
+    const added = ok(await ConfigurationEditor.addRow(unexported, 'Big', [{ body: 'Plate#2', values: { Width: 45 } }]));
+    expect(added).toContain(`const lid = part('Plate', () => {\n  const configuration = configurations({\n    Big: { Width: 45 },\n  });`);
+    const clause = `${unexported}export { lid as top, plate };\n`;
+    const tables = await ConfigurationEditor.readTables(clause.replace(`const lid = part('Plate', () => {\n`, `const lid = part('Plate', () => {\n  configurations({ Wide: { Width: 30 } });\n`));
+    expect(tables.map((t) => t.id)).toEqual(['plate', 'top']);
+  });
+
+  it('renames, removes and commits the grid across both tables', async () => {
+    const both = TWINS.replace(`export const lid = part('Plate', () => {\n`, `export const lid = part('Plate', () => {\n  configurations({ Wide: { Width: 30 } });\n`);
+    const renamed = ok(await ConfigurationEditor.renameRow(both, 'Wide', 'Broad'));
+    expect(renamed.match(/Broad: \{ Width: \d+ \}/g)).toEqual(['Broad: { Width: 80 }', 'Broad: { Width: 30 }']);
+    const grid = ok(await ConfigurationEditor.applyTable(both, {
+      bodies: [{ body: 'plate', rows: { Wide: { Width: 81 } } }, { body: 'lid', rows: { Wide: { Width: 31 } } }],
+    }));
+    expect(grid).toContain(`    Wide: { Width: 81 },`);
+    expect(grid).toContain(`  configurations({ Wide: { Width: 31 } });`);
+    const removed = ok(await ConfigurationEditor.removeRow(both, 'Wide'));
+    expect(removed).not.toContain('configurations(');
   });
 });
 

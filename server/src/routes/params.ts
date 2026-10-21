@@ -289,9 +289,11 @@ export function createParamsRouter(
   });
 
   // `body` names the part (or assembly) whose `label` this is — the
-  // definition's `body`. Without it the label must name one part's
-  // parameter: a label two parts of the file declare is refused, never set
-  // on both.
+  // definition's `body`, the part's hidden identity (its export binding,
+  // else `Name#n`); a part name from an older client names the one part so
+  // named, and is refused when parts share it. Without `body` the label
+  // must name one part's parameter: a label two parts of the file declare
+  // is refused, never set on both.
   router.post('/set-param', async (req, res) => {
     const { label, value, body } = req.body;
     if (typeof label !== 'string') {
@@ -299,7 +301,7 @@ export function createParamsRouter(
       return;
     }
     if (body !== undefined && body !== null && (typeof body !== 'string' || body === '')) {
-      res.status(400).json({ error: 'body must be the name of the part() or assembly() that declares the parameter' });
+      res.status(400).json({ error: 'body must be the id of the part() or assembly() that declares the parameter' });
       return;
     }
     const refused = fluidCadServer.setParam(fluidCadServer.getCurrentFileName(), label, value, body ?? undefined);

@@ -36,7 +36,8 @@ export type SceneConfigurations = {
   rows: Record<string, Record<string, ParamVal>>;
   /**
    * The same rows per table, each under the body that declares it (the
-   * `part()` / `assembly()` definition name, `ParamDefinition.body`), in the
+   * body's identity, `ParamDefinition.body`: a part's export binding or
+   * `Name#n`, an assembly's name), in the
    * order the render recorded them. `rows` merges them for the dropdown —
    * the last table wins for a name two tables share — while a part file
    * with several `part()` bodies keeps each part's cells in its own table,
@@ -49,7 +50,10 @@ export type SceneConfigurations = {
 
 /** One body's `configurations()` table as the render recorded it: its row names in order, and their cells. */
 export type SceneConfigurationTable = {
+  /** The body's identity — `ParamDefinition.body` of its parameters. */
   body: string;
+  /** The body's definition name (`ParamDefinition.bodyName`), what the part is shown as; absent from an engine that predates identities. */
+  name?: string;
   names: string[];
   rows: Record<string, Record<string, ParamVal>>;
 };

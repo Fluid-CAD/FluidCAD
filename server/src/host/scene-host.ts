@@ -60,6 +60,32 @@ export function isAssemblyDefinition(value: unknown): value is { assemblyName?: 
 }
 
 /**
+ * Hands a module's part definitions their export bindings — a part body's
+ * hidden identity (lib `PartIdentity`: `export const lid = part('Plate', …)`
+ * is the body `lid`, whatever the part is named). An entry render binds
+ * every exported definition right after the module evaluated and before it
+ * builds the first body, so a part another reads on demand is named too; a
+ * factory's definition is bound once the factory returned it. Duck-typed
+ * and optional: an engine that predates identities has no `bindExport`, and
+ * its bodies stay named by their part names.
+ */
+export class PartExportBindings {
+  /** Bind every part definition the module exports directly. */
+  static bindAll(mod: Record<string, unknown>): void {
+    for (const [exportName, value] of Object.entries(mod)) {
+      PartExportBindings.bind(value, exportName);
+    }
+  }
+
+  /** Bind `value` to `exportName` when it is a part definition that can take one. */
+  static bind(value: unknown, exportName: string): void {
+    if (isPartDefinition(value)) {
+      (value as { bindExport?: (name: string) => unknown }).bindExport?.(exportName);
+    }
+  }
+}
+
+/**
  * Duck-typed check for a fluidcad `part()` definition — lazy since the
  * part-parameters work; the materialized scene object keeps
  * `getType() === 'part'`, so old-engine value exports (eagerly built Parts)

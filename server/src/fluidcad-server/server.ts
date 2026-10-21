@@ -789,6 +789,7 @@ export class FluidCadServer {
   private static configurationTables(registry: ParamRegistry): SceneConfigurationTable[] {
     return registry.getConfigurationTables().map((table) => ({
       body: table.definition,
+      ...(typeof table.name === 'string' ? { name: table.name } : {}),
       names: table.names.slice(),
       rows: table.rows,
     }));
@@ -1970,10 +1971,13 @@ export class FluidCadServer {
   /**
    * Override a parameter's value for the session (the source is never
    * touched). `body` names the part (or assembly) whose `label` it is — the
-   * `body` of the definition the render listed. Without it the label must
-   * name one body's parameter in the last render: a label two parts declare
-   * is refused, and the refusal's text returned (null when set). A label no
-   * render has declared yet is kept by label and applies once it renders.
+   * `body` of the definition the render listed (a part's hidden identity),
+   * or, from an older client, the part's name, which must then name one
+   * part declaring the label. Without it the label must name one body's
+   * parameter in the last render: a label two parts declare (or a name two
+   * parts share) is refused, and the refusal's text returned (null when
+   * set). A label no render has declared yet is kept by label and applies
+   * once it renders.
    */
   setParam(sessionId: string, label: string, value: any, body?: string): string | null {
     sessionId = normalizePath(sessionId);
@@ -1998,13 +2002,17 @@ export class FluidCadServer {
    * them — for a route that switched the configuration for one capture
    * (`selectConfiguration` drops the overrides) and restores the session
    * afterwards, or one that re-selects a renamed row with its tweaks.
-   * Internal to those round trips: not a public route.
+   * Internal to those round trips: not a public route. A record keyed by
+   * part names (from before bodies had an identity) resolves each name to
+   * the one part so named; an entry naming parts that share the name is
+   * left out, and the refusals are returned.
    */
-  restoreParamOverrides(sessionId: string, overrides: Record<string, any>): void {
+  restoreParamOverrides(sessionId: string, overrides: Record<string, any>): string[] {
     sessionId = normalizePath(sessionId);
-    this.paramSession(sessionId).restore(overrides);
+    const refusals = this.paramSession(sessionId).restore(overrides);
     this.lastRendered.delete(sessionId);
     this.renderingCache.delete(sessionId);
+    return refusals;
   }
 
   /**

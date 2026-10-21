@@ -2,7 +2,7 @@ import { readFile } from 'fs/promises';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 import type { SceneHost } from '../host/scene-host.ts';
-import { isAssemblyDefinition, isPartDefinition } from '../host/scene-host.ts';
+import { isAssemblyDefinition, isPartDefinition, PartExportBindings } from '../host/scene-host.ts';
 import { readDeclaredUnit } from '../file-unit.ts';
 import type { LengthUnit } from '../project-config.ts';
 import { createParamRegistry, getParamRegistry, setParamRegistry } from '../../../lib/dist/index.js';
@@ -216,6 +216,9 @@ export async function scanFileForParts(
       result.unit = (await readDeclaredUnitOf(host, absPath)) ?? projectUnit;
       return result;
     }
+    // Each exported part's binding is its body's identity, as in the
+    // file's own render — bound before any export below builds.
+    PartExportBindings.bindAll(mod);
     // A file's `unit()` statement declares during evaluation; the module
     // scene resolves it (root file = this file) — read it now, before the
     // per-export scenes below start fresh registries that no longer hold it.
@@ -287,6 +290,7 @@ export async function scanFileForParts(
           result.errors.push({ exportName, message: err?.message ?? String(err) });
           continue;
         }
+        PartExportBindings.bind(returned, exportName);
       }
       // assembly() definitions are LAZY — a factory return (or a direct
       // definition export) has created no records yet. Run the body at ROOT

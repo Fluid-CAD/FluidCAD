@@ -3,7 +3,7 @@ import { realpathSync } from 'fs';
 import { dirname, resolve, isAbsolute } from 'path';
 import { normalizePath } from '../normalize-path.ts';
 import type { SceneHost } from './scene-host.ts';
-import { isAssemblyDefinition, isPartDefinition } from './scene-host.ts';
+import { isAssemblyDefinition, isPartDefinition, PartExportBindings } from './scene-host.ts';
 import { getBlockedNodeModule } from './blocked-imports.ts';
 import {
   ENGINE_PACKAGE_ROOT,
@@ -176,10 +176,14 @@ export class LocalSceneHost implements SceneHost {
 
   async loadModule(filePath: string) {
     const mod = await this.server.ssrLoadModule(filePath);
-    for (const value of Object.values(mod)) {
+    // Each exported part's binding is its body's identity — handed over
+    // before the first body builds below.
+    PartExportBindings.bindAll(mod);
+    for (const [exportName, value] of Object.entries(mod)) {
       let result: unknown = value;
       if (typeof value === 'function') {
         result = await value();
+        PartExportBindings.bind(result, exportName);
       }
       // assembly() definitions are LAZY — an exported factory (or a direct
       // definition export) creates no scene records until run. Entry-file

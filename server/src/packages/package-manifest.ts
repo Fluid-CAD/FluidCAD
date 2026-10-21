@@ -20,6 +20,16 @@ export type PackageManifestFeature = {
   meta: FeatureMetaSnapshot;
 };
 
+/**
+ * One row of a definition's `configurations()` table: the name
+ * `insert(def, name)` takes and the `{ label: value }` cells it sets (a
+ * parameter the row leaves out keeps its literal).
+ */
+export type PackageManifestConfiguration = {
+  name: string;
+  values: Record<string, unknown>;
+};
+
 /** One part or assembly definition a package exports. */
 export type PackageManifestPart = {
   exportName: string;
@@ -31,6 +41,12 @@ export type PackageManifestPart = {
   exportKind: 'value' | 'factory';
   /** The definition's `param()` interface, defaults included. */
   params: CatalogParamDef[];
+  /**
+   * The definition's `configurations()` rows in declaration order, as the
+   * pack's render declared them; absent when it declares no table. The hub
+   * offers them as the model's configurations in its viewer.
+   */
+  configurations?: PackageManifestConfiguration[];
 };
 
 /**

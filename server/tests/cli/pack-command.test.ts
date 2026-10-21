@@ -126,6 +126,35 @@ describe('fluidcad pack', () => {
     }]);
   });
 
+  it("snapshots a part's configurations() rows in declaration order, cells as declared; a part without a table carries none", async () => {
+    write('parts/bolt.part.js', [
+      `import { configurations, cylinder, param, part } from 'fluidcad/core';`,
+      ``,
+      `export const bolt = part('Bolt', () => {`,
+      `  configurations({`,
+      `    M8: { Diameter: 8, Length: 40 },`,
+      `    M6: { Diameter: 6 },`,
+      `  });`,
+      `  const diameter = param('Diameter', 5, 'number', { description: 'Shank diameter' });`,
+      `  const length = param('Length', 30, 'number', { description: 'Shank length' });`,
+      `  cylinder(diameter / 2, length);`,
+      `});`,
+      ``,
+    ].join('\n'));
+    const run = cli(['pack']);
+    expect(run.status).toBe(0);
+    const manifest = await manifestOf(path.join(workspace, 'acme-kit-0.1.0.fluidpkg'));
+    const bolt = manifest.parts.find((p: any) => p.exportName === 'bolt');
+    expect(bolt.configurations).toEqual([
+      { name: 'M8', values: { Diameter: 8, Length: 40 } },
+      { name: 'M6', values: { Diameter: 6 } },
+    ]);
+    // The literals are what the pack's render showed; the rows sit beside them.
+    expect(bolt.params.map((p: any) => [p.label, p.currentValue])).toEqual([['Diameter', 5], ['Length', 30]]);
+    const spacer = manifest.parts.find((p: any) => p.exportName === 'spacer');
+    expect('configurations' in spacer).toBe(false);
+  });
+
   it('writes to the file -o names, or into the directory it names', () => {
     const file = path.join(scratch, 'out', 'kit.fluidpkg');
     fs.mkdirSync(path.dirname(file));

@@ -91,7 +91,7 @@ it. The Global Parameters panel (the rail button below Code) edits that literal 
 source and re-renders the open model; there is no "reset to defaults".
 `insert(bracket, { "Wall thickness": 5 })` names no parameter of the part
 and warns: *`Wall thickness` is a project parameter — edit it in the
-Parameters panel, not per instance.* A value that must vary per instance
+Global Parameters panel, not per instance.* A value that must vary per instance
 is a part `param()`; a value that must agree across the project is a
 project parameter.
 

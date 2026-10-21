@@ -73,8 +73,8 @@ const deep = insert(frame, "Wide", { Depth: 1000 }).translate(0, 900, 0);
   `.offset(0, 0, gap)`). A parameter only one row needs is declared under
   `if (configuration === "Wide") { … }` — the return value of
   `configurations()` is the active row's name.
-- **Resolution order** for a `param()`: session tweak or insert override →
-  the active row's cell → the literal.
+- **Resolution order** for a `param()`: insert override (or a read-only
+  viewer's session tweak) → the active row's cell → the literal.
 - **Units**: cells are in the defining file's unit, like `insert()`
   overrides.
 - **Project parameters** (`*.params.js`) cannot be set by a row; a cell
@@ -92,9 +92,10 @@ const deep = insert(frame, "Wide", { Depth: 1000 }).translate(0, 900, 0);
   with one warning listing the declared names.
 - **Cells are per part.** Two parts declaring `Width` have two separate
   parameters; a row sets each in its own part's table, never across parts.
-- **Panel writes:** Add / Save put each part's changed values into that
-  part's own table (created first in that body); a part the row changes
-  nothing in gets no entry. A row with nothing changed goes into the
+- **Panel writes:** a value changed on a row goes into its own part's
+  table (created first in that body), and Add puts each part's values
+  into that part's own table; a part the row changes nothing in gets no
+  entry. A row with nothing changed goes into the
   part the panel's **Part** dropdown names. Rename / Delete act on every table holding the row; a
   table a delete empties is removed (the import goes with the last one).
 - **Manage grid:** columns grouped under a header per part. A pasted header
@@ -113,21 +114,33 @@ the part and the assembly workspace alike) (or `select_configuration` / `?config
 on a share link) and remembered per file in `.fluidcad/editor-state.json`.
 Switching never edits the source. Two tabs or two users can show two rows.
 
-The panel layers on top of the row exactly as it does on Default: a
-control change is a session tweak (**● modified** beside the
-**Configuration** label), the header's ↺ (*Revert changes*) drops the
-tweaks, and the ⋮ menu on that label line writes source:
+In an editing host (the desktop app, the in-page editor, VS Code, Neovim)
+the panel **writes every value into the source** as it is committed
+(Enter / blur of a field, slider release, select or checkbox change), one
+acked edit and one undo step each (`POST /api/params/value`):
+
+- on a row → that row's cell in the declaring part's table (the table or
+  the row in it is created when missing; the label turns bold);
+- on **Default** — the only configuration of a file with no table → the
+  `param()` default literal, as the pencil's default-value change does.
+
+There is no "modified" state, no Save and no prompt on a switch: switching
+rows just switches. A value outside `min`/`max` or a select's options is
+refused, and so is a non-literal table or a default that is an expression;
+the source is left untouched. A ↺ on a row-set (bold) parameter clears the
+row's cell, so the parameter inherits its literal again. The read-only
+viewer cannot write: its changes are session tweaks, reset by the header ↺.
+
+The ⋮ menu on the **Configuration** label line holds the row actions:
 
 | action | writes |
 |--------|--------|
-| **Add configuration…** / **Duplicate…** | a new row holding every value on screen that differs from its literal (the active row's cells plus the tweaks); creates the `configurations({…})` statement first in the body and its import when the file has none; the new row becomes active |
-| **Save** | the tweaked labels into the active row (cells added or rewritten as literals); disabled on Default and when nothing is modified |
+| **Add configuration…** / **Duplicate…** | a new row holding every value on screen that differs from its literal (the active row's cells; empty on Default); creates the `configurations({…})` statement first in the body and its import when the file has none; the new row becomes active |
 | **Rename…** / **Delete** | the row's key / the row; deleting the last row removes the statement (or leaves `configurations({})` when the body reads its result) |
 | **Manage…** | the whole table in a grid — rows × parameters, blank cells inherit, a spreadsheet range pastes in (matched by header labels); one rewrite on **Apply** |
 
-Switching rows with tweaks pending asks **Save / Discard / Cancel**
-(from Default: Discard / Cancel). Renaming a `param()` label through the
-pencil renames the key in every row; deleting a `param()` drops its cells.
+Renaming a `param()` label through the pencil renames the key in every
+row; deleting a `param()` drops its cells.
 
 ## Inserting a configuration
 
@@ -167,7 +180,8 @@ parameter whose values are the child's row names, passed as the name —
   the one on screen is rendered on the side and places parts at their
   statement poses (the viewer solves mates for the row on screen only).
 - MCP: `get_scene_summary().configurations` is `{ active, names, rows,
-  modified }`. `select_configuration(name)` switches the session like the
+  modified }` (`modified`: session overrides sit on top of the row — only
+  a read-only viewer or a `/set-param` caller makes them). `select_configuration(name)` switches the session like the
   dropdown. `export`, `screenshot`, `screenshot_multi`, `recompute` and
   `pack_model` take `configuration`; export renders that row for the one
   call, a screenshot switches the viewer for the capture and switches back.

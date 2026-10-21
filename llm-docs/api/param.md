@@ -45,8 +45,9 @@ comes from:
 - **The defining file, open in the editor** — the Parameters panel, which
   lists the parameters of one part at a time (the part selected in the
   History panel by default).
-  Editing a control re-renders and writes the new value back as the
-  statement's default.
+  A committed control edit (Enter / blur, slider release, a pick) writes
+  the value into the source — the statement's default, or the active
+  configuration row's cell when a row is on screen — as one undo step.
 - **Inserted into an assembly** — the definition's parameter interface.
   `insert(def, { Length: 380 })` supplies values per instance; unknown keys
   are warned about; values are read in the **part file's unit**.

@@ -84,7 +84,7 @@ export const frame = assembly("frame", () => {
 
 Resolution of a `param()` in a body with a table, highest first:
 
-1. a session override (the Parameters panel tweak) or the `insert()` override object,
+1. the `insert()` override object (or a session override: a read-only viewer's panel tweak),
 2. the active row's cell, coerced to the literal's type,
 3. the `param()` literal.
 

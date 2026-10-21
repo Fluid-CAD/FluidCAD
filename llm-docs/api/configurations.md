@@ -22,6 +22,33 @@ The `'Default'` configuration is the `param()` literals and is always
 present.
 
 ```js
+import { part, param, configurations } from "fluidcad/core";
+
+export const bracket = part("Bracket", () => {
+  // First statement of the body, before any param().
+  const configuration = configurations({
+    M8:  { Screw: "M8", Width: 50, Thickness: 5 },
+    M10: { Screw: "M10", Width: 60, Thickness: 6, Gusset: true },
+  });
+  // A select cell is the option's value, so hole(screw, …) reads it as is.
+  const screw = param("Screw", "M6", "select", {
+    options: [
+      { label: "M6", value: "M6" },
+      { label: "M8", value: "M8" },
+      { label: "M10", value: "M10" },
+    ],
+  });
+  const width = param("Width", 40, "number", { min: 30, max: 120, step: 5 });
+  const thickness = param("Thickness", 4);
+  const gusset = param("Gusset", false, "checkbox");
+  // … the L profile extruded `width`, hole(screw, …) in each leg,
+  // if (gusset) { … } for the rib only the M10 row turns on.
+});
+```
+
+The same table in an assembly body:
+
+```js
 import { assembly, insert, param, configurations } from "fluidcad/core";
 import { rail } from "./rail.part.js";
 import { lid } from "./lid.part.js";
@@ -69,6 +96,16 @@ Resolution of a `param()` in a body with a table, highest first:
   state — it is never written into the source — and is remembered per
   file in `.fluidcad/editor-state.json`. A remembered name the table no
   longer declares renders Default with a warning.
+- **Several bodies in one file** (two `part()` calls, or a part built in
+  an assembly body): row names are file-wide — one active name for the
+  file, the dropdown lists the union — but each body applies only its own
+  table's row. A body whose table lacks the name, or that has no table,
+  builds its literals; a name no table declares warns once at the end of
+  the render. Two parts' same label are two parameters; a row's cell in
+  part A never sets part B's. The panel writes each part's cells into that
+  part's table, refuses edits while two parts share a name, and the Manage
+  grid groups columns by part (paste titles `Part · Label` for a shared
+  label).
 - **From a parent**: `insert(def, 'Wide')` builds that row for that
   instance; `insert(def, 'Wide', { Depth: 1000 })` layers overrides on top
   of the row. `insert(def, 'Default')` is the same as `insert(def)`. See
@@ -130,6 +167,18 @@ export const machine = assembly("machine", () => {
 STEP names of an instance or sub-assembly inserted with a configuration
 name carry it: `frame (Wide)`. `fluidcad export step --configuration Wide`
 exports one row; `--all-configurations` writes `<model>.step` for Default
-and `<model>-<Row>.step` per row (row names made file-safe). MCP `export`,
+and `<model>-<Row>.step` per row (row names made file-safe), and writes
+nothing if any row fails. The Export dialog of a part names its files
+after the file: `bracket.step`, `bracket-M8.step`,
+`bracket-configurations.zip` (all rows or no zip).
+
+For a part file the default selection is **every solid the chosen row
+builds** — desktop File ▸ Export…, the CLI without `--shapes`, and
+`POST /api/export` with `shapeIds: "all"` — so a row that adds or drops a
+body exports exactly its own bodies. Listed shape ids (the top bar pick,
+`--shapes`, MCP `export`'s `shapeIds`) name solids of the row on screen;
+each is matched into the exported row by lineage, and one the row does not
+build fails with HTTP 400 and `missing: [{ shapeId, label }]` instead of
+exporting another body. MCP `export`,
 `screenshot`, `screenshot_multi`, `recompute` and `pack_model` take
 `configuration`. See [[concepts/configurations]].

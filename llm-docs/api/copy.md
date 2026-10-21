@@ -145,7 +145,7 @@ for a connector on a patterned hole.
 import { part, sketch, circle, extrude, cut, repeat, connector, copy, origin } from "fluidcad/core";
 import { coincident, diameter, fix } from "fluidcad/constraints";
 
-const flange = part("Flange", () => {
+export const flange = part("Flange", () => {
   sketch("xy", () => {
     const rim = circle([0, 0], 120);
     coincident(rim.center(), origin());

@@ -94,7 +94,7 @@ other `*.params.js`) and `export const` declarations — no geometry, no
 import { part, param, sketch, line, circle, extrude, fillet, origin } from "fluidcad/core";
 import { coincident, diameter, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 
-const extrusion = part("Extrusion", () => {
+export const extrusion = part("Extrusion", () => {
   const size = param("Series", 20, "select", {
     options: [
       { label: "20 × 20", value: 20 },

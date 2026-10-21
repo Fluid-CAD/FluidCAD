@@ -1,7 +1,7 @@
 ---
 id: api/part
 title: "part(name, callback)"
-summary: "Declares a named part — a lazy definition whose body builds the geometry, with param() as its parameter interface, connector() as its mating interface and expose() as its published geometry. Chain .name() to rename it and .material(id) to give it a material (built-in fluidcad-… ids or a key of the fluidcad.json materials map) for mass in Shape Properties. Only an exported part() can be inserted into an assembly. Inside it shapes fuse with each other and never with siblings outside."
+summary: "Declares a named part — a lazy definition whose body builds the geometry, with param() as its parameter interface, connector() as its mating interface and expose() as its published geometry. Chain .name() to rename it and .material(id) to give it a material (built-in fluidcad-… ids or a key of the fluidcad.json materials map) for mass in Shape Properties. Every part is exported (export const x = part('X', …) at the top level of its file) and its name is unique within the file; a part breaking either is a build error. Inside it shapes fuse with each other and never with siblings outside."
 tags: [api, part, assembly]
 symbols: [part]
 seeAlso: [api/param, api/connector, api/expose, api/insert, concepts/assemblies, concepts/scene-graph, concepts/units, concepts/global-parameters]
@@ -29,9 +29,21 @@ Rules of thumb:
   `.part.js` file with bare statements renders, while a `part()` gives the
   model parameters, properties and a material, and is what an assembly can
   insert.
-- A model an assembly will insert **must** be a `part()` and the file must
-  `export` it. Convention: one part per `.part.js` file, `bracket.part.js`
+- **Every part is exported**: `export const bracket = part("Bracket", () => { … })`
+  at the top level of its file (a `.name()` / `.material()` chain, an
+  `export { bracket }` clause, or an exported function returning the part
+  count too). A `part()` nothing exports, one exported only as `default`,
+  and one written inside another `part()` / `assembly()` body are a build
+  error on that part: `part 'Bracket': a part must be exported — write it
+  as export const bracket = part('Bracket', …) at the top level of the
+  file.` Convention: one part per `.part.js` file, `bracket.part.js`
   exports `bracket`.
+- **Part names are unique within a file.** A second `part()` of a name the
+  file already used is a build error and its body does not run: `part
+  'Bracket': another part in this file is already named 'Bracket' — give
+  each part its own name.` The name is the part's identity for its
+  parameters, panel values and `configurations()` table. MCP `write_file`
+  / `edit_range` refuse both with code `part-rules` before writing.
 - Inside a part, shapes auto-fuse with each other and never with anything
   outside it — several components in one file each get their own part.
 - Read parameters with `param()` inside the callback; declare `connector()`
@@ -58,8 +70,7 @@ row and their order does not matter.
 ```fluid.js
 import { part, sketch, circle, extrude } from "fluidcad/core";
 
-// In the real file the definition is exported so an assembly can insert it.
-part("Bracket", () => {
+export const bracket = part("Bracket", () => {
   sketch("xy", () => {
     circle([0, 0], 20);
   });
@@ -105,13 +116,11 @@ None removes the chain; Apply writes it).
 
 ## Example
 
-In the real file the definition is exported (`export const extrusion = part(...)`) so an assembly can insert it.
-
 ```fluid.js
 import { part, param, sketch, circle, extrude, connector, origin } from "fluidcad/core";
 import { coincident, diameter } from "fluidcad/constraints";
 
-const extrusion = part("Extrusion", () => {
+export const extrusion = part("Extrusion", () => {
   const length = param("Length", 150, "number", { min: 20 });
   sketch("xy", () => {
     const c = circle([0, 0], 20);
@@ -130,7 +139,7 @@ Two separate solids in one file:
 import { cylinder, extrude, line, origin, part, sketch, xAxis, yAxis } from "fluidcad/core";
 import { coincident, distance, horizontal, symmetric, vertical } from "fluidcad/constraints";
 
-part("base", () => {
+export const base = part("base", () => {
   sketch("xy", () => {
     const b = line([-60, -40], [60, -40]);
     const r = line([60, -40], [60, 40]);
@@ -150,7 +159,7 @@ part("base", () => {
   extrude(20);
 });
 
-part("pillar", () => {
+export const pillar = part("pillar", () => {
   cylinder(15, 50).translate(0, 0, 20);
 });
 ```

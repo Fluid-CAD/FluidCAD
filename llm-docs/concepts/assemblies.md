@@ -17,7 +17,11 @@ seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly
 | `.fluid.js` | part | legacy suffix, same as `.part.js` |
 | `.params.js` | — (never rendered) | `export const x = param('X', …)` project parameters every model imports ([[concepts/global-parameters]]) |
 
-A part file renders every part it declares. Only an **exported** `part()`
+A part file renders every part it declares. Two rules hold for every
+`part()`, in any file: it is **exported** — `export const x = part('X', …)`
+at the top level of its file, never inside another body — and its **name is
+unique within the file**. A part breaking either is a build error on its
+`part()` call and does not build (see [[api/part]]); only an exported part
 can be inserted elsewhere. A new assembly file is scaffolded as one exported
 `assembly()` definition; the UI writes inserts and mates inside its callback.
 

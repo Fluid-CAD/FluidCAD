@@ -14,14 +14,25 @@ export type ConfigurationRows = Record<string, ParamOverrides>;
  * value sets for the body's `param()` interface, and returns the name of
  * the one being built (`'Default'` when the literals are).
  *
- *     export const frame = assembly('frame', () => {
+ *     export const bracket = part('Bracket', () => {
  *       const configuration = configurations({
+ *         M8:  { Screw: 'M8', Width: 50, Thickness: 5 },
+ *         M10: { Screw: 'M10', Width: 60, Thickness: 6, Gusset: true },
+ *       });
+ *       const screw = param('Screw', 'M6', 'select', { options: [...] });
+ *       const width = param('Width', 40, 'number', { min: 30, max: 120, step: 5 });
+ *       ...
+ *       if (configuration === 'M10') { ... }
+ *
+ * An assembly declares one the same way, first in its body:
+ *
+ *     export const frame = assembly('frame', () => {
+ *       configurations({
  *         Compact: { Width: 500, Depth: 600, Lid: false },
  *         Wide:    { Width: 1200 },
  *       });
  *       const width = param('Width', 700, 'number', { min: 400, max: 1500, step: 10 });
  *       ...
- *       if (configuration === 'Wide') { ... }
  *
  * The `param()` declarations are the schema; a row holds only the values it
  * changes, in the file's unit, with the same `{ label: value }` shape an
@@ -33,9 +44,10 @@ export type ConfigurationRows = Record<string, ParamOverrides>;
  * row (the dropdown; `?configuration=` in the viewer) and session overrides
  * sit on top of it. Row names are file-wide but cells are per body: in a
  * file with several parts each body applies its own table's row for the
- * active name, and a body whose table lacks it builds its literals. From a parent, `insert(def, 'Wide')` picks the row per
- * instance, `insert(def, 'Wide', { Depth: 1000 })` layers values on it, and
- * a name the table does not declare is an error on that insert statement.
+ * active name, and a body whose table lacks it builds its literals. From a
+ * parent, `insert(def, 'Wide')` picks the row per instance,
+ * `insert(def, 'Wide', { Depth: 1000 })` layers values on it, and a name
+ * the table does not declare is an error on that insert statement.
  *
  * @param rows - `{ Name: { label: value, ... }, ... }` — one entry per configuration.
  * @returns The active row's name, or `'Default'`.

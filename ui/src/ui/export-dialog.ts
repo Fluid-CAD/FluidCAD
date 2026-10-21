@@ -4,15 +4,21 @@ import { captureScreenshot } from '../screenshot';
 import { deliverFile } from '../desktop';
 import type { DesktopFileFilter } from '../desktop';
 import type { EngineClient } from '../engine-client';
-import type { ExportFormat, ExportFormatOptions, ExportInstancePose, ExportRequestBody, MeasurePose } from '../api';
+import type { ExportFormat, ExportFormatOptions, ExportInstancePose, ExportRequestBody, MeasurePose, ShapeSelection } from '../api';
 import type { UIConfigurations } from '../types';
+import type { SceneDocument } from '../units/scene-document';
 import { ConfigurationExport, type ConfigurationPick } from './export-configurations';
 import { ICON_CLOSE } from './icons';
 
 /**
- * What the dialog exports: the listed solids, each in its own frame (a
- * part-scene solid, an assembly's part template), or the whole assembly —
- * every instance where it sits.
+ * What the dialog exports: solids, each in its own frame (a part-scene
+ * solid, an assembly's part template), or the whole assembly — every
+ * instance where it sits.
+ *
+ * `shapeIds` lists solids of the scene on screen (a timeline row, the top
+ * bar's pick), or is `'all'` (`EVERY_SOLID`) — File ▸ Export — for every solid
+ * of the scene exported, which for another configuration row is that row's
+ * own set, bodies the screen does not show included.
  *
  * `fileBase` is set when the solids are a part scene's — the output of the
  * file on screen ({@link exportBaseName} of it). It names the download
@@ -22,7 +28,7 @@ import { ICON_CLOSE } from './icons';
  * solids export as on screen, as `export.<ext>`.
  */
 export type ExportTarget =
-  | { kind: 'shapes'; shapeIds: string[]; fileBase?: string }
+  | { kind: 'shapes'; shapeIds: ShapeSelection; fileBase?: string }
   | { kind: 'assembly' };
 
 /**
@@ -59,6 +65,20 @@ export function exportBaseName(absPath: string): string {
 }
 
 export class ExportDialog {
+  /**
+   * The shapes target for `shapeIds` in the scene `document` shows. A part
+   * scene's solids are its file's output, so the target names the file: the
+   * download is called after it and the dialog offers the file's
+   * `configurations()` rows. An assembly's solids are part templates and
+   * export as on screen, unnamed; so do a host's that knows no document.
+   */
+  static shapesTarget(shapeIds: ShapeSelection, document: SceneDocument | null): ExportTarget {
+    if (document?.kind !== 'part') {
+      return { kind: 'shapes', shapeIds };
+    }
+    return { kind: 'shapes', shapeIds, fileBase: exportBaseName(document.absPath) };
+  }
+
   private overlay: HTMLDivElement;
   private titleEl: HTMLHeadingElement;
   private purposeEl: HTMLParagraphElement;

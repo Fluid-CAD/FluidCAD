@@ -161,16 +161,24 @@ export type ExportFormatOptions = {
   customLinearDeflection?: number;
 };
 
+/** `shapeIds: "all"` — every solid of the scene the export comes from (a configuration's own render when it is not on screen). */
+export const EVERY_SOLID = 'all' as const;
+
+/** A shapes export's selector: ids of the scene on screen, or {@link EVERY_SOLID}. */
+export type ShapeSelection = string[] | typeof EVERY_SOLID;
+
 /**
  * The body of `POST /api/export`. Exactly one selector: `shapeIds` exports
  * the listed solids each in its own frame (a part template, a solid of a
- * part scene); `assembly` exports every instance of the current assembly
- * where it sits. `poses` must cover every instance — they are the browser
+ * part scene), or with {@link EVERY_SOLID} every solid of the scene
+ * exported — so a configuration row that adds or drops a body exports its
+ * own set, where listed ids it does not build are refused; `assembly`
+ * exports every instance of the current assembly where it sits. `poses` must cover every instance — they are the browser
  * solver's live world poses, which the server cannot compute itself; a
  * headless client omits them and gets the statement poses instead.
  */
 export type ExportRequestBody = (
-  | { format: ExportFormat; shapeIds: string[]; assembly?: undefined }
+  | { format: ExportFormat; shapeIds: ShapeSelection; assembly?: undefined }
   | { format: ExportFormat; assembly: { poses: ExportInstancePose[] }; shapeIds?: undefined }
 ) & ExportFormatOptions & ExportConfigurationOption;
 

@@ -4,7 +4,8 @@ import JSZip from 'jszip';
 import { ExportDialog, exportBaseName, type ExportAssemblyProvider } from '../src/ui/export-dialog';
 import type { EngineClient } from '../src/engine-client';
 import type { SceneContext } from '../src/scene/scene-context';
-import type { MeasurePose } from '../src/api';
+import { EVERY_SOLID, type MeasurePose } from '../src/api';
+import type { SceneDocument } from '../src/units/scene-document';
 
 // The export dialog's two targets. Shapes: the listed solids, as before.
 // Assembly: the whole assembly where its parts sit — the body carries one
@@ -465,6 +466,91 @@ describe('ExportDialog configurations in a part scene', () => {
     expect(q<HTMLSelectElement>('configuration').disabled).toBe(true);
     expect(selectedLabel(q)).toBe('Default (on screen)');
     expect(q('configuration-note').textContent).toBe('A PNG captures the configuration on screen.');
+  });
+});
+
+describe('ExportDialog.shapesTarget', () => {
+  const doc = (absPath: string, kind: SceneDocument['kind']): SceneDocument => ({ absPath, kind, declaredUnit: null, projectUnit: 'mm' });
+
+  it('names a part scene\'s target after its file, every solid or listed ones', () => {
+    expect(ExportDialog.shapesTarget(EVERY_SOLID, doc('/work/plate.part.js', 'part'))).toEqual({ kind: 'shapes', shapeIds: 'all', fileBase: 'plate' });
+    expect(ExportDialog.shapesTarget(['s-1'], doc('/work/plate.part.js', 'part'))).toEqual({ kind: 'shapes', shapeIds: ['s-1'], fileBase: 'plate' });
+  });
+
+  it('leaves an assembly\'s part templates, and a host without a document, unnamed', () => {
+    expect(ExportDialog.shapesTarget(['s-1'], doc('/work/robot.assembly.js', 'assembly'))).toEqual({ kind: 'shapes', shapeIds: ['s-1'] });
+    expect(ExportDialog.shapesTarget(EVERY_SOLID, null)).toEqual({ kind: 'shapes', shapeIds: 'all' });
+  });
+});
+
+describe('ExportDialog every solid of a part scene (File ▸ Export)', () => {
+  const PART_TABLE = {
+    active: 'Default',
+    names: ['Plain', 'WithBoss'],
+    rows: { Plain: { Boss: 0 }, WithBoss: { Boss: 1 } },
+    modified: false,
+  };
+  const partDoc: SceneDocument = { absPath: '/work/plate.part.js', kind: 'part', declaredUnit: null, projectUnit: 'mm' };
+
+  it('asks the server for every solid of the picked row, never the ids on screen', async () => {
+    const { dialog, exportShapes, q } = mount();
+    dialog.setConfigurations(PART_TABLE);
+    dialog.show(ExportDialog.shapesTarget(EVERY_SOLID, partDoc));
+    pickConfiguration(q, 'WithBoss');
+
+    await clickExport(q);
+
+    expect(exportShapes).toHaveBeenCalledWith({ format: 'step', shapeIds: 'all', includeColors: true, configuration: 'WithBoss' });
+    expect(deliverFileMock.mock.calls[0][1]).toBe('plate.step');
+  });
+
+  it('without rows it is every solid of the scene on screen, named after the part', async () => {
+    const { dialog, exportShapes, q, pickFormat } = mount();
+    dialog.show(ExportDialog.shapesTarget(EVERY_SOLID, partDoc));
+    pickFormat('stl');
+
+    await clickExport(q);
+
+    expect(exportShapes).toHaveBeenCalledWith({ format: 'stl', shapeIds: 'all', resolution: 'medium', scaleTo: 'mm' });
+    expect(deliverFileMock.mock.calls[0][1]).toBe('plate.stl');
+  });
+
+  it('All configurations asks every row for its own solids', async () => {
+    const { dialog, exportShapes, q } = mount();
+    exportShapes.mockImplementation(async (body: any) => new Blob([`step ${body.configuration}`]));
+    dialog.setConfigurations(PART_TABLE);
+    dialog.show(ExportDialog.shapesTarget(EVERY_SOLID, partDoc));
+    pickConfiguration(q, 'All configurations (.zip)');
+
+    q<HTMLButtonElement>('export-btn').click();
+    await waitForStatus(q, () => deliverFileMock.mock.calls.length > 0);
+
+    expect(exportShapes.mock.calls.map((call) => call[0])).toEqual([
+      { format: 'step', shapeIds: 'all', includeColors: true, configuration: 'Default' },
+      { format: 'step', shapeIds: 'all', includeColors: true, configuration: 'Plain' },
+      { format: 'step', shapeIds: 'all', includeColors: true, configuration: 'WithBoss' },
+    ]);
+    expect(deliverFileMock.mock.calls[0][1]).toBe('plate-configurations.zip');
+  });
+
+  it('a specific solid (timeline, top bar) still sends its id, and a row that lacks it fails the zip naming the row', async () => {
+    const { dialog, exportShapes, q } = mount();
+    exportShapes.mockImplementation(async (body: any) => {
+      if (body.configuration === 'Plain') {
+        throw new Error("Configuration 'Plain' does not build Solid 2 (Boss), which the configuration on screen does.");
+      }
+      return new Blob(['step']);
+    });
+    dialog.setConfigurations(PART_TABLE);
+    dialog.show(ExportDialog.shapesTarget(['s-2'], partDoc));
+    pickConfiguration(q, 'All configurations (.zip)');
+
+    q<HTMLButtonElement>('export-btn').click();
+    await waitForStatus(q, () => q('status').textContent?.includes('does not build') === true);
+
+    expect(exportShapes.mock.calls.map((call) => (call[0] as any).shapeIds)).toEqual([['s-2'], ['s-2']]);
+    expect(q('status').textContent).toBe("Plain: Configuration 'Plain' does not build Solid 2 (Boss), which the configuration on screen does.");
+    expect(deliverFileMock).not.toHaveBeenCalled();
   });
 });
 

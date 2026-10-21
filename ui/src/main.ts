@@ -58,7 +58,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, getGlobalParams, setGlobalParam, type UserPreferences } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, getGlobalParams, setGlobalParam, EVERY_SOLID, type ShapeSelection, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey, findActiveSketch } from './helpers/scene-utils';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
@@ -1141,37 +1141,16 @@ installDesktopMenu({
   redo: () => runEditorHistory('redo'),
   import: () => fileImporter.openPicker(),
   // An assembly exports whole, where its parts sit; a part scene offers
-  // every solid in it.
+  // every solid of the scene exported — the server collects them from the
+  // configuration's own render, so a row that adds a body exports it.
   export: () => exportDialog.show(
-    currentRail?.kind === 'assembly' ? { kind: 'assembly' } : shapesExportTarget(exportableShapeIds()),
+    currentRail?.kind === 'assembly' ? { kind: 'assembly' } : shapesExportTarget(EVERY_SOLID),
   ),
 });
 
-/**
- * An export of `shapeIds`. A part scene's solids are its file's output, so
- * the target names the file: the download is called after it and the dialog
- * offers the file's configurations() rows. An assembly's solids are part
- * templates and export as on screen, unnamed.
- */
-function shapesExportTarget(shapeIds: string[]): ExportTarget {
-  const doc = sceneDocument.current;
-  if (doc?.kind !== 'part') {
-    return { kind: 'shapes', shapeIds };
-  }
-  return { kind: 'shapes', shapeIds, fileBase: exportBaseName(doc.absPath) };
-}
-
-/** Every solid in the current part scene — what File ▸ Export offers by default. */
-function exportableShapeIds(): string[] {
-  const ids: string[] = [];
-  for (const object of viewer.currentSceneObjects) {
-    for (const shape of object.sceneShapes ?? []) {
-      if (shape.shapeType === 'solid' && !shape.isMetaShape && !shape.isGuide) {
-        ids.push(shape.shapeId);
-      }
-    }
-  }
-  return ids;
+/** An export of `shapeIds` in the scene on screen — see {@link ExportDialog.shapesTarget}. */
+function shapesExportTarget(shapeIds: ShapeSelection): ExportTarget {
+  return ExportDialog.shapesTarget(shapeIds, sceneDocument.current);
 }
 
 // Assembly workbench groups (Insert / Translate / mates), shown instead of

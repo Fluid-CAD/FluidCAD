@@ -8,7 +8,7 @@ function before(code: string, text: string) {
   return { line: lines.length, column: lines.at(-1)!.length + 1 };
 }
 
-async function move(code: string, text: string | null, remove?: 'passed' | 'active' | 'all', active?: { line: number; column: number }) {
+async function move(code: string, text: string | null, remove?: 'active' | 'all', active?: { line: number; column: number }) {
   return applyFeatureEdit(code, {
     feature: 'sketch', filePath: '/model.part.js', producers: [], parts: [], imports: [],
     timelineBreakpoint: TimelineBreakpoint.capture(code, text === null ? null : before(code, text), remove, active),
@@ -22,10 +22,11 @@ describe('atomic timeline breakpoint moves', () => {
     expect(forward.error).toBeUndefined();
     expect(forward.newCode).toContain('extrude(5);\nfillet(2);\nbreakpoint();\nshell(1);');
     expect(forward.newCode.match(/breakpoint\(\)/g)).toHaveLength(1);
-    // Moving back up leaves the stop further down pending: the build pauses
-    // there next, once the earlier one is lifted.
+    // Moving back up takes the stop further down with it: the bar is one
+    // stop, so a drag never leaves a pending one behind.
     const backward = await move(forward.newCode, 'extrude(5)');
-    expect(backward.newCode).toContain("from 'fluidcad/core';\nbreakpoint();\nextrude(5);\nfillet(2);\nbreakpoint();\nshell(1);");
+    expect(backward.newCode).toContain("from 'fluidcad/core';\nbreakpoint();\nextrude(5);\nfillet(2);\nshell(1);");
+    expect(backward.newCode.match(/breakpoint\(\)/g)).toHaveLength(1);
   });
 
   it('continue lifts the paused stop only, falling back to the first in the file', async () => {

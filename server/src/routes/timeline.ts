@@ -395,18 +395,19 @@ export function createTimelineRouter(
     res.json({ success: true });
   });
 
-  // One atomic edit of the document's breakpoints: a move (`before` + the
-  // stops it passes), Continue (`remove: 'active'` — only the stop the build
-  // paused on; a stop later in the file stays pending) or continue-to-end
-  // (`remove: 'all'`). `filePath` defaults to the rendered document, which
-  // is the only one the edit applies to.
+  // One atomic edit of the document's breakpoints: a move (`before` — the
+  // moved stop is the only one left), Continue (`remove: 'active'` — only
+  // the stop the build paused on; a stop an edit session left further down
+  // stays pending) or continue-to-end (`remove: 'all'`). `filePath`
+  // defaults to the rendered document, which is the only one the edit
+  // applies to.
   router.post('/timeline-breakpoint', async (req, res) => {
     const { before, remove } = req.body ?? {};
     const filePath = req.body?.filePath ?? fluidCadServer.getCurrentFileName();
     if (typeof filePath !== 'string' || (before !== null && (!before
       || !Number.isInteger(before.line) || before.line < 1
       || !Number.isInteger(before.column) || before.column < 1))
-      || (remove !== undefined && !['passed', 'active', 'all'].includes(remove))) {
+      || (remove !== undefined && !['active', 'all'].includes(remove))) {
       res.status(400).json({ error: 'Invalid breakpoint target' });
       return;
     }
@@ -424,7 +425,7 @@ export function createTimelineRouter(
       res.status(422).json({ success: false, reason: 'Wait for the model to rebuild, then try again.' });
       return;
     }
-    const mode = remove ?? (before ? 'passed' : 'all');
+    const mode = remove ?? 'all';
     const active = mode === 'active' ? fluidCadServer.getActiveBreakpoint?.() ?? null : null;
     await options.dispatcher.dispatch(res, {
       feature: 'sketch', filePath, producers: [], parts: [], imports: [],

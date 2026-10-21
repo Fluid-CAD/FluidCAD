@@ -4817,21 +4817,20 @@ export function addBreakpoint(sourceLocation: SourceLocationParam): void {
 
 /**
  * Which existing `breakpoint();` statements a timeline breakpoint edit takes
- * out: the ones a move passes (`passed` — a stop further down the file stays
- * pending), the one the build is paused on (`active`), or every one (`all`).
+ * out: the one the build is paused on (`active`), or every one (`all`).
  */
-export type BreakpointRemoval = 'passed' | 'active' | 'all';
+export type BreakpointRemoval = 'active' | 'all';
 
 /**
  * Move the document's breakpoint before a statement (`before`), or add none
- * and only remove. One acknowledged source edit. A move takes out the stops
- * it passes and leaves later ones pending; `before: null` with `all`
- * continues to the end of history.
+ * and only remove. One acknowledged source edit. A move takes out every
+ * other stop — the history bar holds a single breakpoint; several only come
+ * from editing a feature — and `before: null` continues to the end of history.
  */
 export function moveTimelineBreakpoint(
   filePath: string,
   before: { line: number; column: number } | null,
-  remove: BreakpointRemoval = before ? 'passed' : 'all',
+  remove: BreakpointRemoval = 'all',
 ): Promise<SetUnitResult> {
   return postAcked('api/timeline-breakpoint', { filePath, before, remove });
 }

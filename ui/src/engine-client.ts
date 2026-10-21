@@ -125,7 +125,7 @@ export interface EngineClient {
    * Add a row named `name` and select it; without `values`, the row holds
    * every parameter whose current value differs from its literal, each
    * part's in its own table. `part` is where a row with no cell goes (the
-   * Add to part).
+   * Part band's part).
    */
   addConfiguration?(
     name: string,

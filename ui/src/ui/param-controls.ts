@@ -309,9 +309,12 @@ const CONTROL_CLASSES: Record<ParamControlVariant, ControlClasses> = {
     number: `${CELL_INPUT_CLASS} text-right tabular-nums [appearance:textfield] `
       + '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
     checkbox: 'checkbox checkbox-sm checkbox-primary mx-2 rounded-[4px]',
-    select: 'select select-ghost select-sm w-full h-8 min-h-8 rounded-none border-0 bg-transparent text-[13px] '
+    // pl-2 rather than the select's own 0.75rem: a cell's text starts where
+    // the grid's read-only Default row and the text and number cells start
+    // theirs, so a column's values line up whether or not a control holds them.
+    select: 'select select-ghost select-sm w-full h-8 min-h-8 rounded-none border-0 bg-transparent pl-2 text-[13px] '
       + 'focus:outline-none focus-within:outline-none',
-    multiSelect: 'select select-ghost select-sm w-full h-auto rounded-none border-0 bg-transparent py-1 text-[13px] focus:outline-none',
+    multiSelect: 'select select-ghost select-sm w-full h-auto rounded-none border-0 bg-transparent py-1 pl-2 text-[13px] focus:outline-none',
     color: 'mx-2 h-5 w-[calc(100%-1rem)] cursor-pointer bg-transparent border border-base-content/20 rounded',
   },
 };

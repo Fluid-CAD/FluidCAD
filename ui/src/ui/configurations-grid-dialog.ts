@@ -62,9 +62,20 @@ const GUTTER_CELL_CLASS = `sticky left-0 w-10 min-w-10 px-1 bg-base-200 text-cen
 /** The sticky name column — each use gives it an opaque background, so the parameters scrolling under it stay hidden. */
 const NAME_CELL_CLASS = `sticky left-10 w-48 min-w-48 p-0 ${GRID_LINE}`;
 const VALUE_CELL_CLASS = `group/cell min-w-40 h-8 p-0 align-middle ${GRID_LINE}`;
+/**
+ * An editable value cell's surface: the field one — white in the light
+ * theme, the dark theme's input surface — set on the cell itself, so the
+ * cells read as the sheet's fields against the grey header, gutter and
+ * Default row.
+ */
+const EDITABLE_CELL_CLASS = 'bg-base-100';
 /** The spreadsheet's active-cell frame, on whichever cell holds the focus. */
 const ACTIVE_CELL_CLASS = 'focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-primary';
-/** A selected row's tint: an inset shadow, so it also tints the opaque sticky cells. */
+/**
+ * A selected row's tint, on its name cell (the gutter takes a stronger one):
+ * an inset shadow, so it also tints the opaque sticky cell. The value cells
+ * keep their field surface.
+ */
 const SELECTED_TINT_CLASS = 'group-data-[selected]/row:shadow-[inset_0_0_0_9999px_color-mix(in_oklab,var(--color-primary)_7%,transparent)]';
 const SELECTED_GUTTER_CLASS = 'group-data-[selected]/row:text-primary group-data-[selected]/row:font-semibold '
   + 'group-data-[selected]/row:shadow-[inset_0_0_0_9999px_color-mix(in_oklab,var(--color-primary)_16%,transparent)]';
@@ -92,7 +103,7 @@ export type ConfigurationsGridOptions = {
   /** The tables as the source writes them, which tells literal cells from expressions. */
   loadTable?: () => Promise<ConfigurationSourceTable[] | null>;
   /**
-   * Where a row the grid adds with no cell set goes: the Add to part's
+   * Where a row the grid adds with no cell set goes: the Part band's part's
    * `part()` statement. Without it, the file's only body.
    */
   home?: SourceLocation | null;
@@ -618,7 +629,7 @@ class ConfigurationsGrid {
   private valueCell(row: GridRow, param: UIParamDefinition, column: number): HTMLTableCellElement {
     const key = GridColumns.keyOf(param);
     const td = document.createElement('td');
-    td.className = `${VALUE_CELL_CLASS} ${SELECTED_TINT_CLASS} ${ACTIVE_CELL_CLASS} ${this.groupEdge(param)}`;
+    td.className = `${VALUE_CELL_CLASS} ${EDITABLE_CELL_CLASS} ${ACTIVE_CELL_CLASS} ${this.groupEdge(param)}`;
     td.dataset.cell = param.label;
     td.dataset.key = key;
     td.dataset.col = String(column);

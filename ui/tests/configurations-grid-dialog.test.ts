@@ -115,6 +115,19 @@ describe('configurations grid', () => {
     expect(expr.querySelector('input, select')).toBeNull();
   });
 
+  it('draws editable cells on the field surface, the Default row grey, and starts a select\'s text at the Default row\'s inset', async () => {
+    const { grid, cell } = await open();
+    const defaults = grid()!.querySelector('[data-default-row]')!;
+    for (const label of ['Width', 'Depth', 'Lid', 'Finish']) {
+      expect(cell(0, label).classList.contains('bg-base-100')).toBe(true);
+      // The selected row's tint stays on its gutter and name, off the fields.
+      expect(cell(0, label).className).not.toContain('group-data-[selected]/row:shadow');
+      expect(defaults.querySelector<HTMLElement>(`[data-cell="${label}"]`)!.classList.contains('bg-base-200')).toBe(true);
+    }
+    expect(defaults.querySelector<HTMLElement>('[data-cell="Finish"]')!.classList.contains('px-2')).toBe(true);
+    expect(cell(0, 'Finish').querySelector('select')!.classList.contains('pl-2')).toBe(true);
+  });
+
   it('keeps Apply disabled until something changes, and commits only the changed cells', async () => {
     const { cell, apply, commit, closed, type } = await open();
     expect(apply().disabled).toBe(true);

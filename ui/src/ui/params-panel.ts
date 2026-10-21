@@ -44,59 +44,54 @@ import {
 // project-wide Parameters column.
 
 /**
- * The bands above the controls — the configuration band, then the Add to
- * band — as one stack: scope chrome, not parameter rows. The stack hangs
- * directly off the header — `-mt-1` swallows the sheet's top padding so the
- * first band meets the header's edge — and keeps the sheet's spacing below
- * the last one. Hidden with both its bands, so an empty stack shifts nothing.
+ * The bands above the controls — the configuration band, then the Part
+ * band — as one stack: scope chrome, not parameter rows. The stack closes
+ * with the hairline the column's other chrome draws, which parts it from the
+ * values below, and keeps the sheet's spacing under it. Hidden with both its
+ * bands, so an empty stack shifts nothing.
  */
-const BAND_STACK_CLASS = '-mt-1 mb-1';
+const BAND_STACK_CLASS = 'pb-1.5 mb-1 border-b border-base-content/10';
 
 /**
  * One band: the configuration dropdown, or the Part dropdown answering the
- * header's + ("add to which part?"). Each closes with the hairline the
- * column's other chrome draws, which is what parts it from the band or the
- * values below. Its tint is half the fields' (param-row.ts's
- * `FIELD_SURFACE`): recessed enough to read as a different kind of surface,
- * not so much that it competes with a field.
+ * header's + ("add to which part?"). Laid out as a parameter row is
+ * (param-row.ts): the same padding, a label line, then the control at the
+ * column's full width under it, so a band reads as the same kind of control
+ * and a long name such as "Default" never truncates.
  */
-const BAND_CLASS =
-  'flex items-center gap-2 px-3 h-10 bg-base-content/[0.03] border-b border-base-content/10';
+const BAND_CLASS = 'px-3 py-1.5';
+
+/** A band's label line: the caption, then (configuration band) the modified marker and ⋮. */
+const BAND_LABEL_ROW_CLASS = 'flex items-center gap-1';
+
+/** A band's caption: the parameter rows' label typography. */
+const BAND_CAPTION_CLASS = 'flex-1 truncate text-sm text-base-content/80';
 
 /**
- * The dropdown itself: a picker, so it takes the ghost form — no field
- * surface, no border at rest, a surface on hover and the focus ring on
- * interaction — rather than the bordered box a value field has. Same height
- * as the band's text row so the caption and the chosen name sit on one
- * baseline.
- *
- * The hover/focus surface is the SOLID base colour, not a translucent wash,
- * and it arrives with no transition: Chrome paints the popup list it opens
- * in the select's own background, sampled on the mousedown that opens it —
- * a wash, or daisyUI's 200 ms fade still on its first frame, came out as a
- * see-through menu over the scene.
+ * A band's dropdown: the app's standard select — the bordered `select-sm`
+ * the feature dialogs and Settings use (settings-tab.ts's `SELECT`) — so its
+ * field and its open list are daisyUI's solid base surface, never the scene
+ * showing through. Full width under the label, as a parameter's control is.
  */
-// The open list (`::picker(select)`) inherits the select's background,
-// which is the ghost's transparent one once the pointer leaves the field —
-// it gets the popup menus' own surface instead.
-const PART_SELECT_CLASS =
-  'select select-sm select-ghost flex-1 min-w-0 h-8 min-h-0 pl-2 pr-7 text-sm font-medium transition-none '
-  + 'text-base-content/85 hover:bg-base-100 focus:bg-base-100 '
-  + 'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 '
-  + '[&::picker(select)]:panel-bg';
+const BAND_SELECT_CLASS = 'select select-sm select-bordered w-full mt-1';
 
 /** The reserved row: the `param()` literals — never among a table's names, always first in the dropdown. */
 const DEFAULT_CONFIGURATION = 'Default';
 
 /**
- * Beside the dropdown while session tweaks sit on top of the active row —
- * what ↺ (Revert) clears and what a Save would write into the row.
+ * On the label line, right of the caption, while session tweaks sit on top
+ * of the active row — what ↺ (Revert) clears and what a Save would write
+ * into the row.
  */
 const MODIFIED_MARKER_CLASS = 'shrink-0 text-xs text-base-content/60 whitespace-nowrap';
 
-/** The band's ⋮ beside the dropdown: the row actions' menu. Same ghost square the header's buttons are. */
+/**
+ * The label line's ⋮: the row actions' menu. A ghost square the label
+ * line's own height, like a parameter row's pencil, so the line keeps the
+ * rows' rhythm.
+ */
 const CONFIGURATION_MENU_BUTTON_CLASS =
-  'btn btn-ghost btn-xs btn-square shrink-0 text-base-content/50 hover:text-base-content/80 [&>svg]:size-3.5';
+  'btn btn-ghost btn-xs btn-square size-5 min-h-0 shrink-0 text-base-content/50 hover:text-base-content/80 [&>svg]:size-3.5';
 
 /** The band's one control while the file has no table: what starts one. */
 const CONFIGURATION_ADD_BUTTON_CLASS =
@@ -156,7 +151,7 @@ export class ParamsPanel extends AccordionSection {
    */
   chooseSwitch: (active: string, target: string, canSave: boolean) => Promise<ConfigurationSwitchChoice> =
     (active, target, canSave) => chooseConfigurationSwitch(this.dialogHost, { active, target, canSave });
-  /** Asks for a row name (Add, Save as…, Rename…); resolves when the prompt closes. */
+  /** Asks for a row name (Add, Duplicate…, Rename…); resolves when the prompt closes. */
   promptName: (prompt: ConfigurationNamePrompt) => Promise<void> =
     (prompt) => promptConfigurationName(this.dialogHost, prompt);
   /** Asks before Delete removes the active row; resolves true to delete. */
@@ -369,7 +364,7 @@ export class ParamsPanel extends AccordionSection {
     }
     this.configurationBar.hidden = false;
     const select = document.createElement('select');
-    select.className = PART_SELECT_CLASS;
+    select.className = BAND_SELECT_CLASS;
     select.title = 'The configuration the file renders';
     select.setAttribute('aria-label', 'Configuration');
     select.dataset.configuration = '';
@@ -380,14 +375,14 @@ export class ParamsPanel extends AccordionSection {
     select.addEventListener('change', () => {
       void this.pickConfiguration(select);
     });
-    const children: HTMLElement[] = [select];
+    const labelRow: HTMLElement[] = [ParamsPanel.bandCaption('Configuration')];
     if (configurations!.modified) {
       const marker = document.createElement('span');
       marker.className = MODIFIED_MARKER_CLASS;
       marker.dataset.configurationModified = '';
       marker.title = 'Values changed on top of the configuration — ↺ reverts them';
       marker.textContent = '● modified';
-      children.push(marker);
+      labelRow.push(marker);
     }
     if (this.canEditConfigurations) {
       const menuButton = document.createElement('button');
@@ -401,9 +396,9 @@ export class ParamsPanel extends AccordionSection {
         e.stopPropagation();
         this.openConfigurationMenu(menuButton);
       });
-      children.push(menuButton);
+      labelRow.push(menuButton);
     }
-    this.configurationBar.replaceChildren(...children);
+    this.configurationBar.replaceChildren(ParamsPanel.bandLabelRow(labelRow), select);
     this.syncBandStack();
   }
 
@@ -438,9 +433,9 @@ export class ParamsPanel extends AccordionSection {
       },
       {
         icon: ICON_COPY,
-        label: 'Save as…',
+        label: 'Duplicate…',
         title: 'A new configuration holding the values on screen',
-        onSelect: () => void this.addConfiguration('Save as configuration', 'Save', onDefault ? '' : `${active} copy`),
+        onSelect: () => void this.addConfiguration('Duplicate configuration', 'Duplicate', onDefault ? '' : `${active} copy`),
       },
       {
         icon: ICON_PENCIL,
@@ -485,11 +480,11 @@ export class ParamsPanel extends AccordionSection {
   }
 
   /**
-   * Add (and Save as…): a new row holding every value that differs from its
+   * Add (and Duplicate…): a new row holding every value that differs from its
    * literal — the active row's cells plus the tweaks, or nothing on an
    * untouched Default — selected once it lands. The server writes each
    * part's values into that part's own table; a row with no value at all
-   * goes into the Add to part ({@link configurationHome}).
+   * goes into the Part band's part ({@link configurationHome}).
    */
   private addConfiguration(title: string, confirmLabel: string, initial = ''): Promise<void> {
     const add = this.client.addConfiguration;
@@ -509,7 +504,7 @@ export class ParamsPanel extends AccordionSection {
   }
 
   /**
-   * Where a configuration row with no value of its own goes: the Add to
+   * Where a configuration row with no value of its own goes: the Part band's
    * part's `part()` statement, in part scope. Null in assembly scope (the
    * assembly body is the only one) and in a scene with no part.
    */
@@ -585,7 +580,7 @@ export class ParamsPanel extends AccordionSection {
   /**
    * The Manage grid's columns. A configuration row is file-wide and sets
    * any part's parameters, so in part scope these are every part's
-   * parameters — not just the Add to part's — in the parts' order, each
+   * parameters — not only the part the Part band names — in the parts' order, each
    * part's run kept together (the grid draws a part header over each run
    * when there are several). In assembly scope, the assembly's own.
    */
@@ -824,7 +819,7 @@ export class ParamsPanel extends AccordionSection {
       return;
     }
     const select = document.createElement('select');
-    select.className = PART_SELECT_CLASS;
+    select.className = BAND_SELECT_CLASS;
     select.title = 'The part a new parameter is added to';
     select.setAttribute('aria-label', 'Part a new parameter is added to');
     select.dataset.paramPart = '';
@@ -843,13 +838,25 @@ export class ParamsPanel extends AccordionSection {
       this.renderParams();
     });
 
-    // "Add to <part>" — the caption names what the dropdown decides, since the
+    // "Part <part>" — the caption names what the dropdown decides, since the
     // + it answers sits in the header above rather than beside it.
-    const caption = document.createElement('span');
-    caption.className = 'shrink-0 text-sm text-base-content/60';
-    caption.textContent = 'Add to';
-    this.partBar.replaceChildren(caption, select);
+    this.partBar.replaceChildren(ParamsPanel.bandLabelRow([ParamsPanel.bandCaption('Part')]), select);
     this.syncBandStack();
+  }
+
+  /** A band's label line, above its dropdown. */
+  private static bandLabelRow(children: HTMLElement[]): HTMLDivElement {
+    const row = document.createElement('div');
+    row.className = BAND_LABEL_ROW_CLASS;
+    row.append(...children);
+    return row;
+  }
+
+  private static bandCaption(text: string): HTMLSpanElement {
+    const caption = document.createElement('span');
+    caption.className = BAND_CAPTION_CLASS;
+    caption.textContent = text;
+    return caption;
   }
 
   private static option(value: string, label: string): HTMLOptionElement {

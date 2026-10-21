@@ -7,10 +7,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // the row sets and a "default" hint on the rows it leaves out, ↺ retitled
 // while a row is active, and a Save / Discard / Cancel choice before a
 // switch drops tweaks. Stage 3: the band's Add configuration button on a
-// file without a table, and the ⋮ menu's Add / Save / Save as / Rename /
+// file without a table, and the ⋮ menu's Add / Save / Duplicate / Rename /
 // Delete over the client's row edits. Part configurations, stage 1
 // (plans/part-configurations-research.md): the same band in part scope, above
-// the Add to band, shown once the scene has a part.
+// the Part band, shown once the scene has a part.
 
 import { ParamsPanel } from '../src/ui/params-panel';
 import type { ParamEditorDialog, PartChoices } from '../src/ui/param-editor-dialog';
@@ -290,7 +290,7 @@ describe('ParamsPanel configuration actions', () => {
     menuButton(host)!.click();
     const menu = document.querySelector<HTMLElement>('[data-configuration-actions]')!;
     expect(Array.from(menu.querySelectorAll('[role="menuitem"]'), (b) => b.textContent!.trim()))
-      .toEqual(['Add configuration…', 'Save', 'Save as…', 'Rename…', 'Delete', 'Manage…']);
+      .toEqual(['Add configuration…', 'Save', 'Duplicate…', 'Rename…', 'Delete', 'Manage…']);
   });
 
   it('enables Save only on a modified row, and Rename / Delete only on a row', () => {
@@ -300,7 +300,7 @@ describe('ParamsPanel configuration actions', () => {
     expect(item(panel, 'Rename…').disabled).toBe(true);
     expect(item(panel, 'Delete').disabled).toBe(true);
     expect(item(panel, 'Add configuration…').disabled).toBeFalsy();
-    expect(item(panel, 'Save as…').disabled).toBeFalsy();
+    expect(item(panel, 'Duplicate…').disabled).toBeFalsy();
 
     // Tweaks on Default still have no row to save into.
     panel.update([param('Width', 1300)], [], { ...TABLE, modified: true });
@@ -315,7 +315,7 @@ describe('ParamsPanel configuration actions', () => {
     expect(item(panel, 'Save').disabled).toBe(false);
   });
 
-  it('Add and Save as add a row through the client and take the table the answer carries', async () => {
+  it('Add and Duplicate add a row through the client and take the table the answer carries', async () => {
     const { panel, client, select } = mount();
     panel.update([param('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide', modified: true });
     vi.mocked(client.addConfiguration).mockResolvedValueOnce({
@@ -323,8 +323,10 @@ describe('ParamsPanel configuration actions', () => {
       configurations: { active: 'Wider', names: ['Compact', 'Wide', 'Wider'], rows: {}, modified: false },
     });
     const { asked, refusals } = answerPrompt(panel, 'Wider');
-    item(panel, 'Save as…').onSelect!();
+    item(panel, 'Duplicate…').onSelect!();
     await flush();
+    expect(asked[0].title).toBe('Duplicate configuration');
+    expect(asked[0].confirmLabel).toBe('Duplicate');
     expect(asked[0].initial).toBe('Wide copy');
     expect(asked[0].taken).toEqual(['Compact', 'Wide']);
     expect(client.addConfiguration).toHaveBeenCalledWith('Wider');
@@ -454,7 +456,7 @@ describe('ParamsPanel configuration band in part scope', () => {
   /** The bands' stack: the body's first row, above the list. */
   const bandStack = (panel: ParamsPanel) => panel.body.firstElementChild as HTMLElement;
 
-  it('sits above the Add to band, both above the controls', () => {
+  it('sits above the Part band, both above the controls', () => {
     const { panel, host, select } = mount('part');
     panel.setPartProvider(onePart);
     panel.update([partParam('Width', 1200, 1200)], [], { ...TABLE, active: 'Wide' });
@@ -467,7 +469,23 @@ describe('ParamsPanel configuration band in part scope', () => {
     expect(bandStack(panel).contains(partSelect(host))).toBe(true);
   });
 
-  it('keeps one band per row in assembly scope: the configuration band, no Add to', () => {
+  it('labels each band above its full-width dropdown: Configuration with its marker and ⋮, then Part', () => {
+    const { panel, host, select } = mount('part');
+    panel.setPartProvider(onePart);
+    panel.update([partParam('Width', 1300, 1200)], [], { ...TABLE, active: 'Wide', modified: true });
+    const configurationLabel = select()!.previousElementSibling as HTMLElement;
+    expect(configurationLabel.firstElementChild!.textContent).toBe('Configuration');
+    expect(configurationLabel.querySelector('[data-configuration-modified]')).not.toBeNull();
+    expect(configurationLabel.querySelector('[data-configuration-menu]')).not.toBeNull();
+    expect(select()!.className).toContain('select-bordered');
+    expect(select()!.className).toContain('w-full');
+    const partLabel = partSelect(host)!.previousElementSibling as HTMLElement;
+    expect(partLabel.textContent).toBe('Part');
+    expect(partSelect(host)!.className).toContain('select-bordered');
+    expect(host.textContent).not.toContain('Add to');
+  });
+
+  it('keeps one band per row in assembly scope: the configuration band, no Part band', () => {
     const { panel, host, select } = mount('assembly');
     panel.update([param('Width')], [], TABLE);
     expect(select()).not.toBeNull();
@@ -511,13 +529,13 @@ describe('ParamsPanel configuration band in part scope', () => {
     expect(reset().title).toBe('Reset all to defaults');
   });
 
-  it('survives an Add to pick and a timeline selection move, and switches independently of them', () => {
+  it('survives a Part pick and a timeline selection move, and switches independently of them', () => {
     let selected = plate.sourceLocation;
     const { panel, host, client, select, pick } = mount('part');
     panel.setPartProvider(() => ({ parts: [plate, lid], selected }));
     panel.update([partParam('Width', 1200, 1200), partParam('Height', 5, undefined, lid)], [], { ...TABLE, active: 'Wide' });
 
-    // Add to: the other part — the configuration stays, the list follows the part.
+    // Part: the other part — the configuration stays, the list follows the part.
     const parts = partSelect(host)!;
     parts.value = '1';
     parts.dispatchEvent(new Event('change'));
@@ -533,7 +551,7 @@ describe('ParamsPanel configuration band in part scope', () => {
     expect(select()!.value).toBe('Wide');
     expect(partSelect(host)!.selectedOptions[0].textContent).toBe('Lid');
 
-    // Picking a configuration leaves the Add to choice alone.
+    // Picking a configuration leaves the Part choice alone.
     pick('Compact');
     expect(client.selectConfiguration).toHaveBeenCalledWith('Compact');
     expect(partSelect(host)!.selectedOptions[0].textContent).toBe('Lid');
@@ -581,7 +599,7 @@ describe('ParamsPanel configuration band in part scope', () => {
       expect(opened[0].home).toEqual(lid.sourceLocation);
     });
 
-    it('Add sends the Add to part, where a row with no value goes', async () => {
+    it('Add sends the Part band part, where a row with no value goes', async () => {
       const { panel, host, client } = mount('part');
       panel.setPartProvider(twoParts(plate));
       panel.update([keyed('Width', plate), keyed('Width', lid)], [], { ...TABLE, active: 'Wide' });

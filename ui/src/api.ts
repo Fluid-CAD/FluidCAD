@@ -5279,7 +5279,7 @@ export type ConfigurationEditResult = { success: boolean; reason?: string; confi
  * literal — the session's tweaks on top of the active row — each part's
  * into its own table. `values` keys a cell by its parameter's row key
  * (`paramRowKey`: part + label). `part` is the `part()` statement a row
- * with no cell at all goes into — the Add to part; the file's only body
+ * with no cell at all goes into — the Part band's part; the file's only body
  * without it.
  */
 export function addConfiguration(
@@ -5344,7 +5344,7 @@ export type ConfigurationSourceTable = {
  * maps a row name after the renames to its changed cells, keyed by the
  * parameter's row key (`paramRowKey`: part + label) — a value sets the cell
  * in its part's table, null puts it back to the literal. A row a table
- * lacks is added there; a new row with no cell goes into `part` (the Add to
+ * lacks is added there; a new row with no cell goes into `part` (the Part band's
  * part's `part()` statement), or the file's only body.
  */
 export type ConfigurationTableCommit = {

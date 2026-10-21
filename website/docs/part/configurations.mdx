@@ -30,15 +30,15 @@ All of this happens in the part workspace's **Parameters** panel, in the **Confi
 
 ### Creating a configuration
 
-1. Set the parameters until the part looks the way the configuration should: a screw size picked, a typed width, a ticked checkbox. These are session values, as always — nothing is written yet.
-2. Click **Add configuration** under the header (it stands in for the configuration dropdown while the file has no table). Type a name — spaces are fine, `Default` is taken — and confirm.
-3. The new row holds every parameter whose value on screen differs from its literal. The first row creates the `configurations({...})` statement as the first line of the part body and adds `configurations` to the import line. The new configuration is now the one on screen.
+1. Click **Add configuration** under the header (it stands in for the configuration dropdown while the file has no table). Type a name — spaces are fine, `Default` is taken — and confirm.
+2. The first row creates the `configurations({...})` statement as the first line of the part body and adds `configurations` to the import line. The new configuration is empty, a copy of Default, and it is now the one on screen.
+3. Set the parameters until the part looks the way the configuration should: pick a screw size, type a width, tick a checkbox. Each value goes into the new row as you set it (see [Changing values](#changing-values)).
 
-Adding a configuration without changing anything creates an empty row: a copy of Default to make changes to.
+To start from another configuration rather than from Default, show that one and use **Duplicate…**.
 
 ### Switching
 
-<img src="/img/docs/ui/part-configuration-band.png" alt="The Parameters panel with the M8 configuration on screen and one value changed" width="232" style={{float: 'right', marginLeft: '1.5rem'}} />
+<img src="/img/docs/ui/part-configuration-band.png" alt="The Parameters panel with the M8 configuration on screen: Screw, Width, Leg and Thickness bold, Width showing its ↺ under the pointer, Gusset at its default" width="232" style={{float: 'right', marginLeft: '1.5rem'}} />
 
 Once the file has a table, the **Configuration** row shows a dropdown: **Default**, then the rows in the order the table declares them. Picking one re-renders the part with that row's values. The choice is not written into the source — switching never creates a diff — and it is remembered per file, so the workspace reopens on the configuration you left.
 
@@ -46,26 +46,36 @@ While a row is active, the label of each parameter the row sets is bold, and a p
 
 <div style={{clear: 'both'}} />
 
-### Changing a configuration
+### Changing values
+
+The panel writes what you change into the source, into the configuration on screen:
+
+- **With a row on screen**, a value you change becomes that row's value: typing 55 into **Width** on M8 writes `M8: { …, Width: 55 }`. A parameter the row left at its default joins the row, and its label turns bold.
+- **On Default**, a value you change is the parameter's own literal: `param('Width', 64, …)`. A part without a `configurations()` table has only Default, so there the panel always edits the literals.
+
+A value is written once you finish with it: <kbd>Enter</kbd> or leaving a field, letting go of a slider, a pick in a dropdown, a click on a checkbox. Each one is one edit of the file and one undo step in the editor. A value the parameter does not take — outside its minimum and maximum, not one of its options — is refused with a message, and so is a change the source cannot take as written: a table or a default written as an expression (`Width: base * 2`). Either way the file is left as it was.
+
+On a row, a bold label gets a ↺ when you point at it. It removes that value from the row: the parameter goes back to its default and says *default* again.
+
+Switching to another configuration never asks anything: every value you changed is already in its row.
+
+In the read-only viewer, such as a model embedded in a page, the panel cannot write: a change applies to that view only, and the ↺ in the panel's header puts every value back.
+
+### The actions menu
 
 <img src="/img/docs/ui/part-configuration-menu.png" alt="The Configuration row's actions menu" width="232" style={{float: 'right', marginLeft: '1.5rem'}} />
 
-Change a control with a row active and **● modified** appears beside the **Configuration** label: the change sits on top of the row for this session, exactly as a change sits on top of the literals on Default. The ⋮ button at the end of that label line opens the row actions:
+The ⋮ button at the end of the **Configuration** label line opens the row actions:
 
 | Action | What it does |
 |--------|--------------|
-| **Add configuration…** | A new row from the values on screen — the active row's values plus your changes — then shows it. |
-| **Save** | Writes the parameters you changed into the active row, as literals, and clears **● modified**. Disabled on Default, which has no row (the pencil on a parameter edits its literal), and when nothing is modified. |
+| **Add configuration…** | A new row from the values on screen, then shows it. On Default the row starts empty; with a row on screen it copies that row's values. |
 | **Duplicate…** | The same as Add configuration; with a row active, the name is prefilled as `<row> copy`. The active row is left as it was. |
 | **Rename…** | Renames the active row in the table. |
 | **Delete** | Removes the active row after asking, and shows Default. Deleting the last row removes the statement and its import too — or leaves `configurations({})` when the body reads its return value. |
 | **Manage…** | Opens the whole table as a grid (below). |
 
 <div style={{clear: 'both'}} />
-
-The header's ↺ reads *Revert changes* while a row is active: it drops the session changes and shows the row again. On Default it is the familiar *Reset all to defaults*.
-
-Switching to another row while **● modified** is showing asks first: **Save** writes the changes into the row you are leaving, **Discard** drops them, **Cancel** stays. Leaving Default with changes offers only Discard and Cancel.
 
 Renaming a parameter through its pencil renames its key in every row; deleting a parameter removes its value from every row.
 
@@ -158,7 +168,7 @@ A name the table does not declare is an error on the `insert()` statement, listi
 A file can hold more than one `part()`, and each part may have its own table. The rows belong to the file:
 
 - **One dropdown for the file.** The **Configuration** dropdown lists every row name of every table, and the row you pick is built by every part that declares it. A part whose table does not have that row, or that has no table, builds Default.
-- **Each part's values live in its own table**, first in that part's body. **Add configuration** and **Save** write each part's changed values into that part's table, creating it if needed; a part the row changes nothing in gets no entry for it. A row with nothing changed goes into the part named in the **Part** dropdown.
+- **Each part's values live in its own table**, first in that part's body. A value you change on a row goes into the table of the part it belongs to, created if the part has none, and **Add configuration** writes each part's values into its own table the same way; a part the row changes nothing in gets no entry for it. A row with nothing changed goes into the part named in the **Part** dropdown.
 - **Rename** and **Delete** act on every table that has the row. A table that a delete empties is removed.
 - **Each part's parameters are separate**, even when two parts use the same label: the bracket's `Width` and the backing plate's `Width` are two parameters, and a row sets them independently.
 

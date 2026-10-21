@@ -536,6 +536,55 @@ const CONFIGURED = [
   ``,
 ].join('\n');
 
+describe('ParamEditor.add — configurations() table', () => {
+  it('lands below the configurations() table when the body has no params yet', async () => {
+    const assembly = [
+      `import { assembly, configurations, insert } from 'fluidcad/core';`,
+      ``,
+      `assembly(() => {`,
+      `  const configuration = configurations({`,
+      `    Wide: {},`,
+      `  });`,
+      `  insert(base);`,
+      `});`,
+      ``,
+    ].join('\n');
+    const result = await ParamEditor.apply(assembly, {
+      kind: 'add', param: spec({ label: 'Gap', defaultValue: 1 }), assembly: true,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `    Wide: {},`,
+      `  });`,
+      `  const gap = param('Gap', 1);`,
+      `  insert(base);`,
+    ].join('\n'));
+  });
+
+  it('lands after the params that follow the configurations() table', async () => {
+    const assembly = [
+      `import { assembly, configurations, param, insert } from 'fluidcad/core';`,
+      ``,
+      `assembly(() => {`,
+      `  configurations({ Wide: { Width: 9 } });`,
+      `  const width = param('Width', 5);`,
+      `  insert(base);`,
+      `});`,
+      ``,
+    ].join('\n');
+    const result = await ParamEditor.apply(assembly, {
+      kind: 'add', param: spec({ label: 'Gap', defaultValue: 1 }), assembly: true,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `  configurations({ Wide: { Width: 9 } });`,
+      `  const width = param('Width', 5);`,
+      `  const gap = param('Gap', 1);`,
+      `  insert(base);`,
+    ].join('\n'));
+  });
+});
+
 describe('ParamEditor.update — configurations() table', () => {
   it('renames the key in every row of the body\'s table, and in no other body\'s', async () => {
     const result = await ParamEditor.apply(CONFIGURED, {

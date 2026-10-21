@@ -103,9 +103,11 @@ Resolution of a `param()` in a body with a table, highest first:
   builds its literals; a name no table declares warns once at the end of
   the render. Two parts' same label are two parameters; a row's cell in
   part A never sets part B's. The panel writes each part's cells into that
-  part's table, refuses edits while two parts share a name, and the Manage
-  grid groups columns by part (paste titles `Part · Label` for a shared
-  label).
+  part's table, and the Manage grid groups columns by part (paste titles
+  `Part · Label` for a shared label). A part is known by its export name
+  (`export const lid = part('Plate', …)`), so two parts with the same name
+  are two parts, shown as `Plate (lid)` where they would look alike; an
+  unexported part falls back to its name and order (`Plate (#2)`).
 - **From a parent**: `insert(def, 'Wide')` builds that row for that
   instance; `insert(def, 'Wide', { Depth: 1000 })` layers overrides on top
   of the row. `insert(def, 'Default')` is the same as `insert(def)`. See

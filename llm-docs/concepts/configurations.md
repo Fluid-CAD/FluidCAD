@@ -100,8 +100,18 @@ const deep = insert(frame, "Wide", { Depth: 1000 }).translate(0, 900, 0);
 - **Manage grid:** columns grouped under a header per part. A pasted header
   names a shared label as `Part · Label` (`Part / Label`, `Part: Label`,
   `Part.Label`); a bare label two parts share refuses the paste.
-- Two `part()` bodies with the same name cannot be told apart: the panel
-  refuses configuration edits until each part has its own name.
+- **A part is its export binding, not its name.** Two `part('Plate', …)`
+  in one file are two parts: each body's parameters, panel values,
+  configured values and table are filed under the part's export name
+  (`export const lid = part('Plate', …)` → `lid`). A part without one (not
+  exported, nested in another body, or built while the module still runs)
+  falls back to its name and order (`Plate#1`, `Plate#2`), which a reorder
+  swaps — export parts that share a name. The UI shows the name, adding the
+  binding only where two parts share it (`Plate (lid)`, `Plate (#2)`);
+  grid paste titles are then `lid · Width` or `Plate (lid) · Width`, and
+  `Plate · Width` refuses. Parameter keys on the wire carry the binding
+  (`["lid","Width"]`); an older key by part name (`["Plate","Width"]`)
+  means the one part so named and is refused when the name is shared.
 
 ## The active row is session state
 

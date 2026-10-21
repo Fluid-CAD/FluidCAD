@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FluidCadServer } from '../src/fluidcad-server/index.ts';
-import { PartExportBindings, type SceneHost } from '../src/host/scene-host.ts';
+import type { SceneHost } from '../src/host/scene-host.ts';
 import { createManager, getSceneManager } from '../../lib/dist/scene-manager.js';
 import param from '../../lib/dist/core/param.js';
 import part from '../../lib/dist/core/part.js';
@@ -33,26 +33,23 @@ class FakeHost implements SceneHost {
     this.moduleRuns++;
     const code = this.buffers.get(filePath) ?? '';
     const scene = (getSceneManager() ?? createManager('')).startScene();
-    // `part("Name") { … }` blocks are parts of their own — `part("Name" as
-    // binding)` an exported one; a buffer without any is one part, 'Model'.
-    const blocks = [...code.matchAll(/part\("([^"]+)"(?:\s+as\s+(\w+))?\)\s*\{([^}]*)\}/g)];
-    const bodies: [string, string | undefined, string][] = blocks.length > 0 ? blocks.map(b => [b[1], b[2], b[3]]) : [['Model', undefined, code]];
+    // `part("Name") { … }` blocks are parts of their own; a buffer without
+    // any is one part, 'Model'.
+    const blocks = [...code.matchAll(/part\("([^"]+)"\)\s*\{([^}]*)\}/g)];
+    const bodies: [string, string][] = blocks.length > 0 ? blocks.map(b => [b[1], b[2]]) : [['Model', code]];
     // Run as a module of `filePath` would: each call on its own line of an
     // attributed frame, so a declaration carries its call site.
-    const lines: string[] = ['const exports = {};'];
-    for (const [name, binding, body] of bodies) {
-      lines.push(`${binding ? `exports.${binding} = ` : ''}part(${JSON.stringify(name)}, () => {`);
+    const lines: string[] = [];
+    for (const [name, body] of bodies) {
+      lines.push(`part(${JSON.stringify(name)}, () => {`);
       for (const m of body.matchAll(/param\("([^"]+)",\s*([\d.]+)\)/g)) {
         lines.push(`  param(${JSON.stringify(m[1])}, ${Number(m[2])});`);
       }
       lines.push('});');
     }
-    lines.push('return exports;');
-    const mod = new Function('part', 'param', `"use strict";\n${lines.join('\n')}\n//# sourceURL=${filePath}`)(part, param);
-    // As the Vite host does: the bindings before the first body builds.
-    PartExportBindings.bindAll(mod);
+    new Function('part', 'param', `"use strict";\n${lines.join('\n')}\n//# sourceURL=${filePath}`)(part, param);
     scene.materializeLeftoverDefinitions();
-    return mod;
+    return {};
   }
 
   setBuffer(id: string, code: string): void {
@@ -232,16 +229,16 @@ describe('overrides following a declaration edit', () => {
 // (an older client) still works while one part declares the label, and is
 // refused when several do.
 describe('the same label in two parts', () => {
-  /** A `Plate` and a `Lid` (exported as `plate`, `lid`), both declaring `Width`; the Plate also `Depth`. */
+  /** A `Plate` and a `Lid`, both declaring `Width`; the Plate also `Depth`. */
   const twoParts = (plate: number, lid: number, depth = 5) => [
-    `part("Plate" as plate) { const width = param("Width", ${plate}); const depth = param("Depth", ${depth}) }`,
-    `part("Lid" as lid) { const width = param("Width", ${lid}) }`,
+    `part("Plate") { const width = param("Width", ${plate}); const depth = param("Depth", ${depth}) }`,
+    `part("Lid") { const width = param("Width", ${lid}) }`,
   ].join('\n');
 
-  /** `part name/label → currentValue` of the last render. */
+  /** `body/label → currentValue` of the last render. */
   const byPart = async (code: string) => {
     const data = await render(code);
-    return Object.fromEntries((data?.params ?? []).map((p) => [`${p.bodyName}/${p.label}`, p.currentValue]));
+    return Object.fromEntries((data?.params ?? []).map((p) => [`${p.body}/${p.label}`, p.currentValue]));
   };
 
   it('lists one row per part and sets one part\'s Width without touching the other\'s', async () => {
@@ -251,8 +248,7 @@ describe('the same label in two parts', () => {
     await server.recomputeCurrentFile();
 
     expect(await byPart(twoParts(100, 40))).toEqual({ 'Plate/Width': 100, 'Plate/Depth': 5, 'Lid/Width': 60 });
-    // An older client's part name names the one part so named.
-    expect(server.getParamOverrideEntries(FILE).map(e => [e.key.body, e.key.label, e.value])).toEqual([['lid', 'Width', 60]]);
+    expect(server.getParamOverrideEntries(FILE).map(e => [e.key.body, e.key.label, e.value])).toEqual([['Lid', 'Width', 60]]);
   });
 
   it('refuses a label two parts declare, and resolves one only one part declares', async () => {
@@ -264,7 +260,7 @@ describe('the same label in two parts', () => {
     expect(server.getParamOverrides(FILE)).toEqual({});
 
     expect(server.setParam(FILE, 'Depth', 9)).toBeNull();
-    expect(server.getParamOverrideEntries(FILE).map(e => e.key.body)).toEqual(['plate']);
+    expect(server.getParamOverrideEntries(FILE).map(e => e.key.body)).toEqual(['Plate']);
     expect(await byPart(twoParts(100, 40))).toEqual({ 'Plate/Width': 100, 'Plate/Depth': 9, 'Lid/Width': 40 });
   });
 
@@ -282,7 +278,7 @@ describe('the same label in two parts', () => {
     server.setParam(FILE, 'Depth', 9);
     server.setParam(FILE, 'Width', 60, 'Lid');
 
-    expect(server.getParamOverrides(FILE)).toEqual({ Depth: 9, '["lid","Width"]': 60 });
+    expect(server.getParamOverrides(FILE)).toEqual({ Depth: 9, '["Lid","Width"]': 60 });
 
     // The record reads back to the same parameters — what the screenshot and
     // configuration-rename round trips rely on.
@@ -302,84 +298,29 @@ describe('the same label in two parts', () => {
     } finally {
       warn.mockRestore();
     }
-    expect(server.getParamOverrides(FILE)).toEqual({ '["plate","Width"]': 70, '["lid","Width"]': 70 });
+    expect(server.getParamOverrides(FILE)).toEqual({ '["Plate","Width"]': 70, '["Lid","Width"]': 70 });
   });
 
   it('renames and forgets the declaration the edit addressed, by its call site', async () => {
     const data = await render(twoParts(100, 40));
     server.setParam(FILE, 'Width', 120, 'Plate');
     server.setParam(FILE, 'Width', 60, 'Lid');
-    const lid = data!.params!.find(p => p.body === 'lid')!;
+    const lid = data!.params!.find(p => p.body === 'Lid')!;
 
     const key = server.paramKeyOf(FILE, 'Width', lid.sourceLocation?.filePath, lid.sourceLocation?.line);
-    expect([key.body, key.label]).toEqual(['lid', 'Width']);
+    expect([key.body, key.label]).toEqual(['Lid', 'Width']);
     server.renameParam(FILE, key, 'Breadth');
     expect(server.getParamOverrideEntries(FILE).map(e => [e.key.body, e.key.label, e.value]))
-      .toEqual([['plate', 'Width', 120], ['lid', 'Breadth', 60]]);
+      .toEqual([['Plate', 'Width', 120], ['Lid', 'Breadth', 60]]);
 
     // The source edit lands: the Lid's value followed its new label.
     const renamed = [
-      `part("Plate" as plate) { const width = param("Width", 100); const depth = param("Depth", 5) }`,
-      `part("Lid" as lid) { const breadth = param("Breadth", 40) }`,
+      `part("Plate") { const width = param("Width", 100); const depth = param("Depth", 5) }`,
+      `part("Lid") { const breadth = param("Breadth", 40) }`,
     ].join('\n');
     expect(await byPart(renamed)).toEqual({ 'Plate/Width': 120, 'Plate/Depth': 5, 'Lid/Breadth': 60 });
 
     server.forgetParam(FILE, server.paramKeyOf(FILE, 'Width'));
     expect(server.getParamOverrides(FILE)).toEqual({ Breadth: 60 });
-  });
-});
-
-// Two parts with the same NAME (plans/part-configurations-research.md
-// Stage 6): each body is its hidden identity — the export binding here —
-// so each has its own parameters and overrides. A part name from an older
-// client names the one part so named and is refused when parts share it.
-describe('two parts of one name', () => {
-  const twins = (plate: number, lid: number) => [
-    `part("Plate" as plate) { const width = param("Width", ${plate}) }`,
-    `part("Plate" as lid) { const width = param("Width", ${lid}) }`,
-  ].join('\n');
-
-  /** `body/label → currentValue` of the last render. */
-  const byBody = async (code: string) => {
-    const data = await render(code);
-    return Object.fromEntries((data?.params ?? []).map((p) => [`${p.body}/${p.label}`, p.currentValue]));
-  };
-
-  it('lists both parts\' Width and sets each on its own', async () => {
-    expect(await byBody(twins(100, 40))).toEqual({ 'plate/Width': 100, 'lid/Width': 40 });
-    expect(server.setParam(FILE, 'Width', 60, 'lid')).toBeNull();
-    expect(server.setParam(FILE, 'Width', 120, 'plate')).toBeNull();
-    expect(await byBody(twins(100, 40))).toEqual({ 'plate/Width': 120, 'lid/Width': 60 });
-    expect(server.getParamOverrides(FILE)).toEqual({ '["plate","Width"]': 120, '["lid","Width"]': 60 });
-  });
-
-  it('refuses the shared name, and a record keyed by it', async () => {
-    await render(twins(100, 40));
-    expect(server.setParam(FILE, 'Width', 60, 'Plate')).toMatch(/^'Plate' names 2 parts that declare 'Width'/);
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      expect(server.restoreParamOverrides(FILE, { '["Plate","Width"]': 70, '["lid","Width"]': 30 }))
-        .toEqual([expect.stringMatching(/^'Plate' names 2 parts that declare 'Width'/)]);
-    } finally {
-      warn.mockRestore();
-    }
-    expect(await byBody(twins(100, 40))).toEqual({ 'plate/Width': 100, 'lid/Width': 30 });
-  });
-
-  it('resolves a record keyed by a part name the file has once', async () => {
-    const pair = [
-      `part("Plate" as plate) { const width = param("Width", 100) }`,
-      `part("Lid" as lid) { const width = param("Width", 40) }`,
-    ].join('\n');
-    await render(pair);
-    expect(server.restoreParamOverrides(FILE, { '["Lid","Width"]': 25 })).toEqual([]);
-    expect(await byBody(pair)).toEqual({ 'plate/Width': 100, 'lid/Width': 25 });
-  });
-
-  it('falls back to the name and order for an unexported pair', async () => {
-    const unexported = twins(100, 40).replace(/ as \w+/g, '');
-    expect(await byBody(unexported)).toEqual({ 'Plate#1/Width': 100, 'Plate#2/Width': 40 });
-    expect(server.setParam(FILE, 'Width', 45, 'Plate#2')).toBeNull();
-    expect(await byBody(unexported)).toEqual({ 'Plate#1/Width': 100, 'Plate#2/Width': 45 });
   });
 });

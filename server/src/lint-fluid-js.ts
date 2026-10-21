@@ -15,6 +15,7 @@ import { getJavaScriptParser } from './code-editor/index.ts';
 import { lintGlobalParamUnits, lintUnitStatements, type GlobalUnitLintContext, type LintDiagnostic } from './unit-lint.ts';
 import { isParamsFile } from './file-kind.ts';
 import { lintParamsTree } from './global-params/lint.ts';
+import { PartDeclarationLint } from './part-declaration-lint.ts';
 
 type TSNode = {
   type: string;
@@ -207,8 +208,9 @@ export type LintFluidJsResult = {
   /** A copy-pasteable block of suggested import statements, grouped by module. */
   suggestion: string;
   /**
-   * File-level rule violations the runtime would reject: `unit()` placement
-   * and `configurations()` ordering in a model, and for a `*.params.js`
+   * File-level rule violations the runtime would reject: `unit()` placement,
+   * `configurations()` ordering and the part rules (every part exported
+   * from the top level, names unique in the file) in a model, and for a `*.params.js`
    * path the params-file rules of `docs/global-parameters-plan.md` §2.2
    * (`global-params/lint.ts`), `configurations()` among them.
    */
@@ -498,6 +500,7 @@ export async function lintFluidJs(code: string, options: LintFluidJsOptions = {}
     : [
       ...lintUnitStatements(root, options.filePath, GEOMETRY_CALLEES),
       ...lintConfigurationStatements(root),
+      ...PartDeclarationLint.lint(root as any),
       ...(options.globalUnits ? lintGlobalParamUnits(root, options.filePath, options.globalUnits) : []),
     ];
 

@@ -11,11 +11,10 @@ import {
   type ConfigurationBodyRows,
   type ConfigurationCellValue,
   type ConfigurationEditSpec,
-  type ConfigurationTable as SourceConfigurationTable,
 } from '../configuration-edit.ts';
 import { findInvalidParam } from '../part-catalog/insert-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
-import { ParamKey, type ParamBodyHolder, type ParamDefinition, type SessionParamOverride } from '../../../lib/dist/index.js';
+import { ParamKey, type ParamDefinition, type SessionParamOverride } from '../../../lib/dist/index.js';
 
 /**
  * The active configuration of the file on screen, and the tables' rows
@@ -41,12 +40,8 @@ import { ParamKey, type ParamBodyHolder, type ParamDefinition, type SessionParam
  * many tables it touches.
  *
  * A cell is named by its parameter's key, as the Parameters panel keys its
- * rows (`ParamKey.id`): `["lid","Width"]` — the body is the part's hidden
- * identity, its export binding (`export const lid = part('Plate', …)`) or
- * `Name#n` without one — or a bare label that one body of the last render
- * declares (a label two bodies declare is a `400`). A key from an older
- * client naming the body by its part name (`["Plate","Width"]`) means the
- * one part so named, and is a `400` when parts share the name.
+ * rows (`ParamKey.id`): `["Plate","Width"]`, or a bare label that one body
+ * of the last render declares (a label two bodies declare is a `400`).
  *
  * - `POST /api/configurations/add { name, values?, part?, body? }` → add a
  *   row. Without `values`, the row holds every parameter of the last render
@@ -55,9 +50,8 @@ import { ParamKey, type ParamBodyHolder, type ParamDefinition, type SessionParam
  *   untouched Default. Each body's cells go into its own table (created
  *   when it has none); a row with no cell at all goes into the body `part`
  *   (`{ filePath?, line, column }` of its `part()` statement, as
- *   `/params/add` takes it) or `body` (its identity, or the name of the
- *   one part so named) names — the file's only body without either. Then
- *   selects the new row.
+ *   `/params/add` takes it) or `body` (its definition name) names — the
+ *   file's only body without either. Then selects the new row.
  * - `POST /api/configurations/save { values? }` → write cells into the
  *   ACTIVE row — into each body's table, adding the row to a table that
  *   lacks it; without `values`, the session's overrides with their current
@@ -79,17 +73,15 @@ import { ParamKey, type ParamBodyHolder, type ParamDefinition, type SessionParam
  *   follows a rename; a removed active row goes back to Default.
  * - `GET /api/configurations/table` → `{ tables }`: the current file's
  *   tables as its live code writes them (`ConfigurationEditor.readTables` —
- *   each `{ body, name, line, rows }`, `body` the body's identity as the
- *   last render filed it and `name` its part name, each cell
- *   `{ literal?, text }`, an expression cell without `literal`), empty
- *   without an addressable one.
+ *   each `{ body, line, rows }`, each cell `{ literal?, text }`, an
+ *   expression cell without `literal`), empty without an addressable one.
  *
- * Two parts of one name are two bodies, each with its own table. A refusal
- * of the editor's (an unknown row, a reserved name, a non-literal table) is
- * a `400` with its message; `404` with no scene; the host's own refusal
- * (`422`/`504`) as the dispatcher reports it. The edit lands first and the
- * host's re-render carries the new tables, so the answer's `configurations`
- * is the summary as it will be once that render arrives.
+ * A refusal of the editor's (an unknown row, a reserved name, a non-literal
+ * table, two parts of one name) is a `400` with its message; `404` with no
+ * scene; the host's own refusal (`422`/`504`) as the dispatcher reports it.
+ * The edit lands first and the host's re-render carries the new tables, so
+ * the answer's `configurations` is the summary as it will be once that
+ * render arrives.
  */
 export function createConfigurationsRouter(
   fluidCadServer: FluidCadServer,
@@ -355,9 +347,7 @@ export function createConfigurationsRouter(
       res.status(404).json({ error: 'No live code for the current file' });
       return;
     }
-    const targets = new ConfigurationTargets(fluidCadServer.getParamDefinitions(), file);
-    const tables = await ConfigurationEditor.readTables(code);
-    res.json({ tables: tables.map((table) => targets.sourceTable(table)) });
+    res.json({ tables: await ConfigurationEditor.readTables(code) });
   });
 
   router.post('/configurations/table', async (req, res) => {
@@ -447,13 +437,13 @@ export function sceneRenderedBroadcaster(
   };
 }
 
-/** Cells grouped by the body whose table holds them: body (its identity, null for the file's only body) → label → value. */
+/** Cells grouped by the body whose table holds them: body (definition name, null for the file's only body) → label → value. */
 type BodyCells = Map<string | null, Record<string, ConfigurationCellValue>>;
 
 /** A grid commit grouped the same way: body → row name → label → value, or null to unset. */
 type BodyRows = Map<string | null, Record<string, Record<string, ConfigurationCellValue | null>>>;
 
-/** Where a row with no cell goes: the editor's reference to the body, and its identity for the forecast. */
+/** Where a row with no cell goes: the editor's reference to the body, and its definition name for the forecast. */
 type BodyHome = { ref?: ConfigurationBodyRef; body: string | null };
 
 /** The table route's body, before its keys are resolved. */
@@ -467,15 +457,14 @@ type TableRequest = {
  * Where the panel's cells go in the current file: each parameter by its
  * key (`ParamKey.id`) resolved against the last render's definitions to the
  * body that declares it, and each body to the reference the editor
- * addresses it by — its identity, plus its `part()` statement's location
- * when it is a part. A body is its identity, so two parts of one name are
- * two bodies. A parameter of a part from another file (built at the top
- * level of this one) is no cell of this file's tables.
+ * addresses it by — its definition name, plus its `part()` statement's
+ * location when it is a part. A parameter of a part from another file
+ * (built at the top level of this one) is no cell of this file's tables.
  */
 class ConfigurationTargets {
   private readonly definitions: ParamDefinition[];
-  /** label → the bodies of this file declaring it, for a bare-label or name-keyed key. */
-  private readonly holders: Map<string, ParamBodyHolder[]>;
+  /** label → the bodies of this file declaring it, for a bare-label key. */
+  private readonly holders: Map<string, string[]>;
 
   constructor(definitions: ParamDefinition[], private readonly file: string) {
     this.definitions = definitions.filter((def) => def.kind !== 'global'
@@ -571,20 +560,16 @@ class ConfigurationTargets {
 
   /**
    * The request's home body: its `part()` statement (`{ filePath?, line,
-   * column }`, the Add-to part) and/or its identity (or the name of the one
-   * part so named). Neither: the file's only body.
+   * column }`, the Add-to part) and/or its definition name. Neither: the
+   * file's only body.
    */
   home(part: unknown, body: unknown): BodyHome | { error: string } {
     if (body !== undefined && body !== null && (typeof body !== 'string' || body === '')) {
-      return { error: 'body must be the id of the part the configuration goes in' };
+      return { error: 'body must be the definition name of the part the configuration goes in' };
     }
     if (part === undefined || part === null) {
       if (typeof body === 'string') {
-        const named = this.bodyNamed(body);
-        if (typeof named !== 'string') {
-          return named;
-        }
-        return { ref: this.ref(named), body: named };
+        return { ref: this.ref(body), body };
       }
       return { body: this.soleBody };
     }
@@ -597,49 +582,16 @@ class ConfigurationTargets {
     if (typeof filePath === 'string' && !ConfigurationTargets.sameFile(filePath, this.file)) {
       return { error: 'part must be a part() of the current file — a configuration lives in the file that declares it' };
     }
-    let named: string | null = this.definitions.find((def) => def.part?.line === line)?.body ?? null;
-    if (typeof body === 'string') {
-      const resolved = this.bodyNamed(body);
-      if (typeof resolved !== 'string') {
-        return resolved;
-      }
-      named = resolved;
-    }
+    const named = typeof body === 'string'
+      ? body
+      : this.definitions.find((def) => def.part?.line === line)?.body ?? null;
     return {
       ref: { ...(named !== null ? { body: named } : {}), part: { line: line as number, column: (column as number | undefined) ?? 0 } },
       body: named,
     };
   }
 
-  /**
-   * A source table as the panel reads it: under the identity the last
-   * render filed its body's parameters by — found by the definition call's
-   * line, which is `ParamDefinition.part` — else the identity the source
-   * spells, with its part name beside it.
-   */
-  sourceTable(table: SourceConfigurationTable): Omit<SourceConfigurationTable, 'id' | 'call'> & { name: string | null } {
-    const rendered = this.definitions.find((def) => def.part !== undefined && def.part.line === table.call.line)?.body;
-    const { id, call: _call, body: name, ...rest } = table;
-    return { ...rest, body: rendered ?? id ?? name, name };
-  }
-
-  /**
-   * The body a request's `body` names: a body of that identity, else the
-   * one body of that name (an older client's); refused when parts share
-   * the name. A body no definition has is passed on as it is.
-   */
-  private bodyNamed(body: string): string | { error: string } {
-    if (this.definitions.some((def) => def.body === body)) {
-      return body;
-    }
-    const named = [...new Set(this.definitions.filter((def) => def.bodyName === body).map((def) => def.body!))];
-    if (named.length > 1) {
-      return { error: `${named.length} parts of this file are named '${body}' — name the part by its id: ${named.map((b) => `'${b}'`).join(' or ')}.` };
-    }
-    return named[0] ?? body;
-  }
-
-  /** The editor's reference to a body: its identity, and its `part()` statement when it is a part. Null: the only body. */
+  /** The editor's reference to a body: its name, and its `part()` statement when it is a part. Null: the only body. */
   private ref(body: string | null): ConfigurationBodyRef {
     if (body === null) {
       return {};
@@ -651,28 +603,22 @@ class ConfigurationTargets {
   }
 
   /**
-   * The body and label a key names: its own body (by identity, or by the
-   * name of the one part so named), or for a bare label the one body
-   * declaring it (none yet: the file's only body). A label two bodies
-   * declare, or a name two parts share, is refused — a cell meant for one
-   * part must not land in another's table.
+   * The body and label a key names: its own body, or for a bare label the
+   * one body declaring it (none yet: the file's only body). A label two
+   * bodies declare is refused — a cell meant for one part must not land in
+   * another's table.
    */
   private resolve(key: ParamKey): { body: string | null; label: string } | { error: string } {
     if (!key.labelOnly) {
-      const resolved = ParamKey.resolveBody(key.body!, key.label, this.holders);
-      if ('error' in resolved) {
-        return { error: resolved.error };
-      }
-      if (!this.definitions.some((def) => def.body === resolved.key.body)) {
+      if (!this.definitions.some((def) => def.body === key.body)) {
         return { error: `${key.describe()} is no parameter of this file's parts — a configuration sets the parameters of the file that declares it.` };
       }
-      return { body: resolved.key.body, label: key.label };
+      return { body: key.body, label: key.label };
     }
     const resolved = ParamKey.resolveLabel(key.label, this.holders);
     if ('error' in resolved) {
-      const bodies = this.holders.get(key.label) ?? [];
       const keys = resolved.bodies.map((body) => JSON.stringify([body, key.label])).join(' or ');
-      return { error: `Parameter '${key.label}' is declared by ${ParamKey.labels(bodies).join(' and ')} — key its cell by its part: ${keys}.` };
+      return { error: `Parameter '${key.label}' is declared by ${resolved.bodies.map((b) => `'${b}'`).join(' and ')} — key its cell by its part: ${keys}.` };
     }
     return { body: resolved.key.body, label: key.label };
   }
@@ -709,7 +655,7 @@ class ConfigurationsForecast {
   constructor(before: SceneConfigurations, private readonly soleBody: string | null) {
     this.reportTables = before.tables !== undefined;
     this.tables = before.tables
-      ? before.tables.map((table) => ({ ...table, names: table.names.slice(), rows: ConfigurationsForecast.copyRows(table.rows) }))
+      ? before.tables.map((table) => ({ body: table.body, names: table.names.slice(), rows: ConfigurationsForecast.copyRows(table.rows) }))
       : before.names.length > 0
         ? [{ body: soleBody ?? '', names: before.names.slice(), rows: ConfigurationsForecast.copyRows(before.rows) }]
         : [];

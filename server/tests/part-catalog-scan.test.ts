@@ -85,27 +85,6 @@ describe('scanFileForParts', () => {
     expect(result.parts[0].objects.map(o => o.id)).toEqual(['p1', 'sketch1', 'extrude1']);
   });
 
-  it('lists two exported parts of one name apart, each bound to its export before any builds', async () => {
-    const events: string[] = [];
-    const definition = (part: any) => ({
-      partName: 'Plate',
-      getType: () => 'part-definition',
-      bindExport: (name: string) => events.push(`bind ${name}`),
-      materialize: () => {
-        events.push(`build ${part.id}`);
-        return part;
-      },
-    });
-    const result = await scanFileForParts(
-      fakeHost({ plate: definition(fakePart('a', 'Plate')), lid: definition(fakePart('b', 'Plate')) }),
-      fakeManager([[], [rendered('a')], [rendered('b')]]),
-      '/ws/twins.part.js',
-    );
-    expect(result.errors).toEqual([]);
-    expect(result.parts.map((p) => [p.exportName, p.partName])).toEqual([['plate', 'Plate'], ['lid', 'Plate']]);
-    expect(events).toEqual(['bind plate', 'bind lid', 'build a', 'build b']);
-  });
-
   it('calls factory exports with zero args and attributes the returned part', async () => {
     const plate = fakePart('sp1', 'Side Plate');
     const factoryScene = [rendered('sp1'), rendered('child', 'sp1')];
@@ -429,6 +408,20 @@ describe('scanFileForParts — lazy part definitions', () => {
     expect(result.parts).toHaveLength(1);
     expect(result.parts[0]).toMatchObject({ exportName: 'bracket', kind: 'factory', rootId: 'f1' });
     expect(result.parts[0].params).toEqual([]);
+  });
+
+  it('lists a definition a part rule refused under errors, without building it', async () => {
+    const plate = fakeDefinition(fakePart('d1', 'Plate'));
+    const message = "part 'Plate': another part in this file is already named 'Plate' — give each part its own name.";
+    const lid = { ...fakeDefinition(fakePart('d2', 'Plate')), getRefusal: () => message };
+    const bolt = { ...fakeDefinition(fakePart('d3', 'Plate')), getRefusal: () => message };
+    const result = await scanFileForParts(
+      fakeHost({ plate, lid, bolt: () => bolt }),
+      fakeManager([[], [rendered('d1')]]),
+      '/ws/pair.part.js',
+    );
+    expect(result.parts.map((p) => p.exportName)).toEqual(['plate']);
+    expect(result.errors).toEqual([{ exportName: 'lid', message }, { exportName: 'bolt', message }]);
   });
 
   it('rejects a default-exported definition', async () => {

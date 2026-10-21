@@ -433,7 +433,6 @@ describe('configuration routes', () => {
       expect(body).toEqual({
         tables: [{
           body: 'Frame',
-          name: 'Frame',
           line: 3,
           rows: {
             Compact: { Width: { text: 'base / 2' }, Depth: { literal: 300, text: '300' } },
@@ -763,114 +762,6 @@ describe('configuration routes', () => {
       const refused = await post('/configurations/add', { name: 'Odder', values: { [ParamKey.of('Hinge', 'Hinge').id]: 2 } });
       expect(refused.status).toBe(400);
       expect(refused.body.error).toBe(`'Hinge' of 'Hinge' is no parameter of this file's parts — a configuration sets the parameters of the file that declares it.`);
-    });
-  });
-
-  // Two part() bodies with the same NAME (plans/part-configurations-research.md
-  // Stage 6): each body is its hidden identity — the export binding, `plate`
-  // and `lid` — so each keeps its own table, and the name refuses only where
-  // it would have to choose.
-  describe('two parts of one name', () => {
-    const TWINS = '/ws/twins.part.js';
-    const TWINS_CODE = [
-      `import { part, param, configurations, extrude } from 'fluidcad/core';`,
-      ``,
-      `export const plate = part('Plate', () => {`,
-      `  const configuration = configurations({`,
-      `    Wide: { Width: 80 },`,
-      `  });`,
-      `  const width = param('Width', 40);`,
-      `  extrude(width);`,
-      `});`,
-      ``,
-      `export const lid = part('Plate', () => {`,
-      `  const width = param('Width', 20);`,
-      `  extrude(width);`,
-      `});`,
-      ``,
-    ].join('\n');
-    const PLATE = { filePath: TWINS, line: 3, column: 21 };
-    const LID = { filePath: TWINS, line: 11, column: 19 };
-    const plateWidth = ParamKey.of('plate', 'Width').id;
-    const lidWidth = ParamKey.of('lid', 'Width').id;
-
-    beforeEach(() => {
-      currentFile = TWINS;
-      buffer = TWINS_CODE;
-      active = 'Default';
-      names = ['Wide'];
-      rows = { Wide: { Width: 80 } };
-      tables = [{ body: 'plate', name: 'Plate', names: ['Wide'], rows: { Wide: { Width: 80 } } } as any];
-      definitions = [
-        { label: 'Width', kind: 'part', body: 'plate', bodyName: 'Plate', part: PLATE, defaultValue: 40, currentValue: 40 } as any,
-        { label: 'Width', kind: 'part', body: 'lid', bodyName: 'Plate', part: LID, defaultValue: 20, currentValue: 20 } as any,
-      ];
-    });
-
-    it('Add writes the changed part\'s cell into that part\'s own table', async () => {
-      overrides = { [lidWidth]: 30 };
-      definitions[1].currentValue = 30;
-      const result = await actAsEditor(post('/configurations/add', { name: 'Tall', part: PLATE }));
-      expect(result.status).toBe(200);
-      expect(relayed[0].spec.configurationEdit).toEqual({
-        kind: 'add',
-        name: 'Tall',
-        bodies: [{ body: 'lid', part: { line: 11, column: 19 }, values: { Width: 30 } }],
-        home: { body: 'plate', part: { line: 3, column: 21 } },
-      });
-      expect(buffer).toContain(`    Wide: { Width: 80 },\n  });`);
-      expect(buffer).toContain(`export const lid = part('Plate', () => {\n  const configuration = configurations({\n    Tall: { Width: 30 },\n  });`);
-      expect(result.body.configurations.tables).toEqual([
-        { body: 'plate', name: 'Plate', names: ['Wide'], rows: { Wide: { Width: 80 } } },
-        { body: 'lid', names: ['Tall'], rows: { Tall: { Width: 30 } } },
-      ]);
-    });
-
-    it('takes cells keyed by the part id, and refuses the shared name or a bare shared label', async () => {
-      let result = await post('/configurations/add', { name: 'X', values: { [ParamKey.of('Plate', 'Width').id]: 1 }, part: PLATE });
-      expect(result.status).toBe(400);
-      expect(result.body.error).toBe(`'Plate' names 2 parts that declare 'Width' — 'Plate (plate)' and 'Plate (lid)'. `
-        + `Key the parameter by its part's id: ["plate","Width"] or ["lid","Width"].`);
-      result = await post('/configurations/add', { name: 'X', values: { Width: 1 }, part: PLATE });
-      expect(result.status).toBe(400);
-      expect(result.body.error).toBe(`Parameter 'Width' is declared by 'Plate (plate)' and 'Plate (lid)' — key its cell by its part: ["plate","Width"] or ["lid","Width"].`);
-      result = await post('/configurations/add', { name: 'X', body: 'Plate' });
-      expect(result.status).toBe(400);
-      expect(result.body.error).toBe(`2 parts of this file are named 'Plate' — name the part by its id: 'plate' or 'lid'.`);
-      expect(relayed).toEqual([]);
-
-      result = await actAsEditor(post('/configurations/add', { name: 'X', values: { [plateWidth]: 41, [lidWidth]: 11 } }));
-      expect(result.status).toBe(200);
-      expect(buffer).toContain(`    Wide: { Width: 80 },\n    X: { Width: 41 },\n  });`);
-      expect(buffer).toContain(`  const configuration = configurations({\n    X: { Width: 11 },\n  });`);
-    });
-
-    it('GET answers each table under its part id, beside the part name', async () => {
-      buffer = TWINS_CODE.replace(`export const lid = part('Plate', () => {\n`, `export const lid = part('Plate', () => {\n  configurations({ Wide: { Width: 30 } });\n`);
-      const { body } = await get('/configurations/table');
-      expect(body.tables.map((t: any) => [t.body, t.name, t.line, t.rows.Wide.Width.literal])).toEqual([
-        ['plate', 'Plate', 4, 80],
-        ['lid', 'Plate', 12, 30],
-      ]);
-    });
-
-    it('commits the grid across both tables as one edit', async () => {
-      buffer = TWINS_CODE.replace(`export const lid = part('Plate', () => {\n`, `export const lid = part('Plate', () => {\n  configurations({ Wide: { Width: 30 } });\n`);
-      const result = await actAsEditor(post('/configurations/table', {
-        rows: { Wide: { [plateWidth]: 85, [lidWidth]: 35 } },
-        part: LID,
-      }));
-      expect(result.status).toBe(200);
-      expect(relayed.filter((m) => m.type === 'apply-feature-edit')).toHaveLength(1);
-      expect(buffer).toContain(`    Wide: { Width: 85 },\n  });`);
-      expect(buffer).toContain(`  configurations({ Wide: { Width: 35 } });`);
-    });
-
-    it('reads an older client\'s key by a part name the file has once as that part', async () => {
-      definitions[1].bodyName = 'Lid' as any;
-      const result = await actAsEditor(post('/configurations/add', { name: 'Y', values: { [ParamKey.of('Lid', 'Width').id]: 12 } }));
-      expect(result.status).toBe(200);
-      expect(relayed[0].spec.configurationEdit.bodies).toEqual([{ body: 'lid', part: { line: 11, column: 19 }, values: { Width: 12 } }]);
     });
   });
 });

@@ -249,6 +249,13 @@ export function createTimelineRouter(
     }
     const { filePath, line } = sourceLocation;
     const code = await refactor.readFile(filePath);
+    // A name another part of the file has is refused before any importer
+    // follows the rename (part names are unique within a file).
+    const clash = code === null ? null : await PartRename.clash(code, line, name);
+    if (clash !== null) {
+      res.status(422).json({ success: false, reason: clash });
+      return;
+    }
     const plan = code === null ? null : await PartRename.plan(code, filePath, line, name);
     if (plan?.declaration) {
       const specs = await refactor.renameSpecs(plan.declaration, plan.variable, null, plan.variableExport);

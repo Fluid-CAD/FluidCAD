@@ -30,10 +30,16 @@ type TSNode = {
 
 export type LintDiagnostic = {
   message: string;
-  /** Zero-based row of the offending `unit(` call. */
+  /** Zero-based row of the offending call (`unit(`, `part(`, …). */
   line: number;
-  /** Zero-based UTF-16 column of the offending `unit(` call. */
+  /** Zero-based UTF-16 column of the offending call. */
   column: number;
+  /**
+   * Which part rule the diagnostic is (`part-declaration-lint.ts`): every
+   * part exported from the top level of its file, part names unique within
+   * it. Absent for the `unit()` and `configurations()` placement rules.
+   */
+  rule?: 'part-export' | 'part-name';
 };
 
 /** Scopes whose contents run at call time, not when the statement evaluates. */

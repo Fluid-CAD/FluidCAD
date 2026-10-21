@@ -1,6 +1,7 @@
 // Appending a new part() body to the document.
 
-import { chainRootCallee, getJavaScriptParser, walkTree } from '../../code-editor/index.ts';
+import { chainRootCallee, getJavaScriptParser, stringLiteralValue, walkTree } from '../../code-editor/index.ts';
+import { PartRules } from '../../../../lib/dist/index.js';
 import { appendTopLevelStatement } from '../insertion.ts';
 import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
 
@@ -13,9 +14,11 @@ function validPartName(name: string): boolean {
  * The Part tool's statement: append `export const <ident> = part('<name>',
  * () => {})` at top level. A missing name allocates "Part N" past every
  * part() name already in the file, so repeated clicks keep minting fresh
- * parts. The binding is always exported — the part catalog indexes parts by
- * their `export const` name, so an exported part is insertable from an
- * assembly the moment it exists.
+ * parts; a given name the file already has takes the first free " N"
+ * suffix (`Plate` → `Plate 2`), since part names are unique within a file.
+ * The binding is always exported — every part is (lib `PartRules`), and the
+ * part catalog indexes parts by their `export const` name, so the part is
+ * insertable from an assembly the moment it exists.
  */
 export async function applyNewPart(
   code: string,
@@ -24,7 +27,10 @@ export async function applyNewPart(
   if (newPart.name !== undefined && !validPartName(newPart.name)) {
     return { newCode: code, error: 'part names must be 1-64 characters without quotes or line breaks' };
   }
-  const name = newPart.name ?? await allocateNewPartName(code);
+  const taken = await partNamesIn(code);
+  // Part names are unique within a file (lib PartRules): a name the file
+  // already has gets the first free " N" suffix.
+  const name = newPart.name === undefined ? allocateNewPartName(taken) : freePartName(newPart.name, taken);
   const exportName = pickPartExportName(code, name);
   return appendTopLevelStatement(
     code,
@@ -40,13 +46,7 @@ export async function applyNewPart(
  * dialog's instance names follow.
  */
 function pickPartExportName(code: string, displayName: string): string {
-  const words = displayName.split(/[^A-Za-z0-9]+/).filter(w => w.length > 0);
-  let base = words
-    .map((w, i) => i === 0 ? w.charAt(0).toLowerCase() + w.slice(1) : w.charAt(0).toUpperCase() + w.slice(1))
-    .join('');
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(base)) {
-    base = 'part';
-  }
+  const base = PartRules.bindingFor(displayName);
   if (!new RegExp(`\\b${base}\\b`).test(code)) {
     return base;
   }
@@ -58,8 +58,8 @@ function pickPartExportName(code: string, displayName: string): string {
   }
 }
 
-/** The first "Part N" past every part() name already in the file. */
-async function allocateNewPartName(code: string): Promise<string> {
+/** Every string-literal name a `part()` call of the file takes. */
+async function partNamesIn(code: string): Promise<Set<string>> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
   const taken = new Set<string>();
@@ -69,13 +69,31 @@ async function allocateNewPartName(code: string): Promise<string> {
     }
     const first = node.childForFieldName('arguments')?.namedChildren
       .filter(a => a.type !== 'comment')[0];
-    if (first && first.type === 'string') {
-      taken.add(first.text.slice(1, -1));
+    const name = first ? stringLiteralValue(first) : null;
+    if (name !== null) {
+      taken.add(name);
     }
   }
+  return taken;
+}
+
+/** The first "Part N" past every part() name already in the file. */
+function allocateNewPartName(taken: Set<string>): string {
   let n = 1;
   while (taken.has(`Part ${n}`)) {
     n++;
   }
   return `Part ${n}`;
+}
+
+/** `name` when the file has no part of that name, else `name 2`, `name 3`, … — the first free one. */
+function freePartName(name: string, taken: Set<string>): string {
+  if (!taken.has(name)) {
+    return name;
+  }
+  let n = 2;
+  while (taken.has(`${name} ${n}`)) {
+    n++;
+  }
+  return `${name} ${n}`;
 }

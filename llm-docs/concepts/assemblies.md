@@ -29,7 +29,7 @@ can be inserted elsewhere. A new assembly file is scaffolded as one exported
 
 | statement | in | out |
 |-----------|----|-----|
-| `param('Label', default, type?, opts?)` | `insert(def, { Label: value })` | the Parameters panel / Insert wizard controls |
+| `param('Label', default, type?, opts?)` | `insert(def, { Label: value })` | the Part Parameters panel / Insert wizard controls |
 | `connector('name', geometry)` | — | `instance.connectors.name` for `mate()` |
 | `copy(…, name)` of that connector | — | `instance.connectors.name.instance(k)`, one per copy |
 | `expose('name', sceneObject)` | — | `def.features.name` (another part), `instance.features.name` (tangent mate) |

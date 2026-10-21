@@ -1,7 +1,7 @@
 ---
 id: concepts/configurations
 title: "Configurations — named value sets for a part's or assembly's parameters"
-summary: "A configuration is a named row of values for the param() interface of a part or assembly, declared with configurations({ Name: { Label: value } }) as the first statement of the body. The param() calls are the schema, written once; rows are sparse; 'Default' is the literals. Which row the open file shows is session state (the Parameters panel dropdown, select_configuration), never source. In a file with several parts, row names are file-wide and each part applies its own table's row. A parent inserts a row by name — insert(def, 'Wide') — and export, screenshot and pack take a configuration. Anything a configuration 'does' (which parts are inserted, a mate offset) is ordinary code reading the parameter values."
+summary: "A configuration is a named row of values for the param() interface of a part or assembly, declared with configurations({ Name: { Label: value } }) as the first statement of the body. The param() calls are the schema, written once; rows are sparse; 'Default' is the literals. Which row the open file shows is session state (the Part Parameters / Assembly Parameters panel dropdown, select_configuration), never source. In a file with several parts, row names are file-wide and each part applies its own table's row. A parent inserts a row by name — insert(def, 'Wide') — and export, screenshot and pack take a configuration. Anything a configuration 'does' (which parts are inserted, a mate offset) is ordinary code reading the parameter values."
 tags: [concept, assembly, part, parameters, configurations]
 seeAlso: [api/configurations, api/param, api/insert, concepts/assemblies, concepts/global-parameters, concepts/units]
 ---
@@ -80,8 +80,8 @@ const deep = insert(frame, "Wide", { Depth: 1000 }).translate(0, 900, 0);
 - **Project parameters** (`*.params.js`) cannot be set by a row; a cell
   naming one warns and is ignored. See [[concepts/global-parameters]].
 - One table per body, before the body's first `param()`, in a `part()` or
-  an `assembly()` body alike. The Parameters panel edits it in both
-  workspaces.
+  an `assembly()` body alike. The Part Parameters panel and the Assembly
+  Parameters panel edit it in their workspaces.
 
 ## Several parts in one file
 
@@ -108,7 +108,8 @@ const deep = insert(frame, "Wide", { Depth: 1000 }).translate(0, 900, 0);
 
 ## The active row is session state
 
-Which row the open file renders is chosen in the Parameters panel's
+Which row the open file renders is chosen in the Part Parameters (or
+Assembly Parameters) panel's
 **Configuration** dropdown (the labelled row under the panel header, in
 the part and the assembly workspace alike) (or `select_configuration` / `?configuration=`
 on a share link) and remembered per file in `.fluidcad/editor-state.json`.

@@ -1,7 +1,7 @@
 ---
 id: concepts/global-parameters
 title: "Project parameters — *.params.js files shared across models"
-summary: "A project parameter is a param() exported from the top level of a *.params.js file (project.params.js by convention) and read from any part or assembly through an ordinary import. The file holds only imports and export const declarations, in the project unit; a plain export const is a derived read-only value. Its literal IS the value everywhere: the Parameters panel edits the source, an assembly cannot override it per instance. Shared dimensions go here — import them, never copy the number."
+summary: "A project parameter is a param() exported from the top level of a *.params.js file (project.params.js by convention) and read from any part or assembly through an ordinary import. The file holds only imports and export const declarations, in the project unit; a plain export const is a derived read-only value. Its literal IS the value everywhere: the Global Parameters panel edits the source, an assembly cannot override it per instance. Shared dimensions go here — import them, never copy the number."
 tags: [concept, parameters, project, units]
 seeAlso: [api/param, api/part, api/insert, concepts/assemblies, concepts/units]
 ---
@@ -87,7 +87,7 @@ extrude(mm(wall));            // a length: 3 mm expressed in this file's inches
 
 A project parameter has no session override and no per-instance override:
 the declaration's default literal is the value in every file that imports
-it. The Parameters panel (the rail button below Code) edits that literal in
+it. The Global Parameters panel (the rail button below Code) edits that literal in
 source and re-renders the open model; there is no "reset to defaults".
 `insert(bracket, { "Wall thickness": 5 })` names no parameter of the part
 and warns: *`Wall thickness` is a project parameter — edit it in the

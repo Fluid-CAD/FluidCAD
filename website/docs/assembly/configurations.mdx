@@ -10,7 +10,7 @@ import asmConfigurations from '!!raw-loader!./_examples/asm-configurations.assem
 
 A configuration is a named set of values for an assembly's own [parameters](./parameters#assembly-parameters). A gearbox that ships as a 2:1 and a 3:1 ratio, a frame that comes compact or wide: the parameters are declared once, and each configuration is one row of a table that lists only the values it changes. Everything else stays shared, so a fix to the model is a fix to every configuration.
 
-The table is a `configurations({...})` statement at the top of the assembly body. The Parameters panel switches between its rows, a parent assembly inserts a row by name, and export writes one file per row.
+The table is a `configurations({...})` statement at the top of the assembly body. The Assembly Parameters panel switches between its rows, a parent assembly inserts a row by name, and export writes one file per row.
 
 ```js
 const configuration = configurations({
@@ -27,7 +27,7 @@ A part declares configurations the same way, in its own body; [Part configuratio
 
 ## In the viewport
 
-All of this happens in the assembly workspace's **Parameters** panel, in the **Configuration** row under its header.
+All of this happens in the assembly workspace's **Assembly Parameters** panel, in the **Configuration** row under its header.
 
 ### Creating a configuration
 
@@ -131,7 +131,7 @@ A configuration changes parameter values and nothing else, because everything el
 
 ### A parameter only one row has
 
-Branch on the return value to declare a parameter that only one configuration needs. In the example, the 3:1 gearbox gets a second plate under its large wheel, and its `Extension` parameter exists only while `Ratio 3:1` is built — in the Parameters panel, in the grid, and as a key the `Ratio 3:1` row may set.
+Branch on the return value to declare a parameter that only one configuration needs. In the example, the 3:1 gearbox gets a second plate under its large wheel, and its `Extension` parameter exists only while `Ratio 3:1` is built — in the Assembly Parameters panel, in the grid, and as a key the `Ratio 3:1` row may set.
 
 ```js
 if (configuration === 'Ratio 3:1') {

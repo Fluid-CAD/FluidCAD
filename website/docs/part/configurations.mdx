@@ -11,7 +11,7 @@ import partConfigurations from '!!raw-loader!./_examples/part-configurations.js'
 
 A configuration is a named set of values for a part's [parameters](./param). An angle bracket made for M6, M8 and M10 screws, a spacer in three lengths, a housing with or without a lid: the parameters are declared once, and each configuration is one row of a table that lists only the values it changes. Everything else stays shared, so a fix to the part is a fix to every configuration.
 
-The table is a `configurations({...})` statement at the top of the part body. The Parameters panel switches between its rows, an assembly inserts a row by name, and export writes one file per row.
+The table is a `configurations({...})` statement at the top of the part body. The Part Parameters panel switches between its rows, an assembly inserts a row by name, and export writes one file per row.
 
 ```js
 const configuration = configurations({
@@ -26,7 +26,7 @@ const width = param('Width', 40, 'number', { min: 30, max: 120, step: 5 });
 
 ## In the viewport
 
-All of this happens in the part workspace's **Parameters** panel, in the **Configuration** row under its header. It sits above the **Part** row, whose dropdown still names the part a new parameter goes into.
+All of this happens in the part workspace's **Part Parameters** panel, in the **Configuration** row under its header. It sits above the **Part** row, whose dropdown still names the part a new parameter goes into.
 
 ### Creating a configuration
 
@@ -38,7 +38,7 @@ To start from another configuration rather than from Default, show that one and 
 
 ### Switching
 
-<img src="/img/docs/ui/part-configuration-band.png" alt="The Parameters panel with the M8 configuration on screen: Screw, Width, Leg and Thickness bold, Width showing its ↺ under the pointer, Gusset at its default" width="232" style={{float: 'right', marginLeft: '1.5rem'}} />
+<img src="/img/docs/ui/part-configuration-band.png" alt="The Part Parameters panel with the M8 configuration on screen: Screw, Width, Leg and Thickness bold, Width showing its ↺ under the pointer, Gusset at its default" width="232" style={{float: 'right', marginLeft: '1.5rem'}} />
 
 Once the file has a table, the **Configuration** row shows a dropdown: **Default**, then the rows in the order the table declares them. Picking one re-renders the part with that row's values. The choice is not written into the source — switching never creates a diff — and it is remembered per file, so the workspace reopens on the configuration you left.
 
@@ -140,7 +140,7 @@ A configuration changes parameter values and nothing else, because everything el
 
 ### A parameter only one row has
 
-Branch on the return value to declare a parameter that only one configuration needs. Here the gusset's thickness exists only while `M10` is built — in the Parameters panel, in the grid, and as a key the `M10` row may set:
+Branch on the return value to declare a parameter that only one configuration needs. Here the gusset's thickness exists only while `M10` is built — in the Part Parameters panel, in the grid, and as a key the `M10` row may set:
 
 ```js
 if (configuration === 'M10') {

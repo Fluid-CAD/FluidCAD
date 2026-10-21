@@ -24,7 +24,7 @@ export const disc = part('Disc', () => {
 ## Two rules
 
 - **Every part is exported.** A part is `export const disc = part('Disc', () => { … })` at the top level of its file: the export is how an assembly imports it and how the Insert dialog finds it. A `.name()` or `.material()` chain on the statement, a top-level `const` listed in an `export { disc }` clause, and an exported function that returns the part (`export const bolt = (length = 20) => part('Bolt', …)`) count as exported too. A `part()` nothing exports, one exported only as `default`, and one written inside another part's or assembly's body are refused.
-- **Part names are unique within a file.** The name is what the Parameters panel, the configurations tables and the timeline tell the file's parts apart by. The first `part()` of a name builds; a later one with the same name is refused.
+- **Part names are unique within a file.** The name is what the Part Parameters panel, the configurations tables and the timeline tell the file's parts apart by. The first `part()` of a name builds; a later one with the same name is refused.
 
 A refused part does not build: its timeline row shows the reason as a build error and the rest of the file renders. The messages name the fix:
 

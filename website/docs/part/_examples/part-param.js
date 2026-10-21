@@ -3,7 +3,7 @@ import { coincident, distance, fix, horizontal, vertical } from 'fluidcad/constr
 
 // A parametric mounting plate: a rectangle with a clearance hole near each
 // corner, extruded to a thickness. Every param() is a control in the
-// Parameters panel; an assembly sets them per instance —
+// Part Parameters panel; an assembly sets them per instance —
 // insert(plate, { Width: 120, Hole: 6.6 }).
 export const plate = part('Mounting plate', () => {
     // highlight-start

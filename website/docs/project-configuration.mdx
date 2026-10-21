@@ -181,8 +181,8 @@ export const innerWidth = width - 2 * wall;
 import { wall, innerWidth } from './project.params.js';
 ```
 
-The **Parameters** button on the left rail lists every params file's exports and edits their values in place — a change writes the declaration's literal and re-renders the open model. A project may have several params files; `project.params.js` at the workspace root is the convention, and what the panel creates on first use. [Project parameters](/docs/extra/global-parameters) has the file's rules, the unit behaviour and the panel.
+The **Global Parameters** button on the left rail lists every params file's exports and edits their values in place — a change writes the declaration's literal and re-renders the open model. A project may have several params files; `project.params.js` at the workspace root is the convention, and what the panel creates on first use. [Project parameters](/docs/extra/global-parameters) has the file's rules, the unit behaviour and the panel.
 
 ## File naming
 
-The extension is what FluidCAD keys on: `.part.js` is a part file, `.assembly.js` an assembly, and `.params.js` a project-parameters module. Parts and assemblies appear in the workspace's file tabs, the Insert dialog and the CLI's export targets; a params file appears in the Parameters panel and opens in a tab as code only. A `.js` file that follows none of these conventions is ignored by the viewer — it is just a module your model files can import from, which is how [reusable objects](/docs/extra/reusable-objects) are shared between parts.
+The extension is what FluidCAD keys on: `.part.js` is a part file, `.assembly.js` an assembly, and `.params.js` a project-parameters module. Parts and assemblies appear in the workspace's file tabs, the Insert dialog and the CLI's export targets; a params file appears in the Global Parameters panel and opens in a tab as code only. A `.js` file that follows none of these conventions is ignored by the viewer — it is just a module your model files can import from, which is how [reusable objects](/docs/extra/reusable-objects) are shared between parts.

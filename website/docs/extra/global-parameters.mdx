@@ -28,7 +28,7 @@ export const bracket = part('Bracket', () => {
 });
 ```
 
-Nothing new is needed to read one: `wall` is a plain number in `bracket.part.js`, usable in a sketch guess, a dimension, an extrude distance, an `if`. The project gets a **Parameters** button on the left rail that lists every project parameter and edits it in place, and every expression input offers them beside the file's own variables and writes the import for you.
+Nothing new is needed to read one: `wall` is a plain number in `bracket.part.js`, usable in a sketch guess, a dimension, an extrude distance, an `if`. The project gets a **Global Parameters** button on the left rail that lists every project parameter and edits it in place, and every expression input offers them beside the file's own variables and writes the import for you.
 
 A project parameter is source, not configuration: it lives in a JavaScript file you own, git diffs it, the editor completes it, and a derived value (`innerWidth = width - 2 * wall`) is an ordinary expression. There is no entry for it in `fluidcad.json`.
 
@@ -76,9 +76,9 @@ for (let i = 0; i < holes; i++) {  // a count: used as is
 
 The suggestion dropdown shows a number global with the project unit (`3 mm`) so the difference is visible where you type it, and the editor warns on a read of a number global in a file whose unit differs from the project unit, with the wrap as the quick fix. The wrap is explicit in source and reviewable, which is the product's stance on units: a file's numbers are its unit.
 
-## The Parameters panel
+## The Global Parameters panel
 
-The **Parameters** button on the left rail, below **Code**, opens a column docked beside the rail; the panels to its right shift over while it is open. It is available in the part and the assembly workspace alike, and it works with no model open — the list comes from a scan of the params files, not from a render.
+The **Global Parameters** button on the left rail, below **Code**, opens a column docked beside the rail; the panels to its right shift over while it is open. It is available in the part and the assembly workspace alike, and it works with no model open — the list comes from a scan of the params files, not from a render.
 
 - **One section per params file**, headed by the file name. The header's **+** adds a parameter to that file and its code icon opens the file in a tab at the first declaration. With no params file in the workspace the panel shows *No project parameters yet* and **+** creates `project.params.js`.
 - **One row per parameter**: the label, the control (a number field, slider, text field, select, checkbox or colour swatch, as declared), a monospace chip with the identifier to type (`wall`), and a pencil. Parameters with the same `group` fold together; a `description` is the control's help text.

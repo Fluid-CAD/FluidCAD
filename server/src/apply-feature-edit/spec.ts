@@ -20,6 +20,7 @@ import type { PartRenameSpec } from '../part-rename.ts';
 import type { AssemblyConnectorEditSpec } from '../assembly-connector-edit.ts';
 import type { AssemblyConnectorCopyEditSpec } from '../assembly-connector-copy-edit.ts';
 import type { InsertParamsEditSpec } from '../insert-params-edit.ts';
+import type { ConfigurationEditSpec } from '../configuration-edit.ts';
 import type {
   AssemblyExportEditSpec,
   AssemblyMateEditSpec,
@@ -251,6 +252,13 @@ export type ApplyFeatureEditSpec = {
    * spec field is ignored.
    */
   paramEdit?: ParamEditSpec;
+  /**
+   * Configurations-band edit: add, rewrite the cells of, rename or remove a
+   * row of the body's `configurations({…})` table — creating the statement
+   * and its import on the first row, removing them with the last. Rides the
+   * same round trip as `paramEdit`; every other spec field is ignored.
+   */
+  configurationEdit?: ConfigurationEditSpec;
   /**
    * Parameters-panel property edit: add, rewrite or delete a `property()`
    * call. Rides the same round trip as `paramEdit`; every other spec field

@@ -180,6 +180,18 @@ describe('part rename across the workspace', () => {
     expect(buffers[file('cabinet.assembly.js')]).toBeUndefined();
   });
 
+  it('refuses a name another part of the file has, before any importer follows', async () => {
+    const twoParts = `${CARCASE}export const drawer = part('Drawer', () => {});\n`;
+    buffers[file('carcase.part.js')] = twoParts;
+    const result = await actAsEditor(post('/rename-part', {
+      sourceLocation: { filePath: currentFile, line: 3, column: 0 }, name: 'Drawer',
+    }));
+    expect(result.status).toBe(422);
+    expect(result.body.reason).toBe("part 'Drawer': another part in this file is already named 'Drawer' — give each part its own name.");
+    expect(result.order).toEqual([]);
+    expect(buffers[file('carcase.part.js')]).toBe(twoParts);
+  });
+
   it('rejects a body without a name', async () => {
     const result = await post('/rename-part', { sourceLocation: { filePath: currentFile, line: 3, column: 0 }, name: '' });
     expect(result.status).toBe(400);

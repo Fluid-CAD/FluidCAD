@@ -4,6 +4,7 @@ import {
   type NewVariable,
   insertCatalogParts,
   scanPartCatalogFile,
+  type CatalogConfiguration,
   type CatalogEntryKind,
   type CatalogFileEntry,
   type CatalogInsertRequest,
@@ -19,6 +20,9 @@ import { sceneUnit } from '../../units/scene-unit';
 import type { LengthUnit } from '../../units/units';
 
 type CatalogFilter = 'all' | 'parts' | 'assemblies';
+
+/** The reserved row: the `param()` literals — an insert that names no row. */
+const DEFAULT_CONFIGURATION = 'Default';
 
 /** Long names for the unit badge's tooltip. */
 const UNIT_NAMES: Record<LengthUnit, string> = {
@@ -37,6 +41,10 @@ type BasketEntry = {
   kind: CatalogEntryKind;
   displayName: string;
   params: CatalogParamDef[];
+  /** The definition's `configurations()` rows; empty without a table. */
+  configurations: CatalogConfiguration[];
+  /** The row this instance inserts with — `Default` for the literals. */
+  configuration: string;
   thumb: string | null;
   /** Built when the params step first shows this entry; values survive paging. */
   form: ParamForm | null;
@@ -328,6 +336,7 @@ export class InsertPartDialog {
         exportName: part.exportName,
         insertKind: part.kind,
         params,
+        configurations: part.configurations ?? [],
       }));
     }
     for (const sub of result.assemblies ?? []) {
@@ -349,6 +358,7 @@ export class InsertPartDialog {
         exportName: sub.exportName,
         insertKind: exportKind,
         params,
+        configurations: sub.configurations ?? [],
       }));
     }
   }
@@ -365,6 +375,7 @@ export class InsertPartDialog {
     exportName: string;
     insertKind: CatalogEntryKind;
     params: CatalogParamDef[];
+    configurations: CatalogConfiguration[];
   }): HTMLButtonElement {
     const tile = document.createElement('button');
     tile.className = 'group relative flex flex-col items-center gap-1 p-2 w-full rounded-lg border border-base-content/10 '
@@ -448,6 +459,8 @@ export class InsertPartDialog {
         kind: opts.insertKind,
         displayName: opts.title,
         params: opts.params,
+        configurations: opts.configurations,
+        configuration: DEFAULT_CONFIGURATION,
         thumb: opts.thumb,
         form: null,
       });
@@ -594,9 +607,11 @@ export class InsertPartDialog {
         label.textContent = `Instance ${i + 1}`;
         right.appendChild(label);
       }
+      if (entry.configurations.length > 0) {
+        right.appendChild(this.buildConfigurationSelect(entry));
+      }
       if (!entry.form) {
-        entry.form = new ParamForm(entry.params, { expressions: { seeds: {}, variables: this.variables } });
-        entry.form.onSubmit = () => void this.pageForward();
+        entry.form = this.buildForm(entry);
       }
       right.appendChild(entry.form.element);
       row.appendChild(right);
@@ -616,6 +631,55 @@ export class InsertPartDialog {
     this.nextPageBtn.textContent = this.pageIndex === this.pages.length - 1
       ? `Insert ${this.basket.length}`
       : 'Next ›';
+  }
+
+  /**
+   * The instance's form, seeded with its row's values over the scanned
+   * defaults — so the commit's diff is exactly what differs from the row
+   * (the cell, else the default), which is all the statement's override
+   * object then carries.
+   */
+  private buildForm(entry: BasketEntry): ParamForm {
+    const cells = entry.configurations.find(c => c.name === entry.configuration)?.values ?? {};
+    const defs = entry.params.map(def => (
+      Object.prototype.hasOwnProperty.call(cells, def.label) ? { ...def, currentValue: cells[def.label] } : def
+    ));
+    const form = new ParamForm(defs, { expressions: { seeds: {}, variables: this.variables } });
+    form.onSubmit = () => void this.pageForward();
+    return form;
+  }
+
+  /**
+   * The Configuration select above an instance's form: Default, then the
+   * definition's rows. Picking one refills the form with that row's values
+   * — edits made on the previous row's values start over from the new row.
+   */
+  private buildConfigurationSelect(entry: BasketEntry): HTMLElement {
+    const field = document.createElement('label');
+    field.className = 'flex flex-col gap-1 pb-1';
+    const caption = document.createElement('span');
+    caption.className = 'text-xs text-base-content/70';
+    caption.textContent = 'Configuration';
+    const select = document.createElement('select');
+    select.className = 'select select-sm select-bordered w-full';
+    select.dataset.insertConfiguration = '';
+    for (const name of [DEFAULT_CONFIGURATION, ...entry.configurations.map(c => c.name)]) {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      select.appendChild(option);
+    }
+    select.value = entry.configuration;
+    select.addEventListener('change', () => {
+      entry.configuration = select.value;
+      const previous = entry.form;
+      entry.form = this.buildForm(entry);
+      previous?.element.replaceWith(entry.form.element);
+      previous?.destroy();
+    });
+    field.appendChild(caption);
+    field.appendChild(select);
+    return field;
   }
 
   private async pageForward(): Promise<void> {
@@ -650,6 +714,7 @@ export class InsertPartDialog {
         exportName: entry.exportName,
         kind: entry.kind,
         ...(Object.keys(commit.set).length > 0 ? { params: commit.set } : {}),
+        ...(entry.configuration !== DEFAULT_CONFIGURATION ? { configuration: entry.configuration } : {}),
       });
     }
     const declarations = collectNewVariablesChecked(reads);

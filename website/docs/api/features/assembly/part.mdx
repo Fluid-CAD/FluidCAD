@@ -25,6 +25,12 @@ Equal override values share one template per scene (repeat inserts are
 cheap); geometry published with `expose('name', source)` is read back as
 `def.features.<name>` (the callback's return value is ignored).
 
+Every part is exported from the top level of its file, and its name is
+unique within the file. A `part()` nothing exports (or exports only as
+`default`), one written inside another part's or assembly's body, and a
+second part of a name the file already used are build errors on that
+`part()`: the part does not build, and its row says why.
+
 **Returns**: **`PartDefinition`**
 
 :::tip
@@ -55,6 +61,12 @@ export const bushing = part('Bushing', () => {
 Equal override values share one template per scene (repeat inserts are
 cheap); geometry published with `expose('name', source)` is read back as
 `def.features.<name>` (the callback's return value is ignored).
+
+Every part is exported from the top level of its file, and its name is
+unique within the file. A `part()` nothing exports (or exports only as
+`default`), one written inside another part's or assembly's body, and a
+second part of a name the file already used are build errors on that
+`part()`: the part does not build, and its row says why.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

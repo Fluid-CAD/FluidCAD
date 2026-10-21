@@ -27,6 +27,8 @@
 //   Add "// @screenshot hideDimensions" to hide a sketch's dimensional constraints
 //   (distance/angle/radius/diameter readouts); "hidePositional" hides the badges.
 //   Add "// @screenshot noAxes" to suppress the automatic axes for rotate()/mirror() code.
+//   Add "// @screenshot solidsOnly" to render the solids alone, without sketches,
+//   construction planes, axes or connectors (an assembly's axle frames, say).
 //   Add "// @screenshot framePlanes" to fit and crop around construction-plane
 //   quads too (they are left out of the framing by default).
 //   Add "// @screenshot skip" to skip screenshot generation for that file.
@@ -125,6 +127,10 @@ function discoverExamples(docsDir) {
     // them out of the framing unless the picture is about them.
     const framePlanes = firstLines.includes('framePlanes');
 
+    // Connector frames and other overlays are left out when the picture is
+    // about the parts.
+    const solidsOnly = firstLines.includes('solidsOnly');
+
     // Determine waitForInput from annotation (pause before screenshot for manual camera adjustment)
     const waitForInput = firstLines.includes('waitForInput');
 
@@ -196,6 +202,7 @@ function discoverExamples(docsDir) {
       hideDimensions,
       hidePositional,
       framePlanes,
+      solidsOnly,
       waitForInput,
       emptyScene,
       aspectRatio,
@@ -459,7 +466,7 @@ async function main() {
     let done = 0;
     let failed = 0;
     for (const config of allScreenshots) {
-      const { id, outputPath, code, isAssembly, showAxes, noAutoCrop, hideGrid, hideDimensions, hidePositional, framePlanes, waitForInput, emptyScene, aspectRatio, size, view, crop, extent, renderDelayMs } = config;
+      const { id, outputPath, code, isAssembly, showAxes, noAutoCrop, hideGrid, hideDimensions, hidePositional, framePlanes, solidsOnly, waitForInput, emptyScene, aspectRatio, size, view, crop, extent, renderDelayMs } = config;
 
       mkdirSync(dirname(outputPath), { recursive: true });
 
@@ -511,6 +518,7 @@ async function main() {
           ...(hideDimensions ? { showDimensions: false } : {}),
           ...(hidePositional ? { showPositional: false } : {}),
           ...(framePlanes ? { framePlanes: true } : {}),
+          ...(solidsOnly ? { solidsOnly: true } : {}),
           ...(noAutoCrop ? { autoCrop: false, fitToModel: false, transparent: false } : {}),
           ...(view ? { view } : {}),
           ...arSize,

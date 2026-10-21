@@ -10,9 +10,22 @@
  *   - LocalSceneHost: Vite SSR over the workspace directory (desktop).
  *   - HubSceneHost (Phase 2): in-memory consumer of a packed model bundle.
  */
+/** What an entry render asks of {@link SceneHost.loadModule} beyond loading the module. */
+export type LoadModuleOptions = {
+  /**
+   * Called once the module evaluated and every export resolved (a
+   * factory called for what it returns), before any export builds — with
+   * the export names and resolved values. The render refuses here the
+   * parts the module does not export (the engine scene's
+   * `refuseUnexportedParts`, lib `PartRules`). Not called when evaluation
+   * stopped early (a breakpoint, a throw).
+   */
+  onExports?: (exports: [string, unknown][]) => void;
+};
+
 export interface SceneHost {
   init(workspacePath: string): Promise<void>;
-  loadModule(filePath: string): Promise<Record<string, any>>;
+  loadModule(filePath: string, options?: LoadModuleOptions): Promise<Record<string, any>>;
   setBuffer(id: string, code: string): void;
   getBuffer(fileName: string): string | null;
   invalidateModule(): void;

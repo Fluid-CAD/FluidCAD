@@ -146,6 +146,7 @@ export const features: FeatureEntry[] = [
   { name: 'mate', displayName: 'mate', category: 'assembly', sourceFile: 'core/mate.ts', interfaceName: null, functionName: 'mate', returnType: 'MateBuilder', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 8 },
   { name: 'replicate', displayName: 'replicate', category: 'assembly', sourceFile: 'core/replicate.ts', interfaceName: null, functionName: 'replicate', returnType: 'Instance[] | Occurrence[]', relatedGuide: '/docs/assembly/replicate', sidebarPosition: 9 },
   { name: 'relation', displayName: 'relation', category: 'assembly', sourceFile: 'core/relation.ts', interfaceName: null, functionName: 'relation', returnType: 'RelationBuilder', relatedGuide: '/docs/assembly/gear', sidebarPosition: 10 },
+  { name: 'configurations', displayName: 'configurations', category: 'assembly', sourceFile: 'core/configurations.ts', interfaceName: null, functionName: 'configurations', returnType: 'string', relatedGuide: '/docs/part/configurations', sidebarPosition: 11 },
   { name: 'unit', displayName: 'unit', category: 'utilities', sourceFile: 'core/unit.ts', interfaceName: null, returnType: 'void', relatedGuide: '/docs/extra/units', sidebarPosition: 10 },
 ];
 

@@ -10,6 +10,7 @@ import http from 'http';
 import { createParamsRouter } from '../../src/routes/params.ts';
 import { createApplyFeatureRouter } from '../../src/routes/apply-feature/index.ts';
 import { FeatureEditDispatcher } from '../../src/edit-dispatch.ts';
+import { ParamKey } from '../../../lib/dist/index.js';
 
 let server: http.Server;
 let baseUrl: string;
@@ -40,11 +41,15 @@ const fakeServer = {
   getCurrentCode: () => CODE,
   getCurrentFileName: () => FILE,
   getLiveBuffer: (filePath: string) => (filePath === SHARED_FILE ? SHARED : null),
-  renameParam: (_session: string, from: string, to: string) => {
-    bookkeeping.push(`rename ${from} -> ${to}`);
+  // The declaration a request names, keyed by its part: a stand-in for the
+  // last render's definitions, where the call at line 4 is the Plate's.
+  paramKeyOf: (_session: string, label: string, filePath: string, line?: number) =>
+    ParamKey.of(filePath === FILE && line === 4 ? 'Plate' : null, label),
+  renameParam: (_session: string, key: ParamKey, to: string) => {
+    bookkeeping.push(`rename ${key.describe()} -> ${to}`);
   },
-  forgetParam: (_session: string, label: string) => {
-    bookkeeping.push(`forget ${label}`);
+  forgetParam: (_session: string, key: ParamKey) => {
+    bookkeeping.push(`forget ${key.describe()}`);
   },
 };
 
@@ -216,7 +221,7 @@ describe('parameter declaration routes', () => {
     expect(body.success).toBe(true);
     expect(newCode).toContain(`const overallWidth = param('Overall width', 100);`);
     expect(newCode).toContain('extrude(overallWidth);');
-    expect(bookkeeping).toEqual(['rename Width -> Overall width']);
+    expect(bookkeeping).toEqual(["rename 'Width' of 'Plate' -> Overall width"]);
   });
 
   it('keeps the variable when the new label reduces to the same name', async () => {
@@ -251,7 +256,7 @@ describe('parameter declaration routes', () => {
 
     expect(body.success).toBe(true);
     expect(newCode).not.toContain('param(');
-    expect(bookkeeping).toEqual(['forget Width']);
+    expect(bookkeeping).toEqual(["forget 'Width' of 'Plate'"]);
   });
 
   it('sends the edit to the file that declares the param, not the one on screen', async () => {

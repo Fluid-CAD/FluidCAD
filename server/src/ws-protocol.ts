@@ -1,6 +1,9 @@
 import type { LengthUnit } from './project-config.ts';
 import type { ObjectBuildWarning } from './fluidcad-server/render-types.ts';
 import type { TimelineEntry } from '../../lib/dist/common/timeline.js';
+import type { GlobalParamsSnapshot } from './global-params/types.ts';
+
+export type { GlobalParam, GlobalParamsFile, GlobalParamsSnapshot } from './global-params/types.ts';
 
 // ---------------------------------------------------------------------------
 // IPC: Extension → Server messages
@@ -15,6 +18,14 @@ export type LiveUpdateMessage = {
   type: 'live-update';
   fileName: string;
   code: string;
+  /**
+   * Fold the file in as a dependency of the current model instead of
+   * switching the viewport to it — what the CLI watcher sends for a
+   * `*.params.js` change (`docs/global-parameters-plan.md` §2.9), and an
+   * editor host for a cross-file edit. A params file is never rendered as
+   * the scene whatever the flag says.
+   */
+  keepCurrent?: boolean;
 };
 
 export type RollbackMessage = {
@@ -467,6 +478,13 @@ export type ServerToExtensionMessage =
 
 export type UIParamDefinition = {
   label: string;
+  /**
+   * Where the declaration lives: a `part()` body, an assembly body, or a
+   * `*.params.js` file. The `scene-rendered` payload never carries a
+   * `'global'` — those reach the UI through the `global-params` message —
+   * so the panel's rows are `'part'` and `'assembly'` only.
+   */
+  kind: 'part' | 'assembly' | 'global';
   defaultValue: string | number | boolean | (string | number)[];
   currentValue: string | number | boolean | (string | number)[];
   controlType: 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox' | 'color';
@@ -478,6 +496,47 @@ export type UIParamDefinition = {
   options?: { label: string; value: string | number }[];
   multi?: boolean;
   multiControlType?: 'select' | 'checkboxes' | 'chips';
+  /** The `param()` call site, when the render captured it. */
+  sourceLocation?: { filePath: string; line: number; column: number };
+  /** The `part()` statement declaring it — `kind: 'part'` only. */
+  part?: { filePath: string; line: number; column: number };
+  /**
+   * The name of the `part()` / `assembly()` body that declared it — with the
+   * label, the parameter's key (`ParamKey`): two parts of one file may both
+   * declare `Width`, and each is its own row. Part names are unique within a
+   * file. Absent for a project parameter.
+   */
+  body?: string;
+  /**
+   * The active configuration row's cell for this label — present only while
+   * a row is active and names the label. The value a session override sits
+   * on; the panel draws such a row's label bold.
+   */
+  configuredValue?: string | number | boolean | (string | number)[];
+};
+
+/**
+ * The `configurations()` table of the rendered file and which row shows
+ * (`docs/assembly-configurations-plan.md` §3.3): `Default` is the literals
+ * and never among `names`; `modified` says session tweaks sit on top of the
+ * row; `notice` explains a fallback to Default.
+ */
+export type UIConfigurations = {
+  active: string;
+  names: string[];
+  rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
+  /**
+   * The rows per table, each under the body (definition name) that declares
+   * it — `rows` is their merge. A part file with several `part()` bodies has
+   * one table per body; the Manage grid reads each part's cells here.
+   */
+  tables?: {
+    body: string;
+    names: string[];
+    rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
+  }[];
+  modified: boolean;
+  notice?: string;
 };
 
 /**
@@ -524,6 +583,8 @@ export type UISceneRenderedMessage = {
   params?: UIParamDefinition[];
   /** Part scenes only: the file's `property()` declarations. */
   properties?: UIPropertyDefinition[];
+  /** The file's configurations and the active one; absent on error replays. */
+  configurations?: UIConfigurations;
   /**
    * Non-fatal notices per row — `Unknown material: <id>` on a part row
    * whose material is in neither the built-in nor the project table. Same
@@ -734,7 +795,17 @@ export type UIHostMessage = {
 };
 
 
+/**
+ * The global-parameters catalog, pushed whenever it changes — a `*.params.js`
+ * file edited (in the page or outside it), created, removed, or a value set
+ * through `POST /api/global-params/set`. Carries the same
+ * {@link GlobalParamsSnapshot} `GET /api/global-params` answers, so a page
+ * can treat both the same way.
+ */
+export type UIGlobalParamsMessage = { type: 'global-params' } & GlobalParamsSnapshot;
+
 export type ServerToUIMessage =
+  | UIGlobalParamsMessage
   | UIInitCompleteMessage
   | UIProcessingFileMessage
   | UISceneClosedMessage
@@ -797,11 +868,55 @@ export type ScreenshotResultMessage = {
 export type UISetParamMessage = {
   type: 'set-param';
   label: string;
+  /**
+   * The part (or assembly) whose `label` it is — the definition's `body`.
+   * Optional for a label only one part declares; a label two parts declare
+   * is refused without it.
+   */
+  body?: string;
   value: string | number | boolean | (string | number)[];
 };
 
 export type UIResetParamsMessage = {
   type: 'reset-params';
+};
+
+/**
+ * Hub-mode mirror of `POST /api/configurations/select`: show the named
+ * configuration row (`'Default'` for the literals), dropping the session's
+ * overrides, then re-render. Handled like {@link UISetParamMessage}.
+ */
+export type UISelectConfigurationMessage = {
+  type: 'select-configuration';
+  name: string;
+};
+
+/**
+ * Hub-mode mirrors of the row edits (`POST /api/configurations/add|save|
+ * rename|remove`): the same bodies, type-level only — a hub session has no
+ * editor host to rewrite the table through, so the desktop routes stay the
+ * one implementation.
+ */
+export type UIAddConfigurationMessage = {
+  type: 'add-configuration';
+  name: string;
+  values?: Record<string, unknown>;
+};
+
+export type UISaveConfigurationMessage = {
+  type: 'save-configuration';
+  values?: Record<string, unknown>;
+};
+
+export type UIRenameConfigurationMessage = {
+  type: 'rename-configuration';
+  from: string;
+  to: string;
+};
+
+export type UIRemoveConfigurationMessage = {
+  type: 'remove-configuration';
+  name: string;
 };
 
 export type UIRecomputeMessage = {
@@ -844,6 +959,11 @@ export type UIToServerMessage =
   | ScreenshotResultMessage
   | UISetParamMessage
   | UIResetParamsMessage
+  | UISelectConfigurationMessage
+  | UIAddConfigurationMessage
+  | UISaveConfigurationMessage
+  | UIRenameConfigurationMessage
+  | UIRemoveConfigurationMessage
   | UIRecomputeMessage
   | UIEditorHelloMessage
   | UIEditorDirtyStateMessage

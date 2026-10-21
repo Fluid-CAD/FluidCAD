@@ -2,12 +2,14 @@ import type { VariableInfo } from './ui/expression-input';
 import type { LengthUnit } from './units/units';
 import type { ContactEntity } from './solver/types';
 import type {
+  GlobalParamsSnapshot,
   SceneObjectMesh,
   SceneObjectRender,
   SerializedAssemblyConnector,
   SerializedAssemblyInstance,
   SerializedAssemblyMate,
   SourceLocation,
+  UIConfigurations,
   Vec3Data,
 } from './types';
 
@@ -159,17 +161,35 @@ export type ExportFormatOptions = {
   customLinearDeflection?: number;
 };
 
+/** `shapeIds: "all"` — every solid of the scene the export comes from (a configuration's own render when it is not on screen). */
+export const EVERY_SOLID = 'all' as const;
+
+/** A shapes export's selector: ids of the scene on screen, or {@link EVERY_SOLID}. */
+export type ShapeSelection = string[] | typeof EVERY_SOLID;
+
 /**
  * The body of `POST /api/export`. Exactly one selector: `shapeIds` exports
  * the listed solids each in its own frame (a part template, a solid of a
- * part scene); `assembly` exports every instance of the current assembly
- * where it sits. `poses` must cover every instance — they are the browser
+ * part scene), or with {@link EVERY_SOLID} every solid of the scene
+ * exported — so a configuration row that adds or drops a body exports its
+ * own set, where listed ids it does not build are refused; `assembly`
+ * exports every instance of the current assembly where it sits. `poses` must cover every instance — they are the browser
  * solver's live world poses, which the server cannot compute itself; a
  * headless client omits them and gets the statement poses instead.
  */
-export type ExportRequestBody =
-  | ({ format: ExportFormat; shapeIds: string[]; assembly?: undefined } & ExportFormatOptions)
-  | ({ format: ExportFormat; assembly: { poses: ExportInstancePose[] }; shapeIds?: undefined } & ExportFormatOptions);
+export type ExportRequestBody = (
+  | { format: ExportFormat; shapeIds: ShapeSelection; assembly?: undefined }
+  | { format: ExportFormat; assembly: { poses: ExportInstancePose[] }; shapeIds?: undefined }
+) & ExportFormatOptions & ExportConfigurationOption;
+
+/**
+ * `configuration`: the `configurations()` row to export (`'Default'` for the
+ * literals). The row on screen exports the live scene; any other is rendered
+ * for the request alone — the session's row and the viewer are untouched —
+ * and an assembly from that render sits at its statement poses (the live
+ * poses were solved for the row on screen). Omitted: the scene on screen.
+ */
+export type ExportConfigurationOption = { configuration?: string };
 
 export type MeasureEntityRef = {
   shapeId: string;
@@ -5172,6 +5192,12 @@ export type ParamSelectOption = { label: string; value: string | number };
 /** One `param()` declaration as the editor dialog wants it written. */
 export type ParamSpec = {
   label: string;
+  /**
+   * The exported identifier, for a declaration in a `*.params.js` file —
+   * what the import names and what expressions type. A part or assembly
+   * parameter's variable is derived from the label server-side instead.
+   */
+  name?: string;
   defaultValue: string | number | boolean | (string | number)[];
   type: ParamType;
   description?: string;
@@ -5197,6 +5223,12 @@ export type DeletionPlan = {
   dropped: UsageFileSummary[];
   /** Reads the value cannot replace; the server refuses the delete while any remain. */
   blocked: UsageFileSummary[];
+  /**
+   * `configurations()` cells that are dropped — one per row that sets the
+   * label; the row falls back to the default. Absent on a server predating
+   * configurations.
+   */
+  configurations?: UsageFileSummary[];
 };
 
 /**
@@ -5235,6 +5267,120 @@ async function postParamEdit(url: string, body: unknown): Promise<ParamEditRespo
   } catch {
     return { success: false, reason: 'Could not reach the FluidCAD server' };
   }
+}
+
+/** A `/api/configurations/*` row edit's answer: the table as the next render will carry it, or the refusal. */
+export type ConfigurationEditResult = { success: boolean; reason?: string; configurations?: UIConfigurations };
+
+/**
+ * Add a row to the current file's `configurations()` tables (creating a
+ * statement in a body that has none) and select it. Without `values` the
+ * server writes every parameter whose current value differs from its
+ * literal — the active row's cells, plus any session tweaks — each part's
+ * into its own table. `values` keys a cell by its parameter's row key
+ * (`paramRowKey`: part + label). `part` is the `part()` statement a row
+ * with no cell at all goes into — the Part band's part; the file's only body
+ * without it.
+ */
+export function addConfiguration(
+  name: string,
+  values?: Record<string, CatalogParamValue>,
+  part?: SourceLocation | null,
+): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/add', {
+    name,
+    ...(values ? { values } : {}),
+    ...(part ? { part } : {}),
+  });
+}
+
+/**
+ * The Parameters panel's committed value, written into the source where the
+ * configuration on screen keeps it (`POST /api/params/value`): the active
+ * row's cell, or on Default the `param()` literal. `body` names the part
+ * (or assembly) that declares `label`; `configuration` is the row the panel
+ * shows, which the server refuses to write past when its session moved on.
+ * `value: null` clears the row's cell, so the parameter inherits its
+ * literal again. Resolves once the edit landed; the re-render follows on
+ * the scene stream.
+ */
+export function writeParamValue(
+  label: string,
+  value: unknown,
+  body?: string,
+  configuration?: string,
+): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/params/value', {
+    label,
+    value,
+    ...(body !== undefined ? { body } : {}),
+    ...(configuration !== undefined ? { configuration } : {}),
+  });
+}
+
+/** Rename a row; the session's active name follows when it was the one renamed. */
+export function renameConfiguration(from: string, to: string): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/rename', { from, to });
+}
+
+/** Remove a row; when it was the active one, the session goes back to Default. */
+export function removeConfiguration(name: string): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/remove', { name });
+}
+
+/**
+ * One cell of the `configurations()` table as the source writes it:
+ * `literal` for a plain value, only `text` for an expression — which the
+ * Manage grid shows read-only.
+ */
+export type ConfigurationSourceCell = { literal?: CatalogParamValue; text: string };
+
+/**
+ * One table as the current file's live code writes it (`GET
+ * /api/configurations/table`): a part file has one per `part()` body that
+ * declares one, an assembly file one in its `assembly()` body.
+ */
+export type ConfigurationSourceTable = {
+  /**
+   * The definition name of the body the table sits in — the parameters'
+   * `body` — or null when the source names it with no string literal.
+   * Absent from a server predating several tables per file.
+   */
+  body?: string | null;
+  /** 1-based line the statement starts on. */
+  line: number;
+  /** Row name → label → cell, in source order. */
+  rows: Record<string, Record<string, ConfigurationSourceCell>>;
+};
+
+/**
+ * The Manage grid's commit (`POST /api/configurations/table`): `renames`
+ * (from → to) and `removed` name rows as the tables have them now; `rows`
+ * maps a row name after the renames to its changed cells, keyed by the
+ * parameter's row key (`paramRowKey`: part + label) — a value sets the cell
+ * in its part's table, null puts it back to the literal. A row a table
+ * lacks is added there; a new row with no cell goes into `part` (the Part band's
+ * part's `part()` statement), or the file's only body.
+ */
+export type ConfigurationTableCommit = {
+  rows: Record<string, Record<string, CatalogParamValue | CatalogParamExpr | null>>;
+  renames?: Record<string, string>;
+  removed?: string[];
+  part?: SourceLocation;
+};
+
+/** The current file's tables as written, one per body that has one; null when the server cannot say. */
+export async function getConfigurationTables(): Promise<ConfigurationSourceTable[] | null> {
+  const data = await getJson<{ tables?: ConfigurationSourceTable[]; table?: ConfigurationSourceTable | null }>('api/configurations/table');
+  if (!data) {
+    return null;
+  }
+  return data.tables ?? (data.table ? [data.table] : []);
+}
+
+/** Commit the grid as one rewrite of the file's tables — one edit, one undo step. */
+export function commitConfigurationTable(commit: ConfigurationTableCommit): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/table', commit);
 }
 
 /**
@@ -5300,6 +5446,34 @@ export function updateParam(target: ParamTarget, param: ParamSpec): Promise<Para
  */
 export function removeParam(target: ParamTarget): Promise<ParamEditResponse> {
   return postParamEdit('api/params/remove', { ...target });
+}
+
+// ---------------------------------------------------------------------------
+// Project (global) parameters — the exports of `*.params.js` files
+// ---------------------------------------------------------------------------
+
+/** Every params file's exports, as the server's catalog reads them. */
+export function getGlobalParams(): Promise<GlobalParamsSnapshot | null> {
+  return getJson('api/global-params');
+}
+
+/**
+ * Write a project parameter's value: the declaration's default literal is
+ * the value — there is no per-session override for a global, so this is a
+ * source edit of the params file that re-renders the current model.
+ */
+export function setGlobalParam(file: string, label: string, value: unknown): Promise<ParamEditResponse> {
+  return postParamEdit('api/global-params/set', { file, label, value });
+}
+
+/**
+ * Declare a new project parameter at the top level of the params file at
+ * `file` (absolute; a workspace-relative path is resolved server-side). The
+ * file is created when it does not exist yet. `param.name` is the exported
+ * identifier.
+ */
+export function addGlobalParam(file: string, param: ParamSpec): Promise<ParamEditResponse> {
+  return postParamEdit('api/params/add', { param, file });
 }
 
 // ---------------------------------------------------------------------------
@@ -5424,6 +5598,8 @@ export type CatalogPart = {
   objects: SceneObjectRender[];
   /** The definition's `param()` interface — absent on servers predating parameters. */
   params?: CatalogParamDef[];
+  /** The definition's `configurations()` rows, in table order — empty or absent without a table. */
+  configurations?: CatalogConfiguration[];
 };
 
 /**
@@ -5451,9 +5627,14 @@ export type CatalogAssembly = {
   objects: SceneObjectRender[];
   /** The definition's `param()` interface — absent on servers predating parameters. */
   params?: CatalogParamDef[];
+  /** The definition's `configurations()` rows, in table order — empty or absent without a table. */
+  configurations?: CatalogConfiguration[];
 };
 
 export type CatalogEntryKind = 'value' | 'factory' | 'assembly';
+
+/** One row of a scanned definition's `configurations()` table: the name `insert(def, name)` takes and the cells it sets. */
+export type CatalogConfiguration = { name: string; values: Record<string, CatalogParamValue> };
 
 export type CatalogScanResult = {
   file: string;
@@ -5490,8 +5671,13 @@ export type CatalogInsertRequest = {
   file: string;
   exportName: string;
   kind: CatalogEntryKind;
-  /** NON-DEFAULT parameter values only — rendered as insert()'s second argument. */
+  /**
+   * The values that differ from the chosen row's (the defaults' without one)
+   * — rendered as insert()'s override object.
+   */
   params?: Record<string, CatalogParamValue | CatalogParamExpr>;
+  /** A row of the definition's `configurations()` table — `insert(def, 'Name', …)`; absent for Default. */
+  configuration?: string;
 };
 
 /**
@@ -5571,6 +5757,8 @@ export async function setInstanceTransparency(
  * user changed — untouched entries (expressions included) survive verbatim.
  * `unset` labels are REMOVED from the argument (reset to the declared
  * default); the whole argument drops when its last entry goes.
+ * `configuration` rewrites the statement's row name — `null` (or
+ * `'Default'`) removes it; left out, the name stays as written.
  */
 export async function updateInsertParams(
   filePath: string,
@@ -5578,12 +5766,16 @@ export async function updateInsertParams(
   set: Record<string, CatalogParamValue | CatalogParamExpr>,
   unset: string[] = [],
   newVariables?: NewVariable[],
+  configuration?: string | null,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('api/update-insert-params', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ filePath, sourceLine, set, unset, newVariables }),
+      body: JSON.stringify({
+        filePath, sourceLine, set, unset, newVariables,
+        ...(configuration !== undefined ? { configuration } : {}),
+      }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {

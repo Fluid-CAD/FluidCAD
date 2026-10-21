@@ -18,8 +18,22 @@ export function isFluidScriptFile(filePath) {
 }
 
 /**
- * Creates a file watcher that monitors FluidCAD script files in the workspace
- * and sends live-update IPC messages to the server process on changes.
+ * A `*.params.js` global-parameters module (mirror of `isParamsFile` in
+ * `server/src/file-kind.ts`). Watched too, but never rendered as the scene:
+ * a change is sent with `keepCurrent` so the open model re-renders against
+ * it and the viewport stays where it is.
+ *
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+export function isParamsFile(filePath) {
+  return filePath.endsWith('.params.js');
+}
+
+/**
+ * Creates a file watcher that monitors FluidCAD script files (and the
+ * `*.params.js` modules they import) in the workspace and sends live-update
+ * IPC messages to the server process on changes.
  *
  * @param {string} workspacePath - Absolute path to the workspace directory
  * @param {import('child_process').ChildProcess} server - The forked server process
@@ -40,6 +54,7 @@ export function createFileWatcher(workspacePath, server) {
         type: 'live-update',
         fileName: filePath,
         code,
+        ...(isParamsFile(filePath) ? { keepCurrent: true } : {}),
       });
       console.log(`File changed: ${filePath}`);
     } catch (err) {
@@ -48,7 +63,7 @@ export function createFileWatcher(workspacePath, server) {
   }
 
   function onFileChange(filePath) {
-    if (!isFluidScriptFile(filePath)) {
+    if (!isFluidScriptFile(filePath) && !isParamsFile(filePath)) {
       return;
     }
 

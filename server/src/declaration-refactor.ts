@@ -8,6 +8,8 @@ import type { Response } from 'express';
 import type { FeatureEditDispatcher } from './edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from './apply-feature-edit/index.ts';
 import { WorkspaceScripts, type ScriptServer } from './workspace-scripts.ts';
+import { isParamsFile } from './file-kind.ts';
+import { isScriptPath } from './file-unit.ts';
 import {
   appendFileReport,
   blockedReason,
@@ -48,14 +50,18 @@ export class DeclarationRefactor {
 
   /**
    * Every workspace script other than the declaring file that reads the
-   * declaration. A file can only reach another through an import naming
-   * it, so files that never mention the declaring file's name are not
-   * even parsed.
+   * declaration — the model files, and for a global parameter the other
+   * `*.params.js` files, whose derived exports may read it. A file can only
+   * reach another through an import naming it, so files that never mention
+   * the declaring file's name are not even parsed.
    */
   async consumers(declaration: DeclarationRef): Promise<ConsumerFile[]> {
     const stem = declaration.filePath.split('/').pop()!.replace(/\.js$/, '');
+    const accept = isParamsFile(declaration.filePath)
+      ? (rel: string) => isScriptPath(rel) || isParamsFile(rel)
+      : isScriptPath;
     const out: ConsumerFile[] = [];
-    for (const { filePath, code } of await this.scripts.others(declaration.filePath)) {
+    for (const { filePath, code } of await this.scripts.others(declaration.filePath, accept)) {
       if (!code.includes(stem)) {
         continue;
       }

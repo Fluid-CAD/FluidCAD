@@ -11,6 +11,9 @@ import {
 } from '../code-editor/index.ts';
 import { appendInsideBody, assemblyBodies } from '../assembly-chain-tools.ts';
 
+/** The reserved configuration name — the `param()` literals, never a row of the table. */
+export const DEFAULT_CONFIGURATION_NAME = 'Default';
+
 /** What the chosen catalog export is, deciding the statement rendered for it. */
 export type InsertPartKind = 'value' | 'factory' | 'assembly';
 
@@ -20,7 +23,10 @@ export type InsertPartKind = 'value' | 'factory' | 'assembly';
  * expression field committed (`width - 160`), rendered as-is into the
  * `insert()` argument; a plain string is always a string VALUE (quoted).
  */
-export type InsertParamValue = string | number | boolean | (string | number)[] | { expr: string };
+export type InsertParamValue = ParamLiteralValue | { expr: string };
+
+/** A value a `param()` can resolve to, as source literals render it — the panel's `ParamVal`. */
+export type ParamLiteralValue = string | number | boolean | (string | number)[];
 
 export type InsertPartEntry = {
   /**
@@ -47,6 +53,13 @@ export type InsertPartEntry = {
    * the plain single-argument form.
    */
   params?: Record<string, InsertParamValue>;
+  /**
+   * A row of the definition's `configurations()` table, rendered as the
+   * string second argument (`insert(frame, 'Wide')`, the overrides moving
+   * to the third: `insert(frame, 'Wide', { Depth: 1000 })`). `'Default'`
+   * is the literals and renders nothing, like an absent name.
+   */
+  configuration?: string;
 };
 
 /**
@@ -106,6 +119,10 @@ export async function applyInsertPartEdit(
     if (bad) {
       return { newCode: code, error: `Parameter '${bad}' of ${entry.exportName} has an unsupported value.` };
     }
+    if (entry.configuration !== undefined
+      && (typeof entry.configuration !== 'string' || entry.configuration.trim() === '')) {
+      return { newCode: code, error: `The configuration of ${entry.exportName} needs a name.` };
+    }
   }
 
   let out = code;
@@ -126,9 +143,15 @@ export async function applyInsertPartEdit(
     const varName = pickInstanceName(out, localName);
     firstBinding ??= varName;
     const callSuffix = entry.kind === 'value' ? '' : '()';
+    const args = [`${localName}${callSuffix}`];
+    if (entry.configuration !== undefined && entry.configuration !== DEFAULT_CONFIGURATION_NAME) {
+      args.push(renderString(entry.configuration));
+    }
     const paramsLiteral = renderParamsLiteral(entry.params);
-    const statement =
-      `const ${varName} = insert(${localName}${callSuffix}${paramsLiteral ? `, ${paramsLiteral}` : ''}).name('${varName}');`;
+    if (paramsLiteral) {
+      args.push(paramsLiteral);
+    }
+    const statement = `const ${varName} = insert(${args.join(', ')}).name('${varName}');`;
 
     const parser = await getJavaScriptParser();
     const tree = parser.parse(out);
@@ -218,8 +241,63 @@ export function renderValue(value: InsertParamValue): string {
   return String(value);
 }
 
-function renderString(value: string): string {
+export function renderString(value: string): string {
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+}
+
+/**
+ * The value a source node spells when it is a plain literal — a number
+ * (unary minus included), a string, a boolean, or a flat array of numbers
+ * and strings — else undefined: an expression the record's resolved values
+ * cover and the dialogs show as source text.
+ */
+export function literalValueOf(node: TSNode): ParamLiteralValue | undefined {
+  if (node.type === 'number' || (node.type === 'unary_expression' && node.namedChildren.length === 1
+    && node.namedChildren[0].type === 'number' && /^[-+]/.test(node.text))) {
+    const value = Number(node.text.replace(/_/g, ''));
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (node.type === 'string') {
+    return stringLiteralText(node);
+  }
+  if (node.type === 'true') {
+    return true;
+  }
+  if (node.type === 'false') {
+    return false;
+  }
+  if (node.type === 'array') {
+    const items: (string | number)[] = [];
+    for (const child of node.namedChildren) {
+      if (child.type === 'comment') {
+        continue;
+      }
+      const item = child.type === 'array' || child.type === 'true' || child.type === 'false' ? undefined : literalValueOf(child);
+      if (item === undefined || typeof item === 'boolean' || Array.isArray(item)) {
+        return undefined;
+      }
+      items.push(item);
+    }
+    return items;
+  }
+  return undefined;
+}
+
+/** The text a string literal node denotes, its escapes resolved. */
+export function stringLiteralText(node: TSNode): string {
+  return node.namedChildren
+    .map((c) => (c.type === 'escape_sequence' ? unescapeSequence(c.text) : c.text))
+    .join('');
+}
+
+function unescapeSequence(sequence: string): string {
+  switch (sequence) {
+    case '\\n': return '\n';
+    case '\\t': return '\t';
+    case '\\r': return '\r';
+    case '\\0': return '\0';
+    default: return sequence.slice(1);
+  }
 }
 
 /**

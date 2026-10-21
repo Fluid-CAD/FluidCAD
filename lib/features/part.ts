@@ -20,6 +20,8 @@ export class Part extends SceneObject implements IPart {
   params?: ParamDefinition[];
   /** Resolved parameter values of the variant build — rides SerializedInstance. */
   paramValues?: Record<string, ParamVal>;
+  /** The row names the definition's `configurations()` declares, collected like `params` under a scope. */
+  configurations?: string[];
 
   /**
    * The values the body published with `property('Label', 'name', value)`, in
@@ -322,6 +324,7 @@ export class Part extends SceneObject implements IPart {
       /** The material id, absent when the definition assigned none. */
       material: this._material ?? undefined,
       paramValues: this.paramValues,
+      configurations: this.configurations,
       // Control metadata for per-instance parameter editing (sourceLocation
       // stripped — that serves the panel's declaration edits, not the wire).
       params: this.params ? serializableParamDefs(this.params) : undefined,

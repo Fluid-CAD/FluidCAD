@@ -37,6 +37,7 @@
     "mcp/dist/",
     "mcp/skills/",
     "bin/",
+    "!bin/tests/",
     "llm-docs/"
   ],
   "exports": {

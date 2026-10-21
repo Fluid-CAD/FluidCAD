@@ -35,6 +35,11 @@ export type ScreenshotOverlayInput = {
 };
 
 export type ScreenshotInput = WorkspaceArg & ScreenshotOverlayInput & {
+  /**
+   * A `configurations()` row to capture: the server shows it for the
+   * capture and then puts the session's row and tweaks back.
+   */
+  configuration?: string;
   view?: ScreenshotView;
   width?: number;
   height?: number;
@@ -70,6 +75,8 @@ export async function screenshot(input: ScreenshotInput): Promise<ToolResult<Ima
 }
 
 export type ScreenshotMultiInput = WorkspaceArg & ScreenshotOverlayInput & {
+  /** As {@link ScreenshotInput.configuration}: every cell shows that row. */
+  configuration?: string;
   views?: ScreenshotView[];
   width?: number;
   height?: number;
@@ -346,6 +353,7 @@ type ValidatedOptions = ValidatedOverlays & {
   showPositional?: boolean;
   framePlanes?: boolean;
   pixelRatio?: number;
+  configuration?: string;
 };
 
 function validateScreenshotInput(input: ScreenshotInput | ScreenshotMultiInput): ToolResult<ValidatedOptions> {
@@ -387,6 +395,14 @@ function validateScreenshotInput(input: ScreenshotInput | ScreenshotMultiInput):
       return err('invalid-input', '`margin` must be a non-negative finite number.');
     }
     opts.margin = m;
+  }
+
+  const configuration = (input as ScreenshotInput).configuration;
+  if (configuration !== undefined) {
+    if (typeof configuration !== 'string' || configuration.trim() === '') {
+      return err('invalid-input', '`configuration` must be a non-empty string — a configurations() row name, or "Default".');
+    }
+    opts.configuration = configuration;
   }
 
   const view = (input as ScreenshotInput).view;

@@ -8,6 +8,7 @@ import { SketchFillet } from '../../sketch-fillet.ts';
 import { SketchEntityDelete } from '../../sketch-entity-delete.ts';
 import { applyDistanceTangency, applySolvedEmission } from '../../sketch-solved-edit/index.ts';
 import { ParamEditor } from '../../param-edit.ts';
+import { ConfigurationEditor } from '../../configuration-edit.ts';
 import { PropertyEditor } from '../../property-edit.ts';
 import { DeclarationUsages } from '../../declaration-usages.ts';
 import { InstanceRename } from '../../instance-rename.ts';
@@ -36,7 +37,18 @@ import { LoftConnections } from '../loft-connections.ts';
 import { HolePlacements } from '../hole-placements.ts';
 import { SplitSeeds } from '../split-seeds.ts';
 import { RegionDeclarations } from '../region-declarations.ts';
+import { GlobalImports } from '../global-imports.ts';
+import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
+
+/**
+ * What the transform reads beyond the spec: the global-parameters catalog,
+ * so an expression that names a project parameter gets its import written
+ * (§2.8). Absent — a nested staging call, a test — no import pass runs.
+ */
+export type ApplyFeatureEditContext = {
+  globals?: GlobalParamCatalog;
+};
 
 /**
  * Apply a synthesized feature statement (fillet/chamfer/shell/sketch) to
@@ -56,6 +68,7 @@ import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
 export async function applyFeatureEdit(
   code: string,
   spec: ApplyFeatureEditSpec,
+  context: ApplyFeatureEditContext = {},
 ): Promise<ApplyFeatureEditResult> {
   // Navigation must only change the breakpoint, without sweeping selections.
   if (spec.timelineBreakpoint) return TimelineBreakpoint.apply(code, spec.timelineBreakpoint);
@@ -63,7 +76,15 @@ export async function applyFeatureEdit(
   if (result.error) {
     return result;
   }
-  return { ...result, newCode: await OrphanedSelections.sweep(code, result.newCode) };
+  let newCode = await OrphanedSelections.sweep(code, result.newCode);
+  // Every path a dialog expression reaches source through — statement
+  // create and edit, the declarations they land, an insert's `{ expr }`
+  // values, a sketch emission's constraint values — ends here, so the one
+  // import pass over the spec's expressions covers them all.
+  if (context.globals) {
+    newCode = await GlobalImports.ensure(newCode, spec.filePath, GlobalImports.expressionsOf(spec), context.globals);
+  }
+  return { ...result, newCode };
 }
 
 async function applyFeatureEditTransform(
@@ -143,6 +164,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.paramEdit) {
     return ParamEditor.apply(code, spec.paramEdit, spec.filePath);
+  }
+  if (spec.configurationEdit) {
+    return ConfigurationEditor.apply(code, spec.configurationEdit);
   }
   if (spec.propertyEdit) {
     return PropertyEditor.apply(code, spec.propertyEdit, spec.filePath);

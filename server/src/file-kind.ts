@@ -19,6 +19,22 @@ export function isFluidScriptFile(filePath: string): boolean {
   return detectKind(filePath) !== null;
 }
 
+/** The suffix of a global-parameters module (`docs/global-parameters-plan.md` §2.2). */
+export const PARAMS_FILE_SUFFIX = '.params.js';
+
+/**
+ * A `*.params.js` file: a module of exported `param()` declarations every
+ * model in the workspace may import. It is not a model — `detectKind` stays
+ * null for it, it is never rendered as the scene — so a path is one or the
+ * other, never both.
+ */
+export function isParamsFile(filePath: string): boolean {
+  return filePath.endsWith(PARAMS_FILE_SUFFIX);
+}
+
+/** What a new params file starts as: the one import its declarations need. */
+export const PARAMS_FILE_TEMPLATE = `import { param } from 'fluidcad/core';\n\n`;
+
 /**
  * Words that can't be the exported binding of a new file: JS reserved
  * words, plus the wrapper the template imports (`part` / `assembly`).
@@ -39,9 +55,14 @@ const RESERVED_EXPORT_NAMES = new Set([
  * the callback — a top-level insert() would run at module scope instead of
  * in the assembly's frame, and param() refuses a call outside a part body.
  * The export is the file's base name camel-cased; the display name keeps
- * the base name verbatim. Non-fluid files start blank.
+ * the base name verbatim. A params file starts with the `param` import and
+ * nothing else — the Parameters panel adds its declarations. Other
+ * non-fluid files start blank.
  */
 export function newFileContent(filePath: string): string {
+  if (isParamsFile(filePath)) {
+    return PARAMS_FILE_TEMPLATE;
+  }
   const kind = detectKind(filePath);
   if (kind === null) {
     return '';

@@ -50,7 +50,7 @@ import { coincident, diameter } from "fluidcad/constraints";
 // A round housing with a pocket: the pocket's size is what a mating part
 // has to fit, so the housing publishes it instead of leaving consumers to
 // redo the arithmetic.
-const housing = part("Housing", () => {
+export const housing = part("Housing", () => {
   const width = param("Width", 60);
   const wall = param("Wall", 4);
   const height = param("Height", 25);
@@ -74,7 +74,7 @@ const housing = part("Housing", () => {
 });
 
 // A plug sized from the housing's published pocket (default variant).
-const plug = part("Plug", () => {
+export const plug = part("Plug", () => {
   const d = housing.properties.pocketDiameter - 0.4;   // 0.2 mm clearance per side
   sketch(plane("xy", { offset: 90 }), () => {
     const c = circle([0, 0], d);

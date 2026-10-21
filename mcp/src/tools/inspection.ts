@@ -96,6 +96,12 @@ export async function getCompileError(input: GetCompileErrorInput) {
   return callWithClient(input, (client) => client.getJson<unknown>('/api/scene/compile-error'));
 }
 
+/** The project parameters of every `*.params.js` file — the catalog's snapshot, no model needed. */
+export type ListGlobalParamsInput = WorkspaceArg;
+export async function listGlobalParams(input: ListGlobalParamsInput) {
+  return callWithClient(input, (client) => client.getJson<unknown>('/api/global-params'));
+}
+
 /**
  * One of `shapeId` (a single shape) or `partId` (a part row's aggregate over
  * its final solids, with `material` / `massG` when its `.material(id)`

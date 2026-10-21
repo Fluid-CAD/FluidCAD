@@ -1,4 +1,8 @@
 import type {
+  CatalogParamValue,
+  ConfigurationEditResult,
+  ConfigurationSourceTable,
+  ConfigurationTableCommit,
   EdgeProperties,
   EditorHistoryResult,
   ExportRequestBody,
@@ -12,6 +16,7 @@ import type {
   RemoveFeatureResult,
   SetUnitResult,
   ShapeProperties,
+  SourceLocation,
   SourceLocationParam,
   UserPreferences,
 } from './api';
@@ -97,8 +102,61 @@ export interface EngineClient {
    * predate the scope simply ignore it and stay global.
    */
   rollback(index: number, scope?: 'part'): void;
-  setParam(label: string, value: unknown): void;
+  /**
+   * Override a parameter's value. `body` names the part (or assembly) whose
+   * `label` it is — the definition's `body` — so a label two parts declare
+   * sets one part's only; a host that predates it reads the label alone.
+   */
+  setParam(label: string, value: unknown, body?: string): void;
+  /**
+   * Write a parameter's value into the source, where the configuration on
+   * screen keeps it: the active row's cell, or on Default the `param()`
+   * literal (`POST /api/params/value`). What the Parameters panel does with
+   * a committed value on a host that edits source; a read-only host leaves
+   * it out and the panel overrides values for the session instead
+   * ({@link setParam}). `configuration` is the row the panel shows — a
+   * session that moved on refuses the write. `value: null` clears the
+   * row's cell, so the parameter inherits its literal again. Resolves once
+   * the edit landed (one undo step), `success: false` with the `reason`
+   * otherwise.
+   */
+  writeParam?(label: string, value: unknown, body?: string, configuration?: string): Promise<ConfigurationEditResult>;
   resetParams(): void;
+  /**
+   * Show the named `configurations()` row (`'Default'` for the literals):
+   * the session's overrides go, the file re-renders with the row's cells
+   * under the controls. Fire-and-forget like `setParam`.
+   */
+  selectConfiguration(name: string): void;
+  /**
+   * The `configurations()` row edits (`/api/configurations/add|rename|remove`):
+   * each rewrites the table statement in source, so a read-only host leaves
+   * them out and the Parameters panel offers none of its row actions. They
+   * resolve once the edit landed — `success: false` with the refusal's
+   * `reason` otherwise — and the re-render arrives on the scene stream.
+   *
+   * Add a row named `name` and select it; without `values`, the row holds
+   * every parameter whose current value differs from its literal, each
+   * part's in its own table. `part` is where a row with no cell goes (the
+   * Part band's part).
+   */
+  addConfiguration?(
+    name: string,
+    values?: Record<string, CatalogParamValue>,
+    part?: SourceLocation | null,
+  ): Promise<ConfigurationEditResult>;
+  /** Rename a row; the active name follows. */
+  renameConfiguration?(from: string, to: string): Promise<ConfigurationEditResult>;
+  /** Remove a row; the active one falls back to Default. */
+  removeConfiguration?(name: string): Promise<ConfigurationEditResult>;
+  /**
+   * The tables as the file's live code writes them — one per body that has
+   * one; which cells are literals and which are expressions — for the
+   * Manage grid; null when the host cannot say.
+   */
+  getConfigurationTables?(): Promise<ConfigurationSourceTable[] | null>;
+  /** The Manage grid's commit: renames, removals and cell edits as ONE rewrite of the file's tables. */
+  commitConfigurationTable?(commit: ConfigurationTableCommit): Promise<ConfigurationEditResult>;
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null>;
   getFaceProperties(shapeId: string, faceIndex: number, signal?: AbortSignal): Promise<FaceProperties | null>;
   getEdgeProperties(shapeId: string, edgeIndex: number, signal?: AbortSignal): Promise<EdgeProperties | null>;

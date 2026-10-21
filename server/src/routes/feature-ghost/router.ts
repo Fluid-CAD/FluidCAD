@@ -40,6 +40,7 @@ import {
   type RawSplit,
 } from './transforms.ts';
 import { ValueScope } from './value-scope.ts';
+import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { isThin, isValueExprOrNull, type ValueExpr } from './values.ts';
 import { BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, type GhostBody } from './vocabulary.ts';
 
@@ -52,7 +53,12 @@ import { BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, type Ghost
  * Its own small validator on purpose: the ghost body is a fraction of an
  * apply-feature payload, and the two must not drift into each other.
  */
-export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router {
+export type FeatureGhostRouterOptions = {
+  /** The global-parameters catalog, so a dialog value reading an imported global previews (§2.8). */
+  globals?: GlobalParamCatalog;
+};
+
+export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options: FeatureGhostRouterOptions = {}): Router {
   const router = Router();
 
   router.post('/feature-ghost', async (req, res) => {
@@ -339,6 +345,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       definitions: fluidCadServer.getParamDefinitions(),
       instances: fluidCadServer.getRenderedInstances(),
       parts: fluidCadServer.getRenderedParts(),
+      ...(options.globals ? { globals: options.globals } : {}),
     }, valueScope);
     const values: (number | null)[] = [];
     const resolve = (value: unknown): number | null => {

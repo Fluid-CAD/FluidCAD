@@ -16,6 +16,8 @@ import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
+import { FaceReach } from "../oc/face-reach.js";
+import { mmTol } from "../units/tolerance.js";
 
 export class ExtrudeToFace extends ExtrudeBase {
   constructor(
@@ -35,9 +37,6 @@ export class ExtrudeToFace extends ExtrudeBase {
     if (pickedFaces !== null && pickedFaces.length === 0) {
       return;
     }
-
-    const targetFace = this.getFace(allSceneObjects);
-    const isPlanar = FaceQuery.isPlanarFace(targetFace);
 
     let solids: Shape[] = [];
     const allStartFaces: Face[] = [];
@@ -68,6 +67,13 @@ export class ExtrudeToFace extends ExtrudeBase {
       faces = pickedFaces ?? FaceMaker2.getRegions(this.extrudable.getGeometries(), plane, this.getDrill());
       builtFaces = pickedFaces ? [] : faces;
     }
+
+    // 'first-face' / 'last-face' are found by sweeping the profile, so the
+    // profile comes first. The face they pick is this build's wrapper; a
+    // selected face stays its selection's.
+    const targetFace = this.getFace(allSceneObjects, faces);
+    const ownsTargetFace = !(this.face instanceof SceneObject);
+    const isPlanar = FaceQuery.isPlanarFace(targetFace);
 
     const allCapFaces: Face[] = [];
 
@@ -160,7 +166,7 @@ export class ExtrudeToFace extends ExtrudeBase {
     } finally {
       // The profile faces this build made and the tool solids a fuse
       // consumed: whatever the state still reaches (an unfused solid) stays.
-      disposeBuildTemporaries(this, [...builtFaces, ...solids]);
+      disposeBuildTemporaries(this, [...builtFaces, ...solids, ...(ownsTargetFace ? [targetFace] : [])]);
     }
   }
 
@@ -191,9 +197,11 @@ export class ExtrudeToFace extends ExtrudeBase {
       }
     }
 
-    const splitShapes = this.splitShapesByFace(extrusions, splitTargetFace);
-
-    return splitShapes;
+    try {
+      return this.splitShapesByFace(extrusions, splitTargetFace);
+    } finally {
+      if (splitTargetFace !== targetFace) splitTargetFace.dispose();
+    }
   }
 
   private resizePlanarFace(targetFace: Face): Face {
@@ -291,7 +299,7 @@ export class ExtrudeToFace extends ExtrudeBase {
     return { shapes, extruder };
   }
 
-  private getFace(sceneObjects: SceneObject[]): Face {
+  private getFace(sceneObjects: SceneObject[], profile: Face[]): Face {
     if (this.face instanceof SceneObject) {
       const selection = this.face.getShapes();
       if (selection.length === 0) {
@@ -309,17 +317,25 @@ export class ExtrudeToFace extends ExtrudeBase {
       return shape;
     }
     else if (this.face === 'first-face') {
-      return this.getFirstOrLastFace(sceneObjects, 'first');
+      return this.getFirstOrLastFace(sceneObjects, 'first', profile);
     }
     else if (this.face === 'last-face') {
-      return this.getFirstOrLastFace(sceneObjects, 'last');
+      return this.getFirstOrLastFace(sceneObjects, 'last', profile);
     }
     else {
       throw new Error("Invalid face parameter");
     }
   }
 
-  private getFirstOrLastFace(sceneObjects: SceneObject[], mode: 'first' | 'last'): Face {
+  /**
+   * The nearest ('first') or farthest ('last') face the extrusion runs
+   * into along the sketch normal. The profile is swept past every
+   * candidate and only the faces that sweep actually encloses count; a
+   * face beside the path, however close its centre, never stops the
+   * extrusion. Among faces met at the same distance a planar one wins:
+   * it ends the extrusion with a plain prism.
+   */
+  private getFirstOrLastFace(sceneObjects: SceneObject[], mode: 'first' | 'last', profile: Face[]): Face {
     const plane = this.getSourcePlane();
     const source = this.getSource();
     const allFaces: Face[] = [];
@@ -341,11 +357,62 @@ export class ExtrudeToFace extends ExtrudeBase {
       candidates = new ShapeFilter(allFaces, ...this.faceFilters).apply() as Face[];
     }
 
-    const result = FaceQuery.findFaceByDistance(candidates, plane, mode);
-    if (!result) {
+    let best: Face | null = null;
+    try {
+      best = this.pickReachedFace(candidates, plane, mode, profile);
+    } finally {
+      for (const face of allFaces) {
+        if (face !== best) face.dispose();
+      }
+    }
+
+    if (!best) {
       throw new Error(`No face found for '${mode}-face' extrusion`);
     }
-    return result;
+    return best;
+  }
+
+  private pickReachedFace(candidates: Face[], plane: Plane, mode: 'first' | 'last', profile: Face[]): Face | null {
+    if (candidates.length === 0 || profile.length === 0) {
+      return null;
+    }
+
+    // Sweep past the farthest candidate corner ahead of the plane.
+    let reach = 0;
+    for (const face of candidates) {
+      for (const corner of ShapeOps.boundingBoxCorners(ShapeOps.getBoundingBox(face))) {
+        reach = Math.max(reach, plane.signedDistanceToPoint(corner));
+      }
+    }
+    const same = mmTol(1e-5);
+    if (reach <= same) {
+      return null;
+    }
+
+    const sweep = new FaceReach(profile, plane, reach * 1.1 + mmTol(1), this.getDraft());
+    try {
+      let best: Face | null = null;
+      let bestDistance = mode === 'first' ? Infinity : -Infinity;
+      let bestPlanar = false;
+      for (const face of candidates) {
+        const hit = sweep.measure(face);
+        if (!hit) {
+          continue;
+        }
+        const distance = mode === 'first' ? hit.entry : hit.exit;
+        const closer = mode === 'first' ? distance < bestDistance - same : distance > bestDistance + same;
+        const tied = Math.abs(distance - bestDistance) <= same;
+        const planar = FaceQuery.isPlanarFace(face);
+        if (closer || (tied && planar && !bestPlanar)) {
+          best = face;
+          bestDistance = distance;
+          bestPlanar = planar;
+        }
+      }
+      return best;
+    } finally {
+      sweep.dispose();
+    }
   }
 
   override getDependencies(): SceneObject[] {

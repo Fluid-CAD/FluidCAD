@@ -18,7 +18,7 @@ import {
   type ImportUpdateResult,
   type RenameResult,
 } from './editor-api';
-import { EditorHost } from './host/editor-host';
+import { EditorHost, isParamsFile } from './host/editor-host';
 import { replaceSpecifiers } from './import-specifiers';
 import { Diagnostics, type CompileError } from './diagnostics';
 import { Breakpoints } from './breakpoints';
@@ -48,6 +48,12 @@ export interface EditorSurfaceDeps {
   onWidthChange?(width: number): void;
   /** Report a refused edit to the user, through the UI's own toast. */
   onEditRefused?(message: string): void;
+  /**
+   * A `*.params.js` file was opened — a tab click, a quick-open pick. Its
+   * declarations are edited in the Parameters column, so that is what opening
+   * it shows; its code only on an explicit {@link EditorSurface.gotoSource}.
+   */
+  onOpenParamsFile?(absPath: string): void;
 }
 
 export class EditorSurface {
@@ -197,8 +203,10 @@ export class EditorSurface {
    * following the scene into a new file may pop it open (Invariant 7). A plain
    * source file is the exception: it has no scene, so its code is the only
    * thing opening it can mean, and the pane opens unless the caller says
-   * otherwise. If the file has to be loaded into Monaco first, that happens
-   * while the pane is still hidden.
+   * otherwise. A params file is not plain source: opening it shows the
+   * Parameters column instead ({@link EditorSurfaceDeps.onOpenParamsFile}),
+   * and only an explicit reveal opens its code. If the file has to be loaded
+   * into Monaco first, that happens while the pane is still hidden.
    */
   async activateTab(absPath: string, options: { reveal?: boolean } = {}): Promise<void> {
     const entry = this.models.get(absPath);
@@ -207,8 +215,12 @@ export class EditorSurface {
     }
     this.activePath = absPath;
     this.persistTabs();
-    if (options.reveal ?? entry.kind !== 'model') {
+    const params = isParamsFile(absPath);
+    if (options.reveal ?? (entry.kind !== 'model' && !params)) {
       this.pane.setOpen(true);
+    }
+    if (params && options.reveal === undefined) {
+      this.deps.onOpenParamsFile?.(absPath);
     }
     await this.showFile(absPath);
     // A model tab owns the scene. `currentModelPath` follows the render, not

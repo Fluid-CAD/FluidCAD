@@ -8,14 +8,18 @@
 
 import {
   applySpliceEdits,
+  chainBaseCall,
   chainRootCallee,
   findEditableCallAt,
   getJavaScriptParser,
   setFeatureName,
   splitLines,
+  stringLiteralValue,
+  walkTree,
   type TSNode,
   type TSTree,
 } from './code-editor/index.ts';
+import { PartRules } from '../../lib/dist/index.js';
 import { BindingRename, type BindingRenamePlan } from './binding-rename.ts';
 
 /** The part row's Rename, riding `ApplyFeatureEditSpec` as a side-channel. */
@@ -39,6 +43,10 @@ export class PartRename {
         error: `no part() statement starts on line ${spec.sourceLine} — the scene may be out of date; try again after the next recompute`,
       };
     }
+    const clash = await PartRename.clash(code, spec.sourceLine, spec.name);
+    if (clash !== null) {
+      return { newCode: code, error: clash };
+    }
     const named = await setFeatureName(code, spec.sourceLine, spec.name);
     // Naming the part adds no line, so its statement is still where the spec says.
     const plan = await PartRename.plan(named.newCode, filePath, spec.sourceLine, spec.name);
@@ -61,6 +69,30 @@ export class PartRename {
     const tree = parser.parse(code);
     const part = PartRename.partAt(tree, code, sourceLine);
     return (part && BindingRename.of(tree, part, name)?.plan(tree, filePath, 'part')) ?? null;
+  }
+
+  /**
+   * Why renaming the part on `sourceLine` to `name` is refused: part names
+   * are unique within a file (lib `PartRules`), so a name another `part()`
+   * of the file has is the rule's message. Null when the name is free (or
+   * already this part's).
+   */
+  static async clash(code: string, sourceLine: number, name: string): Promise<string | null> {
+    const parser = await getJavaScriptParser();
+    const tree = parser.parse(code);
+    const own = PartRename.partAt(tree, code, sourceLine);
+    const wanted = name.replace(/\s+/g, ' ').trim();
+    for (const node of walkTree(tree.rootNode)) {
+      if (node.type !== 'call_expression' || node.childForFieldName('function')?.text !== 'part'
+        || (own && chainBaseCall(own).startIndex === node.startIndex)) {
+        continue;
+      }
+      const first = node.childForFieldName('arguments')?.namedChildren.find((arg) => arg.type !== 'comment');
+      if (first && stringLiteralValue(first) === wanted) {
+        return PartRules.duplicateMessage(wanted);
+      }
+    }
+    return null;
   }
 
   /** The outermost call of the `part()` statement starting on `sourceLine`, or null when the line holds none. */

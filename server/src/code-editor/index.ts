@@ -109,5 +109,7 @@ export {
   insertGeometryCallWithVariable,
   updateDimensionExpressionWithVariable,
   type NewVariableDecl,
+  type ScopeGlobals,
+  type VariableGlobalInfo,
   type VariableInfo,
 } from './variables.ts';

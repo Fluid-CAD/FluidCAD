@@ -169,6 +169,7 @@ export type {
 } from './parse/parsed-statement.ts';
 export { parseFeatureStatement, resolveEditedStatementLine } from './parse/feature-statement.ts';
 export { resolvePartBodyInsertion, type Insertion } from './insertion.ts';
-export { applyFeatureEdit } from './apply/feature-edit.ts';
+export { applyFeatureEdit, type ApplyFeatureEditContext } from './apply/feature-edit.ts';
+export { GlobalImports } from './global-imports.ts';
 export { SketchExports } from './sketch-exports.ts';
 export { LoftConnections } from './loft-connections.ts';

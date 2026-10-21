@@ -82,6 +82,12 @@ export interface ModelPackageManifest {
    * `BrowserEngineHost.setWorkspace(…, { materials })`.
    */
   materials?: ProjectMaterials;
+  /**
+   * The session's override values at pack time, each under its label while
+   * one part declares that label, else under its `ParamKey.id`
+   * (`["Plate","Width"]`) — so a single-part model's record is label-keyed
+   * as it always was. `SessionParamOverrides.restore` reads both forms.
+   */
   params?: Record<string, ParamValue>;
   /**
    * Full parameter schema captured by rendering the model once at pack time
@@ -91,7 +97,26 @@ export interface ModelPackageManifest {
    * boots the engine to render); plain `fluidcad pack` leaves it undefined.
    */
   paramDefinitions?: ParamDefinition[];
+  /**
+   * The `configurations()` row that was showing when the model was packed
+   * (`'Default'` for the literals), so the hub's param form opens on it.
+   * Present only when the model declares a table (`configurations`).
+   */
+  configuration?: string;
+  /**
+   * The model's `configurations()` table as its render declared it: the row
+   * names in declaration order and each row's cells (sparse — a label a row
+   * leaves out inherits the literal). The hub builds its configuration
+   * dropdown from this without a live worker; absent for a model without a
+   * table.
+   */
+  configurations?: ModelPackageConfigurations;
   camera?: ModelPackageCamera;
+}
+
+export interface ModelPackageConfigurations {
+  names: string[];
+  rows: Record<string, Record<string, ParamValue>>;
 }
 
 /**

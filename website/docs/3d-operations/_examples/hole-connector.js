@@ -4,7 +4,7 @@ import { fix, diameter } from 'fluidcad/constraints';
 
 // A flange: a 100 mm disc, 12 thick. One connector on the top face is the
 // bolt seat; the hole is cut at it and then repeated around the axis.
-part('Flange', () => {
+export const flange = part('Flange', () => {
     sketch("xy", () => {
         const rim = circle([0, 0], 100);
         fix(rim.center(), [0, 0]);

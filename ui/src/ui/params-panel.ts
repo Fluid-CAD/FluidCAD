@@ -148,6 +148,12 @@ export class ParamsPanel extends AccordionSection {
     (prompt) => promptConfigurationName(this.dialogHost, prompt);
   /** Asks before Delete removes the active row; resolves true to delete. */
   confirmDelete: (name: string) => Promise<boolean> = (name) => confirmConfigurationDelete(this.dialogHost, name);
+  /**
+   * Asks before the Manage grid marks a row for deletion. Unlike
+   * {@link confirmDelete} nothing is removed yet — the row goes when the grid
+   * is applied — so the host words it as a staged removal.
+   */
+  confirmGridDelete: (name: string) => Promise<boolean> = (name) => this.confirmDelete(name);
   /** Opens the Manage grid over the whole table; resolves when it closes. */
   openGrid: (opts: ConfigurationsGridOptions) => Promise<void> = (opts) => openConfigurationsGrid(this.dialogHost, opts);
   /** A refused row edit with no dialog open to show it in (Save, Delete, a switch's Save). */
@@ -506,7 +512,7 @@ export class ParamsPanel extends AccordionSection {
       configurations: this.configurations,
       ...(getTable ? { loadTable: () => getTable.call(this.client) } : {}),
       commit: async (commit) => this.landed(await commitTable.call(this.client, commit)),
-      confirmDelete: (name) => this.confirmDelete(name),
+      confirmDelete: (name) => this.confirmGridDelete(name),
     });
   }
 

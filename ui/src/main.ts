@@ -352,6 +352,13 @@ assemblyParamsPanel.confirmDelete = (name) => confirmDialog({
   confirmLabel: 'Delete',
   danger: true,
 });
+assemblyParamsPanel.confirmGridDelete = (name) => confirmDialog({
+  title: 'Delete configuration',
+  icon: ICON_TRASH,
+  message: `Delete the configuration ${name}? It is removed from the configurations() table when you apply the grid.`,
+  confirmLabel: 'Delete',
+  danger: true,
+});
 assemblyParamsPanel.onError = (message) => showToast(message);
 // Manage… opens the table grid over the scene, its header noting the document's length unit.
 assemblyParamsPanel.openGrid = (opts) => openConfigurationsGrid(container, { ...opts, unit: sceneUnit.current });

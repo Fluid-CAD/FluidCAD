@@ -254,6 +254,9 @@ export class PartDefinition<T = unknown> {
         partObj.params = Array.from(scope.collected.values());
         partObj.paramValues = collectedParamValues(scope);
       }
+      if (scope.configurationNames) {
+        partObj.configurations = scope.configurationNames;
+      }
       warnUnknownOverrides('part', this.partName, scope);
     }
 

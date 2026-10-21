@@ -36,6 +36,13 @@ export type InsertParamsEditSpec = {
    * whole argument drops when its last entry goes. Absent labels no-op.
    */
   unset?: string[];
+  /**
+   * The configuration row the statement should name: a row name writes or
+   * replaces the string argument, `null` (or `'Default'`) removes it so the
+   * literals apply. Applied before the value merge, so a `set` lands in the
+   * object behind the new name. Absent → the argument is left as it is.
+   */
+  configuration?: string | null;
 };
 
 /**
@@ -61,7 +68,8 @@ export async function applyInsertParamsEdit(
 ): Promise<{ newCode: string; error?: string }> {
   const entries = Object.entries(spec.set ?? {});
   const unset = spec.unset ?? [];
-  if (entries.length === 0 && unset.length === 0) {
+  const configuration = spec.configuration;
+  if (entries.length === 0 && unset.length === 0 && configuration === undefined) {
     return { newCode: code, error: 'No parameter changes in the request.' };
   }
   const bad = findInvalidParam(spec.set);
@@ -74,6 +82,13 @@ export async function applyInsertParamsEdit(
   }
 
   let out = code;
+  if (configuration !== undefined) {
+    const result = await setInsertConfiguration(out, spec.line, configuration);
+    if (result.error) {
+      return { newCode: code, error: result.error };
+    }
+    out = result.newCode;
+  }
   for (const label of unset) {
     const result = await removeOne(out, spec.line, label);
     if (result.error) {

@@ -8,6 +8,7 @@ import { SketchFillet } from '../../sketch-fillet.ts';
 import { SketchEntityDelete } from '../../sketch-entity-delete.ts';
 import { applyDistanceTangency, applySolvedEmission } from '../../sketch-solved-edit/index.ts';
 import { ParamEditor } from '../../param-edit.ts';
+import { ConfigurationEditor } from '../../configuration-edit.ts';
 import { PropertyEditor } from '../../property-edit.ts';
 import { DeclarationUsages } from '../../declaration-usages.ts';
 import { InstanceRename } from '../../instance-rename.ts';
@@ -163,6 +164,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.paramEdit) {
     return ParamEditor.apply(code, spec.paramEdit, spec.filePath);
+  }
+  if (spec.configurationEdit) {
+    return ConfigurationEditor.apply(code, spec.configurationEdit);
   }
   if (spec.propertyEdit) {
     return PropertyEditor.apply(code, spec.propertyEdit, spec.filePath);

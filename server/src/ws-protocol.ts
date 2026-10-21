@@ -868,6 +868,34 @@ export type UISelectConfigurationMessage = {
   name: string;
 };
 
+/**
+ * Hub-mode mirrors of the row edits (`POST /api/configurations/add|save|
+ * rename|remove`): the same bodies, type-level only — a hub session has no
+ * editor host to rewrite the table through, so the desktop routes stay the
+ * one implementation.
+ */
+export type UIAddConfigurationMessage = {
+  type: 'add-configuration';
+  name: string;
+  values?: Record<string, unknown>;
+};
+
+export type UISaveConfigurationMessage = {
+  type: 'save-configuration';
+  values?: Record<string, unknown>;
+};
+
+export type UIRenameConfigurationMessage = {
+  type: 'rename-configuration';
+  from: string;
+  to: string;
+};
+
+export type UIRemoveConfigurationMessage = {
+  type: 'remove-configuration';
+  name: string;
+};
+
 export type UIRecomputeMessage = {
   type: 'recompute';
 };
@@ -909,6 +937,10 @@ export type UIToServerMessage =
   | UISetParamMessage
   | UIResetParamsMessage
   | UISelectConfigurationMessage
+  | UIAddConfigurationMessage
+  | UISaveConfigurationMessage
+  | UIRenameConfigurationMessage
+  | UIRemoveConfigurationMessage
   | UIRecomputeMessage
   | UIEditorHelloMessage
   | UIEditorDirtyStateMessage

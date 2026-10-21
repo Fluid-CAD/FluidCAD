@@ -1,10 +1,19 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
-import type { FluidCadServer, SceneRenderedData } from '../fluidcad-server/index.ts';
+import type { FluidCadServer, SceneConfigurations, SceneRenderedData } from '../fluidcad-server/index.ts';
+import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
+import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
+import {
+  ConfigurationEditor,
+  DEFAULT_CONFIGURATION_NAME,
+  type ConfigurationCellValue,
+  type ConfigurationEditSpec,
+} from '../configuration-edit.ts';
+import { findInvalidParam } from '../part-catalog/insert-edit.ts';
 
 /**
- * The active configuration of the file on screen
- * (`docs/assembly-configurations-plan.md` §3.3, §4.2).
+ * The active configuration of the file on screen, and the table's rows
+ * (`docs/assembly-configurations-plan.md` §3.3, §3.4, §4.2).
  *
  * - `GET /api/configurations` → `{ active, names, rows, modified }` as the
  *   last render declared them; `{ active: 'Default', names: [], rows: {},
@@ -13,14 +22,38 @@ import type { FluidCadServer, SceneRenderedData } from '../fluidcad-server/index
  * - `POST /api/configurations/select { name }` → switch the session to the
  *   named row (`'Default'` for the literals), drop its overrides, re-render
  *   and fan the render out exactly as `/set-param` does; answers
- *   `{ success: true, configurations }` with the render's summary. The row
- *   editing routes (`/add`, `/save`, `/rename`, `/remove`, `/table`) come
- *   with the `ConfigurationEditor`.
+ *   `{ success: true, configurations }` with the render's summary.
+ *
+ * The row edits rewrite the current file's `configurations({…})` statement
+ * through the same apply-feature round trip `/params/add|update|remove`
+ * ride — the editor host rewrites its live buffer (so undo works) and its
+ * save re-renders the file — then move the session:
+ *
+ * - `POST /api/configurations/add { name, values? }` → append a row. Without
+ *   `values`, the row holds every label of the last render whose current
+ *   value differs from its literal: the active row's cells plus the session
+ *   tweaks (a "Save as…"), or nothing at all on an untouched Default. Then
+ *   selects the new row.
+ * - `POST /api/configurations/save { values? }` → write cells into the
+ *   ACTIVE row; without `values`, the session's touched labels with their
+ *   current values. Refused on Default (`400`), which has no row. Then
+ *   clears the session layer, so the row is the value.
+ * - `POST /api/configurations/rename { from, to }` → rename a row; the
+ *   session's active name follows when it was the one renamed.
+ * - `POST /api/configurations/remove { name }` → remove a row; an active row
+ *   goes back to Default.
+ *
+ * A refusal of the editor's (an unknown row, a reserved name, a non-literal
+ * table) is a `400` with its message; `404` with no scene; the host's own
+ * refusal (`422`/`504`) as the dispatcher reports it. The edit lands first
+ * and the host's re-render carries the new table, so the answer's
+ * `configurations` is the summary as it will be once that render arrives.
  */
 export function createConfigurationsRouter(
   fluidCadServer: FluidCadServer,
   sendToExtension: (msg: any) => void,
   broadcastToUI: (msg: any) => void,
+  dispatcher?: FeatureEditDispatcher,
 ): Router {
   const router = Router();
 
@@ -48,6 +81,96 @@ export function createConfigurationsRouter(
     });
   }
 
+  /** The current file, or a 404 answered. */
+  function currentFile(res: Response): string | null {
+    const file = fluidCadServer.getCurrentFileName();
+    if (!file) {
+      res.status(404).json({ error: 'No active scene' });
+      return null;
+    }
+    return file;
+  }
+
+  /**
+   * Rewrite the current file's table. The editor's verdict is read against
+   * the server's copy of the code first — its refusals are the request's
+   * `400`s — and the spec then rides the dispatcher to the host's live
+   * buffer. True when the edit landed; the response is answered otherwise.
+   */
+  async function rewrite(res: Response, file: string, edit: ConfigurationEditSpec): Promise<boolean> {
+    const code = fluidCadServer.getCurrentCode();
+    if (code !== null) {
+      const verdict = await ConfigurationEditor.apply(code, edit);
+      if (verdict.error !== undefined) {
+        res.status(400).json({ error: verdict.error });
+        return false;
+      }
+    }
+    if (!dispatcher) {
+      res.status(422).json({ success: false, reason: 'this server cannot edit the configurations() table' });
+      return false;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: file,
+      producers: [],
+      parts: [],
+      imports: [],
+      configurationEdit: edit,
+    };
+    const sent = await dispatcher.send(spec);
+    if (sent.error !== undefined) {
+      const timedOut = sent.error.startsWith('the editor did not apply');
+      res.status(timedOut ? 504 : 422).json({ success: false, reason: sent.error });
+      return false;
+    }
+    return true;
+  }
+
+  /** A `values` body field as cells, or a `400` answered. Absent → undefined. */
+  function cellValues(res: Response, input: unknown): Record<string, ConfigurationCellValue> | undefined | null {
+    if (input === undefined || input === null) {
+      return undefined;
+    }
+    if (typeof input !== 'object' || Array.isArray(input)) {
+      res.status(400).json({ error: 'values must be an object of { label: value }' });
+      return null;
+    }
+    const bad = findInvalidParam(input as Record<string, ConfigurationCellValue>);
+    if (bad) {
+      res.status(400).json({ error: `Parameter '${bad}' has an unsupported value.` });
+      return null;
+    }
+    return input as Record<string, ConfigurationCellValue>;
+  }
+
+  /** A name field as a row name, or a `400` answered. */
+  function rowName(res: Response, input: unknown, field: string): string | null {
+    if (typeof input !== 'string' || input.trim() === '') {
+      res.status(400).json({ error: `${field} must be a non-empty string — a configuration row` });
+      return null;
+    }
+    return input;
+  }
+
+  /**
+   * The row "Add" writes without explicit values: every label of the last
+   * render whose current value — override, else the active row's cell, else
+   * the literal — differs from the literal. Globals are never a body's row.
+   */
+  function derivedValues(): Record<string, ConfigurationCellValue> {
+    const out: Record<string, ConfigurationCellValue> = {};
+    for (const def of fluidCadServer.getParamDefinitions()) {
+      if (def.kind === 'global') {
+        continue;
+      }
+      if (!sameValue(def.currentValue, def.defaultValue)) {
+        out[def.label] = def.currentValue as ConfigurationCellValue;
+      }
+    }
+    return out;
+  }
+
   router.get('/configurations', (_req, res) => {
     const file = fluidCadServer.getCurrentFileName();
     if (!file) {
@@ -63,9 +186,8 @@ export function createConfigurationsRouter(
       res.status(400).json({ error: 'name must be a non-empty string — a configuration row, or Default' });
       return;
     }
-    const file = fluidCadServer.getCurrentFileName();
+    const file = currentFile(res);
     if (!file) {
-      res.status(404).json({ error: 'No active scene' });
       return;
     }
     fluidCadServer.selectConfiguration(file, name);
@@ -78,5 +200,163 @@ export function createConfigurationsRouter(
     res.json({ success: true, ...(data.configurations ? { configurations: data.configurations } : {}) });
   });
 
+  router.post('/configurations/add', async (req, res) => {
+    const name = rowName(res, req.body?.name, 'name');
+    if (name === null) {
+      return;
+    }
+    const explicit = cellValues(res, req.body?.values);
+    if (explicit === null) {
+      return;
+    }
+    const file = currentFile(res);
+    if (!file) {
+      return;
+    }
+    const values = explicit ?? derivedValues();
+    if (!await rewrite(res, file, { kind: 'add', name, values })) {
+      return;
+    }
+    // The new row is the one on screen from here: the session's tweaks are
+    // its cells now (or were deliberately left out), so the layer clears.
+    const before = fluidCadServer.getConfigurations(file);
+    fluidCadServer.selectConfiguration(file, name);
+    res.json({
+      success: true,
+      configurations: {
+        active: name,
+        names: [...before.names.filter((n) => n !== name), name],
+        rows: { ...before.rows, [name]: literalCells(values) },
+        modified: false,
+      } satisfies SceneConfigurations,
+    });
+  });
+
+  router.post('/configurations/save', async (req, res) => {
+    const explicit = cellValues(res, req.body?.values);
+    if (explicit === null) {
+      return;
+    }
+    const file = currentFile(res);
+    if (!file) {
+      return;
+    }
+    const before = fluidCadServer.getConfigurations(file);
+    const active = before.active;
+    if (active === DEFAULT_CONFIGURATION_NAME) {
+      res.status(400).json({
+        error: `${DEFAULT_CONFIGURATION_NAME} is the param() literals — the pencil edits them. Pick a row to save into, or Save as… a new one.`,
+      });
+      return;
+    }
+    const values = explicit ?? fluidCadServer.getParamOverrides(file);
+    if (Object.keys(values).length === 0) {
+      res.status(400).json({ error: 'Nothing to save — no value differs from the configuration.' });
+      return;
+    }
+    if (!await rewrite(res, file, { kind: 'set', name: active, values })) {
+      return;
+    }
+    // The row holds the values now; re-selecting it drops the session layer.
+    fluidCadServer.selectConfiguration(file, active);
+    res.json({
+      success: true,
+      configurations: {
+        active,
+        names: before.names,
+        rows: { ...before.rows, [active]: { ...before.rows[active], ...literalCells(values) } },
+        modified: false,
+      } satisfies SceneConfigurations,
+    });
+  });
+
+  router.post('/configurations/rename', async (req, res) => {
+    const from = rowName(res, req.body?.from, 'from');
+    if (from === null) {
+      return;
+    }
+    const to = rowName(res, req.body?.to, 'to');
+    if (to === null) {
+      return;
+    }
+    const file = currentFile(res);
+    if (!file) {
+      return;
+    }
+    if (!await rewrite(res, file, { kind: 'rename', from, to })) {
+      return;
+    }
+    const before = fluidCadServer.getConfigurations(file);
+    if (before.active === from && to !== from) {
+      // The session follows the row under its new name — tweaks included,
+      // since selecting is what persists the name and it clears the layer.
+      const overrides = fluidCadServer.getParamOverrides(file);
+      fluidCadServer.selectConfiguration(file, to);
+      for (const [label, value] of Object.entries(overrides)) {
+        fluidCadServer.setParam(file, label, value);
+      }
+    }
+    const rows: SceneConfigurations['rows'] = {};
+    for (const [rowKey, cells] of Object.entries(before.rows)) {
+      rows[rowKey === from ? to : rowKey] = cells;
+    }
+    res.json({
+      success: true,
+      configurations: {
+        active: before.active === from ? to : before.active,
+        names: before.names.map((n) => (n === from ? to : n)),
+        rows,
+        modified: before.modified,
+      } satisfies SceneConfigurations,
+    });
+  });
+
+  router.post('/configurations/remove', async (req, res) => {
+    const name = rowName(res, req.body?.name, 'name');
+    if (name === null) {
+      return;
+    }
+    const file = currentFile(res);
+    if (!file) {
+      return;
+    }
+    if (!await rewrite(res, file, { kind: 'remove', name })) {
+      return;
+    }
+    const before = fluidCadServer.getConfigurations(file);
+    if (before.active === name) {
+      // Deliberately removed: back to Default now, rather than the render's
+      // "no longer declared" fallback and its notice.
+      fluidCadServer.selectConfiguration(file, DEFAULT_CONFIGURATION_NAME);
+    }
+    const rows = { ...before.rows };
+    delete rows[name];
+    res.json({
+      success: true,
+      configurations: {
+        active: before.active === name ? DEFAULT_CONFIGURATION_NAME : before.active,
+        names: before.names.filter((n) => n !== name),
+        rows,
+        modified: before.active === name ? false : before.modified,
+      } satisfies SceneConfigurations,
+    });
+  });
+
   return router;
+}
+
+/** The cells as the render will report them: literals as they are, an `{ expr }` cell by its source text. */
+function literalCells(values: Record<string, ConfigurationCellValue>): SceneConfigurations['rows'][string] {
+  const out: SceneConfigurations['rows'][string] = {};
+  for (const [label, value] of Object.entries(values)) {
+    out[label] = typeof value === 'object' && !Array.isArray(value) ? value.expr : value;
+  }
+  return out;
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i]);
+  }
+  return a === b;
 }

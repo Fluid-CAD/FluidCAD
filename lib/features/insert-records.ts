@@ -106,6 +106,9 @@ export function createOccurrence<T>(
       record.params = Array.from(run.scope.collected.values());
       record.paramValues = collectedParamValues(run.scope);
     }
+    if (run.scope.configurationNames) {
+      record.configurations = run.scope.configurationNames;
+    }
   } finally {
     scene.endOccurrence();
   }

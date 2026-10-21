@@ -101,6 +101,8 @@ export type AssemblyOccurrence = {
   overrides?: ParamOverrides;
   /** The configuration row `insert(def, 'Name')` ran the body with; absent for the literals. */
   configuration?: string;
+  /** The row names the definition's `configurations()` declares, in table order; absent without a table. */
+  configurations?: string[];
   /** Present on a replica: the seed occurrence, the replicate statement, the row. */
   replica?: ReplicaTag;
 };
@@ -299,6 +301,8 @@ export type SerializedOccurrence = {
   paramValues?: Record<string, ParamVal>;
   /** The configuration `insert(def, 'Name')` named; absent when the occurrence shows the literals. */
   configuration?: string;
+  /** The row names the definition's `configurations()` declares, in table order; absent without a table. */
+  configurations?: string[];
   /**
    * Handles the callback returned, keyed by return-object path — what the
    * mate writer dereferences as `<binding>.parts.<path...>`. Always an
@@ -762,6 +766,7 @@ export class AssemblyScene extends Scene {
       params: occ.params ? serializableParamDefs(occ.params) : undefined,
       paramValues: occ.paramValues,
       ...(occ.configuration !== undefined ? { configuration: occ.configuration } : {}),
+      ...(occ.configurations !== undefined ? { configurations: occ.configurations } : {}),
       exports: occ.exports ?? [],
       sourceLocation: occ.sourceLocation,
       replica: occ.replica,

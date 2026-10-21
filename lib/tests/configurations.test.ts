@@ -379,6 +379,9 @@ describe("insert(def, 'Name', overrides?)", () => {
     const serialized = scene.getSerializedInstances()[0];
     expect(serialized.configuration).toBe("Wide");
     expect(serialized.paramValues).toEqual({ Width: 1200, Depth: 400 });
+    // The template carries the table's names, so a consumer can offer the other rows.
+    expect(wide.record.part.configurations).toEqual(["Compact", "Wide"]);
+    expect(wide.record.part.serialize().configurations).toEqual(["Compact", "Wide"]);
   });
 
   it("layers the override object on top of the row", () => {
@@ -404,6 +407,8 @@ describe("insert(def, 'Name', overrides?)", () => {
     expect(inst.record.configuration).toBeUndefined();
     expect(other.record.configuration).toBeUndefined();
     expect("configuration" in scene.getSerializedInstances()[0]).toBe(false);
+    // The names still travel on a plain insert — the dialog offers the rows from the literals too.
+    expect(inst.record.part.configurations).toEqual(["Compact", "Wide"]);
   });
 
   it("'Default' as the name is the literals and records nothing", () => {
@@ -502,6 +507,7 @@ describe("insert(def, 'Name', overrides?)", () => {
     const serialized = scene.getSerializedOccurrences()[0];
     expect(serialized.configuration).toBe("Compact");
     expect(serialized.paramValues).toEqual({ Width: 500, Depth: 650 });
+    expect(serialized.configurations).toEqual(["Wide", "Compact"]);
     expect(() => insert(frame, "Huge")).toThrow(/'frame' has no configuration 'Huge' — its configurations\(\) declares 'Wide', 'Compact'\./);
   });
 

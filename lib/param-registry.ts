@@ -464,6 +464,12 @@ export type ParamScope = {
    * found the row. `param()` resolves `overrides` → this → the literal.
    */
   configurationValues?: Map<string, ParamVal>;
+  /**
+   * Every row name the body's `configurations()` declared, in table order —
+   * set whatever row was requested, so the consumer learns the choices a
+   * definition offers (the Edit-parameters dialog's Configuration select).
+   */
+  configurationNames?: string[];
 };
 
 const scopeStack: ParamScope[] = [];

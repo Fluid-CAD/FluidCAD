@@ -70,6 +70,7 @@ export default function configurations(rows: ConfigurationRows): string {
   // the error lands on the parent's insert statement with the names listed.
   const scope = activeParamScope();
   if (scope) {
+    scope.configurationNames = names;
     const requested = scope.configuration;
     if (requested === undefined) {
       return DEFAULT_CONFIGURATION;

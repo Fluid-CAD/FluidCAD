@@ -58,6 +58,17 @@ export type ConfigurationCellValue = InsertParamValue;
 
 export type ConfigurationEditResult = { newCode: string } | { error: string };
 
+/**
+ * The configurations panel's write, as it rides `ApplyFeatureEditSpec`
+ * (`configurationEdit`) through the shared apply-feature round trip — one
+ * rewrite of the table statement per request.
+ */
+export type ConfigurationEditSpec =
+  | { kind: 'add'; name: string; values?: Record<string, ConfigurationCellValue> }
+  | { kind: 'set'; name: string; values: Record<string, ConfigurationCellValue> }
+  | { kind: 'rename'; from: string; to: string }
+  | { kind: 'remove'; name: string };
+
 /** The binding the generated statement takes, unless the file already uses the name. */
 const RESULT_BINDING = 'configuration';
 
@@ -76,6 +87,31 @@ type RowEntry = { entry: TSNode; key: TSNode | null; name: string; object: TSNod
  * the result through the ordinary apply-feature round trip.
  */
 export class ConfigurationEditor {
+
+  /**
+   * The side-channel entry point: one rewrite per spec, in the shape every
+   * other transform answers (`error` set and the code untouched on a refusal).
+   */
+  static async apply(code: string, spec: ConfigurationEditSpec): Promise<{ newCode: string; error?: string }> {
+    let result: ConfigurationEditResult;
+    switch (spec.kind) {
+      case 'add':
+        result = await ConfigurationEditor.addRow(code, spec.name, spec.values ?? {});
+        break;
+      case 'set':
+        result = await ConfigurationEditor.setCells(code, spec.name, spec.values);
+        break;
+      case 'rename':
+        result = await ConfigurationEditor.renameRow(code, spec.from, spec.to);
+        break;
+      case 'remove':
+        result = await ConfigurationEditor.removeRow(code, spec.name);
+        break;
+      default:
+        return { newCode: code, error: `unknown configuration edit '${String((spec as { kind?: unknown }).kind)}'` };
+    }
+    return 'error' in result ? { newCode: code, error: result.error } : { newCode: result.newCode };
+  }
 
   /**
    * The table as written, or null when the file has no addressable one: no

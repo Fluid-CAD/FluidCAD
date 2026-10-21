@@ -190,6 +190,41 @@ describe('applyInsertParamsEdit', () => {
     expect(result.newCode).toBe(`const front = insert(extrusion, { Length: 300 });\n`);
   });
 
+  it('sets the configuration name ahead of the value merge as a side-channel spec', async () => {
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: '/ws/index.assembly.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      insertParams: { line: 1, set: { Depth: 1000 }, configuration: 'Wide' },
+    };
+    const result = await applyFeatureEdit(`const front = insert(frame, { Width: 800 });\n`, spec);
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`const front = insert(frame, 'Wide', { Width: 800, Depth: 1000 });\n`);
+  });
+
+  it('a configuration alone is a change; null (or Default) clears the name', async () => {
+    const named = await applyInsertParamsEdit(`const front = insert(frame);\n`, { line: 1, set: {}, configuration: 'Wide' });
+    expect(named.error).toBeUndefined();
+    expect(named.newCode).toBe(`const front = insert(frame, 'Wide');\n`);
+    const cleared = await applyInsertParamsEdit(`const front = insert(frame, 'Wide', { Depth: 1000 });\n`, {
+      line: 1, set: {}, configuration: null,
+    });
+    expect(cleared.newCode).toBe(`const front = insert(frame, { Depth: 1000 });\n`);
+    const byDefault = await applyInsertParamsEdit(`const front = insert(frame, 'Wide');\n`, {
+      line: 1, set: {}, unset: ['Depth'], configuration: 'Default',
+    });
+    expect(byDefault.newCode).toBe(`const front = insert(frame);\n`);
+  });
+
+  it('refuses a configuration on a computed second argument, leaving the code untouched', async () => {
+    const code = `const front = insert(frame, choice, { Depth: 1000 });\n`;
+    const result = await applyInsertParamsEdit(code, { line: 1, set: { Depth: 900 }, configuration: 'Wide' });
+    expect(result.error).toContain('non-literal second argument');
+    expect(result.newCode).toBe(code);
+  });
+
   it('writes an { expr } value verbatim', async () => {
     const code = `const front = insert(extrusion, { Length: 540 });\n`;
     const result = await applyInsertParamsEdit(code, {

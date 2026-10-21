@@ -1,5 +1,5 @@
 // @screenshot skip
-import { part, param, sketch, line, arc, point, circle, extrude, cut, chamfer, fillet, repeat, color, plane, connector, origin, xAxis, yAxis } from 'fluidcad/core';
+import { part, param, sketch, line, arc, spline, circle, extrude, cut, chamfer, fillet, repeat, color, plane, connector, origin, xAxis, yAxis } from 'fluidcad/core';
 import { coincident, diameter, distance, fix, radius, symmetric, vertical } from 'fluidcad/constraints';
 
 // A spur gear: module 3, 20° pressure angle, 8 mm face width.
@@ -36,18 +36,15 @@ export const gear = part('Gear', () => {
         const a = gapHalf + t - Math.atan(t);
         return [r * Math.cos(a), r * Math.sin(a)];
     };
-    // Each flank is drawn as the circular arc through three involute points:
-    // where it leaves the root run (the base circle, or just above the root
-    // fillet when the base circle sits below the root), half-way, and 1 mm
-    // past the tip. Over the working depth it strays under 0.07 mm from the
-    // true involute.
+    // Each flank is a spline through seven involute points, at equal steps
+    // of roll angle from where it leaves the root run (the base circle, or
+    // just above the root fillet when the base circle sits that low) to 1 mm
+    // past the tip. Through seven points the spline keeps within a few
+    // microns of the true involute.
     const startR = Math.max(baseR, rootR + 1.5 * rootFillet);
     const t0 = Math.sqrt((startR / baseR) ** 2 - 1);
-    const t2 = Math.sqrt(((tipR + 1) / baseR) ** 2 - 1);
-    const t1 = (t0 + t2) / 2;
-    const [p0, p1, p2] = [involute(t0), involute(t1), involute(t2)];
-    // Its centre lies near where the flank's middle touches the base circle.
-    const centre = [baseR * Math.cos(gapHalf + t1), baseR * Math.sin(gapHalf + t1)];
+    const t6 = Math.sqrt(((tipR + 1) / baseR) ** 2 - 1);
+    const f = [0, 1, 2, 3, 4, 5, 6].map((i) => involute(t0 + (t6 - t0) * i / 6));
     const below = ([x, y]) => [x, -y];   // the mirror image across X
 
     // The blank: a disc at the tip diameter, its rims chamfered — the teeth
@@ -61,16 +58,15 @@ export const gear = part('Gear', () => {
     chamfer(0.5, disc.startEdges(), disc.endEdges());
 
     // One tooth gap, centred on +X: a root arc, a radial run up each side,
-    // the two flank arcs and an arc outside the tip that closes the outline.
+    // the two involute flanks and an arc outside the tip that closes the
+    // outline.
     sketch(disc.endFaces(), () => {
-        const root = arc(below(p0), p0, [0, 0]);
-        const upRun = line([rootR, 1], p0);
-        const upFlank = arc(p0, p2, centre);
-        const outer = arc(below(p2), p2, [0, 0]);
-        const downFlank = arc(below(p2), below(p0), below(centre));
-        const downRun = line(below(p0), [rootR, -1]);
-        const upMid = point(p1);
-        const downMid = point(below(p1));
+        const root = arc(below(f[0]), f[0], [0, 0]);
+        const upRun = line([rootR, 1], f[0]);
+        const upFlank = spline(f[0], f[1], f[2], f[3], f[4], f[5], f[6]);
+        const outer = arc(below(f[6]), f[6], [0, 0]);
+        const downFlank = spline(below(f[6]), below(f[5]), below(f[4]), below(f[3]), below(f[2]), below(f[1]), below(f[0]));
+        const downRun = line(below(f[0]), [rootR, -1]);
         coincident(root.center(), origin());
         radius(root, rootR);
         coincident(root.end(), upRun.start());
@@ -79,17 +75,23 @@ export const gear = part('Gear', () => {
         coincident(outer.start(), downFlank.start());
         coincident(downFlank.end(), downRun.start());
         coincident(downRun.end(), root.start());
-        // The runs are radial; the flank arcs pass through their three points.
+        // The runs are radial; every point of each flank sits on the involute.
         coincident(origin(), upRun);
         coincident(origin(), downRun);
-        fix(upFlank.start(), p0);
-        fix(upFlank.end(), p2);
-        fix(upMid, p1);
-        coincident(upMid, upFlank);
-        fix(downFlank.start(), below(p2));
-        fix(downFlank.end(), below(p0));
-        fix(downMid, below(p1));
-        coincident(downMid, downFlank);
+        fix(upFlank.point(0), f[0]);
+        fix(upFlank.point(1), f[1]);
+        fix(upFlank.point(2), f[2]);
+        fix(upFlank.point(3), f[3]);
+        fix(upFlank.point(4), f[4]);
+        fix(upFlank.point(5), f[5]);
+        fix(upFlank.point(6), f[6]);
+        fix(downFlank.point(0), below(f[6]));
+        fix(downFlank.point(1), below(f[5]));
+        fix(downFlank.point(2), below(f[4]));
+        fix(downFlank.point(3), below(f[3]));
+        fix(downFlank.point(4), below(f[2]));
+        fix(downFlank.point(5), below(f[1]));
+        fix(downFlank.point(6), below(f[0]));
         radius(outer, tipR + 1);
         // Round the two root corners.
         fillet(rootFillet, root, upRun, downRun);

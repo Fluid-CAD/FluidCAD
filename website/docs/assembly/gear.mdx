@@ -28,7 +28,7 @@ A relation couples two joints: turn one and the other turns with it, by a ratio.
 <ExplainedCode code={asmGear} fileName="gear-train.assembly.js">
   Both mates are bound to a `const` so the relation can name them. The axles are assembly connectors placed on the plate's top face; the gears' `bore` frames face down to meet them. The wheel is inserted turned by half a tooth pitch past 180°, so one of its teeth sits in the pinion's gap. The ratio is the pinion's tooth count over the wheel's.
 
-  The gear is a module 3 spur gear with a 20° pressure angle. Its one parameter, `teeth`, sets its size: the pitch radius is 1.5 × the tooth count, so the centre distance of a pair is 1.5 × the sum of their teeth. Each tooth gap is drawn once and repeated around the axis. Its flanks are circular arcs fitted to the involute, with fillets at the root. The gear also has a hub, an Ø8 bore with a keyway and, from 20 teeth up, a recessed web with lightening holes:
+  The gear is a module 3 spur gear with a 20° pressure angle. Its one parameter, `teeth`, sets its size: the pitch radius is 1.5 × the tooth count, so the centre distance of a pair is 1.5 × the sum of their teeth. Each tooth gap is drawn once and repeated around the axis. Its flanks are true involutes, each a spline through seven computed points, with fillets at the root. The gear also has a hub, an Ø8 bore with a keyway and, from 20 teeth up, a recessed web with lightening holes:
   <ExplainedCode code={asmGearPart} fileName="gear.part.js" title="gear.part.js" />
 </ExplainedCode>
 

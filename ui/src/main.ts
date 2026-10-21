@@ -10,6 +10,7 @@ import { ConnectorsPanel } from './ui/connectors-panel';
 import { DragReadout } from './ui/drag-readout';
 import { AnimateBar } from './ui/animate-bar';
 import { ParamsPanel } from './ui/params-panel';
+import { openConfigurationsGrid } from './ui/configurations-grid-dialog';
 import { ParamEditorDialog } from './ui/param-editor-dialog';
 import { PropertyEditorDialog } from './ui/property-editor-dialog';
 import { ExportDialog, exportBaseName } from './ui/export-dialog';
@@ -352,6 +353,8 @@ assemblyParamsPanel.confirmDelete = (name) => confirmDialog({
   danger: true,
 });
 assemblyParamsPanel.onError = (message) => showToast(message);
+// Manage… opens the table grid over the scene, its header noting the document's length unit.
+assemblyParamsPanel.openGrid = (opts) => openConfigurationsGrid(container, { ...opts, unit: sceneUnit.current });
 
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design

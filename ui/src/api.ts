@@ -5284,6 +5284,44 @@ export function removeConfiguration(name: string): Promise<ConfigurationEditResu
 }
 
 /**
+ * One cell of the `configurations()` table as the source writes it:
+ * `literal` for a plain value, only `text` for an expression — which the
+ * Manage grid shows read-only.
+ */
+export type ConfigurationSourceCell = { literal?: CatalogParamValue; text: string };
+
+/** The table as the current file's live code writes it (`GET /api/configurations/table`). */
+export type ConfigurationSourceTable = {
+  /** 1-based line the statement starts on. */
+  line: number;
+  /** Row name → label → cell, in source order. */
+  rows: Record<string, Record<string, ConfigurationSourceCell>>;
+};
+
+/**
+ * The Manage grid's commit (`POST /api/configurations/table`): `renames`
+ * (from → to) and `removed` name rows as the table has them now; `rows` maps
+ * a row name after the renames to its changed cells — a value sets the cell,
+ * null puts it back to the literal. A row the table lacks is appended.
+ */
+export type ConfigurationTableCommit = {
+  rows: Record<string, Record<string, CatalogParamValue | CatalogParamExpr | null>>;
+  renames?: Record<string, string>;
+  removed?: string[];
+};
+
+/** The current file's table as written; null without one (or when the server cannot say). */
+export async function getConfigurationTable(): Promise<ConfigurationSourceTable | null> {
+  const data = await getJson<{ table: ConfigurationSourceTable | null }>('api/configurations/table');
+  return data?.table ?? null;
+}
+
+/** Commit the grid as one rewrite of the table statement. */
+export function commitConfigurationTable(commit: ConfigurationTableCommit): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/table', commit);
+}
+
+/**
  * Which declaration an edit means: its label is the key, and the location it
  * was captured at follows so a model spread over several `.fluid.js` files
  * edits the right one (and a label declared twice still resolves).

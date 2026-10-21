@@ -1,6 +1,8 @@
 import type {
   CatalogParamValue,
   ConfigurationEditResult,
+  ConfigurationSourceTable,
+  ConfigurationTableCommit,
   EdgeProperties,
   EditorHistoryResult,
   ExportRequestBody,
@@ -124,6 +126,13 @@ export interface EngineClient {
   renameConfiguration?(from: string, to: string): Promise<ConfigurationEditResult>;
   /** Remove a row; the active one falls back to Default. */
   removeConfiguration?(name: string): Promise<ConfigurationEditResult>;
+  /**
+   * The table as the file's live code writes it — which cells are literals
+   * and which are expressions — for the Manage grid; null without one.
+   */
+  getConfigurationTable?(): Promise<ConfigurationSourceTable | null>;
+  /** The Manage grid's commit: renames, removals and cell edits as ONE rewrite of the table. */
+  commitConfigurationTable?(commit: ConfigurationTableCommit): Promise<ConfigurationEditResult>;
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null>;
   getFaceProperties(shapeId: string, faceIndex: number, signal?: AbortSignal): Promise<FaceProperties | null>;
   getEdgeProperties(shapeId: string, edgeIndex: number, signal?: AbortSignal): Promise<EdgeProperties | null>;

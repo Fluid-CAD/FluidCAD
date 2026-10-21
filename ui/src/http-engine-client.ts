@@ -1,6 +1,8 @@
 import {
   addBreakpoint,
   addConfiguration,
+  commitConfigurationTable,
+  getConfigurationTable,
   removeConfiguration,
   renameConfiguration,
   saveConfiguration,
@@ -29,7 +31,7 @@ import {
   setPartMaterial,
   setProjectUnit,
 } from './api';
-import type { CatalogParamValue, ConfigurationEditResult, EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { CatalogParamValue, ConfigurationEditResult, ConfigurationSourceTable, ConfigurationTableCommit, EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
@@ -147,6 +149,14 @@ export class HttpEngineClient implements EngineClient {
 
   removeConfiguration(name: string): Promise<ConfigurationEditResult> {
     return removeConfiguration(name);
+  }
+
+  getConfigurationTable(): Promise<ConfigurationSourceTable | null> {
+    return getConfigurationTable();
+  }
+
+  commitConfigurationTable(commit: ConfigurationTableCommit): Promise<ConfigurationEditResult> {
+    return commitConfigurationTable(commit);
   }
 
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null> {

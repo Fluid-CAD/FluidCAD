@@ -9,6 +9,7 @@ import {
   ICON_CODE,
   ICON_COPY,
   ICON_DOTS_VERTICAL,
+  ICON_GRID,
   ICON_PENCIL,
   ICON_PLUS,
   ICON_TRASH,
@@ -21,6 +22,7 @@ import {
   type ConfigurationNamePrompt,
   type ConfigurationSwitchChoice,
 } from './configuration-dialogs';
+import { openConfigurationsGrid, type ConfigurationsGridOptions } from './configurations-grid-dialog';
 import { AccordionSection } from './accordion-section';
 import {
   ParamDebouncer,
@@ -146,6 +148,8 @@ export class ParamsPanel extends AccordionSection {
     (prompt) => promptConfigurationName(this.dialogHost, prompt);
   /** Asks before Delete removes the active row; resolves true to delete. */
   confirmDelete: (name: string) => Promise<boolean> = (name) => confirmConfigurationDelete(this.dialogHost, name);
+  /** Opens the Manage grid over the whole table; resolves when it closes. */
+  openGrid: (opts: ConfigurationsGridOptions) => Promise<void> = (opts) => openConfigurationsGrid(this.dialogHost, opts);
   /** A refused row edit with no dialog open to show it in (Save, Delete, a switch's Save). */
   onError: (message: string) => void = (message) => console.error(message);
   /** The rows' decoration key the list was last drawn with — what update() compares against. */
@@ -366,6 +370,7 @@ export class ParamsPanel extends AccordionSection {
     const onDefault = active === DEFAULT_CONFIGURATION;
     const modified = this.configurations?.modified ?? false;
     const noRow = 'Default is the parameters\' own values — pick a configuration first';
+    const canManage = this.configurationNames.length > 0 && typeof this.client.commitConfigurationTable === 'function';
     return [
       {
         icon: ICON_PLUS,
@@ -400,6 +405,14 @@ export class ParamsPanel extends AccordionSection {
         disabled: onDefault,
         ...(onDefault ? { title: noRow } : {}),
         onSelect: () => void this.deleteConfiguration(active),
+      },
+      {
+        icon: ICON_GRID,
+        label: 'Manage…',
+        separated: true,
+        disabled: !canManage,
+        title: canManage ? 'Every configuration and its values in one table' : 'No configurations() table to manage',
+        onSelect: () => void this.manageConfigurations(),
       },
     ];
   }
@@ -475,6 +488,26 @@ export class ParamsPanel extends AccordionSection {
     if (refused !== null) {
       this.onError(`Couldn't delete ${name}: ${refused}`);
     }
+  }
+
+  /**
+   * Manage…: the whole table in a grid, committed as one rewrite. The
+   * columns are the rows this section lists — the definition's own
+   * parameters — and the cells come from the source, so expressions stay.
+   */
+  private manageConfigurations(): Promise<void> {
+    const commitTable = this.client.commitConfigurationTable;
+    if (!commitTable || !this.configurations) {
+      return Promise.resolve();
+    }
+    const getTable = this.client.getConfigurationTable;
+    return this.openGrid({
+      params: this.visibleParams(),
+      configurations: this.configurations,
+      ...(getTable ? { loadTable: () => getTable.call(this.client) } : {}),
+      commit: async (commit) => this.landed(await commitTable.call(this.client, commit)),
+      confirmDelete: (name) => this.confirmDelete(name),
+    });
   }
 
   /**

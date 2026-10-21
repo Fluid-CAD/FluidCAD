@@ -42,11 +42,14 @@ function mount(scope: 'part' | 'assembly' = 'assembly', editable = true) {
     saveConfiguration: vi.fn().mockResolvedValue({ success: true }),
     renameConfiguration: vi.fn().mockResolvedValue({ success: true }),
     removeConfiguration: vi.fn().mockResolvedValue({ success: true }),
+    getConfigurationTable: vi.fn().mockResolvedValue(null),
+    commitConfigurationTable: vi.fn().mockResolvedValue({ success: true }),
   } : {};
   const client = {
     setParam: vi.fn(), resetParams: vi.fn(), selectConfiguration: vi.fn(), ...edits,
   } as unknown as EngineClient & Required<Pick<EngineClient,
-    'addConfiguration' | 'saveConfiguration' | 'renameConfiguration' | 'removeConfiguration'>>;
+    'addConfiguration' | 'saveConfiguration' | 'renameConfiguration' | 'removeConfiguration'
+    | 'getConfigurationTable' | 'commitConfigurationTable'>>;
   const editor = { openForCreate: vi.fn(), openForEdit: vi.fn() } as unknown as ParamEditorDialog;
   const panel = new ParamsPanel(host, client, editor, scope);
   const select = () => host.querySelector<HTMLSelectElement>('[data-configuration]');
@@ -265,7 +268,7 @@ describe('ParamsPanel configuration actions', () => {
     menuButton(host)!.click();
     const menu = document.querySelector<HTMLElement>('[data-configuration-actions]')!;
     expect(Array.from(menu.querySelectorAll('[role="menuitem"]'), (b) => b.textContent!.trim()))
-      .toEqual(['Add configuration…', 'Save', 'Save as…', 'Rename…', 'Delete']);
+      .toEqual(['Add configuration…', 'Save', 'Save as…', 'Rename…', 'Delete', 'Manage…']);
   });
 
   it('enables Save only on a modified row, and Rename / Delete only on a row', () => {
@@ -380,5 +383,46 @@ describe('ParamsPanel configuration actions', () => {
     // The render of the empty row: same controls, no cells — every row is "default".
     panel.update([param('Width', 10)], [], { active: 'Empty', names: ['Compact', 'Wide', 'Empty'], rows: { Empty: {} }, modified: false });
     expect(hintOf('Width')!.textContent).toBe('default');
+  });
+  it('Manage… opens the grid over the table and commits through the client', async () => {
+    const { panel, client } = mount();
+    panel.update([param('Width', 1200, 1200), { ...param('Wall'), kind: 'global' }], [], { ...TABLE, active: 'Wide' });
+    expect(item(panel, 'Manage…').disabled).toBe(false);
+    const opened: any[] = [];
+    panel.openGrid = async (opts) => {
+      opened.push(opts);
+    };
+    item(panel, 'Manage…').onSelect!();
+    await flush();
+    expect(opened).toHaveLength(1);
+    // The columns are the section's own rows — never a project global.
+    expect(opened[0].params.map((p: UIParamDefinition) => p.label)).toEqual(['Width']);
+    expect(opened[0].configurations).toMatchObject({ active: 'Wide', names: ['Compact', 'Wide'] });
+    await opened[0].loadTable();
+    expect(client.getConfigurationTable).toHaveBeenCalled();
+    vi.mocked(client.commitConfigurationTable).mockResolvedValueOnce({ success: false, reason: 'nope' });
+    expect(await opened[0].commit({ rows: { Wide: { Width: 1300 } } })).toBe('nope');
+    expect(client.commitConfigurationTable).toHaveBeenCalledWith({ rows: { Wide: { Width: 1300 } } });
+    vi.mocked(client.commitConfigurationTable).mockResolvedValueOnce({
+      success: true,
+      configurations: { active: 'Broad', names: ['Compact', 'Broad'], rows: {}, modified: false },
+    });
+    expect(await opened[0].commit({ rows: {}, renames: { Wide: 'Broad' } })).toBeNull();
+    expect(panel.activeConfiguration).toBe('Broad');
+  });
+
+  it('Manage… opens the real grid in the dialog host by default', async () => {
+    const { panel } = mount();
+    panel.update([param('Width', 1200, 1200)], [], { ...TABLE, active: 'Wide' });
+    item(panel, 'Manage…').onSelect!();
+    await flush();
+    expect(document.body.querySelector('[data-configurations-grid]')).not.toBeNull();
+  });
+
+  it('disables Manage… on a client that cannot commit the table', () => {
+    const { panel, client } = mount();
+    delete (client as Partial<EngineClient>).commitConfigurationTable;
+    panel.update([param('Width')], [], TABLE);
+    expect(item(panel, 'Manage…').disabled).toBe(true);
   });
 });

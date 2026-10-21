@@ -73,7 +73,7 @@ import { AssemblyConnectorService } from './interactive/assembly-connector/conne
 import { AssemblyConnectorCopyService } from './interactive/assembly-connector-copy/copy-service';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
-import { ICON_ADJUSTMENTS, ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
+import { ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
 import { applyEditorPreferences } from './editor/editor-prefs';
@@ -320,15 +320,18 @@ const propertyEditorDialog = new PropertyEditorDialog(container);
 const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog, 'part', propertyEditorDialog);
 const assemblyParamEditor = new ParamEditorDialog(container, 'assembly');
 const assemblyParamsPanel = new ParamsPanel(null, engineClient, assemblyParamEditor, 'assembly');
-// Switching configuration rows with tweaks on the current one: the same
-// confirm the destructive flows use, Discard as the accept.
-assemblyParamsPanel.confirmDiscard = (active) => confirmDialog({
-  title: 'Switch configuration',
-  icon: ICON_ADJUSTMENTS,
-  message: `Discard unsaved changes to ${active}?`,
-  confirmLabel: 'Discard',
+// The configuration band's prompts sit over the scene with the other
+// dialogs; deleting a row asks through the confirm the destructive flows
+// use, and a refused Save / Delete reads as a toast.
+assemblyParamsPanel.dialogHost = container;
+assemblyParamsPanel.confirmDelete = (name) => confirmDialog({
+  title: 'Delete configuration',
+  icon: ICON_TRASH,
+  message: `Delete the configuration ${name}? Its row is removed from the configurations() table.`,
+  confirmLabel: 'Delete',
   danger: true,
 });
+assemblyParamsPanel.onError = (message) => showToast(message);
 
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
@@ -508,6 +511,8 @@ function buildAssemblyRail(): LeftRail {
           currentValues: inst.paramValues ?? {},
           filePath: inst.sourceLocation.filePath,
           line: inst.sourceLocation.line,
+          configuration: inst.configuration,
+          configurations: lastPartTemplates.get(inst.partId)?.configurations,
         });
       } else {
         const occ = findOccurrence(id);
@@ -519,6 +524,8 @@ function buildAssemblyRail(): LeftRail {
           currentValues: occ.paramValues ?? {},
           filePath: occ.sourceLocation.filePath,
           line: occ.sourceLocation.line,
+          configuration: occ.configuration,
+          configurations: occ.configurations,
         });
       }
     },

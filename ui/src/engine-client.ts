@@ -1,4 +1,6 @@
 import type {
+  CatalogParamValue,
+  ConfigurationEditResult,
   EdgeProperties,
   EditorHistoryResult,
   ExportRequestBody,
@@ -105,6 +107,23 @@ export interface EngineClient {
    * under the controls. Fire-and-forget like `setParam`.
    */
   selectConfiguration(name: string): void;
+  /**
+   * The `configurations()` row edits (`/api/configurations/add|save|rename|remove`):
+   * each rewrites the table statement in source, so a read-only host leaves
+   * them out and the Parameters panel offers none of its row actions. They
+   * resolve once the edit landed — `success: false` with the refusal's
+   * `reason` otherwise — and the re-render arrives on the scene stream.
+   *
+   * Add a row named `name` and select it; without `values`, the row holds
+   * every label whose current value differs from its literal.
+   */
+  addConfiguration?(name: string, values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult>;
+  /** Write the session's tweaks (or `values`) into the active row; refused on Default. */
+  saveConfiguration?(values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult>;
+  /** Rename a row; the active name follows. */
+  renameConfiguration?(from: string, to: string): Promise<ConfigurationEditResult>;
+  /** Remove a row; the active one falls back to Default. */
+  removeConfiguration?(name: string): Promise<ConfigurationEditResult>;
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null>;
   getFaceProperties(shapeId: string, faceIndex: number, signal?: AbortSignal): Promise<FaceProperties | null>;
   getEdgeProperties(shapeId: string, edgeIndex: number, signal?: AbortSignal): Promise<EdgeProperties | null>;

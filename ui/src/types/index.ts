@@ -568,6 +568,8 @@ export type SerializedAssemblyInstance = {
   transparency?: number;
   /** Resolved parameter values of the instance's template variant. */
   paramValues?: Record<string, InstanceParamValue>;
+  /** The `configurations()` row `insert(def, 'Name')` named; absent for the literals (Default). */
+  configuration?: string;
   /** The variant's `property()` values as the assembly reads them; absent when the part declares none. */
   properties?: Record<string, InstanceParamValue>;
   sourceLocation?: { filePath: string; line: number; column: number };
@@ -627,6 +629,10 @@ export type SerializedAssemblyOccurrence = {
   params?: InstanceParamDef[];
   /** Resolved parameter values of this occurrence's run. */
   paramValues?: Record<string, InstanceParamValue>;
+  /** The `configurations()` row `insert(def, 'Name')` named; absent for the literals (Default). */
+  configuration?: string;
+  /** The row names the definition's `configurations()` declares, in table order; absent without a table. */
+  configurations?: string[];
   /**
    * Handles the assembly() callback RETURNED, keyed by return-object path
    * (plain-object nesting flattened: `{ left: { p1 } }` → `["left","p1"]`).

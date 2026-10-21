@@ -8,6 +8,9 @@ import type { InstanceParamDef, InstanceParamValue } from '../types';
 import { ICON_CLOSE } from './icons';
 import { ParamForm } from './param-controls';
 
+/** The reserved row: the `param()` literals — the statement names no row. */
+const DEFAULT_CONFIGURATION = 'Default';
+
 /**
  * The parts panel's "Edit parameters…" dialog: one `ParamForm` (the same
  * control rows the Insert carousel renders) seeded with the instance's or
@@ -23,12 +26,22 @@ import { ParamForm } from './param-controls';
  * statement's in-scope variables — both read from source when the dialog
  * opens, falling back to plain resolved values when the insert() isn't
  * addressable (cross-file occurrence, out-of-sync buffer).
+ *
+ * A definition with a `configurations()` table gets a Configuration select
+ * above the form — Default plus the table's rows, on the row the statement
+ * names (`insert(def, 'Wide', …)`). Choosing another rewrites that string
+ * argument on Apply; Default removes it. The value rows are left as they
+ * are: an override the statement carries still sits on whichever row.
  */
 export class EditParamsDialog {
   private overlay: HTMLDivElement;
   private form: ParamForm | null = null;
   private target: { filePath: string; line: number } | null = null;
   private applying = false;
+  private configurationRow: HTMLElement;
+  private configurationSelect: HTMLSelectElement;
+  /** The row the statement names as opened ('Default' for none) — Apply sends the select only when it moved. */
+  private initialConfiguration = DEFAULT_CONFIGURATION;
 
   constructor(container: HTMLElement) {
     this.overlay = document.createElement('div');
@@ -42,6 +55,10 @@ export class EditParamsDialog {
           </button>
         </div>
         <div data-ref="subtitle" class="text-[10px] text-base-content/40 mb-3"></div>
+        <label data-ref="configuration-row" class="hidden flex-col gap-1 mb-3">
+          <span class="text-xs text-base-content/70">Configuration</span>
+          <select data-ref="configuration" class="select select-sm select-bordered w-full"></select>
+        </label>
         <div data-ref="form-host" class="overflow-y-auto flex-1"></div>
         <div data-ref="status" class="text-xs text-error min-h-4 mt-2"></div>
         <div class="flex items-center justify-end gap-2 pt-1">
@@ -51,6 +68,8 @@ export class EditParamsDialog {
       </div>
     `;
     container.appendChild(this.overlay);
+    this.configurationRow = this.overlay.querySelector('[data-ref="configuration-row"]')!;
+    this.configurationSelect = this.overlay.querySelector('[data-ref="configuration"]')!;
 
     this.overlay.querySelector('[data-ref="close-btn"]')!.addEventListener('click', () => this.hide());
     this.overlay.querySelector('[data-ref="cancel-btn"]')!.addEventListener('click', () => this.hide());
@@ -82,11 +101,16 @@ export class EditParamsDialog {
     currentValues: Record<string, InstanceParamValue>;
     filePath: string;
     line: number;
+    /** The row the statement names; absent for Default. */
+    configuration?: string;
+    /** The definition's `configurations()` row names; absent or empty hides the select. */
+    configurations?: string[];
   }): void {
     this.form?.destroy();
     this.form = null;
     this.target = { filePath: opts.filePath, line: opts.line };
     this.applying = false;
+    this.showConfigurations(opts.configurations ?? [], opts.configuration);
     this.overlay.querySelector('[data-ref="title"]')!.textContent = opts.title;
     this.overlay.querySelector('[data-ref="subtitle"]')!.textContent = opts.subtitle;
     this.setStatus('');
@@ -128,6 +152,28 @@ export class EditParamsDialog {
     host.appendChild(this.form.element);
   }
 
+  /** Fill the Configuration select — hidden when the definition declares no table. */
+  private showConfigurations(names: string[], current: string | undefined): void {
+    this.initialConfiguration = current ?? DEFAULT_CONFIGURATION;
+    this.configurationSelect.replaceChildren();
+    const options = [DEFAULT_CONFIGURATION, ...names];
+    // A statement naming a row the table no longer has still shows it, so
+    // Apply without touching the select doesn't silently rewrite it.
+    if (!options.includes(this.initialConfiguration)) {
+      options.push(this.initialConfiguration);
+    }
+    for (const name of options) {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      this.configurationSelect.appendChild(option);
+    }
+    this.configurationSelect.value = this.initialConfiguration;
+    const show = names.length > 0;
+    this.configurationRow.classList.toggle('hidden', !show);
+    this.configurationRow.classList.toggle('flex', show);
+  }
+
   hide(): void {
     this.overlay.classList.add('hidden');
     this.form?.destroy();
@@ -155,16 +201,23 @@ export class EditParamsDialog {
     const set = Object.fromEntries(
       Object.entries(commit.set).filter(([label]) => !unset.includes(label)),
     );
-    if (Object.keys(set).length === 0 && unset.length === 0) {
+    const configuration = this.configurationSelect.value;
+    const configurationChanged = configuration !== this.initialConfiguration;
+    if (Object.keys(set).length === 0 && unset.length === 0 && !configurationChanged) {
       this.hide();
       return;
     }
     this.applying = true;
     this.setStatus('');
     const target = this.target;
-    const result = await updateInsertParams(
-      target.filePath, target.line, set, unset, commit.newVariables,
-    );
+    const result = configurationChanged
+      ? await updateInsertParams(
+        target.filePath, target.line, set, unset, commit.newVariables,
+        configuration === DEFAULT_CONFIGURATION ? null : configuration,
+      )
+      : await updateInsertParams(
+        target.filePath, target.line, set, unset, commit.newVariables,
+      );
     if (this.target !== target) return;
     this.applying = false;
     if (!result.success) {

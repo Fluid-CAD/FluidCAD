@@ -1,5 +1,9 @@
 import {
   addBreakpoint,
+  addConfiguration,
+  removeConfiguration,
+  renameConfiguration,
+  saveConfiguration,
   moveTimelineBreakpoint,
   editorRedo,
   editorUndo,
@@ -25,7 +29,7 @@ import {
   setPartMaterial,
   setProjectUnit,
 } from './api';
-import type { EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { CatalogParamValue, ConfigurationEditResult, EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
@@ -127,6 +131,22 @@ export class HttpEngineClient implements EngineClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     }).catch(err => console.error('Select configuration failed:', err));
+  }
+
+  addConfiguration(name: string, values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult> {
+    return addConfiguration(name, values);
+  }
+
+  saveConfiguration(values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult> {
+    return saveConfiguration(values);
+  }
+
+  renameConfiguration(from: string, to: string): Promise<ConfigurationEditResult> {
+    return renameConfiguration(from, to);
+  }
+
+  removeConfiguration(name: string): Promise<ConfigurationEditResult> {
+    return removeConfiguration(name);
   }
 
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null> {

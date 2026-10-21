@@ -3,7 +3,24 @@ import type { ParamEditorDialog, PartChoices } from './param-editor-dialog';
 import type { PropertyEditorDialog } from './property-editor-dialog';
 import type { EngineClient } from '../engine-client';
 import { ActivePartTracker, type PartChoice } from '../interactive/active-part-tracker';
-import { ICON_ADJUSTMENTS, ICON_CODE, ICON_PENCIL } from './icons';
+import {
+  ICON_ADJUSTMENTS,
+  ICON_CHECK,
+  ICON_CODE,
+  ICON_COPY,
+  ICON_DOTS_VERTICAL,
+  ICON_PENCIL,
+  ICON_PLUS,
+  ICON_TRASH,
+} from './icons';
+import { showPopupMenu, type PopupMenuItem } from './popup-menu';
+import {
+  chooseConfigurationSwitch,
+  confirmConfigurationDelete,
+  promptConfigurationName,
+  type ConfigurationNamePrompt,
+  type ConfigurationSwitchChoice,
+} from './configuration-dialogs';
 import { AccordionSection } from './accordion-section';
 import {
   ParamDebouncer,
@@ -62,6 +79,14 @@ const DEFAULT_CONFIGURATION = 'Default';
  */
 const MODIFIED_MARKER_CLASS = 'shrink-0 text-xs text-base-content/60 whitespace-nowrap';
 
+/** The band's ⋮ beside the dropdown: the row actions' menu. Same ghost square the header's buttons are. */
+const CONFIGURATION_MENU_BUTTON_CLASS =
+  'btn btn-ghost btn-xs btn-square shrink-0 text-base-content/50 hover:text-base-content/80 [&>svg]:size-3.5';
+
+/** The band's one control while the file has no table: what starts one. */
+const CONFIGURATION_ADD_BUTTON_CLASS =
+  'btn btn-ghost btn-xs gap-1.5 -ml-1 px-2 font-normal text-base-content/70 hover:text-base-content/90 [&_svg]:size-3.5';
+
 /**
  * The hint on a row the active configuration leaves out: its value is the
  * literal. Dimmed and italic like an empty state, so it reads as a note on
@@ -107,13 +132,24 @@ export class ParamsPanel extends AccordionSection {
   private configurations: UIConfigurations | null = null;
   /** The header's ↺: "Reset all to defaults" on Default, "Revert changes" while a row is active. */
   private readonly resetButton: HTMLElement;
+  /** Where the band's own dialogs mount; the host points it at its overlay container. */
+  dialogHost: HTMLElement = document.body;
   /**
-   * Asks before a switch discards the session's tweaks on the active row;
-   * resolves true to discard. The host sets it to its confirm dialog; without
-   * one the browser's own confirm stands in.
+   * Asks before a switch drops the session's tweaks on the active row:
+   * save them into it first, discard them, or stay. `canSave` is false on
+   * Default (no row to save into) or a host that cannot edit the table.
    */
-  confirmDiscard: (active: string) => Promise<boolean> = (active) =>
-    Promise.resolve(window.confirm(`Discard unsaved changes to ${active}?`));
+  chooseSwitch: (active: string, target: string, canSave: boolean) => Promise<ConfigurationSwitchChoice> =
+    (active, target, canSave) => chooseConfigurationSwitch(this.dialogHost, { active, target, canSave });
+  /** Asks for a row name (Add, Save as…, Rename…); resolves when the prompt closes. */
+  promptName: (prompt: ConfigurationNamePrompt) => Promise<void> =
+    (prompt) => promptConfigurationName(this.dialogHost, prompt);
+  /** Asks before Delete removes the active row; resolves true to delete. */
+  confirmDelete: (name: string) => Promise<boolean> = (name) => confirmConfigurationDelete(this.dialogHost, name);
+  /** A refused row edit with no dialog open to show it in (Save, Delete, a switch's Save). */
+  onError: (message: string) => void = (message) => console.error(message);
+  /** The rows' decoration key the list was last drawn with — what update() compares against. */
+  private renderedDecor = '';
   private debouncer = new ParamDebouncer();
   private collapsedGroups = new Set<string>();
   /** The header +'s open menu, while one is open. */
@@ -197,6 +233,10 @@ export class ParamsPanel extends AccordionSection {
     // The empty state is part of the section, not something the first render
     // brings: a model with no parameters at all never sends an update.
     this.renderParams();
+    // The configuration band offers Add configuration from the start, too.
+    if (this.scope === 'assembly') {
+      this.syncConfigurations();
+    }
 
     if (container) {
       this.mount(container);
@@ -206,7 +246,6 @@ export class ParamsPanel extends AccordionSection {
   update(params: UIParamDefinition[], properties: UIPropertyDefinition[] = [], configurations?: UIConfigurations): void {
     const prev = this.visibleParams();
     const prevProperties = this.visibleProperties();
-    const prevDecor = this.rowDecorKey(prev);
     this.currentParams = params;
     this.currentProperties = properties;
     this.configurations = configurations ?? null;
@@ -222,7 +261,7 @@ export class ParamsPanel extends AccordionSection {
     // carry the "default" hint — not something the in-place path redraws.
     if (this.canUpdateInPlace(prev, next)
       && ParamsPanel.samePropertyRows(prevProperties, nextProperties)
-      && this.rowDecorKey(next) === prevDecor) {
+      && this.rowDecorKey(next) === this.renderedDecor) {
       this.updateValuesInPlace(next);
       this.updatePropertyValuesInPlace(nextProperties);
     } else {
@@ -245,18 +284,37 @@ export class ParamsPanel extends AccordionSection {
     return JSON.stringify([this.rowActive, params.map((p) => p.configuredValue !== undefined)]);
   }
 
+  /** Whether the band offers the row edits: an editor-backed host whose client can rewrite the table. */
+  private get canEditConfigurations(): boolean {
+    return this.editor !== undefined && typeof this.client.addConfiguration === 'function';
+  }
+
   /**
-   * The band in assembly scope: the configuration dropdown — Default, then
-   * the file's rows — with the modified marker beside it. Hidden while the
-   * file declares no table. Redrawn by every render through {@link update}.
+   * The band in assembly scope. With a `configurations()` table: the
+   * dropdown — Default, then the file's rows — the modified marker, and the
+   * ⋮ menu of row actions. Without one: a single Add configuration button,
+   * which starts the table. Hidden only on a host that cannot edit and has
+   * no table to pick from. Redrawn by every render through {@link update}.
    */
   private syncConfigurations(): void {
     const configurations = this.configurations;
     const names = configurations?.names ?? [];
     this.resetButton.title = this.rowActive ? 'Revert changes' : 'Reset all to defaults';
-    if (!configurations || names.length === 0) {
-      this.partBar.hidden = true;
-      this.partBar.replaceChildren();
+    if (names.length === 0) {
+      if (!this.canEditConfigurations) {
+        this.partBar.hidden = true;
+        this.partBar.replaceChildren();
+        return;
+      }
+      this.partBar.hidden = false;
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = CONFIGURATION_ADD_BUTTON_CLASS;
+      add.dataset.configurationAdd = '';
+      add.title = 'Name the values on screen as a configuration — a row the file and its inserts can pick';
+      add.innerHTML = `${ICON_PLUS}<span>Add configuration</span>`;
+      add.addEventListener('click', () => void this.addConfiguration('Add configuration', 'Add'));
+      this.partBar.replaceChildren(add);
       return;
     }
     this.partBar.hidden = false;
@@ -273,7 +331,7 @@ export class ParamsPanel extends AccordionSection {
       void this.pickConfiguration(select);
     });
     const children: HTMLElement[] = [select];
-    if (configurations.modified) {
+    if (configurations!.modified) {
       const marker = document.createElement('span');
       marker.className = MODIFIED_MARKER_CLASS;
       marker.dataset.configurationModified = '';
@@ -281,13 +339,165 @@ export class ParamsPanel extends AccordionSection {
       marker.textContent = '● modified';
       children.push(marker);
     }
+    if (this.canEditConfigurations) {
+      const menuButton = document.createElement('button');
+      menuButton.type = 'button';
+      menuButton.className = CONFIGURATION_MENU_BUTTON_CLASS;
+      menuButton.dataset.configurationMenu = '';
+      menuButton.title = 'Configuration actions';
+      menuButton.setAttribute('aria-label', 'Configuration actions');
+      menuButton.innerHTML = ICON_DOTS_VERTICAL;
+      menuButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.openConfigurationMenu(menuButton);
+      });
+      children.push(menuButton);
+    }
     this.partBar.replaceChildren(...children);
   }
 
   /**
+   * The row actions, acting on the active row. Save writes the tweaks into
+   * it, so it needs both a row and tweaks; Rename… and Delete need a row —
+   * Default is the literals, which the pencil edits.
+   */
+  configurationMenuItems(): PopupMenuItem[] {
+    const active = this.activeConfiguration;
+    const onDefault = active === DEFAULT_CONFIGURATION;
+    const modified = this.configurations?.modified ?? false;
+    const noRow = 'Default is the parameters\' own values — pick a configuration first';
+    return [
+      {
+        icon: ICON_PLUS,
+        label: 'Add configuration…',
+        onSelect: () => void this.addConfiguration('Add configuration', 'Add'),
+      },
+      {
+        icon: ICON_CHECK,
+        label: 'Save',
+        disabled: onDefault || !modified,
+        title: onDefault ? noRow : !modified ? 'No changes on top of the configuration' : `Write the changes into ${active}`,
+        onSelect: () => void this.saveConfiguration(),
+      },
+      {
+        icon: ICON_COPY,
+        label: 'Save as…',
+        title: 'A new configuration holding the values on screen',
+        onSelect: () => void this.addConfiguration('Save as configuration', 'Save', onDefault ? '' : `${active} copy`),
+      },
+      {
+        icon: ICON_PENCIL,
+        label: 'Rename…',
+        disabled: onDefault,
+        ...(onDefault ? { title: noRow } : {}),
+        onSelect: () => void this.renameConfiguration(active),
+      },
+      {
+        icon: ICON_TRASH,
+        label: 'Delete',
+        separated: true,
+        className: 'text-error',
+        disabled: onDefault,
+        ...(onDefault ? { title: noRow } : {}),
+        onSelect: () => void this.deleteConfiguration(active),
+      },
+    ];
+  }
+
+  private openConfigurationMenu(anchor: HTMLElement): void {
+    const host = this.partBar.closest<HTMLElement>('#fluidcad-viewer') ?? document.body;
+    const rect = anchor.getBoundingClientRect();
+    const menu = showPopupMenu(host, { clientX: rect.right, clientY: rect.bottom + 4 }, this.configurationMenuItems(), {
+      align: 'end',
+      focusFirst: true,
+    });
+    menu.dataset.configurationActions = '';
+  }
+
+  /** The names the table has now — what a new or renamed row may not repeat. */
+  private get configurationNames(): string[] {
+    return this.configurations?.names ?? [];
+  }
+
+  /**
+   * Add (and Save as…): a new row holding every value that differs from its
+   * literal — the active row's cells plus the tweaks, or nothing on an
+   * untouched Default — selected once it lands.
+   */
+  private addConfiguration(title: string, confirmLabel: string, initial = ''): Promise<void> {
+    const add = this.client.addConfiguration;
+    if (!add) {
+      return Promise.resolve();
+    }
+    return this.promptName({
+      title,
+      confirmLabel,
+      initial,
+      taken: this.configurationNames,
+      submit: async (name) => this.landed(await add.call(this.client, name)),
+    });
+  }
+
+  private renameConfiguration(from: string): Promise<void> {
+    const rename = this.client.renameConfiguration;
+    if (!rename) {
+      return Promise.resolve();
+    }
+    return this.promptName({
+      title: 'Rename configuration',
+      confirmLabel: 'Rename',
+      initial: from,
+      taken: this.configurationNames,
+      submit: async (to) => this.landed(await rename.call(this.client, from, to)),
+    });
+  }
+
+  /** Save: the tweaks into the active row. True when it landed; a refusal goes to {@link onError}. */
+  private async saveConfiguration(): Promise<boolean> {
+    const save = this.client.saveConfiguration;
+    if (!save) {
+      return false;
+    }
+    const refused = this.landed(await save.call(this.client));
+    if (refused !== null) {
+      this.onError(`Couldn't save ${this.activeConfiguration}: ${refused}`);
+      return false;
+    }
+    return true;
+  }
+
+  private async deleteConfiguration(name: string): Promise<void> {
+    const remove = this.client.removeConfiguration;
+    if (!remove || !await this.confirmDelete(name)) {
+      return;
+    }
+    const refused = this.landed(await remove.call(this.client, name));
+    if (refused !== null) {
+      this.onError(`Couldn't delete ${name}: ${refused}`);
+    }
+  }
+
+  /**
+   * A row edit's answer: null when it landed — the band takes the table the
+   * answer carries straight away, ahead of the re-render bringing the same —
+   * or the refusal's text.
+   */
+  private landed(result: { success: boolean; reason?: string; configurations?: UIConfigurations }): string | null {
+    if (!result.success) {
+      return result.reason ?? 'The edit was refused.';
+    }
+    if (result.configurations) {
+      this.configurations = result.configurations;
+      this.syncConfigurations();
+    }
+    return null;
+  }
+
+  /**
    * The dropdown's choice. Tweaks on the active row would be lost by the
-   * switch (the session layer is cleared), so they are confirmed away first;
-   * a cancel puts the dropdown back.
+   * switch (the session layer is cleared), so the user first chooses: save
+   * them into the row, discard them, or stay — a cancel (or a save that
+   * fails) puts the dropdown back.
    */
   private async pickConfiguration(select: HTMLSelectElement): Promise<void> {
     const name = select.value;
@@ -296,8 +506,9 @@ export class ParamsPanel extends AccordionSection {
       return;
     }
     if (this.configurations?.modified) {
-      const discard = await this.confirmDiscard(active);
-      if (!discard) {
+      const canSave = active !== DEFAULT_CONFIGURATION && typeof this.client.saveConfiguration === 'function';
+      const choice = await this.chooseSwitch(active, name, canSave);
+      if (choice === 'cancel' || (choice === 'save' && !await this.saveConfiguration())) {
         select.value = active;
         return;
       }
@@ -558,6 +769,7 @@ export class ParamsPanel extends AccordionSection {
   private renderParams(): void {
     const params = this.visibleParams();
     const properties = this.visibleProperties();
+    this.renderedDecor = this.rowDecorKey(params);
 
     // The panel is reachable with nothing in it — adding the model's first
     // parameter is one of the things it is for. With the dropdown filtering,

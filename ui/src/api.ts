@@ -9,6 +9,7 @@ import type {
   SerializedAssemblyInstance,
   SerializedAssemblyMate,
   SourceLocation,
+  UIConfigurations,
   Vec3Data,
 } from './types';
 
@@ -5204,6 +5205,12 @@ export type DeletionPlan = {
   dropped: UsageFileSummary[];
   /** Reads the value cannot replace; the server refuses the delete while any remain. */
   blocked: UsageFileSummary[];
+  /**
+   * `configurations()` cells that are dropped — one per row that sets the
+   * label; the row falls back to the default. Absent on a server predating
+   * configurations.
+   */
+  configurations?: UsageFileSummary[];
 };
 
 /**
@@ -5242,6 +5249,38 @@ async function postParamEdit(url: string, body: unknown): Promise<ParamEditRespo
   } catch {
     return { success: false, reason: 'Could not reach the FluidCAD server' };
   }
+}
+
+/** A `/api/configurations/*` row edit's answer: the table as the next render will carry it, or the refusal. */
+export type ConfigurationEditResult = { success: boolean; reason?: string; configurations?: UIConfigurations };
+
+/**
+ * Append a row to the current file's `configurations()` table (creating the
+ * statement when the body has none) and select it. Without `values` the
+ * server writes every label whose current value differs from its literal —
+ * the session's tweaks on top of the active row.
+ */
+export function addConfiguration(name: string, values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/add', values ? { name, values } : { name });
+}
+
+/**
+ * Write cells into the ACTIVE row — without `values`, the session's touched
+ * labels at their current values — and clear the session layer. The server
+ * refuses on Default, which has no row.
+ */
+export function saveConfiguration(values?: Record<string, CatalogParamValue>): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/save', values ? { values } : {});
+}
+
+/** Rename a row; the session's active name follows when it was the one renamed. */
+export function renameConfiguration(from: string, to: string): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/rename', { from, to });
+}
+
+/** Remove a row; when it was the active one, the session goes back to Default. */
+export function removeConfiguration(name: string): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/remove', { name });
 }
 
 /**
@@ -5459,6 +5498,8 @@ export type CatalogPart = {
   objects: SceneObjectRender[];
   /** The definition's `param()` interface — absent on servers predating parameters. */
   params?: CatalogParamDef[];
+  /** The definition's `configurations()` rows, in table order — empty or absent without a table. */
+  configurations?: CatalogConfiguration[];
 };
 
 /**
@@ -5486,9 +5527,14 @@ export type CatalogAssembly = {
   objects: SceneObjectRender[];
   /** The definition's `param()` interface — absent on servers predating parameters. */
   params?: CatalogParamDef[];
+  /** The definition's `configurations()` rows, in table order — empty or absent without a table. */
+  configurations?: CatalogConfiguration[];
 };
 
 export type CatalogEntryKind = 'value' | 'factory' | 'assembly';
+
+/** One row of a scanned definition's `configurations()` table: the name `insert(def, name)` takes and the cells it sets. */
+export type CatalogConfiguration = { name: string; values: Record<string, CatalogParamValue> };
 
 export type CatalogScanResult = {
   file: string;
@@ -5525,8 +5571,13 @@ export type CatalogInsertRequest = {
   file: string;
   exportName: string;
   kind: CatalogEntryKind;
-  /** NON-DEFAULT parameter values only — rendered as insert()'s second argument. */
+  /**
+   * The values that differ from the chosen row's (the defaults' without one)
+   * — rendered as insert()'s override object.
+   */
   params?: Record<string, CatalogParamValue | CatalogParamExpr>;
+  /** A row of the definition's `configurations()` table — `insert(def, 'Name', …)`; absent for Default. */
+  configuration?: string;
 };
 
 /**
@@ -5606,6 +5657,8 @@ export async function setInstanceTransparency(
  * user changed — untouched entries (expressions included) survive verbatim.
  * `unset` labels are REMOVED from the argument (reset to the declared
  * default); the whole argument drops when its last entry goes.
+ * `configuration` rewrites the statement's row name — `null` (or
+ * `'Default'`) removes it; left out, the name stays as written.
  */
 export async function updateInsertParams(
   filePath: string,
@@ -5613,12 +5666,16 @@ export async function updateInsertParams(
   set: Record<string, CatalogParamValue | CatalogParamExpr>,
   unset: string[] = [],
   newVariables?: NewVariable[],
+  configuration?: string | null,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('api/update-insert-params', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ filePath, sourceLine, set, unset, newVariables }),
+      body: JSON.stringify({
+        filePath, sourceLine, set, unset, newVariables,
+        ...(configuration !== undefined ? { configuration } : {}),
+      }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {

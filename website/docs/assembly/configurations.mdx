@@ -27,31 +27,31 @@ A part declares configurations the same way, in its own body; [Part configuratio
 
 ## In the viewport
 
-All of this happens in the assembly workspace's **Parameters** panel, in the band under its header.
+All of this happens in the assembly workspace's **Parameters** panel, in the **Configuration** row under its header.
 
 ### Creating a configuration
 
 1. Set the parameters until the model looks the way the configuration should: a slider drag, a typed width, a ticked checkbox. These are session values, as always — nothing is written yet.
-2. Click **Add configuration** in the panel's band (it is the band's only control while the file has no table). Type a name — spaces are fine, `Default` is taken — and confirm.
+2. Click **Add configuration** under the panel's header (it stands in for the configuration dropdown while the file has no table). Type a name — spaces are fine, `Default` is taken — and confirm.
 3. The new row holds every parameter whose value on screen differs from its literal. The first row creates the `configurations({...})` statement as the first line of the assembly body and adds `configurations` to the import line. The new configuration is now the one on screen.
 
 Adding a configuration without changing anything creates an empty row: a copy of Default to make changes to.
 
 ### Switching
 
-Once the file has a table, the band shows a dropdown: **Default**, then the rows in the order the table declares them. Picking one re-renders the assembly with that row's values. The choice is not written into the source — switching never creates a diff — and it is remembered per file, so the workspace reopens on the configuration you left.
+Once the file has a table, the **Configuration** row shows a dropdown: **Default**, then the rows in the order the table declares them. Picking one re-renders the assembly with that row's values. The choice is not written into the source — switching never creates a diff — and it is remembered per file, so the workspace reopens on the configuration you left.
 
 While a row is active, the label of each parameter the row sets is bold, and a parameter the row leaves out says *default* beside its control: its value is the literal.
 
 ### Changing a configuration
 
-Change a control with a row active and the band shows **● modified**: the change sits on top of the row for this session, exactly as a change sits on top of the literals on Default. The ⋮ button beside the dropdown opens the row actions:
+Change a control with a row active and **● modified** appears beside the **Configuration** label: the change sits on top of the row for this session, exactly as a change sits on top of the literals on Default. The ⋮ button at the end of that label line opens the row actions:
 
 | Action | What it does |
 |--------|--------------|
 | **Add configuration…** | A new row from the values on screen — the active row's values plus your changes — then shows it. |
 | **Save** | Writes the parameters you changed into the active row, as literals, and clears **● modified**. Disabled on Default, which has no row (the pencil on a parameter edits its literal), and when nothing is modified. |
-| **Save as…** | The same as Add configuration; with a row active, the name is prefilled as `<row> copy`. The active row is left as it was. |
+| **Duplicate…** | The same as Add configuration; with a row active, the name is prefilled as `<row> copy`. The active row is left as it was. |
 | **Rename…** | Renames the active row in the table. |
 | **Delete** | Removes the active row after asking, and shows Default. Deleting the last row removes the statement and its import too — or leaves `configurations({})` when the body reads its return value. |
 | **Manage…** | Opens the whole table as a grid (below). |

@@ -5,7 +5,7 @@ import { coincident, distance, fix, horizontal, vertical } from 'fluidcad/constr
 // corner, extruded to a thickness. Every param() is a control in the
 // Parameters panel; an assembly sets them per instance —
 // insert(plate, { Width: 120, Hole: 6.6 }).
-export const plate = part('Plate', () => {
+export const plate = part('Mounting plate', () => {
     // highlight-start
     // Number fields with bounds. The label is the key an override uses.
     const width = param('Width', 80, 'number', { min: 40, max: 200, step: 5, group: 'Size' });

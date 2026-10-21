@@ -191,7 +191,11 @@ function lintParamCalls(tree: TSTree, bindings: LexicalBindings, at: (node: TSNo
   }
 }
 
-/** Rule 1: no geometry, no `unit()`, no `property()` — a params file holds values. */
+/** The `configurations()` rule a params file breaks by construction: it has no body for the table to live in. */
+export const CONFIGURATIONS_IN_PARAMS_FILE_MESSAGE =
+  'configurations() is not allowed in a params file — it has no part() or assembly() body; declare the table in the part or assembly that reads the parameters';
+
+/** Rule 1: no geometry, no `unit()`, no `property()`, no `configurations()` — a params file holds values. */
 function lintForbiddenCalls(tree: TSTree, bindings: LexicalBindings, at: (node: TSNode, message: string) => void): void {
   const forbidden = forbiddenCalls();
   for (const node of walkTree(tree.rootNode)) {
@@ -206,6 +210,8 @@ function lintForbiddenCalls(tree: TSTree, bindings: LexicalBindings, at: (node: 
       at(node, 'unit() is not allowed in a params file — its numbers are in the project unit');
     } else if (name === 'property') {
       at(node, 'property() belongs in a part body, not in a params file');
+    } else if (name === 'configurations') {
+      at(node, CONFIGURATIONS_IN_PARAMS_FILE_MESSAGE);
     } else {
       at(node, `${name}() is not allowed in a params file — it holds values, not geometry`);
     }

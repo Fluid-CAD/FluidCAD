@@ -212,6 +212,7 @@ describe('scanFileForParts', () => {
     expect(sub).toMatchObject({ exportName: 'frameAssembly', kind: 'assembly' });
     expect(sub.instances).toHaveLength(3);
     expect(sub.mates).toHaveLength(1);
+    expect(sub.configurations).toEqual([]);
     // One template subtree per DISTINCT part, in first-reference order.
     expect(sub.objects.map((o: any) => o.id)).toEqual(['pA', 'a-child', 'pB']);
   });
@@ -238,6 +239,26 @@ describe('scanFileForParts', () => {
       exportKind: 'factory',
       assemblyName: 'x-axis',
     });
+  });
+
+  it('ships a sub-assembly\'s configurations() rows from its own run', async () => {
+    const instances = [{ instanceId: 'inst-0', partId: 'pA', partName: 'A' }];
+    const definition = {
+      assemblyName: 'gantry',
+      getType: () => 'assembly',
+      run: () => {
+        getParamRegistry().recordConfigurations({
+          definition: 'gantry', names: ['Long'], rows: { Long: { Travel: 900 } },
+        });
+      },
+    };
+    const result = await scanFileForParts(
+      fakeHost({ gantry: definition }),
+      fakeManager([[], { rendered: [rendered('pA')], assembly: { instances, mates: [] } }]),
+      '/ws/gantry.assembly.js',
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.assemblies[0].configurations).toEqual([{ name: 'Long', values: { Travel: 900 } }]);
   });
 
   it('runs a directly exported assembly() definition (exportKind value)', async () => {
@@ -398,6 +419,38 @@ describe('scanFileForParts — lazy part definitions', () => {
     );
     expect(result.parts).toEqual([]);
     expect(result.errors[0].message).toContain('Default exports are not insertable');
+  });
+
+  it('ships the configurations() rows the definition declared, in declaration order', async () => {
+    const built = fakePart('d1', 'Frame');
+    const def = {
+      getType: () => 'part-definition',
+      materialize() {
+        getParamRegistry().register({ label: 'Width', defaultValue: 700, currentValue: 700, controlType: 'number' });
+        getParamRegistry().recordConfigurations({
+          definition: 'Frame',
+          names: ['Compact', 'Wide'],
+          rows: { Compact: { Width: 500, Lid: false }, Wide: { Width: 1200 } },
+        });
+        return built;
+      },
+    };
+    const result = await scanFileForParts(
+      fakeHost({ frame: def }),
+      fakeManager([[], [rendered('d1')]]),
+      '/ws/frame.part.js',
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.parts[0].configurations).toEqual([
+      { name: 'Compact', values: { Width: 500, Lid: false } },
+      { name: 'Wide', values: { Width: 1200 } },
+    ]);
+  });
+
+  it('reports an empty configurations list for a definition without a table', async () => {
+    const def = fakeDefinition(fakePart('d1', 'P'));
+    const result = await scanFileForParts(fakeHost({ p: def }), fakeManager([[], [rendered('d1')]]), '/ws/p.part.js');
+    expect(result.parts[0].configurations).toEqual([]);
   });
 
   it('drops the sourceLocation field from captured params', async () => {

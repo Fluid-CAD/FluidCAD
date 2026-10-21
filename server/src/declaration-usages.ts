@@ -3,12 +3,14 @@
 // rewrites of those reads a panel edit needs: following a rename, and
 // standing in the declaration's value when the declaration goes.
 //
-// A declaration is read four ways. Its bound variable is read in its own
+// A declaration is read five ways. Its bound variable is read in its own
 // file, and — exported from the top level — through an `import { … }` in
 // another. A `param()` is also addressed by label from the outside:
-// `insert(def, { Label: value })` overrides it per instance. A `property()`
-// is read by name off the definition (`def.properties.name`) or off an
-// inserted instance (`inst.properties.name`), in either file. All four are
+// `insert(def, { Label: value })` overrides it per instance, and from its
+// own body's `configurations({ Row: { Label: value } })` table, whose cells
+// set it per configuration. A `property()` is read by name off the
+// definition (`def.properties.name`) or off an inserted instance
+// (`inst.properties.name`), in either file. All five are
 // found statically, by resolving the identifier each read hangs off to the
 // declaring file's exported definition or variable — so the same routine
 // serves a file the server holds and the live buffer the editor host hands
@@ -108,9 +110,16 @@ export type UsageSite =
   | { kind: 'variable'; reference: BindingReference }
   | { kind: 'import'; specifier: TSNode; localName: string; references: BindingReference[] }
   | { kind: 'override'; call: TSNode; object: TSNode; entry: TSNode }
+  | { kind: 'configuration'; call: TSNode; row: TSNode; object: TSNode; entry: TSNode }
   | { kind: 'read'; member: TSNode; property: TSNode };
 
 type OverrideSite = Extract<UsageSite, { kind: 'override' }>;
+type ConfigurationSite = Extract<UsageSite, { kind: 'configuration' }>;
+
+/** The sites a delete drops rather than replaces: an override entry, a configuration cell. */
+export function isDroppedSite(site: UsageSite): boolean {
+  return site.kind === 'override' || site.kind === 'configuration';
+}
 type ImportSite = Extract<UsageSite, { kind: 'import' }>;
 
 /** 1-indexed line of a usage site, for reporting. */
@@ -121,6 +130,7 @@ export function usageLine(site: UsageSite): number {
     case 'import':
       return site.specifier.startPosition.row + 1;
     case 'override':
+    case 'configuration':
       return site.entry.startPosition.row + 1;
     case 'read':
       return site.member.startPosition.row + 1;
@@ -138,6 +148,8 @@ export type DeletionPlan = {
   replaced: UsageFileSummary[];
   /** `insert()` overrides that are dropped — the instance falls back to the default. */
   dropped: UsageFileSummary[];
+  /** `configurations()` cells that are dropped — the row falls back to the default. */
+  configurations: UsageFileSummary[];
   /** Reads the value cannot replace; the delete is refused while any remain. */
   blocked: UsageFileSummary[];
 };
@@ -204,7 +216,10 @@ export type DeclarationReport = {
 
 /** A report for a declaration that could not be located: nothing reads it, nothing replaces it. */
 export function emptyReport(): DeclarationReport {
-  return { value: null, portable: false, usages: [], deletion: { value: null, replaced: [], dropped: [], blocked: [] } };
+  return {
+    value: null, portable: false, usages: [],
+    deletion: { value: null, replaced: [], dropped: [], configurations: [], blocked: [] },
+  };
 }
 
 /** The reads `sites` make of a declaration in `filePath`, split the way a delete treats them. */
@@ -212,14 +227,27 @@ export function fileReport(
   filePath: string,
   sites: UsageSite[],
   blocked: UsageSite[],
-): { usages: UsageFileSummary[]; replaced: UsageFileSummary[]; dropped: UsageFileSummary[]; blocked: UsageFileSummary[] } {
+): {
+  usages: UsageFileSummary[];
+  replaced: UsageFileSummary[];
+  dropped: UsageFileSummary[];
+  configurations: UsageFileSummary[];
+  blocked: UsageFileSummary[];
+} {
   const overrides = sites.filter((site) => site.kind === 'override');
-  const replaced = sites.filter((site) => site.kind !== 'override' && !blocked.includes(site));
+  const cells = sites.filter((site) => site.kind === 'configuration');
+  const replaced = sites.filter((site) => !isDroppedSite(site) && !blocked.includes(site));
   const summary = (subset: UsageSite[]) => {
     const one = summarizeSites(filePath, subset);
     return one ? [one] : [];
   };
-  return { usages: summary(sites), replaced: summary(replaced), dropped: summary(overrides), blocked: summary(blocked) };
+  return {
+    usages: summary(sites),
+    replaced: summary(replaced),
+    dropped: summary(overrides),
+    configurations: summary(cells),
+    blocked: summary(blocked),
+  };
 }
 
 /** The declaring file's own {@link DeclarationReport}, from its plan. */
@@ -230,7 +258,13 @@ export function reportOf(plan: DeclarationPlan): DeclarationReport {
     value: plan.value,
     portable: plan.portable,
     usages: file.usages,
-    deletion: { value: plan.value, replaced: file.replaced, dropped: file.dropped, blocked: file.blocked },
+    deletion: {
+      value: plan.value,
+      replaced: file.replaced,
+      dropped: file.dropped,
+      configurations: file.configurations,
+      blocked: file.blocked,
+    },
   };
 }
 
@@ -239,6 +273,7 @@ export function appendFileReport(report: DeclarationReport, file: ReturnType<typ
   report.usages.push(...file.usages);
   report.deletion.replaced.push(...file.replaced);
   report.deletion.dropped.push(...file.dropped);
+  report.deletion.configurations.push(...file.configurations);
   report.deletion.blocked.push(...file.blocked);
 }
 
@@ -276,6 +311,7 @@ function usageNode(site: UsageSite): TSNode {
     case 'import':
       return site.specifier;
     case 'override':
+    case 'configuration':
       return site.entry;
     case 'read':
       return site.member;
@@ -361,7 +397,7 @@ export function planDeclaringFile(
   const value = declarationValue(call);
   const sites = usages.sites();
   const portable = value !== null && DeclarationUsages.isPortable(new LexicalBindings(tree), value);
-  const blocked = value === null ? sites.filter((site) => site.kind !== 'override') : usages.blockedSites(sites, value, portable);
+  const blocked = value === null ? sites.filter((site) => !isDroppedSite(site)) : usages.blockedSites(sites, value, portable);
   return { declaration, value: value?.text ?? null, portable, sites, blocked, usages };
 }
 
@@ -472,7 +508,7 @@ export class DeclarationUsages {
 
   /** Every read, in no particular order. */
   sites(): UsageSite[] {
-    return [...this.variableSites(), ...this.overrideSites(), ...this.readSites()];
+    return [...this.variableSites(), ...this.overrideSites(), ...this.configurationSites(), ...this.readSites()];
   }
 
   /**
@@ -527,6 +563,84 @@ export class DeclarationUsages {
       }
     }
     return sites;
+  }
+
+  /**
+   * `configurations({ Row: { <key>: … } })` cells of the declaring body's
+   * own table — a param's per-configuration values. The table lives in the
+   * same `part()` / `assembly()` body as the declaration (§3.2), so only the
+   * declaring file has any, and only the tables of that body count: a
+   * second definition in the file may spell the same label for its own
+   * parameter.
+   */
+  private configurationSites(): ConfigurationSite[] {
+    if (this.declaration.kind !== 'param' || !this.sameFile) {
+      return [];
+    }
+    const bodies = this.declaringDefinitionCalls();
+    if (bodies.length === 0) {
+      return [];
+    }
+    const sites: ConfigurationSite[] = [];
+    for (const node of walkTree(this.tree.rootNode)) {
+      if (node.type !== 'call_expression' || node.childForFieldName('function')?.text !== 'configurations') {
+        continue;
+      }
+      const definition = enclosingDefinitionCall(node);
+      if (!bodies.some((body) => (body === null && definition === null) || (body !== null && isSameNode(body, definition)))) {
+        continue;
+      }
+      const table = node.childForFieldName('arguments')?.namedChildren.find((c) => c.type !== 'comment');
+      if (table?.type !== 'object') {
+        continue;
+      }
+      for (const row of table.namedChildren) {
+        const object = row.type === 'pair' ? row.childForFieldName('value') : null;
+        if (object?.type !== 'object') {
+          continue;
+        }
+        for (const entry of object.namedChildren) {
+          if (entryKey(entry) === this.declaration.key) {
+            sites.push({ kind: 'configuration', call: node, row, object, entry });
+          }
+        }
+      }
+    }
+    return sites;
+  }
+
+  /**
+   * The `part()` / `assembly()` call(s) whose body declares the
+   * declaration, in this file — `[null]` for a declaration outside every
+   * body. Found from the definition the ref names (the module-level const
+   * it binds) rather than from the declaration's own call, which a delete
+   * has already taken out by the time its cells are dropped; a definition
+   * bound to no const falls back to the body around the declaration's call.
+   */
+  private declaringDefinitionCalls(): (TSNode | null)[] {
+    const { definition } = this.declaration;
+    if (definition === null) {
+      return [null];
+    }
+    if (definition.localName !== null) {
+      const calls: TSNode[] = [];
+      for (const node of walkTree(this.tree.rootNode)) {
+        if (node.type !== 'call_expression') {
+          continue;
+        }
+        const callee = node.childForFieldName('function');
+        if (callee?.type === 'identifier' && (callee.text === 'part' || callee.text === 'assembly')
+          && boundVariable(node) === definition.localName) {
+          calls.push(node);
+        }
+      }
+      return calls;
+    }
+    return findDeclarationCalls(this.tree, 'param')
+      .filter((d) => d.key === this.declaration.key
+        && (this.declaration.variable === null || d.variable === this.declaration.variable))
+      .map((d) => enclosingDefinitionCall(d.call))
+      .filter((call): call is TSNode => call !== null);
   }
 
   /** `<def or instance>.properties.<key>` — a property's reads; `<occurrence>.parts.<key>` — an instance's. */
@@ -643,7 +757,7 @@ export class DeclarationUsages {
     if (spec.action === 'rename') {
       return { newCode: applySpliceEdits(code, usages.renameEdits(sites, spec.newKey, spec.newVariable, spec.newVariableExport)) };
     }
-    const unportable = sites.filter((site) => site.kind !== 'override');
+    const unportable = sites.filter((site) => !isDroppedSite(site));
     if (!spec.portable && unportable.length > 0) {
       return {
         newCode: code,
@@ -673,7 +787,8 @@ export class DeclarationUsages {
           edits.push(...this.importRenameEdits(site, newVariable, newVariableExport));
           break;
         case 'override':
-          edits.push(this.overrideRenameEdit(site, newKey));
+        case 'configuration':
+          edits.push(this.entryRenameEdit(site.entry, newKey));
           break;
         case 'read':
           edits.push({ start: site.property.startIndex, end: site.property.endIndex, text: newKey });
@@ -705,8 +820,8 @@ export class DeclarationUsages {
     ];
   }
 
-  private overrideRenameEdit(site: OverrideSite, newKey: string): SpliceEdit {
-    const { entry } = site;
+  /** The edit that re-keys an override entry or a configuration cell. */
+  private entryRenameEdit(entry: TSNode, newKey: string): SpliceEdit {
     if (entry.type === 'shorthand_property_identifier') {
       return { start: entry.startIndex, end: entry.endIndex, text: `${renderKey(newKey)}: ${entry.text}` };
     }
@@ -715,16 +830,18 @@ export class DeclarationUsages {
   }
 
   /**
-   * Replace every read by `expression` and drop every override, applying
-   * `alongside` (the declaration's own removal, in the declaring file) in
-   * the same pass. Overrides are removed one at a time, last first, on a
-   * re-parsed tree — an entry's removal takes a separator with it and can
-   * empty the whole argument.
+   * Replace every read by `expression` and drop every override and
+   * configuration cell, applying `alongside` (the declaration's own
+   * removal, in the declaring file) in the same pass. Overrides and cells
+   * are removed one at a time, last first, on a re-parsed tree — an entry's
+   * removal takes a separator with it and can empty the whole argument (a
+   * row emptied of its cells stays as `Row: {}`).
    */
   async inline(code: string, sites: UsageSite[], expression: string, alongside: SpliceEdit[] = []): Promise<string> {
     const atomic = await isAtomicExpression(expression);
     const edits: SpliceEdit[] = [...alongside];
     const overrides: OverrideSite[] = [];
+    const cells: ConfigurationSite[] = [];
     for (const site of sites) {
       switch (site.kind) {
         case 'variable':
@@ -744,10 +861,13 @@ export class DeclarationUsages {
         case 'override':
           overrides.push(site);
           break;
+        case 'configuration':
+          cells.push(site);
+          break;
       }
     }
     let out = applySpliceEdits(code, edits);
-    if (overrides.length > 0) {
+    if (overrides.length > 0 || cells.length > 0) {
       const parser = await getJavaScriptParser();
       // Locate each entry afresh: the splices above moved everything below them.
       for (let remaining = overrides.length; remaining > 0; remaining--) {
@@ -758,6 +878,15 @@ export class DeclarationUsages {
           break;
         }
         out = removeObjectEntry(out, last.call, last.object, last.entry);
+      }
+      for (let remaining = cells.length; remaining > 0; remaining--) {
+        const tree = parser.parse(out);
+        const usages = new DeclarationUsages(tree, this.filePath, this.declaration);
+        const last = usages.configurationSites().sort((a, b) => b.entry.startIndex - a.entry.startIndex)[0];
+        if (!last) {
+          break;
+        }
+        out = removeCellEntry(out, last.object, last.entry);
       }
     }
     return out;
@@ -779,7 +908,7 @@ export class DeclarationUsages {
   blockedSites(sites: UsageSite[], value: TSNode, portable: boolean): UsageSite[] {
     const free = this.sameFile ? freeIdentifiers(this.bindings, value) : [];
     return sites.filter((site) => {
-      if (site.kind === 'override') {
+      if (isDroppedSite(site)) {
         return false;
       }
       // `export { width }` cannot export a number — the export has to go first.
@@ -835,6 +964,23 @@ function importSpecifierRemoval(code: string, specifier: TSNode): SpliceEdit {
     return { start: specifiers[index - 1].endIndex, end: specifier.endIndex, text: '' };
   }
   return { start: specifier.startIndex, end: specifiers[index + 1].startIndex, text: '' };
+}
+
+/**
+ * Remove one cell of a `configurations()` row; the row stays as `Row: {}`
+ * when the cell was its last — the shape `ConfigurationEditor.unsetCells`
+ * leaves behind.
+ */
+function removeCellEntry(code: string, object: TSNode, entry: TSNode): string {
+  const entries = object.namedChildren.filter((c) => c.type !== 'comment');
+  const index = entries.findIndex((e) => isSameNode(e, entry));
+  if (entries.length === 1) {
+    return spliceCode(code, object.startIndex + 1, object.endIndex - 1, '');
+  }
+  if (index === 0) {
+    return spliceCode(code, entries[0].startIndex, entries[1].startIndex, '');
+  }
+  return spliceCode(code, entries[index - 1].endIndex, entries[index].endIndex, '');
 }
 
 /**

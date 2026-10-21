@@ -499,6 +499,7 @@ describe('global parameter declaration edits', () => {
           { filePath: tolerances, count: 1, lines: [3] },
         ],
         dropped: [],
+        configurations: [],
         blocked: [],
       });
     });

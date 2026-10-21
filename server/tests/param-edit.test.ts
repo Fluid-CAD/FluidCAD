@@ -515,6 +515,61 @@ describe('ParamEditor.update', () => {
   });
 });
 
+const CONFIGURED = [
+  `import { part, param, configurations, sketch, circle, extrude } from 'fluidcad/core';`,
+  ``,
+  `export const plate = part('Plate', () => {`,
+  `  const configuration = configurations({`,
+  `    Compact: { Width: 60, Rounded: false },`,
+  `    'Extra Wide': { 'Width': base * 2 },`,
+  `    Plain: { Rounded: false },`,
+  `  });`,
+  `  const width = param('Width', 100);`,
+  `  const rounded = param('Rounded', true);`,
+  `  extrude(width);`,
+  `});`,
+  `export const other = part('Other', () => {`,
+  `  configurations({ Big: { Width: 1 } });`,
+  `  const width = param('Width', 5);`,
+  `  extrude(width);`,
+  `});`,
+  ``,
+].join('\n');
+
+describe('ParamEditor.update — configurations() table', () => {
+  it('renames the key in every row of the body\'s table, and in no other body\'s', async () => {
+    const result = await ParamEditor.apply(CONFIGURED, {
+      kind: 'update', line: 9, expectedLabel: 'Width', param: spec({ label: 'Overall width' }), variable: 'overallWidth',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`    Compact: { 'Overall width': 60, Rounded: false },`);
+    expect(result.newCode).toContain(`    'Extra Wide': { 'Overall width': base * 2 },`);
+    expect(result.newCode).toContain(`  configurations({ Big: { Width: 1 } });`);
+    expect(result.newCode).toContain(`const overallWidth = param('Overall width', 100);`);
+  });
+
+  it('counts the cells as usages of their own', async () => {
+    const usage = await ParamEditor.inspect(CONFIGURED, 'Width', 9, '/ws/plate.part.js');
+    expect(usage.usages).toEqual([{ filePath: '/ws/plate.part.js', count: 3, lines: [5, 6, 11] }]);
+    expect(usage.deletion.configurations).toEqual([{ filePath: '/ws/plate.part.js', count: 2, lines: [5, 6] }]);
+    expect(usage.deletion.replaced).toEqual([{ filePath: '/ws/plate.part.js', count: 1, lines: [11] }]);
+    expect(usage.deletion.dropped).toEqual([]);
+  });
+});
+
+describe('ParamEditor.remove — configurations() table', () => {
+  it('drops the label\'s cells from every row, an emptied row staying as {}', async () => {
+    const result = await ParamEditor.apply(CONFIGURED, { kind: 'remove', line: 9, expectedLabel: 'Width' });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`    Compact: { Rounded: false },`);
+    expect(result.newCode).toContain(`    'Extra Wide': {},`);
+    expect(result.newCode).toContain(`    Plain: { Rounded: false },`);
+    expect(result.newCode).toContain(`  configurations({ Big: { Width: 1 } });`);
+    expect(result.newCode).not.toContain(`param('Width', 100)`);
+    expect(result.newCode).toContain(`  const rounded = param('Rounded', true);\n  extrude(100);`);
+  });
+});
+
 describe('ParamEditor.remove', () => {
   it('deletes the whole declaration statement', async () => {
     const result = await ParamEditor.apply(CODE, {
@@ -620,6 +675,7 @@ describe('ParamEditor.inspect', () => {
       value: '100',
       replaced: [{ filePath: '/ws/plate.part.js', count: 2, lines: [8, 11] }],
       dropped: [],
+      configurations: [],
       blocked: [],
     });
   });

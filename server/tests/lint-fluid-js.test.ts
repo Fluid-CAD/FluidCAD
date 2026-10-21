@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { lintFluidJs } from '../src/lint-fluid-js.ts';
+import { CONFIGURATIONS_AFTER_PARAM_MESSAGE, lintFluidJs } from '../src/lint-fluid-js.ts';
+import { CONFIGURATIONS_IN_PARAMS_FILE_MESSAGE } from '../src/global-params/lint.ts';
 
 describe('lintFluidJs', () => {
   it('reports every FluidCAD symbol used without an import', async () => {
@@ -259,5 +260,44 @@ describe('lintFluidJs — sketch curve symbols', () => {
     const result = await lintFluidJs(code);
     expect(result.missing.map((m) => m.symbol).sort()).toEqual(['bezier', 'sketch', 'spline']);
     expect(result.suggestion).toBe('import { bezier, sketch, spline } from "fluidcad/core";');
+  });
+});
+
+describe('lintFluidJs — configurations() rules', () => {
+  const header = `import { assembly, part, param, configurations, sketch, circle } from 'fluidcad/core';`;
+
+  it('is clean for a table declared first in the body', async () => {
+    const result = await lintFluidJs(
+      `${header}\nexport const f = assembly('f', () => {\n  const c = configurations({ Wide: { Width: 1 } });\n  const w = param('Width', 1);\n});\n`,
+      { filePath: '/ws/f.assembly.js' },
+    );
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('rejects a table after a param() of the same body, with the fix', async () => {
+    const result = await lintFluidJs(
+      `${header}\nexport const f = part('f', () => {\n  const w = param('Width', 1);\n  configurations({ Wide: { Width: 2 } });\n});\n`,
+      { filePath: '/ws/f.part.js' },
+    );
+    expect(result.diagnostics).toEqual([{ message: CONFIGURATIONS_AFTER_PARAM_MESSAGE, line: 3, column: 2 }]);
+  });
+
+  it('counts a param() nested in an earlier statement, but not one in another body', async () => {
+    const nested = await lintFluidJs(
+      `${header}\nexport const f = part('f', () => {\n  sketch('xy', () => { circle(param('R', 5)); });\n  configurations({});\n});\n`,
+    );
+    expect(nested.diagnostics.map((d) => d.message)).toEqual([CONFIGURATIONS_AFTER_PARAM_MESSAGE]);
+    const other = await lintFluidJs(
+      `${header}\nexport const a = assembly('a', () => {\n  const p = part('p', () => { const w = param('W', 1); });\n  configurations({});\n});\n`,
+    );
+    expect(other.diagnostics).toEqual([]);
+  });
+
+  it('rejects configurations() in a params file', async () => {
+    const result = await lintFluidJs(
+      `import { param, configurations } from 'fluidcad/core';\nexport const w = param('Width', 1);\nconfigurations({ Wide: { Width: 2 } });\n`,
+      { filePath: '/ws/project.params.js' },
+    );
+    expect(result.diagnostics).toEqual([{ message: CONFIGURATIONS_IN_PARAMS_FILE_MESSAGE, line: 2, column: 0 }]);
   });
 });

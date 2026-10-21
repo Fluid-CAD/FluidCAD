@@ -5,7 +5,6 @@ import {
   applySpliceEdits,
   enclosingStatementOf,
   getJavaScriptParser,
-  quoteForSingleQuotes,
   declareParamStatements,
   ensureSymbolImport,
   statementRemovalEdit,
@@ -30,6 +29,7 @@ import {
   type DeclarationReport,
 } from './declaration-usages.ts';
 import { DeclarationRewrite, isUsableVariableName } from './declaration-rewrite.ts';
+import { renderValue } from './part-catalog/insert-edit.ts';
 
 /** The control types `param()` accepts as its third argument. */
 export const PARAM_TYPES = ['number', 'slider', 'text', 'select', 'checkbox', 'color'] as const;
@@ -490,14 +490,9 @@ export class ParamEditor {
     return entries.length > 0 ? `{ ${entries.join(', ')} }` : null;
   }
 
+  /** A literal as every source writer renders one — `renderValue`, shared with the insert and configuration editors. */
   private static renderLiteral(value: ParamLiteral): string {
-    if (Array.isArray(value)) {
-      return `[${value.map((v) => ParamEditor.renderLiteral(v)).join(', ')}]`;
-    }
-    if (typeof value === 'string') {
-      return `'${quoteForSingleQuotes(value)}'`;
-    }
-    return String(value);
+    return renderValue(value);
   }
 
   /** The control `param()` picks for a default value when no type is given. */

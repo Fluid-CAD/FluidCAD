@@ -103,6 +103,84 @@ const GEOMETRY_CALLEES = new Set<string>(
     .filter((s) => s !== 'unit' && s !== 'breakpoint'),
 );
 
+/**
+ * The runtime's first-statement rule for `configurations()`
+ * (docs/assembly-configurations-plan.md §3.2): the table must be installed
+ * before the body resolves any value, so a `param()` that ran earlier in
+ * the same body is a build error there. Caught here before the render.
+ */
+export const CONFIGURATIONS_AFTER_PARAM_MESSAGE =
+  "configurations() must come before the body's first param() — move it to the top of the part() or assembly() callback, above every param().";
+
+/** The callee name of a call expression when it is a bare identifier. */
+function calleeName(call: TSNode): string | null {
+  const fn = call.childForFieldName('function');
+  return fn?.type === 'identifier' ? fn.text : null;
+}
+
+/** The statement `node` belongs to — its nearest ancestor that is a block's or the program's child. */
+function statementOf(node: TSNode): TSNode | null {
+  for (let current: TSNode | null = node; current && current.parent; current = current.parent) {
+    if (current.parent.type === 'statement_block' || current.parent.type === 'program') {
+      return current;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether `node` runs a `param()` when its statement does: a `param` call
+ * anywhere in it except inside a nested `part()` / `assembly()` definition,
+ * whose body is a body of its own with its own rule.
+ */
+function runsParam(node: TSNode): boolean {
+  let found = false;
+  walk(node, (n) => {
+    if (found) {
+      return false;
+    }
+    if (n.type === 'call_expression') {
+      const name = calleeName(n);
+      if (name === 'param') {
+        found = true;
+        return false;
+      }
+      if (name === 'part' || name === 'assembly') {
+        return false;
+      }
+    }
+    return true;
+  });
+  return found;
+}
+
+/**
+ * Every `configurations()` statement of a callback body that a `param()`
+ * statement of the same body precedes.
+ */
+function lintConfigurationStatements(root: TSNode): LintDiagnostic[] {
+  const diagnostics: LintDiagnostic[] = [];
+  walk(root, (node) => {
+    if (node.type !== 'call_expression' || calleeName(node) !== 'configurations') {
+      return;
+    }
+    const statement = statementOf(node);
+    const block = statement?.parent;
+    if (!statement || block?.type !== 'statement_block') {
+      return;
+    }
+    const preceding = block.namedChildren.filter((s) => s.endIndex <= statement.startIndex);
+    if (preceding.some(runsParam)) {
+      diagnostics.push({
+        message: CONFIGURATIONS_AFTER_PARAM_MESSAGE,
+        line: node.startPosition.row,
+        column: node.startPosition.column,
+      });
+    }
+  });
+  return diagnostics;
+}
+
 export type EngineSymbol = { name: string; module: string };
 
 /**
@@ -130,8 +208,9 @@ export type LintFluidJsResult = {
   suggestion: string;
   /**
    * File-level rule violations the runtime would reject: `unit()` placement
-   * in a model, and for a `*.params.js` path the params-file rules of
-   * `docs/global-parameters-plan.md` §2.2 (`global-params/lint.ts`).
+   * and `configurations()` ordering in a model, and for a `*.params.js`
+   * path the params-file rules of `docs/global-parameters-plan.md` §2.2
+   * (`global-params/lint.ts`), `configurations()` among them.
    */
   diagnostics: LintDiagnostic[];
 };
@@ -418,6 +497,7 @@ export async function lintFluidJs(code: string, options: LintFluidJsOptions = {}
     ? lintParamsTree(tree as any, options.filePath)
     : [
       ...lintUnitStatements(root, options.filePath, GEOMETRY_CALLEES),
+      ...lintConfigurationStatements(root),
       ...(options.globalUnits ? lintGlobalParamUnits(root, options.filePath, options.globalUnits) : []),
     ];
 

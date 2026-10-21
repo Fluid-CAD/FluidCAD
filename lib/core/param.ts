@@ -71,6 +71,10 @@ export class ParamValue<T extends string | number | boolean> {
     if (sourceLocation) {
       this._definition.sourceLocation = sourceLocation;
     }
+    const body = registry.currentBodyName();
+    if (body !== null) {
+      this._definition.body = body;
+    }
     registry.register(this._definition);
   }
 
@@ -295,6 +299,12 @@ export default function param(
   const partLocation = declaringPart?.getSourceLocation();
   if (partLocation) {
     definition.part = partLocation;
+  }
+  // The body that declared it — with the label, the parameter's identity in
+  // the registry: the same label in two parts is two parameters.
+  const body = kind === 'global' ? null : registry.currentBodyName();
+  if (body !== null) {
+    definition.body = body;
   }
 
   if (options) {

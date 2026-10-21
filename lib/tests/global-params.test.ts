@@ -13,6 +13,7 @@ import assembly from "../core/assembly.js";
 import insert from "../core/insert.js";
 import { getSceneManager, getCurrentScene } from "../scene-manager.js";
 import { createParamRegistry, type ParamDefinition, type ParamRegistry, type ParamVal } from "../param-registry.js";
+import { ParamKey } from "../param-key.js";
 import { isFluidScriptFile, isParamsFile } from "../index.js";
 import { setupOC } from "./setup.js";
 
@@ -151,7 +152,8 @@ describe("param() inside a body — unchanged", () => {
     expect(width.part?.filePath).toBe(PART_FILE);
     expect(width.sourceLocation?.filePath).toBe(PART_FILE);
     expect(width.currentValue).toBe(160);
-    expect(registry.getAuthoredDefaults().get("Width")).toBe(100);
+    expect(width.body).toBe("Plate");
+    expect(registry.getAuthoredDefaults().get(ParamKey.of("Plate", "Width").id)).toBe(100);
   });
 
   it("is an assembly parameter inside an assembly body", () => {

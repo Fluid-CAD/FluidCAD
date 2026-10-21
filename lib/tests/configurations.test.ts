@@ -25,6 +25,7 @@ import { getSceneManager, getCurrentScene } from "../scene-manager.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
 import { BrowserEngineHost } from "../browser/index.js";
 import { createParamRegistry, type ParamRegistry, type ParamVal } from "../param-registry.js";
+import { ParamKey } from "../param-key.js";
 import { warnConfigurationRun } from "../features/param-overrides.js";
 import { setupOC } from "./setup.js";
 
@@ -252,8 +253,10 @@ describe("configurations() — root run", () => {
     });
     getCurrentScene().materializeLeftoverDefinitions();
 
-    expect(registry.getDiscardedOverrides()).toEqual(["Width"]);
-    expect(registry.getAuthoredDefaults().get("Width")).toBe(120);
+    // The label-only override and baseline stand for Plate's Width; the
+    // verdict is filed under that parameter's key.
+    expect(registry.getDiscardedOverrides()).toEqual([ParamKey.of("Plate", "Width").id]);
+    expect(registry.getAuthoredDefaults().get(ParamKey.of("Plate", "Width").id)).toBe(120);
     // The override is gone; the row still applies.
     expect(seen.width).toBe(50);
   });
@@ -417,9 +420,14 @@ describe("configurations() — the root layer is per body", () => {
     twoParts(other, {}, { Narrow: { Width: 5 } });
     getCurrentScene().materializeLeftoverDefinitions();
     expect(other).toEqual({ aConfiguration: "Default", aWidth: 100, bConfiguration: "Narrow", bWidth: 5 });
-    const width = registry.getDefinitions().find(d => d.label === "Width")!;
+    // Each part's Width is its own definition, keyed by its body.
+    expect(registry.getDefinitions().filter(d => d.label === "Width").map(d => d.body)).toEqual(["A", "B"]);
+    const width = registry.getDefinitions().find(d => d.label === "Width" && d.body === "B")!;
     expect(width.currentValue).toBe(5);
     expect(width.configuredValue).toBe(5);
+    const aWidth = registry.getDefinitions().find(d => d.label === "Width" && d.body === "A")!;
+    expect(aWidth.currentValue).toBe(100);
+    expect(aWidth.configuredValue).toBeUndefined();
     expect(registry.getConfigurationValues("A").size).toBe(0);
     expect(registry.getConfigurationValues("B")).toEqual(new Map<string, ParamVal>([["Width", 5]]));
   });

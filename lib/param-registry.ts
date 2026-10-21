@@ -1,4 +1,5 @@
 import type { SourceLocation } from './common/scene-object.js';
+import { ParamKey } from './param-key.js';
 
 export type ControlType = 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox' | 'color';
 
@@ -79,6 +80,14 @@ export type ParamDefinition = {
    */
   part?: SourceLocation;
   /**
+   * The definition name of the `part()` / `assembly()` body that declared
+   * it — with the label, the parameter's identity (`ParamKey`): two parts of
+   * one file may both declare `Width`, and each is its own row, override and
+   * baseline. Absent for a project parameter (`kind: 'global'`), which is
+   * keyed by its label alone.
+   */
+  body?: string;
+  /**
    * The active configuration row's cell for this label, coerced to the
    * literal's type — present only when a row applies to the build and names
    * the label. The UI shows it as the value a session override sits on.
@@ -127,19 +136,32 @@ type BodyFrame = {
 
 export class ParamRegistry {
 
+  /**
+   * Every definition this run, by `ParamKey.id`: a part's or assembly's
+   * parameter under its body + label, a project parameter under its label.
+   * The maps below use the same ids.
+   */
   private definitions: Map<string, ParamDefinition> = new Map();
+  /**
+   * The session's overrides by key id. A label-only entry (an older
+   * client's, or one set before any body declared the label) stands for
+   * that label in every body without an entry of its own — see
+   * {@link getLabelOverrideUse}.
+   */
   private overrides: Map<string, any> = new Map();
   /**
-   * The default each label was authored with on the *previous* run, handed in
-   * with the overrides. An override is a delta over the default it was made
-   * against, so a `param()` whose literal no longer matches its baseline has
-   * been re-authored in source — see `resolve`.
+   * The default each parameter was authored with on the *previous* run,
+   * handed in with the overrides. An override is a delta over the default it
+   * was made against, so a `param()` whose literal no longer matches its
+   * baseline has been re-authored in source — see `resolve`.
    */
   private baseDefaults: Map<string, ParamVal> = new Map();
-  /** Labels whose override this run dropped because the source re-declared the default. */
+  /** Key ids whose override this run dropped because the source re-declared the default. */
   private discarded: Set<string> = new Set();
-  /** First default each label was authored with this run — the next run's baseline. */
+  /** First default each parameter was authored with this run — the next run's baseline. */
   private authoredDefaults: Map<string, ParamVal> = new Map();
+  /** Label-only override entries that resolved a body's parameter this run: label → the key ids they stood for. */
+  private labelOverrideUse: Map<string, string[]> = new Map();
   /** The configuration the host asked for before the run; null or 'Default' is the literals. */
   private activeConfiguration: string | null = null;
   /**
@@ -155,8 +177,9 @@ export class ParamRegistry {
   /** The bodies running right now, innermost last. */
   private bodies: BodyFrame[] = [];
 
+  /** Record a part's or assembly's parameter under its `ParamKey` — its body and label. */
   register(def: ParamDefinition): void {
-    this.definitions.set(def.label, def);
+    this.definitions.set(ParamKey.ofDefinition(def).id, def);
   }
 
   /**
@@ -172,37 +195,73 @@ export class ParamRegistry {
     if (def.kind !== 'global') {
       throw new Error(`registerGlobal(): '${def.label}' is a ${def.kind} parameter — use register().`);
     }
-    const { part: _part, ...global } = def;
-    this.definitions.set(def.label, { ...global, currentValue: def.defaultValue });
+    const { part: _part, body: _body, ...global } = def;
+    this.definitions.set(ParamKey.ofDefinition(global).id, { ...global, currentValue: def.defaultValue });
   }
 
+  /**
+   * The value `param(label, defaultValue)` takes in the innermost running
+   * body (none: a label-only key): the session override, unless the source
+   * re-declared the default it was made against → the body's configuration
+   * cell → the literal. The parameter is keyed by that body and `label`.
+   */
   resolve(label: string, defaultValue: (string | number)[]): (string | number)[];
   resolve<T extends string | number | boolean>(label: string, defaultValue: T): T;
   resolve(label: string, defaultValue: ParamVal): ParamVal {
-    this.currentBody()?.resolved.add(label);
-    // Only the first `param()` call for a label decides the run's baseline and
-    // whether its override survived; a second call under the same label reuses
-    // that verdict rather than flip-flopping against its own literal.
-    const firstSeen = !this.authoredDefaults.has(label);
+    const frame = this.currentBody();
+    frame?.resolved.add(label);
+    const key = ParamKey.of(frame?.definition, label).id;
+    // Which entry speaks for this parameter, recorded even when the verdict
+    // below drops it: a label-only entry must be retired from every body it
+    // stood for, discarded or not.
+    const entry = this.overrideEntry(key, label);
+    // Only the first `param()` call for a parameter decides the run's
+    // baseline and whether its override survived; a second call under the
+    // same key reuses that verdict rather than flip-flopping against its own
+    // literal.
+    const firstSeen = !this.authoredDefaults.has(key);
     if (firstSeen) {
-      this.authoredDefaults.set(label, defaultValue);
-      const baseline = this.baseDefaults.get(label);
+      this.authoredDefaults.set(key, defaultValue);
+      // A label-only baseline stands in for a body's parameter the way a
+      // label-only override does.
+      const baseline = this.baseDefaults.get(key) ?? (key !== label ? this.baseDefaults.get(label) : undefined);
       // Editing the literal in the source is the author's newer statement of
       // intent: the UI override is discarded rather than left shadowing a
       // default the code no longer declares. The baseline is about the
       // LITERAL only — a configuration cell that changes discards nothing,
       // it is just a new base for the override to sit on.
       if (baseline !== undefined && !sameAuthoredDefault(baseline, defaultValue)) {
-        this.discarded.add(label);
+        this.discarded.add(key);
       }
     }
     // override (session, unless discarded) → configuration cell → literal.
     const configured = this.configuredValue(label, defaultValue);
     const base = configured === undefined ? defaultValue : configured;
-    if (!this.overrides.has(label) || this.discarded.has(label)) {
+    if (entry === null || this.discarded.has(key)) {
       return base;
     }
-    return coerceParamOverride(defaultValue, this.overrides.get(label));
+    return coerceParamOverride(defaultValue, this.overrides.get(entry));
+  }
+
+  /**
+   * The override entry for the parameter `key` (an id) of label `label`:
+   * its own entry, else a label-only entry for the label — whose use is
+   * recorded so the host can give each body it stood for an entry of its
+   * own — else null.
+   */
+  private overrideEntry(key: string, label: string): string | null {
+    if (this.overrides.has(key)) {
+      return key;
+    }
+    if (key === label || !this.overrides.has(label)) {
+      return null;
+    }
+    const keys = this.labelOverrideUse.get(label) ?? [];
+    if (!keys.includes(key)) {
+      keys.push(key);
+    }
+    this.labelOverrideUse.set(label, keys);
+    return label;
   }
 
   /**
@@ -403,16 +462,21 @@ export class ParamRegistry {
   }
 
   /**
-   * Install the caller's overrides, plus the defaults each label was authored
-   * with last run. Without the baselines every override is honored blindly,
-   * which is what shadows a default the source has since changed.
+   * Install the caller's overrides, plus the defaults each parameter was
+   * authored with last run, both by `ParamKey.id`. Without the baselines
+   * every override is honored blindly, which is what shadows a default the
+   * source has since changed.
    */
   setOverrides(overrides: Map<string, any>, baseDefaults?: Map<string, ParamVal>): void {
     this.overrides = overrides;
     this.baseDefaults = baseDefaults ?? new Map();
   }
 
-  /** Every definition registered this run, or only those of one `kind`. */
+  /**
+   * Every definition registered this run, or only those of one `kind` —
+   * one per `ParamKey`, so a label two parts declare is listed twice, each
+   * with its `body`.
+   */
   getDefinitions(kind?: ParamKind): ParamDefinition[] {
     const all = Array.from(this.definitions.values());
     return kind === undefined ? all : all.filter(def => def.kind === kind);
@@ -420,17 +484,28 @@ export class ParamRegistry {
 
   /** Whether a project parameter with this label was registered this run. */
   hasGlobal(label: string): boolean {
-    return this.definitions.get(label)?.kind === 'global';
+    return this.definitions.get(ParamKey.of(null, label).id)?.kind === 'global';
   }
 
-  /** What each label's `param()` declared this run — feed back as the next run's baselines. */
+  /** What each parameter's `param()` declared this run, by key id — feed back as the next run's baselines. */
   getAuthoredDefaults(): Map<string, ParamVal> {
     return new Map(this.authoredDefaults);
   }
 
-  /** Labels whose override this run dropped; the caller should forget them. */
+  /** Key ids whose override this run dropped; the caller should forget them. */
   getDiscardedOverrides(): string[] {
     return Array.from(this.discarded);
+  }
+
+  /**
+   * Every label-only override entry that resolved a body's parameter this
+   * run, with the key ids it stood for (in resolution order). The host
+   * replaces such an entry with one per key — the value each body already
+   * renders with — so from then on each part's parameter is set, renamed and
+   * reset on its own.
+   */
+  getLabelOverrideUse(): Map<string, string[]> {
+    return new Map(Array.from(this.labelOverrideUse, ([label, keys]) => [label, keys.slice()]));
   }
 
   clear(): void {
@@ -439,6 +514,7 @@ export class ParamRegistry {
     this.baseDefaults.clear();
     this.discarded.clear();
     this.authoredDefaults.clear();
+    this.labelOverrideUse.clear();
     this.activeConfiguration = null;
     this.installed.clear();
     this.unconsumed.clear();

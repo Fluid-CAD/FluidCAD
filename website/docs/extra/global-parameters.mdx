@@ -92,7 +92,7 @@ The **Global Parameters** button on the left rail, below **Code**, opens a colum
 - **Renaming** the label or the identifier rewrites the declaration and, for the identifier, every `import { wall }` specifier and every read in the files that import it.
 - **Deleting** a parameter puts its literal in place of every read in every importing file and drops the import specifier, so the models still build. It is refused, naming the reads to rewrite by hand, when the value would not mean the same where it is read — a derived default over other names, for instance.
 
-**An assembly cannot override one.** `insert(bracket, { 'Wall thickness': 5 })` names no parameter of the part, and the warning says so: *`Wall thickness` is a project parameter — edit it in the Parameters panel, not per instance.* A value that must vary per instance is a part parameter; a value that must agree across the project is a project parameter.
+**An assembly cannot override one.** `insert(bracket, { 'Wall thickness': 5 })` names no parameter of the part, and the warning says so: *`Wall thickness` is a project parameter — edit it in the Global Parameters panel, not per instance.* A value that must vary per instance is a part parameter; a value that must agree across the project is a project parameter.
 
 ## In expression inputs
 

@@ -24,7 +24,6 @@ import {
 } from './configuration-dialogs';
 import { openConfigurationsGrid, type ConfigurationsGridOptions } from './configurations-grid-dialog';
 import { AccordionSection } from './accordion-section';
-import { PartLabels } from './part-labels';
 import {
   ParamDebouncer,
   bindParamGroups,
@@ -926,16 +925,13 @@ export class ParamsPanel extends AccordionSection {
 
     const rowOptions = { editable: this.editor !== undefined };
     // A label two listed parts both declare names its part after it, so the
-    // rows read apart; a label shown once keeps the plain look. A part is
-    // named by its name — with its identity's tag when another part of the
-    // file has the same name (`Plate (lid)`).
+    // rows read apart; a label shown once keeps the plain look.
     const shared = ParamsPanel.sharedLabels(params);
-    const parts = PartLabels.fromParams(this.currentParams);
     // With a row active: a label the row sets is bold, one it leaves out
     // says so — its value is the literal.
     const rowActive = this.rowActive;
     const optionsFor = (p: UIParamDefinition) => {
-      const base = shared.has(p.label) && p.body !== undefined ? { ...rowOptions, owner: parts.label(p.body) } : rowOptions;
+      const base = shared.has(p.label) && p.body !== undefined ? { ...rowOptions, owner: p.body } : rowOptions;
       if (!rowActive) {
         return base;
       }

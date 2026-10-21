@@ -67,7 +67,22 @@ export type ConfigurationEditSpec =
   | { kind: 'add'; name: string; values?: Record<string, ConfigurationCellValue> }
   | { kind: 'set'; name: string; values: Record<string, ConfigurationCellValue> }
   | { kind: 'rename'; from: string; to: string }
-  | { kind: 'remove'; name: string };
+  | { kind: 'remove'; name: string }
+  | ({ kind: 'table' } & ConfigurationTableEdit);
+
+/**
+ * The Manage-configurations grid's commit: the whole table in one rewrite.
+ * `renames` (from → to) and `removed` name rows as the table has them
+ * before the commit; `rows` is keyed by the names after it. A row of
+ * `rows` the table has gets its non-null cells set and its null cells
+ * unset (back to the literal); one it lacks is appended with its non-null
+ * cells. Rows and cells the commit leaves out keep their source as it is.
+ */
+export type ConfigurationTableEdit = {
+  rows: Record<string, Record<string, ConfigurationCellValue | null>>;
+  renames?: Record<string, string>;
+  removed?: string[];
+};
 
 /** The binding the generated statement takes, unless the file already uses the name. */
 const RESULT_BINDING = 'configuration';
@@ -106,6 +121,9 @@ export class ConfigurationEditor {
         break;
       case 'remove':
         result = await ConfigurationEditor.removeRow(code, spec.name);
+        break;
+      case 'table':
+        result = await ConfigurationEditor.applyTable(code, spec);
         break;
       default:
         return { newCode: code, error: `unknown configuration edit '${String((spec as { kind?: unknown }).kind)}'` };
@@ -275,6 +293,116 @@ export class ConfigurationEditor {
     return { newCode: removed };
   }
 
+  /**
+   * The grid's commit as one code change: every rename, removal, cell set,
+   * cell unset and new row of `edit`, composed over the string with the
+   * primitives above — so it lands as one edit, one undo step and one
+   * render. Checked up front against the table as it stands; any refusal
+   * leaves the code untouched.
+   *
+   * Removals go first (a deleted row's name may be reused by a rename or a
+   * new row), renames next — through temporary names, so two rows can
+   * swap theirs — then the rows' cells.
+   */
+  static async applyTable(code: string, edit: ConfigurationTableEdit): Promise<ConfigurationEditResult> {
+    const rows = edit.rows ?? {};
+    const renames = Object.entries(edit.renames ?? {}).filter(([from, to]) => from !== to);
+    const removed = [...new Set(edit.removed ?? [])];
+    for (const cells of Object.values(rows)) {
+      const bad = findInvalidParam(setValuesOf(cells));
+      if (bad) {
+        return { error: `Parameter '${bad}' has an unsupported value.` };
+      }
+    }
+    const located = await ConfigurationEditor.locate(code);
+    if ('error' in located) {
+      return located;
+    }
+    if (located.table && !located.table.object) {
+      return { error: NON_LITERAL_TABLE };
+    }
+    const existing = located.table?.object ? rowEntries(located.table.object).map((row) => row.name) : [];
+    const unknown = [...removed, ...renames.map(([from]) => from)].find((name) => !existing.includes(name));
+    if (unknown !== undefined) {
+      return { error: `no configuration named "${unknown}" — is the file in sync with the last render?` };
+    }
+    const renameMap = new Map(renames);
+    const both = removed.find((name) => renameMap.has(name));
+    if (both !== undefined) {
+      return { error: `the configuration "${both}" cannot be both renamed and removed` };
+    }
+    const finalNames = existing.filter((name) => !removed.includes(name)).map((name) => renameMap.get(name) ?? name);
+    for (const name of [...renameMap.values(), ...Object.keys(rows).filter((name) => !finalNames.includes(name))]) {
+      const invalid = validateRowName(name);
+      if (invalid) {
+        return { error: invalid };
+      }
+    }
+    const clash = finalNames.find((name, index) => finalNames.indexOf(name) !== index);
+    if (clash !== undefined) {
+      return { error: `a configuration named "${clash}" already exists` };
+    }
+
+    let out = code;
+    const step = async (result: Promise<ConfigurationEditResult>): Promise<string | null> => {
+      const landed = await result;
+      if ('error' in landed) {
+        return landed.error;
+      }
+      out = landed.newCode;
+      return null;
+    };
+    for (const name of removed) {
+      const refused = await step(ConfigurationEditor.removeRow(out, name));
+      if (refused) {
+        return { error: refused };
+      }
+    }
+    const temporary = renames.map((_, index) => {
+      let candidate = `__renaming_${index}`;
+      while (existing.includes(candidate) || finalNames.includes(candidate)) {
+        candidate = `_${candidate}`;
+      }
+      return candidate;
+    });
+    for (const [index, [from]] of renames.entries()) {
+      const refused = await step(ConfigurationEditor.renameRow(out, from, temporary[index]));
+      if (refused) {
+        return { error: refused };
+      }
+    }
+    for (const [index, [, to]] of renames.entries()) {
+      const refused = await step(ConfigurationEditor.renameRow(out, temporary[index], to));
+      if (refused) {
+        return { error: refused };
+      }
+    }
+    for (const [name, cells] of Object.entries(rows)) {
+      const values = setValuesOf(cells);
+      const unset = Object.keys(cells).filter((label) => cells[label] === null);
+      if (!finalNames.includes(name)) {
+        const refused = await step(ConfigurationEditor.addRow(out, name, values));
+        if (refused) {
+          return { error: refused };
+        }
+        continue;
+      }
+      if (Object.keys(values).length > 0) {
+        const refused = await step(ConfigurationEditor.setCells(out, name, values));
+        if (refused) {
+          return { error: refused };
+        }
+      }
+      if (unset.length > 0) {
+        const refused = await step(ConfigurationEditor.unsetCells(out, name, unset));
+        if (refused) {
+          return { error: refused };
+        }
+      }
+    }
+    return { newCode: out };
+  }
+
   // -------------------------------------------------------------------------
   // Locating
   // -------------------------------------------------------------------------
@@ -318,6 +446,17 @@ export class ConfigurationEditor {
 
 const NO_TABLE = 'this file has no configurations() table yet';
 const NON_LITERAL_TABLE = 'the configurations() table is not an object literal — edit it in the code instead';
+
+/** A grid row's cells without its nulls — the ones it sets. */
+function setValuesOf(cells: Record<string, ConfigurationCellValue | null>): Record<string, ConfigurationCellValue> {
+  const out: Record<string, ConfigurationCellValue> = {};
+  for (const [label, value] of Object.entries(cells ?? {})) {
+    if (value !== null) {
+      out[label] = value;
+    }
+  }
+  return out;
+}
 
 /** Why `name` cannot name a row, or null. */
 function validateRowName(name: unknown): string | null {

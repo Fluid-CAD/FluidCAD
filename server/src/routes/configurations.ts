@@ -8,6 +8,7 @@ import {
   DEFAULT_CONFIGURATION_NAME,
   type ConfigurationCellValue,
   type ConfigurationEditSpec,
+  type ConfigurationTableEdit,
 } from '../configuration-edit.ts';
 import { findInvalidParam } from '../part-catalog/insert-edit.ts';
 
@@ -42,6 +43,17 @@ import { findInvalidParam } from '../part-catalog/insert-edit.ts';
  *   session's active name follows when it was the one renamed.
  * - `POST /api/configurations/remove { name }` → remove a row; an active row
  *   goes back to Default.
+ * - `POST /api/configurations/table { rows, renames?, removed? }` → the
+ *   Manage grid's commit, ONE rewrite of the statement: `renames` (from →
+ *   to) and `removed` name rows as the table has them now, `rows` maps a
+ *   row name (after the renames) to `{ label: value | null }` — a value
+ *   sets the cell, null unsets it (back to the literal); a row the table
+ *   lacks is appended. The active name follows a rename; a removed active
+ *   row goes back to Default.
+ * - `GET /api/configurations/table` → `{ table }`: the current file's table
+ *   as its live code writes it (`ConfigurationEditor.readTable` — each cell
+ *   `{ literal?, text }`, an expression cell without `literal`), or
+ *   `{ table: null }` without an addressable one.
  *
  * A refusal of the editor's (an unknown row, a reserved name, a non-literal
  * table) is a `400` with its message; `404` with no scene; the host's own
@@ -319,6 +331,82 @@ export function createConfigurationsRouter(
     });
   });
 
+  router.get('/configurations/table', async (_req, res) => {
+    const file = currentFile(res);
+    if (!file) {
+      return;
+    }
+    const code = fluidCadServer.getCurrentCode();
+    if (code === null) {
+      res.status(404).json({ error: 'No live code for the current file' });
+      return;
+    }
+    res.json({ table: await ConfigurationEditor.readTable(code) });
+  });
+
+  router.post('/configurations/table', async (req, res) => {
+    const edit = tableEdit(req.body);
+    if (typeof edit === 'string') {
+      res.status(400).json({ error: edit });
+      return;
+    }
+    const file = currentFile(res);
+    if (!file) {
+      return;
+    }
+    if (!await rewrite(res, file, { kind: 'table', ...edit })) {
+      return;
+    }
+    const before = fluidCadServer.getConfigurations(file);
+    const renames = edit.renames ?? {};
+    const removed = edit.removed ?? [];
+    let active = before.active;
+    if (removed.includes(before.active)) {
+      active = DEFAULT_CONFIGURATION_NAME;
+      fluidCadServer.selectConfiguration(file, active);
+    } else if (renames[before.active] !== undefined && renames[before.active] !== before.active) {
+      // As /rename: the session follows the row under its new name, tweaks included.
+      active = renames[before.active];
+      const overrides = fluidCadServer.getParamOverrides(file);
+      fluidCadServer.selectConfiguration(file, active);
+      for (const [label, value] of Object.entries(overrides)) {
+        fluidCadServer.setParam(file, label, value);
+      }
+    }
+    const names: string[] = [];
+    const rows: SceneConfigurations['rows'] = {};
+    for (const name of before.names) {
+      if (removed.includes(name)) {
+        continue;
+      }
+      const renamed = renames[name] ?? name;
+      names.push(renamed);
+      rows[renamed] = { ...before.rows[name] };
+    }
+    for (const [name, cells] of Object.entries(edit.rows)) {
+      if (!names.includes(name)) {
+        names.push(name);
+        rows[name] = {};
+      }
+      for (const [label, value] of Object.entries(cells)) {
+        if (value === null) {
+          delete rows[name][label];
+        } else {
+          rows[name][label] = literalCells({ [label]: value })[label];
+        }
+      }
+    }
+    res.json({
+      success: true,
+      configurations: {
+        active,
+        names,
+        rows,
+        modified: active === before.active ? before.modified : Object.keys(fluidCadServer.getParamOverrides(file)).length > 0,
+      } satisfies SceneConfigurations,
+    });
+  });
+
   return router;
 }
 
@@ -354,6 +442,47 @@ export function sceneRenderedBroadcaster(
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
   };
+}
+
+/** The table route's body as an edit, or why it is malformed. */
+function tableEdit(body: unknown): ConfigurationTableEdit | string {
+  const input = (body ?? {}) as { rows?: unknown; renames?: unknown; removed?: unknown };
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+  if (!isRecord(input.rows)) {
+    return 'rows must be an object of { name: { label: value | null } }';
+  }
+  const rows: ConfigurationTableEdit['rows'] = {};
+  for (const [name, cells] of Object.entries(input.rows)) {
+    if (!isRecord(cells)) {
+      return `rows["${name}"] must be an object of { label: value | null }`;
+    }
+    const set: Record<string, ConfigurationCellValue> = {};
+    for (const [label, value] of Object.entries(cells)) {
+      if (value !== null) {
+        set[label] = value as ConfigurationCellValue;
+      }
+    }
+    const bad = findInvalidParam(set);
+    if (bad) {
+      return `Parameter '${bad}' has an unsupported value.`;
+    }
+    rows[name] = cells as Record<string, ConfigurationCellValue | null>;
+  }
+  const edit: ConfigurationTableEdit = { rows };
+  if (input.renames !== undefined && input.renames !== null) {
+    if (!isRecord(input.renames) || Object.values(input.renames).some((to) => typeof to !== 'string')) {
+      return 'renames must be an object of { from: to }';
+    }
+    edit.renames = input.renames as Record<string, string>;
+  }
+  if (input.removed !== undefined && input.removed !== null) {
+    if (!Array.isArray(input.removed) || input.removed.some((name) => typeof name !== 'string')) {
+      return 'removed must be an array of configuration names';
+    }
+    edit.removed = input.removed as string[];
+  }
+  return edit;
 }
 
 /** The cells as the render will report them: literals as they are, an `{ expr }` cell by its source text. */

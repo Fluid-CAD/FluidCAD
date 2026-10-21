@@ -413,4 +413,104 @@ describe('configuration routes', () => {
       expect(relayed).toEqual([]);
     });
   });
+  describe('table', () => {
+    it('GET answers the live code\'s table, expression cells by their text', async () => {
+      buffer = TABLE_CODE.replace('Compact: { Width: 500 }', 'Compact: { Width: base / 2, Depth: 300 }');
+      const { status, body } = await get('/configurations/table');
+      expect(status).toBe(200);
+      expect(body).toEqual({
+        table: {
+          line: 3,
+          rows: {
+            Compact: { Width: { text: 'base / 2' }, Depth: { literal: 300, text: '300' } },
+            Wide: { Width: { literal: 1200, text: '1200' } },
+          },
+        },
+      });
+    });
+
+    it('GET answers a null table without one, and 404s with no scene', async () => {
+      buffer = BARE_CODE;
+      expect(await get('/configurations/table')).toEqual({ status: 200, body: { table: null } });
+      currentFile = '';
+      expect((await get('/configurations/table')).status).toBe(404);
+    });
+
+    it('commits renames, sets, unsets and a new row as one edit; the active name follows', async () => {
+      overrides = { Depth: 650 };
+      const result = await actAsEditor(post('/configurations/table', {
+        renames: { Wide: 'Broad' },
+        rows: { Broad: { Width: 1300, Depth: 800 }, Compact: { Width: null }, Tall: { Depth: 900 } },
+      }));
+      expect(result.status).toBe(200);
+      expect(relayed.filter((m) => m.type === 'apply-feature-edit')).toHaveLength(1);
+      expect(relayed[0].spec.configurationEdit).toEqual({
+        kind: 'table',
+        renames: { Wide: 'Broad' },
+        rows: { Broad: { Width: 1300, Depth: 800 }, Compact: { Width: null }, Tall: { Depth: 900 } },
+      });
+      expect(buffer).toContain([
+        `  const configuration = configurations({`,
+        `    Compact: {},`,
+        `    Broad: { Width: 1300, Depth: 800 },`,
+        `    Tall: { Depth: 900 },`,
+        `  });`,
+      ].join('\n'));
+      expect(selected).toEqual([[FILE, 'Broad']]);
+      expect(setParams).toEqual([[FILE, 'Depth', 650]]);
+      expect(result.body).toEqual({
+        success: true,
+        configurations: {
+          active: 'Broad',
+          names: ['Compact', 'Broad', 'Tall'],
+          rows: { Compact: {}, Broad: { Width: 1300, Depth: 800 }, Tall: { Depth: 900 } },
+          modified: true,
+        },
+      });
+    });
+
+    it('removes the active row and goes back to Default', async () => {
+      const result = await actAsEditor(post('/configurations/table', { rows: {}, removed: ['Wide'] }));
+      expect(result.status).toBe(200);
+      expect(buffer).not.toContain('Wide');
+      expect(selected).toEqual([[FILE, 'Default']]);
+      expect(result.body.configurations).toEqual({
+        active: 'Default', names: ['Compact'], rows: { Compact: { Width: 500 } }, modified: false,
+      });
+    });
+
+    it('400s with the editor\'s refusal before the editor is touched', async () => {
+      let result = await post('/configurations/table', { rows: {}, renames: { Wide: 'Compact' } });
+      expect(result.status).toBe(400);
+      expect(result.body.error).toBe('a configuration named "Compact" already exists');
+      result = await post('/configurations/table', { rows: {}, removed: ['Huge'] });
+      expect(result.status).toBe(400);
+      expect(result.body.error).toContain('no configuration named "Huge"');
+      result = await post('/configurations/table', { rows: { Default: { Width: 1 } } });
+      expect(result.status).toBe(400);
+      expect(result.body.error).toContain('reserved');
+      expect(relayed).toEqual([]);
+      expect(selected).toEqual([]);
+    });
+
+    it.each([
+      [{}, 'rows'],
+      [{ rows: [] }, 'rows'],
+      [{ rows: { Wide: 3 } }, 'rows["Wide"]'],
+      [{ rows: { Wide: { Width: { bad: true } } } }, "'Width'"],
+      [{ rows: {}, renames: { Wide: 3 } }, 'renames'],
+      [{ rows: {}, removed: 'Wide' }, 'removed'],
+    ])('400s a malformed body %j', async (payload, message) => {
+      const { status, body } = await post('/configurations/table', payload);
+      expect(status).toBe(400);
+      expect(body.error).toContain(message);
+      expect(relayed).toEqual([]);
+    });
+
+    it('404s with no scene', async () => {
+      currentFile = '';
+      const { status } = await post('/configurations/table', { rows: {} });
+      expect(status).toBe(404);
+    });
+  });
 });

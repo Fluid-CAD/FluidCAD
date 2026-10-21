@@ -300,3 +300,89 @@ describe('ConfigurationEditor.removeRow', () => {
       .toBe('no configuration named "Nope" — is the file in sync with the last render?');
   });
 });
+
+describe('ConfigurationEditor.applyTable', () => {
+  it('composes sets, unsets, a rename and a new row into one rewrite, expressions untouched', async () => {
+    const newCode = ok(await ConfigurationEditor.applyTable(TABLE, {
+      renames: { Compact: 'Small' },
+      rows: {
+        Small: { Width: 450, Lid: null },
+        'Extra Wide': { Depth: 900 },
+        Tall: { Height: 2000, Lid: true, Ignored: null },
+      },
+    }));
+    expect(newCode).toContain([
+      `  const configuration = configurations({`,
+      `    Small: { Width: 450, Depth: 600 },`,
+      `    'Extra Wide': { Width: base * 2, Note: 'it\\'s wide', Holes: [1, 2, 'x'], Depth: 900 },`,
+      `    Tall: { Height: 2000, Lid: true },`,
+      `  });`,
+    ].join('\n'));
+    expect(newCode).not.toContain('Ignored');
+  });
+
+  it('is the same code as the primitives applied one after another', async () => {
+    let expected = ok(await ConfigurationEditor.renameRow(TABLE, 'Compact', 'Small'));
+    expected = ok(await ConfigurationEditor.setCells(expected, 'Small', { Depth: 650 }));
+    expected = ok(await ConfigurationEditor.unsetCells(expected, 'Small', ['Lid']));
+    expect(ok(await ConfigurationEditor.applyTable(TABLE, {
+      renames: { Compact: 'Small' },
+      rows: { Small: { Depth: 650, Lid: null } },
+    }))).toBe(expected);
+  });
+
+  it('turns null into an unset — the row keeps {} — and leaves rows it does not name alone', async () => {
+    const newCode = ok(await ConfigurationEditor.applyTable(TABLE, { rows: { Compact: { Width: null, Depth: null, Lid: null } } }));
+    expect(newCode).toContain(`    Compact: {},`);
+    expect(newCode).toContain(`    'Extra Wide': { Width: base * 2, Note: 'it\\'s wide', Holes: [1, 2, 'x'] },`);
+  });
+
+  it('writes an expression cell the grid did change, verbatim', async () => {
+    const newCode = ok(await ConfigurationEditor.applyTable(TABLE, { rows: { Compact: { Width: { expr: 'base + 10' } } } }));
+    expect(newCode).toContain(`    Compact: { Width: base + 10, Depth: 600, Lid: false },`);
+  });
+
+  it('removes rows, swaps two names, and lets a removed name be reused', async () => {
+    const swapped = ok(await ConfigurationEditor.applyTable(TABLE, {
+      renames: { Compact: 'Extra Wide', 'Extra Wide': 'Compact' },
+      rows: {},
+    }));
+    expect(swapped).toContain(`    'Extra Wide': { Width: 500, Depth: 600, Lid: false },\n    Compact: { Width: base * 2,`);
+    const reused = ok(await ConfigurationEditor.applyTable(TABLE, {
+      removed: ['Compact'],
+      renames: { 'Extra Wide': 'Compact' },
+      rows: { Compact: { Depth: 1 } },
+    }));
+    expect(reused).toContain(`  const configuration = configurations({\n    Compact: { Width: base * 2, Note: 'it\\'s wide', Holes: [1, 2, 'x'], Depth: 1 },\n  });`);
+  });
+
+  it('creates the statement for the first row, and is a no-op on an empty commit', async () => {
+    const created = ok(await ConfigurationEditor.applyTable(NO_TABLE, { rows: { Wide: { Width: 1200, Lid: null } } }));
+    expect(created).toContain(`  const configuration = configurations({\n    Wide: { Width: 1200 },\n  });`);
+    expect(ok(await ConfigurationEditor.applyTable(TABLE, { rows: {} }))).toBe(TABLE);
+  });
+
+  it('refuses up front — unknown rows, clashes, reserved names, bad values — leaving the code untouched', async () => {
+    expect(failure(await ConfigurationEditor.applyTable(TABLE, { rows: {}, removed: ['Nope'] })))
+      .toBe('no configuration named "Nope" — is the file in sync with the last render?');
+    expect(failure(await ConfigurationEditor.applyTable(TABLE, { rows: {}, renames: { Compact: 'Extra Wide' } })))
+      .toBe('a configuration named "Extra Wide" already exists');
+    expect(failure(await ConfigurationEditor.applyTable(TABLE, { rows: {}, renames: { Compact: 'Default' } })))
+      .toBe('"Default" is reserved for the param() literals — pick another name');
+    expect(failure(await ConfigurationEditor.applyTable(TABLE, { rows: { Default: { Width: 1 } } })))
+      .toBe('"Default" is reserved for the param() literals — pick another name');
+    expect(failure(await ConfigurationEditor.applyTable(TABLE, { rows: {}, renames: { Compact: 'X' }, removed: ['Compact'] })))
+      .toBe('the configuration "Compact" cannot be both renamed and removed');
+    expect(failure(await ConfigurationEditor.applyTable(TABLE, { rows: { Compact: { Width: Number.NaN } } })))
+      .toBe(`Parameter 'Width' has an unsupported value.`);
+    const ref = `assembly('a', () => {\n  configurations(rows);\n});\n`;
+    expect(failure(await ConfigurationEditor.applyTable(ref, { rows: { A: { X: 1 } } })))
+      .toBe('the configurations() table is not an object literal — edit it in the code instead');
+  });
+
+  it('rides apply() as the table kind', async () => {
+    const result = await ConfigurationEditor.apply(TABLE, { kind: 'table', rows: { Compact: { Depth: 610 } } });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`    Compact: { Width: 500, Depth: 610, Lid: false },`);
+  });
+});

@@ -169,9 +169,19 @@ export type ExportFormatOptions = {
  * solver's live world poses, which the server cannot compute itself; a
  * headless client omits them and gets the statement poses instead.
  */
-export type ExportRequestBody =
-  | ({ format: ExportFormat; shapeIds: string[]; assembly?: undefined } & ExportFormatOptions)
-  | ({ format: ExportFormat; assembly: { poses: ExportInstancePose[] }; shapeIds?: undefined } & ExportFormatOptions);
+export type ExportRequestBody = (
+  | { format: ExportFormat; shapeIds: string[]; assembly?: undefined }
+  | { format: ExportFormat; assembly: { poses: ExportInstancePose[] }; shapeIds?: undefined }
+) & ExportFormatOptions & ExportConfigurationOption;
+
+/**
+ * `configuration`: the `configurations()` row to export (`'Default'` for the
+ * literals). The row on screen exports the live scene; any other is rendered
+ * for the request alone — the session's row and the viewer are untouched —
+ * and an assembly from that render sits at its statement poses (the live
+ * poses were solved for the row on screen). Omitted: the scene on screen.
+ */
+export type ExportConfigurationOption = { configuration?: string };
 
 export type MeasureEntityRef = {
   shapeId: string;

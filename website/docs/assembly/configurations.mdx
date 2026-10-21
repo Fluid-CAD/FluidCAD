@@ -85,10 +85,10 @@ The **Edit parameters…** dialog (the instance's row menu in the **Parts** pane
 
 ### Exporting from the viewport
 
-In an assembly with configurations, the **Export** dialog shows a **Configuration** select for STEP and STL, set to the row on screen, and an **All configurations (one file each)** toggle that writes Default and then every row, one after the other: `gearbox.step`, `gearbox-Ratio-2-1.step`, `gearbox-Ratio-3-1.step`.
+In an assembly with configurations, exporting the **Whole assembly** opens the **Export** dialog with a **Configuration** select at the top, set to the row on screen. Pick another row to export that one instead, or **All configurations (.zip)** to export Default and then every row into one zip, `gearbox-configurations.zip`, holding `gearbox.step`, `gearbox-Ratio-2-1.step` and `gearbox-Ratio-3-1.step`.
 
 :::note
-Mates are solved in the viewport for the configuration on screen. A configuration exported without being on screen — another row in the select, or every row but the active one under All configurations — is rendered for the export alone and places its parts where the source puts them (`.translate()` / `.rotate()`), not where the joints would. Switch to the row first for its mated layout. PNG export always captures the configuration on screen.
+Mates are solved in the viewport for the configuration on screen. A configuration exported without being on screen — another row in the select, or every row but the one on screen under All configurations — is rendered for the export alone and places its parts where the source puts them (`.translate()` / `.rotate()`), not where the joints would. Switch to the row first for its mated layout. PNG export always captures the configuration on screen.
 :::
 
 ## In code

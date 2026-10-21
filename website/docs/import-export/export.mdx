@@ -32,7 +32,7 @@ Choosing a part writes that part on its own, in its own frame. Choosing the whol
 - **STEP** keeps the structure: one product per part (repeated inserts share it), one component per instance, sub-assemblies nested under their own product, and the assembly, parts and instances carry their FluidCAD names. It opens as an assembly tree in other CAD tools.
 - **STL** flattens every placed part into one mesh, with the same resolution and unit options as a part export.
 
-An assembly with [configurations](/docs/assembly/configurations) adds a **Configuration** select to the STEP and STL dialog, set to the one on screen, and an **All configurations (one file each)** toggle. A configuration other than the one on screen is exported with its parts where the source places them, since the joints are solved for the configuration on screen.
+An assembly with [configurations](/docs/assembly/configurations) adds a **Configuration** select at the top of the whole-assembly dialog, set to the one on screen. It also offers **All configurations (.zip)**, which exports every configuration as its own file in one zip. A configuration other than the one on screen is exported with its parts where the source places them, since the joints are solved for the configuration on screen. PNG always captures the configuration on screen.
 
 ## Units
 

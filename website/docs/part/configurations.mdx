@@ -186,7 +186,23 @@ The **Manage configurations** grid shows every part's parameters, grouped under 
 
 When pasting into this grid with a header row, a label that two parts share is written as `Part · Label` — `Bracket · Width`, `Backing plate · Width` (`Part / Label`, `Part: Label` and `Part.Label` work too) — and a bare shared label refuses the paste, since it could be either. A label only one part has can stay bare.
 
-The parts must have different names for their configurations to be edited from the panel: in a file with two `part('Plate', …)` the tables cannot be told apart, so adding, saving, renaming or deleting a configuration is refused with a message asking you to give each part its own name.
+### Parts with the same name
+
+Two parts in one file may have the same name. `part('Plate', …)` twice is two parts, each with its own parameters, values and table. A part is known by the name it is exported under, not by its name:
+
+```js
+export const plate = part('Plate', () => {
+    // … one plate
+});
+
+export const lid = part('Plate', () => {
+    // … another plate, used as the lid
+});
+```
+
+The panel still shows the name. Only where the two would look alike does the export name follow it, dimmed: **Plate (plate)** and **Plate (lid)** in the **Add to** dropdown, in the grid's part header, and beside a parameter both parts declare. When pasting into the grid, title such a column `lid · Width` or `Plate (lid) · Width`. `Plate · Width` could be either part, so it refuses the paste.
+
+A part that is not exported is known by its name and its place among the file's parts of that name, shown as **Plate (#1)**, **Plate (#2)**. Reordering two such parts swaps which values go with which, so export parts that share a name.
 
 ## Rules
 

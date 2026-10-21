@@ -43,6 +43,8 @@ export type AssemblyInstance = {
   sourceLocation?: SourceLocation;
   /** Present on a replica: the seed instance, the replicate statement, the row. */
   replica?: ReplicaTag;
+  /** The configuration row `insert(def, 'Name')` built the template from; absent for the literals. */
+  configuration?: string;
 };
 
 /**
@@ -97,6 +99,8 @@ export type AssemblyOccurrence = {
    */
   definition?: Assembly<unknown>;
   overrides?: ParamOverrides;
+  /** The configuration row `insert(def, 'Name')` ran the body with; absent for the literals. */
+  configuration?: string;
   /** Present on a replica: the seed occurrence, the replicate statement, the row. */
   replica?: ReplicaTag;
 };
@@ -268,6 +272,8 @@ export type SerializedInstance = {
   transparency?: number;
   /** Resolved parameter values of the instance's template variant (insert-path builds only). */
   paramValues?: Record<string, ParamVal>;
+  /** The configuration `insert(def, 'Name')` named; absent when the instance shows the literals. */
+  configuration?: string;
   /** The variant's `property()` values as the assembly reads them. Set only when the part declares any. */
   properties?: Record<string, ParamVal>;
   sourceLocation?: SourceLocation;
@@ -291,6 +297,8 @@ export type SerializedOccurrence = {
   params?: Omit<ParamDefinition, 'sourceLocation'>[];
   /** Resolved parameter values of this occurrence's run. */
   paramValues?: Record<string, ParamVal>;
+  /** The configuration `insert(def, 'Name')` named; absent when the occurrence shows the literals. */
+  configuration?: string;
   /**
    * Handles the callback returned, keyed by return-object path — what the
    * mate writer dereferences as `<binding>.parts.<path...>`. Always an
@@ -732,6 +740,7 @@ export class AssemblyScene extends Scene {
         name: inst.name,
         ...(transparency > 0 ? { transparency } : {}),
         paramValues: inst.part.paramValues,
+        ...(inst.configuration !== undefined ? { configuration: inst.configuration } : {}),
         properties: serializedProperties(inst.part),
         sourceLocation: inst.sourceLocation,
         replica: inst.replica,
@@ -752,6 +761,7 @@ export class AssemblyScene extends Scene {
       groundConnected: connected.get(occ.occurrenceId) ?? false,
       params: occ.params ? serializableParamDefs(occ.params) : undefined,
       paramValues: occ.paramValues,
+      ...(occ.configuration !== undefined ? { configuration: occ.configuration } : {}),
       exports: occ.exports ?? [],
       sourceLocation: occ.sourceLocation,
       replica: occ.replica,

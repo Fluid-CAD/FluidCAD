@@ -1,4 +1,4 @@
-import type { ParamDefinition } from "../param-registry.js";
+import type { ConfigurationsSummary, ParamDefinition } from "../param-registry.js";
 import type { SourceLocation } from "../common/scene-object.js";
 import type { createManager } from "../scene-manager.js";
 import type { LengthUnit } from "../units/units.js";
@@ -49,6 +49,12 @@ export interface BrowserRenderResult {
   rollbackScopePartId?: string;
   breakpointHit: boolean;
   params?: ParamDefinition[];
+  /**
+   * The `configurations()` rows the render declared and which one is
+   * showing (`active`, `'Default'` for the literals). Omitted with `params`
+   * on a compile error.
+   */
+  configurations?: ConfigurationsSummary;
   objectErrors: BrowserObjectBuildError[];
   /**
    * Non-fatal notices per row (`Unknown material: <id>` on a part row),

@@ -4,7 +4,7 @@ import { getCurrentScene } from "../scene-manager.js";
 import { Assembly } from "../features/assembly.js";
 import {
   activeParamScope, coerceParamOverride, getParamRegistry,
-  type ControlType, type MultiControlType, type SelectOption, type ParamDefinition, type ParamKind,
+  type ControlType, type MultiControlType, type SelectOption, type ParamDefinition, type ParamKind, type ParamVal,
 } from "../param-registry.js";
 
 export type ParamType = 'number' | 'slider' | 'text' | 'select' | 'checkbox' | 'color';
@@ -54,6 +54,8 @@ export class ParamValue<T extends string | number | boolean> {
   constructor(label: string, defaultValue: T) {
     const registry = getParamRegistry();
     this._value = registry.resolve(label, defaultValue);
+    // A declaration all the same for the first-statement rule of configurations().
+    registry.noteBodyParam();
     this._definition = {
       label,
       // The legacy class never refused a top-level call and never stamped
@@ -248,14 +250,28 @@ export default function param(
   // panel overrides, baseline bookkeeping, exactly as before. A project
   // parameter consults neither: its value IS its literal (§2.5 of the
   // global-parameters plan) — no session override, no baseline.
+  // In a scope the order is the same as the registry's `resolve`: the
+  // insert's override → the configuration row the insert named (installed
+  // by the body's `configurations()`) → the literal.
+  const registry = getParamRegistry();
   const scope = kind === 'global' ? null : activeParamScope();
+  const configuredValue: ParamVal | undefined = kind === 'global'
+    ? undefined
+    : scope
+      ? (scope.configurationValues?.has(label) ? coerceParamOverride(defaultValue, scope.configurationValues.get(label)) : undefined)
+      : registry.configuredValue(label, defaultValue);
   const value = kind === 'global'
     ? defaultValue
     : scope
-      ? (scope.overrides.has(label) ? coerceParamOverride(defaultValue, scope.overrides.get(label)) : defaultValue)
+      ? (scope.overrides.has(label) ? coerceParamOverride(defaultValue, scope.overrides.get(label)) : (configuredValue ?? defaultValue))
       : Array.isArray(defaultValue)
-        ? getParamRegistry().resolve(label, defaultValue)
-        : getParamRegistry().resolve(label, defaultValue);
+        ? registry.resolve(label, defaultValue)
+        : registry.resolve(label, defaultValue);
+  if (kind !== 'global') {
+    // The body's `configurations()` must come before this — the registry
+    // remembers so a later statement is refused where it stands.
+    registry.noteBodyParam();
+  }
 
   const controlType: ControlType = type
     ?? (typeof defaultValue === 'boolean' ? 'checkbox'
@@ -272,6 +288,9 @@ export default function param(
 
   if (sourceLocation) {
     definition.sourceLocation = sourceLocation;
+  }
+  if (configuredValue !== undefined) {
+    definition.configuredValue = configuredValue;
   }
   const partLocation = declaringPart?.getSourceLocation();
   if (partLocation) {

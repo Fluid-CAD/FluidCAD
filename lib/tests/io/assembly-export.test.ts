@@ -8,6 +8,8 @@ import color from "../../core/color.js";
 import part from "../../core/part.js";
 import assembly from "../../core/assembly.js";
 import insert from "../../core/insert.js";
+import param from "../../core/param.js";
+import configurations from "../../core/configurations.js";
 import { getOC } from "../../oc/init.js";
 import { Explorer } from "../../oc/explorer.js";
 import { testRect } from "../helpers/profiles.js";
@@ -101,6 +103,32 @@ describe("assembly export", () => {
     expect(step).toContain("PRODUCT('housing'");
     // NAUO(id, name, description, ...): the instance name is the second field.
     expect(step).toMatch(/NEXT_ASSEMBLY_USAGE_OCCURRENCE\('[^']*','left housing'/);
+  });
+
+  it("appends the configuration to the product and occurrence names", () => {
+    startAssembly();
+    const housing = part("housing", () => {
+      configurations({ Tall: { Height: 30 } });
+      const h = param("Height", 10);
+      sketch("xy", () => { testRect(20, 20); });
+      extrude(h);
+    });
+    const block = blockDefinition();
+    const carriage = assembly("carriage", () => ({ b: insert(block) }));
+    insert(housing);
+    insert(housing, "Tall").translate(100, 0, 0);
+    insert(carriage).translate(0, 100, 0);
+    render();
+
+    const step = exportedStep();
+
+    // The literals keep their names; the configured variant is its own product.
+    expect(step).toContain("PRODUCT('housing'");
+    expect(step).toContain("PRODUCT('housing (Tall)'");
+    expect(step).toMatch(/NEXT_ASSEMBLY_USAGE_OCCURRENCE\('[^']*','housing \(Tall\)'/);
+    expect(step).toContain("PRODUCT('carriage'");
+    expect(step).not.toContain("carriage (");
+    expect(count(step, "MANIFOLD_SOLID_BREP")).toBe(3);
   });
 
   it("places instances by the client's live poses when given", () => {

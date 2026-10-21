@@ -10,7 +10,7 @@ import { AssemblyScene } from "../rendering/assembly-scene.js";
 import type { SourceLocation } from "../common/scene-object.js";
 import { BreakpointHit } from "../common/breakpoint-hit.js";
 import { getCurrentScene } from "../scene-manager.js";
-import { popParamScope, pushParamScope } from "../param-registry.js";
+import { getParamRegistry, popParamScope, pushParamScope } from "../param-registry.js";
 import type { ParamOverrides, ParamVal } from "../param-registry.js";
 import { canonicalVariantKey, collectedParamValues, toOverrideMap, warnUnknownOverrides } from "./param-overrides.js";
 import { getActiveUnit, getUnitRegistry, withUnit } from "../units/registry.js";
@@ -133,10 +133,12 @@ export class PartDefinition<T = unknown> {
   /**
    * The insert path: always builds under a parameter scope (even with zero
    * overrides), so an inserted part's `param()` calls never reach the
-   * consuming file's global registry / params panel.
+   * consuming file's global registry / params panel. `configuration` is the
+   * row `insert(def, 'Name', extra)` asked for: the body's `configurations()`
+   * resolves it, and `extra` layers on top of the row.
    */
-  materializeVariant(scene: Scene, extra?: ParamOverrides): Part {
-    return this.buildVariant(scene, toOverrideMap(extra), true);
+  materializeVariant(scene: Scene, extra?: ParamOverrides, configuration?: string): Part {
+    return this.buildVariant(scene, toOverrideMap(extra), true, configuration);
   }
 
   /**
@@ -170,7 +172,7 @@ export class PartDefinition<T = unknown> {
     return this.materializeInto(scene);
   }
 
-  private buildVariant(scene: Scene, overrides: Map<string, ParamVal>, scoped: boolean): Part {
+  private buildVariant(scene: Scene, overrides: Map<string, ParamVal>, scoped: boolean, configuration?: string): Part {
     const variants = this.variantsIn(scene);
     // The body's numbers are in the DEFINING file's unit, whatever the
     // consumer runs in. The consumer is the ACTIVE unit at this call: the
@@ -180,7 +182,7 @@ export class PartDefinition<T = unknown> {
     // latter (part-scale.ts) — nothing is built here, only registered.
     const definitionUnit = getUnitRegistry().resolve(this.sourceLocation?.filePath);
     const targetUnit = getActiveUnit();
-    const key = variantKey(overrides, targetUnit);
+    const key = variantKey(overrides, targetUnit, configuration);
     const cached = variants.get(key);
     if (cached) {
       return cached;
@@ -198,7 +200,10 @@ export class PartDefinition<T = unknown> {
     partObj.setUnit(definitionUnit);
     partObj.setTargetUnit(targetUnit);
 
-    const scope = scoped ? pushParamScope(overrides) : null;
+    const scope = scoped ? pushParamScope(overrides, configuration) : null;
+    // The registry's body frame is what `configurations()` checks: it must
+    // run before this body's first `param()`, once per run.
+    const registry = getParamRegistry();
     let extensions: T;
     try {
       // Templates are always top-level: a definition referenced mid-build of
@@ -206,9 +211,11 @@ export class PartDefinition<T = unknown> {
       // not become that container's child.
       extensions = withUnit(definitionUnit, () => scene.runTopLevel(() => {
         scene.startProgressiveContainer(partObj);
+        registry.beginBody(this.partName);
         try {
           return this.callback();
         } finally {
+          registry.endBody();
           scene.endProgressiveContainer();
         }
       }));
@@ -303,15 +310,19 @@ export class PartDefinition<T = unknown> {
 }
 
 /**
- * Variant cache key: the canonical override map plus the unit the variant
- * is consumed in. One render has one root, so a definition normally meets a
- * single target unit per scene — but a foreign-unit part reading another
- * definition mid-body consumes it in ITS unit, and the root may consume the
- * same definition in the scene's, so the two scaled templates must not
- * share a slot.
+ * Variant cache key: the configuration name, the canonical override map and
+ * the unit the variant is consumed in. One render has one root, so a
+ * definition normally meets a single target unit per scene — but a
+ * foreign-unit part reading another definition mid-body consumes it in ITS
+ * unit, and the root may consume the same definition in the scene's, so the
+ * two scaled templates must not share a slot. The configuration is part of
+ * the identity, not expanded into values: `insert(def, 'Wide')` twice shares
+ * one template, while `insert(def, 'Wide')` and `insert(def, { Width: 1200 })`
+ * build their own even when the row holds exactly that value — the row is
+ * only known once the body runs, after the cache is consulted.
  */
-function variantKey(overrides: Map<string, ParamVal>, targetUnit: LengthUnit): string {
-  return `${targetUnit}\u0000${canonicalVariantKey(overrides)}`;
+function variantKey(overrides: Map<string, ParamVal>, targetUnit: LengthUnit, configuration?: string): string {
+  return `${targetUnit}\u0000${configuration ?? ''}\u0000${canonicalVariantKey(overrides)}`;
 }
 
 /**

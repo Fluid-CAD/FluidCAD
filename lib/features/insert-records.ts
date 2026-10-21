@@ -25,6 +25,8 @@ export type InsertRecordExtras = {
   quaternion?: Quat;
   name?: string;
   replica?: ReplicaTag;
+  /** The configuration `insert(def, 'Name')` named — recorded as is; a replica repeats its seed's. */
+  configuration?: string;
 };
 
 const IDENTITY_QUAT: Quat = { x: 0, y: 0, z: 0, w: 1 };
@@ -55,6 +57,9 @@ export function createInstance(
   if (extras.replica) {
     record.replica = extras.replica;
   }
+  if (extras.configuration !== undefined) {
+    record.configuration = extras.configuration;
+  }
   scene.addInstance(record);
   return new Instance(record);
 }
@@ -64,8 +69,8 @@ export function createInstance(
  * body under that scope (always parameter-scoped, even with zero
  * overrides — an occurrence's `param()` calls are its insertion interface,
  * never the consuming file's panel), pop, and return the handle. The
- * definition and overrides stay on the record so `replicate()` can re-run
- * the same body with the same parameters.
+ * definition, configuration and overrides stay on the record so
+ * `replicate()` can re-run the same body with the same parameters.
  */
 export function createOccurrence<T>(
   scene: AssemblyScene,
@@ -89,10 +94,13 @@ export function createOccurrence<T>(
   if (extras.replica) {
     record.replica = extras.replica;
   }
+  if (extras.configuration !== undefined) {
+    record.configuration = extras.configuration;
+  }
   scene.beginOccurrence(record);
   let parts: T;
   try {
-    const run = definition.runScoped(overrides ?? {});
+    const run = definition.runScoped(overrides ?? {}, extras.configuration);
     parts = run.parts;
     if (run.scope.collected.size > 0) {
       record.params = Array.from(run.scope.collected.values());

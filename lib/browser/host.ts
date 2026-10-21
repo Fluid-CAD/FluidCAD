@@ -4,6 +4,7 @@ import type { ParamRegistry, ParamVal } from "../param-registry.js";
 import { createManager } from "../scene-manager.js";
 import { setAssetProvider } from "../io/file-import.js";
 import { BreakpointHit } from "../common/breakpoint-hit.js";
+import { warnUnknownConfigurationCells } from "../features/param-overrides.js";
 import { PartDefinition } from "../features/part-definition.js";
 import { Scene } from "../rendering/scene.js";
 import type { ExportOptions } from "../io/file-export.js";
@@ -152,6 +153,8 @@ export class BrowserEngineHost {
   private previousScene: Scene | null = null;
   private overrides = new Map<string, unknown>();
   private lastParamDefaults = new Map<string, ParamVal>();
+  /** The configuration the next pass renders; null is the literals (`Default`). */
+  private activeConfiguration: string | null = null;
   private lastBreakpointHit = false;
   private lastRollbackStop = -1;
   private entryPath = "/model.fluid.js";
@@ -258,6 +261,10 @@ export class BrowserEngineHost {
     if (this.overrides.size > 0) {
       registry.setOverrides(new Map(this.overrides), new Map(this.lastParamDefaults));
     }
+    // The entry file's `configurations()` reads this at root and installs
+    // the row as the registry's configuration layer — the same handshake the
+    // desktop server does before evaluating the file.
+    registry.setActiveConfiguration(this.activeConfiguration);
 
     let breakpointHit = false;
     try {
@@ -316,6 +323,8 @@ export class BrowserEngineHost {
     this.lastBreakpointHit = breakpointHit;
 
     const params = getParamRegistry().getDefinitions();
+    const configurations = getParamRegistry().getConfigurations();
+    warnUnknownConfigurationCells(getParamRegistry());
     this.settleParamOverrides(registry);
 
     if (this.previousScene) {
@@ -340,6 +349,7 @@ export class BrowserEngineHost {
       projectUnit: this.manager.projectUnit,
       breakpointHit,
       params,
+      configurations,
       objectErrors: BrowserEngineHost.collectObjectErrors(result),
       objectWarnings: this.collectObjectWarnings(result),
       compileError: null,
@@ -360,6 +370,7 @@ export class BrowserEngineHost {
     }
     this.overrides.clear();
     this.lastParamDefaults.clear();
+    this.activeConfiguration = null;
     this.lastBreakpointHit = false;
     this.lastRollbackStop = -1;
     this.evaluator = null;
@@ -374,6 +385,22 @@ export class BrowserEngineHost {
   async resetParams(): Promise<BrowserRenderResult> {
     this.overrides.clear();
     return this.render();
+  }
+
+  /**
+   * Value-flow only: pick the `configurations()` row the next pass renders
+   * (`'Default'` or null for the literals) and re-render. Session overrides
+   * stay installed and sit on top of the row, as in the desktop panel. A
+   * name no table declares renders the literals, with a console warning.
+   */
+  async setConfiguration(name: string | null): Promise<BrowserRenderResult> {
+    this.activeConfiguration = name === null || name === "Default" ? null : name;
+    return this.render();
+  }
+
+  /** The configuration the next pass renders, or null for the literals. */
+  getActiveConfiguration(): string | null {
+    return this.activeConfiguration;
   }
 
   /**

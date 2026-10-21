@@ -74,19 +74,71 @@ export function collectedParamValues(scope: ParamScope): Record<string, ParamVal
  */
 export function warnUnknownOverrides(kind: 'part' | 'assembly', name: string, scope: ParamScope): void {
   const unknown = Array.from(scope.overrides.keys()).filter(label => !scope.consumed.has(label));
-  if (unknown.length === 0) {
+  if (unknown.length > 0) {
+    console.warn(
+      `${kind} '${name}': unknown parameter override${unknown.length > 1 ? 's' : ''} `
+      + `${unknown.map(l => `'${l}'`).join(', ')} — this build declared `
+      + `${declaredList(scope.consumed)}.${globalsHint(unknown)}`,
+    );
+  }
+  if (scope.configuration === undefined) {
     return;
   }
-  const registry = getParamRegistry();
-  const globals = unknown.filter(label => registry.hasGlobal(label));
-  const declared = Array.from(scope.consumed);
-  const hint = globals.length === 0 ? '' : ' '
+  // The name `insert(def, 'Name')` asked for never met a configurations():
+  // the body has no table, so nothing could look the row up (a name a table
+  // does not declare throws from the body instead).
+  if (!scope.configurationValues) {
+    console.warn(
+      `${kind} '${name}': inserted with configuration '${scope.configuration}', but its body declares no configurations() — the literals were built.`,
+    );
+    return;
+  }
+  // The same rule for the row the insert picked: a cell whose label the
+  // body never read, with the configuration named so the author knows which
+  // table to fix.
+  const unread = Array.from(scope.configurationValues.keys()).filter(label => !scope.consumed.has(label));
+  if (unread.length > 0) {
+    console.warn(
+      `${kind} '${name}': configuration '${scope.configuration}' sets unknown parameter${unread.length > 1 ? 's' : ''} `
+      + `${unread.map(l => `'${l}'`).join(', ')} — this build declared `
+      + `${declaredList(scope.consumed)}.${globalsHint(unread)}`,
+    );
+  }
+}
+
+/**
+ * The root-run counterpart: after an entry file rendered with a
+ * configuration active, the cells its bodies never resolved through the
+ * registry. The host calls this once the evaluation is over, when every
+ * `param()` has had its chance to read.
+ */
+export function warnUnknownConfigurationCells(registry = getParamRegistry()): void {
+  const unread = registry.getUnconsumedConfigurationKeys();
+  const active = registry.getActiveConfiguration();
+  if (unread.length === 0 || active === null) {
+    return;
+  }
+  const declared = new Set(registry.getDefinitions().filter(d => d.kind !== 'global').map(d => d.label));
+  console.warn(
+    `configuration '${active}' sets unknown parameter${unread.length > 1 ? 's' : ''} `
+    + `${unread.map(l => `'${l}'`).join(', ')} — this render declared `
+    + `${declaredList(declared)}.${globalsHint(unread, registry)}`,
+  );
+}
+
+function declaredList(declared: Iterable<string>): string {
+  const labels = Array.from(declared);
+  return labels.length > 0 ? labels.map(l => `'${l}'`).join(', ') : 'no parameters';
+}
+
+/** A key naming a project parameter is called out: a global is never set per instance or per row. */
+function globalsHint(labels: string[], registry = getParamRegistry()): string {
+  const globals = labels.filter(label => registry.hasGlobal(label));
+  if (globals.length === 0) {
+    return '';
+  }
+  return ' '
     + `${globals.map(l => `'${l}'`).join(', ')} `
     + (globals.length > 1 ? 'are project parameters — edit them' : 'is a project parameter — edit it')
     + ' in the Parameters panel, not per instance.';
-  console.warn(
-    `${kind} '${name}': unknown parameter override${unknown.length > 1 ? 's' : ''} `
-    + `${unknown.map(l => `'${l}'`).join(', ')} — this build declared `
-    + `${declared.length > 0 ? declared.map(l => `'${l}'`).join(', ') : 'no parameters'}.${hint}`,
-  );
 }

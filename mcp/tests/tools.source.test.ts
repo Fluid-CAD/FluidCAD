@@ -404,6 +404,31 @@ describe('write_file', () => {
     expect(renderRequests).toHaveLength(0);
   });
 
+  it('refuses a write that breaks a part rule, with the rows', async () => {
+    lintResponse = {
+      status: 200,
+      body: {
+        missing: [],
+        suggestion: '',
+        diagnostics: [
+          { message: "part 'Plate': a part must be exported — write it as export const plate = part('Plate', …) at the top level of the file.", line: 1, column: 0, rule: 'part-export' },
+          { message: "part 'Plate': another part in this file is already named 'Plate' — give each part its own name.", line: 2, column: 21, rule: 'part-name' },
+        ],
+      },
+    };
+    const target = path.join(workspace, 'pair.part.js');
+    const result = await writeFile({ path: 'pair.part.js', content: "import { part } from 'fluidcad/core';\npart('Plate', () => {});\nexport const lid = part('Plate', () => {});" });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('part-rules');
+    expect(result.message).toContain("line 2: part 'Plate': a part must be exported");
+    expect(result.message).toContain('line 3: part \'Plate\': another part in this file is already named');
+    expect((result.details as any)?.diagnostics).toHaveLength(2);
+    expect(fs.existsSync(target)).toBe(false);
+    expect(renderRequests).toHaveLength(0);
+  });
+
   it('lints assembly and part files too, and tells the server which file it is', async () => {
     const result = await writeFile({ path: 'rig.assembly.js', content: 'insert(p);' });
     expect(result.ok).toBe(true);

@@ -18,7 +18,7 @@ Split when the pieces are **separate physical components**: things fabricated se
 Two rules from the API decide the mechanics:
 
 - Inside a `part()`, shapes auto-fuse with each other and never with anything outside it. Two solids that touch but must stay separate go in two parts. Inside one part, `.new()` keeps a feature as a separate body.
-- Only an **exported** `part()` can be inserted. A standalone model needs no `part()` at all.
+- Every `part()` is **exported** (`export const x = part("X", () => { … })` at the top level of its file, never inside another `part()` or `assembly()` body) and its **name is unique within the file**; a part breaking either is a build error (`part-rules` on a write). Only an exported part can be inserted. A standalone model needs no `part()` at all.
 
 Convention: one part per `.part.js` file, named after the thing it is (`bracket.part.js` exports `bracket`); one `.assembly.js` file per mechanism. Several components in one file each get their own `part()`, but that file cannot be inserted piecemeal with the same clarity, so prefer one file each.
 
@@ -26,7 +26,7 @@ Convention: one part per `.part.js` file, named after the thing it is (`bracket.
 
 | suffix | scene | contents |
 |--------|-------|----------|
-| `.part.js` | part | modelling statements; `export const x = part("X", () => { … })` when an assembly will insert it |
+| `.part.js` | part | modelling statements, or `export const x = part("X", () => { … })` (a part is always exported) |
 | `.assembly.js` | assembly | `export const x = assembly("x", () => { insert(); mate(); … })` |
 | `.fluid.js` | part | legacy suffix, same as `.part.js` |
 | `.params.js` | never rendered | `export const wall = param("Wall thickness", 3)` — project parameters every part and assembly imports |

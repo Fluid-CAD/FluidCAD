@@ -27,6 +27,7 @@ export type ToolErrorCode =
   | 'dirty-buffer'
   | 'missing-imports'
   | 'unit-statement'
+  | 'part-rules'
   | 'params-file'
   | 'unknown-configuration'
   | 'internal';

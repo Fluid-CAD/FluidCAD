@@ -100,7 +100,7 @@ type LintMissingImport = { symbol: string; module: string; line: number; column:
  * A file-level rule violation the lint can prove statically: `unit()`
  * placement in a model, the params-file rules in a `*.params.js`.
  */
-type LintDiagnostic = { message: string; line: number; column: number };
+type LintDiagnostic = { message: string; line: number; column: number; rule?: string };
 /** `diagnostics` is absent from servers that predate it. */
 type LintResult = { missing: LintMissingImport[]; suggestion: string; diagnostics?: LintDiagnostic[] };
 
@@ -187,6 +187,23 @@ async function assertImportsPresent(
         listed,
         'A *.params.js file holds only imports (fluidcad/core, fluidcad/units, other *.params.js files)' +
           ' and `export const <name> = param(…)` / `export const <name> = <expression>` declarations.',
+      ].join('\n'),
+      { diagnostics },
+    );
+  }
+  if (diagnostics.some((d) => d.rule === 'part-export' || d.rule === 'part-name')) {
+    // The part rules (every part exported from the top level, names unique
+    // in the file): the render would fail each offending part() with the
+    // same message — refusing here gives the agent the rows first.
+    const listed = diagnostics.map((d) => `  line ${d.line + 1}: ${d.message}`).join('\n');
+    return err(
+      'part-rules',
+      [
+        `Refusing to write "${absPath}" — ${diagnostics.length} file rule violation(s)` +
+          ' (pass `force: true` to override):',
+        listed,
+        'Every part is `export const <name> = part(\'Name\', () => { … })` at the top level of its file,' +
+          ' and no two parts of a file share a name.',
       ].join('\n'),
       { diagnostics },
     );

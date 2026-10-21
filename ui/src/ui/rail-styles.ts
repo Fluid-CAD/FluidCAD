@@ -29,20 +29,22 @@ export const GLOBAL_PANEL_WIDTH = 260;
 
 /**
  * The width the project Parameters column takes off the left while open:
- * styles.css adds it to `--fluidcad-panel-left`, which is what shifts the
- * feature tree / parts column right by exactly the column plus its gap.
- * Unset (or 0px) while closed, so a host that never mounts it is untouched.
+ * styles.css adds it to `--fluidcad-panel-left` (and so the scene's left
+ * edge), which is what shifts the scene and the feature tree / parts column
+ * right by exactly the column. Unset (or 0px) while closed, so a host that
+ * never mounts it is untouched.
  */
 export const GLOBAL_PANEL_WIDTH_VARIABLE = '--fluidcad-global-params-width';
 
 /**
- * The project Parameters column: the same docked column as the rails above,
- * but placed off `--fluidcad-dock-left` — the rail plus the editor pane,
- * WITHOUT its own width — since it is the column that pushes the others.
- * Wider than the rails: its rows carry a label, a control and an identifier.
+ * The project Parameters column: chrome like the editor pane, not a floating
+ * column like the rails above — flush against `--fluidcad-dock-left` (the
+ * rail plus the editor pane, WITHOUT its own width) and the toolbar, down to
+ * the window's bottom, on the editor's opaque base surface with the same
+ * right-hand border. Wider than the rails: its rows carry a label, a control
+ * and an identifier.
  */
 export const GLOBAL_PANEL_CLASS =
-  'absolute left-[calc(var(--fluidcad-dock-left,0px)+var(--fluidcad-panel-gap))] ' +
-  'top-[calc(var(--fluidcad-chrome-top,104px)+var(--fluidcad-panel-inset-top,0px)+var(--fluidcad-panel-gap))] ' +
-  'bottom-[calc(var(--fluidcad-panel-inset-bottom,0px)+1.5rem)] ' +
-  'w-[260px] z-[99] flex flex-col gap-1 select-none hidden';
+  'absolute left-[var(--fluidcad-dock-left,0px)] top-[var(--fluidcad-chrome-top,104px)] bottom-0 ' +
+  'w-[260px] z-[99] flex flex-col gap-1 p-1 select-none hidden ' +
+  'bg-base-100 border-r border-base-content/10';

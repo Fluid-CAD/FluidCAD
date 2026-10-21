@@ -59,7 +59,7 @@ export interface GlobalParamsPanelHandlers {
  *
  * While open it publishes its width ({@link GLOBAL_PANEL_WIDTH_VARIABLE}),
  * which styles.css folds into `--fluidcad-panel-left` — that is what moves
- * the feature tree or parts column over to make room.
+ * the scene and the feature tree or parts column over to make room.
  *
  * A value edit here is a source edit: the declaration's literal IS the value
  * (there is no session override for a global), so the controls post to the
@@ -112,10 +112,7 @@ export class GlobalParamsPanel {
     this.el.classList.toggle('hidden', !open);
     const root = document.documentElement;
     if (open) {
-      root.style.setProperty(
-        GLOBAL_PANEL_WIDTH_VARIABLE,
-        `calc(${GLOBAL_PANEL_WIDTH}px + var(--fluidcad-panel-gap, 12px))`,
-      );
+      root.style.setProperty(GLOBAL_PANEL_WIDTH_VARIABLE, `${GLOBAL_PANEL_WIDTH}px`);
       if (!this.fetched) {
         this.fetched = true;
         void this.handlers.fetch().then((snapshot) => {

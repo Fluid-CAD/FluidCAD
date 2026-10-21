@@ -212,7 +212,7 @@ class ConfigurationsGrid {
     const unitNote = opts.unit ? ` Lengths in ${opts.unit}.` : '';
     ref('subtitle').textContent = 'A blank cell inherits the parameter\'s own value (dimmed); edit it to set it, ↺ to clear it. '
       + 'Paste a range from a spreadsheet — with a header row, its columns match the parameters by name'
-      + (this.columns.grouped ? ' (a part\'s parameter as “Part · Label”).' : '.')
+      + (this.columns.grouped ? ` (a part's parameter as “Part · Label”${this.sharedPartNote()}).` : '.')
       + unitNote;
 
     ref('close').addEventListener('click', () => this.close());
@@ -477,6 +477,16 @@ class ConfigurationsGrid {
     this.syncApply();
   }
 
+  /** The subtitle's word on two parts of one name — `Plate (lid) · Width` — when the grid has them. */
+  private sharedPartNote(): string {
+    const shared = this.columns.groups.find((group) => group.body !== null && this.columns.parts.isShared(group.body));
+    if (!shared?.body) {
+      return '';
+    }
+    const example = this.columns.title(shared.params[0]);
+    return `; parts of one name as “${example}”`;
+  }
+
   /**
    * The header: one row of parameter labels — under a row of part names,
    * each spanning its part's columns, when the columns come from several
@@ -502,8 +512,10 @@ class ConfigurationsGrid {
         const th = document.createElement('th');
         th.className = `${HEADER_CELL_CLASS} ${PART_HEADER_CLASS}`;
         th.colSpan = group.params.length;
+        // Keyed by the body's identity, shown by the part's name — with the
+        // identity's tag dimmed when two parts share the name.
         th.dataset.part = group.body ?? '';
-        th.textContent = group.body ?? '';
+        th.innerHTML = group.body === null ? '' : this.columns.parts.html(group.body);
         parts.appendChild(th);
       }
       head.appendChild(parts);

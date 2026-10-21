@@ -5327,11 +5327,13 @@ export type ConfigurationSourceCell = { literal?: CatalogParamValue; text: strin
  */
 export type ConfigurationSourceTable = {
   /**
-   * The definition name of the body the table sits in — the parameters'
-   * `body` — or null when the source names it with no string literal.
-   * Absent from a server predating several tables per file.
+   * The identity of the body the table sits in — the parameters' `body` —
+   * or null when the source names it with no string literal and the render
+   * none. Absent from a server predating several tables per file.
    */
   body?: string | null;
+  /** The body's definition name (the parameters' `bodyName`); absent from a server predating identities. */
+  name?: string | null;
   /** 1-based line the statement starts on. */
   line: number;
   /** Row name → label → cell, in source order. */

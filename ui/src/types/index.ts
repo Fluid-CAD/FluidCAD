@@ -404,13 +404,22 @@ export type UIParamDefinition = {
    */
   part?: SourceLocation;
   /**
-   * The name of the `part()` / `assembly()` body that declared it — with the
-   * label, the parameter's identity: two parts may both declare `Width`, and
+   * The identity of the `part()` / `assembly()` body that declared it — with
+   * the label, the parameter's key: two parts may both declare `Width`, and
    * a value set on one row goes to that part's only (`setParam`'s `body`).
-   * Absent for a project parameter, and on renders from an engine that
-   * predates it (the label alone then names the row).
+   * A part's identity is hidden — its export binding (`export const lid =
+   * part('Plate', …)` → `lid`), else `Name#n` — so two parts of one name are
+   * two bodies; show {@link bodyName} instead. Absent for a project
+   * parameter, and on renders from an engine that predates it (the label
+   * alone then names the row).
    */
   body?: string;
+  /**
+   * The declaring body's definition name — what the part is shown as
+   * (`PartLabels`). Absent with `body`, and from an engine that predates
+   * identities, whose `body` is the name.
+   */
+  bodyName?: string;
   /**
    * The active configuration row's cell for this label — present only while
    * a row is active and names the label. A session override sits on it; the
@@ -430,7 +439,7 @@ export type UIConfigurations = {
   names: string[];
   rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
   /**
-   * The same rows per table, each under the body (definition name) that
+   * The same rows per table, each under the body (its identity) that
    * declares it — `rows` is their merge, the last table winning a name two
    * share. A part file with several `part()` bodies keeps each part's cells
    * in its own table; the Manage grid reads them from here. Absent from a
@@ -443,7 +452,10 @@ export type UIConfigurations = {
 
 /** One body's `configurations()` table as the render recorded it. */
 export type UIConfigurationTable = {
+  /** The body's identity — the `body` of its parameters. */
   body: string;
+  /** The body's definition name, when the server reports it. */
+  name?: string;
   names: string[];
   rows: Record<string, Record<string, string | number | boolean | (string | number)[]>>;
 };

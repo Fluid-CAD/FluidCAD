@@ -442,3 +442,84 @@ describe('ConfigurationsGrid — two parts', () => {
     expect(Array.from(grid()!.querySelectorAll('thead th'), (th) => th.textContent)).toEqual(['', 'Configuration', 'Width', 'Depth']);
   });
 });
+
+// Two part() bodies with the same NAME are two parts (PartIdentity): each
+// body is keyed by its hidden identity — the export binding, here `plate`
+// and `lid` — and shown by its name, the binding dimmed after it only
+// because the name is shared.
+describe('ConfigurationsGrid — two parts of one name', () => {
+  const FILE = '/ws/pair.part.js';
+  const part = (body: string, line: number) => ({ body, bodyName: 'Plate', part: { filePath: FILE, line, column: 0 } });
+  const PAIR: UIParamDefinition[] = [
+    { label: 'Width', kind: 'part', defaultValue: 40, currentValue: 40, controlType: 'number', ...part('plate', 3) },
+    { label: 'Width', kind: 'part', defaultValue: 20, currentValue: 20, controlType: 'number', ...part('lid', 9) },
+  ];
+  const plateWidth = JSON.stringify(['plate', 'Width']);
+  const lidWidth = JSON.stringify(['lid', 'Width']);
+  const TABLES: ConfigurationSourceTable[] = [
+    { body: 'plate', name: 'Plate', line: 4, rows: { Wide: { Width: { literal: 80, text: '80' } } } },
+    { body: 'lid', name: 'Plate', line: 10, rows: { Wide: { Width: { literal: 30, text: '30' } } } },
+  ];
+  const RENDER: UIConfigurations = {
+    active: 'Wide',
+    names: ['Wide'],
+    rows: { Wide: { Width: 30 } },
+    tables: [
+      { body: 'plate', name: 'Plate', names: ['Wide'], rows: { Wide: { Width: 80 } } },
+      { body: 'lid', name: 'Plate', names: ['Wide'], rows: { Wide: { Width: 30 } } },
+    ],
+    modified: false,
+  };
+  const pair = (overrides: Partial<ConfigurationsGridOptions> = {}) => open({
+    params: PAIR,
+    configurations: RENDER,
+    loadTable: async () => TABLES,
+    home: { filePath: FILE, line: 9, column: 0 },
+    ...overrides,
+  });
+  const keyCell = (rowEl: HTMLTableRowElement, key: string) => rowEl.querySelector<HTMLElement>(`td[data-key='${key}']`)!;
+
+  it('draws two Plate groups, each told apart by its binding', async () => {
+    const { grid } = await pair();
+    const heads = Array.from(grid()!.querySelectorAll<HTMLTableCellElement>('thead tr[data-part-header] th[data-part]'));
+    expect(heads.map((th) => [th.dataset.part, th.textContent])).toEqual([['plate', 'Plate (plate)'], ['lid', 'Plate (lid)']]);
+    expect(heads.map((th) => th.querySelector('[data-part-tag]')?.textContent)).toEqual(['(plate)', '(lid)']);
+    expect(grid()!.querySelector('[data-ref="subtitle"]')!.textContent).toContain('parts of one name as “Plate (plate) · Width”');
+  });
+
+  it('puts each table in its own part\'s column, from the source and from the render', async () => {
+    const { rowEl } = await pair();
+    expect(keyCell(rowEl(0), plateWidth).querySelector<HTMLInputElement>('input')!.value).toBe('80');
+    expect(keyCell(rowEl(0), lidWidth).querySelector<HTMLInputElement>('input')!.value).toBe('30');
+    const fromRender = await pair({ loadTable: async () => null });
+    expect(keyCell(fromRender.rowEl(0), lidWidth).querySelector<HTMLInputElement>('input')!.value).toBe('30');
+  });
+
+  it('pastes titles naming a part by its binding or "Name (binding)", and refuses the shared name alone', async () => {
+    const { rowEl, paste, message, apply, commit } = await pair();
+    const field = keyCell(rowEl(0), plateWidth).querySelector<HTMLInputElement>('input')!;
+    expect(paste(field, 'Configuration\tPlate · Width\nWide\t9\n')).toBe(true);
+    expect(message().textContent).toBe('Nothing was pasted — “Plate · Width” is a parameter of Plate (plate) and Plate (lid): '
+      + 'title the column “Plate (plate) · Width” or “Plate (lid) · Width”.');
+    paste(field, 'Configuration\tWidth\nWide\t9\n');
+    expect(message().textContent).toBe('Nothing was pasted — “Width” is a parameter of Plate (plate) and Plate (lid): '
+      + 'title the column “Plate (plate) · Width” or “Plate (lid) · Width”.');
+    expect(keyCell(rowEl(0), plateWidth).querySelector<HTMLInputElement>('input')!.value).toBe('80');
+
+    paste(field, 'Configuration\tlid · Width\tPlate (plate) / width\nWide\t35\t85\n');
+    expect(keyCell(rowEl(0), lidWidth).querySelector<HTMLInputElement>('input')!.value).toBe('35');
+    expect(keyCell(rowEl(0), plateWidth).querySelector<HTMLInputElement>('input')!.value).toBe('85');
+    apply().click();
+    await flush();
+    expect(commit).toHaveBeenCalledWith({
+      rows: { Wide: { [plateWidth]: 85, [lidWidth]: 35 } },
+      part: { filePath: FILE, line: 9, column: 0 },
+    });
+  });
+
+  it('names an unexported pair by #n', async () => {
+    const unexported = PAIR.map((param, i) => ({ ...param, body: `Plate#${i + 1}` }));
+    const { grid } = await pair({ params: unexported, loadTable: async () => [], configurations: { ...RENDER, tables: [] } });
+    expect(Array.from(grid()!.querySelectorAll('thead th[data-part]'), (th) => th.textContent)).toEqual(['Plate (#1)', 'Plate (#2)']);
+  });
+});

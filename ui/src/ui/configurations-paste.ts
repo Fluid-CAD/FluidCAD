@@ -10,7 +10,10 @@
  *   title names a part's parameter as `Part · Label` (also `Part / Label`,
  *   `Part: Label` or `Part.Label`, any case). A bare label still names the
  *   one column with that label; a label two parts declare is ambiguous on
- *   its own and refuses the paste, naming the titles that would match.
+ *   its own and refuses the paste, naming the titles that would match. Two
+ *   parts of one name are told apart by their identity's tag — `lid · Width`
+ *   or `Plate (lid) · Width` — and the shared name alone (`Plate · Width`)
+ *   refuses the paste the same way.
  * - Without one, the range lands where it is pasted: from the anchor cell
  *   rightwards and downwards. Rows past the last
  *   configuration are added.
@@ -24,7 +27,7 @@
 import type { CatalogParamValue } from '../api';
 import type { UIParamDefinition } from '../types';
 import { configurationNameProblem } from './configuration-dialogs';
-import { DEFAULT_CONFIGURATION, GridColumns, type GridCellRef, type GridRow } from './configurations-grid-model';
+import { DEFAULT_CONFIGURATION, GridColumns, type GridCellRef, type GridRow, type PartTitle } from './configurations-grid-model';
 import { ParamTextParser } from './param-text-parser';
 
 /** What the paste does to one grid row. */
@@ -167,7 +170,7 @@ export class ConfigurationsPaste {
       const match = this.match(title);
       if (match && 'ambiguous' in match) {
         const choices = match.ambiguous.map((param) => `“${this.grid.title(param)}”`).join(' or ');
-        const parts = match.ambiguous.map((param) => param.body).join(' and ');
+        const parts = match.ambiguous.map((param) => (param.body === undefined ? '' : this.grid.parts.label(param.body))).join(' and ');
         return { error: `Nothing was pasted — “${title}” is a parameter of ${parts}: title the column ${choices}.` };
       }
       if (match && 'param' in match) {
@@ -221,19 +224,34 @@ export class ConfigurationsPaste {
 
   /**
    * The column a title names: a part's parameter as `Part · Label` (any of
-   * the {@link PART_SEPARATORS}, spaces around it optional, any case), else
-   * a bare label — exact, else ignoring case — which is ambiguous when two
-   * parts' columns carry it.
+   * the {@link PART_SEPARATORS}, spaces around it optional) — the part by
+   * any of its `GridColumns.partTitles` (a name in any case, an identity as
+   * spelled), while a name two parts share is ambiguous — else a bare label
+   * — exact, else ignoring case — which is ambiguous when two parts'
+   * columns carry it. A label always matches in any case.
    */
   private match(title: string): TitleMatch {
     const text = title.trim();
     const lower = text.toLowerCase();
     if (this.grid.grouped) {
-      const qualified = this.params.find((param) => param.body !== undefined
-        && ConfigurationsPaste.PART_SEPARATORS.some((separator) =>
-          ConfigurationsPaste.qualifiedTitle(param.body!, separator, param.label) === ConfigurationsPaste.squeeze(lower, separator)));
-      if (qualified) {
-        return { param: qualified };
+      const names = (param: UIParamDefinition, part: PartTitle): boolean =>
+        ConfigurationsPaste.PART_SEPARATORS.some((separator) => {
+          const split = ConfigurationsPaste.split(text, separator);
+          return split !== null
+            && split.label.toLowerCase() === param.label.trim().toLowerCase()
+            && (part.exact ? split.part === part.text.trim() : split.part.toLowerCase() === part.text.trim().toLowerCase());
+        });
+      const qualified = this.params.filter((param) => this.grid.partTitles(param).some((part) => names(param, part)));
+      if (qualified.length === 1) {
+        return { param: qualified[0] };
+      }
+      const candidates = qualified.length > 1
+        ? qualified
+        : this.params.filter((param) => param.body !== undefined
+          && this.grid.parts.isShared(param.body)
+          && names(param, { text: this.grid.parts.name(param.body), exact: false }));
+      if (candidates.length > 1) {
+        return { ambiguous: candidates };
       }
     }
     for (const same of [(param: UIParamDefinition) => param.label === text, (param: UIParamDefinition) => param.label.toLowerCase() === lower]) {
@@ -248,18 +266,13 @@ export class ConfigurationsPaste {
     return undefined;
   }
 
-  /** `part<separator>label` lower-cased, with no space around the separator — what {@link squeeze} makes of a title. */
-  private static qualifiedTitle(part: string, separator: string, label: string): string {
-    return `${part.trim()}${separator}${label.trim()}`.toLowerCase();
-  }
-
-  /** A lower-cased title with the spaces around its first `separator` dropped. */
-  private static squeeze(title: string, separator: string): string {
+  /** A title split at its first `separator` into the part and the label, each trimmed; null without one. */
+  private static split(title: string, separator: string): { part: string; label: string } | null {
     const at = title.indexOf(separator);
     if (at === -1) {
-      return title;
+      return null;
     }
-    return `${title.slice(0, at).trim()}${separator}${title.slice(at + separator.length).trim()}`;
+    return { part: title.slice(0, at).trim(), label: title.slice(at + separator.length).trim() };
   }
 
   // -------------------------------------------------------------------------

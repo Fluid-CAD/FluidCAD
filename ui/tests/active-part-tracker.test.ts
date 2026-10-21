@@ -56,6 +56,17 @@ describe('ActivePartTracker', () => {
     expect(tracker.parts).toEqual([]);
   });
 
+  it('carries each part body\'s identity, and labels two parts of one name by it', () => {
+    const tracker = new ActivePartTracker();
+    tracker.sync([
+      partRow('Plate', 3, { id: 'p1', object: { bodyId: 'plate' } }),
+      partRow('Plate', 9, { id: 'p2', object: { bodyId: 'Plate#2' } }),
+      partRow('Lid', 14, { id: 'p3', object: { bodyId: 'lid' } }),
+    ]);
+    expect(tracker.parts.map((part) => part.body)).toEqual(['plate', 'Plate#2', 'lid']);
+    expect(ActivePartTracker.choiceLabels(tracker.parts)).toEqual(['Plate (plate)', 'Plate (#2)', 'Lid']);
+  });
+
   it('has no active part when the scene has none', () => {
     const tracker = new ActivePartTracker();
     tracker.sync([featureRow('E', 2)]);

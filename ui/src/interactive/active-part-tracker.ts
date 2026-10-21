@@ -1,7 +1,12 @@
 import type { SceneObjectRender, SourceLocation } from '../types';
+import { PartLabels } from '../ui/part-labels';
 
-/** One of the scene's top-level parts, as a chooser lists it. */
-export type PartChoice = { name: string; sourceLocation: SourceLocation };
+/**
+ * One of the scene's top-level parts, as a chooser lists it. `body` is the
+ * part body's hidden identity (its export binding, else `Name#n`), absent
+ * from an engine that predates it.
+ */
+export type PartChoice = { name: string; sourceLocation: SourceLocation; body?: string };
 
 /**
  * The timeline's selected part, and whether it is the ACTIVE part: the
@@ -144,7 +149,12 @@ export class ActivePartTracker {
   }
 
   private static choiceOf(obj: SceneObjectRender): PartChoice {
-    return { name: obj.name ?? '', sourceLocation: obj.sourceLocation! };
+    const body: unknown = obj.object?.bodyId;
+    return {
+      name: obj.name ?? '',
+      sourceLocation: obj.sourceLocation!,
+      ...(typeof body === 'string' ? { body } : {}),
+    };
   }
 
   /** Whether two locations address the same statement — file and line, as `sync` resolves parts. */
@@ -153,8 +163,11 @@ export class ActivePartTracker {
   }
 
   /**
-   * One display label per part for a chooser, in the same order. A name two
-   * parts share, or an empty one, is told apart by the statement's line.
+   * One display label per part for a chooser, in the same order: the name.
+   * A name two parts share is told apart by the body's identity, as the
+   * Parameters panel shows it (`Plate (lid)`, `Plate (#2)`); an empty name,
+   * or a shared one from an engine that names no body, by the statement's
+   * line.
    */
   static choiceLabels(parts: PartChoice[]): string[] {
     const nameCount = new Map<string, number>();
@@ -162,8 +175,13 @@ export class ActivePartTracker {
       nameCount.set(part.name, (nameCount.get(part.name) ?? 0) + 1);
     }
     return parts.map((part) => {
-      const ambiguous = part.name === '' || (nameCount.get(part.name) ?? 0) > 1;
-      return ambiguous ? `${part.name || 'part'} (line ${part.sourceLocation.line})` : part.name;
+      if (part.name !== '' && (nameCount.get(part.name) ?? 0) <= 1) {
+        return part.name;
+      }
+      if (part.name !== '' && part.body !== undefined) {
+        return `${part.name} (${PartLabels.tagOf(part.body)})`;
+      }
+      return `${part.name || 'part'} (line ${part.sourceLocation.line})`;
     });
   }
 }

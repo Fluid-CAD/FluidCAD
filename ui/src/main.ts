@@ -72,7 +72,7 @@ import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-prop
 import { AssemblyConnectorService } from './interactive/assembly-connector/connector-service';
 import { AssemblyConnectorCopyService } from './interactive/assembly-connector-copy/copy-service';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
-import type { ConnectorData, SceneObjectRender } from './types';
+import type { ConnectorData, SceneObjectRender, UIConfigurations } from './types';
 import { ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
@@ -309,6 +309,26 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
   },
   fileBaseName: () => exportBaseName(sceneDocument.current?.absPath ?? ''),
 });
+
+/** The rendered file's `configurations()` table as its last render reported it — the export and share dialogs read it. */
+let renderedConfigurations: UIConfigurations | null = null;
+/**
+ * `?configuration=Name` — a link that opens on a `configurations()` row.
+ * Selected once, on the first render of a file, when that render shows
+ * another row; the server falls back to Default (with a notice) on a name
+ * the file does not declare.
+ */
+let urlConfiguration: string | null = new URLSearchParams(window.location.search).get('configuration');
+function selectUrlConfiguration(absPath: string | undefined): void {
+  if (urlConfiguration === null || !absPath) {
+    return;
+  }
+  const wanted = urlConfiguration;
+  urlConfiguration = null;
+  if (wanted !== (renderedConfigurations?.active ?? 'Default')) {
+    engineClient.selectConfiguration(wanted);
+  }
+}
 
 // Built detached: it is a section of the part rail's docked column, and that
 // column is torn down and rebuilt on every part/assembly swap. Owning the
@@ -962,7 +982,7 @@ topBar.addAction({
   icon: ICON_SHARE,
   title: 'Share this model in the FluidCAD viewer',
   label: 'Share',
-  onClick: () => shareDialog.show(currentSceneAbsPath),
+  onClick: () => shareDialog.show(currentSceneAbsPath, renderedConfigurations?.active ?? null),
 });
 
 // The project Parameters column: every `*.params.js` file's exports, the
@@ -3771,6 +3791,9 @@ function applySceneRendered(msg: any): void {
     assemblyRelationService.handleSceneRendered(sceneKind);
     if (msg.params !== undefined) {
       (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? [], msg.configurations);
+      renderedConfigurations = msg.configurations ?? null;
+      exportDialog.setConfigurations(renderedConfigurations);
+      selectUrlConfiguration(msg.absPath);
     }
     errorBanner.update(msg.result, msg.compileError ?? null);
     topBar.updateSolids(msg.result, renderedAssembly);

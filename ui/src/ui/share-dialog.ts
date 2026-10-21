@@ -49,14 +49,23 @@ export function linkSizeProblem(url: string): string | null {
  * The viewer's fragment link for a source tree — the inverse of the
  * viewer's loaders.js decoders: one file travels as `#code=<source>`, a
  * tree as `#files=<JSON { path: source }>` with its file names, both
- * base64url(deflate-raw(text)).
+ * base64url(deflate-raw(text)). `configuration` is the `configurations()`
+ * row on screen: a row other than Default rides along as
+ * `configuration=<name>`, so the link opens on what was shared.
  */
-export async function buildViewerLink(share: ShareFiles, base: string = VIEWER_URL): Promise<string> {
+export async function buildViewerLink(
+  share: ShareFiles,
+  base: string = VIEWER_URL,
+  configuration: string | null = null,
+): Promise<string> {
   const params = new URLSearchParams();
   params.set('v', share.fluidcadVersion);
   const names = Object.keys(share.files);
   if (share.entry !== 'model.fluid.js') {
     params.set('entry', share.entry);
+  }
+  if (configuration && configuration !== 'Default') {
+    params.set('configuration', configuration);
   }
   if (names.length === 1 && names[0] === share.entry) {
     params.set('code', await encodeFragment(share.files[share.entry]));
@@ -109,6 +118,8 @@ export class ShareDialog {
   private link: string | null = null;
   /** Bumped per show(); a collect that finishes for an older show is dropped. */
   private generation = 0;
+  /** The `configurations()` row on screen when the dialog opened (null: Default or no table). */
+  private configuration: string | null = null;
 
   constructor(container: HTMLElement) {
     this.overlay = document.createElement('div');
@@ -180,9 +191,14 @@ export class ShareDialog {
     }, true);
   }
 
-  /** Open for the rendered model; `absPath` names it in the confirmation (null: nothing rendered yet). */
-  show(absPath: string | null): void {
+  /**
+   * Open for the rendered model; `absPath` names it in the confirmation (null:
+   * nothing rendered yet). `configuration` is the row on screen, which the
+   * link opens on unless it is Default.
+   */
+  show(absPath: string | null, configuration: string | null = null): void {
     this.generation += 1;
+    this.configuration = configuration;
     this.link = null;
     this.confirmStage.classList.remove('hidden');
     this.linkStage.classList.add('hidden');
@@ -208,7 +224,7 @@ export class ShareDialog {
     let link: string;
     try {
       share = await getShareFiles();
-      link = await buildViewerLink(share);
+      link = await buildViewerLink(share, VIEWER_URL, this.configuration);
     } catch (err: any) {
       if (generation === this.generation) {
         this.filesEl.innerHTML = '';

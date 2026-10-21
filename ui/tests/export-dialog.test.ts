@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ExportDialog, exportBaseName, type ExportAssemblyProvider } from '../src/ui/export-dialog';
+import { ExportDialog, configurationFileSuffix, exportBaseName, type ExportAssemblyProvider } from '../src/ui/export-dialog';
 import type { EngineClient } from '../src/engine-client';
 import type { SceneContext } from '../src/scene/scene-context';
 import type { MeasurePose } from '../src/api';
@@ -168,6 +168,127 @@ describe('ExportDialog assembly target', () => {
     dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
     expect(q('title').textContent).toBe('Export');
     expect(q('purpose').classList.contains('hidden')).toBe(true);
+  });
+});
+
+const TABLE = {
+  active: 'Wide',
+  names: ['Compact', 'Wide', 'Extra tall'],
+  rows: { Compact: { Width: 500 }, Wide: { Width: 1200 }, 'Extra tall': { Height: 900 } },
+  modified: false,
+};
+
+describe('ExportDialog configurations', () => {
+  it('hides the Configuration controls for a file without a table, and sends no configuration', async () => {
+    const { dialog, exportShapes, q } = mount();
+    dialog.setConfigurations({ active: 'Default', names: [], rows: {}, modified: false });
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    expect(q('configuration-section').classList.contains('hidden')).toBe(true);
+
+    await clickExport(q);
+
+    expect(exportShapes.mock.calls[0][0]).not.toHaveProperty('configuration');
+  });
+
+  it('lists Default and the rows, preselects the row on screen, and sends the pick', async () => {
+    const { dialog, exportShapes, q } = mount();
+    dialog.setConfigurations(TABLE);
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    const select = q<HTMLSelectElement>('configuration');
+    expect(q('configuration-section').classList.contains('hidden')).toBe(false);
+    expect([...select.options].map((o) => o.value)).toEqual(['Default', 'Compact', 'Wide', 'Extra tall']);
+    expect(select.value).toBe('Wide');
+
+    select.value = 'Compact';
+    select.dispatchEvent(new Event('change'));
+    await clickExport(q);
+
+    expect(exportShapes).toHaveBeenCalledWith({ format: 'step', shapeIds: ['s-1'], includeColors: true, configuration: 'Compact' });
+    expect(deliverFileMock.mock.calls[0][1]).toBe('export.step');
+  });
+
+  it('follows the row on screen across renders, but keeps a pick made while open', () => {
+    const { dialog, q } = mount();
+    dialog.setConfigurations(TABLE);
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    const select = q<HTMLSelectElement>('configuration');
+    dialog.setConfigurations({ ...TABLE, active: 'Compact' });
+    expect(select.value).toBe('Compact');
+    select.value = 'Default';
+    dialog.setConfigurations({ ...TABLE, active: 'Compact' });
+    expect(select.value).toBe('Default');
+    // Reopening starts on the screen again.
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    expect(select.value).toBe('Compact');
+  });
+
+  it('hides the controls for a PNG, which captures the row on screen', () => {
+    const { dialog, q, pickFormat } = mount();
+    dialog.setConfigurations(TABLE);
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    pickFormat('png');
+    expect(q('configuration-section').classList.contains('hidden')).toBe(true);
+    pickFormat('stl');
+    expect(q('configuration-section').classList.contains('hidden')).toBe(false);
+  });
+
+  it('All configurations exports Default and every row in turn, one suffixed file each', async () => {
+    const { dialog, exportShapes, q, pickFormat } = mount(provider());
+    dialog.setConfigurations(TABLE);
+    dialog.show({ kind: 'assembly' });
+    pickFormat('stl');
+    const all = q<HTMLInputElement>('all-configurations');
+    all.checked = true;
+    all.dispatchEvent(new Event('change'));
+    expect(q<HTMLSelectElement>('configuration').disabled).toBe(true);
+    expect(q('configuration-note').classList.contains('hidden')).toBe(false);
+
+    q<HTMLButtonElement>('export-btn').click();
+    await vi.waitFor(() => {
+      if (!q('status').textContent?.includes('Exported')) {
+        throw new Error('still exporting');
+      }
+    });
+
+    expect(exportShapes.mock.calls.map((call) => (call[0] as any).configuration)).toEqual(['Default', 'Compact', 'Wide', 'Extra tall']);
+    expect(exportShapes.mock.calls.every((call) => (call[0] as any).format === 'stl' && (call[0] as any).assembly)).toBe(true);
+    expect(deliverFileMock.mock.calls.map((call) => call[1])).toEqual(['robot.stl', 'robot-Compact.stl', 'robot-Wide.stl', 'robot-Extra-tall.stl']);
+    expect(q('status').textContent).toBe('Exported 4 of 4 configurations.');
+    expect(q<HTMLButtonElement>('export-btn').disabled).toBe(false);
+  });
+
+  it('All configurations stops at a failed row and names it', async () => {
+    const { dialog, exportShapes, q } = mount();
+    exportShapes.mockImplementation(async (body: any) => {
+      if (body.configuration === 'Wide') {
+        throw new Error('Unknown configuration');
+      }
+      return new Blob(['step']);
+    });
+    dialog.setConfigurations(TABLE);
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    const all = q<HTMLInputElement>('all-configurations');
+    all.checked = true;
+    all.dispatchEvent(new Event('change'));
+
+    q<HTMLButtonElement>('export-btn').click();
+    await vi.waitFor(() => {
+      if (!q('status').querySelector('.text-error')) {
+        throw new Error('still exporting');
+      }
+    });
+
+    expect(exportShapes).toHaveBeenCalledTimes(3);
+    expect(q('status').textContent).toBe('Wide: Unknown configuration (2 of 4 exported)');
+  });
+});
+
+describe('configurationFileSuffix', () => {
+  it('is empty for Default and a file-safe -<Row> otherwise', () => {
+    expect(configurationFileSuffix('Default')).toBe('');
+    expect(configurationFileSuffix('Wide')).toBe('-Wide');
+    expect(configurationFileSuffix('M8 (zinc) / long')).toBe('-M8-zinc-long');
+    expect(configurationFileSuffix('***')).toBe('-configuration');
   });
 });
 

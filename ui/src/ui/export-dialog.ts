@@ -4,6 +4,7 @@ import { captureScreenshot } from '../screenshot';
 import { deliverFile } from '../desktop';
 import type { EngineClient } from '../engine-client';
 import type { ExportFormat, ExportFormatOptions, ExportInstancePose, ExportRequestBody, MeasurePose } from '../api';
+import type { UIConfigurations } from '../types';
 import { ICON_CLOSE } from './icons';
 
 /**
@@ -31,6 +32,31 @@ export interface ExportAssemblyProvider {
 
 /** The per-solid download name; the assembly download is named after its file. */
 const SHAPES_FILE_BASE = 'export';
+
+/** The literals' row: always offered, never among `UIConfigurations.names`. */
+const DEFAULT_CONFIGURATION = 'Default';
+
+/**
+ * The file-name suffix of one `configurations()` row in an "All
+ * configurations" export: none for Default (`robot.step`), `-<Row>` for a
+ * row (`robot-Wide.step`), the name made file-safe the way
+ * `fluidcad export --all-configurations` makes it.
+ */
+export function configurationFileSuffix(name: string): string {
+  if (name === DEFAULT_CONFIGURATION) {
+    return '';
+  }
+  const cleaned = name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '');
+  return `-${cleaned || 'configuration'}`;
+}
+
+/** An export request with the row to export — the server renders a row other than the one on screen for it alone. */
+type ConfiguredExportBody = ExportRequestBody & { configuration?: string };
 
 /**
  * The download's base name for a document: the file name without its
@@ -66,8 +92,15 @@ export class ExportDialog {
   private heightInput: HTMLInputElement;
   private exportBtn: HTMLButtonElement;
   private statusEl: HTMLDivElement;
+  private configurationSection: HTMLDivElement;
+  private configurationSelect: HTMLSelectElement;
+  private allConfigurationsRow: HTMLLabelElement;
+  private allConfigurationsToggle: HTMLInputElement;
+  private configurationNote: HTMLParagraphElement;
   private target: ExportTarget = { kind: 'shapes', shapeIds: [] };
   private selectedFormat: string = 'step';
+  /** The rendered file's table as the last render reported it; null without one. */
+  private configurations: UIConfigurations | null = null;
 
   /**
    * `assembly` is the host's window onto the live assembly; a host that never
@@ -113,8 +146,39 @@ export class ExportDialog {
     this.heightInput = this.overlay.querySelector('[data-ref="png-height"]')!;
     this.exportBtn = this.overlay.querySelector('[data-ref="export-btn"]')!;
     this.statusEl = this.overlay.querySelector('[data-ref="status"]')!;
+    this.configurationSection = this.overlay.querySelector('[data-ref="configuration-section"]')!;
+    this.configurationSelect = this.overlay.querySelector('[data-ref="configuration"]')!;
+    this.allConfigurationsRow = this.overlay.querySelector('[data-ref="all-configurations-row"]')!;
+    this.allConfigurationsToggle = this.overlay.querySelector('[data-ref="all-configurations"]')!;
+    this.configurationNote = this.overlay.querySelector('[data-ref="configuration-note"]')!;
 
     this.bindEvents();
+  }
+
+  /**
+   * The rendered file's `configurations()` table, fed by the host on every
+   * render. A file without one (or null) hides the Configuration controls;
+   * otherwise the select lists Default and the rows, on the row on screen
+   * unless the user already picked another while the dialog is open.
+   */
+  setConfigurations(configurations: UIConfigurations | null): void {
+    const previous = this.configurations;
+    this.configurations = configurations && configurations.names.length > 0 ? configurations : null;
+    const picked = this.configurationSelect.value;
+    this.configurationSelect.replaceChildren();
+    for (const name of [DEFAULT_CONFIGURATION, ...(this.configurations?.names ?? [])]) {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      this.configurationSelect.appendChild(option);
+    }
+    // Keep a pick the user made against the previous table; otherwise follow the screen.
+    const keep = previous !== null && picked !== previous.active && this.hasConfiguration(picked);
+    this.configurationSelect.value = keep ? picked : this.configurations?.active ?? DEFAULT_CONFIGURATION;
+    if (!this.configurations) {
+      this.allConfigurationsToggle.checked = false;
+    }
+    this.syncConfigurationControls();
   }
 
   show(target: ExportTarget): void {
@@ -127,6 +191,10 @@ export class ExportDialog {
     this.purposeEl.classList.toggle('hidden', !whole);
     this.statusEl.classList.add('hidden');
     this.exportBtn.disabled = false;
+    // Every opening starts on the row on screen.
+    this.configurationSelect.value = this.configurations?.active ?? DEFAULT_CONFIGURATION;
+    this.allConfigurationsToggle.checked = false;
+    this.syncConfigurationControls();
     this.overlay.classList.remove('hidden');
   }
 
@@ -153,6 +221,18 @@ export class ExportDialog {
               <input class="join-item btn btn-sm flex-1 border-0 border-r border-base-content/10 checked:btn-primary" type="radio" name="export-format" aria-label="STL" data-format="stl" />
               <input class="join-item btn btn-sm flex-1 border-0 checked:btn-primary" type="radio" name="export-format" aria-label="PNG" data-format="png" />
             </div>
+          </div>
+
+          <div data-ref="configuration-section" class="hidden flex flex-col gap-2">
+            <div>
+              <label class="text-xs text-base-content/60 mb-1 block">Configuration</label>
+              <select data-ref="configuration" class="select select-sm select-bordered w-full"></select>
+            </div>
+            <label data-ref="all-configurations-row" class="flex items-center justify-between cursor-pointer">
+              <span class="text-xs text-base-content/70">All configurations (one file each)</span>
+              <input type="checkbox" data-ref="all-configurations" class="checkbox checkbox-sm checkbox-primary" />
+            </label>
+            <p data-ref="configuration-note" class="hidden text-[11px] text-base-content/50"></p>
           </div>
 
           <div data-ref="step-section">
@@ -239,6 +319,33 @@ export class ExportDialog {
     this.stepSection.classList.toggle('hidden', format !== 'step');
     this.stlSection.classList.toggle('hidden', format !== 'stl');
     this.pngSection.classList.toggle('hidden', format !== 'png');
+    this.syncConfigurationControls();
+  }
+
+  private hasConfiguration(name: string): boolean {
+    return name === DEFAULT_CONFIGURATION || (this.configurations?.names.includes(name) ?? false);
+  }
+
+  /**
+   * Show the Configuration controls for a file with a table and a STEP/STL
+   * export — a PNG is captured from the viewport, so it is always the row on
+   * screen. "All configurations" disables the single pick; an assembly
+   * exported in a row other than the one on screen sits at its statement
+   * poses (the viewer solved the mates for the row it shows), and says so.
+   */
+  private syncConfigurationControls(): void {
+    const png = this.selectedFormat === 'png';
+    const shown = this.configurations !== null && !png;
+    this.configurationSection.classList.toggle('hidden', !shown);
+    this.allConfigurationsRow.classList.toggle('hidden', png);
+    const all = shown && this.allConfigurationsToggle.checked;
+    this.configurationSelect.disabled = all;
+    const offScreen = all || (shown && this.configurationSelect.value !== this.configurations!.active);
+    const note = this.target.kind === 'assembly' && offScreen
+      ? 'A configuration other than the one on screen exports with parts where the source places them, not where the mates put them.'
+      : '';
+    this.configurationNote.textContent = note;
+    this.configurationNote.classList.toggle('hidden', note === '');
   }
 
   private bindEvents(): void {
@@ -263,6 +370,9 @@ export class ExportDialog {
       this.marginSection.classList.toggle('hidden', !this.autoCropToggle.checked);
     });
 
+    this.configurationSelect.addEventListener('change', () => this.syncConfigurationControls());
+    this.allConfigurationsToggle.addEventListener('change', () => this.syncConfigurationControls());
+
     this.exportBtn.addEventListener('click', () => this.onExport());
   }
 
@@ -274,7 +384,7 @@ export class ExportDialog {
     const format: ExportFormat = this.selectedFormat === 'stl' ? 'stl' : 'step';
     const options = this.formatOptions(format);
 
-    let body: ExportRequestBody;
+    let body: ConfiguredExportBody;
     let fileBase: string;
     if (this.target.kind === 'assembly') {
       const poses = this.collectAssemblyPoses();
@@ -287,6 +397,13 @@ export class ExportDialog {
     } else {
       body = { format, shapeIds: this.target.shapeIds, ...options };
       fileBase = SHAPES_FILE_BASE;
+    }
+
+    if (this.configurations !== null && this.allConfigurationsToggle.checked) {
+      return this.exportAllConfigurations(body, fileBase, format);
+    }
+    if (this.configurations !== null) {
+      body = { ...body, configuration: this.configurationSelect.value };
     }
 
     this.exportBtn.disabled = true;
@@ -313,6 +430,69 @@ export class ExportDialog {
     } finally {
       this.exportBtn.disabled = false;
     }
+  }
+
+  /**
+   * "All configurations": one request per row — Default first, then the
+   * table's rows in declaration order — one after the other, each delivered
+   * as `<base><suffix>.<ext>` ({@link configurationFileSuffix}), with the
+   * progress in the status line. A failed row stops the run and names it; a
+   * Save dialog cancelled for one row skips that row only.
+   */
+  private async exportAllConfigurations(body: ConfiguredExportBody, fileBase: string, format: ExportFormat): Promise<void> {
+    const rows = [DEFAULT_CONFIGURATION, ...(this.configurations?.names ?? [])];
+    const ext = format === 'step' ? '.step' : '.stl';
+    const filters = [
+      format === 'step'
+        ? { name: 'STEP Files', extensions: ['step', 'stp'] }
+        : { name: 'STL Files', extensions: ['stl'] },
+    ];
+    this.exportBtn.disabled = true;
+    this.statusEl.classList.remove('hidden');
+    let delivered = 0;
+    try {
+      for (let i = 0; i < rows.length; i++) {
+        const name = rows[i];
+        this.showProgress(`Exporting ${name} (${i + 1} of ${rows.length})...`);
+        let blob: Blob;
+        try {
+          const request: ConfiguredExportBody = { ...body, configuration: name };
+          blob = await this.client.exportShapes(request);
+        } catch (err: any) {
+          throw new Error(`${name}: ${err?.message ?? String(err)}`);
+        }
+        const outcome = await deliverFile(blob, `${fileBase}${configurationFileSuffix(name)}${ext}`, filters);
+        if (outcome === 'failed') {
+          throw new Error(`${name}: the file could not be written.`);
+        }
+        if (outcome !== 'cancelled') {
+          delivered++;
+        }
+      }
+      this.showDone(`Exported ${delivered} of ${rows.length} configurations.`);
+    } catch (err: any) {
+      this.showError(`${err?.message ?? String(err)} (${delivered} of ${rows.length} exported)`);
+    } finally {
+      this.exportBtn.disabled = false;
+    }
+  }
+
+  private showProgress(message: string): void {
+    this.statusEl.replaceChildren();
+    const spinner = document.createElement('span');
+    spinner.className = 'loading loading-spinner loading-xs';
+    const text = document.createElement('span');
+    text.textContent = message;
+    this.statusEl.append(spinner, text);
+  }
+
+  private showDone(message: string): void {
+    this.statusEl.classList.remove('hidden');
+    this.statusEl.replaceChildren();
+    const text = document.createElement('span');
+    text.className = 'text-success text-xs';
+    text.textContent = message;
+    this.statusEl.appendChild(text);
   }
 
   private formatOptions(format: ExportFormat): ExportFormatOptions {

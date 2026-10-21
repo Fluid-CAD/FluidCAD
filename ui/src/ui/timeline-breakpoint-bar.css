@@ -14,6 +14,10 @@
   --breakpoint-surface: var(--color-base-200);
   --breakpoint-reach: 12px;
 }
+/* At the end of history the handle and the resume button hang below the
+   last row. Keep that overhang inside the list's own padding so it never
+   turns the list into a scroll container (scrollbars flash mid-drag). */
+:has(> .timeline-breakpoint) { padding-bottom: 8px; }
 .timeline-breakpoint[data-paused="true"] { color: var(--color-warning); }
 .timeline-breakpoint[data-paused="true"] ~ :is([data-display-index], [data-constraints-toggle], [data-group-toggle]) {
   font-style: italic;
@@ -68,6 +72,10 @@
   background: var(--breakpoint-surface);
   box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 40%, transparent);
   pointer-events: none;
+}
+.timeline-breakpoint-label[data-side="above"] {
+  top: auto;
+  bottom: calc(var(--breakpoint-reach) / 2);
 }
 .timeline-breakpoint-label[hidden] { display: none; }
 .timeline-breakpoint-handle:hover::before,
@@ -143,6 +151,7 @@
   border-top: 2px dashed color-mix(in oklab, var(--color-warning) 65%, transparent);
 }
 @media (pointer: coarse) {
+  :has(> .timeline-breakpoint) { padding-bottom: 11px; }
   .timeline-breakpoint { --breakpoint-reach: 22px; }
   .timeline-breakpoint-resume { width: 22px; height: 22px; top: -11px; }
   .timeline-breakpoint-resume svg { width: 14px; height: 14px; }

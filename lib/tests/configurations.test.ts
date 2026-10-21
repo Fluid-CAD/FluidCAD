@@ -25,6 +25,7 @@ import { getSceneManager, getCurrentScene } from "../scene-manager.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
 import { BrowserEngineHost } from "../browser/index.js";
 import { createParamRegistry, type ParamRegistry, type ParamVal } from "../param-registry.js";
+import { warnConfigurationRun } from "../features/param-overrides.js";
 import { setupOC } from "./setup.js";
 
 const PARAMS_FILE = "/ws/project.params.js";
@@ -213,7 +214,7 @@ describe("configurations() — root run", () => {
     expect(width.configuredValue).toBe(50);
     expect(width.defaultValue).toBe(100);
     expect(registry.getDefinitions().find(d => d.label === "Lid")!.configuredValue).toBe(false);
-    expect(registry.getConfigurationValues()).toEqual(new Map<string, ParamVal>([["Width", 50], ["Lid", false]]));
+    expect(registry.getConfigurationValues("Plate")).toEqual(new Map<string, ParamVal>([["Width", 50], ["Lid", false]]));
   });
 
   it("a session override sits on top of the row", () => {
@@ -268,7 +269,7 @@ describe("configurations() — root run", () => {
     expect(registry.getDefinitions().find(d => d.label === "Width")!.currentValue).toBe(75);
   });
 
-  it("an unknown active name warns and renders Default", () => {
+  it("an unknown active name renders Default; the end-of-render check warns", () => {
     const registry = freshRegistry(undefined, undefined, "Huge");
     const seen: Record<string, unknown> = {};
     plate(seen);
@@ -276,7 +277,12 @@ describe("configurations() — root run", () => {
 
     expect(seen).toEqual({ configuration: "Default", width: 100, lid: true });
     expect(registry.getConfigurations().active).toBe("Default");
-    expect(warnings()).toEqual([expect.stringMatching(/no configuration 'Huge' — rendering Default\. Declared: 'Compact', 'Wide'/)]);
+    // The body itself is silent: another table could declare the name.
+    expect(warnings()).toEqual([]);
+    warnConfigurationRun(registry);
+    expect(warnings()).toEqual([
+      expect.stringMatching(/no table in this render declares 'Huge' — rendering Default\. Declared: 'Compact', 'Wide'\./),
+    ]);
   });
 
   it("'Default' as the active name is the literals", () => {
@@ -303,7 +309,7 @@ describe("configurations() — root run", () => {
     expect(registry.getConfigurations()).toEqual({ active: "Wide", names: ["Wide"], rows: { Wide: { Width: 1200 } } });
   });
 
-  it("two tables in one render merge their layers; a duplicate row name across definitions warns", () => {
+  it("two tables in one render: each body applies its own row, the listing merges; a duplicate row name across definitions warns", () => {
     const registry = freshRegistry(undefined, undefined, "Wide");
     const seen: Record<string, unknown> = {};
     part("Plate", () => {
@@ -322,7 +328,7 @@ describe("configurations() — root run", () => {
     expect(warnings()).toEqual([expect.stringMatching(/'Lid' and 'Plate' both declare 'Wide'/)]);
   });
 
-  it("a row cell no param() reads is reported as unconsumed", () => {
+  it("a row cell no param() reads is reported as unconsumed, and warned about per body at the end", () => {
     const registry = freshRegistry(undefined, undefined, "Wide");
     part("Plate", () => {
       configurations({ Wide: { Width: 200, Colour: "red" } });
@@ -330,18 +336,220 @@ describe("configurations() — root run", () => {
     });
     getCurrentScene().materializeLeftoverDefinitions();
     expect(registry.getUnconsumedConfigurationKeys()).toEqual(["Colour"]);
+    expect(registry.getUnconsumedConfigurationCells()).toEqual([
+      { kind: "part", definition: "Plate", labels: ["Colour"], declared: ["Width"] },
+    ]);
+    warnConfigurationRun(registry);
+    expect(warnings()).toEqual([
+      expect.stringMatching(/part 'Plate': configuration 'Wide' sets unknown parameter 'Colour' — this body declared 'Width'\./),
+    ]);
   });
 
-  it("clear() forgets the active name, the layer, the tables and the body frames", () => {
+  it("a paused render skips the end-of-render check — the pass stopped before the rest ran", () => {
+    const registry = freshRegistry(undefined, undefined, "Huge");
+    part("Plate", () => {
+      configurations({ Wide: { Width: 200 } });
+      param("Width", 100);
+    });
+    getCurrentScene().materializeLeftoverDefinitions();
+    warnConfigurationRun(registry, true);
+    expect(warnings()).toEqual([]);
+  });
+
+  it("setConfiguration() needs a running body — a row is a body's layer", () => {
     const registry = freshRegistry(undefined, undefined, "Wide");
-    registry.setConfiguration({ Width: 1 });
+    expect(() => registry.setConfiguration({ Width: 1 })).toThrow(/no part\(\) or assembly\(\) body is running/);
+  });
+
+  it("clear() forgets the active name, the layers, the tables and the body frames", () => {
+    const registry = freshRegistry(undefined, undefined, "Wide");
+    registry.beginBody("x", "part");
+    registry.setConfiguration({ Width: 1, Colour: "red" });
+    registry.endBody();
     registry.recordConfigurations({ definition: "x", names: ["Wide"], rows: { Wide: { Width: 1 } } });
-    registry.beginBody("x");
+    registry.beginBody("x", "part");
+    expect(registry.getUnconsumedConfigurationKeys()).toEqual(["Width", "Colour"]);
     registry.clear();
     expect(registry.getActiveConfiguration()).toBeNull();
-    expect(registry.getConfigurationValues().size).toBe(0);
+    expect(registry.getConfigurationValues("x").size).toBe(0);
+    expect(registry.getUnconsumedConfigurationKeys()).toEqual([]);
     expect(registry.getConfigurations()).toEqual({ active: "Default", names: [], rows: {} });
     expect(registry.inBody()).toBe(false);
+  });
+});
+
+describe("configurations() — the root layer is per body", () => {
+  setupOC();
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    createParamRegistry();
+  });
+
+  /** Two parts of one file, both declaring `Width`; each table's rows are its own. */
+  function twoParts(seen: Record<string, unknown>, aRows: Record<string, Record<string, ParamVal>>, bRows?: Record<string, Record<string, ParamVal>>) {
+    const a = part("A", () => {
+      seen.aConfiguration = configurations(aRows);
+      seen.aWidth = param("Width", 100);
+    });
+    const b = part("B", () => {
+      if (bRows) {
+        seen.bConfiguration = configurations(bRows);
+      }
+      seen.bWidth = param("Width", 10);
+    });
+    return { a, b };
+  }
+
+  it("a row in A's table does not set B's same-named param, and vice versa", () => {
+    freshRegistry(undefined, undefined, "Wide");
+    const seen: Record<string, unknown> = {};
+    twoParts(seen, { Wide: { Width: 200 } });
+    getCurrentScene().materializeLeftoverDefinitions();
+    expect(seen).toEqual({ aConfiguration: "Wide", aWidth: 200, bWidth: 10 });
+
+    // The other way round: the row is B's, A keeps its literal.
+    getSceneManager().startScene();
+    const registry = freshRegistry(undefined, undefined, "Narrow");
+    const other: Record<string, unknown> = {};
+    twoParts(other, {}, { Narrow: { Width: 5 } });
+    getCurrentScene().materializeLeftoverDefinitions();
+    expect(other).toEqual({ aConfiguration: "Default", aWidth: 100, bConfiguration: "Narrow", bWidth: 5 });
+    const width = registry.getDefinitions().find(d => d.label === "Width")!;
+    expect(width.currentValue).toBe(5);
+    expect(width.configuredValue).toBe(5);
+    expect(registry.getConfigurationValues("A").size).toBe(0);
+    expect(registry.getConfigurationValues("B")).toEqual(new Map<string, ParamVal>([["Width", 5]]));
+  });
+
+  it("each body applies its own table's cells for the same row name", () => {
+    const registry = freshRegistry(undefined, undefined, "Wide");
+    const seen: Record<string, unknown> = {};
+    twoParts(seen, { Wide: { Width: 200 } }, { Wide: { Width: 20 } });
+    getCurrentScene().materializeLeftoverDefinitions();
+    expect(seen).toEqual({ aConfiguration: "Wide", aWidth: 200, bConfiguration: "Wide", bWidth: 20 });
+    expect(registry.getConfigurations().active).toBe("Wide");
+    expect(registry.getConfigurationValues("A")).toEqual(new Map<string, ParamVal>([["Width", 200]]));
+    expect(registry.getConfigurationValues("B")).toEqual(new Map<string, ParamVal>([["Width", 20]]));
+    // Every cell was read by its own body: nothing unconsumed, nothing warned
+    // past the duplicate-name notice.
+    warnConfigurationRun(registry);
+    expect(registry.getUnconsumedConfigurationKeys()).toEqual([]);
+    expect(warnings()).toEqual([expect.stringMatching(/'B' and 'A' both declare 'Wide'/)]);
+  });
+
+  it("a row declared only in A: B renders Default with no warning", () => {
+    const registry = freshRegistry(undefined, undefined, "Wide");
+    const seen: Record<string, unknown> = {};
+    twoParts(seen, { Wide: { Width: 200 } }, { Tall: { Width: 30 } });
+    getCurrentScene().materializeLeftoverDefinitions();
+    expect(seen).toEqual({ aConfiguration: "Wide", aWidth: 200, bConfiguration: "Default", bWidth: 10 });
+    expect(registry.getConfigurations()).toEqual({
+      active: "Wide",
+      names: ["Wide", "Tall"],
+      rows: { Wide: { Width: 200 }, Tall: { Width: 30 } },
+    });
+    warnConfigurationRun(registry);
+    expect(warnings()).toEqual([]);
+  });
+
+  it("an active name no table declares warns exactly once, listing every table's rows", () => {
+    const registry = freshRegistry(undefined, undefined, "Huge");
+    const seen: Record<string, unknown> = {};
+    twoParts(seen, { Wide: { Width: 200 } }, { Tall: { Width: 30 } });
+    getCurrentScene().materializeLeftoverDefinitions();
+    expect(seen).toEqual({ aConfiguration: "Default", aWidth: 100, bConfiguration: "Default", bWidth: 10 });
+    expect(warnings()).toEqual([]);
+    warnConfigurationRun(registry);
+    expect(warnings()).toEqual([
+      expect.stringMatching(/no table in this render declares 'Huge' — rendering Default\. Declared: 'Wide', 'Tall'\./),
+    ]);
+  });
+
+  it("an active name in a render with no table at all warns that nothing declares it", () => {
+    const registry = freshRegistry(undefined, undefined, "Wide");
+    part("Plate", () => {
+      param("Width", 100);
+    });
+    getCurrentScene().materializeLeftoverDefinitions();
+    warnConfigurationRun(registry);
+    expect(warnings()).toEqual([
+      expect.stringMatching(/no table in this render declares 'Wide' — rendering Default\. The render declares no configurations\(\) table\./),
+    ]);
+  });
+
+  it("a part built lazily after the module (the leftover pass) reads its own row", () => {
+    freshRegistry(undefined, undefined, "Wide");
+    const seen: Record<string, unknown> = {};
+    const { b } = twoParts(seen, { Wide: { Width: 200 } }, { Wide: { Width: 20 } });
+    // Nothing has built yet: part() is lazy.
+    expect(seen).toEqual({});
+    // B is read first (built on demand), A only by the leftover pass.
+    b.materializeInto(getCurrentScene());
+    expect(seen).toEqual({ bConfiguration: "Wide", bWidth: 20 });
+    getCurrentScene().materializeLeftoverDefinitions();
+    expect(seen).toEqual({ bConfiguration: "Wide", bWidth: 20, aConfiguration: "Wide", aWidth: 200 });
+  });
+
+  it("a part built inside another part's body reads its own row, and the outer body keeps its row after", () => {
+    freshRegistry(undefined, undefined, "Wide");
+    const seen: Record<string, unknown> = {};
+    const inner = part("Inner", () => {
+      seen.innerConfiguration = configurations({ Wide: { Width: 20 } });
+      seen.innerWidth = param("Width", 10);
+      seen.innerDepth = param("Depth", 4);
+    });
+    part("Outer", () => {
+      seen.outerConfiguration = configurations({ Wide: { Width: 200, Depth: 40 } });
+      seen.outerBefore = param("Width", 100);
+      // Reading the definition's geometry mid-body builds it here, nested.
+      inner.materializeInto(getCurrentScene());
+      seen.outerAfter = param("Depth", 30);
+    });
+    getCurrentScene().materializeLeftoverDefinitions();
+    expect(seen).toEqual({
+      outerConfiguration: "Wide",
+      outerBefore: 200,
+      innerConfiguration: "Wide",
+      innerWidth: 20,
+      // Outer's row names Depth; Inner's does not, and Outer's is not Inner's.
+      innerDepth: 4,
+      outerAfter: 40,
+    });
+  });
+
+  it("an inner part without a table builds its literals inside a configured outer body", () => {
+    freshRegistry(undefined, undefined, "Wide");
+    const seen: Record<string, unknown> = {};
+    const inner = part("Inner", () => {
+      seen.innerWidth = param("Width", 10);
+    });
+    part("Outer", () => {
+      configurations({ Wide: { Width: 200 } });
+      inner.materializeInto(getCurrentScene());
+      seen.outerWidth = param("Width", 100);
+    });
+    getCurrentScene().materializeLeftoverDefinitions();
+    expect(seen).toEqual({ innerWidth: 10, outerWidth: 200 });
+  });
+
+  it("an assembly's row does not reach a part built unscoped inside its body", () => {
+    startAssembly();
+    freshRegistry(undefined, undefined, "Wide");
+    const seen: Record<string, unknown> = {};
+    const block = part("block", () => {
+      seen.blockWidth = param("Width", 10);
+    });
+    const frame = assembly("frame", () => {
+      configurations({ Wide: { Width: 1200 } });
+      seen.frameWidth = param("Width", 700);
+      block.materializeInto(getCurrentScene());
+      return {};
+    });
+    frame.run();
+    expect(seen).toEqual({ frameWidth: 1200, blockWidth: 10 });
   });
 });
 

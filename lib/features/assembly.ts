@@ -88,7 +88,7 @@ export class Assembly<T = unknown> {
     // The registry's body frame is what `configurations()` checks: it must
     // run before this body's first `param()`, once per run.
     const registry = getParamRegistry();
-    registry.beginBody(name);
+    registry.beginBody(name, 'assembly');
     try {
       return callback();
     } finally {

@@ -87,14 +87,42 @@ export type ParamDefinition = {
 };
 
 /**
- * One running `part()` / `assembly()` body, for the rules `configurations()`
- * enforces: it runs before the body's first `param()`, and once per run.
+ * The cells of a root run's row that its body never resolved — a key the
+ * body's `param()` interface does not have (a typo, a removed parameter, a
+ * project parameter). Collected as each body ends; the host warns once the
+ * evaluation is over.
+ */
+export type UnconsumedConfigurationCells = {
+  kind: 'part' | 'assembly';
+  definition: string;
+  /** The row's labels no `param()` of the body read. */
+  labels: string[];
+  /** The labels the body did resolve, for the warning's "declared" list. */
+  declared: string[];
+};
+
+/**
+ * One running `part()` / `assembly()` body: the rules `configurations()`
+ * enforces (it runs before the body's first `param()`, and once per run) and,
+ * at root, the configuration layer the body's own table installed. The layer
+ * is the body's, never the file's: a row of part A naming `Width` sets A's
+ * `Width` only, and a part B built while A runs (or after it) reads B's own
+ * table.
  */
 type BodyFrame = {
+  kind: 'part' | 'assembly';
   /** The definition name — what a recorded table is filed under. */
   definition: string;
   paramRan: boolean;
   configured: boolean;
+  /**
+   * The active row's cells, installed by this body's `configurations()` at
+   * root; null while the body has no row for the active name (no table, the
+   * literals, or a table that does not declare it).
+   */
+  configuration: Map<string, ParamVal> | null;
+  /** Labels this body's `param()` calls resolved — a cell none read is reported at `endBody`. */
+  resolved: Set<string>;
 };
 
 export class ParamRegistry {
@@ -115,13 +143,13 @@ export class ParamRegistry {
   /** The configuration the host asked for before the run; null or 'Default' is the literals. */
   private activeConfiguration: string | null = null;
   /**
-   * The configuration layer: the active row's cells, installed by
-   * `configurations()` at root (merged across every body that declares a
-   * table). Sits between the session overrides and the literals in `resolve`.
+   * Every row a root run installed this render, by definition — what each
+   * body's layer held. Read-only bookkeeping: resolution reads the running
+   * body's frame, never this.
    */
-  private configuration: Map<string, ParamVal> = new Map();
-  /** Labels `resolve` saw this run — a configured cell no `param()` read is warned about. */
-  private resolved: Set<string> = new Set();
+  private installed: Map<string, Map<string, ParamVal>> = new Map();
+  /** Per definition, the cells of its installed row its body never resolved. */
+  private unconsumed: Map<string, UnconsumedConfigurationCells> = new Map();
   /** Every table a root run recorded, in declaration order. */
   private tables: ConfigurationTable[] = [];
   /** The bodies running right now, innermost last. */
@@ -151,7 +179,7 @@ export class ParamRegistry {
   resolve(label: string, defaultValue: (string | number)[]): (string | number)[];
   resolve<T extends string | number | boolean>(label: string, defaultValue: T): T;
   resolve(label: string, defaultValue: ParamVal): ParamVal {
-    this.resolved.add(label);
+    this.currentBody()?.resolved.add(label);
     // Only the first `param()` call for a label decides the run's baseline and
     // whether its override survived; a second call under the same label reuses
     // that verdict rather than flip-flopping against its own literal.
@@ -178,15 +206,18 @@ export class ParamRegistry {
   }
 
   /**
-   * The active configuration's cell for `label`, coerced to the literal's
-   * type, or undefined when no row applies to this run or the row leaves the
-   * label out.
+   * The innermost running body's configured cell for `label`, coerced to the
+   * literal's type, or undefined when that body installed no row (outside
+   * every body, no table, the literals, a table without the active name) or
+   * its row leaves the label out. Only the innermost body counts: an
+   * enclosing body's row is that body's interface, not this one's.
    */
   configuredValue(label: string, defaultValue: ParamVal): ParamVal | undefined {
-    if (!this.configuration.has(label)) {
+    const layer = this.currentBody()?.configuration;
+    if (!layer || !layer.has(label)) {
       return undefined;
     }
-    return coerceParamOverride(defaultValue, this.configuration.get(label));
+    return coerceParamOverride(defaultValue, layer.get(label));
   }
 
   // --- configurations -----------------------------------------------------
@@ -206,24 +237,40 @@ export class ParamRegistry {
   }
 
   /**
-   * Install (merge) a row's cells as the configuration layer. Several bodies
-   * in one render each install their own row; the layer is the union.
+   * Install a row's cells as the innermost running body's configuration
+   * layer — `configurations()` at root, once per body. The cells reach that
+   * body's `param()` calls only; another body of the file keeps its own
+   * table's row (or its literals). Refused outside every body.
    */
   setConfiguration(values: ConfigurationRow | ReadonlyMap<string, ParamVal>): void {
-    const entries = values instanceof Map ? values.entries() : Object.entries(values as ConfigurationRow);
-    for (const [label, value] of entries) {
-      this.configuration.set(label, value);
+    const frame = this.currentBody();
+    if (!frame) {
+      throw new Error("setConfiguration(): no part() or assembly() body is running — a row belongs to the body whose table declares it.");
     }
+    const entries = values instanceof Map ? values.entries() : Object.entries(values as ConfigurationRow);
+    frame.configuration = new Map(entries);
+    this.installed.set(frame.definition, new Map(frame.configuration));
   }
 
-  /** The configuration layer as installed — label → the row's raw cell. */
-  getConfigurationValues(): Map<string, ParamVal> {
-    return new Map(this.configuration);
+  /** The row `definition`'s body installed this render — label → the raw cell; empty when it installed none. */
+  getConfigurationValues(definition: string): Map<string, ParamVal> {
+    return new Map(this.installed.get(definition) ?? []);
   }
 
-  /** Configuration cells no `param()` resolved this run — a row key the body never reads. */
+  /** Every body whose installed row has cells its `param()` calls never read, in the order the bodies ended. */
+  getUnconsumedConfigurationCells(): UnconsumedConfigurationCells[] {
+    return Array.from(this.unconsumed.values(), entry => ({ ...entry, labels: entry.labels.slice(), declared: entry.declared.slice() }));
+  }
+
+  /** The labels of `getUnconsumedConfigurationCells()`, every body's, once each. */
   getUnconsumedConfigurationKeys(): string[] {
-    return Array.from(this.configuration.keys()).filter(label => !this.resolved.has(label));
+    const labels = new Set<string>();
+    for (const entry of this.unconsumed.values()) {
+      for (const label of entry.labels) {
+        labels.add(label);
+      }
+    }
+    return Array.from(labels);
   }
 
   /**
@@ -258,7 +305,9 @@ export class ParamRegistry {
   /**
    * What the render reports: every row of every table recorded this run and
    * which one is showing. `active` is the requested name only when some
-   * table declares it; otherwise `'Default'` (the literals).
+   * table declares it; otherwise `'Default'` (the literals). `rows` merges
+   * the tables by name for the host's listing — a body still applies only
+   * its own table's row.
    */
   getConfigurations(): ConfigurationsSummary {
     const names: string[] = [];
@@ -282,15 +331,41 @@ export class ParamRegistry {
   /**
    * A `part()` / `assembly()` body starts running: open a frame for the
    * rules `configurations()` enforces (before the body's first `param()`,
-   * once per run). Bodies nest (a part materializing inside an assembly
-   * occurrence), so frames stack. Pair with `endBody()` in a `finally`.
+   * once per run) and for the row its table installs at root. Bodies nest (a
+   * part materializing inside an assembly occurrence, a part read mid-body
+   * of another), so frames stack, and each starts with no row. Pair with
+   * `endBody()` in a `finally`.
    */
-  beginBody(definition: string): void {
-    this.bodies.push({ definition, paramRan: false, configured: false });
+  beginBody(definition: string, kind: 'part' | 'assembly'): void {
+    this.bodies.push({ kind, definition, paramRan: false, configured: false, configuration: null, resolved: new Set() });
   }
 
+  /**
+   * The innermost body ends: its row's cells no `param()` resolved are kept
+   * for the end-of-render warning (a body that runs again at root replaces
+   * its entry).
+   */
   endBody(): void {
-    this.bodies.pop();
+    const frame = this.bodies.pop();
+    if (!frame?.configuration) {
+      return;
+    }
+    const labels = Array.from(frame.configuration.keys()).filter(label => !frame.resolved.has(label));
+    if (labels.length === 0) {
+      this.unconsumed.delete(frame.definition);
+      return;
+    }
+    this.unconsumed.set(frame.definition, {
+      kind: frame.kind,
+      definition: frame.definition,
+      labels,
+      declared: Array.from(frame.resolved),
+    });
+  }
+
+  /** The innermost running body's frame, or null outside every body. */
+  private currentBody(): BodyFrame | null {
+    return this.bodies.length > 0 ? this.bodies[this.bodies.length - 1] : null;
   }
 
   /** Whether a part or assembly body is running right now. */
@@ -365,8 +440,8 @@ export class ParamRegistry {
     this.discarded.clear();
     this.authoredDefaults.clear();
     this.activeConfiguration = null;
-    this.configuration.clear();
-    this.resolved.clear();
+    this.installed.clear();
+    this.unconsumed.clear();
     this.tables = [];
     this.bodies = [];
   }

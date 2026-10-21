@@ -211,7 +211,7 @@ export class PartDefinition<T = unknown> {
       // not become that container's child.
       extensions = withUnit(definitionUnit, () => scene.runTopLevel(() => {
         scene.startProgressiveContainer(partObj);
-        registry.beginBody(this.partName);
+        registry.beginBody(this.partName, "part");
         try {
           return this.callback();
         } finally {

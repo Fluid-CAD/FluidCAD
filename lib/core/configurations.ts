@@ -31,7 +31,9 @@ export type ConfigurationRows = Record<string, ParamOverrides>;
  *
  * Rendering the defining file, the host's active configuration picks the
  * row (the dropdown; `?configuration=` in the viewer) and session overrides
- * sit on top of it. From a parent, `insert(def, 'Wide')` picks the row per
+ * sit on top of it. Row names are file-wide but cells are per body: in a
+ * file with several parts each body applies its own table's row for the
+ * active name, and a body whose table lacks it builds its literals. From a parent, `insert(def, 'Wide')` picks the row per
  * instance, `insert(def, 'Wide', { Depth: 1000 })` layers values on it, and
  * a name the table does not declare is an error on that insert statement.
  *
@@ -94,14 +96,15 @@ export default function configurations(rows: ConfigurationRows): string {
   if (active === null) {
     return DEFAULT_CONFIGURATION;
   }
+  // Rows are file-wide names, cells are per body: a table without the
+  // active name builds its body's Default silently — another body's table
+  // may declare it. Only a name NO table declares is reported, once, by
+  // the end-of-render check (`warnConfigurationRun`).
   const row = table[active];
   if (!row) {
-    console.warn(
-      `configurations(): '${definition}' has no configuration '${active}' — rendering Default. `
-      + (names.length > 0 ? `Declared: ${names.map(n => `'${n}'`).join(", ")}.` : "The table declares no rows."),
-    );
     return DEFAULT_CONFIGURATION;
   }
+  // The row becomes THIS body's layer, read by its own param() calls only.
   registry.setConfiguration(row);
   return active;
 }

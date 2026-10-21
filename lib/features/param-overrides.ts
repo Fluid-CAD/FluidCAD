@@ -107,23 +107,37 @@ export function warnUnknownOverrides(kind: 'part' | 'assembly', name: string, sc
 }
 
 /**
- * The root-run counterpart: after an entry file rendered with a
- * configuration active, the cells its bodies never resolved through the
- * registry. The host calls this once the evaluation is over, when every
- * `param()` has had its chance to read.
+ * The end-of-render check of a root run with a configuration active, called
+ * by the host once the evaluation is over (every body has run, lazy parts
+ * included). A render a breakpoint paused stopped early — tables and
+ * `param()` calls after the pause never ran — so it is skipped.
+ *
+ * - The active name no table of the render declares: one warning, the
+ *   render shows Default. A body whose own table lacks the name is not
+ *   reported while another table declares it — rows are file-wide names.
+ * - Otherwise, per body, the cells of its installed row its `param()`
+ *   calls never resolved.
  */
-export function warnUnknownConfigurationCells(registry = getParamRegistry()): void {
-  const unread = registry.getUnconsumedConfigurationKeys();
+export function warnConfigurationRun(registry = getParamRegistry(), paused = false): void {
   const active = registry.getActiveConfiguration();
-  if (unread.length === 0 || active === null) {
+  if (active === null || paused) {
     return;
   }
-  const declared = new Set(registry.getDefinitions().filter(d => d.kind !== 'global').map(d => d.label));
-  console.warn(
-    `configuration '${active}' sets unknown parameter${unread.length > 1 ? 's' : ''} `
-    + `${unread.map(l => `'${l}'`).join(', ')} — this render declared `
-    + `${declaredList(declared)}.${globalsHint(unread, registry)}`,
-  );
+  const { names } = registry.getConfigurations();
+  if (!names.includes(active)) {
+    console.warn(
+      `configurations(): no table in this render declares '${active}' — rendering Default. `
+      + (names.length > 0 ? `Declared: ${names.map(n => `'${n}'`).join(', ')}.` : 'The render declares no configurations() table.'),
+    );
+    return;
+  }
+  for (const entry of registry.getUnconsumedConfigurationCells()) {
+    console.warn(
+      `${entry.kind} '${entry.definition}': configuration '${active}' sets unknown parameter${entry.labels.length > 1 ? 's' : ''} `
+      + `${entry.labels.map(l => `'${l}'`).join(', ')} — this body declared `
+      + `${declaredList(entry.declared)}.${globalsHint(entry.labels, registry)}`,
+    );
+  }
 }
 
 function declaredList(declared: Iterable<string>): string {

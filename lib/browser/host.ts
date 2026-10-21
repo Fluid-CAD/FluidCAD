@@ -4,7 +4,7 @@ import type { ParamRegistry, ParamVal } from "../param-registry.js";
 import { createManager } from "../scene-manager.js";
 import { setAssetProvider } from "../io/file-import.js";
 import { BreakpointHit } from "../common/breakpoint-hit.js";
-import { warnUnknownConfigurationCells } from "../features/param-overrides.js";
+import { warnConfigurationRun } from "../features/param-overrides.js";
 import { PartDefinition } from "../features/part-definition.js";
 import { Scene } from "../rendering/scene.js";
 import type { ExportOptions } from "../io/file-export.js";
@@ -324,7 +324,9 @@ export class BrowserEngineHost {
 
     const params = getParamRegistry().getDefinitions();
     const configurations = getParamRegistry().getConfigurations();
-    warnUnknownConfigurationCells(getParamRegistry());
+    // The end-of-render configuration check: a name no table declares, row
+    // cells a body never read. A paused pass stopped early — skipped.
+    warnConfigurationRun(getParamRegistry(), breakpointHit);
     this.settleParamOverrides(registry);
 
     if (this.previousScene) {

@@ -95,7 +95,7 @@ const deep = insert(frame, "Wide", { Depth: 1000 }).translate(0, 900, 0);
 - **Panel writes:** Add / Save put each part's changed values into that
   part's own table (created first in that body); a part the row changes
   nothing in gets no entry. A row with nothing changed goes into the
-  **Add to** part. Rename / Delete act on every table holding the row; a
+  part the panel's **Part** dropdown names. Rename / Delete act on every table holding the row; a
   table a delete empties is removed (the import goes with the last one).
 - **Manage grid:** columns grouped under a header per part. A pasted header
   names a shared label as `Part · Label` (`Part / Label`, `Part: Label`,
@@ -108,19 +108,19 @@ const deep = insert(frame, "Wide", { Depth: 1000 }).translate(0, 900, 0);
 ## The active row is session state
 
 Which row the open file renders is chosen in the Parameters panel's
-configuration dropdown (the band under the panel header, in the part and
-the assembly workspace alike) (or `select_configuration` / `?configuration=`
+**Configuration** dropdown (the labelled row under the panel header, in
+the part and the assembly workspace alike) (or `select_configuration` / `?configuration=`
 on a share link) and remembered per file in `.fluidcad/editor-state.json`.
 Switching never edits the source. Two tabs or two users can show two rows.
 
 The panel layers on top of the row exactly as it does on Default: a
-control change is a session tweak (the band shows **● modified**), the
-header's ↺ (*Revert changes*) drops the tweaks, and the band's ⋮ menu
-writes source:
+control change is a session tweak (**● modified** beside the
+**Configuration** label), the header's ↺ (*Revert changes*) drops the
+tweaks, and the ⋮ menu on that label line writes source:
 
 | action | writes |
 |--------|--------|
-| **Add configuration…** / **Save as…** | a new row holding every value on screen that differs from its literal (the active row's cells plus the tweaks); creates the `configurations({…})` statement first in the body and its import when the file has none; the new row becomes active |
+| **Add configuration…** / **Duplicate…** | a new row holding every value on screen that differs from its literal (the active row's cells plus the tweaks); creates the `configurations({…})` statement first in the body and its import when the file has none; the new row becomes active |
 | **Save** | the tweaked labels into the active row (cells added or rewritten as literals); disabled on Default and when nothing is modified |
 | **Rename…** / **Delete** | the row's key / the row; deleting the last row removes the statement (or leaves `configurations({})` when the body reads its result) |
 | **Manage…** | the whole table in a grid — rows × parameters, blank cells inherit, a spreadsheet range pastes in (matched by header labels); one rewrite on **Apply** |

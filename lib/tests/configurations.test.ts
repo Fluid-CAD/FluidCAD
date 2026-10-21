@@ -165,7 +165,7 @@ describe("configurations() — the rows", () => {
       rows: { Compact: { Width: 50, Lid: false }, Wide: { Width: 200 } },
     });
     expect(registry.getConfigurationTables()).toEqual([
-      { definition: "Plate", names: ["Compact", "Wide"], rows: { Compact: { Width: 50, Lid: false }, Wide: { Width: 200 } } },
+      { definition: "Plate#1", name: "Plate", names: ["Compact", "Wide"], rows: { Compact: { Width: 50, Lid: false }, Wide: { Width: 200 } } },
     ]);
   });
 });
@@ -215,7 +215,7 @@ describe("configurations() — root run", () => {
     expect(width.configuredValue).toBe(50);
     expect(width.defaultValue).toBe(100);
     expect(registry.getDefinitions().find(d => d.label === "Lid")!.configuredValue).toBe(false);
-    expect(registry.getConfigurationValues("Plate")).toEqual(new Map<string, ParamVal>([["Width", 50], ["Lid", false]]));
+    expect(registry.getConfigurationValues("Plate#1")).toEqual(new Map<string, ParamVal>([["Width", 50], ["Lid", false]]));
   });
 
   it("a session override sits on top of the row", () => {
@@ -255,8 +255,8 @@ describe("configurations() — root run", () => {
 
     // The label-only override and baseline stand for Plate's Width; the
     // verdict is filed under that parameter's key.
-    expect(registry.getDiscardedOverrides()).toEqual([ParamKey.of("Plate", "Width").id]);
-    expect(registry.getAuthoredDefaults().get(ParamKey.of("Plate", "Width").id)).toBe(120);
+    expect(registry.getDiscardedOverrides()).toEqual([ParamKey.of("Plate#1", "Width").id]);
+    expect(registry.getAuthoredDefaults().get(ParamKey.of("Plate#1", "Width").id)).toBe(120);
     // The override is gone; the row still applies.
     expect(seen.width).toBe(50);
   });
@@ -340,7 +340,7 @@ describe("configurations() — root run", () => {
     getCurrentScene().materializeLeftoverDefinitions();
     expect(registry.getUnconsumedConfigurationKeys()).toEqual(["Colour"]);
     expect(registry.getUnconsumedConfigurationCells()).toEqual([
-      { kind: "part", definition: "Plate", labels: ["Colour"], declared: ["Width"] },
+      { kind: "part", definition: "Plate#1", name: "Plate", labels: ["Colour"], declared: ["Width"] },
     ]);
     warnConfigurationRun(registry);
     expect(warnings()).toEqual([
@@ -369,7 +369,7 @@ describe("configurations() — root run", () => {
     registry.beginBody("x", "part");
     registry.setConfiguration({ Width: 1, Colour: "red" });
     registry.endBody();
-    registry.recordConfigurations({ definition: "x", names: ["Wide"], rows: { Wide: { Width: 1 } } });
+    registry.recordConfigurations({ definition: "x", name: "x", names: ["Wide"], rows: { Wide: { Width: 1 } } });
     registry.beginBody("x", "part");
     expect(registry.getUnconsumedConfigurationKeys()).toEqual(["Width", "Colour"]);
     registry.clear();
@@ -421,15 +421,15 @@ describe("configurations() — the root layer is per body", () => {
     getCurrentScene().materializeLeftoverDefinitions();
     expect(other).toEqual({ aConfiguration: "Default", aWidth: 100, bConfiguration: "Narrow", bWidth: 5 });
     // Each part's Width is its own definition, keyed by its body.
-    expect(registry.getDefinitions().filter(d => d.label === "Width").map(d => d.body)).toEqual(["A", "B"]);
-    const width = registry.getDefinitions().find(d => d.label === "Width" && d.body === "B")!;
+    expect(registry.getDefinitions().filter(d => d.label === "Width").map(d => d.body)).toEqual(["A#1", "B#1"]);
+    const width = registry.getDefinitions().find(d => d.label === "Width" && d.body === "B#1")!;
     expect(width.currentValue).toBe(5);
     expect(width.configuredValue).toBe(5);
-    const aWidth = registry.getDefinitions().find(d => d.label === "Width" && d.body === "A")!;
+    const aWidth = registry.getDefinitions().find(d => d.label === "Width" && d.body === "A#1")!;
     expect(aWidth.currentValue).toBe(100);
     expect(aWidth.configuredValue).toBeUndefined();
-    expect(registry.getConfigurationValues("A").size).toBe(0);
-    expect(registry.getConfigurationValues("B")).toEqual(new Map<string, ParamVal>([["Width", 5]]));
+    expect(registry.getConfigurationValues("A#1").size).toBe(0);
+    expect(registry.getConfigurationValues("B#1")).toEqual(new Map<string, ParamVal>([["Width", 5]]));
   });
 
   it("each body applies its own table's cells for the same row name", () => {
@@ -439,8 +439,8 @@ describe("configurations() — the root layer is per body", () => {
     getCurrentScene().materializeLeftoverDefinitions();
     expect(seen).toEqual({ aConfiguration: "Wide", aWidth: 200, bConfiguration: "Wide", bWidth: 20 });
     expect(registry.getConfigurations().active).toBe("Wide");
-    expect(registry.getConfigurationValues("A")).toEqual(new Map<string, ParamVal>([["Width", 200]]));
-    expect(registry.getConfigurationValues("B")).toEqual(new Map<string, ParamVal>([["Width", 20]]));
+    expect(registry.getConfigurationValues("A#1")).toEqual(new Map<string, ParamVal>([["Width", 200]]));
+    expect(registry.getConfigurationValues("B#1")).toEqual(new Map<string, ParamVal>([["Width", 20]]));
     // Every cell was read by its own body: nothing unconsumed, nothing warned
     // past the duplicate-name notice.
     warnConfigurationRun(registry);

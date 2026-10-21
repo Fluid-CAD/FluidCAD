@@ -19,10 +19,13 @@ export type ConfigurationRow = Record<string, ParamVal>;
 /**
  * One `configurations()` table as its body declared it, recorded on the
  * registry by the root run so the host learns the rows from the render
- * (no static scan). `definition` is the part or assembly the body belongs to.
+ * (no static scan). `definition` is the body's identity (a part's
+ * `PartIdentity`, an assembly's name) and `name` its definition name — the
+ * part's label.
  */
 export type ConfigurationTable = {
   definition: string;
+  name: string;
   names: string[];
   rows: Record<string, ConfigurationRow>;
 };
@@ -80,13 +83,21 @@ export type ParamDefinition = {
    */
   part?: SourceLocation;
   /**
-   * The definition name of the `part()` / `assembly()` body that declared
-   * it — with the label, the parameter's identity (`ParamKey`): two parts of
-   * one file may both declare `Width`, and each is its own row, override and
-   * baseline. Absent for a project parameter (`kind: 'global'`), which is
-   * keyed by its label alone.
+   * The identity of the `part()` / `assembly()` body that declared it — with
+   * the label, the parameter's identity (`ParamKey`): two parts of one file
+   * may both declare `Width`, and each is its own row, override and
+   * baseline. A part's is its hidden `PartIdentity` (the export binding,
+   * else `Name#n`), so two parts that share a NAME are two bodies too; an
+   * assembly's is its name. Absent for a project parameter
+   * (`kind: 'global'`), which is keyed by its label alone.
    */
   body?: string;
+  /**
+   * The declaring body's definition name — the `part()` / `assembly()`
+   * call's first argument, what a person knows the part by. Shown in place
+   * of `body`; absent with it.
+   */
+  bodyName?: string;
   /**
    * The active configuration row's cell for this label, coerced to the
    * literal's type — present only when a row applies to the build and names
@@ -103,7 +114,10 @@ export type ParamDefinition = {
  */
 export type UnconsumedConfigurationCells = {
   kind: 'part' | 'assembly';
+  /** The body's identity, as `ConfigurationTable.definition`. */
   definition: string;
+  /** The body's definition name, for messages. */
+  name: string;
   /** The row's labels no `param()` of the body read. */
   labels: string[];
   /** The labels the body did resolve, for the warning's "declared" list. */
@@ -120,8 +134,10 @@ export type UnconsumedConfigurationCells = {
  */
 type BodyFrame = {
   kind: 'part' | 'assembly';
-  /** The definition name — what a recorded table is filed under. */
+  /** The body's identity — what its parameters and recorded table are filed under. */
   definition: string;
+  /** The body's definition name — its label in messages. */
+  name: string;
   paramRan: boolean;
   configured: boolean;
   /**
@@ -311,7 +327,7 @@ export class ParamRegistry {
     this.installed.set(frame.definition, new Map(frame.configuration));
   }
 
-  /** The row `definition`'s body installed this render — label → the raw cell; empty when it installed none. */
+  /** The row the body of identity `definition` installed this render — label → the raw cell; empty when it installed none. */
   getConfigurationValues(definition: string): Map<string, ParamVal> {
     return new Map(this.installed.get(definition) ?? []);
   }
@@ -335,8 +351,9 @@ export class ParamRegistry {
   /**
    * Record a body's `configurations()` table so the host can read the rows
    * after the render. A body that runs twice at root re-records its table in
-   * place; a second DEFINITION declaring a row name another table already
-   * has is warned about — the dropdown lists every row of every table.
+   * place (a body is its identity: two parts of one name are two tables); a
+   * second body declaring a row name another table already has is warned
+   * about — the dropdown lists every row of every table.
    */
   recordConfigurations(table: ConfigurationTable): void {
     const existing = this.tables.findIndex(t => t.definition === table.definition);
@@ -348,7 +365,7 @@ export class ParamRegistry {
       const clashes = table.names.filter(name => other.names.includes(name));
       if (clashes.length > 0) {
         console.warn(
-          `configurations(): '${table.definition}' and '${other.definition}' both declare `
+          `configurations(): '${table.name}' and '${other.name}' both declare `
           + `${clashes.map(n => `'${n}'`).join(', ')} — row names should be unique across the file's tables.`,
         );
       }
@@ -394,9 +411,13 @@ export class ParamRegistry {
    * part materializing inside an assembly occurrence, a part read mid-body
    * of another), so frames stack, and each starts with no row. Pair with
    * `endBody()` in a `finally`.
+   *
+   * @param definition - The body's identity, what its parameters and table
+   *   are filed under: a part's `PartIdentity`, an assembly's name.
+   * @param name - The definition name (the part's label); the identity when omitted.
    */
-  beginBody(definition: string, kind: 'part' | 'assembly'): void {
-    this.bodies.push({ kind, definition, paramRan: false, configured: false, configuration: null, resolved: new Set() });
+  beginBody(definition: string, kind: 'part' | 'assembly', name: string = definition): void {
+    this.bodies.push({ kind, definition, name, paramRan: false, configured: false, configuration: null, resolved: new Set() });
   }
 
   /**
@@ -417,6 +438,7 @@ export class ParamRegistry {
     this.unconsumed.set(frame.definition, {
       kind: frame.kind,
       definition: frame.definition,
+      name: frame.name,
       labels,
       declared: Array.from(frame.resolved),
     });
@@ -432,9 +454,14 @@ export class ParamRegistry {
     return this.bodies.length > 0;
   }
 
-  /** The innermost running body's definition name, or null outside every body. */
+  /** The innermost running body's identity (`ParamDefinition.body`), or null outside every body. */
+  currentBodyId(): string | null {
+    return this.currentBody()?.definition ?? null;
+  }
+
+  /** The innermost running body's definition name (`ParamDefinition.bodyName`), or null outside every body. */
   currentBodyName(): string | null {
-    return this.bodies.length > 0 ? this.bodies[this.bodies.length - 1].definition : null;
+    return this.currentBody()?.name ?? null;
   }
 
   /** A `param()` ran in the innermost body — `configurations()` after this is refused. */

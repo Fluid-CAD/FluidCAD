@@ -15,6 +15,7 @@ import type { ParamOverrides, ParamVal } from "../param-registry.js";
 import { canonicalVariantKey, collectedParamValues, toOverrideMap, warnUnknownOverrides } from "./param-overrides.js";
 import { getActiveUnit, getUnitRegistry, withUnit } from "../units/registry.js";
 import type { LengthUnit } from "../units/units.js";
+import { PartIdentity } from "./part-identity.js";
 
 /**
  * A lazy part definition created by `part(name, callback)`.
@@ -53,12 +54,54 @@ export class PartDefinition<T = unknown> {
   /** One warning per definition when a callback still returns a features object. */
   private warnedReturn = false;
 
+  /** The body's hidden identity — the export binding, else `Name#n`. */
+  private readonly identity: PartIdentity;
+
+  /**
+   * @param ordinal - 1-based place among the parts named `partName` that the
+   *   file created — what the identity falls back on without a binding.
+   */
   constructor(
     public readonly partName: string,
     private readonly callback: () => T,
     private sourceLocation: SourceLocation | null = null,
+    ordinal = 1,
   ) {
     this.displayName = partName;
+    this.identity = new PartIdentity(partName, ordinal);
+  }
+
+  /**
+   * The host names the definition by an export binding of its module
+   * (`export const lid = part('Plate', …)` → `'lid'`), once the module
+   * evaluated and before it builds any body: the binding is the body's
+   * identity. See {@link PartIdentity}.
+   */
+  bindExport(exportName: string): this {
+    this.identity.bind(exportName);
+    return this;
+  }
+
+  /**
+   * Hand every part definition among a module's exports its binding — what
+   * an entry render does after evaluating the module, before it builds the
+   * first body, so a body another reads on demand is named too. A factory's
+   * definition is bound by the caller once the factory returned it.
+   */
+  static bindExports(mod: Record<string, unknown>): void {
+    for (const [exportName, value] of Object.entries(mod)) {
+      if (value instanceof PartDefinition) {
+        value.bindExport(exportName);
+      }
+    }
+  }
+
+  /**
+   * The body's hidden identity: what its parameters, overrides and table
+   * are filed under. Fixed by the first build.
+   */
+  getBodyId(): string {
+    return this.identity.id;
   }
 
   /** Re-stamp where the definition was authored — variants built after this call carry it. */
@@ -196,6 +239,7 @@ export class PartDefinition<T = unknown> {
       partObj.setSourceLocation(this.sourceLocation);
     }
     partObj.setMaterial(this.materialId);
+    partObj.setBodyId(this.getBodyId());
     // The Part itself bypasses registerBuilder so it is stamped here.
     partObj.setUnit(definitionUnit);
     partObj.setTargetUnit(targetUnit);
@@ -211,7 +255,7 @@ export class PartDefinition<T = unknown> {
       // not become that container's child.
       extensions = withUnit(definitionUnit, () => scene.runTopLevel(() => {
         scene.startProgressiveContainer(partObj);
-        registry.beginBody(this.partName, "part");
+        registry.beginBody(this.getBodyId(), "part", this.partName);
         try {
           return this.callback();
         } finally {

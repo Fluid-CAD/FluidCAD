@@ -27,13 +27,18 @@ function part<T>(name: string, callback: () => T): PartDefinition<T> {
   if (typeof callback !== "function") {
     throw new Error("part(): the second argument is the body callback building the part's geometry.");
   }
-  const definition = new PartDefinition<T>(name, callback, captureSourceLocation());
+  const location = captureSourceLocation();
+  const scene = getCurrentScene();
+  // The place among the file's parts of this name — the identity a part
+  // without an export binding falls back on (`Plate#2`, see PartIdentity).
+  const ordinal = scene?.nextPartOrdinal(name, location?.filePath ?? null) ?? 1;
+  const definition = new PartDefinition<T>(name, callback, location, ordinal);
   // Track on the scene (when one is current) so an entry render can
   // materialize definitions nothing exported or inserted — the open part
   // file stays WYSIWYG. Definitions created outside any scene (a library
   // module imported before init) are legal; only insert/export can build
   // those.
-  getCurrentScene()?.trackPartDefinition(definition);
+  scene?.trackPartDefinition(definition);
   return definition;
 }
 

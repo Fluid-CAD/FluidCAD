@@ -161,6 +161,8 @@ export class Scene {
 
   /** Every part definition created while this scene was current — see materializeLeftoverDefinitions. */
   private partDefinitions: TrackedPartCall[] = [];
+  /** How many `part()` calls of each (file, name) ran while this scene was current — see nextPartOrdinal. */
+  private partOrdinals: Map<string, number> = new Map();
   /** The timeline order, for one (list version, structure epoch) pair — see getTimelineObjects. */
   private timelineIndex: { version: number; epoch: number; objects: SceneObject[] } | null = null;
   /** Where a breakpoint() stopped this build — see markBreakpoint. */
@@ -205,6 +207,20 @@ export class Scene {
    */
   get declaredUnit(): LengthUnit | null {
     return this.resolveUnits().declaredUnit;
+  }
+
+  /**
+   * The 1-based place of a new `part()` call among the calls of the same
+   * name from the same file while this scene is current — the order of
+   * appearance `PartIdentity` falls back on for a part without an export
+   * binding (`Plate#1`, `Plate#2`). Each render evaluates the file into a
+   * fresh scene, so the count restarts with it.
+   */
+  nextPartOrdinal(name: string, filePath: string | null): number {
+    const key = `${filePath ?? ''}\u0000${name}`;
+    const ordinal = (this.partOrdinals.get(key) ?? 0) + 1;
+    this.partOrdinals.set(key, ordinal);
+    return ordinal;
   }
 
   trackPartDefinition(definition: TrackedPartDefinition): void {

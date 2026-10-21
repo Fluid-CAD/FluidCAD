@@ -205,7 +205,8 @@ export function registerBuilder<T extends Function>(
 export { createParamRegistry, getParamRegistry, setParamRegistry, pushParamScope, popParamScope, activeParamScope, coerceParamOverride } from './param-registry.js';
 export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar, ParamOverrides, ParamScope } from './param-registry.js';
 export { ParamKey } from './param-key.js';
-export type { ParamLabelResolution } from './param-key.js';
+export type { ParamLabelResolution, ParamBodyHolder } from './param-key.js';
+export { PartIdentity } from './features/part-identity.js';
 export { SessionParamOverrides } from './session-param-overrides.js';
 export type { SessionParamOverride } from './session-param-overrides.js';
 export { PartDefinition } from './features/part-definition.js';

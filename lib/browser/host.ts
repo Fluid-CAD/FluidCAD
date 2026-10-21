@@ -267,12 +267,17 @@ export class BrowserEngineHost {
     let breakpointHit = false;
     try {
       const mod = await this.evaluator();
-      for (const value of Object.values(mod)) {
+      // Every exported part learns its binding — its body's identity —
+      // before the first body builds, so a part another reads on demand is
+      // named too (the desktop's LocalSceneHost does the same).
+      PartDefinition.bindExports(mod);
+      for (const [exportName, value] of Object.entries(mod)) {
         let result: unknown = value;
         if (typeof value === "function") {
           result = await (value as () => unknown)();
         }
         if (result instanceof PartDefinition) {
+          result.bindExport(exportName);
           result.materializeInto(scene);
         }
         // assembly() definitions are lazy — an exported definition (or a

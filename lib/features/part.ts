@@ -57,6 +57,14 @@ export class Part extends SceneObject implements IPart {
    */
   private _material: string | null = null;
 
+  /**
+   * The definition body's hidden identity (`PartIdentity`: the export
+   * binding, else `Name#n`), stamped by `PartDefinition.buildVariant` — what
+   * the body's parameters are filed under, so a chooser can tell two parts
+   * of one name apart the way the Parameters panel does. Null until stamped.
+   */
+  private _bodyId: string | null = null;
+
   constructor(public partName: string) {
     super();
     this.name(partName);
@@ -98,6 +106,11 @@ export class Part extends SceneObject implements IPart {
       return false;
     }
 
+    // Like the material, the identity rides the payload.
+    if (this._bodyId !== other._bodyId) {
+      return false;
+    }
+
     return true;
   }
 
@@ -107,6 +120,15 @@ export class Part extends SceneObject implements IPart {
 
   setMaterial(id: string | null): void {
     this._material = id;
+  }
+
+  setBodyId(id: string): void {
+    this._bodyId = id;
+  }
+
+  /** The definition body's hidden identity, or null when nothing stamped one. */
+  getBodyId(): string | null {
+    return this._bodyId;
   }
 
   /** The material id `.material()` assigned on the definition, or null. */
@@ -323,6 +345,8 @@ export class Part extends SceneObject implements IPart {
       name: this.partName,
       /** The material id, absent when the definition assigned none. */
       material: this._material ?? undefined,
+      /** The definition body's identity (`PartIdentity`), absent when none was stamped. */
+      bodyId: this._bodyId ?? undefined,
       paramValues: this.paramValues,
       configurations: this.configurations,
       // Control metadata for per-instance parameter editing (sourceLocation

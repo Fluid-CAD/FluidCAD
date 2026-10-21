@@ -133,7 +133,7 @@ export function warnConfigurationRun(registry = getParamRegistry(), paused = fal
   }
   for (const entry of registry.getUnconsumedConfigurationCells()) {
     console.warn(
-      `${entry.kind} '${entry.definition}': configuration '${active}' sets unknown parameter${entry.labels.length > 1 ? 's' : ''} `
+      `${entry.kind} '${entry.name}': configuration '${active}' sets unknown parameter${entry.labels.length > 1 ? 's' : ''} `
       + `${entry.labels.map(l => `'${l}'`).join(', ')} — this body declared `
       + `${declaredList(entry.declared)}.${globalsHint(entry.labels, registry)}`,
     );

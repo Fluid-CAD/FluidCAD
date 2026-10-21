@@ -71,9 +71,10 @@ export class ParamValue<T extends string | number | boolean> {
     if (sourceLocation) {
       this._definition.sourceLocation = sourceLocation;
     }
-    const body = registry.currentBodyName();
+    const body = registry.currentBodyId();
     if (body !== null) {
       this._definition.body = body;
+      this._definition.bodyName = registry.currentBodyName() ?? body;
     }
     registry.register(this._definition);
   }
@@ -301,10 +302,13 @@ export default function param(
     definition.part = partLocation;
   }
   // The body that declared it — with the label, the parameter's identity in
-  // the registry: the same label in two parts is two parameters.
-  const body = kind === 'global' ? null : registry.currentBodyName();
+  // the registry: the same label in two parts is two parameters, and so is
+  // the same label in two parts of one name (the body is the part's hidden
+  // identity; its name rides along for display).
+  const body = kind === 'global' ? null : registry.currentBodyId();
   if (body !== null) {
     definition.body = body;
+    definition.bodyName = registry.currentBodyName() ?? body;
   }
 
   if (options) {

@@ -76,7 +76,8 @@ export default function configurations(rows: ConfigurationRows): string {
 
   const table = validateRows(rows);
   const names = Object.keys(table);
-  const definition = registry.currentBodyName() ?? "";
+  const definition = registry.currentBodyId() ?? "";
+  const bodyName = registry.currentBodyName() ?? definition;
 
   // A scoped run — `insert(def, 'Name')` from a parent. The scope carries
   // the requested name; the row's cells become the scope's configuration
@@ -92,7 +93,7 @@ export default function configurations(rows: ConfigurationRows): string {
     const row = table[requested];
     if (!row) {
       throw new Error(
-        `'${definition}' has no configuration '${requested}' — `
+        `'${bodyName}' has no configuration '${requested}' — `
         + (names.length > 0 ? `its configurations() declares ${names.map(n => `'${n}'`).join(", ")}.` : "its configurations() declares no rows."),
       );
     }
@@ -103,7 +104,7 @@ export default function configurations(rows: ConfigurationRows): string {
   // The root run — the defining file renders. The host set the active name
   // before evaluation; the table is recorded whatever is active so the host
   // reads the rows from the render.
-  registry.recordConfigurations({ definition, names, rows: table });
+  registry.recordConfigurations({ definition, name: bodyName, names, rows: table });
   const active = registry.getActiveConfiguration();
   if (active === null) {
     return DEFAULT_CONFIGURATION;

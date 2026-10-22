@@ -9,6 +9,7 @@ function one(entry: {
   exportName: string;
   kind: 'value' | 'factory' | 'assembly';
   params?: Record<string, string | number | boolean | (string | number)[]>;
+  configuration?: string;
 }) {
   return { inserts: [entry] };
 }
@@ -159,6 +160,36 @@ describe('applyInsertPartEdit', () => {
       params: { Thickness: 20 },
     }));
     expect(result.newCode).toContain(`const sidePlate1 = insert(sidePlate(), { Thickness: 20 }).name('sidePlate1');`);
+  });
+
+  it('renders a configuration name as the second argument, the overrides moving to the third', async () => {
+    const code = `import { insert } from 'fluidcad/core';\n`;
+    const named = await applyInsertPartEdit(code, one({
+      importFrom: './frame.assembly.js', exportName: 'frame', kind: 'value', configuration: 'Wide',
+    }));
+    expect(named.newCode).toContain(`const frame1 = insert(frame, 'Wide').name('frame1');`);
+    const withParams = await applyInsertPartEdit(code, one({
+      importFrom: './frame.assembly.js', exportName: 'frame', kind: 'value',
+      configuration: "Extra 'Wide'", params: { Depth: 1000 },
+    }));
+    expect(withParams.newCode).toContain(`const frame1 = insert(frame, 'Extra \\'Wide\\'', { Depth: 1000 }).name('frame1');`);
+    const factory = await applyInsertPartEdit(code, one({
+      importFrom: './frame.assembly.js', exportName: 'frame', kind: 'factory', configuration: 'Wide',
+    }));
+    expect(factory.newCode).toContain(`const frame1 = insert(frame(), 'Wide').name('frame1');`);
+  });
+
+  it('omits the Default configuration and refuses an empty name', async () => {
+    const code = `import { insert } from 'fluidcad/core';\n`;
+    const plain = await applyInsertPartEdit(code, one({
+      importFrom: './frame.assembly.js', exportName: 'frame', kind: 'value', configuration: 'Default', params: { Depth: 1 },
+    }));
+    expect(plain.newCode).toContain(`const frame1 = insert(frame, { Depth: 1 }).name('frame1');`);
+    const empty = await applyInsertPartEdit(code, one({
+      importFrom: './frame.assembly.js', exportName: 'frame', kind: 'value', configuration: ' ',
+    }));
+    expect(empty.error).toBe('The configuration of frame needs a name.');
+    expect(empty.newCode).toBe(code);
   });
 
   it('applies a whole batch in one transform with self-consistent numbering', async () => {

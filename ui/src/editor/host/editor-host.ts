@@ -301,10 +301,13 @@ export class EditorHost {
   /**
    * A keystroke in the editor. Debounced, and only for the model the scene is
    * rendered from — typing in a helper re-renders through its importer, which
-   * the engine picks up on the next render of the model itself.
+   * the engine picks up on the next render of the model itself — or for a
+   * `*.params.js` file: a project parameter's literal IS its value, so an
+   * edit there renders the current model as a dependency update
+   * (`keepCurrent`, see {@link renderNow}) and the Parameters column follows.
    */
   scheduleLiveRender(absPath: string): void {
-    if (absPath !== this.deps.currentModelPath()) {
+    if (absPath !== this.deps.currentModelPath() && !isParamsFile(absPath)) {
       return;
     }
     const entry = this.deps.models.get(absPath);
@@ -331,6 +334,11 @@ export class EditorHost {
       console.warn('FluidCAD: live render failed:', err);
     });
   }
+}
+
+/** A project-parameters file: its exports are the catalog the Parameters column lists. */
+export function isParamsFile(absPath: string): boolean {
+  return absPath.endsWith('.params.js');
 }
 
 export { monaco };

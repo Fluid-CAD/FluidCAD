@@ -4,6 +4,7 @@ import type { Response } from 'express';
 import type { FluidCadServer } from '../../fluidcad-server/index.ts';
 import { FeatureEditDispatcher } from '../../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec, FeatureCallees, FeatureCalleeSource, FeatureEditApply } from '../../apply-feature-edit/index.ts';
+import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { ForeignPickResolver, type ForeignPickSummary } from '../foreign-exposure.ts';
 import type { FeatureCatalogEntry } from '../../feature-catalog/catalog.ts';
 import type { SketchLoc } from './locations.ts';
@@ -34,6 +35,8 @@ export type FeatureCatalogReader = {
 export type ApplyFeatureServices = {
   fluidCadServer: FluidCadServer;
   dispatcher: FeatureEditDispatcher;
+  /** The global-parameters catalog, so a transform imports the project parameters an expression reads (§2.8). */
+  globals?: GlobalParamCatalog;
   synthesisOptionsForFile: ReturnType<typeof makeSynthesisOptionsForFile>;
   /**
    * What the calls in a file build, custom features included (the feature

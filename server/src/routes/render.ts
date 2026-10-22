@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { CompileError } from '../ws-protocol.ts';
 import type { ObjectBuildError } from '../fluidcad-server/index.ts';
 import type { RenderChanges } from '../../../lib/dist/index.js';
+import { isParamsFile } from '../file-kind.ts';
 
 /**
  * How long a caller that asked for `uiApplied` waits for a page to put the
@@ -22,7 +23,13 @@ export type RenderOutcome =
     }
   | { state: 'compile-error'; version: number; durationMs: number; compileError: CompileError }
   | { state: 'superseded'; version: number; durationMs: number }
-  | { state: 'no-scene-manager'; version: number; durationMs: number };
+  | { state: 'no-scene-manager'; version: number; durationMs: number }
+  /**
+   * A `*.params.js` file was folded in as a dependency, but no model is open
+   * to re-render against it. Its text is kept, so the next model opened
+   * sees it; nothing was rendered.
+   */
+  | { state: 'no-model'; version: number; absPath: string; durationMs: number };
 
 /**
  * `POST /api/render` — synchronous render trigger used by the MCP server
@@ -60,6 +67,11 @@ export type RenderOutcome =
  * frame instead of off-screen. The page's own live-updates never set it —
  * the camera is the user's while they type.
  *
+ * A `*.params.js` file is not a model and is refused (422) unless
+ * `keepCurrent` is set, in which case it folds into the open model as a
+ * dependency — the viewport never switches to a params file
+ * (`docs/global-parameters-plan.md` §2.2, §2.9).
+ *
  * Whoever invokes this is responsible for the on-disk write — we only run
  * the render. Pairing both in one HTTP round-trip is what lets MCP
  * `write_file` return a synchronous { written, render } to the agent.
@@ -87,6 +99,13 @@ export function createRenderRouter(
     }
     if (typeof code !== 'string') {
       res.status(400).json({ error: '`code` must be a string.' });
+      return;
+    }
+    if (isParamsFile(filePath) && keepCurrent !== true) {
+      res.status(422).json({
+        error: `${filePath} is a parameters file, not a model — it cannot be rendered. `
+          + 'Pass `keepCurrent: true` to fold it into the open model instead.',
+      });
       return;
     }
 

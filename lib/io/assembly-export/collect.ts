@@ -70,7 +70,7 @@ export function collectAssemblyExportTree(scene: AssemblyScene, options: Collect
     const solids = part.getShapes(undefined, "solid")
       .filter((s): s is Solid => s.isSolid())
       .map(solid => ColoredSolids.fromHolder(part, solid));
-    parts.set(inst.partId, { partId: inst.partId, name: inst.partName, solids });
+    parts.set(inst.partId, { partId: inst.partId, name: configuredName(inst.partName, inst.configuration), solids });
   }
 
   const world = scene.occurrenceWorldPoses();
@@ -85,7 +85,7 @@ export function collectAssemblyExportTree(scene: AssemblyScene, options: Collect
     const node: Extract<AssemblyExportNode, { kind: 'occurrence' }> = {
       kind: 'occurrence',
       occurrenceId: occ.occurrenceId,
-      name: occ.name,
+      name: configuredName(occ.name, occ.configuration),
       pose: { position: occ.position, quaternion: occ.quaternion },
       children: [],
     };
@@ -99,7 +99,7 @@ export function collectAssemblyExportTree(scene: AssemblyScene, options: Collect
     childrenOf(inst.owner).push({
       kind: 'instance',
       instanceId: inst.instanceId,
-      name: inst.name,
+      name: configuredName(inst.name, inst.configuration),
       partId: inst.partId,
       pose: relativePose(ownerWorld, worldPose),
     });
@@ -115,4 +115,13 @@ export function collectAssemblyExportTree(scene: AssemblyScene, options: Collect
       posesSource: options.livePoses !== undefined ? 'live' : 'statement',
     },
   };
+}
+
+/**
+ * A product or occurrence name with the configuration it was inserted with
+ * — `frame (Wide)` — so a BOM downstream can tell variants apart. Untouched
+ * when the record shows the literals.
+ */
+function configuredName(name: string, configuration: string | undefined): string {
+  return configuration === undefined ? name : `${name} (${configuration})`;
 }

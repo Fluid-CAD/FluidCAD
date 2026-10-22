@@ -48,6 +48,16 @@ export type HubRouterOptions = {
  * - `GET /api/hub/packages/@scope/name/versions/<version>`: one version's
  *   manifest (its features' metadata with every image on the file proxy),
  *   notes and README path, for the Hub panel's Features and Readme tabs.
+ * - `GET /api/hub/packages/@scope/name/me`: what only the signed-in account
+ *   sees about the package (`liked`, its lists, its Helpful marks), and
+ *   `PUT` / `DELETE /api/hub/packages/@scope/name/like`: like it or stop
+ *   (idempotent), answering `{ package, liked, likes }` with the count
+ *   after the change. They act as the account, so they never go anonymous:
+ *   401 `signed-out` (no credentials, or a token the hub refused), 403
+ *   `sign-in-again` (a CLI sign-in older than the hub's `social` scope),
+ *   403 `forbidden` (a personal token without it, a suspended account),
+ *   404 `not-found`, 429 `rate-limited`. `PUT` and `DELETE` need a CORS
+ *   preflight, so another site can't like on this machine's behalf.
  * - `GET /api/hub/files/@scope/name/<version>/<path…>` and
  *   `GET /api/hub/media/@scope/name/<id>`: a version's file and a
  *   screenshot, through the disk cache (`$FLUIDCAD_HOME/cache/hub`), with
@@ -136,6 +146,28 @@ export function createHubRouter(options: HubRouterOptions): Router {
       HubRefusal.send(res, err, bridge);
     }
   });
+
+  router.get('/hub/packages/:scope/:name/me', async (req, res) => {
+    try {
+      const answer = await bridge.socialState(`${req.params.scope}/${req.params.name}`);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(answer);
+    } catch (err) {
+      HubRefusal.send(res, err, bridge);
+    }
+  });
+
+  for (const [method, liked] of [['put', true], ['delete', false]] as const) {
+    router[method]('/hub/packages/:scope/:name/like', async (req, res) => {
+      try {
+        const answer = await bridge.setLiked(`${req.params.scope}/${req.params.name}`, liked);
+        res.setHeader('Cache-Control', 'no-store');
+        res.json(answer);
+      } catch (err) {
+        HubRefusal.send(res, err, bridge);
+      }
+    });
+  }
 
   router.get('/hub/files/:scope/:name/:version/*path', async (req, res) => {
     try {

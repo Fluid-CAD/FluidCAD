@@ -46,6 +46,7 @@ async function mount(pkg: HubPackage = FakeHubClient.pkg(), options: { projectOp
     onBack,
     onInstalled,
     onPublisher,
+    signIn: vi.fn(),
     now: () => Date.parse('2026-10-12T12:00:00Z'),
   });
   views.push(view);
@@ -294,6 +295,7 @@ describe('Install (decisions 6 and 7)', () => {
       openExternal: vi.fn(),
       onBack: vi.fn(),
       onInstalled: vi.fn(),
+      signIn: vi.fn(),
       now: () => Date.parse('2026-10-12T12:00:00Z'),
     });
     views.push(view);

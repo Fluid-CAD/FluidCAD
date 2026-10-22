@@ -1,4 +1,4 @@
-import type { ParamDefinition } from "../param-registry.js";
+import type { ConfigurationsSummary, ParamDefinition } from "../param-registry.js";
 import type { SourceLocation } from "../common/scene-object.js";
 import type { createManager } from "../scene-manager.js";
 import type { LengthUnit } from "../units/units.js";
@@ -9,7 +9,13 @@ export type BrowserSceneKind = "part" | "assembly";
 /** The assembly payload the desktop's scene-rendered message carries (instances, mates, occurrences, connectors, replicates). */
 export type BrowserSerializedAssembly = NonNullable<ReturnType<ReturnType<typeof createManager>["getAssemblyData"]>>;
 
-export const VIEWER_PROTOCOL_VERSION = 1;
+/**
+ * The engine worker's message protocol (FluidCAD-Viewer's `engine-worker.js`),
+ * reported in `EngineInfo` so an evergreen shell knows what a pinned engine
+ * understands. Additive: 2 added `select-configuration` and `load-model`'s
+ * `configuration` (the `configurations()` row to open on).
+ */
+export const VIEWER_PROTOCOL_VERSION = 2;
 
 export interface EngineInfo {
   protocolVersion: number;
@@ -49,6 +55,12 @@ export interface BrowserRenderResult {
   rollbackScopePartId?: string;
   breakpointHit: boolean;
   params?: ParamDefinition[];
+  /**
+   * The `configurations()` rows the render declared and which one is
+   * showing (`active`, `'Default'` for the literals). Omitted with `params`
+   * on a compile error.
+   */
+  configurations?: ConfigurationsSummary;
   objectErrors: BrowserObjectBuildError[];
   /**
    * Non-fatal notices per row (`Unknown material: <id>` on a part row),

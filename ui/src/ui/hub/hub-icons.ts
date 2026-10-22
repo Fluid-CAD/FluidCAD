@@ -1,6 +1,7 @@
 import iconPackages from '@tabler/icons/outline/packages.svg?raw';
 import iconSearch from '@tabler/icons/outline/search.svg?raw';
 import iconHeart from '@tabler/icons/outline/heart.svg?raw';
+import iconHeartFilled from '@tabler/icons/filled/heart.svg?raw';
 import iconDownload from '@tabler/icons/outline/download.svg?raw';
 import iconExternalLink from '@tabler/icons/outline/external-link.svg?raw';
 import iconArrowLeft from '@tabler/icons/outline/arrow-left.svg?raw';
@@ -29,6 +30,8 @@ export class HubIcons {
   static readonly PACKAGES = iconPackages;
   static readonly SEARCH = iconSearch;
   static readonly HEART = iconHeart;
+  /** A package you like (the Like toggle pressed), as the hub's site draws it. */
+  static readonly HEART_FILLED = iconHeartFilled;
   static readonly DOWNLOAD = iconDownload;
   static readonly EXTERNAL = iconExternalLink;
   static readonly BACK = iconArrowLeft;

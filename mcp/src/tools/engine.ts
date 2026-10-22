@@ -58,13 +58,89 @@ async function callWithClient<T>(
 export type RecomputeInput = WorkspaceArg & {
   /** Ask for `changes` (default true); false skips the summary on a huge model. */
   includeChanges?: boolean;
+  /**
+   * A `configurations()` row to switch the session to first (what
+   * select_configuration does), `'Default'` for the literals.
+   */
+  configuration?: string;
 };
 /** `changes`: every object rebuilt (a recompute caches nothing), with bounds before and after. */
 export type RecomputeOutput = { success: boolean; changes?: RenderChanges } & RenderReport;
 
 export async function recompute(input: RecomputeInput): Promise<ToolResult<RecomputeOutput>> {
+  const configuration = validateConfiguration(input?.configuration);
+  if (configuration.ok === false) {
+    return configuration as ToolResult<RecomputeOutput>;
+  }
+  if (configuration.data !== undefined) {
+    const selected = await selectConfiguration({ ...input, name: configuration.data });
+    if (selected.ok === false) {
+      return selected as ToolResult<RecomputeOutput>;
+    }
+  }
   const body = { awaitUi: true, ...(input?.includeChanges === false ? {} : { changes: true }) };
   return callWithClient(input, (client) => client.postJson<RecomputeOutput>('/api/recompute', body));
+}
+
+// ---------------------------------------------------------------------------
+// select_configuration
+// ---------------------------------------------------------------------------
+
+/** The `configurations()` table as the server's last render declared it. */
+export type ConfigurationsSummary = {
+  active: string;
+  names: string[];
+  rows: Record<string, Record<string, unknown>>;
+  modified: boolean;
+};
+
+export type SelectConfigurationInput = WorkspaceArg & { name: string };
+export type SelectConfigurationOutput = { success: boolean; configurations?: ConfigurationsSummary };
+
+/**
+ * `configuration` as a tool argument: absent, or a non-empty row name.
+ */
+function validateConfiguration(value: unknown): ToolResult<string | undefined> {
+  if (value === undefined) {
+    return ok(undefined);
+  }
+  if (typeof value !== 'string' || value.trim() === '') {
+    return err('invalid-input', '`configuration` must be a non-empty string — a configurations() row name, or "Default".');
+  }
+  return ok(value);
+}
+
+/**
+ * Switch the session to a `configurations()` row — what the Parameters
+ * panel's dropdown does: the row's values show, the session's tweaks go,
+ * and the choice is remembered for the file. A name the model does not
+ * declare is refused with the declared names (the server alone would fall
+ * back to Default).
+ */
+export async function selectConfiguration(
+  input: SelectConfigurationInput,
+): Promise<ToolResult<SelectConfigurationOutput>> {
+  if (typeof input?.name !== 'string' || input.name.trim() === '') {
+    return err('invalid-input', '`name` is required — a configurations() row name, or "Default".');
+  }
+  const name = input.name;
+  const table = await callWithClient(input, (client) => client.getJson<ConfigurationsSummary>('/api/configurations'));
+  if (table.ok === false) {
+    return table as ToolResult<SelectConfigurationOutput>;
+  }
+  const names = Array.isArray(table.data?.names) ? table.data.names : [];
+  if (name !== 'Default' && !names.includes(name)) {
+    return err(
+      'unknown-configuration',
+      names.length > 0
+        ? `Unknown configuration '${name}'. Declared: ${names.map((n) => `'${n}'`).join(', ')} (and Default).`
+        : `Unknown configuration '${name}': the model declares no configurations() table (only Default).`,
+      { names },
+    );
+  }
+  return callWithClient(input, (client) =>
+    client.postJson<SelectConfigurationOutput>('/api/configurations/select', { name }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +254,11 @@ export type ExportInput = WorkspaceArg & {
   includeColors?: boolean;
   /** STL only: scale the mesh into mm (default) or keep the document's units. */
   scaleTo?: ExportScaleTo;
+  /**
+   * A `configurations()` row to export instead of the one on screen; the
+   * server renders it for this export alone and the session stays as it is.
+   */
+  configuration?: string;
 };
 
 /**
@@ -325,6 +406,10 @@ export async function exportShapes(input: ExportInput): Promise<ToolResult<Expor
   if (input.scaleTo !== undefined && input.scaleTo !== 'mm' && input.scaleTo !== 'document') {
     return err('invalid-input', '`scaleTo` must be "mm" or "document".');
   }
+  const configuration = validateConfiguration(input.configuration);
+  if (configuration.ok === false) {
+    return configuration as ToolResult<ExportOutput>;
+  }
 
   const body: Record<string, unknown> = {
     format: input.format,
@@ -339,6 +424,9 @@ export async function exportShapes(input: ExportInput): Promise<ToolResult<Expor
   }
   if (input.saveAsPath !== undefined) {
     body.saveAsPath = input.saveAsPath;
+  }
+  if (configuration.data !== undefined) {
+    body.configuration = configuration.data;
   }
 
   const resolved = resolveClient(input);

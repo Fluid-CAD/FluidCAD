@@ -24,6 +24,7 @@ import {
   extractVariablesInAssembly,
   extractVariablesInScope,
   RenderedProperties,
+  type ScopeGlobals,
   type VariableInfo,
 } from '../code-editor/index.ts';
 import { FeatureNames } from '../feature-names.ts';
@@ -31,6 +32,8 @@ import { SketchDeleteSweep } from '../sketch-delete-sweep.ts';
 import { validateSketchPositionEdit } from '../sketch-position-validate.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
+import { GlobalImports } from '../apply-feature-edit/global-imports.ts';
+import type { GlobalParamCatalog } from '../global-params/catalog.ts';
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
 
@@ -70,8 +73,41 @@ export function createSketchEditsRouter(
   sendToExtension: (msg: any) => void,
   workspacePath: string,
   dispatcher?: FeatureEditDispatcher,
+  globals?: GlobalParamCatalog,
 ): Router {
   const router = Router();
+
+  /** The project parameters an expression field offers in the current file (§2.8), or none without a catalog. */
+  const scopeGlobals = async (): Promise<ScopeGlobals | undefined> => {
+    if (!globals) {
+      return undefined;
+    }
+    const snapshot = await globals.snapshot();
+    return {
+      params: snapshot.files.flatMap((f) => f.params),
+      filePath: fluidCadServer.getCurrentFileName(),
+      projectUnit: snapshot.projectUnit,
+    };
+  };
+
+  /**
+   * The file a buffer edit addresses: the request's `filePath` when the host
+   * names one, else the rendered model — the sketcher edits the open file.
+   */
+  const editedFile = (body: { filePath?: unknown }): string =>
+    typeof body.filePath === 'string' && body.filePath !== '' ? body.filePath : fluidCadServer.getCurrentFileName();
+
+  /** Write the params-file imports the expressions of a buffer edit need (§2.8). */
+  const withGlobalImports = async <T extends { newCode: string; error?: string }>(
+    result: T,
+    filePath: string,
+    expressions: readonly (string | null | undefined)[],
+  ): Promise<T> => {
+    if (!globals || result.error !== undefined) {
+      return result;
+    }
+    return { ...result, newCode: await GlobalImports.ensure(result.newCode, filePath, expressions, globals) };
+  };
 
   // ---------------------------------------------------------------------------
   // /api/import-file — file I/O for STEP/STP imports
@@ -332,15 +368,16 @@ export function createSketchEditsRouter(
         instances: fluidCadServer.getRenderedInstances(),
         parts: fluidCadServer.getRenderedParts(),
       });
+      const offered = await scopeGlobals();
       let variables: VariableInfo[];
       if (typeof sketchSourceLine === 'number') {
-        variables = await extractVariablesInScope(code, sketchSourceLine, rendered);
+        variables = await extractVariablesInScope(code, sketchSourceLine, rendered, offered);
       } else if (assembly === true) {
-        variables = await extractVariablesInAssembly(code, rendered);
+        variables = await extractVariablesInAssembly(code, rendered, offered);
       } else if (typeof partLine === 'number') {
-        variables = await extractVariablesInPart(code, partLine, rendered);
+        variables = await extractVariablesInPart(code, partLine, rendered, offered);
       } else {
-        variables = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER, rendered);
+        variables = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER, rendered, offered);
       }
       res.json({ variables });
     } catch (err: any) {
@@ -647,7 +684,10 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const result = await insertGeometryCallWithVariable(code, sketchSourceLine, statement, nv);
+      const inserted = await insertGeometryCallWithVariable(code, sketchSourceLine, statement, nv);
+      const result = await withGlobalImports(inserted, editedFile(req.body), [
+        statement, ...(nv === null ? [] : [nv].flat().map((v) => v.initializer)),
+      ]);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
@@ -714,13 +754,16 @@ export function createSketchEditsRouter(
     }
     const offset = typeof dimensionOffset === 'number' ? dimensionOffset : 0;
     try {
-      const result = await updateDimensionExpressionWithVariable(
+      const updated = await updateDimensionExpressionWithVariable(
         code, sourceLine, expression,
         typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
         nv,
         offset,
         typeof dimensionCall === 'string' ? dimensionCall : null,
       );
+      const result = await withGlobalImports(updated, editedFile(req.body), [
+        expression, ...(nv === null ? [] : [nv].flat().map((v) => v.initializer)),
+      ]);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

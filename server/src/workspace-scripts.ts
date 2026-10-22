@@ -45,9 +45,14 @@ export class WorkspaceScripts {
 
   /**
    * Every readable workspace script other than `filePath`, with its text.
-   * Empty when the server runs without a workspace.
+   * Empty when the server runs without a workspace. `accept` widens (or
+   * narrows) which files count — the model scripts by default; a
+   * declaration in a `*.params.js` file is read by other params files too.
    */
-  async others(filePath: string): Promise<{ filePath: string; code: string }[]> {
+  async others(
+    filePath: string,
+    accept: (relPath: string) => boolean = isScriptPath,
+  ): Promise<{ filePath: string; code: string }[]> {
     if (this.workspacePath === '') {
       return [];
     }
@@ -55,7 +60,7 @@ export class WorkspaceScripts {
     const out: { filePath: string; code: string }[] = [];
     for (const rel of await WorkspaceFiles.collect(this.workspacePath)) {
       const other = normalizePath(join(this.workspacePath, rel));
-      if (!isScriptPath(rel) || other === except) {
+      if (!accept(rel) || other === except) {
         continue;
       }
       const code = await this.read(other);

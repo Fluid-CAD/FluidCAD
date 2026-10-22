@@ -39,7 +39,7 @@ import { part, sketch, circle, extrude, cut, plane, select, expose, origin } fro
 import { coincident, diameter, distance, horizontal, vertical } from "fluidcad/constraints";
 import { face } from "fluidcad/filters";
 
-const flange = part("Flange", () => {
+export const flange = part("Flange", () => {
   sketch("xy", () => {
     const c = circle([0, 0], 60);
     coincident(c.center(), origin());
@@ -70,7 +70,7 @@ const flange = part("Flange", () => {
 });
 
 // Another part cuts the flange's own hole pattern: a gasket 6 mm below it.
-const gasket = part("Gasket", () => {
+export const gasket = part("Gasket", () => {
   sketch(plane("xy", { offset: -6 }), () => {
     const c = circle([0, 0], 60);
     coincident(c.center(), origin());

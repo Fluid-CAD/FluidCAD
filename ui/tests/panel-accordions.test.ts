@@ -58,41 +58,41 @@ const PARAM: UIParamDefinition = {
 } as UIParamDefinition;
 
 describe('docked panel column', () => {
-  it('stacks Parameters under Shapes', () => {
+  it('stacks Part Parameters under Shapes', () => {
     const h = mount();
-    expect(h.titles()).toEqual(['History', 'Shapes', 'Parameters']);
+    expect(h.titles()).toEqual(['History', 'Shapes', 'Part Parameters']);
   });
 
   it('opens Shapes and leaves the joining Parameters closed', () => {
     const h = mount();
     expect(h.isOpen('Shapes')).toBe(true);
-    expect(h.isOpen('Parameters')).toBe(false);
+    expect(h.isOpen('Part Parameters')).toBe(false);
   });
 
   it('closes Shapes when Parameters opens, and back again', () => {
     const h = mount();
-    h.header('Parameters').click();
-    expect(h.isOpen('Parameters')).toBe(true);
+    h.header('Part Parameters').click();
+    expect(h.isOpen('Part Parameters')).toBe(true);
     expect(h.isOpen('Shapes')).toBe(false);
 
     h.header('Shapes').click();
     expect(h.isOpen('Shapes')).toBe(true);
-    expect(h.isOpen('Parameters')).toBe(false);
+    expect(h.isOpen('Part Parameters')).toBe(false);
   });
 
   it('leaves History open across the pair, and closes on its own', () => {
     const h = mount();
-    h.header('Parameters').click();
+    h.header('Part Parameters').click();
     expect(h.isOpen('History')).toBe(true);
 
     h.header('History').click();
     expect(h.isOpen('History')).toBe(false);
-    expect(h.isOpen('Parameters')).toBe(true);
+    expect(h.isOpen('Part Parameters')).toBe(true);
   });
 
   it('splits the column between every section on the same terms', () => {
     const h = mount();
-    for (const title of ['History', 'Shapes', 'Parameters']) {
+    for (const title of ['History', 'Shapes', 'Part Parameters']) {
       const body = h.header(title).nextElementSibling as HTMLElement;
       // Grow from nothing, stop at your own rows: half the column each under
       // contention, and whatever is left over when the other wants less.
@@ -119,7 +119,7 @@ describe('docked panel column', () => {
 
     // Parameters' rows are controls, so its body carries the header's card on
     // down, with -mt-1 cancelling the column's gap so the two halves meet.
-    const params = h.header('Parameters');
+    const params = h.header('Part Parameters');
     const body = params.nextElementSibling as HTMLElement;
     expect(body.className).toContain('panel-bg');
     expect(body.className).toContain('rounded-b-md');
@@ -153,8 +153,8 @@ describe('docked panel column', () => {
     expect(body('History')).toContain('No features yet');
     expect(body('History')).toContain('sketch(...)');
     expect(body('Shapes')).toContain('No shapes yet');
-    expect(body('Parameters')).toContain('No parameters yet');
-    expect(body('Parameters')).toContain('param(...)');
+    expect(body('Part Parameters')).toContain('No parameters yet');
+    expect(body('Part Parameters')).toContain('param(...)');
   });
 
   it('points an editor-backed host at its own Add button once there is a part to add to', () => {
@@ -175,22 +175,22 @@ describe('docked panel column', () => {
 
   it('runs the header buttons without collapsing the section', () => {
     const h = mount();
-    h.header('Parameters').click();
-    h.header('Parameters').querySelector<HTMLButtonElement>('[data-reset-params]')!.click();
+    h.header('Part Parameters').click();
+    h.header('Part Parameters').querySelector<HTMLButtonElement>('[data-reset-params]')!.click();
     expect(h.client.resetParams).toHaveBeenCalledTimes(1);
-    expect(h.isOpen('Parameters')).toBe(true);
+    expect(h.isOpen('Part Parameters')).toBe(true);
   });
 
   it('offers no Add button without an editor-backed host', () => {
     const h = mount();
-    expect(h.header('Parameters').querySelector('[data-add-param]')).toBeNull();
+    expect(h.header('Part Parameters').querySelector('[data-add-param]')).toBeNull();
   });
 
   it('carries the parameters across a rail rebuild', () => {
     const h = mount();
     h.params.update([PARAM]);
-    h.header('Parameters').click();
-    expect(h.header('Parameters').nextElementSibling!.textContent).toContain('width');
+    h.header('Part Parameters').click();
+    expect(h.header('Part Parameters').nextElementSibling!.textContent).toContain('width');
 
     // Part → assembly → part: the column goes, the panel that owns the
     // parameters does not.
@@ -201,7 +201,7 @@ describe('docked panel column', () => {
       () => undefined, () => 1, () => undefined,
     );
     rebuilt.attachParams(h.params);
-    expect(h.titles()).toEqual(['History', 'Shapes', 'Parameters']);
-    expect(h.header('Parameters').nextElementSibling!.textContent).toContain('width');
+    expect(h.titles()).toEqual(['History', 'Shapes', 'Part Parameters']);
+    expect(h.header('Part Parameters').nextElementSibling!.textContent).toContain('width');
   });
 });

@@ -26,6 +26,16 @@ describe('share link — what the Share dialog opens', () => {
     expect(JSON.parse(await decodeFragment(treeParams.get('files')!))).toEqual(files);
   });
 
+  it('carries the configurations() row on screen as configuration=, and leaves Default out', async () => {
+    const share = { fluidcadVersion: '0.0.47', entry: 'rack.assembly.js', files: { 'rack.assembly.js': 'export const r = 1;\n' } };
+    const wide = new URLSearchParams(new URL(await buildViewerLink(share, 'https://v.test', 'Extra wide')).hash.slice(1));
+    expect(wide.get('configuration')).toBe('Extra wide');
+    for (const none of ['Default', null]) {
+      const params = new URLSearchParams(new URL(await buildViewerLink(share, 'https://v.test', none)).hash.slice(1));
+      expect(params.has('configuration')).toBe(false);
+    }
+  });
+
   it('flags data files in the file list and names the unit file', () => {
     expect(classifyShareFile('box.part.js')).toBe('model');
     expect(classifyShareFile('parts/hinge.assembly.js')).toBe('model');

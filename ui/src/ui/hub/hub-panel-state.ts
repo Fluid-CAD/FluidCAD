@@ -37,9 +37,14 @@ export type HubTimers = {
  * - Every package is listed (decision 2): there is no compatibility filter.
  * - `hub-unreachable` is the offline state; any other refusal shows its
  *   sentence.
+ * - A like or unlike from a package's detail ({@link noteLikes}) shows in
+ *   that package's row at once, and in answers for a minute after: the
+ *   hub's search picks a like up within its cache's minute.
  */
 export class HubPanelState {
   static readonly DEBOUNCE_MS = 250;
+  /** How long a count from a like stands over a search answer: the hub's search cache ({@link noteLikes}). */
+  static readonly LIKES_MEMORY_MS = 60_000;
   static readonly EMPTY: Readonly<HubSearchParams> = Object.freeze({
     q: '',
     contents: [],
@@ -57,11 +62,14 @@ export class HubPanelState {
   private controller: AbortController | null = null;
   private timer: unknown = null;
   private sequence = 0;
+  /** The counts likes and unlikes answered, by package, with when. */
+  private readonly likes = new Map<string, { likes: number; at: number }>();
   private readonly listeners = new Set<(snapshot: HubSearchSnapshot) => void>();
 
   constructor(
     private readonly client: HubClient,
     private readonly timers: HubTimers = { set: (callback, ms) => setTimeout(callback, ms), clear: (handle) => clearTimeout(handle as number) },
+    private readonly now: () => number = () => Date.now(),
   ) {}
 
   get snapshot(): HubSearchSnapshot {
@@ -172,6 +180,24 @@ export class HubPanelState {
   }
 
   /**
+   * A like or unlike of `name` answered its count (`likes`, the hub's after
+   * the change): the row in the answer held shows it now, and so does a
+   * search answered within {@link LIKES_MEMORY_MS}, which the hub may serve
+   * from its cache of before the change.
+   */
+  noteLikes(name: string, likes: number): void {
+    this.likes.set(name, { likes, at: this.now() });
+    if (!this.answer) {
+      return;
+    }
+    const answer = this.withLikes(this.answer);
+    if (answer !== this.answer) {
+      this.answer = answer;
+      this.emit();
+    }
+  }
+
+  /**
    * The sort the results run by: the hub's echo when the answer is for this
    * request, else the asked sort, else the hub's default (Best match with
    * words, Most liked without: the hub's default since H13).
@@ -252,10 +278,30 @@ export class HubPanelState {
       this.emit();
       return;
     }
-    this.answer = result.answer;
+    this.answer = this.withLikes(result.answer);
     this.mode = 'results';
     this.error = null;
     this.emit();
+  }
+
+  /** `answer` with the counts of recent likes in its rows; the same object when none applies. */
+  private withLikes(answer: HubSearchAnswer): HubSearchAnswer {
+    const now = this.now();
+    for (const [name, noted] of this.likes) {
+      if (now - noted.at > HubPanelState.LIKES_MEMORY_MS) {
+        this.likes.delete(name);
+      }
+    }
+    if (!answer.results.some((row) => this.likes.has(row.fullName) && this.likes.get(row.fullName)!.likes !== row.likes)) {
+      return answer;
+    }
+    return {
+      ...answer,
+      results: answer.results.map((row) => {
+        const noted = this.likes.get(row.fullName);
+        return noted ? { ...row, likes: noted.likes } : row;
+      }),
+    };
   }
 
   /** The answer was made for the request now held (an answer to an older query isn't). */

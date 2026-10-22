@@ -354,7 +354,7 @@ export class PartsPanel {
     const eyeVisibility = allHidden
       ? 'opacity-100 text-base-content/70'
       : 'opacity-0 group-hover:opacity-100 text-base-content/40';
-    const nameCell = this.nameCellHtml({ kind: 'occurrence', id: occurrenceId }, occ.name, occ.assemblyName);
+    const nameCell = this.nameCellHtml({ kind: 'occurrence', id: occurrenceId }, occ.name, occ.assemblyName, occ.configuration);
     let html = `
       <div class="group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80" data-occurrence-id="${occurrenceId}">
         <span data-ref="chevron" class="flex items-center justify-center w-4 h-4 opacity-50 transition-transform${collapsed ? '' : ' rotate-90'}">${ICON_CHEVRON_RIGHT}</span>
@@ -383,7 +383,7 @@ export class PartsPanel {
     const eyeVisibility = inst.visible
       ? 'opacity-0 group-hover:opacity-100 text-base-content/40'
       : 'opacity-100 text-base-content/70';
-    const nameCell = this.nameCellHtml({ kind: 'instance', id: inst.instanceId }, inst.name, inst.partName);
+    const nameCell = this.nameCellHtml({ kind: 'instance', id: inst.instanceId }, inst.name, inst.partName, inst.configuration);
     const padding = indented ? 'pl-8 pr-3' : 'px-3';
     return `
       <div class="group flex items-center gap-2 ${padding} py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80${selectedClass}" data-instance-id="${inst.instanceId}">
@@ -402,15 +402,19 @@ export class PartsPanel {
    * small and muted. The second line shows even when it repeats the first
    * (an insert that never took a name of its own), so every row reads the
    * same way. An occurrence's name reads heavier, marking its row as a
-   * group header.
+   * group header. An insert that picked a `configurations()` row names it
+   * after the source (`frame · Wide`).
    */
-  private nameCellHtml(target: RenameTarget, name: string, sourceName: string): string {
+  private nameCellHtml(target: RenameTarget, name: string, sourceName: string, configuration?: string): string {
     const renaming = this.inlineRename?.kind === target.kind && this.inlineRename.id === target.id;
     const weight = target.kind === 'occurrence' ? ' font-medium' : '';
     const nameLine = renaming
       ? `<input data-rename-input="${target.kind}" value="${escapeAttr(name)}" class="bg-base-100 border border-base-content/20 rounded px-1 py-0 text-sm w-full min-w-0" />`
       : `<span class="truncate${weight}">${escapeHtml(name)}</span>`;
-    const sourceLine = `<span data-ref="source-name" class="truncate text-[10px] text-base-content/50">${escapeHtml(sourceName)}</span>`;
+    const configurationText = configuration
+      ? ` · <span data-ref="configuration-name">${escapeHtml(configuration)}</span>`
+      : '';
+    const sourceLine = `<span data-ref="source-name" class="truncate text-[10px] text-base-content/50">${escapeHtml(sourceName)}${configurationText}</span>`;
     return `<span class="flex flex-col leading-tight min-w-0${renaming ? ' flex-1' : ''}">${nameLine}${sourceLine}</span>`;
   }
 

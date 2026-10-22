@@ -9154,16 +9154,34 @@ describe('new part statement', () => {
     const code = [
       `import { part, sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `part('Part 1', () => {`,
+      `export const part1 = part('Part 1', () => {`,
       `  sketch('xy', () => { ellipse(100, 50) })`,
       `  extrude(30)`,
       `})`,
-      `part('Part 3', () => {})`,
+      `export const part3 = part('Part 3', () => {})`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, newPartSpec());
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`part('Part 3', () => {})\nexport const part2 = part('Part 2', () => {`);
+    expect(result.newCode).toContain(`export const part3 = part('Part 3', () => {})\nexport const part2 = part('Part 2', () => {`);
+  });
+
+  it('gives a name the file already has the first free number, since part names are unique in a file', async () => {
+    const code = [
+      `import { part } from 'fluidcad/core'`,
+      ``,
+      `export const plate = part('Plate', () => {})`,
+      `export const plate2 = part('Plate 2', () => {})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, newPartSpec('Plate'));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`export const plate3 = part('Plate 3', () => {`);
+  });
+
+  it('never binds the part to the name of the part() import', async () => {
+    const result = await applyFeatureEdit('', newPartSpec('Part'));
+    expect(result.newCode).toContain(`export const mainPart = part('Part', () => {`);
   });
 
   it('uses the provided name verbatim and derives the export identifier', async () => {
@@ -9183,7 +9201,7 @@ describe('new part statement', () => {
       `import { part, sketch, ellipse } from 'fluidcad/core'`,
       ``,
       `const bracket = 5`,
-      `part('Other', () => { sketch('xy', () => { ellipse(bracket, 4) }) })`,
+      `export const other = part('Other', () => { sketch('xy', () => { ellipse(bracket, 4) }) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, newPartSpec('Bracket'));

@@ -4,6 +4,7 @@ import { Router, type Response } from 'express';
 import type { FluidCadServer } from '../../fluidcad-server/index.ts';
 import { FeatureEditDispatcher, type EditDispatcherOptions } from '../../edit-dispatch.ts';
 import { applyFeatureEdit, FeatureCallees, type ApplyFeatureEditSpec } from '../../apply-feature-edit/index.ts';
+import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { ForeignPickResolver, type ForeignPickSummary } from '../foreign-exposure.ts';
 import { makeSynthesisOptionsForFile } from './synthesis.ts';
 import { registerSelectionEndpoints } from './endpoints/selection.ts';
@@ -21,6 +22,8 @@ export type ApplyFeatureRouterOptions = EditDispatcherOptions & {
   dispatcher?: FeatureEditDispatcher;
   /** The workspace's feature catalog: what a custom feature dialog's create or edit names by id. */
   catalog?: FeatureCatalogReader;
+  /** The global-parameters catalog; absent, no params-file import is ever written. */
+  globals?: GlobalParamCatalog;
 };
 
 export function createApplyFeatureRouter(
@@ -36,7 +39,8 @@ export function createApplyFeatureRouter(
   // like the built-ins' in every synthesis probe and transform here.
   const callees = options.callees ?? FeatureCallees.BUILT_IN_SOURCE;
   const synthesisOptionsForFile = makeSynthesisOptionsForFile(fluidCadServer, callees);
-  const applyEdit = (code: string, spec: ApplyFeatureEditSpec) => applyFeatureEdit(code, spec, { callees });
+  const applyEdit = (code: string, spec: ApplyFeatureEditSpec) =>
+    applyFeatureEdit(code, spec, { callees, ...(options.globals ? { globals: options.globals } : {}) });
   const foreignPicks = new ForeignPickResolver(fluidCadServer, synthesisOptionsForFile);
 
   /**
@@ -62,6 +66,7 @@ export function createApplyFeatureRouter(
   const services: ApplyFeatureServices = {
     fluidCadServer, dispatcher, synthesisOptionsForFile, callees, applyEdit, foreignPicks, dispatchCrossFileCreates,
     foreignBody, ...(options.catalog ? { catalog: options.catalog } : {}),
+    ...(options.globals ? { globals: options.globals } : {}),
   };
   registerSelectionEndpoints(router, services);
   registerApplyFeatureEndpoint(router, services);

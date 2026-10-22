@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 import type {
   HubClient,
   HubInspection,
+  HubLikeState,
   HubLoginState,
   HubLogoutResult,
   HubPackage,
@@ -9,6 +10,7 @@ import type {
   HubSearchAnswer,
   HubSearchParams,
   HubSearchRow,
+  HubSocialState,
   HubStatus,
   HubVersion,
   PackageTarget,
@@ -43,6 +45,16 @@ export class FakeHubClient implements HubClient {
   logoutRefusal: { status: number; error: string; code?: string } | null = null;
   /** While set, `logout()` waits for it: the test sees "Signing out…". */
   logoutGate: Promise<void> | null = null;
+  /** The packages the signed-in account likes. */
+  liked = new Set<string>();
+  /** Each package's count as the hub keeps it; starts at the detail's (which a like doesn't change, like a cached detail). */
+  likeCounts = new Map<string, number>();
+  /** A refusal the state reads answer instead (`signed-out`, `sign-in-again`…). */
+  stateRefusal: { status: number; error: string; code?: string } | null = null;
+  /** A refusal the next like or unlike answers instead; used once. */
+  likeRefusal: { status: number; error: string; code?: string } | null = null;
+  /** While set, `setLiked()` waits for it: the test sees the press in flight. */
+  likeGate: Promise<void> | null = null;
   private logins = 0;
   /** Searches wait for {@link releaseSearches} while set. */
   holdSearches = false;
@@ -142,6 +154,34 @@ export class FakeHubClient implements HubClient {
       this.statusValue = { ...this.statusValue, signedIn: null };
     }
     return { ok: true, logout };
+  });
+
+  socialState = vi.fn(async (name: string): Promise<HubResult<{ state: HubSocialState }>> => {
+    if (this.stateRefusal) {
+      return { ok: false, ...this.stateRefusal };
+    }
+    return { ok: true, state: { package: name, liked: this.liked.has(name), lists: [], helpful: [] } };
+  });
+
+  /** The engine likes as the hub does: idempotent, answering the count after the change. */
+  setLiked = vi.fn(async (name: string, liked: boolean): Promise<HubResult<{ like: HubLikeState }>> => {
+    if (this.likeGate) {
+      await this.likeGate;
+    }
+    const refusal = this.likeRefusal;
+    this.likeRefusal = null;
+    if (refusal) {
+      return { ok: false, ...refusal };
+    }
+    const count = this.likeCounts.get(name) ?? this.packages.get(name)?.counts.likes ?? 0;
+    const after = count + (liked === this.liked.has(name) ? 0 : liked ? 1 : -1);
+    this.likeCounts.set(name, after);
+    if (liked) {
+      this.liked.add(name);
+    } else {
+      this.liked.delete(name);
+    }
+    return { ok: true, like: { package: name, liked, likes: after } };
   });
 
   /** The engine's sign-in ends as `outcome` says (the browser came back, the time ran out…). */

@@ -2,11 +2,13 @@ import type { CatalogParamDef, CatalogParamExpr, CatalogParamValue, NewVariable 
 import type { VariableInfo } from './expression-core';
 import { collectNewVariablesChecked, ExpressionField } from './expression-field';
 
-type ControlHandle = {
+export type ParamControl = {
   element: HTMLElement;
   /** Push a value INTO the control (reset-to-default rewrites the display). */
   setValue: (value: CatalogParamValue) => void;
 };
+
+type ControlHandle = ParamControl;
 
 /**
  * Expression mode (Insert and Edit Parameters): `seeds` carries the exact
@@ -252,94 +254,7 @@ export class ParamForm {
   }
 
   private buildLiteralControl(def: CatalogParamDef): ControlHandle {
-    const type = effectiveControlType(def);
-    switch (type) {
-      case 'slider': {
-        const wrap = document.createElement('div');
-        wrap.className = 'flex items-center gap-2';
-        const input = document.createElement('input');
-        input.type = 'range';
-        input.className = 'range range-xs range-primary flex-1';
-        input.min = String(def.min ?? 0);
-        input.max = String(def.max ?? 100);
-        input.step = String(def.step ?? 1);
-        input.value = String(def.currentValue);
-        const display = document.createElement('span');
-        display.className = 'text-xs text-base-content/50 tabular-nums w-10 text-right';
-        display.textContent = String(def.currentValue);
-        input.addEventListener('input', () => {
-          display.textContent = input.value;
-          this.set(def.label, Number(input.value));
-        });
-        wrap.appendChild(input);
-        wrap.appendChild(display);
-        return {
-          element: wrap,
-          setValue: (v) => {
-            input.value = String(v);
-            display.textContent = String(v);
-          },
-        };
-      }
-      case 'number': {
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.className = 'input input-sm input-bordered w-full text-xs bg-transparent';
-        input.step = def.step != null ? String(def.step) : 'any';
-        if (def.min != null) { input.min = String(def.min); }
-        if (def.max != null) { input.max = String(def.max); }
-        input.value = String(def.currentValue);
-        input.addEventListener('input', () => {
-          const num = Number(input.value);
-          if (Number.isFinite(num)) {
-            this.set(def.label, num);
-          }
-        });
-        return { element: input, setValue: (v) => { input.value = String(v); } };
-      }
-      case 'checkbox': {
-        const input = document.createElement('input');
-        input.type = 'checkbox';
-        input.className = 'toggle toggle-sm toggle-primary';
-        input.checked = def.currentValue === true;
-        input.addEventListener('change', () => this.set(def.label, input.checked));
-        return { element: input, setValue: (v) => { input.checked = v === true; } };
-      }
-      case 'select': {
-        if (def.multi) {
-          return this.buildMultiSelect(def);
-        }
-        const select = document.createElement('select');
-        select.className = 'select select-sm select-bordered w-full text-xs';
-        for (const opt of def.options ?? []) {
-          const el = document.createElement('option');
-          el.value = String(opt.value);
-          el.textContent = opt.label;
-          el.selected = String(opt.value) === String(def.currentValue);
-          select.appendChild(el);
-        }
-        select.addEventListener('change', () => {
-          this.set(def.label, optionValue(def, select.value));
-        });
-        return { element: select, setValue: (v) => { select.value = String(v); } };
-      }
-      case 'color': {
-        const input = document.createElement('input');
-        input.type = 'color';
-        input.className = 'w-full h-8 cursor-pointer bg-transparent border border-base-content/20 rounded';
-        input.value = String(def.currentValue);
-        input.addEventListener('input', () => this.set(def.label, input.value));
-        return { element: input, setValue: (v) => { input.value = String(v); } };
-      }
-      default: {
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'input input-sm input-bordered w-full text-xs bg-transparent';
-        input.value = String(def.currentValue);
-        input.addEventListener('input', () => this.set(def.label, input.value));
-        return { element: input, setValue: (v) => { input.value = String(v); } };
-      }
-    }
+    return createParamControl(def, (value) => this.set(def.label, value));
   }
 
   /**
@@ -370,35 +285,173 @@ export class ParamForm {
       },
     };
   }
+}
 
-  private buildMultiSelect(def: CatalogParamDef): ControlHandle {
-    const select = document.createElement('select');
-    select.multiple = true;
-    const opts = def.options ?? [];
-    select.size = Math.min(opts.length, 5);
-    select.className = 'select select-sm select-bordered w-full text-xs';
-    const applySelection = (value: CatalogParamValue) => {
-      const selected = new Set((Array.isArray(value) ? value : [value]).map(String));
-      for (const el of Array.from(select.options)) {
-        el.selected = selected.has(el.value);
-      }
-    };
-    for (const opt of opts) {
-      const el = document.createElement('option');
-      el.value = String(opt.value);
-      el.textContent = opt.label;
-      select.appendChild(el);
+/** How a control is drawn: a dialog's bordered field, or a borderless one filling a grid cell. */
+export type ParamControlVariant = 'form' | 'cell';
+
+type ControlClasses = { text: string; number: string; checkbox: string; select: string; multiSelect: string; color: string };
+
+const CELL_INPUT_CLASS = 'w-full h-8 px-2 bg-transparent text-[13px] border-0 outline-none focus:outline-none';
+
+const CONTROL_CLASSES: Record<ParamControlVariant, ControlClasses> = {
+  form: {
+    text: 'input input-sm input-bordered w-full text-xs bg-transparent',
+    number: 'input input-sm input-bordered w-full text-xs bg-transparent',
+    checkbox: 'toggle toggle-sm toggle-primary',
+    select: 'select select-sm select-bordered w-full text-xs',
+    multiSelect: 'select select-sm select-bordered w-full text-xs',
+    color: 'w-full h-8 cursor-pointer bg-transparent border border-base-content/20 rounded',
+  },
+  cell: {
+    text: CELL_INPUT_CLASS,
+    // Numbers sit right-aligned, without spinners, as in a spreadsheet.
+    number: `${CELL_INPUT_CLASS} text-right tabular-nums [appearance:textfield] `
+      + '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
+    checkbox: 'checkbox checkbox-sm checkbox-primary mx-2 rounded-[4px]',
+    // pl-2 rather than the select's own 0.75rem: a cell's text starts where
+    // the grid's read-only Default row and the text and number cells start
+    // theirs, so a column's values line up whether or not a control holds them.
+    select: 'select select-ghost select-sm w-full h-8 min-h-8 rounded-none border-0 bg-transparent pl-2 text-[13px] '
+      + 'focus:outline-none focus-within:outline-none',
+    multiSelect: 'select select-ghost select-sm w-full h-auto rounded-none border-0 bg-transparent py-1 pl-2 text-[13px] focus:outline-none',
+    color: 'mx-2 h-5 w-[calc(100%-1rem)] cursor-pointer bg-transparent border border-base-content/20 rounded',
+  },
+};
+
+/**
+ * One parameter's literal control — the slider, number, toggle, select,
+ * multi-select, color or text field the dialogs draw for its control type —
+ * reporting every edit through `onChange`. The `cell` variant draws the
+ * borderless fields the Manage-configurations grid's cells take.
+ */
+export function createParamControl(
+  def: CatalogParamDef,
+  onChange: (value: CatalogParamValue) => void,
+  opts: { variant?: ParamControlVariant } = {},
+): ParamControl {
+  const classes = CONTROL_CLASSES[opts.variant ?? 'form'];
+  const type = effectiveControlType(def);
+  switch (type) {
+    case 'slider': {
+      const wrap = document.createElement('div');
+      wrap.className = 'flex items-center gap-2';
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.className = 'range range-xs range-primary flex-1';
+      input.min = String(def.min ?? 0);
+      input.max = String(def.max ?? 100);
+      input.step = String(def.step ?? 1);
+      input.value = String(def.currentValue);
+      const display = document.createElement('span');
+      display.className = 'text-xs text-base-content/50 tabular-nums w-10 text-right';
+      display.textContent = String(def.currentValue);
+      input.addEventListener('input', () => {
+        display.textContent = input.value;
+        onChange(Number(input.value));
+      });
+      wrap.appendChild(input);
+      wrap.appendChild(display);
+      return {
+        element: wrap,
+        setValue: (v) => {
+          input.value = String(v);
+          display.textContent = String(v);
+        },
+      };
     }
-    applySelection(def.currentValue);
-    select.addEventListener('change', () => {
-      const chosen = Array.from(select.selectedOptions).map(o => optionValue(def, o.value));
-      this.set(def.label, chosen as (string | number)[]);
-    });
-    return { element: select, setValue: applySelection };
+    case 'number': {
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.className = classes.number;
+      input.step = def.step != null ? String(def.step) : 'any';
+      if (def.min != null) { input.min = String(def.min); }
+      if (def.max != null) { input.max = String(def.max); }
+      input.value = String(def.currentValue);
+      input.addEventListener('input', () => {
+        const num = Number(input.value);
+        if (Number.isFinite(num)) {
+          onChange(num);
+        }
+      });
+      return { element: input, setValue: (v) => { input.value = String(v); } };
+    }
+    case 'checkbox': {
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.className = classes.checkbox;
+      input.checked = def.currentValue === true;
+      input.addEventListener('change', () => onChange(input.checked));
+      return { element: input, setValue: (v) => { input.checked = v === true; } };
+    }
+    case 'select': {
+      if (def.multi) {
+        return buildMultiSelect(def, onChange, classes.multiSelect);
+      }
+      const select = document.createElement('select');
+      select.className = classes.select;
+      for (const opt of def.options ?? []) {
+        const el = document.createElement('option');
+        el.value = String(opt.value);
+        el.textContent = opt.label;
+        el.selected = String(opt.value) === String(def.currentValue);
+        select.appendChild(el);
+      }
+      select.addEventListener('change', () => {
+        onChange(optionValue(def, select.value));
+      });
+      return { element: select, setValue: (v) => { select.value = String(v); } };
+    }
+    case 'color': {
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.className = classes.color;
+      input.value = String(def.currentValue);
+      input.addEventListener('input', () => onChange(input.value));
+      return { element: input, setValue: (v) => { input.value = String(v); } };
+    }
+    default: {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = classes.text;
+      input.value = String(def.currentValue);
+      input.addEventListener('input', () => onChange(input.value));
+      return { element: input, setValue: (v) => { input.value = String(v); } };
+    }
   }
 }
 
-function effectiveControlType(def: CatalogParamDef): string {
+function buildMultiSelect(
+  def: CatalogParamDef,
+  onChange: (value: CatalogParamValue) => void,
+  className: string,
+): ParamControl {
+  const select = document.createElement('select');
+  select.multiple = true;
+  const opts = def.options ?? [];
+  select.size = Math.min(opts.length, 5);
+  select.className = className;
+  const applySelection = (value: CatalogParamValue) => {
+    const selected = new Set((Array.isArray(value) ? value : [value]).map(String));
+    for (const el of Array.from(select.options)) {
+      el.selected = selected.has(el.value);
+    }
+  };
+  for (const opt of opts) {
+    const el = document.createElement('option');
+    el.value = String(opt.value);
+    el.textContent = opt.label;
+    select.appendChild(el);
+  }
+  applySelection(def.currentValue);
+  select.addEventListener('change', () => {
+    const chosen = Array.from(select.selectedOptions).map(o => optionValue(def, o.value));
+    onChange(chosen as (string | number)[]);
+  });
+  return { element: select, setValue: applySelection };
+}
+
+export function effectiveControlType(def: CatalogParamDef): string {
   if (def.controlType !== 'auto') {
     return def.controlType;
   }

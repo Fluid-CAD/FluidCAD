@@ -30,6 +30,15 @@ export type CatalogParamDef = {
 };
 
 /**
+ * One row of a scanned definition's `configurations()` table: the name
+ * `insert(def, name)` takes and the `{ label: value }` cells it sets.
+ */
+export type CatalogConfiguration = {
+  name: string;
+  values: Record<string, unknown>;
+};
+
+/**
  * One insertable part discovered in a file: either a directly exported Part
  * value (`export const body = part(...)`) or an exported zero-arg-callable
  * factory whose return value is a Part (`export function bracket(w = 10) {...}`).
@@ -49,6 +58,8 @@ export type ScannedPart = {
   objects: any[];
   /** The definition's `param()` interface — empty for parameterless/legacy exports. */
   params: CatalogParamDef[];
+  /** The rows of the definition's `configurations()` table, in declaration order — empty when it has none. */
+  configurations: CatalogConfiguration[];
 };
 
 /**
@@ -83,6 +94,8 @@ export type ScannedSubAssembly = {
   objects: any[];
   /** The definition's `param()` interface — empty for parameterless/legacy exports. */
   params: CatalogParamDef[];
+  /** The rows of the definition's `configurations()` table, in declaration order — empty when it has none. */
+  configurations: CatalogConfiguration[];
 };
 
 export type PartScanResult = {
@@ -229,7 +242,7 @@ export async function scanFileForParts(
           result.errors.push({ exportName, message: DEFAULT_EXPORT_MESSAGE });
           continue;
         }
-        recordPart(result, renderedPools, exportName, value, 'value', []);
+        recordPart(result, renderedPools, exportName, value, 'value', [], []);
         continue;
       }
       // Lazy part definition value export: materialize its default variant
@@ -238,6 +251,13 @@ export async function scanFileForParts(
       if (isPartDefinition(value)) {
         if (exportName === 'default') {
           result.errors.push({ exportName, message: DEFAULT_EXPORT_MESSAGE });
+          continue;
+        }
+        // A part rule refused it (a second part of a name in the file): no
+        // body to list, its reason in errors.
+        const refused = refusalOf(value);
+        if (refused !== null) {
+          result.errors.push({ exportName, message: refused });
           continue;
         }
         const defScene = startScanScene();
@@ -252,7 +272,10 @@ export async function scanFileForParts(
           result.errors.push({ exportName, message: err?.message ?? String(err) });
           continue;
         }
-        recordPart(result, renderedPools, exportName, built, 'value', collectedParams(built, exportRegistry));
+        recordPart(
+          result, renderedPools, exportName, built, 'value',
+          collectedParams(built, exportRegistry), catalogConfigurations(exportRegistry),
+        );
         continue;
       }
       const isDirectDefinition = isAssemblyFile && isAssemblyDefinition(value);
@@ -289,6 +312,11 @@ export async function scanFileForParts(
       // the classification below sees a built Part either way.
       let builtPart: any = null;
       if (isPartDefinition(returned)) {
+        const refused = refusalOf(returned);
+        if (refused !== null) {
+          result.errors.push({ exportName, message: refused });
+          continue;
+        }
         try {
           builtPart = returned.materialize();
         } catch (err: any) {
@@ -322,12 +350,16 @@ export async function scanFileForParts(
         continue;
       }
       if (isPart) {
-        recordPart(result, renderedPools, exportName, builtPart, 'factory', collectedParams(builtPart, exportRegistry));
+        recordPart(
+          result, renderedPools, exportName, builtPart, 'factory',
+          collectedParams(builtPart, exportRegistry), catalogConfigurations(exportRegistry),
+        );
       } else {
         recordSubAssembly(result, renderedPools, exportName, assemblyData!, {
           exportKind: typeof value === 'function' ? 'factory' : 'value',
           assemblyName: typeof definition?.assemblyName === 'string' ? definition.assemblyName : undefined,
           params: catalogParams(exportRegistry.getDefinitions()),
+          configurations: catalogConfigurations(exportRegistry),
         });
       }
     }
@@ -360,6 +392,14 @@ export type ScanOptions = {
    */
   projectUnit?: LengthUnit;
 };
+
+/**
+ * Why a part rule refuses a definition (lib `PartRules`: a second part of a
+ * name in its file), or null — optional on engines predating the rules.
+ */
+function refusalOf(definition: unknown): string | null {
+  return (definition as { getRefusal?: () => string | null }).getRefusal?.() ?? null;
+}
 
 const DEFAULT_EXPORT_MESSAGE =
   'Default exports are not insertable yet — export it with a name.';
@@ -432,6 +472,7 @@ function recordPart(
   part: any,
   kind: 'value' | 'factory',
   params: CatalogParamDef[],
+  configurations: CatalogConfiguration[],
 ): void {
   const rootId: string | undefined = part.id;
   if (typeof rootId !== 'string' || rootId.length === 0) {
@@ -448,6 +489,7 @@ function recordPart(
         rootId,
         objects: subtree,
         params,
+        configurations,
       });
       return;
     }
@@ -461,7 +503,28 @@ function recordPart(
  * `param()` the definition declared landed there).
  */
 function collectedParams(_builtPart: any, registry: { getDefinitions(): any[] }): CatalogParamDef[] {
-  return catalogParams(registry.getDefinitions());
+  // A project parameter the part imports from a `*.params.js` file registers
+  // as `kind: 'global'` — the workspace's, never this definition's interface.
+  return catalogParams(registry.getDefinitions().filter(def => def.kind !== 'global'));
+}
+
+/**
+ * The `configurations()` table the definition declared while it ran, read
+ * off the export's throwaway registry: one entry per row, in declaration
+ * order. Empty on an engine whose registry predates configurations.
+ */
+function catalogConfigurations(registry: { getConfigurations?(): any }): CatalogConfiguration[] {
+  if (typeof registry.getConfigurations !== 'function') {
+    return [];
+  }
+  const summary = registry.getConfigurations();
+  const names: unknown = summary?.names;
+  if (!Array.isArray(names)) {
+    return [];
+  }
+  return names
+    .filter((name): name is string => typeof name === 'string')
+    .map(name => ({ name, values: { ...(summary.rows?.[name] ?? {}) } }));
 }
 
 /** Strip a ParamDefinition to the wire subset (drop sourceLocation). */
@@ -494,7 +557,12 @@ function recordSubAssembly(
   renderedPools: any[][],
   exportName: string,
   data: { instances: any[]; mates: any[]; connectors?: any[] },
-  shape: { exportKind: 'value' | 'factory'; assemblyName?: string; params: CatalogParamDef[] },
+  shape: {
+    exportKind: 'value' | 'factory';
+    assemblyName?: string;
+    params: CatalogParamDef[];
+    configurations: CatalogConfiguration[];
+  },
 ): void {
   const objects: any[] = [];
   const seenParts = new Set<string>();
@@ -530,6 +598,7 @@ function recordSubAssembly(
     connectors: data.connectors ?? [],
     objects,
     params: shape.params,
+    configurations: shape.configurations,
   });
 }
 

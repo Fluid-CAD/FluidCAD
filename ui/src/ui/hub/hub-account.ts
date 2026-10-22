@@ -139,36 +139,52 @@ export class HubAccount {
   }
 
   /**
+   * Sign in again (a sign-in from before likes): sign out first, so the old
+   * token is revoked on the hub rather than left valid, then sign in. When
+   * the sign-out leaves something to say (the token wasn't revoked,
+   * `FLUIDCAD_HUB_TOKEN` is set) it stops there, with that said and Sign in
+   * back in the header.
+   */
+  async signInAgain(): Promise<void> {
+    if (!(await this.signOut())) {
+      return;
+    }
+    await this.signIn();
+  }
+
+  /**
    * Sign out (the account menu): the engine revokes the token on the hub
    * and forgets it, then the panel reads the status again, which brings
    * Sign in back. Nothing happens while a sign-in or a sign-out runs.
+   * Resolves true when it signed out with nothing left to say.
    */
-  async signOut(): Promise<void> {
+  async signOut(): Promise<boolean> {
     if (this.signingIn || this.signingOut) {
-      return;
+      return false;
     }
     this.signingOut = true;
     this.notice = null;
     this.render();
     const answer = await this.deps.hub.logout();
     if (this.destroyed) {
-      return;
+      return false;
     }
     if (answer.ok === false) {
       // The engine didn't sign out: still signed in, as the header says.
       this.signingOut = false;
       this.notice = { tone: 'error', text: `Couldn’t sign out: ${answer.error}`, retry: false };
       this.render();
-      return;
+      return false;
     }
     this.notice = HubAccount.signedOut(answer.logout);
     // "Signing out…" stays until the status says who is signed in now.
     await this.deps.onSignedOut();
     if (this.destroyed) {
-      return;
+      return false;
     }
     this.signingOut = false;
     this.render();
+    return this.notice === null;
   }
 
   /** Stop waiting. Once the browser has come back the engine finishes the exchange, and the outcome follows. */

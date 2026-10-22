@@ -6,6 +6,7 @@
  */
 export { BrowserEngineHost, detectSceneKind, type ModuleEvaluator } from "./host.js";
 export { VIEWER_PROTOCOL_VERSION } from "./types.js";
+export { ParamKey } from "../param-key.js";
 export type { BrowserRenderResult, BrowserObjectBuildError, BrowserSceneKind, BrowserSerializedAssembly, EngineInfo } from "./types.js";
 export { ENGINE_NAMESPACE_SPECIFIERS, installEngineNamespaces, engineShimModuleSource } from "./linking.js";
 export { BLOCKED_NODE_MODULES, getBlockedNodeModule } from "./blocked-imports.js";

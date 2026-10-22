@@ -56,7 +56,8 @@ const MOBILE_BREAKPOINT = 640;
  * `fluidcad login`'s flow, run by the engine); your own handle there opens
  * the account's menu with Sign out (`fluidcad logout`'s). Below it, the
  * search ({@link HubSearchView}) or a package ({@link HubPackageView}),
- * whose Results control comes back to the search where it was. A
+ * whose Results control comes back to the search where it was (with the
+ * count of a like made there in its row, `HubPanelState.noteLikes`). A
  * publisher's handle in a result (`@scope`) or a package's byline lists
  * that publisher's packages ({@link showPublisher}).
  */
@@ -136,6 +137,9 @@ export class HubPanel {
       openExternal: (url) => deps.openExternal(url),
       onBack: () => this.showSearch(),
       onPublisher: (handle) => this.showPublisher(handle),
+      signIn: () => void this.account.signIn(),
+      signInAgain: () => void this.account.signInAgain(),
+      onLikes: (name, likes) => this.state.noteLikes(name, likes),
       onInstalled: (installed) => {
         this.searchStale = true;
         deps.onPackagesChanged(installed);
@@ -295,27 +299,30 @@ export class HubPanel {
   private renderAccount(): void {
     this.offlineDot.classList.toggle('hidden', this.status?.reachable !== false && this.state.snapshot.mode !== 'offline');
     this.account.setStatus(this.status);
+    this.detail.setSignedIn(this.status ? this.status.signedIn !== null : null);
   }
 
   /** A sign-in from the header finished: the status names the handle; an open package is read again (an owner sees more). */
   private signedIn(): void {
     void this.refreshStatus();
-    this.accountChanged();
+    this.accountChanged(true);
   }
 
   /** Signed out from the header: the status says so; an open package is read again (an owner saw more). */
   private async signedOut(): Promise<void> {
-    this.accountChanged();
+    // FLUIDCAD_HUB_TOKEN may still sign in: the status read next says so.
+    this.accountChanged(false);
     await this.refreshStatus();
   }
 
   /**
-   * The engine signs the hub's requests as someone else now. The results
-   * are anonymous (the bridge searches without the token), so only a
-   * package's detail and its versions are read again.
+   * The engine signs the hub's requests as someone else now (`signedIn`:
+   * whether anyone). The results are anonymous (the bridge searches
+   * without the token), so only a package's detail, its versions and
+   * whether you like it are read again.
    */
-  private accountChanged(): void {
-    this.detail.accountChanged(this.view === 'package');
+  private accountChanged(signedIn: boolean): void {
+    this.detail.accountChanged(this.view === 'package', signedIn);
   }
 
   private host(): string | null {

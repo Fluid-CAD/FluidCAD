@@ -13,7 +13,7 @@ import {
 import { FluidCadServer } from '../fluidcad-server/index.ts';
 import { FeatureModules } from '../feature-catalog/walk.ts';
 import type { FeatureScanResult } from '../feature-catalog/scan.ts';
-import type { PartScanResult } from '../part-catalog/scan.ts';
+import type { CatalogConfiguration, PartScanResult } from '../part-catalog/scan.ts';
 import { FeatureDocs, listFeatureAssets, type DocGap } from '../../../lib/dist/index.js';
 import { SDK_SINCE, SDK_VERSION } from '../../../lib/dist/sdk/version.js';
 import { DocLinks } from './doc-links.ts';
@@ -439,6 +439,7 @@ export class PackageBuilder {
         kind: 'part',
         exportKind: part.kind,
         params: part.params,
+        ...PackageBuilder.configurationsOf(part.configurations),
       });
     }
     for (const assembly of scan.assemblies) {
@@ -450,9 +451,18 @@ export class PackageBuilder {
         kind: 'assembly',
         exportKind: assembly.exportKind,
         params: assembly.params,
+        ...PackageBuilder.configurationsOf(assembly.configurations),
       });
     }
     return parts;
+  }
+
+  /** The manifest's `configurations` field for a scanned definition: its rows as declared, left out when it has none. */
+  private static configurationsOf(rows: CatalogConfiguration[] | undefined): Pick<PackageManifestPart, 'configurations'> {
+    if (!rows || rows.length === 0) {
+      return {};
+    }
+    return { configurations: rows.map((row) => ({ name: row.name, values: { ...row.values } })) };
   }
 
   /** A part's rendered objects, refused at the first that failed to build: shape counts alone hide a failure. */

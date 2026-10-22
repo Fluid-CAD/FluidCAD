@@ -8,21 +8,22 @@ import type { ApplyFeatureEditResult } from './apply-feature-edit/spec.ts';
 /**
  * Which existing `breakpoint();` statements an edit takes out of the file.
  * A document may hold several: the build pauses on the first one it reaches
- * (the ACTIVE one) and the rest stay pending for after it.
- * - `passed`: every statement before the target — a move. A stop later in
- *   the file is left pending, so dragging the bar up to an earlier feature
- *   never loses the pause the user had set further down.
+ * (the ACTIVE one) and the rest stay pending for after it. Several stops
+ * only ever come from editing a feature (Edit feature / double-click places
+ * one and leaves the user's own in place); the history bar's drag keeps a
+ * single stop.
  * - `active`: the one the build paused on (`active`), else the first in
  *   document order — Continue: the build runs on to the next pending stop.
- * - `all`: continue to the end of history.
+ * - `all`: every one — a move of the bar (the moved stop is the only one
+ *   left) or continue to the end of history.
  */
-export type BreakpointRemoval = 'passed' | 'active' | 'all';
+export type BreakpointRemoval = 'active' | 'all';
 
 /** One atomic edit of the document's breakpoints. */
 export type TimelineBreakpointSpec = {
   /** The statement the build should pause before next, or null to add no stop. */
   before: BreakpointSite | null;
-  /** Absent on a spec from an older client: `passed` with a target, `all` without. */
+  /** Absent on a spec from an older client: `all`. */
   remove?: BreakpointRemoval;
   /** The breakpoint the build is paused on — `remove: 'active'` names it. */
   active?: BreakpointSite | null;
@@ -38,7 +39,7 @@ export class TimelineBreakpoint {
   static capture(code: string, before: BreakpointSite | null, remove?: BreakpointRemoval, active?: BreakpointSite | null): TimelineBreakpointSpec {
     return {
       before,
-      remove: remove ?? (before ? 'passed' : 'all'),
+      remove: remove ?? 'all',
       ...(active ? { active } : {}),
       sourceHash: this.hash(code),
     };
@@ -52,11 +53,10 @@ export class TimelineBreakpoint {
     if (spec.before && this.hash(code) !== spec.sourceHash) {
       return { newCode: code, error: 'The file changed. Wait for the model to rebuild, then move the breakpoint again.' };
     }
-    const remove = spec.remove ?? (spec.before ? 'passed' : 'all');
+    const remove = spec.remove ?? 'all';
     const tree = (await getJavaScriptParser()).parse(code);
     try {
       const edits: SpliceEdit[] = [];
-      let insertAt = Number.POSITIVE_INFINITY;
       if (spec.before) {
         const { line, column } = spec.before;
         const node = tree.rootNode.descendantForPosition({ row: line - 1, column: column - 1 });
@@ -65,7 +65,6 @@ export class TimelineBreakpoint {
           || !['expression_statement', 'lexical_declaration', 'variable_declaration', 'export_statement'].includes(statement.type)) {
           return { newCode: code, error: 'This feature no longer has a matching statement. Rebuild the model and try again.' };
         }
-        insertAt = statement.startIndex;
         const lineStart = code.lastIndexOf('\n', statement.startIndex - 1) + 1;
         const prefix = code.slice(lineStart, statement.startIndex);
         const indent = /^\s*$/.test(prefix) ? prefix : ' '.repeat(statement.startPosition.column);
@@ -78,7 +77,7 @@ export class TimelineBreakpoint {
       // direction cannot shift them.
       const doomed = remove === 'active'
         ? [findActiveBreakpointStatement(tree, spec.active)].filter((n): n is NonNullable<typeof n> => n !== null)
-        : BreakpointMarker.statementsIn(tree).filter(node => remove === 'all' || node.startIndex < insertAt);
+        : BreakpointMarker.statementsIn(tree);
       edits.push(...BreakpointMarker.removals(code, doomed));
       let newCode = applySpliceEdits(code, edits);
       if (spec.before) {

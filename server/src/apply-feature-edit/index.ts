@@ -190,5 +190,6 @@ export {
   type CustomFeatureCallee,
   type FeatureCalleeSource,
 } from './producers/callees.ts';
+export { GlobalImports } from './global-imports.ts';
 export { SketchExports } from './sketch-exports.ts';
 export { LoftConnections } from './loft-connections.ts';

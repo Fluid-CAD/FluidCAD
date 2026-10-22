@@ -26,6 +26,7 @@ import iconPlayerPlay from '@tabler/icons/outline/player-play.svg?raw';
 import iconPlayerStop from '@tabler/icons/outline/player-stop.svg?raw';
 import iconAlertTriangle from '@tabler/icons/outline/alert-triangle.svg?raw';
 import iconAdjustments from '@tabler/icons/outline/adjustments.svg?raw';
+import iconAdjustmentsHorizontal from '@tabler/icons/outline/adjustments-horizontal.svg?raw';
 import iconSettings from '@tabler/icons/outline/settings.svg?raw';
 import iconVideo from '@tabler/icons/outline/video.svg?raw';
 import iconRulerMeasure from '@tabler/icons/outline/ruler-measure.svg?raw';
@@ -83,6 +84,8 @@ export const ICON_PLAY = iconPlayerPlay;
 export const ICON_STOP = iconPlayerStop;
 export const ICON_ALERT_TRIANGLE = iconAlertTriangle;
 export const ICON_ADJUSTMENTS = iconAdjustments;
+/** The panel rail's project Parameters button: horizontal sliders, the shape of the column it opens. */
+export const ICON_SLIDERS = iconAdjustmentsHorizontal;
 export const ICON_SETTINGS = iconSettings;
 export const ICON_VIDEO = iconVideo;
 export const ICON_RULER = iconRulerMeasure;

@@ -35,7 +35,32 @@ export function isValidNewIdentifier(s: string): boolean {
  * Parameters panel writes it): its initializer is the whole call, and the
  * first commit that reads the name declares it over that call — the server
  * binds the existing declaration rather than writing a second one. */
-export type VariableInfo = { name: string; initializer?: string; numeric?: boolean; unbound?: boolean };
+export type VariableInfo = {
+  name: string;
+  initializer?: string;
+  numeric?: boolean;
+  unbound?: boolean;
+  /**
+   * Set on a project parameter — an export of a `*.params.js` file the
+   * server offers alongside the file's own variables. `initializer` is its
+   * literal, so previews evaluate it like any other variable; `imported`
+   * says whether the file already imports it (the commit writes the import
+   * otherwise), `alias` the local name when it does so under another one.
+   */
+  global?: VariableGlobalInfo;
+};
+
+/** Where a project parameter comes from, and how the file sees it. */
+export type VariableGlobalInfo = {
+  /** Workspace-relative path of the params file. */
+  file: string;
+  /** The `param()` label — the panel's name for it. */
+  label: string;
+  /** The project unit a numeric value is in — what the hint shows beside it. */
+  unit?: string;
+  imported: boolean;
+  alias?: string;
+};
 
 export type Suggestion = VariableInfo & { isNew?: boolean };
 
@@ -449,9 +474,10 @@ export function escapeHtml(str: string): string {
 }
 
 /** What a dropdown entry names: a `param()` declaration, a `property()` the
- * part publishes, a plain value (a number literal, or an import whose value
- * the file doesn't show), or a value computed from any other expression. */
-export type SuggestionKind = 'param' | 'property' | 'variable' | 'expression';
+ * part publishes, a project parameter (an export of a `*.params.js` file),
+ * a plain value (a number literal, or an import whose value the file
+ * doesn't show), or a value computed from any other expression. */
+export type SuggestionKind = 'param' | 'property' | 'global' | 'variable' | 'expression';
 
 /**
  * A suggestion's kind, read off its initializer. The new-variable offer is
@@ -461,6 +487,9 @@ export type SuggestionKind = 'param' | 'property' | 'variable' | 'expression';
 export function suggestionKind(v: Suggestion, newAsParam: boolean): SuggestionKind {
   if (v.isNew) {
     return newAsParam ? 'param' : 'variable';
+  }
+  if (v.global) {
+    return 'global';
   }
   const initializer = v.initializer?.trim() ?? '';
   if (PARAM_INIT_RE.test(initializer)) {
@@ -487,6 +516,11 @@ const KIND_CHIPS: Record<SuggestionKind, { letter: string; title: string; colors
     title: 'Property — property()',
     colors: 'bg-property/20 text-property border-property/40',
   },
+  global: {
+    letter: 'G',
+    title: 'Project parameter — exported from a *.params.js file',
+    colors: 'bg-accent/20 text-accent border-accent/40',
+  },
   variable: {
     letter: 'V',
     title: 'Variable',
@@ -500,23 +534,29 @@ const KIND_CHIPS: Record<SuggestionKind, { letter: string; title: string; colors
 };
 
 /**
- * The value an inserted instance's property row shows beside its name: the
- * number the last render computed. The file never spells that value — it
- * is the part's to compute — so the row is the only place to read it.
- * Nothing for every other row, whose value the file shows.
+ * The value a row shows beside its name, when the file does not spell it:
+ * an inserted instance's property — the number the last render computed,
+ * which is the part's to compute — and a project parameter, whose literal
+ * lives in another file and is read in the project unit (`3 mm`). Nothing
+ * for every other row, whose value the file shows.
  */
 export function suggestionValueHint(v: Suggestion): string | null {
   const initializer = v.initializer?.trim() ?? '';
-  return !v.isNew && v.name.includes('.properties.') && initializer !== '' && Number.isFinite(Number(initializer))
-    ? initializer
-    : null;
+  if (v.isNew || initializer === '' || !Number.isFinite(Number(initializer))) {
+    return null;
+  }
+  if (v.global) {
+    return v.global.unit ? `${initializer} ${v.global.unit}` : initializer;
+  }
+  return v.name.includes('.properties.') ? initializer : null;
 }
 
 /**
  * One dropdown row's markup, shared so every host renders identically: the
- * kind chip, then the name, then — an instance property — its rendered
- * value. `newAsParam` is the host's P-toggle state, which picks the
- * new-variable offer's chip.
+ * kind chip, then the name — a project parameter's label dimmed after it —
+ * then, for an instance property or a project parameter, its value.
+ * `newAsParam` is the host's P-toggle state, which picks the new-variable
+ * offer's chip.
  */
 export function suggestionItemHtml(
   v: Suggestion,
@@ -530,9 +570,12 @@ export function suggestionItemHtml(
   const badge = v.isNew
     ? '<span class="text-primary/70 ml-0.5 text-[10px] uppercase select-none">new</span>'
     : '';
+  const label = v.global && !v.isNew && v.global.label !== v.name
+    ? `<span class="ml-1 text-xs font-sans text-base-content/45 truncate select-none" title="${escapeHtml(v.global.file)}">${escapeHtml(v.global.label)}</span>`
+    : '';
   const hint = suggestionValueHint(v);
   const hintHtml = hint === null
     ? ''
     : `<span class="ml-auto pl-3 text-base-content/50 select-none">${escapeHtml(hint)}</span>`;
-  return `<div class="flex items-center gap-1.5 px-2 py-1 text-sm font-mono cursor-pointer hover:bg-primary/10 ${activeClass}" data-idx="${index}">${chipHtml}<span>${escapeHtml(v.name)}</span>${badge}${hintHtml}</div>`;
+  return `<div class="flex items-center gap-1.5 px-2 py-1 text-sm font-mono cursor-pointer hover:bg-primary/10 ${activeClass}" data-idx="${index}">${chipHtml}<span>${escapeHtml(v.name)}</span>${label}${badge}${hintHtml}</div>`;
 }

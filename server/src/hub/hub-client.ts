@@ -56,6 +56,10 @@ export type HubPackageEdit = Schemas['EditPackageRequest'];
 export type HubVersionEdit = Schemas['EditVersionRequest'];
 export type HubMedia = Schemas['Media'];
 export type HubMediaList = Schemas['MediaList'];
+/** `PUT`/`DELETE …/like` (H13): whether the token's account likes the package now, and its count after the change. */
+export type HubLikeState = Schemas['LikeState'];
+/** `GET …/me` (H13): what only the token's account sees about a package (liked, its lists, its Helpful marks). */
+export type HubPackageSocialState = Schemas['PackageSocialState'];
 /** `PATCH …/media/{id}`: a caption, a place in the order, or the card image. */
 export type HubMediaEdit = Schemas['EditMediaRequest'];
 /** A screenshot to add: its bytes, its type (the hub checks the bytes agree), and what the tile says. */
@@ -320,6 +324,25 @@ export class HubClient {
   async deleteMedia(name: string, id: string): Promise<void> {
     this.requireToken('deleteMedia');
     await this.json<void>('DELETE', HubClient.route('/packages/{scope}/{name}/media/{id}', { ...HubClient.partsOf(name), id }));
+  }
+
+  // The signed-in account's own state on a package (H13)
+
+  /**
+   * `PUT …/like` (`liked`) or `DELETE …/like`: idempotent, answers whether
+   * the account likes it now and the package's count after the change.
+   * Needs a token with the `social` scope: a CLI sign-in older than it is
+   * refused 403 with `details.signInAgain`.
+   */
+  async setLiked(name: string, liked: boolean): Promise<HubLikeState> {
+    this.requireToken('setLiked');
+    return this.json<HubLikeState>(liked ? 'PUT' : 'DELETE', HubClient.route('/packages/{scope}/{name}/like', HubClient.partsOf(name)));
+  }
+
+  /** `GET …/me`: whether the account likes the package, its lists and its Helpful marks (`private, no-store`). */
+  async socialState(name: string): Promise<HubPackageSocialState> {
+    this.requireToken('socialState');
+    return this.json<HubPackageSocialState>('GET', HubClient.route('/packages/{scope}/{name}/me', HubClient.partsOf(name)));
   }
 
   private static versionRoute(name: string, version: string, query = ''): FilledRoute {

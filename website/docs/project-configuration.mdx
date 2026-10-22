@@ -16,6 +16,7 @@ my-hinge/
 ├── leaf.part.js          ← a part
 ├── pin.part.js           ← another part
 ├── hinge.assembly.js     ← an assembly of the two
+├── project.params.js     ← parameters shared by the models (optional)
 └── packages/             ← optional: copies of installed packages the project carries
 ```
 
@@ -217,6 +218,28 @@ export const hinge = assembly('hinge', () => {
 
 An exported `assembly()` definition can itself be inserted into another assembly as a sub-assembly.
 
+Named variants of an assembly — a compact and a wide frame — are rows of a `configurations({...})` statement at the top of its body, not entries in `fluidcad.json`: they travel with the file. Which row the viewer shows is session state, remembered per file in `.fluidcad/editor-state.json` and never written into the source. See [Configurations](/docs/assembly/configurations).
+
+## `.params.js` — project parameters
+
+A params file holds the [`param()`](/docs/part/param) declarations that several models share: each is an `export const` at the top level, and a part or assembly reads it through an ordinary `import`. The file is not a model — it is never rendered, and it may contain nothing but imports, `export const x = param(…)` declarations and `export const y = <expression>` values derived from them. Its numbers are in the project unit.
+
+```js
+// project.params.js
+import { param } from 'fluidcad/core';
+
+export const wall = param('Wall thickness', 3, 'number', { min: 1, max: 10, step: 0.5 });
+export const width = param('Width', 120);
+export const innerWidth = width - 2 * wall;
+```
+
+```js
+// leaf.part.js
+import { wall, innerWidth } from './project.params.js';
+```
+
+The **Global Parameters** button on the left rail lists every params file's exports and edits their values in place — a change writes the declaration's literal and re-renders the open model. A project may have several params files; `project.params.js` at the workspace root is the convention, and what the panel creates on first use. [Project parameters](/docs/extra/global-parameters) has the file's rules, the unit behaviour and the panel.
+
 ## File naming
 
-The extension is what FluidCAD keys on: `.part.js` is a part file and `.assembly.js` an assembly, and both appear in the workspace's file tabs, the Insert dialog and the CLI's export targets. A `.js` file that follows neither convention is ignored by the viewer — it is just a module your model files can import from, which is how [reusable objects](/docs/extra/reusable-objects) are shared between parts.
+The extension is what FluidCAD keys on: `.part.js` is a part file, `.assembly.js` an assembly, and `.params.js` a project-parameters module. Parts and assemblies appear in the workspace's file tabs, the Insert dialog and the CLI's export targets; a params file appears in the Global Parameters panel and opens in a tab as code only. A `.js` file that follows none of these conventions is ignored by the viewer — it is just a module your model files can import from, which is how [reusable objects](/docs/extra/reusable-objects) are shared between parts.

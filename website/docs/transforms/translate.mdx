@@ -10,7 +10,17 @@ import transformTranslate from '!!raw-loader!./_examples/transform-translate.js'
 
 `translate()` moves solids by a distance along the world axes, or adds a moved copy.
 
-There is no Translate dialog in part mode: the statement is written in the editor. In an [assembly](/docs/assembly/introduction), instances are moved by dragging the transform gizmo, and the pose is written back as `.translate()` on the `insert()` statement.
+## In the viewport
+
+1. Click **Translate** on the toolbar. The Translate dialog docks on the right.
+2. Pick the tab: **Move** moves the solids; **Copy** keeps the originals and adds moved copies.
+3. Click the solids to move — any face or edge click in the viewport selects the whole solid, or click their timeline rows. They fill the **Solids** slot as numbered chips, and the transform gizmo appears at their center.
+4. Drag the gizmo: an arrow moves along its axis, a square within its plane, the center ball in the view plane. Hold **Shift** on an arrow or a square to move in whole units. A translucent ghost of the moved solids follows the drag, and on release the **Distance (X, Y, Z)** fields take the new values — an axis the drag left alone keeps what it had, an expression included.
+5. For an exact value, click an arrow and type its distance — a number, an expression, or `name = value` to declare a variable — or type into the fields. Click **Apply**.
+
+Escape during a drag puts the gizmo back where the drag started; the next Escape closes the dialog. Double-clicking a `translate()` row in the timeline reopens it: the model rolls back to just before the statement, with the gizmo where its solids land.
+
+In an [assembly](/docs/assembly/introduction), instances are moved with the same gizmo, and the pose is written back as `.translate()` on the `insert()` statement.
 
 ![A spacer slid along the plate onto its stud](/img/docs/transforms/transform-translate.png)
 

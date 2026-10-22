@@ -1,5 +1,5 @@
 import type { ObjectBuildWarning, SceneObjectRender } from '../types';
-import { setDistanceTangency } from '../api';
+import { setDistanceTangency, type PauseAfterResult } from '../api';
 import { SceneIndex } from '../helpers/scene-index';
 import { TimelineView } from '../helpers/timeline-view';
 import type { TimelineEntry } from '../../../lib/dist/common/timeline';
@@ -213,8 +213,18 @@ export class TimelinePanel {
    * breakpoint is placed so an editable feature row can also open its edit
    * dialog against the paused scene. `index` is the row's position — the
    * edit session's rollback boundary and selection scope derive from it.
+   * `pause` is that breakpoint edit's acknowledgment when the host gives
+   * one: the dialog sequences its rollback after the render it triggers.
    */
-  onFeatureEdit?: (obj: SceneObjectRender, index: number) => void;
+  onFeatureEdit?: (obj: SceneObjectRender, index: number, pause?: Promise<PauseAfterResult | null>) => void;
+
+  /**
+   * Whether the gesture's pause should also lift the stop the build is
+   * paused on: true while an open edit dialog holds the build there, so
+   * replacing that dialog is one source edit and one render (the dialog then
+   * closes without lifting it itself — `handoff`). Unset, nothing is lifted.
+   */
+  pauseLiftsActive?: (obj: SceneObjectRender) => boolean;
 
   /**
    * Whether double-clicking this row opens an edit dialog (vs. only placing
@@ -1347,13 +1357,29 @@ export class TimelinePanel {
     if (obj) {
       this.enterScopeOf(obj);
     }
-    if (!(obj && this.managesOwnBreakpoint?.(obj))) {
-      this.addBreakpointAfter(index);
-    }
+    const pause = obj && this.managesOwnBreakpoint?.(obj) ? undefined : this.pauseAfter(index);
     this.goToSource(obj);
     if (obj) {
-      this.onFeatureEdit?.(obj, index);
+      this.onFeatureEdit?.(obj, index, pause);
     }
+  }
+
+  /**
+   * The edit gesture's pause after the row — acknowledged where the host
+   * can (the answer is what the edit dialog waits on), the plain
+   * fire-and-forget breakpoint otherwise.
+   */
+  private pauseAfter(index: number): Promise<PauseAfterResult | null> | undefined {
+    const obj = this.sceneObjects[index];
+    if (!obj || !obj.sourceLocation || !this.client.editor) {
+      return undefined;
+    }
+    if (this.client.editor.pauseAfter) {
+      const liftActive = this.pauseLiftsActive?.(obj) === true;
+      return this.client.editor.pauseAfter(obj.sourceLocation, liftActive ? { liftActive } : undefined);
+    }
+    this.client.editor.addBreakpoint(obj.sourceLocation);
+    return undefined;
   }
 
   /**

@@ -155,6 +155,7 @@ export class PlaneFeatureService {
 
     this.runner = new ApplyRunner({
       panel: this.panel,
+      session: this.session,
       isArmed: () => this.armed,
       build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
       send: (request, extras) => this.editTarget
@@ -447,7 +448,7 @@ export class PlaneFeatureService {
    * default to `'immediate'`; ending an edit session always resumes lazily
    * (a render follows every session end).
    */
-  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'handoff' | 'gone' } = {}): void {
     if (!this.armed) {
       return;
     }

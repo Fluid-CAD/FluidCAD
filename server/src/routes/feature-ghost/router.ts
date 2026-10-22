@@ -30,12 +30,14 @@ import {
   parseMirror2D,
   parseRepeat,
   parseRotate,
+  parseTranslate,
   type RawCopy,
   type RawCopy2D,
   type RawMirror,
   type RawMirror2D,
   type RawRepeat,
   type RawRotate,
+  type RawTranslate,
   parseSplit,
   type RawSplit,
 } from './transforms.ts';
@@ -92,6 +94,8 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     const isMirror = body.feature === 'mirror';
     // The rotate IS exempt: it moves (or copies) bodies, no boolean involved.
     const isRotate = body.feature === 'rotate';
+    // So is its straight-line sibling.
+    const isTranslate = body.feature === 'translate';
     // The split IS exempt too: it parts bodies, keeping one side or both.
     const isSplit = body.feature === 'split';
     const isPlane = body.feature === 'plane';
@@ -102,8 +106,8 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     const isMirror2D = body.feature === 'mirror2d';
     // A hole is always a removal — no op to declare.
     const isHole = body.feature === 'hole';
-    if (!isHole && !isBand && !isHelix && !isRepeat && !isCopy && !isRotate && !isSplit && !isPlane && !isOffset
-      && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
+    if (!isHole && !isBand && !isHelix && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
+      && !isOffset && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
     }
@@ -256,7 +260,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     // The transforms' edit mode: the edited statement's call site, so the
     // kernel reads its targets as of just before it (see copyTargetSolids).
     let transformExclude: { filePath: string; line: number } | undefined;
-    if ((isCopy || isMirror || isRotate || isSplit) && body.exclude !== undefined && body.exclude !== null) {
+    if ((isCopy || isMirror || isRotate || isTranslate || isSplit) && body.exclude !== undefined && body.exclude !== null) {
       if (typeof body.exclude.filePath !== 'string' || typeof body.exclude.line !== 'number') {
         res.status(400).json({ success: false, reason: 'Invalid exclude reference' });
         return;
@@ -298,6 +302,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         return;
       }
       rotate = parsed;
+    }
+    let translate: RawTranslate | null = null;
+    if (isTranslate) {
+      const parsed = parseTranslate(body);
+      if (typeof parsed === 'string') {
+        res.status(400).json({ success: false, reason: parsed });
+        return;
+      }
+      translate = parsed;
     }
     let copy2d: RawCopy2D | null = null;
     if (isCopy2D) {
@@ -418,6 +431,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     const center2d = copy2d?.center
       ? [resolve(copy2d.center[0]), resolve(copy2d.center[1])]
       : null;
+    const translation = translate ? translate.translation.map(v => resolve(v)) : null;
 
     if (values.some(v => v === null)) {
       // An expression this server can't evaluate — the client clears the ghost.
@@ -518,6 +532,14 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         targets: rotate!.targets,
         axis: rotate!.axis,
         angle,
+        exclude: transformExclude,
+      };
+    } else if (isTranslate) {
+      request = {
+        feature: 'translate',
+        targets: translate!.targets,
+        // Every value resolved above, or the request never reached here.
+        translation: translation as [number, number, number],
         exclude: transformExclude,
       };
     } else if (isMirror2D) {
@@ -686,7 +708,14 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
       });
       return;
     }
-    res.json({ success: true, solids: result.solids, ...(result.frames ? { frames: result.frames } : {}) });
+    res.json({
+      success: true,
+      solids: result.solids,
+      ...(result.frames ? { frames: result.frames } : {}),
+      // A translate's distances as the statement will read them: the dialog
+      // stands its gizmo on these, a value it cannot evaluate itself included.
+      ...(isTranslate ? { translation } : {}),
+    });
   });
 
   /**

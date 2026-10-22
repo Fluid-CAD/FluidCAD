@@ -98,6 +98,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.splitTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.rotateAxis?.kind === 'axis' || request.rotateAxis?.kind === 'connector' ? [request.rotateAxis.loc] : []),
       ...(request.rotateTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
+      ...(request.translateTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.booleanTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.planeBases ?? []).flatMap(b => b.kind === 'plane' || b.kind === 'wire' ? [b.loc] : []),
     ];
@@ -882,6 +883,17 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
             }),
           });
       }
+    }
+    if (request.feature === 'translate' && request.translateTargets) {
+      edit.translate!.targets = request.translateTargets.map(target => target.kind === 'verbatim'
+        ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
+        : {
+          kind: 'feature' as const,
+          producer: mergeProducer({
+            line: target.loc.line, column: target.loc.column,
+            featureType: 'feature', nameHint: 'f', bind: true,
+          }),
+        });
     }
     if (request.feature === 'plane' && request.planeBases) {
       const bases: NonNullable<NonNullable<FeatureStatementEditTarget['plane']>['bases']> = [];

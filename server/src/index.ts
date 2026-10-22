@@ -283,7 +283,7 @@ app.use('/api', createResolveSelectionRouter(fluidCadServer, featureCatalog));
 app.use('/api', createValidateRouter(fluidCadServer));
 app.use('/api', createInterfereRouter(fluidCadServer));
 app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, {
-  dispatcher: editDispatcher, workspacePath: WORKSPACE_PATH, callees: featureCatalog,
+  dispatcher: editDispatcher, workspacePath: WORKSPACE_PATH, callees: featureCatalog, renderVersion: () => renderVersion,
 }));
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToHost, WORKSPACE_PATH, editDispatcher, globalParamCatalog));
 app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, {

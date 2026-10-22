@@ -240,6 +240,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.ghost = schema.meta.ghost ? new FeatureGhostOverlay(viewer) : null;
     this.runner = new ApplyRunner<CreateRequest | EditRequest, SchemaGhost>({
       panel: this.panel,
+      session: this.session,
       isArmed: () => this.armed,
       build: purpose => this.editTarget ? this.buildEditRequest(purpose === 'apply') : this.buildRequest(purpose === 'apply'),
       send: (request, extras) => this.editTarget

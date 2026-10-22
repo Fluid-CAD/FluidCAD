@@ -16,6 +16,7 @@ import type { RotateFeatureService } from './create-feature/rotate-service';
 import type { SplitFeatureService } from './create-feature/split-service';
 import type { SweepFeatureService } from './create-feature/sweep-service';
 import type { TextEditService } from './create-feature/text-edit-service';
+import type { TranslateFeatureService } from './create-feature/translate-service';
 import type { WrapFeatureService } from './create-feature/wrap-service';
 import {
   FeatureDialogRegistry, ServiceDialog,
@@ -35,6 +36,7 @@ export type PartDialogServices = {
   repeat: RepeatFeatureService;
   copy: CopyFeatureService;
   mirror: MirrorFeatureService;
+  translate: TranslateFeatureService;
   rotate: RotateFeatureService;
   split: SplitFeatureService;
   connector: ConnectorFeatureService;
@@ -235,6 +237,14 @@ export class PartFeatureDialogs {
       // A face or edge selects its whole solid as a target, or (plane slot
       // armed) a face is the mirror plane.
       claims: { click: (d) => d.isPicking, plane: (d) => d.isPlanePicking },
+      timelinePicks: true,
+    }));
+    registry.register(new ServiceDialog('translate', s.translate, {
+      edit: { rowTypes: ['translate'], kind: 'translate', open: (t, p, i) => s.translate.enterEdit(t, p, i) },
+      picking: (d) => d.isPicking,
+      // A face or edge selects its whole solid as a target; the gizmo's own
+      // gestures never reach the click chain.
+      claims: { click: (d) => d.isPicking },
       timelinePicks: true,
     }));
     registry.register(new ServiceDialog('rotate', s.rotate, {

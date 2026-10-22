@@ -7,7 +7,7 @@ import type { FeatureButton } from './create-feature/feature-button';
 /** How a dialog closes — the options every create service's `exit()` takes. */
 export type FeatureDialogExit = {
   resume?: 'immediate' | 'lazy';
-  editEnd?: 'apply' | 'cancel' | 'continue' | 'gone';
+  editEnd?: 'apply' | 'cancel' | 'continue' | 'handoff' | 'gone';
 };
 
 /** The edit session's row facts, minus the target the dialog is handed separately. */
@@ -139,10 +139,10 @@ export class FeatureDialogRegistry {
    * dialog owns the viewport at a time. A dialog's own `onEnter` runs before
    * it arms, so it may name itself or not.
    */
-  exitAll(opts: { except?: string } = {}): void {
+  exitAll(opts: { except?: string; editEnd?: FeatureDialogExit['editEnd'] } = {}): void {
     for (const dialog of this.dialogs) {
       if (dialog.id !== opts.except) {
-        dialog.exit();
+        dialog.exit(opts.editEnd ? { editEnd: opts.editEnd } : {});
       }
     }
   }

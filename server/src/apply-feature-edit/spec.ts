@@ -12,6 +12,7 @@ import type { PropertyEditSpec } from '../property-edit.ts';
 import type { UsageEditSpec } from '../declaration-usages.ts';
 import type { MoveToPartSpec } from '../move-to-part.ts';
 import type { TimelineBreakpointSpec } from '../timeline-breakpoint.ts';
+import type { PauseAfterSpec } from '../pause-after.ts';
 import type { RemoveFeatureSpec } from '../remove-feature.ts';
 import type { InsertPartEditSpec } from '../part-catalog/insert-edit.ts';
 import type { InstancePoseEditSpec, InstanceTransparencySpec } from '../insert-chain-edit.ts';
@@ -57,6 +58,7 @@ import type {
 import type { RevolveAxisSpec, RevolveEditOptions } from './features/revolve.ts';
 import type { RibEditOptions } from './features/rib.ts';
 import type { RotateEditAxis, RotateEditOptions } from './features/rotate.ts';
+import type { TranslateEditOptions, TranslationSpec } from './features/translate.ts';
 import type { ShellEditOptions, ShellJoinKind } from './features/shell.ts';
 import type { SweepEditOptions } from './features/sweep.ts';
 import type { TextStatementOptions } from './features/text.ts';
@@ -72,7 +74,7 @@ import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'custom';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'custom';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -144,6 +146,8 @@ export type ApplyFeatureEditSpec = {
   split?: SplitEditOptions;
   /** Rotate-only payload; `parts` (if any) render the axis-edge selector. */
   rotate?: RotateEditOptions;
+  /** Translate-only payload; no selector parts. */
+  translate?: TranslateEditOptions;
   /** Boolean-only payload (fuse/subtract/common); no selector parts. */
   boolean?: BooleanEditOptions;
   /**
@@ -420,6 +424,16 @@ export type ApplyFeatureEditSpec = {
   partMaterial?: PartMaterialEditSpec;
   /** Move or clear the document's breakpoint in one acknowledged source edit. */
   timelineBreakpoint?: TimelineBreakpointSpec;
+  /**
+   * Pause the build right after the statement at `referenceRow` (0-based),
+   * keeping every other stop the document holds — the edit-feature gesture's
+   * breakpoint, on the acknowledged round trip so the dialog can sequence
+   * its rollback after the render this edit triggers. A stop already there
+   * leaves the code unchanged (the ack then reports `changed: false`, and no
+   * render follows). `lift` names the open dialog's stop to take out in the
+   * same edit (see `PauseAfter`). Every other spec field is ignored.
+   */
+  pauseAfter?: PauseAfterSpec;
   /**
    * The `part(...)` call site whose callback body receives the created
    * statement — the timeline's active part — whenever no input pins it
@@ -828,6 +842,20 @@ export type FeatureStatementEditTarget = {
     /** The rotation angle in degrees. */
     angle: ValueExpr;
     /** Keep the originals in place — the `true` third argument. */
+    copy: boolean;
+    /** Full replacement target list; absent keeps the statement's targets. */
+    targets?: RepeatEditTargetSource[];
+  };
+  /**
+   * Translate options. The distances and the copy flag rewrite wholesale
+   * (the dialog owns them); the target list mixes `verbatim` keeps with
+   * re-picked feature statements; an absent list keeps every statement
+   * target.
+   */
+  translate?: {
+    /** The distance along X, Y and Z. */
+    translation: TranslationSpec;
+    /** Keep the originals in place — the `true` after the distances. */
     copy: boolean;
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];

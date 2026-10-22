@@ -47,6 +47,7 @@ export type {
   RibGhostRequest,
   HoleGhostRequest,
   RotateGhostRequest,
+  TranslateGhostRequest,
   SketchRegionPreview,
   SketchRegionsOutcome,
   SketchRegionsRequest,

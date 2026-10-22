@@ -139,7 +139,7 @@ class FakeService {
 
 const PART_ORDER = [
   'extrude', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix',
-  'repeat', 'copy', 'mirror', 'rotate', 'split', 'connector', 'boolean', 'plane', 'text',
+  'repeat', 'copy', 'mirror', 'translate', 'rotate', 'split', 'connector', 'boolean', 'plane', 'text',
 ] as const;
 type PartId = typeof PART_ORDER[number];
 
@@ -305,7 +305,7 @@ describe('PartFeatureDialogs', () => {
   });
 
   it('gives a viewport click to the armed dialog only while its click slot is armed', () => {
-    const plainClickers: PartId[] = ['rib', 'hole', 'helix', 'repeat', 'copy', 'mirror', 'rotate', 'split', 'connector', 'boolean', 'plane'];
+    const plainClickers: PartId[] = ['rib', 'hole', 'helix', 'repeat', 'copy', 'mirror', 'translate', 'rotate', 'split', 'connector', 'boolean', 'plane'];
     for (const id of plainClickers) {
       const service = arm(id);
       expect(registry.routeClick('s1', FACE), id).toBe(true);
@@ -495,7 +495,7 @@ describe('PartFeatureDialogs', () => {
     const rowTypes = [
       'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix',
       'repeat-linear', 'repeat-circular', 'repeat-matrix', 'copy-linear', 'copy-circular', 'copy-pattern',
-      'mirror', 'rotate', 'split', 'connector', 'fuse', 'subtract', 'common', 'plane', 'text',
+      'mirror', 'translate', 'rotate', 'split', 'connector', 'fuse', 'subtract', 'common', 'plane', 'text',
     ];
     for (const type of rowTypes) {
       expect(registry.editsRowType(type), type).toBe(true);
@@ -506,7 +506,7 @@ describe('PartFeatureDialogs', () => {
     const kinds: [ParsedFeatureStatement['feature'], PartId][] = [
       ['extrude', 'extrude'], ['rib', 'rib'], ['hole', 'hole'], ['revolve', 'revolve'], ['sweep', 'sweep'],
       ['wrap', 'wrap'], ['loft', 'loft'], ['helix', 'helix'], ['repeat', 'repeat'], ['copy', 'copy'],
-      ['mirror', 'mirror'], ['rotate', 'rotate'], ['split', 'split'], ['connector', 'connector'], ['boolean', 'boolean'],
+      ['mirror', 'mirror'], ['translate', 'translate'], ['rotate', 'rotate'], ['split', 'split'], ['connector', 'connector'], ['boolean', 'boolean'],
       ['plane', 'plane'], ['text', 'text'],
     ];
     for (const [kind, id] of kinds) {

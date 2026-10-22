@@ -134,8 +134,10 @@ export class FeatureEditDispatcher {
    * statement lands in the current buffer). Same preflight/ack semantics as
    * {@link dispatch}; the caller folds the returned error into its own
    * response. A send with no host process keeps the legacy immediate success.
+   * `changed` reports whether the host's buffer was rewritten (a render
+   * follows) when the host says; absent otherwise.
    */
-  async send(spec: ApplyFeatureEditSpec): Promise<{ error?: string }> {
+  async send(spec: ApplyFeatureEditSpec): Promise<{ error?: string; changed?: boolean }> {
     const readOnly = this.packages?.refusal(spec.filePath);
     if (readOnly) {
       return { error: readOnly.message };
@@ -163,7 +165,12 @@ export class FeatureEditDispatcher {
     if (ack === null) {
       return { error: `the editor did not apply the edit within ${this.ackTimeoutMs}ms — check the editor for errors` };
     }
-    return ack.error ? { error: ack.error } : {};
+    if (ack.error) {
+      return { error: ack.error };
+    }
+    // Whether the host's buffer changed (and a render follows) — absent from
+    // a host that predates the field.
+    return ack.changed === undefined ? {} : { changed: ack.changed };
   }
 
   /**
@@ -200,8 +207,12 @@ export class FeatureEditDispatcher {
     }
   }
 
-  /** The host round-tripped a dispatched spec — settle the waiting request. */
-  settle(editId: string, error: string | undefined): void {
-    this.acks.resolve(editId, error);
+  /**
+   * The host round-tripped a dispatched spec — settle the waiting request.
+   * `changed` says whether the transform rewrote the buffer (see
+   * {@link EditAck.changed}).
+   */
+  settle(editId: string, error: string | undefined, changed?: boolean): void {
+    this.acks.resolve(editId, error, changed);
   }
 }

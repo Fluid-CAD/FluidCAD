@@ -111,6 +111,11 @@ function openEdit(m: ReturnType<typeof mount>, resolved = true): void {
   });
   m.service.enterEdit({ filePath, line: 31, column: 1 }, parsed,
     { index: 6, type: 'loft', expectedStatement: 'loft(a, b).connect(a0, b0)' });
+  // The session's rollback lands: the view at the pre-statement boundary,
+  // where the dialog's previews and ghost run (nothing previews before it).
+  m.service.handleSceneRendered([...fixture(), {
+    id: 'loft', type: 'loft', sourceLocation: { filePath, line: 31, column: 1 }, ownShapes: [], sceneShapes: [],
+  } as SceneObjectRender], 5, true);
 }
 
 describe('loft Connections dialog', () => {

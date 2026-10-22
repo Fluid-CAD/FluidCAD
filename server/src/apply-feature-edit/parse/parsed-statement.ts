@@ -13,7 +13,7 @@ import type { SplitKeep } from '../features/split.ts';
 import type { RegionName, ValueExpr } from '../value-expr.ts';
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split';
 
 /**
  * A statement's parsed `.scope(…)` chain, shared by every feature that
@@ -368,6 +368,26 @@ export type ParsedFeatureStatement =
     targetRefs: ({ line: number; column: number } | null)[];
   }
   | {
+    feature: 'translate';
+    /**
+     * The distance along X, Y and Z — every form (`translate(x)`,
+     * `translate(x, y, z)`, `translate([x, y, z])`) read as three values,
+     * the missing ones zero.
+     */
+    translation: [ValueExpr, ValueExpr, ValueExpr];
+    /** The `true` after the distances — copy instead of move. */
+    copy: boolean;
+    /** Trailing target texts, verbatim; empty moves every active object. */
+    targetTexts: string[];
+    /**
+     * Per-target source location of the feature statement a plain-identifier
+     * target references, or null when the expression doesn't resolve to one.
+     * Same length as `targetTexts`; lets the edit dialog seed targets as
+     * their timeline rows.
+     */
+    targetRefs: ({ line: number; column: number } | null)[];
+  }
+  | {
     feature: 'plane';
     /**
      * The form the dialog opens on: two bases read as a mid plane, a lone
@@ -427,6 +447,7 @@ export const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   // The 3D `rotate(axis, angle, …)` only — the 2D in-sketch form shares the
   // callee the same way, and the client gates its rows by uniqueType too.
   rotate: 'rotate',
+  translate: 'translate',
   split: 'split',
   fuse: 'boolean',
   subtract: 'boolean',
@@ -476,6 +497,7 @@ export const DISPLAY_TYPE_BY_CALLEE: Record<string, string> = {
   copy: 'Copy',
   mirror: 'Mirror',
   rotate: 'Rotate',
+  translate: 'Translate',
   split: 'Split',
   fuse: 'Fuse',
   subtract: 'Subtract',
@@ -523,6 +545,9 @@ export const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // The axis, angle, copy flag and targets are all root-call arguments;
   // `.exclude()`/`.name()` are unrecognized members and survive verbatim.
   rotate: new Set(),
+  // The distances, copy flag and targets are all root-call arguments;
+  // `.exclude()`/`.name()` are unrecognized members and survive verbatim.
+  translate: new Set(),
   // The cut, the options object and the targets are all root-call arguments;
   // `.name()` and friends are unrecognized members and survive verbatim.
   split: new Set(),

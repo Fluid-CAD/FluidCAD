@@ -1,4 +1,4 @@
-import { Group, Object3D } from 'three';
+import { Group, Object3D, Vector3 } from 'three';
 import { GhostFrame, GhostSolid } from '../../api';
 import { EdgeMesh } from '../../meshes/shape-meshes/edge-mesh';
 import { SolidMesh } from '../../meshes/shape-meshes/solid-mesh';
@@ -74,6 +74,8 @@ export class FeatureGhostOverlay {
    */
   set(solids: GhostSolid[], kind: GhostKind, frames: readonly GhostFrame[] = []): void {
     this.clear();
+    this.group.position.set(0, 0, 0);
+    this.group.visible = true;
     for (const frame of frames) {
       this.group.add(buildConnectorGizmo(frame, this.viewer.sceneContext.camera, { opacity: GHOST_FRAME_OPACITY }));
     }
@@ -111,6 +113,20 @@ export class FeatureGhostOverlay {
   dispose(): void {
     this.clear();
     this.viewer.sceneContext.scene.remove(this.group);
+  }
+
+  /**
+   * Slide the drawn bodies rigidly by `offset` from where they were stamped,
+   * or hide them (null) — the translate dialog moves its ghost live this way
+   * under a gizmo drag, between fetches; exact, a translation being rigid.
+   * Every `set()` lands unshifted and shown.
+   */
+  place(offset: Vector3 | null): void {
+    if (offset) {
+      this.group.position.copy(offset);
+    }
+    this.group.visible = offset !== null;
+    this.viewer.sceneContext.requestRender();
   }
 
   /** Drop the drawn bodies and free their GPU resources. */

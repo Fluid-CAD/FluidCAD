@@ -108,6 +108,12 @@ export {
 } from './features/mirror.ts';
 export { renderRotateStatement, type RotateEditAxis, type RotateEditOptions } from './features/rotate.ts';
 export {
+  renderTranslateStatement,
+  validTranslation,
+  type TranslateEditOptions,
+  type TranslationSpec,
+} from './features/translate.ts';
+export {
   renderSectionOptionsArg,
   renderSectionPlaneExpr,
   renderSectionStatement,

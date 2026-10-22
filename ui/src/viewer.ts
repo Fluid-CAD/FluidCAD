@@ -35,7 +35,7 @@ import { hitIsClipped, hitIsSectioned, pointIsVisible } from './interactive/pick
 import { EntityGeometry } from './meshes/entity-geometry';
 import { SceneIndex } from './helpers/scene-index';
 import { carryShownKeys, findActiveSketch, isSceneEmpty, isShowableConsumedRow, sourceLocKey } from './helpers/scene-utils';
-import { findGeometryRoot, geometryPartsOf, sceneGeometryBounds, unionBox } from './scene/scene-geometry-bounds';
+import { findGeometryRoot, geometryBoundsOf, geometryPartsOf, sceneGeometryBounds, unionBox } from './scene/scene-geometry-bounds';
 import { filterToReferencedParts } from './scene/referenced-parts';
 
 /**
@@ -1387,6 +1387,35 @@ export class Viewer {
    */
   private sceneGeometryBounds(): Box3 | null {
     return sceneGeometryBounds(this.ctx.scene, this.assemblyController?.getContainer() ?? null);
+  }
+
+  /**
+   * World-space bounds of the given shapes as drawn (meta shapes excluded),
+   * or null when none of them is on screen — the translate dialog stands its
+   * gizmo at the center of the solids it moves.
+   */
+  shapeBounds(shapeIds: Iterable<string>): Box3 | null {
+    const root = findGeometryRoot(this.ctx.scene, this.assemblyController?.getContainer() ?? null);
+    if (!root) {
+      return null;
+    }
+    const wanted = new Set(shapeIds);
+    const parts: Box3[] = [];
+    const visit = (node: Object3D): void => {
+      if (node.userData.isMetaShape) {
+        return;
+      }
+      if (wanted.has(node.userData.shapeId)) {
+        parts.push(geometryBoundsOf(node));
+        return;
+      }
+      for (const child of node.children) {
+        visit(child);
+      }
+    };
+    visit(root);
+    const box = unionBox(parts);
+    return box.isEmpty() ? null : box;
   }
 
   /**

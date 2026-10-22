@@ -509,6 +509,7 @@ export type FeatureGhostRequest =
   | MirrorGhostRequest
   | SplitGhostRequest
   | RotateGhostRequest
+  | TranslateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -904,6 +905,27 @@ export type RotateGhostRequest = {
 };
 
 /**
+ * The translate on the ghost wire — the rotate's straight-line sibling: the
+ * target solids' own bodies stamped once, under the translation the apply
+ * itself will use. A zero translation still stamps them, where they stand, so
+ * the dialog can slide them under its gizmo from the first drag. The copy
+ * flag never travels — either way the stamp is where the bodies land.
+ */
+export type TranslateGhostRequest = {
+  feature: 'translate';
+  /** The solid-bearing statements being moved, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The distance along X, Y and Z. */
+  translation: Translation;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
  * The mirror dialog's plane slot on the ghost wire — the plane sibling of
  * {@link GhostAxisRef}, flattened to what the kernel can resolve without
  * reading code: an origin plane, a `plane()` statement's call site, or a
@@ -1222,6 +1244,54 @@ export async function fetchFeatureGhostResult(
   /** A custom feature's values its `derive()` fixed from the picks, by name — the dialog locks their rows. Absent when it fixed none. */
   derived?: Record<string, FeatureScalarValue>;
 }> {
+  const answer = await postFeatureGhost(request, valueScope, signal);
+  if ('body' in answer) {
+    const body = answer.body;
+    const derived = body.derived && typeof body.derived === 'object' && !Array.isArray(body.derived) ? body.derived as Record<string, FeatureScalarValue> : undefined;
+    return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null, ...(derived ? { derived } : {}) };
+  }
+  if ('paused' in answer) {
+    return { solids: null, frames: [], notice: null, paused: answer.paused };
+  }
+  return { solids: null, frames: [], notice: answer.notice };
+}
+
+/**
+ * The translate's bodies, plus the distances they were stamped at as the
+ * statement will read them — a name resolved where the statement sits, which
+ * the client's own arithmetic can't always do (a configuration's parameter
+ * value). The dialog stands its gizmo on these. Null whenever there is
+ * nothing to draw, as for {@link fetchFeatureGhost}.
+ */
+export async function fetchTranslateGhost(
+  request: TranslateGhostRequest,
+  valueScope: GhostValueScope | null,
+  signal: AbortSignal,
+): Promise<{ solids: GhostSolid[]; translation: [number, number, number] } | null> {
+  const answer = await postFeatureGhost(request, valueScope, signal);
+  if (!('body' in answer)) {
+    return null;
+  }
+  const translation: unknown = answer.body.translation;
+  if (!Array.isArray(translation) || translation.length !== 3 || !translation.every(Number.isFinite)) {
+    return null;
+  }
+  return { solids: answer.body.solids ?? [], translation: translation as [number, number, number] };
+}
+
+/**
+ * One round trip to the ghost route: the success body; a `paused` reason
+ * when the build ran over the live preview's time limit (a custom
+ * feature's) — no geometry, and why, so the dialog pauses its previews; or
+ * — for any other refusal — only the notice worth reading out (see
+ * {@link fetchFeatureGhostResult}). An abort propagates; any other failure
+ * is a silent refusal.
+ */
+async function postFeatureGhost(
+  request: FeatureGhostRequest,
+  valueScope: GhostValueScope | null,
+  signal: AbortSignal,
+): Promise<{ body: any } | { paused: string } | { notice: string | null }> {
   try {
     const res = await fetch('api/feature-ghost', {
       method: 'POST',
@@ -1231,21 +1301,17 @@ export async function fetchFeatureGhostResult(
     });
     const body = await res.json().catch(() => null);
     if (res.ok && body?.success === true) {
-      const derived = body.derived && typeof body.derived === 'object' && !Array.isArray(body.derived) ? body.derived as Record<string, FeatureScalarValue> : undefined;
-      return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null, ...(derived ? { derived } : {}) };
+      return { body };
     }
     if (body?.paused === true) {
-      // The build ran over the live preview's time limit (a custom
-      // feature's): no geometry, and why — the dialog pauses its previews.
-      return { solids: null, frames: [], notice: null, paused: typeof body.reason === 'string' ? body.reason : 'Building it took longer than a live preview may.' };
+      return { paused: typeof body.reason === 'string' ? body.reason : 'Building it took longer than a live preview may.' };
     }
-    const notice = body?.surface === true && typeof body?.reason === 'string' ? body.reason : null;
-    return { solids: null, frames: [], notice };
+    return { notice: body?.surface === true && typeof body?.reason === 'string' ? body.reason : null };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw err;
     }
-    return { solids: null, frames: [], notice: null };
+    return { notice: null };
   }
 }
 
@@ -3337,6 +3403,39 @@ export async function applyRotate(options: RotateApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
+/** The distance along X, Y and Z — `translate()`'s leading arguments. */
+export type Translation = [ValueExpr, ValueExpr, ValueExpr];
+
+export type TranslateApplyOptions = {
+  /** The solid-bearing statements being moved (whole-solid picks), in order. */
+  targets: SketchSourceRef[];
+  /** The distance along X, Y and Z. */
+  translation: Translation;
+  /** Keep the originals in place — writes the `true` after the distances. */
+  copy: boolean;
+  /** Declarations the dialog's distance fields committed (`gap = 20`). */
+  newVariables?: NewVariable[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a translate
+ * statement moving the target solids along X, Y and Z. Same endpoint and
+ * response shape as {@link applyFeature}.
+ */
+export async function applyTranslate(options: TranslateApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'translate',
+    targets: options.targets,
+    translation: options.translation,
+    copy: options.copy,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** The three boolean operations — each its own callee, one shared dialog. */
 export type BooleanKind = 'fuse' | 'subtract' | 'common';
 
@@ -3466,6 +3565,12 @@ export type FeatureSourcesResult =
    * an empty target list.
    */
   | { ok: true; feature: 'rotate'; targets: SourceSlotRef[]; axis: SourceSlotRef }
+  /**
+   * A standalone translate: the solids it moves, by call site — its distances
+   * are the dialog's own, read off the statement — and an implicit translate,
+   * one naming no targets at all, reports an empty target list.
+   */
+  | { ok: true; feature: 'translate'; targets: SourceSlotRef[] }
   /**
    * A construction plane, by its bases in argument order — one for the offset
    * and edge forms, two for a mid plane. An origin-plane literal is `opaque`:
@@ -3853,6 +3958,25 @@ export type ParsedFeatureStatement =
       /** The `true` third argument — copy instead of move. */
       copy: boolean;
       /** Trailing target texts, verbatim; empty rotates every active object. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
+    }
+  | {
+      feature: 'translate';
+      /**
+       * The distance along X, Y and Z — every statement form (`translate(x)`,
+       * `translate(x, y, z)`, `translate([x, y, z])`) read as three values,
+       * the missing ones zero.
+       */
+      translation: Translation;
+      /** The `true` after the distances — copy instead of move. */
+      copy: boolean;
+      /** Trailing target texts, verbatim; empty moves every active object. */
       targetTexts: string[];
       /**
        * Per-target source location of the statement a plain-identifier target
@@ -4560,6 +4684,45 @@ export async function applyRotateEdit(
 }
 
 /**
+ * One target of an edited translate, in argument order: an untouched target
+ * by its position in the statement's own argument list, or a re-picked solid
+ * statement by call site.
+ */
+export type TranslateEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type TranslateEditOptions = EditSessionFields & {
+  /** The distance along X, Y and Z. */
+  translation: Translation;
+  /** Keep the originals in place — writes the `true` after the distances. */
+  copy: boolean;
+  /** Declarations the dialog's distance fields committed (`gap = 20`). */
+  newVariables?: NewVariable[];
+  /** Full replacement target list; omitted keeps the statement's own. */
+  targets?: TranslateEditTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the translate statement at `edit` in place. */
+export async function applyTranslateEdit(
+  edit: FeatureEditTarget,
+  options: TranslateEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'translate',
+    edit,
+    expectedStatement: options.expectedStatement,
+    translation: options.translation,
+    copy: options.copy,
+    newVariables: options.newVariables,
+    targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
  * One target of an edited boolean, in argument order: an untouched target by
  * its position in the statement's own argument list, or a re-picked solid
  * statement by call site.
@@ -4926,6 +5089,40 @@ export function rollback(index: number, scope?: 'part'): void {
 
 export function addBreakpoint(sourceLocation: SourceLocationParam): void {
   postFireAndForget('api/add-breakpoint', { sourceLocation });
+}
+
+/**
+ * What the acknowledged edit-feature pause reports: whether the buffer
+ * changed (a stop already sat after the statement otherwise — then no
+ * render follows) and the render version current when it was acknowledged
+ * (the render the change triggers is a newer one — see `RenderVersions`).
+ */
+export type PauseAfterResult = { changed: boolean; renderVersion: number };
+
+/**
+ * `liftActive`: an open edit dialog holds the build on the active stop and
+ * this gesture replaces that dialog — take its stop out in the same edit,
+ * so the hand-off is one render. The dialog then closes with `handoff`
+ * (see `EditSession.end`) instead of lifting the stop itself.
+ */
+export type PauseAfterOptions = { liftActive?: boolean };
+
+/**
+ * Pause the build after the statement at `sourceLocation`, keeping the
+ * document's other stops — the edit-feature gesture's breakpoint, as an
+ * acknowledged edit. Null when the edit was refused or no host answered;
+ * the caller then proceeds as it did without the ack.
+ */
+export async function pauseAfterStatement(
+  sourceLocation: SourceLocationParam,
+  options: PauseAfterOptions = {},
+): Promise<PauseAfterResult | null> {
+  const answer = await postJson<{ success?: boolean; changed?: boolean; renderVersion?: number }>(
+    'api/pause-after', { sourceLocation, ...(options.liftActive ? { liftActive: true } : {}) });
+  if (!answer || answer.success !== true) {
+    return null;
+  }
+  return { changed: answer.changed === true, renderVersion: answer.renderVersion ?? 0 };
 }
 
 /**

@@ -151,6 +151,7 @@ export class ExtrudeFeatureService {
 
     this.runner = new ApplyRunner({
       panel: this.panel,
+      session: this.session,
       isArmed: () => this.armed,
       build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
       onSchedule: () => this.regions.sync(),
@@ -465,7 +466,7 @@ export class ExtrudeFeatureService {
    * session always resumes lazily (a render follows every session end —
    * the cancel-restore rollback, an apply's rebuild).
    */
-  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'handoff' | 'gone' } = {}): void {
     if (!this.armed) {
       return;
     }

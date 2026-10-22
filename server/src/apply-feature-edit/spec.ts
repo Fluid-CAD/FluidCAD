@@ -57,6 +57,7 @@ import type {
 import type { RevolveAxisSpec, RevolveEditOptions } from './features/revolve.ts';
 import type { RibEditOptions } from './features/rib.ts';
 import type { RotateEditAxis, RotateEditOptions } from './features/rotate.ts';
+import type { TranslateEditOptions, TranslationSpec } from './features/translate.ts';
 import type { ShellEditOptions, ShellJoinKind } from './features/shell.ts';
 import type { SweepEditOptions } from './features/sweep.ts';
 import type { TextStatementOptions } from './features/text.ts';
@@ -71,7 +72,7 @@ import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -143,6 +144,8 @@ export type ApplyFeatureEditSpec = {
   split?: SplitEditOptions;
   /** Rotate-only payload; `parts` (if any) render the axis-edge selector. */
   rotate?: RotateEditOptions;
+  /** Translate-only payload; no selector parts. */
+  translate?: TranslateEditOptions;
   /** Boolean-only payload (fuse/subtract/common); no selector parts. */
   boolean?: BooleanEditOptions;
   filePath: string;
@@ -820,6 +823,20 @@ export type FeatureStatementEditTarget = {
     /** The rotation angle in degrees. */
     angle: ValueExpr;
     /** Keep the originals in place — the `true` third argument. */
+    copy: boolean;
+    /** Full replacement target list; absent keeps the statement's targets. */
+    targets?: RepeatEditTargetSource[];
+  };
+  /**
+   * Translate options. The distances and the copy flag rewrite wholesale
+   * (the dialog owns them); the target list mixes `verbatim` keeps with
+   * re-picked feature statements; an absent list keeps every statement
+   * target.
+   */
+  translate?: {
+    /** The distance along X, Y and Z. */
+    translation: TranslationSpec;
+    /** Keep the originals in place — the `true` after the distances. */
     copy: boolean;
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];

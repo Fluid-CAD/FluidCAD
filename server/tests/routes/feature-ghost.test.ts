@@ -1080,6 +1080,86 @@ describe('feature-ghost route — rotate', () => {
   });
 });
 
+describe('feature-ghost route — translate', () => {
+  useGhostRoute();
+
+  /** A translate exactly as the dialog sends it. */
+  function translateBody(overrides: Record<string, unknown> = {}) {
+    return {
+      feature: 'translate',
+      targets: [{ filePath: FILE, line: 7 }],
+      translation: [30, 0, 5],
+      ...overrides,
+    };
+  }
+
+  it('passes a translate through with its distances and targets — no op involved', async () => {
+    const { status, body } = await postGhost(translateBody());
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(received).toEqual({
+      feature: 'translate',
+      targets: [{ filePath: FILE, line: 7 }],
+      translation: [30, 0, 5],
+    });
+  });
+
+  /**
+   * The dialog stands its gizmo on the distances the statement will read, an
+   * expression it cannot evaluate itself included — so the answer carries
+   * them back, resolved where the statement sits.
+   */
+  it('resolves expression distances and echoes them with the bodies', async () => {
+    code = ['const gap = 12', 'const lift = param("Lift", 4)'].join('\n');
+
+    const { body } = await postGhost(translateBody({ translation: ['gap * 2', 0, 'lift'] }));
+
+    expect(received.translation).toEqual([24, 0, 4]);
+    expect(body).toMatchObject({ success: true, translation: [24, 0, 4] });
+  });
+
+  it('carries the edit exclusion and stamps a zero translation', async () => {
+    await postGhost(translateBody({ translation: [0, 0, 0], exclude: { filePath: FILE, line: 9 } }));
+
+    expect(received).toEqual({
+      feature: 'translate',
+      targets: [{ filePath: FILE, line: 7 }],
+      translation: [0, 0, 0],
+      exclude: { filePath: FILE, line: 9 },
+    });
+  });
+
+  it('answers an unresolvable distance with no ghost instead of a guess', async () => {
+    const { status, body } = await postGhost(translateBody({ translation: ['unknownName', 0, 0] }));
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(false);
+    expect(received).toBeUndefined();
+  });
+
+  it('refuses a body the translate does not accept', async () => {
+    const bodies: Record<string, unknown>[] = [
+      // Nothing to move.
+      translateBody({ targets: [] }),
+      // Distances that are not exactly x, y and z.
+      translateBody({ translation: undefined }),
+      translateBody({ translation: [10, 0] }),
+      translateBody({ translation: [10, 0, ''] }),
+      translateBody({ translation: 10 }),
+      // A malformed target entry.
+      translateBody({ targets: [{ filePath: FILE }] }),
+    ];
+
+    for (const body of bodies) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+      expect(result.body.success).toBe(false);
+    }
+    expect(received).toBeUndefined();
+  });
+});
+
 /** An in-sketch mirror exactly as the dialog sends it. */
 function mirror2dBody(overrides: Record<string, unknown> = {}) {
   return {

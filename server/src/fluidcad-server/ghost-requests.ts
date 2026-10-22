@@ -22,6 +22,7 @@ export type FeatureGhostRequest =
   | MirrorGhostRequest
   | SplitGhostRequest
   | RotateGhostRequest
+  | TranslateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -344,6 +345,21 @@ export type RotateGhostRequest = {
   axis: GhostAxisRef;
   /** The rotation angle in degrees. */
   angle: number;
+  /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
+ * The translate — the rotate's straight-line sibling: the target solids' own
+ * bodies stamped once, under the same translation the apply hands OCC — at a
+ * zero translation too, where they stand, so the dialog can slide them live.
+ */
+export type TranslateGhostRequest = {
+  feature: 'translate';
+  /** The solid-bearing statements being moved, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The world-space distance along X, Y and Z. */
+  translation: [number, number, number];
   /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
   exclude?: { filePath: string; line: number };
 };

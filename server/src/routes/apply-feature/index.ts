@@ -12,3 +12,4 @@ export { MAX_MIRROR_TARGETS } from './validate/mirror.ts';
 export { MAX_SPLIT_TARGETS, type SplitPlaneInput } from './validate/split.ts';
 export { MAX_REPEAT_TARGETS } from './validate/repeat.ts';
 export { MAX_ROTATE_TARGETS } from './validate/rotate.ts';
+export { MAX_TRANSLATE_TARGETS } from './validate/translate.ts';

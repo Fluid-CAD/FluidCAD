@@ -9066,6 +9066,262 @@ describe('applyFeatureEdit (rotate in-place statement edit)', () => {
   });
 });
 
+describe('translate statement templates', () => {
+  const base = [
+    `import { sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { ellipse(100, 50) })`,
+    `extrude(30)`,
+    `sketch('xy', () => { ellipse(10, 10) })`,
+    `cut(5)`,
+  ].join('\n');
+
+  function translateSpec(
+    translate: NonNullable<ApplyFeatureEditSpec['translate']>,
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'translate',
+      translate,
+      filePath: '/ws/model.fluid.js',
+      producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  it('binds two bare targets and appends a translate writing every distance', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, translateSpec({
+      translation: [30, 0, 5],
+      copy: false,
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }, {
+      producers: [
+        { line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 6, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { translate, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `const f = extrude(30)`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
+      `const f2 = cut(5)`,
+      `translate(30, 0, 5, f, f2).name('Translate 1')`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('renders the copy flag, expression distances and reuses an existing const binding', async () => {
+    const code = [
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
+      ``,
+      `const gap = 12`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `const e = extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, translateSpec({
+      translation: ['gap * 2', 0, -5],
+      copy: true,
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 5, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`translate(gap * 2, 0, -5, true, e)`);
+    expect(result.newCode).not.toContain('const f =');
+  });
+
+  it('refuses an all-zero translation, a duplicate target and a selector part', async () => {
+    const zero = await applyFeatureEdit(`${base}\n`, translateSpec({
+      translation: [0, 0, 0],
+      copy: false,
+      targets: [{ producer: 0 }],
+    }));
+    expect(zero.error).toContain('malformed translate edit spec');
+
+    const duplicate = await applyFeatureEdit(`${base}\n`, translateSpec({
+      translation: [10, 0, 0],
+      copy: false,
+      targets: [{ producer: 0 }, { producer: 0 }],
+    }));
+    expect(duplicate.error).toContain('malformed translate edit spec');
+
+    const selector = await applyFeatureEdit(`${base}\n`, translateSpec({
+      translation: [10, 0, 0],
+      copy: false,
+      targets: [{ producer: 0 }],
+    }, {
+      parts: [{ producer: 0, accessor: 'endEdges', indices: [0], filterArgs: null }],
+    }));
+    expect(selector.error).toContain('malformed translate edit spec');
+  });
+});
+
+const translateEditBase = [
+  `import { sketch, ellipse, extrude, cut, translate } from 'fluidcad/core'`,
+  ``,
+  `sketch('xy', () => { ellipse(100, 50) })`,
+  `const e = extrude(30)`,
+  `sketch('xy', () => { ellipse(10, 10) })`,
+  `const c = cut(5)`,
+].join('\n');
+
+describe('parseFeatureStatement — translate', () => {
+  it('reads the three distances and identifier targets with their refs', async () => {
+    const code = `${translateEditBase}\ntranslate(30, 0, 5, e, c)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'translate', translation: [30, 0, 5], copy: false, targetTexts: ['e', 'c'],
+        // The bound calls' own positions — the timeline rows' locations.
+        targetRefs: [{ line: 4, column: 10 }, { line: 6, column: 10 }],
+      },
+      statement: `translate(30, 0, 5, e, c)`,
+    });
+  });
+
+  it('pads the short forms with zeros, the way the API does', async () => {
+    const one = await parseFeatureStatement(`${translateEditBase}\ntranslate(20, e)\n`, 7);
+    expect(one).toMatchObject({
+      ok: true,
+      parsed: { feature: 'translate', translation: [20, 0, 0], targetTexts: ['e'] },
+    });
+    const two = await parseFeatureStatement(`${translateEditBase}\ntranslate(20, -4, true, e)\n`, 7);
+    expect(two).toMatchObject({
+      ok: true,
+      parsed: { feature: 'translate', translation: [20, -4, 0], copy: true, targetTexts: ['e'] },
+    });
+  });
+
+  it('reads the point form and an implicit translate with no targets', async () => {
+    const point = await parseFeatureStatement(`${translateEditBase}\ntranslate([0, 10, 5], true, e)\n`, 7);
+    expect(point).toMatchObject({
+      ok: true,
+      parsed: { feature: 'translate', translation: [0, 10, 5], copy: true, targetTexts: ['e'] },
+    });
+    const implicit = await parseFeatureStatement(`${translateEditBase}\ntranslate(0, 0, 15)\n`, 7);
+    expect(implicit).toMatchObject({
+      ok: true,
+      parsed: { feature: 'translate', translation: [0, 0, 15], copy: false, targetTexts: [] },
+    });
+  });
+
+  it('reads numeric variables as distances and a solid variable as the first target', async () => {
+    const code = [
+      `import { sketch, ellipse, extrude, translate } from 'fluidcad/core'`,
+      `const gap = 30`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `const e = extrude(30)`,
+      `translate(gap, gap / 2, e)`,
+      ``,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'translate', translation: ['gap', 'gap / 2', 0], targetTexts: ['e'] },
+    });
+  });
+
+  it('keeps an unrecognized chain suffix out of the editable range', async () => {
+    const result = await parseFeatureStatement(`${translateEditBase}\ntranslate(10, 0, 0, e).name('moved')\n`, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'translate', translation: [10, 0, 0] },
+      statement: `translate(10, 0, 0, e)`,
+    });
+  });
+
+  it('refuses distances the dialog cannot hold', async () => {
+    for (const statement of [`translate()`, `translate(e)`, `translate([1, 2], e)`, `translate(1, 2, 3, 4, e)`]) {
+      const result = await parseFeatureStatement(`${translateEditBase}\n${statement}\n`, 7);
+      expect(result, statement).toMatchObject({ ok: false });
+    }
+  });
+});
+
+describe('applyFeatureEdit (translate in-place statement edit)', () => {
+  it('rewrites the distances and copy flag keeping the targets verbatim', async () => {
+    const code = `${translateEditBase}\ntranslate(30, 0, 0, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('translate', {
+      line: 7, column: 0,
+      translate: { translation: [30, 'h', 0], copy: true },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`translate(30, h, 0, true, e)\n`);
+  });
+
+  it('writes every distance over a short or point form', async () => {
+    for (const statement of [`translate(30, e)`, `translate([30, 0, 0], e)`]) {
+      const code = `${translateEditBase}\n${statement}\n`;
+      const result = await applyFeatureEdit(code, editSpec('translate', {
+        line: 7, column: 0,
+        translate: { translation: [30, 0, 8], copy: false },
+      }));
+      expect(result.error, statement).toBeUndefined();
+      expect(result.newCode, statement).toContain(`translate(30, 0, 8, e)\n`);
+    }
+  });
+
+  it('replaces the target list, mixing kept and re-picked features', async () => {
+    const code = `${translateEditBase}\ntranslate(30, 0, 0, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('translate', {
+      line: 7, column: 0,
+      translate: {
+        translation: [30, 0, 0],
+        copy: false,
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+      },
+    }, {
+      producers: [{ line: 6, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`translate(30, 0, 0, e, c)\n`);
+  });
+
+  it('keeps an implicit-target translate implicit when no target list rides the spec', async () => {
+    const code = `${translateEditBase}\ntranslate(0, 0, 15)\n`;
+    const result = await applyFeatureEdit(code, editSpec('translate', {
+      line: 7, column: 0,
+      translate: { translation: [0, 0, 20], copy: false },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`translate(0, 0, 20)\n`);
+  });
+
+  it('refuses an empty replacement target list and an all-zero translation', async () => {
+    const code = `${translateEditBase}\ntranslate(30, 0, 0, e)\n`;
+    const empty = await applyFeatureEdit(code, editSpec('translate', {
+      line: 7, column: 0,
+      translate: { translation: [30, 0, 0], copy: false, targets: [] },
+    }));
+    expect(empty.error).toContain('at least one target');
+    expect(empty.newCode).toBe(code);
+
+    const zero = await applyFeatureEdit(code, editSpec('translate', {
+      line: 7, column: 0,
+      translate: { translation: [0, 0, 0], copy: false },
+    }));
+    expect(zero.error).toContain('malformed translate edit spec');
+    expect(zero.newCode).toBe(code);
+  });
+
+  it('preserves an unrecognized chain suffix through an edit', async () => {
+    const code = `${translateEditBase}\ntranslate(30, 0, 0, e).name('moved')\n`;
+    const result = await applyFeatureEdit(code, editSpec('translate', {
+      line: 7, column: 0,
+      translate: { translation: [45, 0, 0], copy: false },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`translate(45, 0, 0, e).name('moved')\n`);
+  });
+});
+
 describe('new part statement', () => {
   const newPartSpec = (name?: string) => spec({
     feature: 'sketch', value: undefined, producers: [], parts: [],

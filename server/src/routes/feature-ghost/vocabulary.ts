@@ -13,6 +13,8 @@ export type GhostBody = {
   extendEnd?: unknown;
   angle?: unknown;
   offset?: unknown;
+  /** Translate: the distance along X, Y and Z (`offset` is the plane's scalar). */
+  translation?: unknown;
   value?: unknown;
   isAngle?: unknown;
   edges?: unknown;
@@ -75,7 +77,7 @@ export type GhostBody = {
 
 export const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'mirror',
-  'rotate', 'plane', 'rib', 'hole', 'offset', 'fillet2d', 'copy2d', 'mirror2d', 'split',
+  'rotate', 'translate', 'plane', 'rib', 'hole', 'offset', 'fillet2d', 'copy2d', 'mirror2d', 'split',
 ];
 
 /** The split's keep choices. */

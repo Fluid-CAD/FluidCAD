@@ -1,4 +1,4 @@
-// Parsing the repeat, copy, mirror and rotate ghost requests (3D and in-sketch).
+// Parsing the repeat, copy, mirror, rotate and translate ghost requests (3D and in-sketch).
 
 import type { GhostAxisRef, GhostPlaneRef, GhostSketchAxisRef } from '../../fluidcad-server/index.ts';
 import {
@@ -7,6 +7,7 @@ import {
   MAX_REPEAT_TARGETS,
   MAX_ROTATE_TARGETS,
   MAX_SPLIT_TARGETS,
+  MAX_TRANSLATE_TARGETS,
 } from '../apply-feature/index.ts';
 import {
   parseAxes,
@@ -330,6 +331,29 @@ export function parseRotate(body: GhostBody): RawRotate | string {
     return 'Invalid rotation angle';
   }
   return { targets, axis };
+}
+
+/** A translate request's slots, before its distances are resolved. */
+export type RawTranslate = {
+  targets: { filePath: string; line: number }[];
+  translation: [ValueExpr, ValueExpr, ValueExpr];
+};
+
+/**
+ * The translate dialog's slots: target statements and the distances to move
+ * them along X, Y and Z — the rotate's shape with no axis to resolve. The
+ * copy flag never travels: either way the stamp is where the bodies land.
+ */
+export function parseTranslate(body: GhostBody): RawTranslate | string {
+  const targets = parseSourceRefs(body.targets);
+  if (!targets || targets.length === 0 || targets.length > MAX_TRANSLATE_TARGETS) {
+    return 'Invalid translate targets';
+  }
+  const translation = body.translation;
+  if (!Array.isArray(translation) || translation.length !== 3 || !translation.every(isValueExpr)) {
+    return 'Invalid translation';
+  }
+  return { targets, translation: translation as [ValueExpr, ValueExpr, ValueExpr] };
 }
 
 /** A 2D copy request's slots, before its numbers are resolved. */

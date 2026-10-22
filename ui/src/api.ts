@@ -505,6 +505,7 @@ export type FeatureGhostRequest =
   | MirrorGhostRequest
   | SplitGhostRequest
   | RotateGhostRequest
+  | TranslateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -898,6 +899,27 @@ export type RotateGhostRequest = {
 };
 
 /**
+ * The translate on the ghost wire — the rotate's straight-line sibling: the
+ * target solids' own bodies stamped once, under the translation the apply
+ * itself will use. A zero translation still stamps them, where they stand, so
+ * the dialog can slide them under its gizmo from the first drag. The copy
+ * flag never travels — either way the stamp is where the bodies land.
+ */
+export type TranslateGhostRequest = {
+  feature: 'translate';
+  /** The solid-bearing statements being moved, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The distance along X, Y and Z. */
+  translation: Translation;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
  * The mirror dialog's plane slot on the ghost wire — the plane sibling of
  * {@link GhostAxisRef}, flattened to what the kernel can resolve without
  * reading code: an origin plane, a `plane()` statement's call site, or a
@@ -1172,6 +1194,46 @@ export async function fetchFeatureGhostResult(
   valueScope: GhostValueScope | null,
   signal: AbortSignal,
 ): Promise<{ solids: GhostSolid[] | null; frames: GhostFrame[]; notice: string | null }> {
+  const answer = await postFeatureGhost(request, valueScope, signal);
+  if ('body' in answer) {
+    return { solids: answer.body.solids ?? [], frames: answer.body.frames ?? [], notice: null };
+  }
+  return { solids: null, frames: [], notice: answer.notice };
+}
+
+/**
+ * The translate's bodies, plus the distances they were stamped at as the
+ * statement will read them — a name resolved where the statement sits, which
+ * the client's own arithmetic can't always do (a configuration's parameter
+ * value). The dialog stands its gizmo on these. Null whenever there is
+ * nothing to draw, as for {@link fetchFeatureGhost}.
+ */
+export async function fetchTranslateGhost(
+  request: TranslateGhostRequest,
+  valueScope: GhostValueScope | null,
+  signal: AbortSignal,
+): Promise<{ solids: GhostSolid[]; translation: [number, number, number] } | null> {
+  const answer = await postFeatureGhost(request, valueScope, signal);
+  if (!('body' in answer)) {
+    return null;
+  }
+  const translation: unknown = answer.body.translation;
+  if (!Array.isArray(translation) || translation.length !== 3 || !translation.every(Number.isFinite)) {
+    return null;
+  }
+  return { solids: answer.body.solids ?? [], translation: translation as [number, number, number] };
+}
+
+/**
+ * One round trip to the ghost route: the success body, or — for a refusal —
+ * only the notice worth reading out (see {@link fetchFeatureGhostResult}).
+ * An abort propagates; any other failure is a silent refusal.
+ */
+async function postFeatureGhost(
+  request: FeatureGhostRequest,
+  valueScope: GhostValueScope | null,
+  signal: AbortSignal,
+): Promise<{ body: any } | { notice: string | null }> {
   try {
     const res = await fetch('api/feature-ghost', {
       method: 'POST',
@@ -1181,15 +1243,14 @@ export async function fetchFeatureGhostResult(
     });
     const body = await res.json().catch(() => null);
     if (res.ok && body?.success === true) {
-      return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null };
+      return { body };
     }
-    const notice = body?.surface === true && typeof body?.reason === 'string' ? body.reason : null;
-    return { solids: null, frames: [], notice };
+    return { notice: body?.surface === true && typeof body?.reason === 'string' ? body.reason : null };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw err;
     }
-    return { solids: null, frames: [], notice: null };
+    return { notice: null };
   }
 }
 
@@ -3262,6 +3323,39 @@ export async function applyRotate(options: RotateApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
+/** The distance along X, Y and Z — `translate()`'s leading arguments. */
+export type Translation = [ValueExpr, ValueExpr, ValueExpr];
+
+export type TranslateApplyOptions = {
+  /** The solid-bearing statements being moved (whole-solid picks), in order. */
+  targets: SketchSourceRef[];
+  /** The distance along X, Y and Z. */
+  translation: Translation;
+  /** Keep the originals in place — writes the `true` after the distances. */
+  copy: boolean;
+  /** Declarations the dialog's distance fields committed (`gap = 20`). */
+  newVariables?: NewVariable[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a translate
+ * statement moving the target solids along X, Y and Z. Same endpoint and
+ * response shape as {@link applyFeature}.
+ */
+export async function applyTranslate(options: TranslateApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'translate',
+    targets: options.targets,
+    translation: options.translation,
+    copy: options.copy,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** The three boolean operations — each its own callee, one shared dialog. */
 export type BooleanKind = 'fuse' | 'subtract' | 'common';
 
@@ -3389,6 +3483,12 @@ export type FeatureSourcesResult =
    * an empty target list.
    */
   | { ok: true; feature: 'rotate'; targets: SourceSlotRef[]; axis: SourceSlotRef }
+  /**
+   * A standalone translate: the solids it moves, by call site — its distances
+   * are the dialog's own, read off the statement — and an implicit translate,
+   * one naming no targets at all, reports an empty target list.
+   */
+  | { ok: true; feature: 'translate'; targets: SourceSlotRef[] }
   /**
    * A construction plane, by its bases in argument order — one for the offset
    * and edge forms, two for a mid plane. An origin-plane literal is `opaque`:
@@ -3770,6 +3870,25 @@ export type ParsedFeatureStatement =
       /** The `true` third argument — copy instead of move. */
       copy: boolean;
       /** Trailing target texts, verbatim; empty rotates every active object. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
+    }
+  | {
+      feature: 'translate';
+      /**
+       * The distance along X, Y and Z — every statement form (`translate(x)`,
+       * `translate(x, y, z)`, `translate([x, y, z])`) read as three values,
+       * the missing ones zero.
+       */
+      translation: Translation;
+      /** The `true` after the distances — copy instead of move. */
+      copy: boolean;
+      /** Trailing target texts, verbatim; empty moves every active object. */
       targetTexts: string[];
       /**
        * Per-target source location of the statement a plain-identifier target
@@ -4439,6 +4558,45 @@ export async function applyRotateEdit(
     before: options.before,
     axis: options.axis,
     angle: options.angle,
+    copy: options.copy,
+    newVariables: options.newVariables,
+    targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * One target of an edited translate, in argument order: an untouched target
+ * by its position in the statement's own argument list, or a re-picked solid
+ * statement by call site.
+ */
+export type TranslateEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type TranslateEditOptions = EditSessionFields & {
+  /** The distance along X, Y and Z. */
+  translation: Translation;
+  /** Keep the originals in place — writes the `true` after the distances. */
+  copy: boolean;
+  /** Declarations the dialog's distance fields committed (`gap = 20`). */
+  newVariables?: NewVariable[];
+  /** Full replacement target list; omitted keeps the statement's own. */
+  targets?: TranslateEditTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the translate statement at `edit` in place. */
+export async function applyTranslateEdit(
+  edit: FeatureEditTarget,
+  options: TranslateEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'translate',
+    edit,
+    expectedStatement: options.expectedStatement,
+    translation: options.translation,
     copy: options.copy,
     newVariables: options.newVariables,
     targets: options.targets,

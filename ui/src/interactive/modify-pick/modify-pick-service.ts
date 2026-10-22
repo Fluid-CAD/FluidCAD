@@ -1204,7 +1204,7 @@ export class ModifyPickService {
    * followed by a render (the cancel-restore rollback, an apply's rebuild,
    * Continue's full render).
    */
-  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'handoff' | 'gone' } = {}): void {
     if (this.feature === 'sketch' || (!this.feature && this.sketchSession)) {
       // The sketch flow lives in its dialog — exit means closing it, in the
       // armed-pick state and the tracking state alike. A user close, so the
@@ -1650,7 +1650,9 @@ export class ModifyPickService {
 
   private schedulePreview(): void {
     this.cancelPreview();
-    if (!this.feature) {
+    // Nothing previews until the edit session's view is at its boundary —
+    // its handler re-schedules there (see `EditSession.settled`).
+    if (!this.feature || !this.session.settled) {
       return;
     }
     if (this.editTarget) {
@@ -1670,7 +1672,7 @@ export class ModifyPickService {
   }
 
   private async runPreview(): Promise<void> {
-    if (!this.feature || this.applying) {
+    if (!this.feature || this.applying || !this.session.settled) {
       return;
     }
     const seq = ++this.previewSeq;
@@ -1859,6 +1861,12 @@ export class ModifyPickService {
 
   private scheduleGhost(): void {
     this.cancelGhost();
+    if (!this.session.settled) {
+      // The view is about to be replaced (the session's rollback is in
+      // flight); its handler clears what is drawn and re-schedules at the
+      // boundary.
+      return;
+    }
     if (!this.ghostFeature() || this.selection.isEmpty) {
       // Nothing picked yet, or a feature with no ghost — drop what's drawn
       // rather than leave a stale band hanging over the model.
@@ -1873,7 +1881,7 @@ export class ModifyPickService {
 
   private async runGhost(): Promise<void> {
     const feature = this.ghostFeature();
-    if (!feature || this.applying) {
+    if (!feature || this.applying || !this.session.settled) {
       return;
     }
     const seq = ++this.ghostSeq;

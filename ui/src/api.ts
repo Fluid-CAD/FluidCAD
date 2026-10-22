@@ -4974,6 +4974,40 @@ export function addBreakpoint(sourceLocation: SourceLocationParam): void {
 }
 
 /**
+ * What the acknowledged edit-feature pause reports: whether the buffer
+ * changed (a stop already sat after the statement otherwise — then no
+ * render follows) and the render version current when it was acknowledged
+ * (the render the change triggers is a newer one — see `RenderVersions`).
+ */
+export type PauseAfterResult = { changed: boolean; renderVersion: number };
+
+/**
+ * `liftActive`: an open edit dialog holds the build on the active stop and
+ * this gesture replaces that dialog — take its stop out in the same edit,
+ * so the hand-off is one render. The dialog then closes with `handoff`
+ * (see `EditSession.end`) instead of lifting the stop itself.
+ */
+export type PauseAfterOptions = { liftActive?: boolean };
+
+/**
+ * Pause the build after the statement at `sourceLocation`, keeping the
+ * document's other stops — the edit-feature gesture's breakpoint, as an
+ * acknowledged edit. Null when the edit was refused or no host answered;
+ * the caller then proceeds as it did without the ack.
+ */
+export async function pauseAfterStatement(
+  sourceLocation: SourceLocationParam,
+  options: PauseAfterOptions = {},
+): Promise<PauseAfterResult | null> {
+  const answer = await postJson<{ success?: boolean; changed?: boolean; renderVersion?: number }>(
+    'api/pause-after', { sourceLocation, ...(options.liftActive ? { liftActive: true } : {}) });
+  if (!answer || answer.success !== true) {
+    return null;
+  }
+  return { changed: answer.changed === true, renderVersion: answer.renderVersion ?? 0 };
+}
+
+/**
  * Which existing `breakpoint();` statements a timeline breakpoint edit takes
  * out: the one the build is paused on (`active`), or every one (`all`).
  */

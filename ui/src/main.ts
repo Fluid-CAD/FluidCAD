@@ -59,9 +59,10 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, getGlobalParams, setGlobalParam, EVERY_SOLID, type ShapeSelection, type UserPreferences } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, pauseAfterStatement, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, getGlobalParams, setGlobalParam, EVERY_SOLID, type PauseAfterResult, type ShapeSelection, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey, findActiveSketch } from './helpers/scene-utils';
+import { renderVersions } from './render-versions';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { SectionViewService } from './interactive/section-view/section-view-service';
@@ -1687,9 +1688,12 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   };
   // Double-clicking an editable feature row (the enter-breakpoint gesture)
   // also opens that feature's dialog prefilled from its statement.
-  panel.onFeatureEdit = (obj, index) => {
-    void openFeatureEditor(obj, index);
+  panel.onFeatureEdit = (obj, index, pause) => {
+    void openFeatureEditor(obj, index, pause);
   };
+  // An open edit dialog holds the build on its own stop; the gesture's pause
+  // lifts it in the same edit, and openFeatureEditor hands the dialog off.
+  panel.pauseLiftsActive = () => featureEditOpen();
   // Rows with an edit dialog keep the double-click gesture even while the
   // trailing sketch is active — the dialog suspends the sketch UI itself. A
   // plane row only qualifies when it is a plane() statement's own: the plane a
@@ -1790,7 +1794,25 @@ function sketchLocKey(loc: { filePath: string; line: number; column: number }): 
  * unrecognized chains) surface the parse refusal as a toast and leave the
  * plain breakpoint behavior in place.
  */
-async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise<void> {
+/**
+ * `pause` is the gesture's breakpoint edit, acknowledged — the dialog's
+ * session rolls back after the render it triggers (see `EditSession.begin`).
+ * The pause-before rows place theirs here instead, on the same terms.
+ *
+ * A dialog already open when the gesture lands is handed off, not
+ * cancelled: the pause the timeline placed lifted that dialog's stop with
+ * the new one (`pauseLiftsActive`), so the dialog must not lift it again —
+ * that second edit's unpaused render used to land after the new dialog's
+ * rollback and clear the ghost it had just drawn.
+ */
+async function openFeatureEditor(
+  obj: SceneObjectRender,
+  index: number,
+  pause?: Promise<PauseAfterResult | null>,
+): Promise<void> {
+  if (pause && featureEditOpen()) {
+    handOffFeatureDialogs();
+  }
   if (obj.type === 'sketch' && obj.sourceLocation) {
     await enterSketchEdit(obj.sourceLocation, obj.closed === true);
     return;
@@ -1823,7 +1845,11 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
   if (deferredBreakpoint && result.parsed.feature !== 'offset'
     && result.parsed.feature !== 'fillet' && !(result.parsed.feature === 'copy' && isCopy2DRow(obj))
     && !(result.parsed.feature === 'mirror' && isMirror2DRow(obj))) {
-    addBreakpoint(target);
+    const liftActive = featureEditOpen();
+    if (liftActive) {
+      handOffFeatureDialogs();
+    }
+    pause = pauseAfterStatement(target, liftActive ? { liftActive } : undefined);
   }
   if (result.parsed.feature === 'sketch') {
     // The row's line holds a sketch(), not the feature the row's type
@@ -1834,7 +1860,7 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     await enterSketchEdit(target);
     return;
   }
-  const info = { index, type: obj.type, expectedStatement: result.statement };
+  const info = { index, type: obj.type, expectedStatement: result.statement, pause };
   const parsed = result.parsed;
   if (parsed.feature === 'extrude') {
     extrudeService.enterEdit(target, parsed, info);
@@ -2021,6 +2047,36 @@ function pauseBeforeSketchStatement(obj: SceneObjectRender, index: number): void
  * back when it closes. A modify pick armed over the old scene retires itself
  * once the render that brings the sketch in arrives.
  */
+/**
+ * Close every edit dialog for a gesture whose own pause edit lifts the stop
+ * the open one holds the build on (see {@link openFeatureEditor}): the
+ * sibling closes a dialog's `onEnter` runs, with `handoff` in place of their
+ * cancel so none of them lifts that stop a second time.
+ */
+function handOffFeatureDialogs(): void {
+  const editEnd = 'handoff' as const;
+  projectionService.exit({ resume: 'lazy', editEnd });
+  modifyService.exit({ editEnd });
+  extrudeService.exit({ editEnd });
+  ribService.exit({ editEnd });
+  holeService.exit({ editEnd });
+  revolveService.exit({ editEnd });
+  helixService.exit({ editEnd });
+  sweepService.exit({ editEnd });
+  loftService.exit({ editEnd });
+  wrapService.exit({ editEnd });
+  repeatService.exit({ editEnd });
+  copyService.exit({ editEnd });
+  mirrorService.exit({ editEnd });
+  rotateService.exit({ editEnd });
+  translateService.exit({ editEnd });
+  splitService.exit({ editEnd });
+  booleanService.exit({ editEnd });
+  connectorService.exit({ editEnd });
+  planeService.exit({ editEnd });
+  textEditService.exit(editEnd);
+}
+
 function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
   if (!opts.keepProjection) {
     projectionService.exit({ resume: 'lazy' });
@@ -3943,6 +3999,11 @@ function connectWebSocket() {
         break;
       case 'processing-file':
         loadingOverlay.show('Loading model...');
+        break;
+      case 'render-version':
+        // Every pass's start and settle — the edit session sequences its
+        // rollback on these (see RenderVersions).
+        renderVersions.note(msg);
         break;
       case 'scene-rendered': {
         loadingOverlay.hide();

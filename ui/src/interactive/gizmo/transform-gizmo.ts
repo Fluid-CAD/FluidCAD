@@ -362,6 +362,14 @@ export class TransformGizmo {
     const delta = this.session.update(this.raycasterFor(e).ray, e.clientX, e.clientY, e.shiftKey);
     if (!wasDragging && this.session.state === 'dragging') {
       this.beginDragVisuals();
+      if (!this.session) {
+        // The host refused the drag as it began (cancelActiveDrag from
+        // onDragStart). The gesture is still the gizmo's: its release must
+        // not read as a click on whatever lies under the pointer.
+        this.suppressNextPointerUp = true;
+        e.stopImmediatePropagation();
+        return;
+      }
     }
     if (delta) {
       this.callbacks.onDragUpdate(delta);
@@ -428,6 +436,9 @@ export class TransformGizmo {
     this.applyDragDim(session.handle);
     this.host.canvas.style.cursor = 'grabbing';
     this.callbacks.onDragStart(session.handle);
+    if (this.session !== session) {
+      return;
+    }
     this.showValueInput(session, session.readoutValue);
   }
 

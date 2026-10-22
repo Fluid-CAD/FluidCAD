@@ -3,11 +3,7 @@ import { ShellOps } from "../oc/shell-ops.js";
 import { SelectSceneObject } from "./select.js";
 import { Face, Shape, Solid, Edge } from "../common/shapes.js";
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
-import { Explorer } from "../oc/explorer.js";
-import { EdgeOps } from "../oc/edge-ops.js";
-import { FaceQuery } from "../oc/face-query.js";
-import { Point } from "../math/point.js";
-import { Plane } from "../math/plane.js";
+import { ShellInterior } from "./shell-interior.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
@@ -15,7 +11,6 @@ import { applyBucketFilters } from "../filters/bucket-scope.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { IShell, ShellJoinType } from "../core/interfaces.js";
 import { requireShapes } from "../common/operand-check.js";
-import { mmTol } from "../units/tolerance.js";
 
 export class Shell extends SceneObject implements IShell {
 
@@ -137,69 +132,17 @@ export class Shell extends SceneObject implements IShell {
 
     this.addShapes(newShapes);
 
-    // Classify internal faces/edges: faces and edges in the shelled result
-    // that were not in the original stock are internal (inner walls).
-    // Edges on the plane of the removed face selection are excluded from
-    // internal edges since they form the opening rim, not inner walls.
-    const tolerance = mmTol(1e-6);
-    const stockEdgeMidpoints: Point[] = [];
-    for (const shape of allTargetShapes) {
-      for (const edge of Explorer.findEdgesWrapped(shape)) {
-        stockEdgeMidpoints.push(EdgeOps.getEdgeMidPoint(edge));
-        edge.dispose();
-      }
-    }
-
-    // Collect planes from the face selection to exclude opening rim edges
-    const selectionPlanes: Plane[] = [];
-    for (const face of faces) {
-      try {
-        selectionPlanes.push(FaceQuery.getSurfacePlane(face));
-      } catch {
-        // Non-planar face — skip
-      }
-    }
-
-    const isStockEdge = (edge: Edge): boolean => {
-      const mid = EdgeOps.getEdgeMidPoint(edge);
-      return stockEdgeMidpoints.some(sm =>
-        Math.abs(mid.x - sm.x) < tolerance &&
-        Math.abs(mid.y - sm.y) < tolerance &&
-        Math.abs(mid.z - sm.z) < tolerance
-      );
-    };
-
-    const isOnSelectionPlane = (edge: Edge): boolean => {
-      const mid = EdgeOps.getEdgeMidPoint(edge);
-      return selectionPlanes.some(p =>
-        Math.abs(p.signedDistanceToPoint(mid)) < tolerance
-      );
-    };
-
+    // The result's faces and edges that the stock never had are the inner
+    // walls (an edge on an opening's plane is the rim, not a wall) — the same
+    // classification the shell ghost draws, so the preview and the applied
+    // feature cannot drift apart. Only the wrappers classified as internal
+    // reach the state; the rest are this build's temporaries.
+    const interior = new ShellInterior(allTargetShapes, faces);
     const internalFaces: Face[] = [];
     const internalEdges: Edge[] = [];
-
-    // Only the wrappers classified as internal reach the state; the rest
-    // of the explorer's are this build's temporaries.
     for (const shape of newShapes) {
-      const resultFaces = Explorer.findFacesWrapped(shape);
-      for (const f of resultFaces) {
-        const faceEdges = (f as Face).getEdges();
-        if (faceEdges.length > 0 && faceEdges.every(e => !isStockEdge(e))) {
-          internalFaces.push(f as Face);
-        } else {
-          f.dispose();
-        }
-      }
-
-      const edges = Explorer.findEdgesWrapped(shape);
-      for (const edge of edges) {
-        if (!isStockEdge(edge) && !isOnSelectionPlane(edge)) {
-          internalEdges.push(edge);
-        } else {
-          edge.dispose();
-        }
-      }
+      internalFaces.push(...interior.faces(shape));
+      internalEdges.push(...interior.edges(shape));
     }
 
     this.setState('internal-faces', internalFaces);

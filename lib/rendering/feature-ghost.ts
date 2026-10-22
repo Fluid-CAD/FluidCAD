@@ -20,6 +20,7 @@ import { buildHoleTool, fastenedAxis, resolveHoleDimensions, type HoleDimensions
 import { liveSolidsIn } from "../helpers/live-solids.js";
 import { Vector3d } from "../math/vector3d.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
+import { buildShellGhostWalls } from "../features/shell-ghost.js";
 import { buildHelixGhostWires } from "../features/helix-ghost.js";
 import {
   HelixSourceKind, resolveHelixEdgeSource, resolveHelixFaceSource,
@@ -42,6 +43,7 @@ import { GeometrySceneObject } from "../features/2d/geometry.js";
 import type { RegionPick } from "../features/2d/regions/region-wire.js";
 import { resolveRegionPicks, sourceRegionContext } from "../features/2d/regions/source-regions.js";
 import { throughAllLength } from "../helpers/through-all.js";
+import type { ShellJoinType } from "../core/interfaces.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { Plane, PlaneRotationAxes, toPlane } from "../math/plane.js";
@@ -80,6 +82,7 @@ export type FeatureGhostRequest =
   | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
+  | ShellGhostRequest
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
@@ -294,6 +297,25 @@ export type FilletGhostRequest = {
  * face" — the edge features explode faces at build time.
  */
 export type GhostEntityRef = { shapeId: string; index: number; kind: 'edge' | 'face' };
+
+/**
+ * The shell. It modifies a solid the scene already holds, like a fillet, so
+ * it carries no `op` and no profile: the dialog's thickness and join, and the
+ * faces to leave open. What comes back is the walls the hollowing would
+ * create — see `buildShellGhostWalls`.
+ */
+export type ShellGhostRequest = {
+  feature: 'shell';
+  /** Wall thickness: negative hollows inward, positive builds the wall outside the solid. */
+  thickness: number;
+  /** How the offset walls meet at a corner — `shell().join()`. */
+  joinType: ShellJoinType;
+  /** The faces to open, each by the solid it was picked on and its index there. */
+  faces: GhostFaceRef[];
+};
+
+/** A viewport face pick: a scene shape and the face's index in its mesh order. */
+export type GhostFaceRef = { shapeId: string; index: number };
 
 /**
  * The helix. It sweeps nothing and modifies nothing: the feature IS a curve,
@@ -846,6 +868,9 @@ function buildFeatureGhostInUnit(
   if (request.feature === 'mirror2d') {
     return buildMirror2DGhost(scene, request, meshConfig);
   }
+  if (request.feature === 'shell') {
+    return buildShellGhost(scene, request, meshConfig);
+  }
   return buildBandGhost(scene, request, meshConfig);
 }
 
@@ -1001,6 +1026,113 @@ function resolvePickedEdgeGroups(
     }
   }
   return resolved;
+}
+
+/**
+ * The shell branch. The picks are grouped by the solid each face was made on
+ * and each group hollows its own solid, the way `Shell.build` walks the
+ * scene's solids and opens on each the faces that belong to it — a selection
+ * can straddle two bodies, and the maker only ever offsets one. A group whose
+ * maker refuses contributes nothing and the rest still draw. The walls carry
+ * their own kind: an inward shell's bound the material leaving, an outward
+ * one's the material arriving.
+ */
+function buildShellGhost(
+  scene: Scene,
+  request: ShellGhostRequest,
+  meshConfig: MeshSettings,
+): FeatureGhostResult {
+  const groups = resolvePickedFaceGroups(scene, request.faces);
+  if (!groups) {
+    return { ok: false, reason: 'Those faces are not in the rendered scene.' };
+  }
+
+  const solids: GhostSolid[] = [];
+  try {
+    for (const group of groups) {
+      const built = buildShellGhostWalls(group.solid, group.faces, {
+        thickness: request.thickness,
+        joinType: request.joinType,
+      });
+      try {
+        const builder = new MeshBuilder(meshConfig);
+        for (const wall of built.walls) {
+          const meshes = renderFacePatch(wall, builder.resolveConfig(wall));
+          if (meshes.length > 0) {
+            solids.push({ meshes, kind: built.kind });
+          }
+        }
+      } finally {
+        for (const wall of built.walls) {
+          wall.dispose();
+        }
+        for (const shape of built.scratch) {
+          shape.dispose();
+        }
+      }
+    }
+    return { ok: true, solids };
+  } finally {
+    for (const group of groups) {
+      for (const face of group.faces) {
+        face.dispose();
+      }
+    }
+  }
+}
+
+/**
+ * The picked faces, grouped by the solid each was picked on. Picks address
+ * faces by index into the mesh order, so every face of a named solid is
+ * wrapped to reach the indexed one; the spares go back here and the picks
+ * themselves are the caller's to free. A face picked twice counts once. A
+ * pick the scene no longer has is a refusal: a shell ghost missing one of
+ * its openings shows a feature the apply won't produce.
+ */
+function resolvePickedFaceGroups(
+  scene: Scene,
+  refs: GhostFaceRef[],
+): { solid: Solid; faces: Face[] }[] | null {
+  const groups = new Map<string, { solid: Solid; faces: Face[]; explored: Face[] }>();
+  const release = () => {
+    for (const group of groups.values()) {
+      for (const face of group.explored) {
+        face.dispose();
+      }
+    }
+  };
+
+  for (const ref of refs) {
+    let group = groups.get(ref.shapeId);
+    if (!group) {
+      const shape = findShapeById(scene, ref.shapeId);
+      if (!(shape instanceof Solid)) {
+        release();
+        return null;
+      }
+      group = { solid: shape, faces: [], explored: Explorer.findFacesWrapped(shape) };
+      groups.set(ref.shapeId, group);
+    }
+    const face = group.explored[ref.index];
+    if (!face) {
+      release();
+      return null;
+    }
+    if (!group.faces.includes(face)) {
+      group.faces.push(face);
+    }
+  }
+
+  // The picks travel on in the groups; everything explored to reach them
+  // goes back now.
+  for (const group of groups.values()) {
+    for (const face of group.explored) {
+      if (!group.faces.includes(face)) {
+        face.dispose();
+      }
+    }
+  }
+  return [...groups.values()].map(group => ({ solid: group.solid, faces: group.faces }));
 }
 
 /**

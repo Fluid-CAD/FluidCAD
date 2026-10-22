@@ -1443,6 +1443,71 @@ describe('feature-ghost route — value scope', () => {
   });
 });
 
+describe('feature-ghost route — shell', () => {
+  useGhostRoute();
+
+  /** A shell exactly as the dialog sends it. */
+  function shellBody(overrides: Record<string, unknown> = {}) {
+    return {
+      feature: 'shell',
+      thickness: -2,
+      joinType: 'arc',
+      faces: [{ shapeId: 's1', index: 3 }],
+      ...overrides,
+    };
+  }
+
+  it('passes the shell dialog through as a resolved thickness, its join and explicit picks', async () => {
+    const { status, body } = await postGhost(shellBody({ joinType: 'tangent', faces: [{ shapeId: 's1', index: 3 }, { shapeId: 's2', index: 0 }] }));
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(received).toEqual({
+      feature: 'shell',
+      thickness: -2,
+      joinType: 'tangent',
+      faces: [{ shapeId: 's1', index: 3 }, { shapeId: 's2', index: 0 }],
+    });
+  });
+
+  it('needs no op, and reads an omitted join as the kernel default', async () => {
+    await postGhost(shellBody({ joinType: undefined, thickness: 3 }));
+    expect(received).toEqual({
+      feature: 'shell',
+      thickness: 3,
+      joinType: 'arc',
+      faces: [{ shapeId: 's1', index: 3 }],
+    });
+  });
+
+  it('resolves a thickness expression against the file', async () => {
+    code = 'const wall = 1.5;\n';
+    await postGhost(shellBody({ thickness: 'wall * 2' }));
+    expect(received).toMatchObject({ thickness: 3 });
+  });
+
+  it('refuses a body the shell does not accept', async () => {
+    const bodies: Record<string, unknown>[] = [
+      shellBody({ thickness: null }),
+      shellBody({ thickness: 0 }),
+      shellBody({ joinType: 'round' }),
+      shellBody({ faces: [] }),
+      shellBody({ faces: null }),
+      shellBody({ faces: [{ shapeId: 's1' }] }),
+      shellBody({ faces: [{ shapeId: 's1', index: -1 }] }),
+      shellBody({ faces: [{ shapeId: 's1', index: 1.5 }] }),
+      shellBody({ faces: [{ index: 1 }] }),
+    ];
+
+    for (const body of bodies) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+      expect(result.body.success).toBe(false);
+    }
+    expect(received).toBeUndefined();
+  });
+});
+
 describe('feature-ghost route — hole', () => {
   useGhostRoute();
 

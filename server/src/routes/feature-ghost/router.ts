@@ -8,6 +8,7 @@ import type {
   HoleGhostRequest,
   GhostEntityRef,
   GhostExtrudeTargetRef,
+  GhostFaceRef,
   GhostPlaneBaseRef,
   GhostRepeatDirection,
 } from '../../fluidcad-server/index.ts';
@@ -18,6 +19,7 @@ import {
   parseAxis,
   parseEntityRefs,
   parseExtrudeTarget,
+  parseFaceRefs,
   parseHelixSource,
   parsePath,
   parsePlaneBases,
@@ -46,7 +48,9 @@ import {
 import { ValueScope } from './value-scope.ts';
 import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { isThin, isValueExprOrNull, type ValueExpr } from './values.ts';
-import { BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, type GhostBody } from './vocabulary.ts';
+import {
+  BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, SHELL_JOINS, type GhostBody,
+} from './vocabulary.ts';
 
 /**
  * Live geometry preview for the open feature dialog ("ghost"): the bodies an
@@ -77,6 +81,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     // dialog, a helix is a wire — it adds and removes nothing at all — and a
     // repeat or a copy inherits whatever its targets already do.
     const isBand = BAND_FEATURES.includes(body.feature);
+    // The shell is a band's sibling: it hollows a solid already there, and
+    // which way its walls go is the sign of its thickness, not an op.
+    const isShell = body.feature === 'shell';
     const isHelix = body.feature === 'helix';
     const isRepeat = body.feature === 'repeat';
     const isCopy = body.feature === 'copy';
@@ -97,7 +104,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     const isMirror2D = body.feature === 'mirror2d';
     // A hole is always a removal — no op to declare.
     const isHole = body.feature === 'hole';
-    if (!isHole && !isBand && !isHelix && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
+    if (!isHole && !isBand && !isShell && !isHelix && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
       && !isOffset && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
@@ -131,6 +138,22 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
       if (!edgeRefs || edgeRefs.length === 0) {
         res.status(400).json({ success: false, reason: 'Invalid edge selection' });
         return;
+      }
+    }
+    let faceRefs: GhostFaceRef[] | null = null;
+    let shellJoin: 'arc' | 'intersection' | 'tangent' = 'arc';
+    if (isShell) {
+      faceRefs = parseFaceRefs(body.faces);
+      if (!faceRefs || faceRefs.length === 0) {
+        res.status(400).json({ success: false, reason: 'Invalid face selection' });
+        return;
+      }
+      if (body.joinType !== undefined && body.joinType !== null) {
+        if (typeof body.joinType !== 'string' || !SHELL_JOINS.includes(body.joinType)) {
+          res.status(400).json({ success: false, reason: 'Invalid join type' });
+          return;
+        }
+        shellJoin = body.joinType as typeof shellJoin;
       }
     }
     let sketchEntities: { shapeId: string }[] | null = null;
@@ -454,6 +477,17 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         distance2: body.feature === 'chamfer' ? distance2 : null,
         isAngle: body.feature === 'chamfer' && body.isAngle === true,
         edges: edgeRefs!,
+      };
+    } else if (isShell) {
+      if (thickness === null || thickness === 0) {
+        res.status(400).json({ success: false, reason: 'Invalid thickness' });
+        return;
+      }
+      request = {
+        feature: 'shell',
+        thickness,
+        joinType: shellJoin,
+        faces: faceRefs!,
       };
     } else if (isHelix) {
       request = {

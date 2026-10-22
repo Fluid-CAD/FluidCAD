@@ -4,6 +4,7 @@ import type {
   GhostAxisRef,
   GhostEntityRef,
   GhostExtrudeTargetRef,
+  GhostFaceRef,
   GhostHelixSourceRef,
   GhostPathRef,
   GhostPlaneBaseRef,
@@ -155,6 +156,27 @@ export function parseEntityRefs(value: unknown): GhostEntityRef[] | null {
       return null;
     }
     refs.push({ shapeId: entity.shapeId, index: entity.index, kind: entity.kind });
+  }
+  return refs;
+}
+
+/**
+ * The shell dialog's picked faces. Every pick names the solid it was made on;
+ * an entry the client couldn't resolve is a malformed request, not a partial
+ * ghost.
+ */
+export function parseFaceRefs(value: unknown): GhostFaceRef[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const refs: GhostFaceRef[] = [];
+  for (const raw of value) {
+    const face = raw as { shapeId?: unknown; index?: unknown };
+    if (!face || typeof face.shapeId !== 'string' || typeof face.index !== 'number'
+      || !Number.isInteger(face.index) || face.index < 0) {
+      return null;
+    }
+    refs.push({ shapeId: face.shapeId, index: face.index });
   }
   return refs;
 }

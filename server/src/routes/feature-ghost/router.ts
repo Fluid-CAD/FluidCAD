@@ -7,6 +7,7 @@ import type {
   FluidCadServer,
   HoleGhostRequest,
   GhostEntityRef,
+  GhostExtrudeTargetRef,
   GhostPlaneBaseRef,
   GhostRepeatDirection,
 } from '../../fluidcad-server/index.ts';
@@ -16,6 +17,7 @@ import { parseCondition, parseLoftConnections } from './loft.ts';
 import {
   parseAxis,
   parseEntityRefs,
+  parseExtrudeTarget,
   parseHelixSource,
   parsePath,
   parsePlaneBases,
@@ -159,6 +161,17 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         return;
       }
       regions = parsed.regions;
+    }
+    // The extrude's "Up to face" target — absent is the distance form. The
+    // kernel ignores the distance fields beside it, so they may be null.
+    let toFace: GhostExtrudeTargetRef | undefined;
+    if (body.feature === 'extrude' && body.toFace !== undefined && body.toFace !== null) {
+      const parsed = parseExtrudeTarget(body.toFace);
+      if (!parsed) {
+        res.status(400).json({ success: false, reason: 'Invalid face target' });
+        return;
+      }
+      toFace = parsed;
     }
     const isRib = body.feature === 'rib';
     let spineRef: { filePath: string; line: number } | null = null;
@@ -683,6 +696,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         thin,
         profile: profileRef!,
         regions,
+        ...(toFace ? { toFace } : {}),
       };
     }
 

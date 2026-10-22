@@ -20,6 +20,8 @@ export type GhostBody = {
   edges?: unknown;
   axis?: { kind?: unknown; axis?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
   profile?: { filePath?: unknown; line?: unknown };
+  /** Extrude: the "Up to face" target — a picked face or a first/last-face literal. */
+  toFace?: unknown;
   thickness?: unknown;
   parallel?: unknown;
   extend?: unknown;

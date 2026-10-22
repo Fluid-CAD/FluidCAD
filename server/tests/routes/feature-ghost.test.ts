@@ -1236,6 +1236,52 @@ describe('feature-ghost route — loft connections', () => {
   });
 });
 
+describe('feature-ghost route — up to face', () => {
+  useGhostRoute();
+
+  // The dialog's face-bounded directions send no distance; the target rides
+  // as its own field, in exactly the three forms the kernel resolves.
+  const toFaceBody = {
+    feature: 'extrude', op: 'add', distance: null, distance2: null, symmetric: false, draft: null,
+    endOffset: null, drill: true, thin: null, profile: { filePath: FILE, line: 3 },
+  };
+
+  it.each([
+    { kind: 'first-face' },
+    { kind: 'last-face' },
+    { kind: 'face', shapeId: 's1', index: 4 },
+  ])('passes the target %j through to the extrude ghost', async (toFace) => {
+    const { status } = await postGhost({ ...toFaceBody, toFace });
+    expect(status).toBe(200);
+    expect(received.toFace).toEqual(toFace);
+    expect(received.distance).toBeNull();
+  });
+
+  it('leaves the target absent for the distance form', async () => {
+    const { status } = await postGhost({ ...toFaceBody, distance: 10 });
+    expect(status).toBe(200);
+    expect(received.toFace).toBeUndefined();
+    const { status: nullStatus } = await postGhost({ ...toFaceBody, distance: 10, toFace: null });
+    expect(nullStatus).toBe(200);
+    expect(received.toFace).toBeUndefined();
+  });
+
+  it.each([
+    'first-face',
+    { kind: 'keep' },
+    { kind: 'face' },
+    { kind: 'face', shapeId: 's1' },
+    { kind: 'face', shapeId: 's1', index: -1 },
+    { kind: 'face', shapeId: 's1', index: 1.5 },
+    { kind: 'face', shapeId: 7, index: 0 },
+  ])('refuses a malformed target %j', async (toFace) => {
+    const { status, body } = await postGhost({ ...toFaceBody, toFace });
+    expect(status).toBe(400);
+    expect(body.reason).toBe('Invalid face target');
+    expect(received).toBeUndefined();
+  });
+});
+
 describe('feature-ghost route — region picks', () => {
   useGhostRoute();
 

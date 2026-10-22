@@ -3,6 +3,7 @@
 import type {
   GhostAxisRef,
   GhostEntityRef,
+  GhostExtrudeTargetRef,
   GhostHelixSourceRef,
   GhostPathRef,
   GhostPlaneBaseRef,
@@ -352,4 +353,26 @@ export function parseSketchAxes(value: unknown): GhostSketchAxisRef[] | null {
     }
   }
   return axes;
+}
+
+/**
+ * The extrude dialog's "Up to face" target, narrowed to the three forms the
+ * kernel resolves: the `'first-face'` / `'last-face'` literals, and a picked
+ * face by its viewport address. A keep chip the client couldn't resolve to
+ * a pick never travels — it is a bad request, not a silent distance ghost.
+ */
+export function parseExtrudeTarget(value: unknown): GhostExtrudeTargetRef | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const target = value as { kind?: unknown; shapeId?: unknown; index?: unknown };
+  if (target.kind === 'first-face' || target.kind === 'last-face') {
+    return { kind: target.kind };
+  }
+  if (target.kind === 'face') {
+    return typeof target.shapeId === 'string' && Number.isSafeInteger(target.index) && (target.index as number) >= 0
+      ? { kind: 'face', shapeId: target.shapeId, index: target.index as number }
+      : null;
+  }
+  return null;
 }

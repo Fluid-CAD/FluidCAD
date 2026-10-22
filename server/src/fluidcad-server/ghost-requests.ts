@@ -49,7 +49,22 @@ export type ExtrudeGhostRequest = {
    * `.region()`, which builds nothing.
    */
   regions?: RegionPickSpec[];
+  /**
+   * The "Up to face" directions: the extrusion ends on this target and the
+   * distance fields are not read. Absent is the distance form.
+   */
+  toFace?: GhostExtrudeTargetRef;
 };
+
+/**
+ * Where an up-to-face extrude ends: a picked face on a scene solid, or the
+ * `'first-face'` / `'last-face'` literal the statement writes, which the
+ * kernel resolves against every face in the rendered scene.
+ */
+export type GhostExtrudeTargetRef =
+  | { kind: 'first-face' }
+  | { kind: 'last-face' }
+  | { kind: 'face'; shapeId: string; index: number };
 
 export type RibGhostRequest = {
   feature: 'rib';

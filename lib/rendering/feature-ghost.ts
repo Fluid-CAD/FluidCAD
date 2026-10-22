@@ -14,7 +14,7 @@ import { RepeatBase } from "../features/repeat-base.js";
 import {
   buildCircularCopyGhostMatrices, buildLinearCopyGhostMatrices,
 } from "../features/copy-ghost.js";
-import { buildExtrudeGhostSolids } from "../features/extrude-ghost.js";
+import { buildExtrudeGhostSolids, type ExtrudeGhostTarget } from "../features/extrude-ghost.js";
 import { buildRibGhostSolids } from "../features/rib-ghost.js";
 import { buildHoleTool, fastenedAxis, resolveHoleDimensions, type HoleDimensions } from "../features/hole/hole-profile.js";
 import { liveSolidsIn } from "../helpers/live-solids.js";
@@ -112,7 +112,23 @@ export type ExtrudeGhostRequest = {
    * argument-less `.region()`, which builds nothing.
    */
   regions?: RegionPick[];
+  /**
+   * The "Up to face" directions: the extrusion ends on this target and the
+   * distance fields are not read. Absent is the distance form.
+   */
+  toFace?: GhostExtrudeTargetRef;
 };
+
+/**
+ * Where an up-to-face extrude ends, as the dialog addresses it: a picked face
+ * on a scene solid, or the `'first-face'` / `'last-face'` literal the
+ * statement writes — resolved here against every face in the rendered scene,
+ * the way the kernel resolves it at build time.
+ */
+export type GhostExtrudeTargetRef =
+  | { kind: 'first-face' }
+  | { kind: 'last-face' }
+  | { kind: 'face'; shapeId: string; index: number };
 
 export type RibGhostRequest = {
   feature: 'rib';
@@ -2516,6 +2532,8 @@ function buildProfileGhost(
   const geometries = profileEdges(profile);
   const source = { getGeometries: () => geometries, getPlane: () => plane };
   const picked = pickedRegionFaces(profile, plane, request.regions);
+  // The up-to-face target's wrappers, until the build takes them over.
+  const targetScratch: Shape[] = [];
 
   try {
     if (request.feature === 'revolve') {
@@ -2532,7 +2550,11 @@ function buildProfileGhost(
         faces: picked?.faces,
       }), picked);
     }
-    return withPickedScratch(buildExtrudeGhostSolids(source, {
+    const target = request.toFace ? resolveExtrudeTarget(scene, request.toFace, profile, targetScratch) : undefined;
+    if (request.toFace && !target) {
+      return { reason: 'That face is not in the rendered scene.' };
+    }
+    const built = withPickedScratch(buildExtrudeGhostSolids(source, {
       op: request.op,
       distance: request.distance,
       distance2: request.distance2,
@@ -2543,11 +2565,64 @@ function buildProfileGhost(
       thin: request.thin,
       throughAllLength: throughAllGhostLength(scene, geometries, plane),
       faces: picked?.faces,
+      toFace: target ?? undefined,
     }), picked);
+    built.scratch.push(...targetScratch);
+    targetScratch.length = 0;
+    if (built.refusal) {
+      disposeBuilt(built);
+      return { reason: built.refusal, surface: true };
+    }
+    return built;
   } catch (err) {
     disposePicked(picked);
     throw err;
+  } finally {
+    // Still holding the target's faces: the build never took them over (a
+    // refusal before it ran, or a throw).
+    for (const shape of targetScratch) {
+      shape.dispose();
+    }
   }
+}
+
+/** Free a finished build whole — its bodies and everything behind them. */
+function disposeBuilt(built: { solids: Shape[]; scratch: Shape[] }): void {
+  for (const shape of [...built.solids, ...built.scratch]) {
+    shape.dispose();
+  }
+}
+
+/**
+ * The up-to-face target as the ghost builder takes it. A picked face is the
+ * scene solid's indexed face; a first/last-face literal brings every face
+ * the extrusion could run into — the faces of every non-container object in
+ * the scene except the profile's own, the kernel's candidate set
+ * (`ExtrudeToFace.getFirstOrLastFace`) — and the builder picks the one the
+ * sweep reaches. Every wrapper opened here lands in `scratch`. Null when a
+ * picked face is not in the rendered scene any more.
+ */
+function resolveExtrudeTarget(
+  scene: Scene,
+  ref: GhostExtrudeTargetRef,
+  profile: Extrudable,
+  scratch: Shape[],
+): ExtrudeGhostTarget | null {
+  if (ref.kind === 'face') {
+    const face = resolvePickedFace(scene, ref, scratch);
+    return face ? { kind: 'face', face } : null;
+  }
+  const candidates: Face[] = [];
+  for (const obj of scene.getSceneObjects()) {
+    if (obj.isContainer() || obj === profile) {
+      continue;
+    }
+    for (const shape of obj.getShapes()) {
+      candidates.push(...Explorer.findFacesWrapped(shape));
+    }
+  }
+  scratch.push(...candidates);
+  return { kind: ref.kind, candidates };
 }
 
 /** The region faces a `.region()` pick resolved to, plus every other region face to free. */
@@ -2578,10 +2653,10 @@ function pickedRegionFaces(
 }
 
 /** Hand the picked regions' shapes to the build's scratch, so one disposal frees them all. */
-function withPickedScratch(
-  built: { solids: Shape[]; scratch: Shape[] },
+function withPickedScratch<T extends { solids: Shape[]; scratch: Shape[] }>(
+  built: T,
   picked: PickedRegions | null,
-): { solids: Shape[]; scratch: Shape[] } {
+): T {
   if (picked) {
     built.scratch.push(...picked.faces, ...picked.scratch);
   }

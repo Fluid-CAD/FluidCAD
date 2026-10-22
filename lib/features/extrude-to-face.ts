@@ -2,22 +2,14 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Edge, Face, Shape } from "../common/shapes.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { disposeBuildTemporaries } from "./build-temporaries.js";
-import { Extruder } from "./simple-extruder.js";
+import { FaceBoundedSweep } from "./face-bounded-sweep.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
-import { FaceQuery } from "../oc/face-query.js";
-import { FaceOps } from "../oc/face-ops.js";
-import { BooleanOps } from "../oc/boolean-ops.js";
-import { ShapeOps } from "../oc/shape-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
-import { Plane } from "../math/plane.js";
-import { Point } from "../math/point.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
-import { FaceReach } from "../oc/face-reach.js";
-import { mmTol } from "../units/tolerance.js";
 
 export class ExtrudeToFace extends ExtrudeBase {
   constructor(
@@ -73,41 +65,35 @@ export class ExtrudeToFace extends ExtrudeBase {
     // selected face stays its selection's.
     const targetFace = this.getFace(allSceneObjects, faces);
     const ownsTargetFace = !(this.face instanceof SceneObject);
-    const isPlanar = FaceQuery.isPlanarFace(targetFace);
 
     const allCapFaces: Face[] = [];
 
+    // The sweep itself is shared with the extrude ghost (FaceBoundedSweep):
+    // a parallel planar target ends in a plain prism whose extruder
+    // classifies the faces; any other target is reached by splitting and
+    // leaves nothing to classify.
+    const sweepOptions = { draft: this.getDraft(), endOffset: this.getEndOffset() };
     for (const startFace of faces) {
-      if (isPlanar && FaceQuery.areFacePlanesParallel(startFace, targetFace)) {
-        const { shapes, extruder } = this.createSimpleExtrude(startFace, targetFace, plane);
-        for (const s of shapes) {
-          solids.push(s);
-        }
-
-        if (inwardEdges && inwardEdges.length > 0) {
-          const result = this.reclassifyThinFaces(
-            [...extruder.getSideFaces(), ...extruder.getInternalFaces()],
-            extruder.getStartFaces(), plane, inwardEdges, outwardEdges || []
-          );
-          allStartFaces.push(...extruder.getStartFaces());
-          allEndFaces.push(...extruder.getEndFaces());
-          allSideFaces.push(...result.sideFaces);
-          allInternalFaces.push(...result.internalFaces);
-          allCapFaces.push(...result.capFaces);
-        } else {
-          allStartFaces.push(...extruder.getStartFaces());
-          allEndFaces.push(...extruder.getEndFaces());
-          allSideFaces.push(...extruder.getSideFaces());
-          allInternalFaces.push(...extruder.getInternalFaces());
-        }
+      const { solids: swept, extruder } = FaceBoundedSweep.sweep(startFace, targetFace, plane, sweepOptions);
+      solids.push(...swept);
+      if (!extruder) {
+        continue;
       }
-      else {
-        console.log("Creating advanced extrude for face:");
-        const advancedShapes = this.createAdvancedExtrude(startFace, targetFace, isPlanar, plane);
-
-        for (const shape of advancedShapes) {
-          solids.push(shape);
-        }
+      if (inwardEdges && inwardEdges.length > 0) {
+        const result = this.reclassifyThinFaces(
+          [...extruder.getSideFaces(), ...extruder.getInternalFaces()],
+          extruder.getStartFaces(), plane, inwardEdges, outwardEdges || []
+        );
+        allStartFaces.push(...extruder.getStartFaces());
+        allEndFaces.push(...extruder.getEndFaces());
+        allSideFaces.push(...result.sideFaces);
+        allInternalFaces.push(...result.internalFaces);
+        allCapFaces.push(...result.capFaces);
+      } else {
+        allStartFaces.push(...extruder.getStartFaces());
+        allEndFaces.push(...extruder.getEndFaces());
+        allSideFaces.push(...extruder.getSideFaces());
+        allInternalFaces.push(...extruder.getInternalFaces());
       }
     }
 
@@ -170,135 +156,6 @@ export class ExtrudeToFace extends ExtrudeBase {
     }
   }
 
-  private createAdvancedExtrude(sourceFace: Face, targetFace: Face, isPlanar: boolean, sketchPlane: Plane): Shape[] {
-    const targetDistance = this.computeSignedDistanceToFace(targetFace, sketchPlane);
-
-    let distance = targetDistance;
-
-    if (isPlanar) {
-      distance *= 1.5;
-    }
-
-    const extruder = new Extruder([sourceFace], sketchPlane, distance, this.getDraft(), 0);
-    const extrusions = extruder.extrude();
-
-    let splitTargetFace: Face;
-    if (isPlanar) {
-      console.log("Resizing planar target face for splitting");
-      splitTargetFace = this.resizePlanarFace(targetFace);
-    } else {
-      const surfaceType = FaceQuery.getSurfaceType(targetFace);
-      if (surfaceType === 'cylinder') {
-        splitTargetFace = this.resizeCylindricalFace(targetFace);
-      } else if (surfaceType === 'cone') {
-        splitTargetFace = this.resizeConicalFace(targetFace);
-      } else {
-        splitTargetFace = targetFace;
-      }
-    }
-
-    try {
-      return this.splitShapesByFace(extrusions, splitTargetFace);
-    } finally {
-      if (splitTargetFace !== targetFace) splitTargetFace.dispose();
-    }
-  }
-
-  private resizePlanarFace(targetFace: Face): Face {
-    const endOffset = this.getEndOffset();
-    if (endOffset) {
-      const dir = this.getSourcePlane().normal.reverse();
-      return FaceQuery.makeInfinitePlanarFace(targetFace, endOffset, dir);
-    }
-
-    return FaceQuery.makeInfinitePlanarFace(targetFace);
-  }
-
-  private resizeCylindricalFace(targetFace: Face): Face {
-    return FaceQuery.makeInfiniteCylindricalFace(targetFace, this.getEndOffset());
-  }
-
-  private resizeConicalFace(targetFace: Face): Face {
-    return FaceQuery.makeInfiniteConicalFace(targetFace, this.getEndOffset());
-  }
-
-  /**
-   * Computes the signed distance from the sketch plane to the farthest
-   * bounding-box corner of the target face, measured along the sketch
-   * plane normal. A target with any extent in front of the plane extrudes
-   * along the sketch normal; only a target lying entirely behind the plane
-   * extrudes backwards. A target straddling the plane — a cylinder
-   * surrounding the sketch, a crossing plane — is reachable both ways, and
-   * must not flip direction just because its far wall is deeper behind the
-   * sketch than in front.
-   */
-  private computeSignedDistanceToFace(targetFace: Face, sketchPlane: Plane): number {
-    const bbox = ShapeOps.getBoundingBox(targetFace);
-    const corners = [
-      new Point(bbox.minX, bbox.minY, bbox.minZ),
-      new Point(bbox.maxX, bbox.minY, bbox.minZ),
-      new Point(bbox.minX, bbox.maxY, bbox.minZ),
-      new Point(bbox.minX, bbox.minY, bbox.maxZ),
-      new Point(bbox.maxX, bbox.maxY, bbox.minZ),
-      new Point(bbox.maxX, bbox.minY, bbox.maxZ),
-      new Point(bbox.minX, bbox.maxY, bbox.maxZ),
-      new Point(bbox.maxX, bbox.maxY, bbox.maxZ),
-    ];
-
-    let forward = 0;
-    let backward = 0;
-    for (const corner of corners) {
-      const d = sketchPlane.signedDistanceToPoint(corner);
-      if (d > forward) {
-        forward = d;
-      }
-      if (d < backward) {
-        backward = d;
-      }
-    }
-
-    return forward > 0 ? forward : backward;
-  }
-
-  private splitShapesByFace(extrusions: Shape[], targetFace: Face): Shape[] {
-    const result: Shape[] = [];
-
-    const sourcePlane = this.getSourcePlane();
-
-    for (const shape of extrusions) {
-      const solids = BooleanOps.splitShape(shape, targetFace);
-
-      if (solids.length === 1) {
-        result.push(ShapeOps.cleanShape(solids[0]));
-      } else {
-        let keep: Shape = null;
-        for (const s of solids) {
-          const faces = Explorer.findFacesWrapped(s);
-          if (faces.some(f => FaceOps.faceOnPlaneWrapped(f, sourcePlane))) {
-            keep = s;
-            break;
-          }
-        }
-
-        if (!keep) {
-          throw new Error("Could not find modified shape with source face");
-        }
-
-        result.push(ShapeOps.cleanShape(keep));
-      }
-    }
-
-    return result;
-  }
-
-  private createSimpleExtrude(startFace: Face, targetFace: Face, sketchPlane: Plane): { shapes: Shape[]; extruder: Extruder } {
-    const targetPlane = FaceQuery.getSurfacePlane(targetFace);
-    const distance = sketchPlane.signedDistanceToPoint(targetPlane.origin);
-    const extruder = new Extruder([startFace], sketchPlane, distance, this.getDraft(), this.getEndOffset());
-    const shapes = extruder.extrude();
-    return { shapes, extruder };
-  }
-
   private getFace(sceneObjects: SceneObject[], profile: Face[]): Face {
     if (this.face instanceof SceneObject) {
       const selection = this.face.getShapes();
@@ -359,7 +216,7 @@ export class ExtrudeToFace extends ExtrudeBase {
 
     let best: Face | null = null;
     try {
-      best = this.pickReachedFace(candidates, plane, mode, profile);
+      best = FaceBoundedSweep.pickReached(candidates, plane, mode, profile, this.getDraft());
     } finally {
       for (const face of allFaces) {
         if (face !== best) face.dispose();
@@ -370,49 +227,6 @@ export class ExtrudeToFace extends ExtrudeBase {
       throw new Error(`No face found for '${mode}-face' extrusion`);
     }
     return best;
-  }
-
-  private pickReachedFace(candidates: Face[], plane: Plane, mode: 'first' | 'last', profile: Face[]): Face | null {
-    if (candidates.length === 0 || profile.length === 0) {
-      return null;
-    }
-
-    // Sweep past the farthest candidate corner ahead of the plane.
-    let reach = 0;
-    for (const face of candidates) {
-      for (const corner of ShapeOps.boundingBoxCorners(ShapeOps.getBoundingBox(face))) {
-        reach = Math.max(reach, plane.signedDistanceToPoint(corner));
-      }
-    }
-    const same = mmTol(1e-5);
-    if (reach <= same) {
-      return null;
-    }
-
-    const sweep = new FaceReach(profile, plane, reach * 1.1 + mmTol(1), this.getDraft());
-    try {
-      let best: Face | null = null;
-      let bestDistance = mode === 'first' ? Infinity : -Infinity;
-      let bestPlanar = false;
-      for (const face of candidates) {
-        const hit = sweep.measure(face);
-        if (!hit) {
-          continue;
-        }
-        const distance = mode === 'first' ? hit.entry : hit.exit;
-        const closer = mode === 'first' ? distance < bestDistance - same : distance > bestDistance + same;
-        const tied = Math.abs(distance - bestDistance) <= same;
-        const planar = FaceQuery.isPlanarFace(face);
-        if (closer || (tied && planar && !bestPlanar)) {
-          best = face;
-          bestDistance = distance;
-          bestPlanar = planar;
-        }
-      }
-      return best;
-    } finally {
-      sweep.dispose();
-    }
   }
 
   override getDependencies(): SceneObject[] {

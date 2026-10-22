@@ -12,6 +12,7 @@ import type { PropertyEditSpec } from '../property-edit.ts';
 import type { UsageEditSpec } from '../declaration-usages.ts';
 import type { MoveToPartSpec } from '../move-to-part.ts';
 import type { TimelineBreakpointSpec } from '../timeline-breakpoint.ts';
+import type { PauseAfterSpec } from '../pause-after.ts';
 import type { RemoveFeatureSpec } from '../remove-feature.ts';
 import type { InsertPartEditSpec } from '../part-catalog/insert-edit.ts';
 import type { InstancePoseEditSpec, InstanceTransparencySpec } from '../insert-chain-edit.ts';
@@ -415,6 +416,16 @@ export type ApplyFeatureEditSpec = {
   partMaterial?: PartMaterialEditSpec;
   /** Move or clear the document's breakpoint in one acknowledged source edit. */
   timelineBreakpoint?: TimelineBreakpointSpec;
+  /**
+   * Pause the build right after the statement at `referenceRow` (0-based),
+   * keeping every other stop the document holds — the edit-feature gesture's
+   * breakpoint, on the acknowledged round trip so the dialog can sequence
+   * its rollback after the render this edit triggers. A stop already there
+   * leaves the code unchanged (the ack then reports `changed: false`, and no
+   * render follows). `lift` names the open dialog's stop to take out in the
+   * same edit (see `PauseAfter`). Every other spec field is ignored.
+   */
+  pauseAfter?: PauseAfterSpec;
   /**
    * The `part(...)` call site whose callback body receives the created
    * statement — the timeline's active part — whenever no input pins it

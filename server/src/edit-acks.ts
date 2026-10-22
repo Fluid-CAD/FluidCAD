@@ -6,7 +6,13 @@
  * the transform's true outcome instead of a fire-and-forget success. An ack
  * that never arrives resolves to null after the timeout.
  */
-export type EditAck = { error?: string };
+/**
+ * `changed` is whether the transform actually rewrote the host's buffer: the
+ * host re-renders after a changed buffer and nothing after an identical one,
+ * so a caller sequencing work after that render needs to know which it got.
+ * Absent on an ack from a host that predates it.
+ */
+export type EditAck = { error?: string; changed?: boolean };
 
 export class EditAckRegistry {
   private pending = new Map<string, { resolve: (ack: EditAck | null) => void; timer: NodeJS.Timeout }>();
@@ -29,14 +35,18 @@ export class EditAckRegistry {
   }
 
   /** The host round-tripped the spec — settle the waiting request. */
-  resolve(editId: string, error: string | undefined): void {
+  resolve(editId: string, error: string | undefined, changed?: boolean): void {
     const entry = this.pending.get(editId);
     if (!entry) {
       return;
     }
     this.pending.delete(editId);
     clearTimeout(entry.timer);
-    entry.resolve(error === undefined ? {} : { error });
+    const ack: EditAck = error === undefined ? {} : { error };
+    if (changed !== undefined) {
+      ack.changed = changed;
+    }
+    entry.resolve(ack);
   }
 
   /** The dispatch never left the process — drop the wait without settling a verdict. */

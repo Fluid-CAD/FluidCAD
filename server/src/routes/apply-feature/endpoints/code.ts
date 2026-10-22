@@ -53,7 +53,10 @@ export function registerCodeEndpoints(router: Router, services: ApplyFeatureServ
     try {
       const result = await applyFeatureEdit(code, editSpec, { globals });
       if (typeof editId === 'string') {
-        dispatcher.settle(editId, result.error);
+        // The host applies exactly this text, and re-renders only when it
+        // differs from what it sent — the dispatcher's caller may be waiting
+        // to sequence after that render.
+        dispatcher.settle(editId, result.error, result.error ? undefined : result.newCode !== code);
       }
       res.json(result);
     } catch (err: any) {

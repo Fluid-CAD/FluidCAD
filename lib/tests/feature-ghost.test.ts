@@ -36,7 +36,7 @@ import {
   Mirror2DGhostRequest,
   Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, MirrorGhostRequest,
   OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, HoleGhostRequest, RotateGhostRequest,
-  GhostPlaneRef, SplitGhostRequest, SweepGhostRequest,
+  GhostPlaneRef, SplitGhostRequest, SweepGhostRequest, TranslateGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { getSceneManager } from "../scene-manager.js";
@@ -3906,6 +3906,133 @@ describe("feature ghost — rotate", () => {
     }
     throw new Error('no vertical edge in the scene');
   }
+});
+
+describe("feature ghost — translate", () => {
+  setupOC();
+
+  function translateGhost(
+    scene: Scene,
+    lines: number[],
+    overrides: Partial<TranslateGhostRequest> = {},
+  ): FeatureGhostResult {
+    return buildFeatureGhost(
+      scene,
+      {
+        feature: 'translate',
+        translation: [30, 0, 5],
+        ...overrides,
+        targets: lines.map(line => ({ filePath: FILE, line })),
+      },
+      DEFAULT_MESH_CONFIG,
+    );
+  }
+
+  /** A box built by an `extrude()` addressable at `line`, like the parser's. */
+  function locatedBox(line: number, draw = () => { testRect(20, 20); }, height = 10): SceneObject {
+    sketch("xy", draw);
+    const solid = extrude(height).new() as unknown as SceneObject;
+    solid.setSourceLocation({ filePath: FILE, line, column: 0 });
+    return solid;
+  }
+
+  function solidsOf(result: FeatureGhostResult) {
+    if (!result.ok) {
+      throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
+    }
+    return result.solids;
+  }
+
+  it("moves the target by the translation, never drawing the original", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = translateGhost(scene, [5]);
+
+    // The box spans x 0…20, y 0…20, z 0…10; the ghost is it carried 30 along
+    // x and 5 along z.
+    expect(solidsOf(result)).toHaveLength(1);
+    expect(solidsOf(result)[0].kind).toBe('add');
+    const box = bounds(result, 0);
+    expect(box.minX).toBeCloseTo(30, 3);
+    expect(box.maxX).toBeCloseTo(50, 3);
+    expect(box.minY).toBeCloseTo(0, 3);
+    expect(box.maxY).toBeCloseTo(20, 3);
+    expect(box.minZ).toBeCloseTo(5, 3);
+    expect(box.maxZ).toBeCloseTo(15, 3);
+  });
+
+  /**
+   * The dialog slides the ghost rigidly under its gizmo, so the bodies have
+   * to be there from the first drag on — a zero translation stamps them
+   * where they stand instead of drawing nothing.
+   */
+  it("stamps the bodies where they stand at a zero translation", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = translateGhost(scene, [5], { translation: [0, 0, 0] });
+
+    expect(solidsOf(result)).toHaveLength(1);
+    const box = bounds(result, 0);
+    expect(box.minX).toBeCloseTo(0, 3);
+    expect(box.maxX).toBeCloseTo(20, 3);
+    expect(box.minZ).toBeCloseTo(0, 3);
+    expect(box.maxZ).toBeCloseTo(10, 3);
+  });
+
+  /**
+   * The edit dialog: the applied translate has already moved its target's
+   * body, and following the body there would move it a second time.
+   * `exclude` names the statement, so the target reads as it stood before it.
+   */
+  it("edit mode: reads a target as of before the edited translate via `exclude`", () => {
+    const box = locatedBox(5);
+    const moved = translate(30, 0, 5, box as never) as unknown as SceneObject;
+    moved.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+
+    const result = translateGhost(scene, [5], { exclude: { filePath: FILE, line: 9 } });
+
+    // The box as it stood before line 9 (x 0…20), moved once by the ghost's
+    // own translation: x 30…50 — not 60…80.
+    expect(solidsOf(result)).toHaveLength(1);
+    const b = bounds(result, 0);
+    expect(b.minX).toBeCloseTo(30, 3);
+    expect(b.maxX).toBeCloseTo(50, 3);
+  });
+
+  it("stamps every target into the one moved instance", () => {
+    locatedBox(5);
+    locatedBox(7, () => { testRect(20, 20, { at: [40, 0] }); });
+    const scene = render();
+
+    const result = translateGhost(scene, [5, 7], { translation: [0, 100, 0] });
+
+    expect(solidsOf(result)).toHaveLength(1);
+    const faceMeshes = solidsOf(result)[0].meshes.filter(m => m.label === 'solid-faces');
+    expect(faceMeshes).toHaveLength(2);
+    const ys = faceMeshes.flatMap(m => m.vertices.filter((_, i) => i % 3 === 1));
+    expect(Math.min(...ys)).toBeCloseTo(100, 3);
+    expect(Math.max(...ys)).toBeCloseTo(120, 3);
+  });
+
+  it("refuses a target line the scene does not hold", () => {
+    locatedBox(5);
+    const scene = render();
+
+    expect(translateGhost(scene, [99]).ok).toBe(false);
+  });
+
+  it("refuses a translation that is not a finite distance", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = translateGhost(scene, [5], { translation: [Infinity, 0, 0] });
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toMatch(/finite/);
+  });
 });
 
 describe("feature ghost — split", () => {

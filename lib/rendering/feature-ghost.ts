@@ -86,6 +86,7 @@ export type FeatureGhostRequest =
   | MirrorGhostRequest
   | SplitGhostRequest
   | RotateGhostRequest
+  | TranslateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -494,6 +495,30 @@ export type RotateGhostRequest = {
 };
 
 /**
+ * The translate — the rotate's straight-line sibling, and like it a ghost
+ * that builds no geometry of its own. `translate()` moves the solids its
+ * targets hold by one world-space vector (translate.ts:50-58), so the ghost
+ * stamps those bodies verbatim under the same `Matrix4.fromTranslation` the
+ * apply hands OCC. Unlike a rotate's zero turn, a zero translation still
+ * stamps the bodies — exactly where they stand: the dialog slides its ghost
+ * rigidly under a gizmo drag, and the first drag starts from rest.
+ */
+export type TranslateGhostRequest = {
+  feature: 'translate';
+  /** The solid-bearing statements being moved, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The world-space distance along X, Y and Z. */
+  translation: [number, number, number];
+  /**
+   * Edit mode: the edited statement's own call site. Its targets are read as
+   * of just before it — a body it (or anything after it) took from a target
+   * stays where it stood then — since the applied statement is in the scene
+   * mid-edit and would otherwise hand the ghost its own result.
+   */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
  * The mirror dialog's plane slot on the wire, the plane sibling of
  * {@link GhostAxisRef}: an origin plane from its viewport quad, a `plane()`
  * statement by call site, or a planar face picked in the viewport. As with the
@@ -786,6 +811,9 @@ function buildFeatureGhostInUnit(
   }
   if (request.feature === 'rotate') {
     return buildRotateGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'translate') {
+    return buildTranslateGhost(scene, request, meshConfig);
   }
   if (request.feature === 'plane') {
     return buildPlaneGhost(scene, request, meshConfig);
@@ -2432,6 +2460,39 @@ function buildRotateGhost(
   return {
     ok: true,
     solids: [{ meshes: transformMeshes(meshes, matrix), kind: 'add' }],
+  };
+}
+
+/**
+ * The translate: the target solids' own bodies, every target stamped into one
+ * instance under the single translation the apply itself uses. Targets are
+ * read where the features since left them, and in the edit dialog `exclude`
+ * keeps the applied translate — a move CONSUMES its targets' bodies — from
+ * handing the ghost its own moved body.
+ *
+ * Like the rotate, nothing here opens a shape: the meshes are read off the
+ * scene, so there is no scratch to free.
+ */
+function buildTranslateGhost(
+  scene: Scene,
+  request: TranslateGhostRequest,
+  meshConfig: MeshSettings,
+): FeatureGhostResult {
+  if (!request.translation.every(Number.isFinite)) {
+    return { ok: false, reason: 'The translation is not a finite distance.' };
+  }
+  const targets = targetObjectsAt(scene, request.targets);
+  if (targets.length === 0) {
+    return { ok: false, reason: 'That solid is not in the rendered scene.' };
+  }
+  const meshes = stampMeshes(copyTargetSolids(scene, targets, request.exclude), new MeshBuilder(meshConfig));
+  if (meshes.length === 0) {
+    return { ok: false, reason: 'That statement has no solid to translate.' };
+  }
+  const [x, y, z] = request.translation;
+  return {
+    ok: true,
+    solids: [{ meshes: transformMeshes(meshes, Matrix4.fromTranslation(x, y, z)), kind: 'add' }],
   };
 }
 

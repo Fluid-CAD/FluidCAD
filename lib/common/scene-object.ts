@@ -183,6 +183,22 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   /**
+   * Whether this object's call was written inline in the call stamped at
+   * `consumer` — `hole(7, select(…).center())`, `fillet(2, select(…))` —
+   * rather than as a statement of its own. JavaScript evaluates a call's
+   * arguments before the call itself: a nested call runs during the
+   * consuming statement and is stamped at or after its position, while a
+   * statement of its own ran, and was stamped, before it.
+   */
+  isWrittenInline(consumer: SourceLocation): boolean {
+    const own = this._sourceLocation;
+    if (!own || own.filePath !== consumer.filePath) {
+      return false;
+    }
+    return own.line > consumer.line || (own.line === consumer.line && own.column > consumer.column);
+  }
+
+  /**
    * Whether this object (or, for a container, any child) still owns shapes.
    * With a `scope`, removals by any remover in it count — soft ones too —
    * so a sketch consumed for display reads as shape-less from its consumer

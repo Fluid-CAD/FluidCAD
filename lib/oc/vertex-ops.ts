@@ -42,6 +42,7 @@ export class VertexOps {
     const [pnt, disposePnt] = Convert.toGpPnt(point);
     const vertexMaker = new oc.BRepBuilderAPI_MakeVertex(pnt);
     const vertex = vertexMaker.Vertex() as TopoDS_Vertex;
+    vertexMaker.delete();
     disposePnt();
     return vertex;
   }

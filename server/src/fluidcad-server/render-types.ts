@@ -1,7 +1,7 @@
 // Render outcomes: object build errors, the rendered scene payload and render options.
 
 import type { FluidScriptKind } from '../file-kind.ts';
-import type { ParamDefinition, RenderChanges } from '../../../lib/dist/index.js';
+import type { ParamDefinition, ParamVal, RenderChanges } from '../../../lib/dist/index.js';
 import type { LengthUnit } from '../project-config.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import type { ScenePropertyDefinition } from './properties.ts';
@@ -29,6 +29,40 @@ export type ObjectBuildError = {
  * its geometry is right, only what depends on the material (mass) is not.
  */
 export type ObjectBuildWarning = ObjectBuildError;
+
+export type SceneConfigurations = {
+  active: string;
+  names: string[];
+  rows: Record<string, Record<string, ParamVal>>;
+  /**
+   * The same rows per table, each under the body that declares it (the
+   * `part()` / `assembly()` definition name, `ParamDefinition.body`), in the
+   * order the render recorded them. `rows` merges them for the dropdown —
+   * the last table wins for a name two tables share — while a part file
+   * with several `part()` bodies keeps each part's cells in its own table,
+   * which the Manage grid reads from here.
+   */
+  tables?: SceneConfigurationTable[];
+  modified: boolean;
+  notice?: string;
+};
+
+/** One body's `configurations()` table as the render recorded it: its row names in order, and their cells. */
+export type SceneConfigurationTable = {
+  body: string;
+  names: string[];
+  rows: Record<string, Record<string, ParamVal>>;
+};
+
+/**
+ * A render of the current file with one configuration row active, made for
+ * an export and nothing else — see `FluidCadServer.renderWithConfiguration`.
+ * `scene` is the caller's until `dispose()`; `ok: false` names the row the
+ * file does not declare, with the rows it does.
+ */
+export type ScratchRender =
+  | { ok: true; scene: any; configurations: { active: string; names: string[]; rows: Record<string, Record<string, ParamVal>> }; dispose: () => void }
+  | { ok: false; reason: string; names: string[] };
 
 export type SceneRenderedData = {
   absPath: string;
@@ -60,10 +94,26 @@ export type SceneRenderedData = {
   breakpointHit?: boolean;
   /** Actual source breakpoint boundary, unchanged by view-only rollback previews. */
   breakpointStop?: number;
+  /** The `breakpoint();` statement the build paused on, when it is in the rendered file. */
+  breakpointAt?: { line: number; column: number };
+  /**
+   * Every `breakpoint();` statement of the rendered file, in document order
+   * — the one the build paused on and the ones still pending after it. The
+   * timeline marks each; absent on engines predating the list.
+   */
+  breakpoints?: { line: number; column: number }[];
   /** Paused history display, separate from the live scene and its indices. */
   timeline?: TimelineEntry[];
   assembly?: SerializedAssembly;
   params?: ParamDefinition[];
+  /**
+   * The `configurations()` rows the render declared and which one it showed
+   * (`docs/assembly-configurations-plan.md` §3.3). `names` is empty when no
+   * body declared a table; `modified` says the session's override layer is
+   * non-empty — tweaks sit on top of the row; `notice` explains a fallback
+   * (the remembered row is no longer declared, so Default rendered).
+   */
+  configurations?: SceneConfigurations;
   /** The `property()` declarations of the rendered file's parts — see `collectSceneProperties`. */
   properties?: ScenePropertyDefinition[];
   /**

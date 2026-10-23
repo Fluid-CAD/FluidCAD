@@ -19,6 +19,7 @@ import { MirrorShape } from "../features/mirror-shape.js";
 import { Split } from "../features/split.js";
 import { CutterFromSketchEdge } from "../features/cutter-from-sketch-edge.js";
 import { Rotate } from "../features/rotate.js";
+import { Translate } from "../features/translate.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
 import { PlaneMiddleRenderable } from "../features/plane-mid.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
@@ -132,6 +133,13 @@ export type FeatureSources =
    * every active object — reports an empty target list.
    */
   | { feature: 'rotate'; targets: SourceSlot[]; axis: SourceSlot }
+  /**
+   * A standalone `translate(x, y, z, …)`: the solids it moves, by call site.
+   * The distances are the dialog's own, read off the statement text; an
+   * implicit translate — one naming no targets, moving every active object —
+   * reports an empty target list.
+   */
+  | { feature: 'translate'; targets: SourceSlot[] }
   /**
    * A construction plane, by its bases in argument order — one for the offset
    * and edge forms, two for a mid plane. An origin-plane literal names nothing
@@ -319,6 +327,15 @@ export function resolveFeatureSources(
         feature: 'rotate',
         targets: resolver.statementSlots(feature.targetObjects),
         axis: resolver.axisSlot(feature.axis),
+      };
+    }
+    // The standalone translate — the rotate's straight-line sibling, with no
+    // axis: its distances are numbers the dialog reads off the statement.
+    if (feature instanceof Translate) {
+      return {
+        ok: true,
+        feature: 'translate',
+        targets: resolver.statementSlots(feature.targetObjects),
       };
     }
     // The copy family: the repeat's shape without a mirror. Its targets are

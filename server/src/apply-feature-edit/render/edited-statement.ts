@@ -21,6 +21,7 @@ import { renderRevolveAxisExpr, renderRevolveStatement } from '../features/revol
 import { renderRibStatement } from '../features/rib.ts';
 import { renderHolePlacementExprs, renderHoleStatement, validHoleFasten, validHoleOptions, type HoleFastenSpec } from '../features/hole.ts';
 import { renderEditedRotate } from '../features/rotate.ts';
+import { renderEditedTranslate } from '../features/translate.ts';
 import { renderEditedSplit } from '../features/split.ts';
 import { renderShellJoinChain, SHELL_JOIN_KINDS } from '../features/shell.ts';
 import { renderSweepStatement } from '../features/sweep.ts';
@@ -483,6 +484,9 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'rotate') {
     return renderEditedRotate(parsed, spec, varFor);
+  }
+  if (parsed.feature === 'translate') {
+    return renderEditedTranslate(parsed, spec, varFor);
   }
   if (parsed.feature === 'split') {
     return renderEditedSplit(parsed, spec, varFor);

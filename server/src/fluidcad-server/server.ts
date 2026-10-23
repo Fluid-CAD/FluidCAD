@@ -1,26 +1,34 @@
 // FluidCadServer: owns the scene host, live buffers, renders, rollbacks and parameter overrides.
 
 import { createHash } from 'crypto';
-import { basename, join } from 'path';
+import { basename, join, relative } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { readFile } from 'fs/promises';
-import type { SceneHost } from '../host/scene-host.ts';
+import type { LoadModuleOptions, SceneHost } from '../host/scene-host.ts';
 import { LocalSceneHost } from '../host/local-scene-host.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { findLibIdentityMismatch } from '../lib-identity.ts';
 import { detectKind, type FluidScriptKind } from '../file-kind.ts';
 import { BreakpointHit } from '../../../lib/dist/common/breakpoint-hit.js';
+import { DEFAULT_CONFIGURATION, type ConfigurationsSummary } from '../../../lib/dist/param-registry.js';
+import { readWorkspaceConfiguration, rememberWorkspaceConfiguration } from '../routes/workspace-state.ts';
+import { listBreakpoints, type BreakpointSite } from '../code-editor/index.ts';
 import {
   createParamRegistry,
   getParamRegistry,
+  getUnitRegistry,
   setParamRegistry,
+  setUnitRegistry,
   type AssemblyExportOutcome,
   type AssemblyExportPose,
   type ImportReport,
   type InterferenceRequest,
+  ParamKey,
+  SessionParamOverrides,
   type ParamDefinition,
   type ParamRegistry,
   type ParamVal,
+  type SessionParamOverride,
   type RenderChangeTracker,
   type ResolveSelectionRequest,
   type ResolveSelectionResult,
@@ -57,12 +65,13 @@ import type {
   SelectionSynthesisOptions,
   ValidateUnavailable,
 } from './query-types.ts';
-import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneRenderedData } from './render-types.ts';
+import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneConfigurations, SceneConfigurationTable, SceneRenderedData, ScratchRender } from './render-types.ts';
 import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import { TimelineHistory } from './timeline-history.ts';
 import type { SceneSummary, SceneSummaryObject, SceneSummaryShape, ShapeList, ShapeListEntry } from './scene-summary.ts';
 import { ShapeLabels } from '../../../lib/dist/rendering/shape-labels.js';
+import { ShapeExportSelection, type ShapeExportRefusal, type ShapeSelection } from './shape-export-selection.ts';
 
 /** How many synthesis answers one rendered scene keeps (see `synthesizeApplyFeatureCached`). */
 const SYNTHESIS_MEMO_LIMIT = 32;
@@ -113,12 +122,32 @@ export class FluidCadServer {
   // Live buffers this server seeded from disk (no editor sent them), with the
   // hashes of what was seeded — a seed follows its file when the disk changes.
   private diskSeeds = new Map<string, { bufferHash: string; diskHash: string }>();
-  private paramOverrides: Map<string, Map<string, any>> = new Map();
-  // Per session, the default each `param()` was authored with as of the last
-  // render — `label → the literal in the source`. An override is a delta over
-  // that default, so when the file re-declares it the override is stale and
-  // gets dropped instead of shadowing the value the code now asks for.
-  private lastParamDefaults = new Map<string, Map<string, ParamVal>>();
+  // Per session, the Parameters-panel values (never written to source) and
+  // the bookkeeping behind them: keyed by part + label (`ParamKey`), with the
+  // default each `param()` was authored with as of the last render — an
+  // override is a delta over that default, so when the file re-declares it
+  // the override is stale and gets dropped instead of shadowing the value
+  // the code now asks for. See `SessionParamOverrides`.
+  private paramSessions = new Map<string, SessionParamOverrides>();
+  /**
+   * The `configurations()` row each session shows, by name — absent means
+   * `Default`, the literals (`docs/assembly-configurations-plan.md` §3.3).
+   * Installed on the registry before every render; never written to source.
+   * Desktop sessions remember it per file in `.fluidcad/editor-state.json`.
+   */
+  private activeConfigurations = new Map<string, string>();
+  /** Sessions whose active configuration was read back from the editor state (or chosen explicitly) — seeded once. */
+  private configurationSeeded = new Set<string>();
+  /** The rows each session's last render declared, merged and per table — what `GET /api/configurations` answers between renders. */
+  /**
+   * Each session's parameter definitions as its last finished render
+   * declared them. Requests read these rather than the live registry: a
+   * render in progress (the one an edit's save just triggered) clears and
+   * refills the registry between its awaits, and a request handled in
+   * between would see half a model.
+   */
+  private lastParamDefinitions = new Map<string, ParamDefinition[]>();
+  private lastConfigurations = new Map<string, Pick<ConfigurationsSummary, 'names' | 'rows'> & { tables: SceneConfigurationTable[] }>();
   // What file each session is rendering. For desktop, sessionId === filePath
   // (set lazily on first processFile call). For hub, set explicitly via
   // createSession with the bundle's manifest entry.
@@ -153,6 +182,10 @@ export class FluidCadServer {
    * scene message is a rollback broadcast.
    */
   private lastBreakpointHit = false;
+  /** The `breakpoint();` the last full render paused on, when it is in the rendered file. */
+  private lastBreakpointAt: BreakpointSite | null = null;
+  /** Every `breakpoint();` of the rendered file as of the last full render. */
+  private lastBreakpoints: BreakpointSite[] = [];
   private compileError: CompileError | null = null;
 
   constructor(host: SceneHost = new LocalSceneHost()) {
@@ -166,11 +199,32 @@ export class FluidCadServer {
   }
 
   /**
-   * Param definitions from the last render — currentValue is override-aware,
-   * and sourceLocation addresses the `param()` call that declared each one.
+   * The breakpoint statement the build is paused on, when the pause is in
+   * the rendered file. Continue and an edit dialog's apply lift exactly this
+   * one, leaving any stop further down the file pending.
+   */
+  getActiveBreakpoint(): BreakpointSite | null {
+    return this.lastBreakpointHit ? this.lastBreakpointAt : null;
+  }
+
+  /** Where a pause landed in `fileName`, or null for a pause in another file (or an unlocated one). */
+  private static breakpointSiteIn(hit: BreakpointHit, fileName: string): BreakpointSite | null {
+    const loc = hit.sourceLocation;
+    if (!loc || normalizePath(loc.filePath.replace('virtual:live-render:', '')) !== normalizePath(fileName)) {
+      return null;
+    }
+    return { line: loc.line, column: loc.column };
+  }
+
+  /**
+   * Param definitions from the current file's last finished render —
+   * currentValue is override-aware, and sourceLocation addresses the
+   * `param()` call that declared each one. Never a render still in
+   * progress ({@link lastParamDefinitions}); the live registry only before
+   * the file has rendered at all.
    */
   getParamDefinitions(): ParamDefinition[] {
-    return getParamRegistry().getDefinitions();
+    return this.lastParamDefinitions.get(normalizePath(this.currentFileName)) ?? getParamRegistry().getDefinitions();
   }
 
   /**
@@ -288,8 +342,11 @@ export class FluidCadServer {
     this.renderingCache.delete(sessionId);
     this.lastRendered.delete(sessionId);
     this.renderFingerprints.delete(sessionId);
-    this.paramOverrides.delete(sessionId);
-    this.lastParamDefaults.delete(sessionId);
+    this.paramSessions.delete(sessionId);
+    this.activeConfigurations.delete(sessionId);
+    this.configurationSeeded.delete(sessionId);
+    this.lastConfigurations.delete(sessionId);
+    this.lastParamDefinitions.delete(sessionId);
     this.sessionFiles.delete(sessionId);
   }
 
@@ -426,6 +483,9 @@ export class FluidCadServer {
       this.currentFilePath = filePath;
 
       const sceneKind: FluidScriptKind = detectKind(normalizedFileName) ?? 'part';
+      // Before the cache check: the configuration is part of what a cached
+      // render was built with, and a reopened workspace shows what was left.
+      this.seedActiveConfiguration(sessionId, normalizedFileName);
 
       if (!ignoreCache) {
         const fromCache = this.renderingCache.get(sessionId);
@@ -435,6 +495,8 @@ export class FluidCadServer {
           this.lastRollbackStop = fromCache.data.rollbackStop;
           this.lastRollbackScopePartId = fromCache.data.rollbackScopePartId ?? null;
           this.lastBreakpointHit = fromCache.data.breakpointHit === true;
+          this.lastBreakpointAt = fromCache.data.breakpointAt ?? null;
+          this.lastBreakpoints = fromCache.data.breakpoints ?? [];
           this.timelineHistory.setCurrent(sessionId, fromCache.data.timeline);
           this.compileError = null;
           setParamRegistry(fromCache.registry);
@@ -458,18 +520,20 @@ export class FluidCadServer {
         this.host.invalidateModule();
 
         const registry = createParamRegistry();
-        const overrides = this.paramOverrides.get(sessionId);
-        if (overrides) {
-          registry.setOverrides(overrides, this.lastParamDefaults.get(sessionId));
-        }
+        this.paramSessions.get(sessionId)?.install(registry);
+        // The row `configurations()` installs as the layer under the
+        // overrides; null is the literals.
+        registry.setActiveConfiguration(this.activeConfigurations.get(sessionId) ?? null);
 
         let breakpointHit = false;
+        let breakpointAt: BreakpointSite | null = null;
         try {
-          await this.host.loadModule(filePath);
+          await this.host.loadModule(filePath, FluidCadServer.entryExports(scene, normalizedFileName));
         }
         catch (e) {
           if (e instanceof BreakpointHit) {
             breakpointHit = true;
+            breakpointAt = FluidCadServer.breakpointSiteIn(e, normalizedFileName);
           } else {
             throw e;
           }
@@ -486,12 +550,25 @@ export class FluidCadServer {
           } catch (e) {
             if (e instanceof BreakpointHit) {
               breakpointHit = true;
+              breakpointAt = FluidCadServer.breakpointSiteIn(e, normalizedFileName);
             } else {
               throw e;
             }
           }
         }
         this.lastBreakpointHit = breakpointHit;
+        this.lastBreakpointAt = breakpointAt;
+        // Every stop the file holds — the paused one and the pending ones
+        // after it — so the timeline can mark them all. A file the parser
+        // can't read (mid-edit) keeps the previous list.
+        const mainSource = timelineSources.get(normalizedFileName);
+        if (typeof mainSource === 'string') {
+          try {
+            this.lastBreakpoints = await listBreakpoints(mainSource);
+          } catch (error) {
+            console.warn('Could not list the file\'s breakpoints:', error);
+          }
+        }
 
         // A bare `assembly('name', () => {...});` statement is a LAZY
         // definition nothing runs — without this check the render is a
@@ -511,9 +588,12 @@ export class FluidCadServer {
         }
 
         const params = getParamRegistry().getDefinitions();
-        this.settleParamOverrides(sessionId, registry);
+        this.lastParamDefinitions.set(normalizePath(sessionId), params);
+        this.paramSession(sessionId).settle(registry);
+        const configurations = this.settleConfiguration(sessionId, normalizedFileName, registry, breakpointHit);
         // After the overrides settled: a render can drop overrides the source
-        // re-declared, and the fingerprint must describe what is in effect.
+        // re-declared (or fall back from a configuration the file no longer
+        // declares), and the fingerprint must describe what is in effect.
         const fingerprint = this.captureFingerprint(sessionId, normalizedFileName);
         this.renderFingerprints.set(sessionId, fingerprint);
 
@@ -608,8 +688,11 @@ export class FluidCadServer {
           ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
           breakpointHit,
           ...(breakpointHit ? { breakpointStop: stop } : {}),
+          ...(breakpointHit && breakpointAt ? { breakpointAt } : {}),
+          breakpoints: this.lastBreakpoints,
           ...(timeline ? { timeline } : {}),
           params,
+          configurations,
           // A part file's published values; an assembly's inserted parts
           // are not the assembly's own, so it lists none.
           ...(sceneKind === 'part' ? { properties: collectSceneProperties(scene) } : {}),
@@ -669,33 +752,121 @@ export class FluidCadServer {
     return this.renderInputs.isCurrent(fingerprint, this.overridesKey(sessionId));
   }
 
-  /**
-   * Close the loop on a render's param bookkeeping: remember what each
-   * `param()` declared so the next render can tell an edited default from an
-   * unchanged one, and forget the overrides this render found stale.
-   *
-   * Baselines merge rather than replace — a param that didn't run this pass
-   * (breakpoint, untaken branch) keeps the default it last declared, so an
-   * edit to *its* literal is still recognized later. Absence alone never
-   * drops an override for the same reason: not running is not un-declaring.
-   */
-  private settleParamOverrides(sessionId: string, registry: ParamRegistry): void {
-    const baselines = this.lastParamDefaults.get(sessionId) ?? new Map<string, ParamVal>();
-    for (const [label, authored] of registry.getAuthoredDefaults()) {
-      baselines.set(label, authored);
+  /** The session's override state, created on first use. */
+  private paramSession(sessionId: string): SessionParamOverrides {
+    let session = this.paramSessions.get(sessionId);
+    if (!session) {
+      session = new SessionParamOverrides();
+      this.paramSessions.set(sessionId, session);
     }
-    this.lastParamDefaults.set(sessionId, baselines);
+    return session;
+  }
 
-    const discarded = registry.getDiscardedOverrides();
-    const overrides = this.paramOverrides.get(sessionId);
-    if (!overrides || discarded.length === 0) {
+  /**
+   * Close the loop on a render's configuration: remember the rows it
+   * declared, and when the row the session asked for is not among them (the
+   * row was deleted or renamed in source) fall back to Default for good —
+   * the registry already rendered the literals — and say so in the payload.
+   * A render a breakpoint paused may have stopped before the
+   * `configurations()` statement, so it keeps the name and reports what ran.
+   */
+  private settleConfiguration(
+    sessionId: string,
+    fileName: string,
+    registry: ParamRegistry,
+    breakpointHit: boolean,
+  ): SceneConfigurations {
+    const summary = registry.getConfigurations();
+    const tables = FluidCadServer.configurationTables(registry);
+    this.lastConfigurations.set(sessionId, { names: summary.names, rows: summary.rows, tables });
+    const wanted = this.activeConfigurations.get(sessionId);
+    let notice: string | undefined;
+    if (wanted !== undefined && !breakpointHit && !summary.names.includes(wanted)) {
+      this.activeConfigurations.delete(sessionId);
+      this.persistActiveConfiguration(sessionId, fileName);
+      notice = summary.names.length > 0
+        ? `Configuration '${wanted}' is no longer declared — showing Default. Declared: ${summary.names.map(n => `'${n}'`).join(', ')}.`
+        : `Configuration '${wanted}' is no longer declared — showing Default.`;
+    }
+    return {
+      active: summary.active,
+      names: summary.names,
+      rows: summary.rows,
+      tables,
+      modified: this.isModified(sessionId),
+      ...(notice ? { notice } : {}),
+    };
+  }
+
+  /** The render's tables, each under the body that declares it — `SceneConfigurations.tables`. */
+  /**
+   * An entry render's export hook: once the module's exports are resolved,
+   * the scene refuses the parts of `file` the module does not export (lib
+   * `PartRules` — every part is exported). Optional on the scene: an engine
+   * predating the rule has no `refuseUnexportedParts`.
+   */
+  private static entryExports(scene: unknown, file: string): LoadModuleOptions {
+    return {
+      onExports: (exports) => {
+        (scene as { refuseUnexportedParts?: (exports: [string, unknown][], file: string) => void })
+          .refuseUnexportedParts?.(exports, file);
+      },
+    };
+  }
+
+  private static configurationTables(registry: ParamRegistry): SceneConfigurationTable[] {
+    return registry.getConfigurationTables().map((table) => ({
+      body: table.definition,
+      names: table.names.slice(),
+      rows: table.rows,
+    }));
+  }
+
+  /** Whether the session's override layer holds anything — tweaks on top of the active row. */
+  private isModified(sessionId: string): boolean {
+    return (this.paramSessions.get(sessionId)?.size ?? 0) > 0;
+  }
+
+  /** `fileName` as the editor state keys it: workspace-relative, forward slashes. */
+  private workspaceRelative(fileName: string): string {
+    return normalizePath(relative(this.workspacePath, fileName.replace('virtual:live-render:', '')));
+  }
+
+  /**
+   * The first render of a desktop session reads back the configuration the
+   * workspace remembers for the file. Hub sessions have no workspace on disk
+   * and start on Default; an explicit {@link selectConfiguration} counts as
+   * seeded, so a later render never overwrites the choice.
+   */
+  private seedActiveConfiguration(sessionId: string, fileName: string): void {
+    if (this.configurationSeeded.has(sessionId)) {
       return;
     }
-    for (const label of discarded) {
-      overrides.delete(label);
+    this.configurationSeeded.add(sessionId);
+    if (!this.workspacePath) {
+      return;
     }
-    if (overrides.size === 0) {
-      this.paramOverrides.delete(sessionId);
+    const remembered = readWorkspaceConfiguration(this.workspacePath, this.workspaceRelative(fileName));
+    if (remembered !== null && remembered !== DEFAULT_CONFIGURATION) {
+      this.activeConfigurations.set(sessionId, remembered);
+    }
+  }
+
+  /** Write the session's active configuration (or its absence) to the workspace's editor state. */
+  private persistActiveConfiguration(sessionId: string, fileName: string): void {
+    if (!this.workspacePath) {
+      return;
+    }
+    try {
+      rememberWorkspaceConfiguration(
+        this.workspacePath,
+        this.workspaceRelative(fileName),
+        this.activeConfigurations.get(sessionId) ?? null,
+      );
+    } catch (error) {
+      // Forgetting which row was showing is a papercut — a read-only
+      // workspace still switches fine.
+      console.warn('Could not remember the active configuration:', error);
     }
   }
 
@@ -803,6 +974,8 @@ export class FluidCadServer {
       this.lastRollbackStop = cached.data.rollbackStop;
       this.lastRollbackScopePartId = cached.data.rollbackScopePartId ?? null;
       this.lastBreakpointHit = cached.data.breakpointHit === true;
+      this.lastBreakpointAt = cached.data.breakpointAt ?? null;
+      this.lastBreakpoints = cached.data.breakpoints ?? [];
       this.timelineHistory.setCurrent(fileName, cached.data.timeline);
       // A deduplicated render built nothing: the summary says so rather
       // than leaving the caller to guess from a missing field.
@@ -977,6 +1150,8 @@ export class FluidCadServer {
       // A rollback doesn't re-run the module — the paused state persists.
       breakpointHit: this.lastBreakpointHit,
       ...(this.lastBreakpointHit ? { breakpointStop: this.sceneManager.renderStop?.(scene)?.stop ?? result.length - 1 } : {}),
+      ...(this.lastBreakpointHit && this.lastBreakpointAt ? { breakpointAt: this.lastBreakpointAt } : {}),
+      breakpoints: this.lastBreakpoints,
       ...(this.timelineHistory.get(fileName) ? { timeline: this.timelineHistory.get(fileName) } : {}),
       objectErrors: FluidCadServer.collectObjectErrors(result),
       objectWarnings: this.collectObjectWarnings(result),
@@ -1613,8 +1788,17 @@ export class FluidCadServer {
     return this.sceneManager.resolveFeatureSources(scene, before);
   }
 
+  /**
+   * Export a shapes selection (see {@link ShapeExportSelection}) of the
+   * current scene — or, given a {@link ScratchRender}, of that render:
+   * `'all'` is every solid the render builds; listed ids are the live
+   * scene's and are mapped onto the render's bodies (same lineage, else the
+   * same statement and position), since every render mints shape ids
+   * afresh. Null when nothing is rendered; a refusal when the selection
+   * names nothing the exported scene has.
+   */
   exportShapes(
-    shapeIds: string[],
+    selection: ShapeSelection,
     options: {
       format: 'step' | 'stl';
       includeColors?: boolean;
@@ -1622,7 +1806,8 @@ export class FluidCadServer {
       customLinearDeflection?: number;
       customAngularDeflectionDeg?: number;
     },
-  ): { data: string | Uint8Array; fileName: string } | null {
+    scratch?: Extract<ScratchRender, { ok: true }>,
+  ): { data: string | Uint8Array; fileName: string } | ShapeExportRefusal | null {
     if (!this.sceneManager) {
       return null;
     }
@@ -1630,7 +1815,12 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
-    return this.sceneManager.exportShapes(scene, shapeIds, options);
+    const target = scratch ? { scene: scratch.scene, configuration: scratch.configurations.active } : undefined;
+    const resolved = ShapeExportSelection.resolve(scene, selection, target);
+    if ('reason' in resolved) {
+      return resolved;
+    }
+    return this.sceneManager.exportShapes(target?.scene ?? scene, resolved.shapeIds, options);
   }
 
   /**
@@ -1650,16 +1840,118 @@ export class FluidCadServer {
       scaleTo?: 'mm' | 'document';
     },
     livePoses?: AssemblyExportPose[],
+    scratch?: Extract<ScratchRender, { ok: true }>,
   ): AssemblyExportOutcome | null {
     if (!this.sceneManager) {
       return null;
     }
-    const scene = this.previousScenes.get(this.currentFileName);
+    const scene = scratch?.scene ?? this.previousScenes.get(this.currentFileName);
     if (!scene) {
       return null;
     }
     const name = basename(this.currentFileName).replace(/\.(assembly|part|fluid)?\.?js$/, '');
     return this.sceneManager.exportAssembly(scene, { ...options, name, livePoses });
+  }
+
+  /**
+   * Render the current file with the configuration row `name` active — a
+   * scratch render for an export that must not disturb the session
+   * (`docs/assembly-configurations-plan.md` §3.7): no override layer, no
+   * session state touched (active name, override map, dedup cache, render
+   * cache, the live scene the viewer shows, the timeline), nothing
+   * broadcast. The caller exports from `scene` and then `dispose()`s it.
+   *
+   * `'Default'` renders the literals. A name the file's last render did not
+   * declare — or that this render does not — answers `ok: false` with the
+   * declared names; null means there is no scene to render.
+   */
+  async renderWithConfiguration(sessionId: string, name: string): Promise<ScratchRender | null> {
+    sessionId = normalizePath(sessionId);
+    const filePath = this.sessionFiles.get(sessionId) ?? sessionId;
+    if (!this.sceneManager || !this.previousScenes.has(sessionId)) {
+      return null;
+    }
+    const declared = this.lastConfigurations.get(sessionId)?.names ?? [];
+    if (name !== DEFAULT_CONFIGURATION && !declared.includes(name)) {
+      return { ok: false, reason: FluidCadServer.unknownConfiguration(name, declared), names: declared };
+    }
+    return this.serialized(async () => {
+      const manager = this.sceneManager!;
+      const normalizedFileName = filePath.replace('virtual:live-render:', '');
+      const sceneKind: FluidScriptKind = detectKind(normalizedFileName) ?? 'part';
+      // Everything a render leaves behind on the engine side, captured to be
+      // put back (as the part-catalog scan does): the param and unit
+      // registries the live scene's queries read, and the manager's current
+      // scene / file / render inputs that `startScene` replaces.
+      const liveRegistry = getParamRegistry();
+      const liveUnits = getUnitRegistry();
+      const managerState = manager as unknown as { currentScene?: unknown; currentFile?: string; renderInputs?: unknown };
+      const liveScene = managerState.currentScene;
+      const liveFile = managerState.currentFile;
+      const liveInputs = managerState.renderInputs;
+      let scene: any = null;
+      try {
+        this.reseedProjectConfig();
+        scene = sceneKind === 'assembly' ? manager.startAssemblyScene() : manager.startScene();
+        manager.setCurrentFile(normalizedFileName);
+        this.host.invalidateModule();
+        const registry = createParamRegistry();
+        registry.setActiveConfiguration(name === DEFAULT_CONFIGURATION ? null : name);
+        // A breakpoint() stops the scratch render where it stops the live
+        // one: what ran before it is the export, as on screen.
+        try {
+          await this.host.loadModule(filePath, FluidCadServer.entryExports(scene, normalizedFileName));
+          if (sceneKind !== 'assembly') {
+            (scene as { materializeLeftoverDefinitions?: () => void }).materializeLeftoverDefinitions?.();
+          }
+        } catch (e) {
+          if (!(e instanceof BreakpointHit)) {
+            throw e;
+          }
+        }
+        const summary = registry.getConfigurations();
+        if (name !== DEFAULT_CONFIGURATION && !summary.names.includes(name)) {
+          manager.disposeScene?.(scene);
+          return { ok: false, reason: FluidCadServer.unknownConfiguration(name, summary.names), names: summary.names };
+        }
+        manager.renderScene(scene);
+        const rendered = scene;
+        scene = null;
+        return {
+          ok: true,
+          scene: rendered,
+          configurations: summary,
+          dispose: () => manager.disposeScene?.(rendered),
+        };
+      } catch (error) {
+        if (scene) {
+          manager.disposeScene?.(scene);
+        }
+        throw error;
+      } finally {
+        // The module cache now holds the scratch evaluation; drop it so the
+        // next render (which always reloads) cannot see it, and put the
+        // live file's registry back for the params the server answers with.
+        this.host.invalidateModule();
+        setParamRegistry(liveRegistry);
+        setUnitRegistry(liveUnits);
+        if (liveFile !== undefined) {
+          manager.setCurrentFile(liveFile);
+        }
+        if (liveScene !== undefined) {
+          managerState.currentScene = liveScene;
+        }
+        if (liveInputs !== undefined) {
+          managerState.renderInputs = liveInputs;
+        }
+      }
+    });
+  }
+
+  private static unknownConfiguration(name: string, names: string[]): string {
+    return names.length > 0
+      ? `Unknown configuration '${name}'. Declared: ${names.map(n => `'${n}'`).join(', ')} (and Default).`
+      : `Unknown configuration '${name}': the file declares no configurations() table (only Default).`;
   }
 
   hitTest(
@@ -1703,61 +1995,150 @@ export class FluidCadServer {
     return this.compileError;
   }
 
-  setParam(sessionId: string, label: string, value: any): void {
+  /**
+   * Override a parameter's value for the session (the source is never
+   * touched). `body` names the part (or assembly) whose `label` it is — the
+   * `body` of the definition the render listed. Without it the label must
+   * name one body's parameter in the last render: a label two parts declare
+   * is refused, and the refusal's text returned (null when set). A label no
+   * render has declared yet is kept by label and applies once it renders.
+   */
+  setParam(sessionId: string, label: string, value: any, body?: string): string | null {
     sessionId = normalizePath(sessionId);
-    if (!this.paramOverrides.has(sessionId)) {
-      this.paramOverrides.set(sessionId, new Map());
+    const session = this.paramSession(sessionId);
+    const resolved = session.keyFor(label, body);
+    if ('error' in resolved) {
+      return resolved.error;
     }
-    this.paramOverrides.get(sessionId)!.set(label, value);
+    session.set(resolved.key, value);
     this.lastRendered.delete(sessionId);
+    return null;
   }
 
   resetParams(sessionId: string): void {
     sessionId = normalizePath(sessionId);
-    this.paramOverrides.delete(sessionId);
+    this.paramSessions.get(sessionId)?.clear();
     this.lastRendered.delete(sessionId);
   }
 
   /**
-   * Follow a label rename in the source. Both the override and the baseline
-   * it was set against are keyed by label, so without this the renamed param
-   * would come back at its declared default while a ghost entry kept holding
-   * the value under the old name. Only ever called after the source edit
-   * landed, and that edit refuses a rename onto a label the file already
-   * declares — so anything sitting under `to` here belongs to a param that no
-   * longer exists.
+   * Put a session's overrides back as {@link getParamOverrides} reported
+   * them — for a route that switched the configuration for one capture
+   * (`selectConfiguration` drops the overrides) and restores the session
+   * afterwards, or one that re-selects a renamed row with its tweaks.
+   * Internal to those round trips: not a public route.
    */
-  renameParam(sessionId: string, from: string, to: string): void {
+  restoreParamOverrides(sessionId: string, overrides: Record<string, any>): void {
     sessionId = normalizePath(sessionId);
-    FluidCadServer.moveKey(this.paramOverrides.get(sessionId), from, to);
-    FluidCadServer.moveKey(this.lastParamDefaults.get(sessionId), from, to);
+    this.paramSession(sessionId).restore(overrides);
+    this.lastRendered.delete(sessionId);
+    this.renderingCache.delete(sessionId);
+  }
+
+  /**
+   * Show the configuration row `name` (`'Default'` for the literals) on the
+   * session's next render. The session's overrides go with the switch — they
+   * were tweaks on the row that was showing — and the choice is remembered
+   * in the workspace's editor state. A name the file does not declare is
+   * accepted here (the render is what knows the table) and falls back to
+   * Default with a notice when it renders; see `settleConfiguration`.
+   */
+  selectConfiguration(sessionId: string, name: string): void {
+    sessionId = normalizePath(sessionId);
+    if (name === DEFAULT_CONFIGURATION) {
+      this.activeConfigurations.delete(sessionId);
+    } else {
+      this.activeConfigurations.set(sessionId, name);
+    }
+    this.configurationSeeded.add(sessionId);
+    this.paramSessions.get(sessionId)?.clear();
+    this.lastRendered.delete(sessionId);
+    this.renderingCache.delete(sessionId);
+    this.persistActiveConfiguration(sessionId, this.sessionFiles.get(sessionId) ?? sessionId);
+  }
+
+  /** The configuration the session renders: a row name, or `'Default'`. */
+  getActiveConfiguration(sessionId: string): string {
+    return this.activeConfigurations.get(normalizePath(sessionId)) ?? DEFAULT_CONFIGURATION;
+  }
+
+  /**
+   * What the session's last render declared and which row is showing — the
+   * `scene-rendered` payload's `configurations`, answerable between renders.
+   * Before any render: no rows, Default.
+   */
+  getConfigurations(sessionId: string): SceneConfigurations {
+    sessionId = normalizePath(sessionId);
+    const last = this.lastConfigurations.get(sessionId) ?? { names: [], rows: {}, tables: [] };
+    const wanted = this.activeConfigurations.get(sessionId);
+    return {
+      active: wanted !== undefined && last.names.includes(wanted) ? wanted : DEFAULT_CONFIGURATION,
+      names: last.names,
+      rows: last.rows,
+      tables: last.tables,
+      modified: this.isModified(sessionId),
+    };
+  }
+
+  /**
+   * The parameter a declaration edit addresses — `label` as declared at
+   * `filePath`:`line` — keyed by its body: the definition the last render
+   * listed for that call, else the one body declaring the label, else the
+   * label alone (a parameter that has not rendered, or an older override).
+   */
+  paramKeyOf(sessionId: string, label: string, filePath?: string, line?: number): ParamKey {
+    const site = (def: ParamDefinition): boolean => {
+      const loc = def.sourceLocation;
+      if (!loc) {
+        return false;
+      }
+      return (filePath === undefined || normalizePath(loc.filePath.replace('virtual:live-render:', '')) === normalizePath(filePath))
+        && (line === undefined || loc.line === line);
+    };
+    const declared = this.getParamDefinitions().filter(def => def.kind !== 'global' && def.label === label && site(def));
+    if (declared.length === 1) {
+      return ParamKey.ofDefinition(declared[0]);
+    }
+    const resolved = this.paramSession(normalizePath(sessionId)).keyFor(label);
+    return 'key' in resolved ? resolved.key : ParamKey.of(null, label);
+  }
+
+  /**
+   * Follow a label rename in the source. Both the override and the baseline
+   * it was set against are keyed by part + label, so without this the
+   * renamed param would come back at its declared default while a ghost
+   * entry kept holding the value under the old name. Only ever called after
+   * the source edit landed, and that edit refuses a rename onto a label the
+   * body already declares — so anything sitting under the new key belongs
+   * to a param that no longer exists.
+   */
+  renameParam(sessionId: string, key: ParamKey, to: string): void {
+    sessionId = normalizePath(sessionId);
+    this.paramSessions.get(sessionId)?.rename(key, to);
     this.lastRendered.delete(sessionId);
   }
 
   /** Forget a deleted param's override and the baseline behind it. */
-  forgetParam(sessionId: string, label: string): void {
+  forgetParam(sessionId: string, key: ParamKey): void {
     sessionId = normalizePath(sessionId);
-    const overrides = this.paramOverrides.get(sessionId);
-    overrides?.delete(label);
-    if (overrides?.size === 0) {
-      this.paramOverrides.delete(sessionId);
-    }
-    this.lastParamDefaults.get(sessionId)?.delete(label);
+    this.paramSessions.get(sessionId)?.forget(key);
     this.lastRendered.delete(sessionId);
   }
 
-  private static moveKey<T>(map: Map<string, T> | undefined, from: string, to: string): void {
-    if (!map || !map.has(from)) {
-      return;
-    }
-    map.set(to, map.get(from)!);
-    map.delete(from);
+  /**
+   * The session's overrides as a plain record: each under its label while
+   * one part declares that label — a single-part file's record is the
+   * label-keyed one it always was — else under its `ParamKey.id`.
+   * {@link restoreParamOverrides} and {@link setParam}'s label rule read
+   * both forms back.
+   */
+  getParamOverrides(sessionId: string): Record<string, any> {
+    return this.paramSessions.get(normalizePath(sessionId))?.toRecord() ?? {};
   }
 
-  getParamOverrides(sessionId: string): Record<string, any> {
-    const map = this.paramOverrides.get(normalizePath(sessionId));
-    if (!map) return {};
-    return Object.fromEntries(map);
+  /** The session's overrides, each with the parameter it sets. */
+  getParamOverrideEntries(sessionId: string): SessionParamOverride[] {
+    return this.paramSessions.get(normalizePath(sessionId))?.entries() ?? [];
   }
 
   getCurrentFileName(): string {
@@ -1916,10 +2297,13 @@ export class FluidCadServer {
       .digest('hex');
   }
 
-  /** The session's param overrides in a canonical, order-independent form. */
+  /**
+   * The session's param overrides in a canonical, order-independent form,
+   * under the configuration they sit on — switching rows changes what a
+   * render produces as surely as an override does.
+   */
   private overridesKey(sessionId: string): string {
-    const overrides = this.paramOverrides.get(sessionId);
-    const sortedEntries = overrides ? [...overrides.entries()].sort(([a], [b]) => a.localeCompare(b)) : [];
-    return JSON.stringify(sortedEntries);
+    const sortedEntries = this.paramSessions.get(sessionId)?.fingerprint() ?? [];
+    return JSON.stringify([this.activeConfigurations.get(sessionId) ?? null, sortedEntries]);
   }
 }

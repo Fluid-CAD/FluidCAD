@@ -2,6 +2,7 @@ import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { BooleanOps } from "../boolean-ops.js";
 import { Explorer } from "../explorer.js";
 import { ExtrudeOps } from "../extrude-ops.js";
+import { RevolveOps } from "../revolve-ops.js";
 import { FaceOps } from "../face-ops.js";
 import { Face } from "../../common/face.js";
 import { Shape } from "../../common/shape.js";
@@ -40,7 +41,12 @@ export class CornerJoins {
    * overshoot (section radius plus extension), sizing the cutter.
    */
   static trimBeyondPlane(leg: TopoDS_Shape, point: Point, normal: Vector3d, extent: number): TopoDS_Shape {
-    return BooleanOps.cutShapesRaw(leg, CornerJoins.halfSpace(point, normal, extent).getShape());
+    const cutter = CornerJoins.halfSpace(point, normal, extent);
+    try {
+      return BooleanOps.cutShapesRaw(leg, cutter.getShape());
+    } finally {
+      cutter.dispose();
+    }
   }
 
   /**
@@ -55,9 +61,22 @@ export class CornerJoins {
     const axis = new Axis(corner.point, corner.axis);
     const halves = [bendNormal, bendNormal.negate()]
       .map(side => CornerJoins.trimBeyondPlane(cap, corner.point, side, extent));
-    return halves
-      .flatMap(half => Explorer.findShapes(half, Explorer.getOcShapeType("face")))
-      .map(face => ExtrudeOps.makeRevol(Face.fromTopoDSFace(Explorer.toFace(face)), axis, corner.angle, { history: false }).solid);
+    // The halves, their explorer copies and the profile wrappers only feed
+    // the revolutions; the wedge solids are what lives on.
+    try {
+      return halves.flatMap(half =>
+        Explorer.withShapes(half, Explorer.getOcShapeType("face"), faces => faces.map(raw => {
+          const profile = Face.fromTopoDSFace(Explorer.toFace(raw));
+          try {
+            return RevolveOps.makeRevol(profile, axis, corner.angle, { history: false }).solid;
+          } finally {
+            profile.dispose();
+          }
+        })),
+      );
+    } finally {
+      Explorer.deleteAll(halves);
+    }
   }
 
   /**
@@ -69,6 +88,14 @@ export class CornerJoins {
   private static halfSpace(point: Point, normal: Vector3d, extent: number): Shape {
     const size = 2 * extent;
     const face = Face.fromTopoDSFace(FaceOps.makeSquareFace(Plane.fromPointAndNormal(point, normal), size));
-    return ExtrudeOps.makePrismFromVec(face, normal.normalize().multiply(size)).solid;
+    try {
+      // Only the solid is wanted; the profile and the prism's caps go.
+      const { solid, firstFace, lastFace } = ExtrudeOps.makePrismFromVec(face, normal.normalize().multiply(size));
+      firstFace.dispose();
+      lastFace.dispose();
+      return solid;
+    } finally {
+      face.dispose();
+    }
   }
 }

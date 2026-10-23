@@ -129,7 +129,10 @@ export class HelixOps {
     trsf.SetTransformation(ax3); // global coords → target frame …
     trsf.Invert();               // … inverted places canonical geometry at the target frame
     const transform = new oc.BRepBuilderAPI_Transform(edge, trsf, true);
-    const placedEdge = oc.TopoDS.Edge(transform.Shape());
+    // `Shape()` is a copy of its own; only the typed copy lives on.
+    const placedRaw = transform.Shape();
+    const placedEdge = oc.TopoDS.Edge(placedRaw);
+    placedRaw.delete();
 
     transform.delete();
     trsf.delete();

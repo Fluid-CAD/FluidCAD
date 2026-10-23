@@ -6,6 +6,8 @@ import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import { DeclarationRefactor } from '../declaration-refactor.ts';
 import { DeclarationRewrite } from '../declaration-rewrite.ts';
+import { GlobalParamEdits, type GlobalParamsRouterDeps } from './global-params.ts';
+import { ParamValueWrite } from '../param-value-write.ts';
 import {
   ParamEditor,
   MULTI_CONTROL_TYPES,
@@ -102,6 +104,7 @@ function validParamSpec(input: unknown): ParamSpec | null {
       spec[key] = value;
     }
   };
+  assign('name', optionalText(raw.name));
   assign('group', optionalText(raw.group));
   assign('description', optionalText(raw.description));
   assign('min', optionalNumber(raw.min));
@@ -141,12 +144,38 @@ export function createParamsRouter(
   dispatcher: FeatureEditDispatcher,
   awaitSceneApplied: (timeoutMs: number) => Promise<boolean> = async () => false,
   workspacePath = '',
+  globals?: GlobalParamsRouterDeps,
 ): Router {
   const router = Router();
   // A rename or delete reaches every file that reads the declaration, not
   // just the one on screen: the refactor finds them across the workspace and
   // sends their edits ahead of the declaring file's.
   const refactor = new DeclarationRefactor(fluidCadServer, workspacePath, dispatcher);
+  // The same three edits on a `*.params.js` file — a global parameter — take
+  // the disk when no editor host is attached, which needs the global-params
+  // deps; a server wired without them has no globals to edit.
+  const globalEdits = globals ? new GlobalParamEdits(globals, refactor) : null;
+
+  /**
+   * The params file a request targets, resolved; `'none'` when the request
+   * targets no params file; `'answered'` when it does but the request was
+   * refused here (no globals support, a file outside the workspace).
+   */
+  function globalTarget(res: Response, file: unknown): 'none' | 'answered' | { edits: GlobalParamEdits; absPath: string } {
+    if (!GlobalParamEdits.targets(file)) {
+      return 'none';
+    }
+    if (!globalEdits) {
+      res.status(422).json({ success: false, reason: 'this server cannot edit global parameters' });
+      return 'answered';
+    }
+    const resolved = globalEdits.resolveFile(file);
+    if ('reason' in resolved) {
+      res.status(resolved.status).json({ success: false, reason: resolved.reason });
+      return 'answered';
+    }
+    return { edits: globalEdits, absPath: resolved.absPath };
+  }
 
   /**
    * Re-render after a value override and fan the result out to editor and UI.
@@ -177,6 +206,7 @@ export function createParamsRouter(
       ...sceneStopFields(data),
       params: data.params,
       properties: data.properties,
+      ...(data.configurations ? { configurations: data.configurations } : {}),
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     return true;
@@ -242,6 +272,7 @@ export function createParamsRouter(
       breakpointHit: data.breakpointHit,
       params: data.params,
       properties: data.properties,
+      ...(data.configurations ? { configurations: data.configurations } : {}),
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     // A recompute that runs to completion can still leave features broken —
@@ -258,16 +289,86 @@ export function createParamsRouter(
     });
   });
 
+  // `body` names the part (or assembly) whose `label` this is — the
+  // definition's `body`. Without it the label must name one part's
+  // parameter: a label two parts of the file declare is refused, never set
+  // on both.
   router.post('/set-param', async (req, res) => {
-    const { label, value } = req.body;
+    const { label, value, body } = req.body;
     if (typeof label !== 'string') {
       res.status(400).json({ error: 'Invalid label' });
       return;
     }
-    fluidCadServer.setParam(fluidCadServer.getCurrentFileName(), label, value);
+    if (body !== undefined && body !== null && (typeof body !== 'string' || body === '')) {
+      res.status(400).json({ error: 'body must be the name of the part() or assembly() that declares the parameter' });
+      return;
+    }
+    const refused = fluidCadServer.setParam(fluidCadServer.getCurrentFileName(), label, value, body ?? undefined);
+    if (refused !== null) {
+      res.status(400).json({ error: refused });
+      return;
+    }
     if (await recomputeAndBroadcast(res)) {
       res.json({ success: true });
     }
+  });
+
+  /**
+   * The Parameters panel's committed value on a host that edits source:
+   * written where the configuration on screen keeps it, never a session
+   * override — into the active row's cell, or on Default into the
+   * `param()` literal ({@link ParamValueWrite}). `{ label, body?, value,
+   * configuration? }`; `value: null` clears the row's cell, so it inherits
+   * the literal again. ONE acked edit (one undo step); the host's save
+   * re-renders. Answers `{ success, value, configurations? }` — the row's
+   * summary as that render will report it — or the refusal: `400` for a
+   * value the declaration does not take, `409` when the session shows
+   * another configuration than the panel did, `422` from the transform (a
+   * non-literal table, a default that is no plain value). The read-only
+   * hosts keep `/set-param`.
+   */
+  router.post('/params/value', async (req, res) => {
+    const { label, body, value, configuration } = req.body ?? {};
+    if (typeof label !== 'string' || label === '') {
+      res.status(400).json({ success: false, reason: 'label is required' });
+      return;
+    }
+    if (body !== undefined && body !== null && (typeof body !== 'string' || body === '')) {
+      res.status(400).json({ success: false, reason: 'body must be the name of the part() or assembly() that declares the parameter' });
+      return;
+    }
+    if (value === undefined) {
+      res.status(400).json({ success: false, reason: 'value is required — null clears the configuration\'s cell' });
+      return;
+    }
+    if (configuration !== undefined && configuration !== null && typeof configuration !== 'string') {
+      res.status(400).json({ success: false, reason: 'configuration must be the name of the configuration on screen' });
+      return;
+    }
+    const file = fluidCadServer.getCurrentFileName();
+    if (!file) {
+      res.status(404).json({ success: false, reason: 'No active scene' });
+      return;
+    }
+    const plan = ParamValueWrite.plan(
+      fluidCadServer.getParamDefinitions(),
+      file,
+      fluidCadServer.getConfigurations(file),
+      { label, value, ...(body ? { body } : {}), ...(configuration ? { configuration } : {}) },
+    );
+    if (ParamValueWrite.refused(plan)) {
+      res.status(plan.status).json({ success: false, reason: plan.error });
+      return;
+    }
+    // The source is about to hold the value: a session override of it would
+    // only hide it from the render the host's save triggers, which may run
+    // before this request hears the ack — so it goes first.
+    fluidCadServer.forgetParam(file, plan.key);
+    await dispatcher.dispatch(res, plan.spec, {
+      success: true,
+      value: plan.value,
+      ...(plan.configurations ? { configurations: plan.configurations } : {}),
+    });
   });
 
   router.post('/reset-params', async (_req, res) => {
@@ -290,12 +391,21 @@ export function createParamsRouter(
   router.get('/params/usage', async (req, res) => {
     const label = typeof req.query.label === 'string' ? req.query.label : '';
     const line = Number(req.query.line);
-    const filePath = typeof req.query.filePath === 'string' && req.query.filePath !== ''
+    let filePath = typeof req.query.filePath === 'string' && req.query.filePath !== ''
       ? req.query.filePath
       : fluidCadServer.getCurrentFileName();
     if (label === '') {
       res.status(400).json({ error: 'label is required' });
       return;
+    }
+    // A global's usage is the same report — its reads are the consumers'
+    // imports, which the refactor finds across the workspace.
+    const global = globalTarget(res, filePath);
+    if (global === 'answered') {
+      return;
+    }
+    if (global !== 'none') {
+      filePath = global.absPath;
     }
     const code = filePath ? await refactor.readFile(filePath) : null;
     if (code === null) {
@@ -314,6 +424,22 @@ export function createParamsRouter(
     const spec = validParamSpec(req.body?.param);
     if (spec === null) {
       res.status(400).json({ error: 'a well-formed param is required' });
+      return;
+    }
+    // `file` names a `*.params.js` file (absolute, or relative to the
+    // workspace): the parameter is a global, appended there as an export —
+    // the file is created when it does not exist yet.
+    if (req.body?.file !== undefined) {
+      if (req.body.part != null || req.body.assembly === true) {
+        res.status(400).json({ error: 'Choose either a params file or a part/assembly scope' });
+        return;
+      }
+      const global = globalTarget(res, req.body.file);
+      if (global === 'none') {
+        res.status(422).json({ success: false, reason: `${req.body.file} is not a *.params.js file` });
+      } else if (global !== 'answered') {
+        await global.edits.add(res, global.absPath, spec);
+      }
       return;
     }
     if (req.body?.assembly === true) {
@@ -355,6 +481,16 @@ export function createParamsRouter(
     const sessionId = fluidCadServer.getCurrentFileName();
     const declaringFile = typeof filePath === 'string' && filePath !== '' ? filePath : sessionId;
     const at = Number.isInteger(line) ? line : undefined;
+    // A global: the identifier is the panel's to choose (`param.name`), the
+    // label change touches the literal alone, and there is no session
+    // override to carry across.
+    const global = globalTarget(res, declaringFile);
+    if (global !== 'none') {
+      if (global !== 'answered') {
+        await global.edits.update(res, global.absPath, label, at, spec);
+      }
+      return;
+    }
     let variable: string | undefined;
     if (spec.label !== label) {
       // A new label renames the variable it suggests — derived here, against
@@ -383,6 +519,7 @@ export function createParamsRouter(
         return;
       }
     }
+    const key = fluidCadServer.paramKeyOf(sessionId, label, declaringFile, at);
     const applied = await dispatchParamEdit(res, {
       kind: 'update',
       expectedLabel: label,
@@ -390,10 +527,11 @@ export function createParamsRouter(
       param: spec,
       ...(variable !== undefined ? { variable } : {}),
     }, declaringFile);
-    // Overrides are keyed by label, so a rename has to carry the user's
-    // current value across with it — but only once the edit actually landed.
+    // Overrides are keyed by part + label, so a rename has to carry the
+    // user's current value across with it — this part's only, and only once
+    // the edit actually landed. The key is read before the edit re-renders.
     if (applied && spec.label !== label) {
-      fluidCadServer.renameParam(sessionId, label, spec.label);
+      fluidCadServer.renameParam(sessionId, key, spec.label);
     }
   });
 
@@ -406,6 +544,13 @@ export function createParamsRouter(
     const sessionId = fluidCadServer.getCurrentFileName();
     const declaringFile = typeof filePath === 'string' && filePath !== '' ? filePath : sessionId;
     const at = Number.isInteger(line) ? line : undefined;
+    const global = globalTarget(res, declaringFile);
+    if (global !== 'none') {
+      if (global !== 'answered') {
+        await global.edits.remove(res, global.absPath, label, at);
+      }
+      return;
+    }
     // The default value stands in for every read of the parameter, in every
     // file. Where it cannot — it names things only its own scope has — the
     // whole delete is refused before any file changes.
@@ -433,8 +578,9 @@ export function createParamsRouter(
     if (!await refactor.dispatchConsumers(res, consumers.specs)) {
       return;
     }
+    const key = fluidCadServer.paramKeyOf(sessionId, label, declaringFile, at);
     if (await dispatchParamEdit(res, { kind: 'remove', expectedLabel: label, line: at }, declaringFile)) {
-      fluidCadServer.forgetParam(sessionId, label);
+      fluidCadServer.forgetParam(sessionId, key);
     }
   });
 

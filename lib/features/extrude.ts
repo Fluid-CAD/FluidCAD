@@ -5,6 +5,7 @@ import { Extrudable } from "../helpers/types.js";
 import { ClassifiedFaces, ExtrudeBase } from "./extrude-base.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
+import { Shape } from "../common/shape.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { EdgeOps } from "../oc/edge-ops.js";
@@ -38,24 +39,39 @@ export class Extrude extends ExtrudeBase {
         ThinFaceMaker.make(this.extrudable.getGeometries(), plane, this._thin[0], this._thin[1]),
       );
 
-      if (this._operationMode === 'remove') {
-        // Thin + remove: use the thin profile faces as the cut tool source,
-        // but the cut path doesn't apply thin face reclassification.
-        this.buildRemove(thinResult.faces, plane, context);
-      } else if (this._symmetric) {
-        this.buildSymmetricThin(thinResult, plane, context);
-      } else {
-        this.buildAddThin(thinResult, plane, context);
+      try {
+        if (this._operationMode === 'remove') {
+          // Thin + remove: use the thin profile faces as the cut tool source,
+          // but the cut path doesn't apply thin face reclassification.
+          this.buildRemove(thinResult.faces, plane, context);
+        } else if (this._symmetric) {
+          this.buildSymmetricThin(thinResult, plane, context);
+        } else {
+          this.buildAddThin(thinResult, plane, context);
+        }
+      } finally {
+        // The thin profile faces (and the wires they were offset from) are
+        // this build's inputs only; the solids carry their own faces.
+        ThinFaceMaker.release(thinResult);
       }
     } else {
       const faces = p.record('Resolve faces', () => this.resolveSourceFaces(plane, pickedFaces));
 
-      if (this._operationMode === 'remove') {
-        this.buildRemove(faces, plane, context);
-      } else if (this._symmetric) {
-        this.buildSymmetric(faces, plane, context);
-      } else {
-        this.buildAdd(faces, plane, context);
+      try {
+        if (this._operationMode === 'remove') {
+          this.buildRemove(faces, plane, context);
+        } else if (this._symmetric) {
+          this.buildSymmetric(faces, plane, context);
+        } else {
+          this.buildAdd(faces, plane, context);
+        }
+      } finally {
+        // Region faces FaceMaker2 built here are this build's profiles, not
+        // scene shapes: free them once the solids exist. Picked faces and a
+        // face-sourced extrude's faces belong to their owners.
+        if (pickedFaces === null && !this.isFaceSourced()) {
+          for (const face of faces) face.dispose();
+        }
       }
     }
 
@@ -163,7 +179,12 @@ export class Extrude extends ExtrudeBase {
   /** Symmetric extrude: two halves fused together, regular face classification. */
   private buildSymmetric(faces: Face[], plane: Plane, context: BuildSceneObjectContext) {
     const halves = this.buildSymmetricHalves(faces, plane, context);
-    const classified = this.classifySymmetricByInnerWires(halves, plane);
+    let classified: ClassifiedFaces;
+    try {
+      classified = this.classifySymmetricByInnerWires(halves, plane);
+    } finally {
+      halves.release();
+    }
     this.getSource()?.removeShapes(this);
     this.finalizeAndFuse(halves.extrusions, classified, context);
   }
@@ -208,28 +229,32 @@ export class Extrude extends ExtrudeBase {
 
     let classified: ClassifiedFaces;
 
-    if (thinResult.inwardEdges.length > 0) {
-      // Open profile: reclassify side/internal/cap via inward/outward edge matching.
-      const reclass = this.reclassifyThinFaces(
-        halves.remainingFaces,
-        [...halves.fusedStartFaces, ...halves.fusedEndFaces],
-        plane,
-        thinResult.inwardEdges,
-        thinResult.outwardEdges,
-      );
+    try {
+      if (thinResult.inwardEdges.length > 0) {
+        // Open profile: reclassify side/internal/cap via inward/outward edge matching.
+        const reclass = this.reclassifyThinFaces(
+          halves.remainingFaces,
+          [...halves.fusedStartFaces, ...halves.fusedEndFaces],
+          plane,
+          thinResult.inwardEdges,
+          thinResult.outwardEdges,
+        );
 
-      classified = {
-        startFaces: halves.startFaces,
-        endFaces: halves.endFaces,
-        sideFaces: reclass.sideFaces,
-        internalFaces: reclass.internalFaces,
-        capFaces: reclass.capFaces,
-      };
-    } else {
-      // Closed profile (e.g. rect.thin(5) producing an annulus): fall back to
-      // the regular symmetric inner-wire detection — the Extruder's wire
-      // orientation already encoded the hole correctly.
-      classified = this.classifySymmetricByInnerWires(halves, plane);
+        classified = {
+          startFaces: halves.startFaces,
+          endFaces: halves.endFaces,
+          sideFaces: reclass.sideFaces,
+          internalFaces: reclass.internalFaces,
+          capFaces: reclass.capFaces,
+        };
+      } else {
+        // Closed profile (e.g. rect.thin(5) producing an annulus): fall back to
+        // the regular symmetric inner-wire detection — the Extruder's wire
+        // orientation already encoded the hole correctly.
+        classified = this.classifySymmetricByInnerWires(halves, plane);
+      }
+    } finally {
+      halves.release();
     }
 
     this.getSource()?.removeShapes(this);
@@ -259,9 +284,17 @@ export class Extrude extends ExtrudeBase {
     // merge those pairs (and nothing else) so a symmetric extrude reads as one
     // continuous edge per lateral boundary. Caps keep their TShape identity,
     // which the IsSame re-find below depends on.
-    const extrusions = p.record('Unify seam edges', () =>
-      ShapeOps.unifySeamEdges(halvesFuse.result, plane));
-    halvesFuse.dispose();
+    let extrusions: Shape[];
+    try {
+      extrusions = p.record('Unify seam edges', () =>
+        ShapeOps.unifySeamEdges(halvesFuse.result, plane));
+    } finally {
+      halvesFuse.dispose();
+    }
+    // The halves and any fused solid the seam merge replaced were only ever
+    // inputs; the cap wrappers kept above share their TShapes with the result.
+    Extrude.disposeAll(all);
+    Extrude.disposeAll(halvesFuse.result.filter(s => !extrusions.includes(s)));
 
     // Re-find start/end faces in the fused solid (NonDestructive preserves
     // their TShape, so IsSame matching works) and collect everything else as
@@ -291,7 +324,21 @@ export class Extrude extends ExtrudeBase {
       fusedStartFaces,
       fusedEndFaces,
       remainingFaces,
+      /**
+       * Free what classification was the only consumer of: the halves' own
+       * faces (bar the caps that become the start/end buckets) and the
+       * fused solid's cap wrappers, whose role was the re-find above.
+       */
+      release: () => {
+        extruder1.dispose(startFaces);
+        extruder2.dispose(endFaces);
+        Extrude.disposeAll([...fusedStartFaces, ...fusedEndFaces]);
+      },
     };
+  }
+
+  private static disposeAll(shapes: Shape[]): void {
+    for (const shape of shapes) shape.dispose();
   }
 
   /**
@@ -350,30 +397,49 @@ export class Extrude extends ExtrudeBase {
       ? throughAllLength(stock.map(held => held.solid), faces, plane)
       : 0;
 
-    if (this._symmetric) {
-      // Symmetric cut: create tool centered on sketch plane, fusing two halves
-      // (one on each side). For through-all, each half runs the full reach.
-      const halfDistance = isThroughAll ? throughAll : this.distance / 2;
-      const extruder1 = new Extruder(faces, plane, -halfDistance, draft, this.getEndOffset());
-      const extruder2 = new Extruder(faces, plane, halfDistance, draft, this.getEndOffset());
-      const all = [...extruder1.extrude(), ...extruder2.extrude()];
-      const halvesFuse = BooleanOps.fuse(all);
-      // Merge the tool's mid-plane seam edges so the cavity walls the cut
-      // carves don't inherit lateral edges split in two at the sketch plane.
-      toolShapes = ShapeOps.unifySeamEdges(halvesFuse.result, plane);
-      halvesFuse.dispose();
-    } else {
-      const distance = isThroughAll ? -throughAll : -this.distance;
-      const extruder = new Extruder(faces, plane, distance, draft, this.getEndOffset());
-      toolShapes = extruder.extrude();
+    // The tool prisms, their classified faces and the halves a symmetric
+    // tool was fused from never reach the scene: the cut's own output is the
+    // stock it carves. Everything made here is freed once the cut has run.
+    const extruders: Extruder[] = [];
+    const scratch: Shape[] = [];
+    try {
+      if (this._symmetric) {
+        // Symmetric cut: create tool centered on sketch plane, fusing two halves
+        // (one on each side). For through-all, each half runs the full reach.
+        const halfDistance = isThroughAll ? throughAll : this.distance / 2;
+        const extruder1 = new Extruder(faces, plane, -halfDistance, draft, this.getEndOffset());
+        const extruder2 = new Extruder(faces, plane, halfDistance, draft, this.getEndOffset());
+        extruders.push(extruder1, extruder2);
+        const all = [...extruder1.extrude(), ...extruder2.extrude()];
+        scratch.push(...all);
+        const halvesFuse = BooleanOps.fuse(all);
+        scratch.push(...halvesFuse.result);
+        try {
+          // Merge the tool's mid-plane seam edges so the cavity walls the cut
+          // carves don't inherit lateral edges split in two at the sketch plane.
+          toolShapes = ShapeOps.unifySeamEdges(halvesFuse.result, plane);
+        } finally {
+          halvesFuse.dispose();
+        }
+        scratch.push(...toolShapes.filter(s => !halvesFuse.result.includes(s)));
+      } else {
+        const distance = isThroughAll ? -throughAll : -this.distance;
+        const extruder = new Extruder(faces, plane, distance, draft, this.getEndOffset());
+        extruders.push(extruder);
+        toolShapes = extruder.extrude();
+        scratch.push(...toolShapes);
+      }
+
+      this.getSource()?.removeShapes(this);
+
+      cutWithSceneObjects(stock, toolShapes, plane, this.distance, this, {
+        recordHistoryFor: this,
+        bidirectional: this._symmetric,
+      });
+    } finally {
+      for (const extruder of extruders) extruder.dispose();
+      Extrude.disposeAll(scratch);
     }
-
-    this.getSource()?.removeShapes(this);
-
-    cutWithSceneObjects(stock, toolShapes, plane, this.distance, this, {
-      recordHistoryFor: this,
-      bidirectional: this._symmetric,
-    });
   }
 
   override getDependencies(): SceneObject[] {

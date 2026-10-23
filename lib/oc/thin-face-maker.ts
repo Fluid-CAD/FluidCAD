@@ -56,6 +56,7 @@ export class ThinFaceMaker {
       // into multiple same-curve segments (e.g. wires returned by `offset()`
       // over a drafted body's filleted bottom).
       const unified = this.unifyWireEdges(rawWire);
+      if (unified !== rawWire) rawWire.dispose();
       const isClosed = unified.isClosed();
       // A closed profile is built as a region — outer wire plus a reversed
       // inner wire — which only holds when the outer wire runs
@@ -65,6 +66,7 @@ export class ThinFaceMaker {
       const wire = isClosed && unified.isCW(plane.normal)
         ? WireOps.reverseWire(unified)
         : unified;
+      if (wire !== unified) unified.dispose();
 
       if (offset2 !== undefined) {
         const result = this.makeDualOffsetFace(wire, isClosed, plane, offset1, offset2);
@@ -82,6 +84,16 @@ export class ThinFaceMaker {
     }
 
     return { faces, inwardEdges, outwardEdges, walls };
+  }
+
+  /**
+   * Free a result whose faces served only as a build's profiles: the faces
+   * (their cached edges — the inward/outward ones among them — go with
+   * them) and the wires they were offset from.
+   */
+  static release(result: ThinFaceResult): void {
+    for (const face of result.faces) face.dispose();
+    for (const wall of result.walls) wall.source.dispose();
   }
 
   /** The second offset always runs opposite to the first. */
@@ -106,66 +118,80 @@ export class ThinFaceMaker {
   }
 
   private static makeSingleOffsetFace(wire: Wire, isClosed: boolean, plane: Plane, offset: number): { face: Face; inwardEdges: Edge[]; outwardEdges: Edge[] } {
+    // The offset wire only feeds the face maker (which keeps its own
+    // reference to the geometry) and the midpoint matching below.
     const offsetWire = WireOps.offsetWireOnPlane(wire, offset, isClosed, plane);
+    try {
+      if (isClosed) {
+        // Determine which wire is outer (larger) vs inner based on offset sign
+        const [outer, inner] = offset >= 0
+          ? [offsetWire, wire]
+          : [wire, offsetWire];
+        return {
+          face: this.makeRegionFace(outer, inner),
+          inwardEdges: [],
+          outwardEdges: [],
+        };
+      }
 
-    if (isClosed) {
-      // Determine which wire is outer (larger) vs inner based on offset sign
-      const [outer, inner] = offset >= 0
-        ? [offsetWire, wire]
-        : [wire, offsetWire];
-      const reversedInner = WireOps.reverseWire(inner);
-      return {
-        face: Face.fromTopoDSFace(
-          FaceOps.makeFaceFromWires([
-            outer.getShape() as TopoDS_Wire,
-            reversedInner.getShape() as TopoDS_Wire,
-          ])
-        ),
-        inwardEdges: [],
-        outwardEdges: [],
-      };
+      // For open profiles: positive offset goes inward (toward profile interior)
+      const inwardWireEdges = offset >= 0 ? offsetWire.getEdges() : wire.getEdges();
+      const outwardWireEdges = offset >= 0 ? wire.getEdges() : offsetWire.getEdges();
+      const face = this.makeOpenFaceWithCaps(wire, offsetWire);
+      const inwardEdges = this.matchFaceEdgesByMidpoint(face, inwardWireEdges);
+      const outwardEdges = this.matchFaceEdgesByMidpoint(face, outwardWireEdges);
+      return { face, inwardEdges, outwardEdges };
+    } finally {
+      offsetWire.dispose();
     }
-
-    // For open profiles: positive offset goes inward (toward profile interior)
-    const inwardWireEdges = offset >= 0 ? offsetWire.getEdges() : wire.getEdges();
-    const outwardWireEdges = offset >= 0 ? wire.getEdges() : offsetWire.getEdges();
-    const face = this.makeOpenFaceWithCaps(wire, offsetWire);
-    const inwardEdges = this.matchFaceEdgesByMidpoint(face, inwardWireEdges);
-    const outwardEdges = this.matchFaceEdgesByMidpoint(face, outwardWireEdges);
-    return { face, inwardEdges, outwardEdges };
   }
 
   private static makeDualOffsetFace(wire: Wire, isClosed: boolean, plane: Plane, offset1: number, offset2: number): { face: Face; inwardEdges: Edge[]; outwardEdges: Edge[] } {
     offset2 = this.opposite(offset1, offset2);
 
     const wire1 = WireOps.offsetWireOnPlane(wire, offset1, isClosed, plane);
-    const wire2 = WireOps.offsetWireOnPlane(wire, offset2, isClosed, plane);
+    let wire2: Wire | null = null;
+    try {
+      wire2 = WireOps.offsetWireOnPlane(wire, offset2, isClosed, plane);
 
-    if (isClosed) {
-      // The wire with the larger offset is the outer boundary
-      const [outer, inner] = offset1 >= offset2
-        ? [wire1, wire2]
-        : [wire2, wire1];
-      const reversedInner = WireOps.reverseWire(inner);
-      return {
-        face: Face.fromTopoDSFace(
-          FaceOps.makeFaceFromWires([
-            outer.getShape() as TopoDS_Wire,
-            reversedInner.getShape() as TopoDS_Wire,
-          ])
-        ),
-        inwardEdges: [],
-        outwardEdges: [],
-      };
+      if (isClosed) {
+        // The wire with the larger offset is the outer boundary
+        const [outer, inner] = offset1 >= offset2
+          ? [wire1, wire2]
+          : [wire2, wire1];
+        return {
+          face: this.makeRegionFace(outer, inner),
+          inwardEdges: [],
+          outwardEdges: [],
+        };
+      }
+
+      // For open profiles: positive offset goes inward (toward profile interior)
+      const inwardWireEdges = offset1 > 0 ? wire1.getEdges() : wire2.getEdges();
+      const outwardWireEdges = offset1 > 0 ? wire2.getEdges() : wire1.getEdges();
+      const face = this.makeOpenFaceWithCaps(wire1, wire2);
+      const inwardEdges = this.matchFaceEdgesByMidpoint(face, inwardWireEdges);
+      const outwardEdges = this.matchFaceEdgesByMidpoint(face, outwardWireEdges);
+      return { face, inwardEdges, outwardEdges };
+    } finally {
+      wire1.dispose();
+      wire2?.dispose();
     }
+  }
 
-    // For open profiles: positive offset goes inward (toward profile interior)
-    const inwardWireEdges = offset1 > 0 ? wire1.getEdges() : wire2.getEdges();
-    const outwardWireEdges = offset1 > 0 ? wire2.getEdges() : wire1.getEdges();
-    const face = this.makeOpenFaceWithCaps(wire1, wire2);
-    const inwardEdges = this.matchFaceEdgesByMidpoint(face, inwardWireEdges);
-    const outwardEdges = this.matchFaceEdgesByMidpoint(face, outwardWireEdges);
-    return { face, inwardEdges, outwardEdges };
+  /** A closed band: `outer` plus `inner` reversed into a hole. The reversed copy is freed once the face holds it. */
+  private static makeRegionFace(outer: Wire, inner: Wire): Face {
+    const reversedInner = WireOps.reverseWire(inner);
+    try {
+      return Face.fromTopoDSFace(
+        FaceOps.makeFaceFromWires([
+          outer.getShape() as TopoDS_Wire,
+          reversedInner.getShape() as TopoDS_Wire,
+        ])
+      );
+    } finally {
+      reversedInner.dispose();
+    }
   }
 
   /**
@@ -184,14 +210,22 @@ export class ThinFaceMaker {
     const result = upgrader.Shape();
     upgrader.delete();
 
-    if (Explorer.isWire(result)) {
-      return Wire.fromTopoDSWire(oc.TopoDS.Wire(result));
+    try {
+      if (Explorer.isWire(result)) {
+        return Wire.fromTopoDSWire(oc.TopoDS.Wire(result));
+      }
+      const wires = Explorer.findShapes<TopoDS_Wire>(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
+      try {
+        if (wires.length === 0) {
+          return wire;
+        }
+        return Wire.fromTopoDSWire(oc.TopoDS.Wire(wires[0]));
+      } finally {
+        Explorer.deleteAll(wires);
+      }
+    } finally {
+      result.delete();
     }
-    const wires = Explorer.findShapes<TopoDS_Wire>(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
-    if (wires.length === 0) {
-      return wire;
-    }
-    return Wire.fromTopoDSWire(oc.TopoDS.Wire(wires[0]));
   }
 
   /**
@@ -213,10 +247,18 @@ export class ThinFaceMaker {
    * Result: A->B (wire1) + B->D (cap) + D->C (reversed wire2) + C->A (cap)
    */
   private static makeOpenFaceWithCaps(wire1: Wire, wire2: Wire): Face {
-    const wire1End = wire1.getLastVertex().toPoint();
-    const wire2Start = wire2.getFirstVertex().toPoint();
-    const wire2End = wire2.getLastVertex().toPoint();
-    const wire1Start = wire1.getFirstVertex().toPoint();
+    // Each vertex accessor hands out a fresh wrapper; only its point is needed.
+    const pointOf = (vertex: ReturnType<Wire['getFirstVertex']>) => {
+      try {
+        return vertex.toPoint();
+      } finally {
+        vertex.dispose();
+      }
+    };
+    const wire1End = pointOf(wire1.getLastVertex());
+    const wire2Start = pointOf(wire2.getFirstVertex());
+    const wire2End = pointOf(wire2.getLastVertex());
+    const wire1Start = pointOf(wire1.getFirstVertex());
 
     const cap1 = EdgeOps.makeLineEdge(wire1End, wire2End);
     const cap2 = EdgeOps.makeLineEdge(wire2Start, wire1Start);
@@ -230,9 +272,18 @@ export class ThinFaceMaker {
       cap2,
     ];
 
+    // The caps, the reversed copy and the closed wire are the face maker's
+    // inputs only: the face keeps its own reference to their geometry.
     const closedWire = WireOps.makeWireFromEdges(allEdges);
-    return Face.fromTopoDSFace(
-      FaceOps.makeFaceFromWires([closedWire.getShape() as TopoDS_Wire])
-    );
+    try {
+      return Face.fromTopoDSFace(
+        FaceOps.makeFaceFromWires([closedWire.getShape() as TopoDS_Wire])
+      );
+    } finally {
+      closedWire.dispose();
+      reversedWire2.dispose();
+      cap1.dispose();
+      cap2.dispose();
+    }
   }
 }

@@ -317,3 +317,50 @@ describe('in-page editor host — goto-source reveal', () => {
     expect(reveals.map((r) => r.revealPane)).toEqual([true, true]);
   });
 });
+
+describe('in-page editor host — live render of a params file', () => {
+  const PARAMS = '/ws/project.params.js';
+  const HELPER = '/ws/constants.js';
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('renders the current model as a dependency update when a *.params.js buffer changes', () => {
+    vi.useFakeTimers();
+    const params = entry(PARAMS, "export const wall = param('Wall', 3);");
+    const part = entry(PART, '// part');
+    const { host, requests } = install({ loaded: [part, params], current: PART });
+
+    host.scheduleLiveRender(PARAMS);
+    vi.advanceTimersByTime(299);
+    expect(requests.find((r) => r.url === 'api/render')).toBeUndefined();
+    vi.advanceTimersByTime(1);
+    const render = requests.find((r) => r.url === 'api/render')!;
+    // keepCurrent: the viewport stays on the model; the server folds the
+    // params file in as its dependency (a bare params render is a 422).
+    expect(render.body).toEqual({ filePath: PARAMS, code: "export const wall = param('Wall', 3);", keepCurrent: true });
+  });
+
+  it('still ignores keystrokes in any other non-current file', () => {
+    vi.useFakeTimers();
+    const helper = entry(HELPER, 'export const x = 1;');
+    const part = entry(PART, '// part');
+    const { host, requests } = install({ loaded: [part, helper], current: PART });
+
+    host.scheduleLiveRender(HELPER);
+    vi.advanceTimersByTime(1000);
+    expect(requests.find((r) => r.url === 'api/render')).toBeUndefined();
+  });
+
+  it('marks a transform that landed in a params file keepCurrent', () => {
+    const params = entry(PARAMS, "export const wall = param('Wall', 3);");
+    const part = entry(PART, '// part');
+    const { host, requests } = install({ loaded: [part, params], current: PART });
+
+    host.applyExternalResult(PARAMS, "export const wall = param('Wall', 4);");
+    expect(requests.find((r) => r.url === 'api/render')!.body).toEqual({
+      filePath: PARAMS, code: "export const wall = param('Wall', 4);", keepCurrent: true,
+    });
+  });
+});

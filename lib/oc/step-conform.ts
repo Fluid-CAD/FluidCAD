@@ -7,12 +7,17 @@ import { ShapeHasher } from "./shape-hash.js";
  * plus a map from every replaced face to its replacement, keyed by
  * {@link ShapeHasher} key of the ORIGINAL face so callers can carry per-face
  * attributes (colors) across the rebuild.
+ *
+ * A rebuilt solid is private topology (see `conformSolid`): `delete()` frees
+ * it along with every wrapper made on the way, so call it only once the
+ * writer no longer needs `shape`.
  */
 export class ConformedSolid {
   constructor(
     readonly shape: TopoDS_Shape,
     private readonly replacedFaces: Map<number, TopoDS_Face>,
     private readonly hasher: ShapeHasher,
+    private readonly owned: { delete(): void }[] = [],
   ) {}
 
   /** `subShape` itself, or its rebuilt stand-in if the conform replaced it. */
@@ -22,6 +27,10 @@ export class ConformedSolid {
 
   delete(): void {
     this.hasher.delete();
+    for (const item of this.owned) {
+      item.delete();
+    }
+    this.owned.length = 0;
   }
 }
 
@@ -42,6 +51,12 @@ export class ConformedSolid {
  * and edges (so the shell stays manifold by construction) and each edge gets
  * a rigidly transformed copy of its pcurve on the new surface — the 3D curves,
  * parameter ranges and face orientation are untouched, so no healing is needed.
+ *
+ * The rebuild works on a topological copy of the solid (geometry shared):
+ * the edges a flipped face shares with its neighbours must carry a pcurve
+ * on the new surface, and adding one to the caller's edges would leave a
+ * representation (and the flipped cone it points at) on the scene's own
+ * geometry for every export. On private edges they go away with the result.
  */
 export class StepConform {
   static conformSolid(shape: TopoDS_Shape): ConformedSolid {
@@ -56,7 +71,9 @@ export class StepConform {
     let offending = false;
     const faceEx = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
     for (; faceEx.More() && !offending; faceEx.Next()) {
-      offending = StepConform.isNonConformantCone(oc.TopoDS.Face(faceEx.Current()));
+      const face = oc.TopoDS.Face(faceEx.Current());
+      offending = StepConform.isNonConformantCone(face);
+      face.delete();
     }
     faceEx.delete();
 
@@ -64,45 +81,79 @@ export class StepConform {
       return new ConformedSolid(shape, replacedFaces, hasher);
     }
 
-    const builder = new oc.BRep_Builder();
-    const solid = new oc.TopoDS_Solid();
-    builder.MakeSolid(solid);
-
-    // Intrinsic orientations (re-added under parents that keep theirs) with
-    // cumulative locations, so every face is placed as the solid places it and
-    // stays IsSame with the faces a caller's colour records name.
-    const shellIt = new oc.TopoDS_Iterator(shape, false, true);
-    for (; shellIt.More(); shellIt.Next()) {
-      const oldShell = shellIt.Value();
-      const shell = new oc.TopoDS_Shell();
-      builder.MakeShell(shell);
-
-      const faceIt = new oc.TopoDS_Iterator(oldShell, false, true);
-      for (; faceIt.More(); faceIt.Next()) {
-        const face = oc.TopoDS.Face(faceIt.Value());
-        if (StepConform.isNonConformantCone(face)) {
-          const replacement = StepConform.flipConeFace(face, builder);
-          replacedFaces.set(hasher.key(face), replacement);
-          builder.Add(shell, replacement);
-        } else {
-          builder.Add(shell, face);
-        }
+    const owned: { delete(): void }[] = [];
+    const own = <T extends { delete(): void }>(item: T): T => { owned.push(item); return item; };
+    try {
+      // Topology only: surfaces, curves and triangulation stay shared with the
+      // caller's solid, so the copy costs little and writes the same STEP.
+      const copier = new oc.BRepBuilderAPI_Copy(shape, false, false);
+      const copy = own(copier.Shape());
+      // Every original face maps to its copy, so colour records keyed on the
+      // caller's faces land on the faces the writer sees.
+      const origEx = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+      for (; origEx.More(); origEx.Next()) {
+        const original = origEx.Current();
+        const image = copier.ModifiedShape(original);
+        replacedFaces.set(hasher.key(original), own(oc.TopoDS.Face(image)));
+        image.delete();
+        original.delete();
       }
-      faceIt.delete();
+      origEx.delete();
+      copier.delete();
 
-      shell.Closed(oldShell.Closed());
-      builder.Add(solid, shell.Oriented(oldShell.Orientation()));
+      const builder = new oc.BRep_Builder();
+      const solid = own(new oc.TopoDS_Solid());
+      builder.MakeSolid(solid);
+
+      // Intrinsic orientations (re-added under parents that keep theirs) with
+      // cumulative locations, so every face is placed as the solid places it and
+      // stays IsSame with the copies the colour map names.
+      const shellIt = new oc.TopoDS_Iterator(copy, false, true);
+      for (; shellIt.More(); shellIt.Next()) {
+        const oldShell = own(shellIt.Value());
+        const shell = own(new oc.TopoDS_Shell());
+        builder.MakeShell(shell);
+
+        const faceIt = new oc.TopoDS_Iterator(oldShell, false, true);
+        for (; faceIt.More(); faceIt.Next()) {
+          const face = own(oc.TopoDS.Face(faceIt.Value()));
+          if (StepConform.isNonConformantCone(face)) {
+            const replacement = own(StepConform.flipConeFace(face, builder, owned));
+            // Re-key the originals that mapped to this copy onto the flipped face.
+            for (const [key, mapped] of replacedFaces) {
+              if (mapped.IsSame(face)) replacedFaces.set(key, replacement);
+            }
+            builder.Add(shell, replacement);
+          } else {
+            builder.Add(shell, face);
+          }
+        }
+        faceIt.delete();
+
+        shell.Closed(oldShell.Closed());
+        const orientedShell = own(shell.Oriented(oldShell.Orientation()));
+        builder.Add(solid, orientedShell);
+      }
+      shellIt.delete();
+      builder.delete();
+
+      return new ConformedSolid(own(solid.Oriented(shape.Orientation())), replacedFaces, hasher, owned);
+    } catch (error) {
+      for (const item of owned) item.delete();
+      hasher.delete();
+      throw error;
     }
-    shellIt.delete();
-
-    return new ConformedSolid(solid.Oriented(shape.Orientation()), replacedFaces, hasher);
   }
 
   private static isNonConformantCone(face: TopoDS_Face): boolean {
     const oc = getOC();
     const adaptor = new oc.BRepAdaptor_Surface(face, false);
-    const isCone = adaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Cone;
-    const bad = isCone && adaptor.Cone().SemiAngle() < 0;
+    let bad = false;
+    if (adaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Cone) {
+      const cone = adaptor.Cone();
+      bad = cone.SemiAngle() < 0;
+      cone.delete();
+    }
     adaptor.delete();
     return bad;
   }
@@ -110,59 +161,83 @@ export class StepConform {
   /**
    * Rebuilds `face` on the mirrored cone. The returned face carries `face`'s
    * orientation and wires; the wires' edges gain a pcurve on the new surface.
+   * Scratch wrappers go to `owned`; the caller frees them with the result.
    */
-  private static flipConeFace(face: TopoDS_Face, builder: BRep_Builder): TopoDS_Face {
+  private static flipConeFace(face: TopoDS_Face, builder: BRep_Builder, owned: { delete(): void }[]): TopoDS_Face {
     const oc = getOC();
     const adaptor = new oc.BRepAdaptor_Surface(face, false);
     const cone = adaptor.Cone();
     const pos = cone.Position();
-    const flipped = new oc.gp_Ax3(pos.Location(), pos.Direction().Reversed(), pos.XDirection());
+    const location = pos.Location();
+    const direction = pos.Direction();
+    const reversed = direction.Reversed();
+    const xDirection = pos.XDirection();
+    const flipped = new oc.gp_Ax3(location, reversed, xDirection);
     const surface = new oc.Geom_ConicalSurface(flipped, -cone.SemiAngle(), cone.RefRadius());
     adaptor.delete();
+    for (const item of [cone, pos, location, direction, reversed, xDirection, flipped]) item.delete();
 
     const tolerance = oc.BRep_Tool.Tolerance(face);
     const rebuilt = new oc.TopoDS_Face();
+    owned.push(rebuilt);
     builder.MakeFace(rebuilt, surface, tolerance);
+    // The face holds the surface now; the handle wrapper is just a reference.
+    surface.delete();
 
     // (u, v) → (2π − u, −v) is a half-turn about (π, 0) in parameter space.
     const toFlipped = new oc.gp_Trsf2d();
-    toFlipped.SetRotation(new oc.gp_Pnt2d(Math.PI, 0), Math.PI);
+    const centre = new oc.gp_Pnt2d(Math.PI, 0);
+    toFlipped.SetRotation(centre, Math.PI);
+    centre.delete();
 
     // The stored (un-located) surface: the one the edges' pcurves are keyed on.
     const storedLocation = new oc.TopLoc_Location();
     const stored = oc.BRep_Tool.Surface(face, storedLocation) as Geom_ConicalSurface;
     storedLocation.delete();
     const forward = oc.TopAbs_Orientation.TopAbs_FORWARD;
-    const wireIt = new oc.TopoDS_Iterator(face.Oriented(forward), true, true);
+    const forwardFace = face.Oriented(forward);
+    const wireIt = new oc.TopoDS_Iterator(forwardFace, true, true);
     for (; wireIt.More(); wireIt.Next()) {
       const wire = wireIt.Value();
       builder.Add(rebuilt, wire);
 
-      const edgeIt = new oc.TopoDS_Iterator(wire.Oriented(forward), true, true);
+      const forwardWire = wire.Oriented(forward);
+      const edgeIt = new oc.TopoDS_Iterator(forwardWire, true, true);
       for (; edgeIt.More(); edgeIt.Next()) {
         const edge = oc.TopoDS.Edge(edgeIt.Value());
         const pcurves = StepConform.pcurvesOn(edge, stored);
-        if (pcurves.length === 0) {
-          continue;
+        if (pcurves.length > 0) {
+          const [first, second] = pcurves.map(c => StepConform.transformedCopy(c, toFlipped));
+          if (second !== undefined) {
+            builder.UpdateEdge(edge, first, second, rebuilt, tolerance);
+          } else {
+            builder.UpdateEdge(edge, first, rebuilt, tolerance);
+          }
+          // The edge holds the copies now; the originals were only read.
+          first.delete(); second?.delete();
+          pcurves.forEach(c => c.delete());
         }
-        const [first, second] = pcurves.map(c => StepConform.transformedCopy(c, toFlipped));
-        if (second !== undefined) {
-          builder.UpdateEdge(edge, first, second, rebuilt, tolerance);
-        } else {
-          builder.UpdateEdge(edge, first, rebuilt, tolerance);
-        }
+        edge.delete();
       }
       edgeIt.delete();
+      forwardWire.delete();
+      wire.delete();
     }
     wireIt.delete();
+    forwardFace.delete();
+    stored.delete();
     toFlipped.delete();
 
-    return oc.TopoDS.Face(rebuilt.Oriented(face.Orientation()));
+    const oriented = rebuilt.Oriented(face.Orientation());
+    const result = oc.TopoDS.Face(oriented);
+    oriented.delete();
+    return result;
   }
 
   /**
    * `edge`'s stored pcurves that live on `cone`, in representation order: one
-   * for an ordinary edge, two (forward then reversed side) for a seam.
+   * for an ordinary edge, two (forward then reversed side) for a seam. The
+   * returned handles are the caller's to delete.
    *
    * The binding only exposes the index-based `BRep_Tool::CurveOnSurface`, so
    * the owning surface is matched by value against the face's stored surface
@@ -176,11 +251,15 @@ export class StepConform {
     for (let index = 1; ; index++) {
       const rep = oc.BRep_Tool.CurveOnSurface(edge, location, 0, 0, index);
       if (rep.C === null || rep.C.isNull()) {
+        rep.C?.delete(); rep.S?.delete();
         break;
       }
       if (rep.S instanceof oc.Geom_ConicalSurface && StepConform.sameCone(rep.S, cone)) {
         matches.push(rep.C);
+      } else {
+        rep.C.delete();
       }
+      rep.S?.delete();
     }
     location.delete();
     return matches;
@@ -189,11 +268,16 @@ export class StepConform {
   private static sameCone(a: Geom_ConicalSurface, b: Geom_ConicalSurface): boolean {
     const pa = a.Position();
     const pb = b.Position();
-    return a.SemiAngle() === b.SemiAngle()
+    const la = pa.Location(), lb = pb.Location();
+    const da = pa.Direction(), db = pb.Direction();
+    const xa = pa.XDirection(), xb = pb.XDirection();
+    const same = a.SemiAngle() === b.SemiAngle()
       && a.RefRadius() === b.RefRadius()
-      && pa.Location().Distance(pb.Location()) === 0
-      && pa.Direction().IsEqual(pb.Direction(), 0)
-      && pa.XDirection().IsEqual(pb.XDirection(), 0);
+      && la.Distance(lb) === 0
+      && da.IsEqual(db, 0)
+      && xa.IsEqual(xb, 0);
+    for (const item of [la, lb, da, db, xa, xb, pa, pb]) item.delete();
+    return same;
   }
 
   /** A private, moved copy; the original face's pcurve is never touched. */

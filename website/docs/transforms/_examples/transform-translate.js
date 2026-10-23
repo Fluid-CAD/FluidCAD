@@ -34,7 +34,7 @@ sketch(plate.endFaces(), () => {
 const spacer = extrude(8).new();
 
 // highlight-start
-// Slide the spacer 60 along X onto the stud. translate() has no dialog: it
-// names its targets (or takes the last object) and adds a step to the timeline.
+// Slide the spacer 60 along X onto the stud. translate() names its targets
+// (or takes the last object) and adds a step to the timeline.
 translate(60, 0, 0, spacer);
 // highlight-end

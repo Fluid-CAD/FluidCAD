@@ -7,9 +7,13 @@ import {
   type TSNode,
 } from './insert-chain-edit.ts';
 import {
+  DEFAULT_CONFIGURATION_NAME,
   findInvalidParam,
+  literalValueOf,
   renderKey,
+  renderString,
   renderValue,
+  stringLiteralText,
   type InsertParamValue,
 } from './part-catalog/insert-edit.ts';
 
@@ -32,6 +36,13 @@ export type InsertParamsEditSpec = {
    * whole argument drops when its last entry goes. Absent labels no-op.
    */
   unset?: string[];
+  /**
+   * The configuration row the statement should name: a row name writes or
+   * replaces the string argument, `null` (or `'Default'`) removes it so the
+   * literals apply. Applied before the value merge, so a `set` lands in the
+   * object behind the new name. Absent → the argument is left as it is.
+   */
+  configuration?: string | null;
 };
 
 /**
@@ -44,7 +55,11 @@ export type InsertParamsEditSpec = {
  *       → insert(extrusion, { Size: '80x80', Length: 300 })
  *     insert(extrusion, { Length: w - 160 })   + {Length: 300}
  *       → insert(extrusion, { Length: 300 })
+ *     insert(frame, 'Wide')                    + {Depth: 1000}
+ *       → insert(frame, 'Wide', { Depth: 1000 })
  *
+ * A string second argument names a `configurations()` row; the override
+ * object is then the third argument and is edited in place there.
  * All-or-nothing: any refusal returns the original code untouched.
  */
 export async function applyInsertParamsEdit(
@@ -53,7 +68,8 @@ export async function applyInsertParamsEdit(
 ): Promise<{ newCode: string; error?: string }> {
   const entries = Object.entries(spec.set ?? {});
   const unset = spec.unset ?? [];
-  if (entries.length === 0 && unset.length === 0) {
+  const configuration = spec.configuration;
+  if (entries.length === 0 && unset.length === 0 && configuration === undefined) {
     return { newCode: code, error: 'No parameter changes in the request.' };
   }
   const bad = findInvalidParam(spec.set);
@@ -66,6 +82,13 @@ export async function applyInsertParamsEdit(
   }
 
   let out = code;
+  if (configuration !== undefined) {
+    const result = await setInsertConfiguration(out, spec.line, configuration);
+    if (result.error) {
+      return { newCode: code, error: result.error };
+    }
+    out = result.newCode;
+  }
   for (const label of unset) {
     const result = await removeOne(out, spec.line, label);
     if (result.error) {
@@ -93,18 +116,14 @@ async function removeOne(
   if ('error' in located) {
     return { newCode: code, error: located.error };
   }
-  const { named } = located;
-  if (named.length < 2) {
+  const { anchor, overrides } = located;
+  if (!overrides) {
     return { newCode: code };
   }
-  const second = named[1];
-  if (second.type !== 'object') {
-    return {
-      newCode: code,
-      error: `the insert() on line ${line} passes a non-literal second argument — edit its parameters in code.`,
-    };
+  if (overrides.type !== 'object') {
+    return { newCode: code, error: nonLiteralOverrides(located, line) };
   }
-  const props = second.namedChildren.filter(c => c.type !== 'comment');
+  const props = overrides.namedChildren.filter(c => c.type !== 'comment');
   const index = props.findIndex(prop =>
     (prop.type === 'pair' && pairLabel(prop) === label)
     || (prop.type === 'shorthand_property_identifier' && prop.text === label));
@@ -113,7 +132,7 @@ async function removeOne(
   }
   if (props.length === 1) {
     // Last entry — the whole `, { … }` argument goes with it.
-    return { newCode: splice(code, named[0].endIndex, second.endIndex, '') };
+    return { newCode: splice(code, anchor.endIndex, overrides.endIndex, '') };
   }
   if (index === 0) {
     return { newCode: splice(code, props[0].startIndex, props[1].startIndex, '') };
@@ -121,11 +140,21 @@ async function removeOne(
   return { newCode: splice(code, props[index - 1].endIndex, props[index].endIndex, '') };
 }
 
-/** The insert() call's named arguments at `line`, or a refusal. */
-async function locateInsertArgs(
-  code: string,
-  line: number,
-): Promise<{ named: TSNode[] } | { error: string }> {
+/**
+ * The insert() call's arguments at `line`, read by role: the definition,
+ * the configuration name when the second argument is a string literal, and
+ * the override object (second argument, or third behind a name). `anchor`
+ * is the argument a created override object goes after. Or a refusal.
+ */
+type InsertArgs = {
+  named: TSNode[];
+  definition: TSNode;
+  configuration: TSNode | null;
+  overrides: TSNode | null;
+  anchor: TSNode;
+};
+
+async function locateInsertArgs(code: string, line: number): Promise<InsertArgs | { error: string }> {
   const parser = await getInsertChainParser();
   const tree = parser.parse(code);
   const tail = findChainAt(tree, line);
@@ -141,7 +170,16 @@ async function locateInsertArgs(
   if (!args || named.length === 0) {
     return { error: `the insert() on line ${line} has no arguments.` };
   }
-  return { named };
+  const definition = named[0];
+  const configuration = named[1]?.type === 'string' ? named[1] : null;
+  const overrides = (configuration ? named[2] : named[1]) ?? null;
+  return { named, definition, configuration, overrides, anchor: configuration ?? definition };
+}
+
+/** The refusal for an override argument that is no object literal. */
+function nonLiteralOverrides(args: InsertArgs, line: number): string {
+  const position = args.configuration ? 'third' : 'second';
+  return `the insert() on line ${line} passes a non-literal ${position} argument — edit its parameters in code.`;
 }
 
 async function applyOne(
@@ -154,27 +192,22 @@ async function applyOne(
   if ('error' in located) {
     return { newCode: code, error: located.error };
   }
-  const { named } = located;
+  const { anchor, overrides } = located;
 
   const rendered = `${renderKey(label)}: ${renderValue(value)}`;
 
-  if (named.length === 1) {
-    const first = named[0];
-    return { newCode: splice(code, first.endIndex, first.endIndex, `, { ${rendered} }`) };
+  if (!overrides) {
+    return { newCode: splice(code, anchor.endIndex, anchor.endIndex, `, { ${rendered} }`) };
   }
 
-  const second = named[1];
-  if (second.type !== 'object') {
-    return {
-      newCode: code,
-      error: `the insert() on line ${line} passes a non-literal second argument — edit its parameters in code.`,
-    };
+  if (overrides.type !== 'object') {
+    return { newCode: code, error: nonLiteralOverrides(located, line) };
   }
 
   // Replace the matching property's VALUE only (`Length: w - 160` → the
   // value span), or the whole shorthand (`{ Length }` can't keep its form
   // once it stops referring to the variable).
-  for (const prop of second.namedChildren) {
+  for (const prop of overrides.namedChildren) {
     if (prop.type === 'pair' && pairLabel(prop) === label) {
       const valueNode = prop.childForFieldName('value');
       if (!valueNode) {
@@ -188,12 +221,83 @@ async function applyOne(
   }
 
   // Not present — append after the last property, or splice an empty {} open.
-  const props = second.namedChildren.filter(c => c.type !== 'comment');
+  const props = overrides.namedChildren.filter(c => c.type !== 'comment');
   const last = props[props.length - 1];
   if (last) {
     return { newCode: splice(code, last.endIndex, last.endIndex, `, ${rendered}`) };
   }
-  return { newCode: splice(code, second.startIndex + 1, second.endIndex - 1, ` ${rendered} `) };
+  return { newCode: splice(code, overrides.startIndex + 1, overrides.endIndex - 1, ` ${rendered} `) };
+}
+
+/**
+ * The configuration an `insert()` statement names: `name` is the string
+ * second argument's value, null when the statement inserts the literals.
+ * A second argument that is neither a string nor an override object (a
+ * variable holding the name, say) comes back as `expression` — the dialog
+ * shows it read-only. Null when no insert() sits at `line`.
+ */
+export async function readInsertConfiguration(
+  code: string,
+  line: number,
+): Promise<{ name: string | null; expression?: string } | null> {
+  const located = await locateInsertArgs(code, line);
+  if ('error' in located) {
+    return null;
+  }
+  const { named, configuration } = located;
+  if (configuration) {
+    return { name: stringLiteralText(configuration) };
+  }
+  const second = named[1];
+  if (second && second.type !== 'object') {
+    return { name: null, expression: second.text };
+  }
+  return { name: null };
+}
+
+/**
+ * Set, replace or clear the configuration name of the `insert()` at `line`:
+ *
+ *     insert(frame)                    + 'Wide'   → insert(frame, 'Wide')
+ *     insert(frame, { Depth: 1000 })   + 'Wide'   → insert(frame, 'Wide', { Depth: 1000 })
+ *     insert(frame, 'Wide', { … })     + 'Narrow' → insert(frame, 'Narrow', { … })
+ *     insert(frame, 'Wide', { … })     + null     → insert(frame, { … })
+ *
+ * `null` and `'Default'` both clear the name — the literals need none. A
+ * second argument that is neither a string nor an object literal cannot be
+ * rewritten and is refused.
+ */
+export async function setInsertConfiguration(
+  code: string,
+  line: number,
+  name: string | null,
+): Promise<{ newCode: string; error?: string }> {
+  if (name !== null && (typeof name !== 'string' || name.trim() === '')) {
+    return { newCode: code, error: 'a configuration needs a name.' };
+  }
+  const wanted = name === null || name === DEFAULT_CONFIGURATION_NAME ? null : name;
+  const located = await locateInsertArgs(code, line);
+  if ('error' in located) {
+    return { newCode: code, error: located.error };
+  }
+  const { named, definition, configuration } = located;
+  if (configuration) {
+    if (wanted === null) {
+      return { newCode: splice(code, definition.endIndex, configuration.endIndex, '') };
+    }
+    return { newCode: splice(code, configuration.startIndex, configuration.endIndex, renderString(wanted)) };
+  }
+  const second = named[1];
+  if (second && second.type !== 'object') {
+    return {
+      newCode: code,
+      error: `the insert() on line ${line} passes a non-literal second argument — edit its configuration in code.`,
+    };
+  }
+  if (wanted === null) {
+    return { newCode: code };
+  }
+  return { newCode: splice(code, definition.endIndex, definition.endIndex, `, ${renderString(wanted)}`) };
 }
 
 /**
@@ -212,16 +316,15 @@ export async function getInsertParamExpressions(
   if ('error' in located) {
     return null;
   }
-  const { named } = located;
-  if (named.length < 2) {
+  const { overrides } = located;
+  if (!overrides) {
     return {};
   }
-  const second = named[1];
-  if (second.type !== 'object') {
+  if (overrides.type !== 'object') {
     return null;
   }
   const out: Record<string, string> = {};
-  for (const prop of second.namedChildren) {
+  for (const prop of overrides.namedChildren) {
     if (prop.type === 'shorthand_property_identifier') {
       out[prop.text] = prop.text;
       continue;
@@ -231,7 +334,7 @@ export async function getInsertParamExpressions(
     }
     const label = pairLabel(prop);
     const valueNode = prop.childForFieldName('value');
-    if (label === null || !valueNode || isLiteralNode(valueNode)) {
+    if (label === null || !valueNode || literalValueOf(valueNode) !== undefined) {
       continue;
     }
     if (isExpressionText(valueNode.text)) {
@@ -239,20 +342,6 @@ export async function getInsertParamExpressions(
     }
   }
   return out;
-}
-
-/** Values the record's resolved `paramValues` already cover — not expressions. */
-function isLiteralNode(node: TSNode): boolean {
-  if (node.type === 'number' || node.type === 'string' || node.type === 'true' || node.type === 'false') {
-    return true;
-  }
-  if (node.type === 'unary_expression') {
-    return node.namedChildren.length === 1 && node.namedChildren[0].type === 'number';
-  }
-  if (node.type === 'array') {
-    return node.namedChildren.every(c => c.type !== 'array' && isLiteralNode(c));
-  }
-  return false;
 }
 
 /** The label a `key: value` pair addresses — identifier text or unquoted string. */

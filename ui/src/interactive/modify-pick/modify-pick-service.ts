@@ -1,7 +1,7 @@
 import {
-  applyFeature, applyValueFeatureEdit, clearBreakpoints, expandBucket, featureGhostScope, fetchFeatureGhost,
+  applyFeature, applyValueFeatureEdit, continueBreakpoint, expandBucket, featureGhostScope, fetchFeatureGhost,
   fetchFeatureSources, parseFeatureAt, removeFeature, setSketchClosed, ApplyFeatureResponse,
-  FeatureEditTarget, NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType,
+  FeatureEditTarget, FeatureGhostRequest, NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType,
   SketchSourceRef, ValueExpr,
 } from '../../api';
 import { mergeUniqueEntities } from '../../helpers/entities';
@@ -342,7 +342,10 @@ export class ModifyPickService {
       this.syncExprPrefix();
       this.scheduleGhost();
     };
-    this.panel.onJoinChange = () => this.syncExprSuffix();
+    this.panel.onJoinChange = () => {
+      this.syncExprSuffix();
+      this.scheduleGhost();
+    };
     this.panel.expression.onSubmit = () => this.apply();
 
     // Teach-mode tooltip: follows the hovered edge/face while the mode is armed.
@@ -915,7 +918,7 @@ export class ModifyPickService {
     // Clearing rebuilds to the tip, so that render carries the sketch-UI resume.
     this.closeSketchSession(ownsBreakpoint ? 'lazy' : resume);
     if (ownsBreakpoint) {
-      clearBreakpoints();
+      continueBreakpoint();
     }
   }
 
@@ -972,6 +975,9 @@ export class ModifyPickService {
    * while sketching, so Finish is also the Continue — the pause is lifted
    * whether this session placed the breakpoint or the user did ("Breakpoint
    * here"), or the finished sketch would leave the build stuck behind it.
+   * The exception is a sketch this session created: it was written just
+   * before a breakpoint the user already had, so finishing it returns to
+   * that breakpoint rather than lifting it.
    */
   async finishSketch(paused: boolean): Promise<void> {
     const session = this.sketchSession;
@@ -986,13 +992,13 @@ export class ModifyPickService {
         return;
       }
     }
-    if (session.breakpoint || paused) {
+    if (session.breakpoint || (paused && !session.created)) {
       // The chain edit's render may already have closed the session; the
       // breakpoint must not outlive the sketch either way.
       if (this.sketchSession === session && session.breakpoint) {
         this.closeSketchDialog();
       } else {
-        clearBreakpoints();
+        continueBreakpoint();
       }
     }
   }
@@ -1201,7 +1207,7 @@ export class ModifyPickService {
    * followed by a render (the cancel-restore rollback, an apply's rebuild,
    * Continue's full render).
    */
-  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'handoff' | 'gone' } = {}): void {
     if (this.feature === 'sketch' || (!this.feature && this.sketchSession)) {
       // The sketch flow lives in its dialog — exit means closing it, in the
       // armed-pick state and the tracking state alike. A user close, so the
@@ -1647,7 +1653,9 @@ export class ModifyPickService {
 
   private schedulePreview(): void {
     this.cancelPreview();
-    if (!this.feature) {
+    // Nothing previews until the edit session's view is at its boundary —
+    // its handler re-schedules there (see `EditSession.settled`).
+    if (!this.feature || !this.session.settled) {
       return;
     }
     if (this.editTarget) {
@@ -1667,7 +1675,7 @@ export class ModifyPickService {
   }
 
   private async runPreview(): Promise<void> {
-    if (!this.feature || this.applying) {
+    if (!this.feature || this.applying || !this.session.settled) {
       return;
     }
     const seq = ++this.previewSeq;
@@ -1842,20 +1850,32 @@ export class ModifyPickService {
   }
 
   // -------------------------------------------------------------------------
-  // Live geometry preview ("ghost"): the bands a fillet/chamfer would lay
+  // Live geometry preview ("ghost"): the bands a fillet/chamfer would lay,
+  // the walls a shell would offset
   // -------------------------------------------------------------------------
 
   /**
-   * Fillet and chamfer ghost; shell and sketch don't (yet). A shell's ghost
-   * would be the whole hollowed body — the same full-model cost the band
-   * approach exists to avoid — and sketch has no geometry of its own.
+   * Fillet, chamfer and shell ghost; sketch doesn't — it has no geometry of
+   * its own. All three rework a solid already in the scene, so the kernel
+   * runs the real maker on it and draws only the surfaces it creates: bands
+   * along the picked edges, or the walls behind the opened faces. Neither
+   * differences the result against the model — the maker's output already
+   * holds the answer — so the ghost costs the build and nothing more.
    */
-  private ghostFeature(): 'fillet' | 'chamfer' | null {
-    return this.feature === 'fillet' || this.feature === 'chamfer' ? this.feature : null;
+  private ghostFeature(): 'fillet' | 'chamfer' | 'shell' | null {
+    return this.feature === 'fillet' || this.feature === 'chamfer' || this.feature === 'shell'
+      ? this.feature
+      : null;
   }
 
   private scheduleGhost(): void {
     this.cancelGhost();
+    if (!this.session.settled) {
+      // The view is about to be replaced (the session's rollback is in
+      // flight); its handler clears what is drawn and re-schedules at the
+      // boundary.
+      return;
+    }
     if (!this.ghostFeature() || this.selection.isEmpty) {
       // Nothing picked yet, or a feature with no ghost — drop what's drawn
       // rather than leave a stale band hanging over the model.
@@ -1870,7 +1890,7 @@ export class ModifyPickService {
 
   private async runGhost(): Promise<void> {
     const feature = this.ghostFeature();
-    if (!feature || this.applying) {
+    if (!feature || this.applying || !this.session.settled) {
       return;
     }
     const seq = ++this.ghostSeq;
@@ -1878,37 +1898,75 @@ export class ModifyPickService {
     const abort = new AbortController();
     this.ghostAbort = abort;
 
-    // A half-typed value has no ghost, and neither does a bad one — unlike the
-    // statement preview, which falls back to the default so the args still
-    // synthesize. Here the number IS the geometry: standing in for it would
-    // draw a band the user never asked for.
-    const read = this.panel.valueField.read();
-    if ('error' in read || (typeof read.value === 'number' && read.value <= 0)) {
-      this.ghost.clear();
-      return;
-    }
-    const chamfer = this.readChamferValues();
-    if ('error' in chamfer) {
+    const request = this.ghostRequest(feature);
+    if (!request) {
       this.ghost.clear();
       return;
     }
 
-    const solids = await fetchFeatureGhost({
-      feature,
-      value: read.value,
-      distance2: feature === 'chamfer' ? chamfer.distance2 : null,
-      isAngle: feature === 'chamfer' && chamfer.isAngle,
-      edges: this.ghostEdges(),
-    }, featureGhostScope(this.editTarget), abort.signal).catch(() => null);
+    const solids = await fetchFeatureGhost(request, featureGhostScope(this.editTarget), abort.signal)
+      .catch(() => null);
 
     if (seq !== this.ghostSeq || this.ghostFeature() !== feature) {
       return;
     }
     if (solids) {
+      // The modify features take material away by default; a body that
+      // knows better (a concave fillet, an outward shell) names its own kind.
       this.ghost.set(solids, 'remove');
     } else {
       this.ghost.clear();
     }
+  }
+
+  /**
+   * The ghost request for the armed feature, or null while there is nothing
+   * to draw. A half-typed value has no ghost, and neither does a bad one —
+   * unlike the statement preview, which falls back to the default so the args
+   * still synthesize. Here the number IS the geometry: standing in for it
+   * would draw a band or a wall the user never asked for. The sign rule is
+   * the feature's own: a fillet's radius is positive, a shell's thickness is
+   * any nonzero (negative hollows inward).
+   */
+  private ghostRequest(feature: 'fillet' | 'chamfer' | 'shell'): FeatureGhostRequest | null {
+    const value = this.ghostValue(feature);
+    if (value === null) {
+      return null;
+    }
+    if (feature === 'shell') {
+      return {
+        feature,
+        thickness: value,
+        joinType: this.shellJoinType() ?? 'arc',
+        faces: this.ghostFaces(),
+      };
+    }
+    const chamfer = this.readChamferValues();
+    if ('error' in chamfer) {
+      return null;
+    }
+    return {
+      feature,
+      value,
+      distance2: feature === 'chamfer' ? chamfer.distance2 : null,
+      isAngle: feature === 'chamfer' && chamfer.isAngle,
+      edges: this.ghostEdges(),
+    };
+  }
+
+  /** The value field as the ghost reads it: null while empty, unparsable, or the wrong sign for `feature`. */
+  private ghostValue(feature: ModifyFeatureKind): ValueExpr | null {
+    const read = this.panel.valueField.read();
+    if ('error' in read) {
+      return null;
+    }
+    if (typeof read.value === 'number') {
+      const sign = FEATURES[feature].valueSign;
+      if (sign === 'positive' ? read.value <= 0 : read.value === 0) {
+        return null;
+      }
+    }
+    return read.value;
   }
 
   /**
@@ -1924,6 +1982,17 @@ export class ModifyPickService {
       index: entity.sub.index,
       kind: entity.sub.type,
     }]);
+  }
+
+  /**
+   * The faces on the shell's ghost wire — the ones it leaves open. Shell
+   * arms a face-only pick, so there is nothing else to send; an edge or
+   * vertex that reached the selection some other way is not an opening.
+   */
+  private ghostFaces(): { shapeId: string; index: number }[] {
+    return this.selection.entities.flatMap(entity => entity.sub.type === 'face'
+      ? [{ shapeId: entity.shapeId, index: entity.sub.index }]
+      : []);
   }
 
   private cancelGhost(): void {

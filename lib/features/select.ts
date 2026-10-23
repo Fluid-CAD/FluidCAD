@@ -1,14 +1,13 @@
-import type { TopoDS_Shape, TopTools_MapOfShape } from "ocjs-fluidcad";
 import { Matrix4 } from "../math/matrix4.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { ShapeFilter } from "../filters/filter.js";
-import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import { BuildSceneObjectContext, SceneObject, SourceLocation } from "../common/scene-object.js";
 import { ISelect } from "../core/interfaces.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { ShapeType } from "../common/shape-type.js";
-import { FromSceneObjectFilter } from "../filters/from-object.js";
+import { FromSceneObjectFilter, injectFromMembership } from "../filters/from-object.js";
 import { injectFilterScope } from "../filters/scope-injection.js";
 import { TopologyIndex } from "../oc/topology-index.js";
 import { Edge } from "../common/edge.js";
@@ -59,14 +58,24 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
    * Claims every selection a builder call received as an operand — passed
    * bare, or wrapped in a lazy accessor such as `select(...).center()` whose
    * dependencies lead back to the selection.
+   *
+   * A selection written inline in the call's own arguments (`hole(7,
+   * select(…).center())`, `fillet(2, select(…))`, `connector('c', select(…))`)
+   * is internal to that call: it has no statement of its own to list, name
+   * or edit, so the timeline leaves it out. One bound to a name earlier
+   * (`const rim = select(…); fillet(2, rim)`) keeps its row. `consumer` is
+   * the claiming call's own stamped location; without it nothing is marked.
    */
-  static claimOperands(args: ArrayLike<unknown>): void {
+  static claimOperands(args: ArrayLike<unknown>, consumer: SourceLocation | null = null): void {
     const visit = (value: unknown, depth: number) => {
       if (!(value instanceof SceneObject) || depth > 2) {
         return;
       }
       if (value instanceof SelectSceneObject) {
         value.markClaimed();
+        if (consumer && value.isWrittenInline(consumer)) {
+          value.markInternal();
+        }
         return;
       }
       for (const dep of value.getDependencies()) {
@@ -165,14 +174,11 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     if (type === "edge") {
       SelectSceneObject.injectScopeFaces(filters, sceneObjects, removalScope);
     }
-    const fromFilters = SelectSceneObject.injectFromMembershipSets(filters);
+    const releaseFrom = injectFromMembership(filters, removalScope);
     try {
       return SelectSceneObject.applyFilters(allShapes, filters);
     } finally {
-      for (const { filter, set } of fromFilters) {
-        filter.setMembershipSet(null);
-        set.delete();
-      }
+      releaseFrom();
     }
   }
 
@@ -214,38 +220,12 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
       }
     }
 
-    const fromFilters = SelectSceneObject.injectFromMembershipSets(filters);
+    const releaseFrom = injectFromMembership(filters);
     try {
       this.addShapes(SelectSceneObject.applyFilters(universe, filters));
     } finally {
-      for (const { filter, set } of fromFilters) {
-        filter.setMembershipSet(null);
-        set.delete();
-      }
+      releaseFrom();
     }
-  }
-
-  private static injectFromMembershipSets(filters: FilterBuilderBase<Shape>[]): { filter: FromSceneObjectFilter<Shape>; set: TopTools_MapOfShape }[] {
-    const allocated: { filter: FromSceneObjectFilter<Shape>; set: TopTools_MapOfShape }[] = [];
-    for (const builder of filters) {
-      for (const filter of builder.getFilters()) {
-        if (filter instanceof FromSceneObjectFilter) {
-          const shapeType = filter.getShapeType();
-          const rawShapes: TopoDS_Shape[] = [];
-          for (const obj of filter.getSceneObjects()) {
-            for (const owner of obj.getShapes()) {
-              for (const sub of owner.getSubShapes(shapeType)) {
-                rawShapes.push(sub.getShape());
-              }
-            }
-          }
-          const set = TopologyIndex.buildShapeSet(rawShapes);
-          filter.setMembershipSet(set);
-          allocated.push({ filter, set });
-        }
-      }
-    }
-    return allocated;
   }
 
   static collectFromSceneObjects(filters: FilterBuilderBase<Shape>[]): SceneObject[] {

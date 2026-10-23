@@ -136,44 +136,50 @@ export function classifyCutEdges(
 
   try {
     for (const edge of sectionEdges) {
+      // The adjacent faces are looked at and dropped: free their wrappers
+      // once the edge is classified.
       const adjacent = adjacentFaces(solids, edge);
-      if (adjacent.some(f => endCaps.Contains(f.getShape()))) {
-        endEdges.push(edge);
-        continue;
-      }
-      if (adjacent.some(f => startCaps.Contains(f.getShape()))) {
-        startEdges.push(edge);
-        continue;
-      }
+      try {
+        if (adjacent.some(f => endCaps.Contains(f.getShape()))) {
+          endEdges.push(edge);
+          continue;
+        }
+        if (adjacent.some(f => startCaps.Contains(f.getShape()))) {
+          startEdges.push(edge);
+          continue;
+        }
 
-      const stockFaces = adjacent.filter(f => !createdSet.Contains(f.getShape()));
-      if (stockFaces.length === 0) {
-        internalEdges.push(edge);
-        continue;
-      }
-
-      let direction = sweep;
-      if (bidirectional) {
-        const side = plane.signedDistanceToPoint(EdgeOps.getEdgeMidPoint(edge));
-        if (Math.abs(side) < planeTol) {
+        const stockFaces = adjacent.filter(f => !createdSet.Contains(f.getShape()));
+        if (stockFaces.length === 0) {
           internalEdges.push(edge);
           continue;
         }
-        direction = plane.normal.multiply(Math.sign(side));
-      }
 
-      const alignment = stockFaces
-        .map(f => FaceOps.outwardNormalOnEdge(f, edge))
-        .filter((n): n is Vector3d => n !== null)
-        .map(n => n.dot(direction))
-        .find(cos => Math.abs(cos) >= SIDE_WALL_COSINE);
+        let direction = sweep;
+        if (bidirectional) {
+          const side = plane.signedDistanceToPoint(EdgeOps.getEdgeMidPoint(edge));
+          if (Math.abs(side) < planeTol) {
+            internalEdges.push(edge);
+            continue;
+          }
+          direction = plane.normal.multiply(Math.sign(side));
+        }
 
-      if (alignment === undefined) {
-        internalEdges.push(edge);
-      } else if (alignment < 0) {
-        startEdges.push(edge);
-      } else {
-        endEdges.push(edge);
+        const alignment = stockFaces
+          .map(f => FaceOps.outwardNormalOnEdge(f, edge))
+          .filter((n): n is Vector3d => n !== null)
+          .map(n => n.dot(direction))
+          .find(cos => Math.abs(cos) >= SIDE_WALL_COSINE);
+
+        if (alignment === undefined) {
+          internalEdges.push(edge);
+        } else if (alignment < 0) {
+          startEdges.push(edge);
+        } else {
+          endEdges.push(edge);
+        }
+      } finally {
+        for (const face of adjacent) face.dispose();
       }
     }
   } finally {
@@ -194,7 +200,12 @@ function adjacentFaces(solids: Solid[], edge: Edge): Face[] {
   for (const solid of solids) {
     const raws = TopologyIndex.seekShapes(solid.getEdgeToFacesIndex(), edge.getShape());
     if (raws.length > 0) {
-      return raws.map(raw => Face.fromTopoDSFace(Explorer.toFace(raw)));
+      try {
+        return raws.map(raw => Face.fromTopoDSFace(Explorer.toFace(raw)));
+      } finally {
+        // The index hands out copies; the wrappers took their own.
+        Explorer.deleteAll(raws);
+      }
     }
   }
   return [];

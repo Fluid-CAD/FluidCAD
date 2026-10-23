@@ -12,7 +12,10 @@
 // Doing it that way means we don't double-load the JavaScript wasm grammar.
 
 import { getJavaScriptParser } from './code-editor/index.ts';
-import { lintUnitStatements, type LintDiagnostic } from './unit-lint.ts';
+import { lintGlobalParamUnits, lintUnitStatements, type GlobalUnitLintContext, type LintDiagnostic } from './unit-lint.ts';
+import { isParamsFile } from './file-kind.ts';
+import { lintParamsTree } from './global-params/lint.ts';
+import { PartDeclarationLint } from './part-declaration-lint.ts';
 
 type TSNode = {
   type: string;
@@ -38,6 +41,7 @@ const CORE_SYMBOLS = new Set<string>([
   'chamfer', 'fillet', 'translate', 'rotate', 'mirror', 'copy', 'repeat',
   'load', 'loft', 'sweep', 'rib', 'hole', 'color', 'draft', 'remove',
   'part', 'assembly', 'breakpoint', 'connector', 'expose', 'property', 'insert', 'mate', 'replicate', 'relation', 'section', 'split',
+  'configurations',
   'line', 'circle', 'ellipse', 'arc', 'offset', 'project', 'intersect',
   'bezier', 'spline', 'point',
   // Sketch datum accessors (origin + axes, constraint sketches).
@@ -100,6 +104,84 @@ const GEOMETRY_CALLEES = new Set<string>(
     .filter((s) => s !== 'unit' && s !== 'breakpoint'),
 );
 
+/**
+ * The runtime's first-statement rule for `configurations()`
+ * (docs/assembly-configurations-plan.md §3.2): the table must be installed
+ * before the body resolves any value, so a `param()` that ran earlier in
+ * the same body is a build error there. Caught here before the render.
+ */
+export const CONFIGURATIONS_AFTER_PARAM_MESSAGE =
+  "configurations() must come before the body's first param() — move it to the top of the part() or assembly() callback, above every param().";
+
+/** The callee name of a call expression when it is a bare identifier. */
+function calleeName(call: TSNode): string | null {
+  const fn = call.childForFieldName('function');
+  return fn?.type === 'identifier' ? fn.text : null;
+}
+
+/** The statement `node` belongs to — its nearest ancestor that is a block's or the program's child. */
+function statementOf(node: TSNode): TSNode | null {
+  for (let current: TSNode | null = node; current && current.parent; current = current.parent) {
+    if (current.parent.type === 'statement_block' || current.parent.type === 'program') {
+      return current;
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether `node` runs a `param()` when its statement does: a `param` call
+ * anywhere in it except inside a nested `part()` / `assembly()` definition,
+ * whose body is a body of its own with its own rule.
+ */
+function runsParam(node: TSNode): boolean {
+  let found = false;
+  walk(node, (n) => {
+    if (found) {
+      return false;
+    }
+    if (n.type === 'call_expression') {
+      const name = calleeName(n);
+      if (name === 'param') {
+        found = true;
+        return false;
+      }
+      if (name === 'part' || name === 'assembly') {
+        return false;
+      }
+    }
+    return true;
+  });
+  return found;
+}
+
+/**
+ * Every `configurations()` statement of a callback body that a `param()`
+ * statement of the same body precedes.
+ */
+function lintConfigurationStatements(root: TSNode): LintDiagnostic[] {
+  const diagnostics: LintDiagnostic[] = [];
+  walk(root, (node) => {
+    if (node.type !== 'call_expression' || calleeName(node) !== 'configurations') {
+      return;
+    }
+    const statement = statementOf(node);
+    const block = statement?.parent;
+    if (!statement || block?.type !== 'statement_block') {
+      return;
+    }
+    const preceding = block.namedChildren.filter((s) => s.endIndex <= statement.startIndex);
+    if (preceding.some(runsParam)) {
+      diagnostics.push({
+        message: CONFIGURATIONS_AFTER_PARAM_MESSAGE,
+        line: node.startPosition.row,
+        column: node.startPosition.column,
+      });
+    }
+  });
+  return diagnostics;
+}
+
 export type EngineSymbol = { name: string; module: string };
 
 /**
@@ -125,13 +207,29 @@ export type LintFluidJsResult = {
   missing: MissingImport[];
   /** A copy-pasteable block of suggested import statements, grouped by module. */
   suggestion: string;
-  /** File-level rule violations the runtime would reject (`unit()` placement). */
+  /**
+   * File-level rule violations the runtime would reject: `unit()` placement,
+   * `configurations()` ordering and the part rules (every part exported
+   * from the top level, names unique in the file) in a model, and for a `*.params.js`
+   * path the params-file rules of `docs/global-parameters-plan.md` §2.2
+   * (`global-params/lint.ts`), `configurations()` among them.
+   */
   diagnostics: LintDiagnostic[];
 };
 
 export type LintFluidJsOptions = {
-  /** The file the code will be written to — `unit()` is illegal in `*.assembly.js`. */
+  /**
+   * The file the code will be written to — `unit()` is illegal in
+   * `*.assembly.js`, and a `*.params.js` file follows its own rules.
+   */
   filePath?: string;
+  /**
+   * The project unit, the file's own unit and the project parameters, when
+   * the caller has them: a numeric global read in a file whose unit differs
+   * from the project's is reported with the converter to wrap it in. Absent,
+   * that rule is skipped (a bare lint has no catalog to ask).
+   */
+  globalUnits?: GlobalUnitLintContext;
 };
 
 /** True when `node` is the callee of a call expression (`m(…)`, not `m * 2`). */
@@ -395,9 +493,20 @@ export async function lintFluidJs(code: string, options: LintFluidJsOptions = {}
     .map(([mod, syms]) => `import { ${syms.join(', ')} } from "${mod}";`)
     .join('\n');
 
+  // A params file holds values, so the unit-order rule has nothing to say
+  // about it; its own rules (no geometry, every param() exported, …) apply.
+  const diagnostics = options.filePath && isParamsFile(options.filePath)
+    ? lintParamsTree(tree as any, options.filePath)
+    : [
+      ...lintUnitStatements(root, options.filePath, GEOMETRY_CALLEES),
+      ...lintConfigurationStatements(root),
+      ...PartDeclarationLint.lint(root as any),
+      ...(options.globalUnits ? lintGlobalParamUnits(root, options.filePath, options.globalUnits) : []),
+    ];
+
   return {
     missing: sorted,
     suggestion,
-    diagnostics: lintUnitStatements(root, options.filePath, GEOMETRY_CALLEES),
+    diagnostics,
   };
 }

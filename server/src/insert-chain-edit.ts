@@ -669,6 +669,76 @@ export async function getInsertRotateExpressions(
   return { x: out[0], y: out[1], z: out[2] };
 }
 
+/** The parts panel's Transparency… commit: see {@link setInsertTransparency}. */
+export type InstanceTransparencySpec = {
+  /** 1-based row the `insert()` chain starts on (serialized sourceLocation.line). */
+  sourceLine: number;
+  /** 0 (opaque) to 1 (fully transparent); null — or 0 — drops the call. */
+  transparency: number | null;
+};
+
+const TRANSPARENCY_DECIMALS = 4;
+
+/**
+ * Set the `.transparent(v)` call of the `insert()` chain on `sourceLine`, or
+ * drop it for an opaque value (null or 0) — a bare insert is the opaque one.
+ * An existing call's argument is replaced in place, a missing one is
+ * appended; several calls (the last one wins at runtime) collapse into one
+ * at the chain's end. Every other chain call is left alone, so the pose the
+ * statement writes never changes. Refuses a call whose argument is not a
+ * plain number — an expression the user wrote is theirs to change.
+ */
+export async function setInsertTransparency(
+  code: string,
+  sourceLine: number,
+  transparency: number | null,
+): Promise<{ newCode: string; error?: string }> {
+  if (transparency !== null && (!Number.isFinite(transparency) || transparency < 0 || transparency > 1)) {
+    return { newCode: code, error: `transparency must be a number from 0 to 1 — got ${transparency}` };
+  }
+  if (!Number.isInteger(sourceLine) || sourceLine < 1) {
+    return { newCode: code, error: 'instance transparency has an invalid source line' };
+  }
+  const p = await getParser();
+  const tail = findChainAt(p.parse(code), sourceLine);
+  const chain = tail ? getChainCalls(tail) : [];
+  if (getBaseCallName(chain) !== 'insert') {
+    return {
+      newCode: code,
+      error: `no insert() statement starts on line ${sourceLine} — the scene may be out of date; try again after the next recompute`,
+    };
+  }
+
+  const calls = chainMembers(chain).filter(m => m.method === 'transparent').map(m => m.call);
+  for (const call of calls) {
+    const args = callArguments(call) ?? [];
+    if (args.length > 1 || (args.length === 1 && numericLiteralArg(args[0]) === null)) {
+      const snippet = `.transparent${call.childForFieldName('arguments')?.text ?? '(…)'}`;
+      return {
+        newCode: code,
+        error: `${snippet.length > 48 ? `${snippet.slice(0, 45)}…` : snippet} on line ${sourceLine} isn't a plain number — edit it in source`,
+      };
+    }
+  }
+
+  const literal = transparency === null ? '0' : String(+transparency.toFixed(TRANSPARENCY_DECIMALS));
+  if (literal === '0') {
+    return { newCode: removeChainCalls(code, calls) };
+  }
+  if (calls.length === 1) {
+    const args = calls[0].childForFieldName('arguments');
+    if (!args) {
+      return { newCode: code, error: 'internal: malformed .transparent() call' };
+    }
+    return { newCode: spliceCode(code, args.startIndex + 1, args.endIndex - 1, literal) };
+  }
+  if (calls.length === 0) {
+    return { newCode: appendChainCall(code, chain, `.transparent(${literal})`) };
+  }
+  const appended = reAppendToChain(removeChainCalls(code, calls), sourceLine, `.transparent(${literal})`);
+  return 'error' in appended ? { newCode: code, error: appended.error } : appended;
+}
+
 function removeGroundedFromOtherInserts(code: string, keepSourceLine: number, p: TSParser): string {
   const tree = p.parse(code);
   const targets: TSNode[] = [];

@@ -39,6 +39,24 @@ export class Extruder {
     return this._internalFaces;
   }
 
+  /**
+   * Free the classified face wrappers of solids that never reach the scene
+   * — a cut's tool prisms, the halves of a symmetric extrude — except the
+   * ones in `keep`, which a caller still hands on. The solids themselves
+   * are the caller's.
+   */
+  dispose(keep: Face[] = []): void {
+    for (const bucket of [this.firstFaces, this.lastFaces, this.sideFaces, this._internalFaces]) {
+      for (const face of bucket ?? []) {
+        if (!keep.includes(face)) face.dispose();
+      }
+    }
+    this.firstFaces = [];
+    this.lastFaces = [];
+    this.sideFaces = [];
+    this._internalFaces = [];
+  }
+
   extrude() {
     let extrusions: Shape[] = [];
 
@@ -59,64 +77,90 @@ export class Extruder {
     const fusedFaces = p
       ? p.record('Fuse profile faces', () => BooleanOps.fuseFaces(this.faces))
       : BooleanOps.fuseFaces(this.faces);
-    for (const face of fusedFaces.result) {
-      // Canonicalize the sweep direction (so anti-parallel halves of a
-      // symmetric / two-distance extrude fuse with a single merged lateral
-      // face) only when undrafted — drafting is sensitive to the sweep
-      // parametrization and must keep the literal direction.
-      const canonicalizeSweep = !this.draft;
-      let { solid, firstFace, lastFace } = p
-        ? p.record('Make prism from face', () => ExtrudeOps.makePrismFromVec(face, vec, canonicalizeSweep))
-        : ExtrudeOps.makePrismFromVec(face, vec, canonicalizeSweep);
+    try {
+      for (const face of fusedFaces.result) {
+        // Canonicalize the sweep direction (so anti-parallel halves of a
+        // symmetric / two-distance extrude fuse with a single merged lateral
+        // face) only when undrafted — drafting is sensitive to the sweep
+        // parametrization and must keep the literal direction.
+        const canonicalizeSweep = !this.draft;
+        let { solid, firstFace, lastFace } = p
+          ? p.record('Make prism from face', () => ExtrudeOps.makePrismFromVec(face, vec, canonicalizeSweep))
+          : ExtrudeOps.makePrismFromVec(face, vec, canonicalizeSweep);
 
-      if (this.draft) {
-        const draftResult = p
-          ? p.record('Apply draft', () => this.applyDraft(solid, firstFace, lastFace, this.plane))
-          : this.applyDraft(solid, firstFace, lastFace, this.plane);
-        solid = draftResult.solid;
-        firstFace = draftResult.firstFace;
-        lastFace = draftResult.lastFace;
-      }
-
-      const solidFaces = Explorer.findFacesWrapped(solid);
-      const remainingFaces: Face[] = [];
-      for (const f of solidFaces) {
-        if (f.getShape().IsSame(firstFace.getShape())) {
-          firstFace = f;
-        } else if (f.getShape().IsSame(lastFace.getShape())) {
-          lastFace = f;
-        } else {
-          remainingFaces.push(f as Face);
+        if (this.draft) {
+          const draftResult = p
+            ? p.record('Apply draft', () => this.applyDraft(solid, firstFace, lastFace, this.plane))
+            : this.applyDraft(solid, firstFace, lastFace, this.plane);
+          // The undrafted prism and its caps were the draft's inputs only.
+          if (draftResult.solid !== solid) solid.dispose();
+          if (draftResult.firstFace !== firstFace) firstFace.dispose();
+          if (draftResult.lastFace !== lastFace) lastFace.dispose();
+          draftResult.dispose();
+          solid = draftResult.solid;
+          firstFace = draftResult.firstFace;
+          lastFace = draftResult.lastFace;
         }
-      }
 
-      // Use the firstFace from the solid to detect inner wires. Test against
-      // the face's actual outward normal — for negative-distance extrudes the
-      // firstFace's outward normal flips relative to plane.normal, which would
-      // otherwise invert outer/inner detection and swap side/internal faces.
-      const resolvedFirst = firstFace as Face;
-      const outwardNormal = resolvedFirst.calculateNormal();
-      const innerWireEdgeShapes: Shape[] = [];
-      const wires = resolvedFirst.getWires();
-      for (const wire of wires) {
-        if (wire.isCW(outwardNormal)) {
-          for (const edge of wire.getEdges()) {
-            innerWireEdgeShapes.push(edge);
+        const solidFaces = Explorer.findFacesWrapped(solid);
+        const remainingFaces: Face[] = [];
+        // The maker's own cap wrappers only serve to find the solid's: once
+        // matched they are replaced and freed.
+        const makerFirst = firstFace;
+        const makerLast = lastFace;
+        for (const f of solidFaces) {
+          if (f.getShape().IsSame(makerFirst.getShape())) {
+            firstFace = f;
+          } else if (f.getShape().IsSame(makerLast.getShape())) {
+            lastFace = f;
+          } else {
+            remainingFaces.push(f as Face);
           }
         }
-      }
+        if (firstFace !== makerFirst) makerFirst.dispose();
+        if (lastFace !== makerLast) makerLast.dispose();
 
-      for (const f of remainingFaces) {
-        if (innerWireEdgeShapes.length > 0 && this.isInternalFace(f, innerWireEdgeShapes)) {
-          internalFaces.push(f);
-        } else {
-          sideFaces.push(f);
+        // Use the firstFace from the solid to detect inner wires. Test against
+        // the face's actual outward normal — for negative-distance extrudes the
+        // firstFace's outward normal flips relative to plane.normal, which would
+        // otherwise invert outer/inner detection and swap side/internal faces.
+        const resolvedFirst = firstFace as Face;
+        const outwardNormal = resolvedFirst.calculateNormal();
+        const innerWireEdgeShapes: Shape[] = [];
+        const wires = resolvedFirst.getWires();
+        for (const wire of wires) {
+          if (wire.isCW(outwardNormal)) {
+            for (const edge of wire.getEdges()) {
+              innerWireEdgeShapes.push(edge);
+            }
+          }
         }
-      }
 
-      extrusions.push(solid);
-      firstFaces.push(firstFace as Face);
-      lastFaces.push(lastFace as Face);
+        for (const f of remainingFaces) {
+          if (innerWireEdgeShapes.length > 0 && this.isInternalFace(f, innerWireEdgeShapes)) {
+            internalFaces.push(f);
+          } else {
+            sideFaces.push(f);
+          }
+        }
+
+        extrusions.push(solid);
+        firstFaces.push(firstFace as Face);
+        lastFaces.push(lastFace as Face);
+      }
+    } catch (error) {
+      // A prism that fails mid-way leaves the earlier ones nobody's: free
+      // them with their classified faces before the error reaches the caller.
+      for (const shape of [...extrusions, ...firstFaces, ...lastFaces, ...sideFaces, ...internalFaces]) {
+        shape.dispose();
+      }
+      throw error;
+    } finally {
+      // Profiles the fuse rebuilt (merged regions) were only ever this
+      // extrude's inputs; the caller's own faces stay the caller's.
+      for (const face of fusedFaces.result) {
+        if (!(this.faces as Shape[]).includes(face)) face.dispose();
+      }
     }
 
     this.firstFaces = firstFaces;
@@ -134,7 +178,7 @@ export class Extruder {
     );
   }
 
-  private applyDraft(solid: Shape, firstFace: Shape, lastFace: Shape, plane: Plane): { solid: Shape; firstFace: Shape; lastFace: Shape } {
+  private applyDraft(solid: Shape, firstFace: Shape, lastFace: Shape, plane: Plane): ReturnType<typeof ExtrudeOps.applyDraftOnSideFaces> {
     let angle: number = this.draft[0];
 
     if (this.distance > 0) {

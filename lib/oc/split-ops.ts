@@ -118,9 +118,13 @@ export class SplitOps {
     const progress = new oc.Message_ProgressRange();
     const splitter = new oc.BRepAlgoAPI_Splitter();
     let result: TopoDS_Shape | undefined;
+    // The explorer copies of the result's solids: each wrapper below takes
+    // its own typed copy, so they go with the splitter.
+    let rawPieces: TopoDS_Shape[] = [];
     try {
-      argumentList.Append(solid.getShape());
-      toolList.Append(tool);
+      // The lists store their own copies; the references `Append` hands back are fresh handles to free.
+      argumentList.Append(solid.getShape()).delete();
+      toolList.Append(tool).delete();
       splitter.SetArguments(argumentList);
       splitter.SetTools(toolList);
       splitter.SetNonDestructive(true);
@@ -137,7 +141,7 @@ export class SplitOps {
       }
 
       const SOLID = oc.TopAbs_ShapeEnum.TopAbs_SOLID as TopAbs_ShapeEnum;
-      const rawPieces = Explorer.findShapes(result, SOLID);
+      rawPieces = Explorer.findShapes(result, SOLID);
       // One solid back means the cut grazed the body without parting it (a
       // face or an edge on the plane, a curve that stops inside the body):
       // keep the original, not the copy.
@@ -185,6 +189,7 @@ export class SplitOps {
         colors,
       };
     } finally {
+      Explorer.deleteAll(rawPieces);
       result?.delete();
       splitter.delete();
       progress.delete();

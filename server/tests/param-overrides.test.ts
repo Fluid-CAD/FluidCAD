@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { FluidCadServer } from '../src/fluidcad-server/index.ts';
 import type { SceneHost } from '../src/host/scene-host.ts';
 import { createManager, getSceneManager } from '../../lib/dist/scene-manager.js';
@@ -33,11 +33,21 @@ class FakeHost implements SceneHost {
     this.moduleRuns++;
     const code = this.buffers.get(filePath) ?? '';
     const scene = (getSceneManager() ?? createManager('')).startScene();
-    part('Model', () => {
-      for (const m of code.matchAll(/param\("([^"]+)",\s*([\d.]+)\)/g)) {
-        param(m[1], Number(m[2]));
+    // `part("Name") { … }` blocks are parts of their own; a buffer without
+    // any is one part, 'Model'.
+    const blocks = [...code.matchAll(/part\("([^"]+)"\)\s*\{([^}]*)\}/g)];
+    const bodies: [string, string][] = blocks.length > 0 ? blocks.map(b => [b[1], b[2]]) : [['Model', code]];
+    // Run as a module of `filePath` would: each call on its own line of an
+    // attributed frame, so a declaration carries its call site.
+    const lines: string[] = [];
+    for (const [name, body] of bodies) {
+      lines.push(`part(${JSON.stringify(name)}, () => {`);
+      for (const m of body.matchAll(/param\("([^"]+)",\s*([\d.]+)\)/g)) {
+        lines.push(`  param(${JSON.stringify(m[1])}, ${Number(m[2])});`);
       }
-    });
+      lines.push('});');
+    }
+    new Function('part', 'param', `"use strict";\n${lines.join('\n')}\n//# sourceURL=${filePath}`)(part, param);
     scene.materializeLeftoverDefinitions();
     return {};
   }
@@ -156,7 +166,7 @@ describe('param overrides vs. edited defaults', () => {
 });
 
 // The panel can now rewrite the declarations themselves, and both the override
-// and the baseline behind it are keyed by label. A rename that didn't move
+// and the baseline behind it are keyed by part + label. A rename that didn't move
 // them would silently reset the user's value; a delete that didn't drop them
 // would leave a ghost waiting to re-attach to a later param of the same name.
 describe('overrides following a declaration edit', () => {
@@ -171,7 +181,7 @@ describe('overrides following a declaration edit', () => {
     server.setParam(FILE, 'width', 250);
     await server.recomputeCurrentFile();
 
-    server.renameParam(FILE, 'width', 'depth');
+    server.renameParam(FILE, server.paramKeyOf(FILE, 'width'), 'depth');
 
     // Same declared default, new label — the value the user set follows it
     // instead of snapping back to 300.
@@ -182,7 +192,7 @@ describe('overrides following a declaration edit', () => {
     await render(source(300, 50, 10));
     server.setParam(FILE, 'width', 250);
     await server.recomputeCurrentFile();
-    server.renameParam(FILE, 'width', 'depth');
+    server.renameParam(FILE, server.paramKeyOf(FILE, 'width'), 'depth');
     await render(renamed(300, 50));
 
     // Editing the literal under the new label still wins, because the baseline
@@ -196,7 +206,7 @@ describe('overrides following a declaration edit', () => {
     server.setParam(FILE, 'height', 80);
     await server.recomputeCurrentFile();
 
-    server.forgetParam(FILE, 'width');
+    server.forgetParam(FILE, server.paramKeyOf(FILE, 'width'));
 
     expect(server.getParamOverrides(FILE)).toEqual({ height: 80 });
   });
@@ -206,10 +216,111 @@ describe('overrides following a declaration edit', () => {
     server.setParam(FILE, 'width', 250);
     await server.recomputeCurrentFile();
 
-    server.forgetParam(FILE, 'width');
+    server.forgetParam(FILE, server.paramKeyOf(FILE, 'width'));
     await render(`const height = param("height", 50)`);
 
     // `width` comes back — as a fresh declaration, at its declared default.
     expect(await values(source(300, 50, 10))).toEqual({ width: 300, height: 50 });
+  });
+});
+
+// Two parts of one file may declare the same label: each is its own
+// parameter, with its own override and baseline. A label-only request
+// (an older client) still works while one part declares the label, and is
+// refused when several do.
+describe('the same label in two parts', () => {
+  /** A `Plate` and a `Lid`, both declaring `Width`; the Plate also `Depth`. */
+  const twoParts = (plate: number, lid: number, depth = 5) => [
+    `part("Plate") { const width = param("Width", ${plate}); const depth = param("Depth", ${depth}) }`,
+    `part("Lid") { const width = param("Width", ${lid}) }`,
+  ].join('\n');
+
+  /** `body/label → currentValue` of the last render. */
+  const byPart = async (code: string) => {
+    const data = await render(code);
+    return Object.fromEntries((data?.params ?? []).map((p) => [`${p.body}/${p.label}`, p.currentValue]));
+  };
+
+  it('lists one row per part and sets one part\'s Width without touching the other\'s', async () => {
+    expect(await byPart(twoParts(100, 40))).toEqual({ 'Plate/Width': 100, 'Plate/Depth': 5, 'Lid/Width': 40 });
+
+    expect(server.setParam(FILE, 'Width', 60, 'Lid')).toBeNull();
+    await server.recomputeCurrentFile();
+
+    expect(await byPart(twoParts(100, 40))).toEqual({ 'Plate/Width': 100, 'Plate/Depth': 5, 'Lid/Width': 60 });
+    expect(server.getParamOverrideEntries(FILE).map(e => [e.key.body, e.key.label, e.value])).toEqual([['Lid', 'Width', 60]]);
+  });
+
+  it('refuses a label two parts declare, and resolves one only one part declares', async () => {
+    await render(twoParts(100, 40));
+
+    expect(server.setParam(FILE, 'Width', 60)).toBe(
+      "Parameter 'Width' is declared by 'Plate' and 'Lid' — name the part (body) whose parameter to set.",
+    );
+    expect(server.getParamOverrides(FILE)).toEqual({});
+
+    expect(server.setParam(FILE, 'Depth', 9)).toBeNull();
+    expect(server.getParamOverrideEntries(FILE).map(e => e.key.body)).toEqual(['Plate']);
+    expect(await byPart(twoParts(100, 40))).toEqual({ 'Plate/Width': 100, 'Plate/Depth': 9, 'Lid/Width': 40 });
+  });
+
+  it('drops only the re-authored part\'s override', async () => {
+    await render(twoParts(100, 40));
+    server.setParam(FILE, 'Width', 120, 'Plate');
+    server.setParam(FILE, 'Width', 60, 'Lid');
+    await server.recomputeCurrentFile();
+
+    expect(await byPart(twoParts(90, 40))).toEqual({ 'Plate/Width': 90, 'Plate/Depth': 5, 'Lid/Width': 60 });
+  });
+
+  it('names overrides by label while one part has the label, by key once two do', async () => {
+    await render(twoParts(100, 40));
+    server.setParam(FILE, 'Depth', 9);
+    server.setParam(FILE, 'Width', 60, 'Lid');
+
+    expect(server.getParamOverrides(FILE)).toEqual({ Depth: 9, '["Lid","Width"]': 60 });
+
+    // The record reads back to the same parameters — what the screenshot and
+    // configuration-rename round trips rely on.
+    const record = server.getParamOverrides(FILE);
+    server.resetParams(FILE);
+    server.restoreParamOverrides(FILE, record);
+    expect(await byPart(twoParts(100, 40))).toEqual({ 'Plate/Width': 100, 'Plate/Depth': 9, 'Lid/Width': 60 });
+  });
+
+  it('reads an old label-only record as every part of that label, then splits it per part', async () => {
+    await render(twoParts(100, 40));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      server.restoreParamOverrides(FILE, { Width: 70 });
+      expect(await byPart(twoParts(100, 40))).toEqual({ 'Plate/Width': 70, 'Plate/Depth': 5, 'Lid/Width': 70 });
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+    expect(server.getParamOverrides(FILE)).toEqual({ '["Plate","Width"]': 70, '["Lid","Width"]': 70 });
+  });
+
+  it('renames and forgets the declaration the edit addressed, by its call site', async () => {
+    const data = await render(twoParts(100, 40));
+    server.setParam(FILE, 'Width', 120, 'Plate');
+    server.setParam(FILE, 'Width', 60, 'Lid');
+    const lid = data!.params!.find(p => p.body === 'Lid')!;
+
+    const key = server.paramKeyOf(FILE, 'Width', lid.sourceLocation?.filePath, lid.sourceLocation?.line);
+    expect([key.body, key.label]).toEqual(['Lid', 'Width']);
+    server.renameParam(FILE, key, 'Breadth');
+    expect(server.getParamOverrideEntries(FILE).map(e => [e.key.body, e.key.label, e.value]))
+      .toEqual([['Plate', 'Width', 120], ['Lid', 'Breadth', 60]]);
+
+    // The source edit lands: the Lid's value followed its new label.
+    const renamed = [
+      `part("Plate") { const width = param("Width", 100); const depth = param("Depth", 5) }`,
+      `part("Lid") { const breadth = param("Breadth", 40) }`,
+    ].join('\n');
+    expect(await byPart(renamed)).toEqual({ 'Plate/Width': 120, 'Plate/Depth': 5, 'Lid/Breadth': 60 });
+
+    server.forgetParam(FILE, server.paramKeyOf(FILE, 'Width'));
+    expect(server.getParamOverrides(FILE)).toEqual({ Breadth: 60 });
   });
 });

@@ -1,6 +1,7 @@
 import type {
   Bnd_Box,
   BRepBuilderAPI_Transform,
+  ShapeUpgrade_UnifySameDomain,
   TopTools_ListOfShape,
   TopAbs_ShapeEnum,
   TopoDS_Shape,
@@ -65,6 +66,7 @@ export class ShapeOps {
           color: entry.color,
           setBy: entry.setBy,
         });
+        moved.delete();
       }
     });
     return { shape, colors };
@@ -79,8 +81,7 @@ export class ShapeOps {
     const [trsf, disposeTrsf] = Convert.toGpTrsf(matrix);
     const transformer = new oc.BRepBuilderAPI_Transform(trsf);
     transformer.Perform(shape.getShape(), true);
-    const raw = transformer.Shape();
-    const transformed = ShapeFactory.fromShape(raw);
+    const transformed = ShapeFactory.adopt(transformer.Shape());
     RenderSeams.map(transformed, [shape], edge => [transformer.ModifiedShape(edge)]);
 
     for (const entry of shape.getHelixEdges()) {
@@ -187,10 +188,15 @@ export class ShapeOps {
   private static boundingBoxFromBnd(bbox: Bnd_Box): BoundingBox {
     const minPnt = bbox.CornerMin();
     const maxPnt = bbox.CornerMax();
-    return ShapeOps.boundingBoxFromExtents(
-      minPnt.X(), minPnt.Y(), minPnt.Z(),
-      maxPnt.X(), maxPnt.Y(), maxPnt.Z(),
-    );
+    try {
+      return ShapeOps.boundingBoxFromExtents(
+        minPnt.X(), minPnt.Y(), minPnt.Z(),
+        maxPnt.X(), maxPnt.Y(), maxPnt.Z(),
+      );
+    } finally {
+      minPnt.delete();
+      maxPnt.delete();
+    }
   }
 
   private static boundingBoxFromExtents(
@@ -206,25 +212,31 @@ export class ShapeOps {
   }
 
   static makeCompound(shapes: Shape[]): Shape {
-    const raw = ShapeOps.makeCompoundRaw(shapes.map(s => s.getShape()));
-    return ShapeFactory.fromShape(raw);
+    return ShapeFactory.adopt(ShapeOps.makeCompoundRaw(shapes.map(s => s.getShape())));
   }
 
   static makeCompoundRaw(shapes: TopoDS_Shape[]) {
     const oc = getOC();
     const compoundBuilder = new oc.BRep_Builder();
     const compound = new oc.TopoDS_Compound();
-    compoundBuilder.MakeCompound(compound);
-
-    for (const shape of shapes) {
-      compoundBuilder.Add(compound, shape);
+    try {
+      compoundBuilder.MakeCompound(compound);
+      for (const shape of shapes) {
+        compoundBuilder.Add(compound, shape);
+      }
+    } finally {
+      compoundBuilder.delete();
     }
 
     return compound;
   }
 
   static cleanShape(shape: Shape): Shape {
-    return ShapeFactory.fromShape(ShapeOps.cleanShapeRaw(shape.getShape()));
+    const raw = shape.getShape();
+    const cleaned = ShapeOps.cleanShapeRaw(raw);
+    // The cleanup hands back a copy of its own (or the input itself when it
+    // gave up); the wrapper takes its own, so a copy is freed here.
+    return cleaned === raw ? ShapeFactory.fromShape(cleaned) : ShapeFactory.adopt(cleaned);
   }
 
   /**
@@ -281,16 +293,18 @@ export class ShapeOps {
     // "saw but didn't modify" (return [original]).
     const knownFaces = new oc.TopTools_MapOfShape();
     const knownEdges = new oc.TopTools_MapOfShape();
-    for (const raw of Explorer.findShapes(inputRaw, FACE)) {
-      knownFaces.Add(raw);
-    }
-    for (const raw of Explorer.findShapes(inputRaw, EDGE)) {
-      knownEdges.Add(raw);
-    }
+    Explorer.withShapes(inputRaw, FACE, raws => {
+      for (const raw of raws) knownFaces.Add(raw);
+    });
+    Explorer.withShapes(inputRaw, EDGE, raws => {
+      for (const raw of raws) knownEdges.Add(raw);
+    });
+    // The rebuilt input, when there was one, is only the merge's input.
+    const rebuilt = direct ? shape : null;
 
     if (!merge.valid) {
       if (opts?.requireLineage) {
-        merge.dispose(); knownFaces.delete(); knownEdges.delete(); direct?.dispose(); cleanedRaw.delete();
+        merge.dispose(); knownFaces.delete(); knownEdges.delete(); direct?.dispose(); cleanedRaw.delete(); rebuilt?.dispose();
         throw new Error("Sweep cleanup validation failed: invalid topology would require ShapeFix without trustworthy history.");
       }
       // ShapeFix_Shape creates new TShapes without recording history.
@@ -319,13 +333,16 @@ export class ShapeOps {
         knownFaces.delete();
         knownEdges.delete();
         direct?.dispose();
+        rebuilt?.dispose();
+        fixed.delete();
+        cleanedRaw.delete();
       };
       return {
         shape: wrapped,
         remapFace: (face) => {
           const raw = through(face.getShape());
           return raw && knownFaces.Contains(face.getShape())
-            ? [Face.fromTopoDSFace(Explorer.toFace(fixedFaces.orient(raw)))]
+            ? [fixedFaces.wrapFace(raw)]
             : null;
         },
         remapEdge: (edge) => {
@@ -354,6 +371,9 @@ export class ShapeOps {
       knownFaces.delete();
       knownEdges.delete();
       direct?.dispose();
+      rebuilt?.dispose();
+      // The merge's result copy: `wrapped` holds its own.
+      cleanedRaw.delete();
     };
 
     const wrapped = ShapeFactory.fromShape(cleanedRaw);
@@ -376,10 +396,13 @@ export class ShapeOps {
         if (history.IsRemoved(raw)) {
           return [];
         }
-        const list = ShapeOps.shapeListToArray(history.Modified(raw))
-          .filter(s => s.ShapeType() === FACE);
-        const images = list.length === 0 ? [raw] : list;
-        return images.map(r => Face.fromTopoDSFace(Explorer.toFace(cleanedFaces.orient(r))));
+        const list = ShapeOps.shapeListToArray(history.Modified(raw));
+        try {
+          const images = list.filter(s => s.ShapeType() === FACE);
+          return (images.length === 0 ? [raw] : images).map(r => cleanedFaces.wrapFace(r));
+        } finally {
+          Explorer.deleteAll(list);
+        }
       },
       remapEdge: (edge) => {
         if (!knownEdges.Contains(edge.getShape())) {
@@ -392,12 +415,16 @@ export class ShapeOps {
         if (history.IsRemoved(raw)) {
           return [];
         }
-        const list = ShapeOps.shapeListToArray(history.Modified(raw))
-          .filter(s => s.ShapeType() === EDGE);
-        if (list.length === 0) {
-          return [raw.IsSame(edge.getShape()) ? edge : Edge.fromTopoDSEdge(Explorer.toEdge(raw))];
+        const list = ShapeOps.shapeListToArray(history.Modified(raw));
+        try {
+          const images = list.filter(s => s.ShapeType() === EDGE);
+          if (images.length === 0) {
+            return [raw.IsSame(edge.getShape()) ? edge : Edge.fromTopoDSEdge(Explorer.toEdge(raw))];
+          }
+          return images.map(r => Edge.fromTopoDSEdge(Explorer.toEdge(r)));
+        } finally {
+          Explorer.deleteAll(list);
         }
-        return list.map(r => Edge.fromTopoDSEdge(Explorer.toEdge(r)));
       },
       dispose,
     };
@@ -437,56 +464,83 @@ export class ShapeOps {
     const tolerance = mmTol(1e-6);
 
     const raw = shape.getShape();
-    const keptVertices: TopoDS_Shape[] = [];
-    let seamVertexCount = 0;
-    for (const v of Explorer.findShapes(raw, VERTEX)) {
-      const point = VertexOps.toPointRaw(Explorer.toVertex(v));
-      if (Math.abs(plane.signedDistanceToPoint(point)) < tolerance) {
-        seamVertexCount++;
-      } else {
-        keptVertices.push(v);
-      }
-    }
-
-    if (seamVertexCount === 0) {
-      return shape;
-    }
-
+    // Every vertex here is an explorer copy (and the typed copy a point
+    // read takes): freed once the merge has registered the kept ones.
+    const vertices = Explorer.findShapes(raw, VERTEX);
     try {
-      const unify = new oc.ShapeUpgrade_UnifySameDomain(raw, true, false, false);
-      // Safe input mode (the default) copies rebuilt regions so the input
-      // stays untouched — but that replaces the TShapes of faces the merge
-      // never touched, breaking the caller's IsSame cap re-find. The input
-      // here is a just-fused intermediate owned by the caller, so in-place
-      // is fine and keeps untouched faces identical.
-      unify.SetSafeInputMode(false);
-      for (const v of keptVertices) {
-        unify.KeepShape(v);
+      const keptVertices: TopoDS_Shape[] = [];
+      let seamVertexCount = 0;
+      for (const v of vertices) {
+        const vertex = Explorer.toVertex(v);
+        try {
+          const point = VertexOps.toPointRaw(vertex);
+          if (Math.abs(plane.signedDistanceToPoint(point)) < tolerance) {
+            seamVertexCount++;
+          } else {
+            keptVertices.push(v);
+          }
+        } finally {
+          vertex.delete();
+        }
       }
-      unify.Build();
-      const unified = unify.Shape();
-      unify.delete();
 
-      const checker = new oc.BRepCheck_Analyzer(unified, true, true);
-      const valid = checker.IsValid();
-      checker.delete();
-      if (!valid) {
+      if (seamVertexCount === 0) {
         return shape;
       }
-      return ShapeFactory.fromShape(unified);
-    } catch {
-      return shape;
+
+      let unify: ShapeUpgrade_UnifySameDomain | null = null;
+      let unified: TopoDS_Shape | null = null;
+      try {
+        unify = new oc.ShapeUpgrade_UnifySameDomain(raw, true, false, false);
+        // Safe input mode (the default) copies rebuilt regions so the input
+        // stays untouched — but that replaces the TShapes of faces the merge
+        // never touched, breaking the caller's IsSame cap re-find. The input
+        // here is a just-fused intermediate owned by the caller, so in-place
+        // is fine and keeps untouched faces identical.
+        unify.SetSafeInputMode(false);
+        for (const v of keptVertices) {
+          unify.KeepShape(v);
+        }
+        unify.Build();
+        unified = unify.Shape();
+
+        const checker = new oc.BRepCheck_Analyzer(unified, true, true);
+        const valid = checker.IsValid();
+        checker.delete();
+        if (!valid) {
+          return shape;
+        }
+        return ShapeFactory.fromShape(unified);
+      } catch {
+        return shape;
+      } finally {
+        unify?.delete();
+        // The wrapper took its own typed copy of the result.
+        unified?.delete();
+      }
+    } finally {
+      Explorer.deleteAll(vertices);
     }
   }
 
   static cleanShapeRaw(shape: TopoDS_Shape) {
-    const oc = getOC();
-
     // Two coincident cylinders of opposite handedness corrupt the face merge:
-    // rebuild the left-handed ones first — see DirectFaces.
+    // rebuild the left-handed ones first — see DirectFaces. The rebuilt
+    // copy is a step on the way: it goes unless it is what comes back.
+    let normalized: TopoDS_Shape | null = null;
     if (DirectFaces.hasMixedHandedness(shape)) {
-      shape = DirectFaces.normalizeRaw(shape);
+      normalized = DirectFaces.normalizeRaw(shape);
+      shape = normalized;
     }
+    const result = ShapeOps.mergeSameDomain(shape);
+    if (normalized && result !== normalized) {
+      normalized.delete();
+    }
+    return result;
+  }
+
+  private static mergeSameDomain(shape: TopoDS_Shape): TopoDS_Shape {
+    const oc = getOC();
 
     // Full unification: merge redundant edges AND co-surface faces.
     // UnifySameDomain can throw on shapes with subtle topology issues
@@ -516,6 +570,7 @@ export class ShapeOps {
       const fixed = fixer.Shape();
       fixer.delete();
       progress.delete();
+      cleaned.delete();
       return fixed;
     } catch {
       return cleaned;
@@ -534,7 +589,11 @@ export class ShapeOps {
     }
     const oriented = new OrientedFaces(result);
     try {
-      return oriented.orient(modified[0]);
+      // The list's copies go, except the one handed back — the first image
+      // itself, or the index's copy of it, which is the caller's to free.
+      const image = oriented.orient(modified[0]);
+      Explorer.deleteAll(modified.filter(m => m !== image));
+      return image;
     } finally {
       oriented.delete();
     }

@@ -8,7 +8,7 @@ const CODE = "import { extrude, fillet, breakpoint } from 'fluidcad/core';\nextr
 const FILE = '/model.part.js';
 
 function harness() {
-  const server = { getCurrentCode: () => CODE, getCurrentFileName: () => FILE } as unknown as FluidCadServer;
+  const server = { getCurrentCode: () => CODE, getCurrentFileName: () => FILE, getActiveBreakpoint: () => ({ line: 3, column: 1 }) } as unknown as FluidCadServer;
   const dispatch = vi.fn(async (res, spec, success) => {
     const result = await applyFeatureEdit(CODE, spec);
     if (result.error) res.status(422).json({ success: false, reason: result.error });
@@ -35,7 +35,18 @@ describe('timeline breakpoint route', () => {
     const spec = h.dispatch.mock.calls[0][1];
     expect(spec.filePath).toBe(FILE);
     expect(spec.timelineBreakpoint.before).toEqual({ line: 4, column: 1 });
+    expect(spec.timelineBreakpoint.remove).toBe('all');
     expect(spec.timelineBreakpoint.sourceHash).toHaveLength(64);
+  });
+
+  it('continues from the paused stop with no file named, lifting only that stop', async () => {
+    const h = harness();
+    expect((await h.post({ before: null, remove: 'active' })).body).toEqual({ success: true });
+    const spec = h.dispatch.mock.calls[0][1];
+    expect(spec.filePath).toBe(FILE);
+    expect(spec.timelineBreakpoint).toMatchObject({ before: null, remove: 'active', active: { line: 3, column: 1 } });
+    const code = `${CODE}breakpoint();\n`;
+    expect((await applyFeatureEdit(code, spec)).newCode).toBe("import { extrude, fillet, breakpoint } from 'fluidcad/core';\nextrude(5);\nfillet(2);\nbreakpoint();\n");
   });
 
   it('uses the same edit for continue-to-end', async () => {
@@ -45,7 +56,7 @@ describe('timeline breakpoint route', () => {
     expect((await applyFeatureEdit(CODE, spec)).newCode).not.toContain('breakpoint();');
   });
 
-  it.each([undefined, {}, { before: null }, { filePath: FILE },
+  it.each([undefined, {}, { filePath: FILE }, { before: null, remove: 'later' },
     { filePath: FILE, before: { line: -1, column: 1 } },
     { filePath: FILE, before: { line: 1.5, column: 1 } },
     { filePath: FILE, before: { line: 1, column: 0 } }])('rejects malformed targets %j', async body => {

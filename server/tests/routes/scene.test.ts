@@ -180,4 +180,47 @@ describe('scene routes', () => {
       await new Promise<void>((resolve) => freshServer.close(() => resolve()));
     }
   });
+
+  it('GET /api/scene/summary lists the project parameters under globalParams when a catalog is wired', async () => {
+    buildFixtureScene();
+    const rows = [
+      { name: 'wall', label: 'Wall thickness', value: 3, file: 'project.params.js' },
+      { name: 'innerWidth', label: 'innerWidth', value: 114, file: 'project.params.js' },
+    ];
+    const app = express();
+    app.use('/api', createSceneRouter(fluidCadServer, () => null, async () => rows));
+    const srv = http.createServer(app);
+    await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', () => resolve()));
+    const addr = srv.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    try {
+      const body = await (await fetch(`http://127.0.0.1:${port}/api/scene/summary`)).json() as any;
+      expect(body.schemaVersion).toBe(1);
+      expect(body.globalParams).toEqual(rows);
+      // The summary of this file's router (no catalog) carries no block at all.
+      const plain = await (await fetch(`${baseUrl}/api/scene/summary`)).json() as any;
+      expect(plain.globalParams).toBeUndefined();
+    } finally {
+      await new Promise<void>((resolve) => srv.close(() => resolve()));
+    }
+  });
+
+  it('GET /api/scene/summary keeps the feature tree when the catalog scan fails', async () => {
+    buildFixtureScene();
+    const app = express();
+    app.use('/api', createSceneRouter(fluidCadServer, () => null, async () => { throw new Error('scan failed'); }));
+    const srv = http.createServer(app);
+    await new Promise<void>((resolve) => srv.listen(0, '127.0.0.1', () => resolve()));
+    const addr = srv.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/api/scene/summary`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as any;
+      expect(body.objects.length).toBeGreaterThanOrEqual(2);
+      expect(body.globalParams).toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) => srv.close(() => resolve()));
+    }
+  });
 });

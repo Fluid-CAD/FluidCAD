@@ -11,7 +11,8 @@ export type {
   ValidateUnavailable,
 } from './query-types.ts';
 export type { SerializedAssembly } from './assembly-types.ts';
-export type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneRenderedData } from './render-types.ts';
+export type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneConfigurations, SceneConfigurationTable, SceneRenderedData, ScratchRender } from './render-types.ts';
+export { ShapeExportSelection, type ShapeExportRefusal, type ShapeSelection, type UnmappedShape } from './shape-export-selection.ts';
 export { PartPropertiesAggregator, type PartMaterialSummary, type PartProperties } from './part-properties.ts';
 export type {
   Copy2DGhostRequest,
@@ -23,6 +24,8 @@ export type {
   FilletGhostRequest,
   GhostAxisRef,
   GhostEntityRef,
+  GhostFaceRef,
+  GhostExtrudeTargetRef,
   GhostFrame,
   GhostHelixSourceRef,
   GhostLoftCondition,
@@ -41,9 +44,11 @@ export type {
   PlaneGhostRequest,
   RepeatGhostRequest,
   RevolveGhostRequest,
+  ShellGhostRequest,
   RibGhostRequest,
   HoleGhostRequest,
   RotateGhostRequest,
+  TranslateGhostRequest,
   SketchRegionPreview,
   SketchRegionsOutcome,
   SketchRegionsRequest,

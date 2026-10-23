@@ -12,6 +12,7 @@ import { ExtrudePanel } from './extrude-panel';
 import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
+import { ExtrudeTargetSlot, type ExtrudeTargetState } from './extrude-target-slot';
 import { SketchUISuspender } from './sketch-suspender';
 import { RegionPicker } from './region-picker';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
@@ -151,6 +152,7 @@ export class ExtrudeFeatureService {
 
     this.runner = new ApplyRunner({
       panel: this.panel,
+      session: this.session,
       isArmed: () => this.armed,
       build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
       onSchedule: () => this.regions.sync(),
@@ -465,7 +467,7 @@ export class ExtrudeFeatureService {
    * session always resumes lazily (a render follows every session end —
    * the cancel-restore rollback, an apply's rebuild).
    */
-  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'handoff' | 'gone' } = {}): void {
     if (!this.armed) {
       return;
     }
@@ -681,23 +683,24 @@ export class ExtrudeFeatureService {
 
   /**
    * The live geometry for the current form state. Runs off the values the
-   * statement preview just validated, so the only thing left to resolve is
-   * the profile — and that is where the create and edit dialogs converge:
-   * both hand the server an explicit `{filePath, line}`, so the endpoint
-   * never has to know which mode asked.
+   * statement preview just validated, so what is left to resolve is the
+   * profile and, on the "Up to face" directions, the target — and that is
+   * where the create and edit dialogs converge: both hand the server
+   * explicit refs (a `{filePath, line}` profile, a `{shapeId, index}` face),
+   * so the endpoint never has to know which mode asked.
    */
   private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
-    // The up-to-face modes end on scene geometry, which the ghost doesn't
-    // resolve yet — they simply show none.
-    if (this.panel.isToFace() || this.panel.faceTarget()) {
-      return null;
-    }
     const values = this.panel.values();
     if ('error' in values) {
       return null;
     }
     const profile = this.ghostProfile();
     if (!profile) {
+      return null;
+    }
+    // A face-bounded direction with no target to end on draws nothing.
+    const target = ExtrudeTargetSlot.ghostTarget(this.targetState());
+    if (!target) {
       return null;
     }
     return fetchFeatureGhost({
@@ -712,7 +715,19 @@ export class ExtrudeFeatureService {
       thin: values.thin,
       profile,
       regions: this.regions.ghostPicks(),
+      ...target,
     }, featureGhostScope(this.editTarget), signal);
+  }
+
+  /** The direction and face-slot state the ghost's target resolves from. */
+  private targetState(): ExtrudeTargetState {
+    return {
+      literal: this.panel.faceTarget(),
+      picking: this.panel.isToFace(),
+      picked: this.toFaceEntity,
+      selection: this.panel.faceSelection(),
+      kept: this.sourceToFace,
+    };
   }
 
   /** The sketch the ghost extrudes, or null while there is nothing to sweep. */

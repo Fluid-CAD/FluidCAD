@@ -4,21 +4,7 @@ import { SceneDisposal } from "./scene-disposal.js";
 import { Sketch } from "../features/2d/sketch.js";
 import type { Part } from "../features/part.js";
 import type { RenderChangeTracker } from "./render-changes.js";
-
-// State entries whose records reference the scene object that performed the
-// action. On transfer they are pruned to actors that survived the compare —
-// a discarded actor's records are stale, the rebuilt actor re-records them —
-// and remapped to the new instances so scoped queries keep working.
-const ACTOR_RECORD_KEYS: { key: string; actorField: string }[] = [
-  { key: 'removedShapes', actorField: 'removedBy' },
-  { key: 'addedFaces', actorField: 'addedBy' },
-  { key: 'addedEdges', actorField: 'addedBy' },
-  { key: 'modifiedFaces', actorField: 'modifiedBy' },
-  { key: 'modifiedEdges', actorField: 'modifiedBy' },
-  { key: 'removedFaces', actorField: 'removedBy' },
-  { key: 'removedEdges', actorField: 'removedBy' },
-  { key: 'faceColors', actorField: 'setBy' },
-];
+import { ActorRecords } from "./actor-records.js";
 
 export class SceneCompare {
   /**
@@ -88,11 +74,7 @@ export class SceneCompare {
     // copy state from old to new
     for (const [oldObj, newObj] of map.entries()) {
       const oldState = oldObj.getFullState();
-
-      for (const { key, actorField } of ACTOR_RECORD_KEYS) {
-        SceneCompare.rewriteActorRecords(oldState, key, actorField, map);
-      }
-
+      ActorRecords.remap(oldState, map);
       newObj.restoreState(oldState);
 
       const staleId = newObj.id;
@@ -193,29 +175,4 @@ export class SceneCompare {
     return true;
   }
 
-  /**
-   * Drop records whose actor did not survive the compare and point the
-   * surviving records at the actors' new instances.
-   */
-  private static rewriteActorRecords(
-    state: Map<string, any>,
-    key: string,
-    actorField: string,
-    map: Map<SceneObject, SceneObject>,
-  ): void {
-    const records = state.get(key) as Record<string, any>[] | undefined;
-    if (!records || records.length === 0) {
-      return;
-    }
-
-    const rewritten: Record<string, any>[] = [];
-    for (const record of records) {
-      const matchedActor = map.get(record[actorField]);
-      if (matchedActor) {
-        rewritten.push({ ...record, [actorField]: matchedActor });
-      }
-    }
-
-    state.set(key, rewritten);
-  }
 }

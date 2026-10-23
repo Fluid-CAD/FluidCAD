@@ -9,7 +9,7 @@ import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
-import { ParameterLink, FaceSource, InstanceSource } from "./atoms.js";
+import { ParameterLink, FaceSource, FromSource } from "./atoms.js";
 import { PickRef, SelectionScene } from "./types.js";
 import {
   bucketContext,
@@ -34,10 +34,34 @@ export type SelectorPart = {
    * (plane-reference atoms); each needs a bound variable at render time.
    */
   refs?: SceneObject[];
+  /** The subset of `refs` the filter only passes whole — `from({{r0}})`. */
+  wholeRefs?: SceneObject[];
   /** Geometry constants the filter bakes that no user parameter tracks (filter forms). */
   bakedConstants?: number;
   tier: 0 | 1 | 2 | 3 | 4;
 };
+
+/**
+ * Statement-level bindability probe (see `SynthesizeOptions.bindable`).
+ * `whole` asks whether the statement can be bound for a whole-feature
+ * reference — its variable passed as is, `from(f)` — which any
+ * feature-producing call satisfies; otherwise the emitted code chains an
+ * accessor on the variable and the call must provide it.
+ */
+export type StatementBindable = (feature: SceneObject, whole?: boolean) => boolean;
+
+/**
+ * The producer type the code transform validates a producer's statement
+ * against: `'feature'` when every selector referencing it only passes its
+ * variable whole (an owner `from()` scope), otherwise the producer's own
+ * type — an accessor chained on the variable needs a call that provides it.
+ */
+export function producerFeatureType(producer: SceneObject, parts: SelectorPart[]): string {
+  const referencing = parts.filter(part => part.producer === producer || part.refs?.includes(producer));
+  const wholeOnly = referencing.length > 0 && referencing.every(part =>
+    part.producer !== producer && part.wholeRefs?.includes(producer));
+  return wholeOnly ? 'feature' : producer.getType();
+}
 
 /** One selector group: the winning form plus verified runner-up forms. */
 export type SelectorGroup = {
@@ -68,6 +92,9 @@ export type SelectorSynthesis =
  * 4 (bucket indices). Picks that cannot be bound — repeat/mirror clones,
  * loop/helper call sites, unclassified geometry — go through tier 3: a
  * scene-wide `select()` with an induced filter, which needs no variable.
+ * When no geometric filter isolates them (a coincident twin on another
+ * solid), the filter may scope by the feature owning the picks' solid —
+ * `from(f)` — as a last resort.
  * Tangent chains synthesize a seed-isolating filter with `.withTangents()`.
  * Every candidate is verified by executing the same resolution the emitted
  * code would run; each group also keeps its verified runner-up forms so the
@@ -86,7 +113,7 @@ export function synthesizeSelectors(
   chains: SelectorChain[] = [],
   params: ParameterLink[] = [],
   preferBucketIndices: boolean = false,
-  stmtBindable?: (feature: SceneObject) => boolean,
+  stmtBindable?: StatementBindable,
 ): SelectorSynthesis {
   const allAttributions = [
     ...attributions,
@@ -246,6 +273,21 @@ export function synthesizeSelectors(
       }
 
       if (!result) {
+        // Last resort: a pick with a coincident twin on another solid (the
+        // shared edge of two touching `.new()` bodies) passes every
+        // geometric predicate its twin does, and only naming the owning
+        // feature — `from(f)` — separates them. It comes after every
+        // geometric form because ownership moves to whichever later feature
+        // rebuilds the solid, which a geometric filter survives.
+        const owned = synthesizeGlobalCandidates(
+          scene, index, kind, pool, params, faceSources, stmtBindable, true,
+        );
+        if (owned.ok) {
+          result = owned;
+        }
+      }
+
+      if (!result) {
         return alone && alone.ok === false
           ? alone
           : { ok: false, reason: globalFailureReason(kind, pool), pick: pool[0].ref };
@@ -331,7 +373,7 @@ const PLANE_SOURCE_TOLERANCE = 1e-7;
  */
 function collectFaceSources(
   index: SelectionIndex,
-  stmtBindable?: (feature: SceneObject) => boolean,
+  stmtBindable?: StatementBindable,
 ): FaceSource[] {
   const sources: FaceSource[] = [];
   for (const bucket of index.buckets) {
@@ -473,8 +515,8 @@ function callAccessor(target: object, accessor: string): SceneObject {
 function sharedInstanceSources(
   index: SelectionIndex,
   pool: PickAttribution[],
-  stmtBindable?: (feature: SceneObject) => boolean,
-): InstanceSource[] {
+  stmtBindable?: StatementBindable,
+): FromSource[] {
   let shared: { repeat: RepeatBase; slot: number } | null = null;
   for (const attr of pool) {
     const owner = attr.solidOwner;
@@ -495,7 +537,45 @@ function sharedInstanceSources(
     return [];
   }
   const { repeat, slot } = shared;
-  return [{ feature: repeat, slot, resolve: () => repeat.instance(slot) }];
+  return [{ feature: repeat, accessor: `instance(${slot})`, resolve: () => repeat.instance(slot) }];
+}
+
+/**
+ * The features owning the picks' solids, as `from()` scope sources — the
+ * last resort for a pick no geometric filter separates from a coincident
+ * twin on another solid. Every distinct owner that binds through its own
+ * variable is offered; induction keeps one only when it holds for every
+ * pick the conjunction covers. A clone's address is its repeat's
+ * `instance(k)`, which {@link sharedInstanceSources} already offers.
+ */
+function ownerSources(
+  index: SelectionIndex,
+  pool: PickAttribution[],
+  stmtBindable?: StatementBindable,
+): FromSource[] {
+  const owners: SceneObject[] = [];
+  for (const attr of pool) {
+    const owner = attr.solidOwner;
+    if (!owner || owners.includes(owner) || owner.getCloneSource()
+      || !canBindProducer(index, owner, stmtBindable, true)) {
+      continue;
+    }
+    owners.push(owner);
+  }
+  return owners.map(feature => ({ feature, accessor: null, resolve: () => feature }));
+}
+
+/** `from()` scope sources for a select() over `pool`; owners only when asked. */
+function fromSources(
+  index: SelectionIndex,
+  pool: PickAttribution[],
+  scopeByOwner: boolean,
+  stmtBindable?: StatementBindable,
+): FromSource[] {
+  return [
+    ...sharedInstanceSources(index, pool, stmtBindable),
+    ...(scopeByOwner ? ownerSources(index, pool, stmtBindable) : []),
+  ];
 }
 
 /**
@@ -503,15 +583,17 @@ function sharedInstanceSources(
  * bindable structurally ({@link checkBindable}) and accepted by the
  * statement-level probe the server resolves from the live buffer. The one
  * rule every producer-binding route — bucket routing and the plane/surface
- * stand-in searches — decides by.
+ * stand-in searches — decides by. `whole` asks for a whole-feature
+ * reference (`from(f)`) rather than an accessor producer.
  */
 export function canBindProducer(
   index: SelectionIndex,
   feature: SceneObject,
-  stmtBindable?: (feature: SceneObject) => boolean,
+  stmtBindable?: StatementBindable,
+  whole = false,
 ): boolean {
   return checkBindable(index, feature) === null
-    && (stmtBindable?.(producerBinding(feature).producer) ?? true);
+    && (stmtBindable?.(producerBinding(feature).producer, whole) ?? true);
 }
 
 /**
@@ -618,7 +700,8 @@ function synthesizeBucketCandidates(
  * Tier 3: a scene-wide `select()` over the same universe the emitted call
  * would see at end-of-scope — every solid's sub-shapes — with select()'s
  * `belongsToFace` scope injection replicated for both atom evaluation and
- * final verification.
+ * final verification. `scopeByOwner` adds the picks' owning features as
+ * `from()` scopes (see {@link ownerSources}).
  */
 function synthesizeGlobalCandidates(
   scene: SelectionScene,
@@ -627,7 +710,8 @@ function synthesizeGlobalCandidates(
   pool: PickAttribution[],
   params: ParameterLink[],
   faceSources: FaceSource[],
-  stmtBindable?: (feature: SceneObject) => boolean,
+  stmtBindable?: StatementBindable,
+  scopeByOwner = false,
 ): GroupResult {
   const scope = resolvePartScope(scene, pool);
   if (scope.ok === false) {
@@ -635,10 +719,10 @@ function synthesizeGlobalCandidates(
   }
 
   const pickKeys = new Set(pool.map(a => a.pickedKey!));
-  const instanceSources = sharedInstanceSources(index, pool, stmtBindable);
-  const induced = induceFilterCandidates(
-    index, globalContext(scene, index, kind, params, scope.part, faceSources, instanceSources), pool, pickKeys,
+  const ctx = globalContext(
+    scene, index, kind, params, scope.part, faceSources, fromSources(index, pool, scopeByOwner, stmtBindable),
   );
+  const induced = induceFilterCandidates(index, ctx, pool, pickKeys);
   if (induced.length === 0) {
     return { ok: false, reason: globalFailureReason(kind, pool), pick: pool[0].ref };
   }
@@ -650,6 +734,7 @@ function synthesizeGlobalCandidates(
       indices: null,
       filterArgs: candidate.filterArgs,
       refs: candidate.refs,
+      wholeRefs: candidate.wholeRefs,
       bakedConstants: candidate.bakedConstants,
       tier: 3,
     })),
@@ -671,7 +756,7 @@ function synthesizeChainCandidates(
   chain: SelectorChain,
   params: ParameterLink[],
   faceSources: FaceSource[],
-  stmtBindable?: (feature: SceneObject) => boolean,
+  stmtBindable?: StatementBindable,
 ): GroupResult {
   const kind = chain.seed.ref.sub.type;
   if (kind === 'vertex') {
@@ -752,39 +837,51 @@ function synthesizeChainCandidates(
     return scope;
   }
 
-  const globalCtx = globalContext(
-    scene, index, kind, params, scope.part, faceSources,
-    sharedInstanceSources(index, [chain.seed, ...members], stmtBindable),
-  );
-  const candidates: SelectorPart[] = [];
+  const globalCandidates = (scopeByOwner: boolean): SelectorPart[] => {
+    const globalCtx = globalContext(
+      scene, index, kind, params, scope.part, faceSources,
+      fromSources(index, [chain.seed, ...members], scopeByOwner, stmtBindable),
+    );
+    const candidates: SelectorPart[] = [];
 
-  const seedInduced = induceFilterArgs(index, globalCtx, [chain.seed], seedKeys);
-  if (seedInduced) {
-    for (const builder of seedInduced.builders) {
-      builder.withTangents();
+    const seedInduced = induceFilterArgs(index, globalCtx, [chain.seed], seedKeys);
+    if (seedInduced) {
+      for (const builder of seedInduced.builders) {
+        builder.withTangents();
+      }
+      if (resolvesExactly(index, globalCtx.evaluate(seedInduced.builders), memberKeys)) {
+        candidates.push({
+          producer: null,
+          accessor: 'select',
+          indices: null,
+          filterArgs: `${seedInduced.filterArgs}.withTangents()`,
+          refs: seedInduced.refs,
+          wholeRefs: seedInduced.wholeRefs,
+          tier: 3,
+        });
+      }
     }
-    if (resolvesExactly(index, globalCtx.evaluate(seedInduced.builders), memberKeys)) {
+
+    const plain = induceFilterArgs(index, globalCtx, members, memberKeys);
+    if (plain) {
       candidates.push({
         producer: null,
         accessor: 'select',
         indices: null,
-        filterArgs: `${seedInduced.filterArgs}.withTangents()`,
-        refs: seedInduced.refs,
+        filterArgs: plain.filterArgs,
+        refs: plain.refs,
+        wholeRefs: plain.wholeRefs,
         tier: 3,
       });
     }
-  }
+    return candidates;
+  };
 
-  const plain = induceFilterArgs(index, globalCtx, members, memberKeys);
-  if (plain) {
-    candidates.push({
-      producer: null,
-      accessor: 'select',
-      indices: null,
-      filterArgs: plain.filterArgs,
-      refs: plain.refs,
-      tier: 3,
-    });
+  // Owner scopes only as a last resort, exactly as for free picks (see
+  // `synthesizeSelectors`).
+  let candidates = globalCandidates(false);
+  if (candidates.length === 0) {
+    candidates = globalCandidates(true);
   }
 
   if (candidates.length === 0) {

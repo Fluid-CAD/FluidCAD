@@ -22,7 +22,10 @@ import { Explorer } from "./explorer.js";
  * keeping the raw explorer numbering every index-based lookup uses.
  */
 export class HiddenEdges {
-  /** The raw hidden edges of one face — each once, in explorer order. */
+  /**
+   * The raw hidden edges of one face — each once, in explorer order. The
+   * caller owns the returned copies (delete them when done).
+   */
   static ofFace(face: TopoDS_Face): TopoDS_Edge[] {
     const oc = getOC();
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
@@ -38,7 +41,10 @@ export class HiddenEdges {
         const firstVisit = seen.Add(current);
         if ((!firstVisit || oc.BRep_Tool.Degenerated(edge)) && hidden.Add(current)) {
           result.push(edge);
+        } else {
+          edge.delete();
         }
+        current.delete();
         explorer.Next();
       }
       return result;
@@ -57,11 +63,21 @@ export class HiddenEdges {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const set = new oc.TopTools_MapOfShape();
-    for (const raw of Explorer.findShapes(shape, FACE)) {
-      for (const edge of HiddenEdges.ofFace(Explorer.toFace(raw))) {
-        set.Add(edge);
+    // The map holds its own TShape references; every copy made on the way
+    // is freed once it is in.
+    Explorer.withShapes(shape, FACE, raws => {
+      for (const raw of raws) {
+        const face = Explorer.toFace(raw);
+        try {
+          for (const edge of HiddenEdges.ofFace(face)) {
+            set.Add(edge);
+            edge.delete();
+          }
+        } finally {
+          face.delete();
+        }
       }
-    }
+    });
     return set;
   }
 

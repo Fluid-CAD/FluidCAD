@@ -2,12 +2,14 @@ import type { VariableInfo } from './ui/expression-input';
 import type { LengthUnit } from './units/units';
 import type { ContactEntity } from './solver/types';
 import type {
+  GlobalParamsSnapshot,
   SceneObjectMesh,
   SceneObjectRender,
   SerializedAssemblyConnector,
   SerializedAssemblyInstance,
   SerializedAssemblyMate,
   SourceLocation,
+  UIConfigurations,
   Vec3Data,
 } from './types';
 
@@ -159,17 +161,35 @@ export type ExportFormatOptions = {
   customLinearDeflection?: number;
 };
 
+/** `shapeIds: "all"` — every solid of the scene the export comes from (a configuration's own render when it is not on screen). */
+export const EVERY_SOLID = 'all' as const;
+
+/** A shapes export's selector: ids of the scene on screen, or {@link EVERY_SOLID}. */
+export type ShapeSelection = string[] | typeof EVERY_SOLID;
+
 /**
  * The body of `POST /api/export`. Exactly one selector: `shapeIds` exports
  * the listed solids each in its own frame (a part template, a solid of a
- * part scene); `assembly` exports every instance of the current assembly
- * where it sits. `poses` must cover every instance — they are the browser
+ * part scene), or with {@link EVERY_SOLID} every solid of the scene
+ * exported — so a configuration row that adds or drops a body exports its
+ * own set, where listed ids it does not build are refused; `assembly`
+ * exports every instance of the current assembly where it sits. `poses` must cover every instance — they are the browser
  * solver's live world poses, which the server cannot compute itself; a
  * headless client omits them and gets the statement poses instead.
  */
-export type ExportRequestBody =
-  | ({ format: ExportFormat; shapeIds: string[]; assembly?: undefined } & ExportFormatOptions)
-  | ({ format: ExportFormat; assembly: { poses: ExportInstancePose[] }; shapeIds?: undefined } & ExportFormatOptions);
+export type ExportRequestBody = (
+  | { format: ExportFormat; shapeIds: ShapeSelection; assembly?: undefined }
+  | { format: ExportFormat; assembly: { poses: ExportInstancePose[] }; shapeIds?: undefined }
+) & ExportFormatOptions & ExportConfigurationOption;
+
+/**
+ * `configuration`: the `configurations()` row to export (`'Default'` for the
+ * literals). The row on screen exports the live scene; any other is rendered
+ * for the request alone — the session's row and the viewer are untouched —
+ * and an assembly from that render sits at its statement poses (the live
+ * poses were solved for the row on screen). Omitted: the scene on screen.
+ */
+export type ExportConfigurationOption = { configuration?: string };
 
 export type MeasureEntityRef = {
   shapeId: string;
@@ -479,12 +499,14 @@ export type FeatureGhostRequest =
   | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
+  | ShellGhostRequest
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
   | SplitGhostRequest
   | RotateGhostRequest
+  | TranslateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -530,7 +552,23 @@ export type ExtrudeGhostRequest = {
    * region; an empty list is the bare `.region()`, which builds nothing.
    */
   regions?: RegionPick[];
+  /**
+   * The "Up to face" directions: the extrusion ends on this target and the
+   * distance fields are not read. Absent is the distance form.
+   */
+  toFace?: GhostExtrudeTargetRef;
 };
+
+/**
+ * Where an up-to-face extrude ends, as the ghost endpoint resolves it: the
+ * `'first-face'` / `'last-face'` literal the statement writes, or a picked
+ * face by its viewport address on the rendered (edit mode: rolled-back)
+ * scene. A kept "Current: …" target travels only once the sources query has
+ * resolved it to such a pick — see `ExtrudeTargetSlot`.
+ */
+export type GhostExtrudeTargetRef =
+  | { kind: ExtrudeFaceTarget }
+  | { kind: 'face'; shapeId: string; index: number };
 
 export type RibGhostRequest = {
   feature: 'rib';
@@ -677,6 +715,23 @@ export type FilletGhostRequest = {
    * the ghost does too rather than drop the pick.
    */
   edges: { shapeId: string; index: number; kind: 'edge' | 'face' }[];
+};
+
+/**
+ * The shell dialog on the ghost wire. A shell, like a fillet, reworks a solid
+ * the scene already holds, so it carries no op and no profile — the dialog's
+ * thickness and join, and the faces to leave open. What comes back is the
+ * walls the hollowing would create, each already told apart as material
+ * leaving (an inward shell) or arriving (an outward one).
+ */
+export type ShellGhostRequest = {
+  feature: 'shell';
+  /** Wall thickness: negative hollows inward, positive builds the wall outside the solid. */
+  thickness: ValueExpr;
+  /** How the offset walls meet at a corner — the join dropdown. */
+  joinType: ShellJoinType;
+  /** The picked faces, each by the solid it was picked on and its index there. */
+  faces: { shapeId: string; index: number }[];
 };
 
 /**
@@ -869,6 +924,27 @@ export type RotateGhostRequest = {
   axis: GhostAxisRef;
   /** The rotation angle in degrees. */
   angle: ValueExpr;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
+ * The translate on the ghost wire — the rotate's straight-line sibling: the
+ * target solids' own bodies stamped once, under the translation the apply
+ * itself will use. A zero translation still stamps them, where they stand, so
+ * the dialog can slide them under its gizmo from the first drag. The copy
+ * flag never travels — either way the stamp is where the bodies land.
+ */
+export type TranslateGhostRequest = {
+  feature: 'translate';
+  /** The solid-bearing statements being moved, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The distance along X, Y and Z. */
+  translation: Translation;
   /**
    * Edit mode: the edited statement's own call site. The scene holds the
    * applied statement mid-edit; the kernel reads the targets as of just
@@ -1152,6 +1228,46 @@ export async function fetchFeatureGhostResult(
   valueScope: GhostValueScope | null,
   signal: AbortSignal,
 ): Promise<{ solids: GhostSolid[] | null; frames: GhostFrame[]; notice: string | null }> {
+  const answer = await postFeatureGhost(request, valueScope, signal);
+  if ('body' in answer) {
+    return { solids: answer.body.solids ?? [], frames: answer.body.frames ?? [], notice: null };
+  }
+  return { solids: null, frames: [], notice: answer.notice };
+}
+
+/**
+ * The translate's bodies, plus the distances they were stamped at as the
+ * statement will read them — a name resolved where the statement sits, which
+ * the client's own arithmetic can't always do (a configuration's parameter
+ * value). The dialog stands its gizmo on these. Null whenever there is
+ * nothing to draw, as for {@link fetchFeatureGhost}.
+ */
+export async function fetchTranslateGhost(
+  request: TranslateGhostRequest,
+  valueScope: GhostValueScope | null,
+  signal: AbortSignal,
+): Promise<{ solids: GhostSolid[]; translation: [number, number, number] } | null> {
+  const answer = await postFeatureGhost(request, valueScope, signal);
+  if (!('body' in answer)) {
+    return null;
+  }
+  const translation: unknown = answer.body.translation;
+  if (!Array.isArray(translation) || translation.length !== 3 || !translation.every(Number.isFinite)) {
+    return null;
+  }
+  return { solids: answer.body.solids ?? [], translation: translation as [number, number, number] };
+}
+
+/**
+ * One round trip to the ghost route: the success body, or — for a refusal —
+ * only the notice worth reading out (see {@link fetchFeatureGhostResult}).
+ * An abort propagates; any other failure is a silent refusal.
+ */
+async function postFeatureGhost(
+  request: FeatureGhostRequest,
+  valueScope: GhostValueScope | null,
+  signal: AbortSignal,
+): Promise<{ body: any } | { notice: string | null }> {
   try {
     const res = await fetch('api/feature-ghost', {
       method: 'POST',
@@ -1161,15 +1277,14 @@ export async function fetchFeatureGhostResult(
     });
     const body = await res.json().catch(() => null);
     if (res.ok && body?.success === true) {
-      return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null };
+      return { body };
     }
-    const notice = body?.surface === true && typeof body?.reason === 'string' ? body.reason : null;
-    return { solids: null, frames: [], notice };
+    return { notice: body?.surface === true && typeof body?.reason === 'string' ? body.reason : null };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw err;
     }
-    return { solids: null, frames: [], notice: null };
+    return { notice: null };
   }
 }
 
@@ -3242,6 +3357,39 @@ export async function applyRotate(options: RotateApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
+/** The distance along X, Y and Z — `translate()`'s leading arguments. */
+export type Translation = [ValueExpr, ValueExpr, ValueExpr];
+
+export type TranslateApplyOptions = {
+  /** The solid-bearing statements being moved (whole-solid picks), in order. */
+  targets: SketchSourceRef[];
+  /** The distance along X, Y and Z. */
+  translation: Translation;
+  /** Keep the originals in place — writes the `true` after the distances. */
+  copy: boolean;
+  /** Declarations the dialog's distance fields committed (`gap = 20`). */
+  newVariables?: NewVariable[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a translate
+ * statement moving the target solids along X, Y and Z. Same endpoint and
+ * response shape as {@link applyFeature}.
+ */
+export async function applyTranslate(options: TranslateApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'translate',
+    targets: options.targets,
+    translation: options.translation,
+    copy: options.copy,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** The three boolean operations — each its own callee, one shared dialog. */
 export type BooleanKind = 'fuse' | 'subtract' | 'common';
 
@@ -3369,6 +3517,12 @@ export type FeatureSourcesResult =
    * an empty target list.
    */
   | { ok: true; feature: 'rotate'; targets: SourceSlotRef[]; axis: SourceSlotRef }
+  /**
+   * A standalone translate: the solids it moves, by call site — its distances
+   * are the dialog's own, read off the statement — and an implicit translate,
+   * one naming no targets at all, reports an empty target list.
+   */
+  | { ok: true; feature: 'translate'; targets: SourceSlotRef[] }
   /**
    * A construction plane, by its bases in argument order — one for the offset
    * and edge forms, two for a mid plane. An origin-plane literal is `opaque`:
@@ -3750,6 +3904,25 @@ export type ParsedFeatureStatement =
       /** The `true` third argument — copy instead of move. */
       copy: boolean;
       /** Trailing target texts, verbatim; empty rotates every active object. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
+    }
+  | {
+      feature: 'translate';
+      /**
+       * The distance along X, Y and Z — every statement form (`translate(x)`,
+       * `translate(x, y, z)`, `translate([x, y, z])`) read as three values,
+       * the missing ones zero.
+       */
+      translation: Translation;
+      /** The `true` after the distances — copy instead of move. */
+      copy: boolean;
+      /** Trailing target texts, verbatim; empty moves every active object. */
       targetTexts: string[];
       /**
        * Per-target source location of the statement a plain-identifier target
@@ -4427,6 +4600,45 @@ export async function applyRotateEdit(
 }
 
 /**
+ * One target of an edited translate, in argument order: an untouched target
+ * by its position in the statement's own argument list, or a re-picked solid
+ * statement by call site.
+ */
+export type TranslateEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type TranslateEditOptions = EditSessionFields & {
+  /** The distance along X, Y and Z. */
+  translation: Translation;
+  /** Keep the originals in place — writes the `true` after the distances. */
+  copy: boolean;
+  /** Declarations the dialog's distance fields committed (`gap = 20`). */
+  newVariables?: NewVariable[];
+  /** Full replacement target list; omitted keeps the statement's own. */
+  targets?: TranslateEditTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the translate statement at `edit` in place. */
+export async function applyTranslateEdit(
+  edit: FeatureEditTarget,
+  options: TranslateEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'translate',
+    edit,
+    expectedStatement: options.expectedStatement,
+    translation: options.translation,
+    copy: options.copy,
+    newVariables: options.newVariables,
+    targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
  * One target of an edited boolean, in argument order: an untouched target by
  * its position in the statement's own argument list, or a re-picked solid
  * statement by call site.
@@ -4795,8 +5007,74 @@ export function addBreakpoint(sourceLocation: SourceLocationParam): void {
   postFireAndForget('api/add-breakpoint', { sourceLocation });
 }
 
-export function moveTimelineBreakpoint(filePath: string, before: { line: number; column: number } | null): Promise<SetUnitResult> {
-  return postAcked('api/timeline-breakpoint', { filePath, before });
+/**
+ * What the acknowledged edit-feature pause reports: whether the buffer
+ * changed (a stop already sat after the statement otherwise — then no
+ * render follows) and the render version current when it was acknowledged
+ * (the render the change triggers is a newer one — see `RenderVersions`).
+ */
+export type PauseAfterResult = { changed: boolean; renderVersion: number };
+
+/**
+ * `liftActive`: an open edit dialog holds the build on the active stop and
+ * this gesture replaces that dialog — take its stop out in the same edit,
+ * so the hand-off is one render. The dialog then closes with `handoff`
+ * (see `EditSession.end`) instead of lifting the stop itself.
+ */
+export type PauseAfterOptions = { liftActive?: boolean };
+
+/**
+ * Pause the build after the statement at `sourceLocation`, keeping the
+ * document's other stops — the edit-feature gesture's breakpoint, as an
+ * acknowledged edit. Null when the edit was refused or no host answered;
+ * the caller then proceeds as it did without the ack.
+ */
+export async function pauseAfterStatement(
+  sourceLocation: SourceLocationParam,
+  options: PauseAfterOptions = {},
+): Promise<PauseAfterResult | null> {
+  const answer = await postJson<{ success?: boolean; changed?: boolean; renderVersion?: number }>(
+    'api/pause-after', { sourceLocation, ...(options.liftActive ? { liftActive: true } : {}) });
+  if (!answer || answer.success !== true) {
+    return null;
+  }
+  return { changed: answer.changed === true, renderVersion: answer.renderVersion ?? 0 };
+}
+
+/**
+ * Which existing `breakpoint();` statements a timeline breakpoint edit takes
+ * out: the one the build is paused on (`active`), or every one (`all`).
+ */
+export type BreakpointRemoval = 'active' | 'all';
+
+/**
+ * Move the document's breakpoint before a statement (`before`), or add none
+ * and only remove. One acknowledged source edit. A move takes out every
+ * other stop — the history bar holds a single breakpoint; several only come
+ * from editing a feature — and `before: null` continues to the end of history.
+ */
+export function moveTimelineBreakpoint(
+  filePath: string,
+  before: { line: number; column: number } | null,
+  remove: BreakpointRemoval = 'all',
+): Promise<SetUnitResult> {
+  return postAcked('api/timeline-breakpoint', { filePath, before, remove });
+}
+
+/**
+ * Continue from the breakpoint the build is paused on: lift that one
+ * `breakpoint();` — the one a double-click placed, or the user's own — and
+ * no other, so the build runs on to the next stop the file holds, or to
+ * its tip. A server that can't do the acknowledged edit (an older one, or
+ * no edit dispatcher) falls back to clearing every breakpoint, which is
+ * what Continue always used to do.
+ */
+export function continueBreakpoint(): void {
+  void postAcked('api/timeline-breakpoint', { before: null, remove: 'active' }).then((result) => {
+    if (!result.success) {
+      clearBreakpoints();
+    }
+  });
 }
 
 export function removeFeature(sourceLocation: SourceLocationParam): void {
@@ -5139,6 +5417,12 @@ export type ParamSelectOption = { label: string; value: string | number };
 /** One `param()` declaration as the editor dialog wants it written. */
 export type ParamSpec = {
   label: string;
+  /**
+   * The exported identifier, for a declaration in a `*.params.js` file —
+   * what the import names and what expressions type. A part or assembly
+   * parameter's variable is derived from the label server-side instead.
+   */
+  name?: string;
   defaultValue: string | number | boolean | (string | number)[];
   type: ParamType;
   description?: string;
@@ -5164,6 +5448,12 @@ export type DeletionPlan = {
   dropped: UsageFileSummary[];
   /** Reads the value cannot replace; the server refuses the delete while any remain. */
   blocked: UsageFileSummary[];
+  /**
+   * `configurations()` cells that are dropped — one per row that sets the
+   * label; the row falls back to the default. Absent on a server predating
+   * configurations.
+   */
+  configurations?: UsageFileSummary[];
 };
 
 /**
@@ -5202,6 +5492,120 @@ async function postParamEdit(url: string, body: unknown): Promise<ParamEditRespo
   } catch {
     return { success: false, reason: 'Could not reach the FluidCAD server' };
   }
+}
+
+/** A `/api/configurations/*` row edit's answer: the table as the next render will carry it, or the refusal. */
+export type ConfigurationEditResult = { success: boolean; reason?: string; configurations?: UIConfigurations };
+
+/**
+ * Add a row to the current file's `configurations()` tables (creating a
+ * statement in a body that has none) and select it. Without `values` the
+ * server writes every parameter whose current value differs from its
+ * literal — the active row's cells, plus any session tweaks — each part's
+ * into its own table. `values` keys a cell by its parameter's row key
+ * (`paramRowKey`: part + label). `part` is the `part()` statement a row
+ * with no cell at all goes into — the Part band's part; the file's only body
+ * without it.
+ */
+export function addConfiguration(
+  name: string,
+  values?: Record<string, CatalogParamValue>,
+  part?: SourceLocation | null,
+): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/add', {
+    name,
+    ...(values ? { values } : {}),
+    ...(part ? { part } : {}),
+  });
+}
+
+/**
+ * The Parameters panel's committed value, written into the source where the
+ * configuration on screen keeps it (`POST /api/params/value`): the active
+ * row's cell, or on Default the `param()` literal. `body` names the part
+ * (or assembly) that declares `label`; `configuration` is the row the panel
+ * shows, which the server refuses to write past when its session moved on.
+ * `value: null` clears the row's cell, so the parameter inherits its
+ * literal again. Resolves once the edit landed; the re-render follows on
+ * the scene stream.
+ */
+export function writeParamValue(
+  label: string,
+  value: unknown,
+  body?: string,
+  configuration?: string,
+): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/params/value', {
+    label,
+    value,
+    ...(body !== undefined ? { body } : {}),
+    ...(configuration !== undefined ? { configuration } : {}),
+  });
+}
+
+/** Rename a row; the session's active name follows when it was the one renamed. */
+export function renameConfiguration(from: string, to: string): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/rename', { from, to });
+}
+
+/** Remove a row; when it was the active one, the session goes back to Default. */
+export function removeConfiguration(name: string): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/remove', { name });
+}
+
+/**
+ * One cell of the `configurations()` table as the source writes it:
+ * `literal` for a plain value, only `text` for an expression — which the
+ * Manage grid shows read-only.
+ */
+export type ConfigurationSourceCell = { literal?: CatalogParamValue; text: string };
+
+/**
+ * One table as the current file's live code writes it (`GET
+ * /api/configurations/table`): a part file has one per `part()` body that
+ * declares one, an assembly file one in its `assembly()` body.
+ */
+export type ConfigurationSourceTable = {
+  /**
+   * The definition name of the body the table sits in — the parameters'
+   * `body` — or null when the source names it with no string literal.
+   * Absent from a server predating several tables per file.
+   */
+  body?: string | null;
+  /** 1-based line the statement starts on. */
+  line: number;
+  /** Row name → label → cell, in source order. */
+  rows: Record<string, Record<string, ConfigurationSourceCell>>;
+};
+
+/**
+ * The Manage grid's commit (`POST /api/configurations/table`): `renames`
+ * (from → to) and `removed` name rows as the tables have them now; `rows`
+ * maps a row name after the renames to its changed cells, keyed by the
+ * parameter's row key (`paramRowKey`: part + label) — a value sets the cell
+ * in its part's table, null puts it back to the literal. A row a table
+ * lacks is added there; a new row with no cell goes into `part` (the Part band's
+ * part's `part()` statement), or the file's only body.
+ */
+export type ConfigurationTableCommit = {
+  rows: Record<string, Record<string, CatalogParamValue | CatalogParamExpr | null>>;
+  renames?: Record<string, string>;
+  removed?: string[];
+  part?: SourceLocation;
+};
+
+/** The current file's tables as written, one per body that has one; null when the server cannot say. */
+export async function getConfigurationTables(): Promise<ConfigurationSourceTable[] | null> {
+  const data = await getJson<{ tables?: ConfigurationSourceTable[]; table?: ConfigurationSourceTable | null }>('api/configurations/table');
+  if (!data) {
+    return null;
+  }
+  return data.tables ?? (data.table ? [data.table] : []);
+}
+
+/** Commit the grid as one rewrite of the file's tables — one edit, one undo step. */
+export function commitConfigurationTable(commit: ConfigurationTableCommit): Promise<ConfigurationEditResult> {
+  return postParamEdit('api/configurations/table', commit);
 }
 
 /**
@@ -5267,6 +5671,34 @@ export function updateParam(target: ParamTarget, param: ParamSpec): Promise<Para
  */
 export function removeParam(target: ParamTarget): Promise<ParamEditResponse> {
   return postParamEdit('api/params/remove', { ...target });
+}
+
+// ---------------------------------------------------------------------------
+// Project (global) parameters — the exports of `*.params.js` files
+// ---------------------------------------------------------------------------
+
+/** Every params file's exports, as the server's catalog reads them. */
+export function getGlobalParams(): Promise<GlobalParamsSnapshot | null> {
+  return getJson('api/global-params');
+}
+
+/**
+ * Write a project parameter's value: the declaration's default literal is
+ * the value — there is no per-session override for a global, so this is a
+ * source edit of the params file that re-renders the current model.
+ */
+export function setGlobalParam(file: string, label: string, value: unknown): Promise<ParamEditResponse> {
+  return postParamEdit('api/global-params/set', { file, label, value });
+}
+
+/**
+ * Declare a new project parameter at the top level of the params file at
+ * `file` (absolute; a workspace-relative path is resolved server-side). The
+ * file is created when it does not exist yet. `param.name` is the exported
+ * identifier.
+ */
+export function addGlobalParam(file: string, param: ParamSpec): Promise<ParamEditResponse> {
+  return postParamEdit('api/params/add', { param, file });
 }
 
 // ---------------------------------------------------------------------------
@@ -5391,6 +5823,8 @@ export type CatalogPart = {
   objects: SceneObjectRender[];
   /** The definition's `param()` interface — absent on servers predating parameters. */
   params?: CatalogParamDef[];
+  /** The definition's `configurations()` rows, in table order — empty or absent without a table. */
+  configurations?: CatalogConfiguration[];
 };
 
 /**
@@ -5418,9 +5852,14 @@ export type CatalogAssembly = {
   objects: SceneObjectRender[];
   /** The definition's `param()` interface — absent on servers predating parameters. */
   params?: CatalogParamDef[];
+  /** The definition's `configurations()` rows, in table order — empty or absent without a table. */
+  configurations?: CatalogConfiguration[];
 };
 
 export type CatalogEntryKind = 'value' | 'factory' | 'assembly';
+
+/** One row of a scanned definition's `configurations()` table: the name `insert(def, name)` takes and the cells it sets. */
+export type CatalogConfiguration = { name: string; values: Record<string, CatalogParamValue> };
 
 export type CatalogScanResult = {
   file: string;
@@ -5457,8 +5896,13 @@ export type CatalogInsertRequest = {
   file: string;
   exportName: string;
   kind: CatalogEntryKind;
-  /** NON-DEFAULT parameter values only — rendered as insert()'s second argument. */
+  /**
+   * The values that differ from the chosen row's (the defaults' without one)
+   * — rendered as insert()'s override object.
+   */
   params?: Record<string, CatalogParamValue | CatalogParamExpr>;
+  /** A row of the definition's `configurations()` table — `insert(def, 'Name', …)`; absent for Default. */
+  configuration?: string;
 };
 
 /**
@@ -5516,11 +5960,30 @@ export async function renameInstance(
 }
 
 /**
+ * Set (0 < t ≤ 1) or drop (null, or 0) the `.transparent(t)` call of the
+ * `insert()` statement at `sourceLocation` — the parts panel's
+ * Transparency…. Acked: a refusal (an expression argument, a statement in
+ * another file, an out-of-date line) comes back as the reason.
+ */
+export async function setInstanceTransparency(
+  sourceLocation: { filePath: string; line: number },
+  transparency: number | null,
+): Promise<{ success: boolean; reason?: string }> {
+  return postAcked('api/set-instance-transparency', {
+    filePath: sourceLocation.filePath,
+    sourceLine: sourceLocation.line,
+    transparency,
+  });
+}
+
+/**
  * Merge changed parameter values into an inserted instance's/occurrence's
  * `insert()` statement (second argument). `set` carries ONLY the labels the
  * user changed — untouched entries (expressions included) survive verbatim.
  * `unset` labels are REMOVED from the argument (reset to the declared
  * default); the whole argument drops when its last entry goes.
+ * `configuration` rewrites the statement's row name — `null` (or
+ * `'Default'`) removes it; left out, the name stays as written.
  */
 export async function updateInsertParams(
   filePath: string,
@@ -5528,12 +5991,16 @@ export async function updateInsertParams(
   set: Record<string, CatalogParamValue | CatalogParamExpr>,
   unset: string[] = [],
   newVariables?: NewVariable[],
+  configuration?: string | null,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('api/update-insert-params', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ filePath, sourceLine, set, unset, newVariables }),
+      body: JSON.stringify({
+        filePath, sourceLine, set, unset, newVariables,
+        ...(configuration !== undefined ? { configuration } : {}),
+      }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {

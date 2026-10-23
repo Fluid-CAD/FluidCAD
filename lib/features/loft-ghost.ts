@@ -168,7 +168,10 @@ export function loftMatchLines(
     if (!faces || faces.IsEmpty()) {
       continue;
     }
-    const face = oc.TopoDS.Face(faces.First());
+    // `Seek` is a borrowed pointer, but `First()` and the typed cast are
+    // both fresh copies to free.
+    const first = faces.First();
+    const face = oc.TopoDS.Face(first);
     try {
       const mesh = Mesh.discretizeEdgeOnFace(edge.getShape(), face);
       if (mesh?.vertices.length) {
@@ -176,6 +179,7 @@ export function loftMatchLines(
       }
     } finally {
       face.delete();
+      first.delete();
     }
   }
   return lines;

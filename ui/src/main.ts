@@ -10,9 +10,10 @@ import { ConnectorsPanel } from './ui/connectors-panel';
 import { DragReadout } from './ui/drag-readout';
 import { AnimateBar } from './ui/animate-bar';
 import { ParamsPanel } from './ui/params-panel';
+import { openConfigurationsGrid } from './ui/configurations-grid-dialog';
 import { ParamEditorDialog } from './ui/param-editor-dialog';
 import { PropertyEditorDialog } from './ui/property-editor-dialog';
-import { ExportDialog, exportBaseName } from './ui/export-dialog';
+import { ExportDialog, exportBaseName, type ExportTarget } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
 import { LoadingOverlay } from './ui/loading-overlay';
@@ -20,6 +21,8 @@ import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
 import { ShareDialog } from './ui/share-dialog';
 import { PanelRail } from './ui/panel-rail';
+import { DEFAULT_PARAMS_FILE, GlobalParamsPanel } from './ui/global-params-panel';
+import { listWorkspaceFiles } from './editor/editor-api';
 import { Navbar } from './ui/navbar';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
@@ -42,6 +45,7 @@ import { RepeatFeatureService } from './interactive/create-feature/repeat-servic
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { MirrorFeatureService } from './interactive/create-feature/mirror-service';
 import { RotateFeatureService } from './interactive/create-feature/rotate-service';
+import { TranslateFeatureService } from './interactive/create-feature/translate-service';
 import { SplitFeatureService } from './interactive/create-feature/split-service';
 import { ConnectorFeatureService } from './interactive/create-feature/connector-service';
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
@@ -55,9 +59,10 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, type UserPreferences } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, pauseAfterStatement, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, getGlobalParams, setGlobalParam, EVERY_SOLID, type PauseAfterResult, type ShapeSelection, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey, findActiveSketch } from './helpers/scene-utils';
+import { renderVersions } from './render-versions';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { SectionViewService } from './interactive/section-view/section-view-service';
@@ -70,7 +75,7 @@ import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-prop
 import { AssemblyConnectorService } from './interactive/assembly-connector/connector-service';
 import { AssemblyConnectorCopyService } from './interactive/assembly-connector-copy/copy-service';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
-import type { ConnectorData, SceneObjectRender } from './types';
+import type { ConnectorData, SceneObjectRender, UIConfigurations } from './types';
 import { ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
@@ -136,6 +141,7 @@ function startEditorSurface(): void {
       setTabs: (tabs, activePath, currentModelPath) => topBar.setTabs(tabs, activePath, currentModelPath),
       setWorkspaceName: (name) => topBar.setWorkspaceName(name),
       onEditRefused: (message) => showToast(message),
+      onOpenParamsFile: (absPath) => globalParamsPanel.showFile(absPath),
       initialOpen: editorPaneOpenOnArrival || editorPreferences.open,
       initialWidth: editorPreferences.width,
       // Whether the pane opens at startup is a Settings choice, not the last
@@ -307,6 +313,26 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
   fileBaseName: () => exportBaseName(sceneDocument.current?.absPath ?? ''),
 });
 
+/** The rendered file's `configurations()` table as its last render reported it — the export and share dialogs read it. */
+let renderedConfigurations: UIConfigurations | null = null;
+/**
+ * `?configuration=Name` — a link that opens on a `configurations()` row.
+ * Selected once, on the first render of a file, when that render shows
+ * another row; the server falls back to Default (with a notice) on a name
+ * the file does not declare.
+ */
+let urlConfiguration: string | null = new URLSearchParams(window.location.search).get('configuration');
+function selectUrlConfiguration(absPath: string | undefined): void {
+  if (urlConfiguration === null || !absPath) {
+    return;
+  }
+  const wanted = urlConfiguration;
+  urlConfiguration = null;
+  if (wanted !== (renderedConfigurations?.active ?? 'Default')) {
+    engineClient.selectConfiguration(wanted);
+  }
+}
+
 // Built detached: it is a section of the part rail's docked column, and that
 // column is torn down and rebuilt on every part/assembly swap. Owning the
 // panel here is what carries the parameter values, their groups' collapse
@@ -317,6 +343,29 @@ const propertyEditorDialog = new PropertyEditorDialog(container);
 const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog, 'part', propertyEditorDialog);
 const assemblyParamEditor = new ParamEditorDialog(container, 'assembly');
 const assemblyParamsPanel = new ParamsPanel(null, engineClient, assemblyParamEditor, 'assembly');
+// Both panels' configuration bands prompt over the scene with the other
+// dialogs; deleting a row asks through the confirm the destructive flows
+// use, and a refused value write, ↺ or Delete reads as a toast.
+for (const panel of [paramsPanel, assemblyParamsPanel]) {
+  panel.dialogHost = container;
+  panel.confirmDelete = (name) => confirmDialog({
+    title: 'Delete configuration',
+    icon: ICON_TRASH,
+    message: `Delete the configuration ${name}? Its row is removed from the configurations() table.`,
+    confirmLabel: 'Delete',
+    danger: true,
+  });
+  panel.confirmGridDelete = (name) => confirmDialog({
+    title: 'Delete configuration',
+    icon: ICON_TRASH,
+    message: `Delete the configuration ${name}? It is removed from the configurations() table when you apply the grid.`,
+    confirmLabel: 'Delete',
+    danger: true,
+  });
+  panel.onError = (message) => showToast(message);
+  // Manage… opens the table grid over the scene, its header noting the document's length unit.
+  panel.openGrid = (opts) => openConfigurationsGrid(container, { ...opts, unit: sceneUnit.current });
+}
 
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
@@ -390,7 +439,7 @@ function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
     container,
     engineClient,
     (shapeId) => viewer.highlightShape(shapeId),
-    (shapeIds) => exportDialog.show({ kind: 'shapes', shapeIds }),
+    (shapeIds) => exportDialog.show(shapesExportTarget(shapeIds)),
     (shapeId, visible) => viewer.setShapeVisibility(shapeId, visible),
     (shapeId) => viewer.isShapeHidden(shapeId),
     (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
@@ -406,6 +455,13 @@ function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
 
 function buildAssemblyRail(): LeftRail {
   const visibility = new Map<string, boolean>();
+  /**
+   * Transparency… per instance: the last write, settled when its popover
+   * closes, and a session count so a write settling after the popover was
+   * reopened leaves the new session's preview alone.
+   */
+  const transparencyWrites = new Map<string, Promise<boolean>>();
+  const transparencySessions = new Map<string, number>();
   let joints!: JointsPanel;
   const parts = new PartsPanel(
     container,
@@ -489,6 +545,8 @@ function buildAssemblyRail(): LeftRail {
           currentValues: inst.paramValues ?? {},
           filePath: inst.sourceLocation.filePath,
           line: inst.sourceLocation.line,
+          configuration: inst.configuration,
+          configurations: lastPartTemplates.get(inst.partId)?.configurations,
         });
       } else {
         const occ = findOccurrence(id);
@@ -500,6 +558,8 @@ function buildAssemblyRail(): LeftRail {
           currentValues: occ.paramValues ?? {},
           filePath: occ.sourceLocation.filePath,
           line: occ.sourceLocation.line,
+          configuration: occ.configuration,
+          configurations: occ.configurations,
         });
       }
     },
@@ -524,6 +584,46 @@ function buildAssemblyRail(): LeftRail {
           void assemblyReplicateService.removeReplica(record, row).then((result) => {
             if (!result.success && currentRail?.kind === 'assembly') {
               currentRail.dragReadout.flashError(result.reason ?? 'Could not remove the replica');
+            }
+          });
+        },
+      },
+      // Transparency… — the slider fades the part through the viewer and
+      // each release writes `.transparent(v)`. Display only: the render the
+      // write triggers keeps every part where it is on screen.
+      transparency: {
+        open: (id) => {
+          transparencySessions.set(id, (transparencySessions.get(id) ?? 0) + 1);
+          transparencyWrites.delete(id);
+          return viewer.getInstanceTransparency(id);
+        },
+        preview: (id, transparency) => viewer.previewInstanceTransparency(id, transparency),
+        commit: (id, transparency) => {
+          const inst = findInstance(id);
+          // Occurrence-owned and replica rows never offer the item; backstop.
+          if (!inst?.sourceLocation || inst.owner || inst.replica) return;
+          const write = setInstanceTransparency(inst.sourceLocation, transparency > 0 ? transparency : null)
+            .then((result) => {
+              if (!result.success && currentRail?.kind === 'assembly') {
+                currentRail.dragReadout.flashError(result.reason ?? 'Could not set the transparency');
+              }
+              return result.success;
+            });
+          transparencyWrites.set(id, write);
+        },
+        end: (id) => {
+          // A written value stays on screen until the render brings it; with
+          // nothing written — or the write refused — the source's shows now.
+          const write = transparencyWrites.get(id);
+          const session = transparencySessions.get(id);
+          transparencyWrites.delete(id);
+          if (!write) {
+            viewer.endInstanceTransparencyPreview(id, false);
+            return;
+          }
+          void write.then((written) => {
+            if (transparencySessions.get(id) === session) {
+              viewer.endInstanceTransparencyPreview(id, written);
             }
           });
         },
@@ -876,7 +976,7 @@ const topBar = new TopBar(container, {
   // the choice — or, in an assembly, the whole assembly where it sits;
   // File ▸ Export stays the whole-scene path.
   export: {
-    onExport: (shapeId) => exportDialog.show({ kind: 'shapes', shapeIds: [shapeId] }),
+    onExport: (shapeId) => exportDialog.show(shapesExportTarget([shapeId])),
     captureThumbnail: (shapeId) => viewer.captureSolidThumbnail(shapeId),
     onExportAssembly: () => exportDialog.show({ kind: 'assembly' }),
     captureAssemblyThumbnail: () => viewer.captureSceneThumbnail(),
@@ -896,8 +996,48 @@ topBar.addAction({
   icon: ICON_SHARE,
   title: 'Share this model in the FluidCAD viewer',
   label: 'Share',
-  onClick: () => shareDialog.show(currentSceneAbsPath),
+  onClick: () => shareDialog.show(currentSceneAbsPath, renderedConfigurations?.active ?? null),
 });
+
+// The project Parameters column: every `*.params.js` file's exports, the
+// same column in both workbenches — it is not part of the rail that
+// ensureRailFor() swaps. Declaration edits go through the part dialog in its
+// params-file mode; the + with no params file yet creates project.params.js
+// at the workspace root.
+const globalParamsPanel = new GlobalParamsPanel(container, {
+  fetch: getGlobalParams,
+  setValue: setGlobalParam,
+  openFile: (file, line, column) => withEditorSurface((surface) => {
+    void surface.gotoSource({ filePath: file, line, column });
+  }),
+  onAdd: (file) => {
+    if (file !== null) {
+      paramEditorDialog.openForCreateInFile(file);
+      return;
+    }
+    void workspaceRoot().then((root) => {
+      paramEditorDialog.openForCreateInFile(root ? `${root}/${DEFAULT_PARAMS_FILE}` : DEFAULT_PARAMS_FILE);
+    });
+  },
+  onEdit: (def) => paramEditorDialog.openForEditGlobal(def),
+  onError: (message) => showToast(message),
+  onOpenChange: () => panelRail.sync(),
+});
+
+/**
+ * The workspace's absolute root: what the editor learned from the file
+ * tree, or — the editor not loaded yet — the tree itself. Null when the
+ * server cannot be reached; the caller then sends a relative path for the
+ * server to resolve.
+ */
+async function workspaceRoot(): Promise<string | null> {
+  const known = editorSurface?.models.workspacePath;
+  if (known) {
+    return known;
+  }
+  const listing = await listWorkspaceFiles().catch(() => null);
+  return listing?.workspacePath ?? null;
+}
 
 // The panel rail on the window's left edge: one latch button per surface it
 // opens. Its tree button covers whichever rail the scene kind mounted — the
@@ -917,6 +1057,8 @@ const panelRail = new PanelRail(container, {
   treeLabel: () => currentRail?.kind === 'assembly' ? 'Parts' : 'Feature tree',
   onToggleEditor: editorSurfaceEnabled ? () => toggleEditorPane() : undefined,
   isEditorOpen: editorSurfaceEnabled ? () => editorSurface?.isOpen() === true : undefined,
+  onToggleGlobalParams: () => globalParamsPanel.toggle(),
+  isGlobalParamsOpen: () => globalParamsPanel.isOpen,
 });
 
 const navbar = new Navbar(container);
@@ -1003,23 +1145,16 @@ installDesktopMenu({
   redo: () => runEditorHistory('redo'),
   import: () => fileImporter.openPicker(),
   // An assembly exports whole, where its parts sit; a part scene offers
-  // every solid in it.
+  // every solid of the scene exported — the server collects them from the
+  // configuration's own render, so a row that adds a body exports it.
   export: () => exportDialog.show(
-    currentRail?.kind === 'assembly' ? { kind: 'assembly' } : { kind: 'shapes', shapeIds: exportableShapeIds() },
+    currentRail?.kind === 'assembly' ? { kind: 'assembly' } : shapesExportTarget(EVERY_SOLID),
   ),
 });
 
-/** Every solid in the current part scene — what File ▸ Export offers by default. */
-function exportableShapeIds(): string[] {
-  const ids: string[] = [];
-  for (const object of viewer.currentSceneObjects) {
-    for (const shape of object.sceneShapes ?? []) {
-      if (shape.shapeType === 'solid' && !shape.isMetaShape && !shape.isGuide) {
-        ids.push(shape.shapeId);
-      }
-    }
-  }
-  return ids;
+/** An export of `shapeIds` in the scene on screen — see {@link ExportDialog.shapesTarget}. */
+function shapesExportTarget(shapeIds: ShapeSelection): ExportTarget {
+  return ExportDialog.shapesTarget(shapeIds, sceneDocument.current);
 }
 
 // Assembly workbench groups (Insert / Translate / mates), shown instead of
@@ -1089,7 +1224,8 @@ const syncSketchButtonBlocked = () => {
     extrudeService.isActive || ribService.isActive || holeService.isActive || revolveService.isActive
     || sweepService.isActive || loftService.isActive || wrapService.isActive
     || helixService.isActive || repeatService.isActive || copyService.isActive
-    || mirrorService.isActive || rotateService.isActive || splitService.isActive || connectorService.isActive
+    || mirrorService.isActive || translateService.isActive || rotateService.isActive || splitService.isActive
+    || connectorService.isActive
     || booleanService.isActive || planeService.isActive,
   );
   syncKeepToolbar();
@@ -1104,7 +1240,8 @@ const syncSketchButtonBlocked = () => {
 // waits for that render so the bar never flashes the rolled-back layout.
 const featureEditOpen = () =>
   [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService,
-    helixService, repeatService, copyService, mirrorService, rotateService, splitService, booleanService, planeService, connectorService,
+    helixService, repeatService, copyService, mirrorService, translateService, rotateService, splitService, booleanService,
+    planeService, connectorService,
   ].some(service => service.isEditing)
   || textEditService.isActive;
 const syncEditFreeze = () => {
@@ -1144,6 +1281,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -1176,6 +1314,7 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -1206,6 +1345,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -1236,6 +1376,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -1267,6 +1408,7 @@ const wrapService = new WrapFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -1299,6 +1441,7 @@ const helixService = new HelixFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -1330,6 +1473,7 @@ const ribService = new RibFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -1362,6 +1506,7 @@ const holeService = new HoleFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -1403,6 +1548,7 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -1441,6 +1587,7 @@ const textEditService = new TextEditService(container, viewer, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -1464,7 +1611,8 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     || sweepService.handleTimelinePick(obj) || wrapService.handleTimelinePick(obj)
     || loftService.handleTimelinePick(obj) || helixService.handleTimelinePick(obj)
     || repeatService.handleTimelinePick(obj) || copyService.handleTimelinePick(obj)
-    || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj) || splitService.handleTimelinePick(obj)
+    || mirrorService.handleTimelinePick(obj) || translateService.handleTimelinePick(obj)
+    || rotateService.handleTimelinePick(obj) || splitService.handleTimelinePick(obj)
     || booleanService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
   // Part rows don't navigate: a click makes that part the active part — new
   // statements land inside its callback body instead of at top level — and
@@ -1540,9 +1688,12 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   };
   // Double-clicking an editable feature row (the enter-breakpoint gesture)
   // also opens that feature's dialog prefilled from its statement.
-  panel.onFeatureEdit = (obj, index) => {
-    void openFeatureEditor(obj, index);
+  panel.onFeatureEdit = (obj, index, pause) => {
+    void openFeatureEditor(obj, index, pause);
   };
+  // An open edit dialog holds the build on its own stop; the gesture's pause
+  // lifts it in the same edit, and openFeatureEditor hands the dialog off.
+  panel.pauseLiftsActive = () => featureEditOpen();
   // Rows with an edit dialog keep the double-click gesture even while the
   // trailing sketch is active — the dialog suspends the sketch UI itself. A
   // plane row only qualifies when it is a plane() statement's own: the plane a
@@ -1596,7 +1747,7 @@ function isMirror2DRow(obj: SceneObjectRender): boolean {
  */
 const EDITABLE_ROW_TYPES = new Set([
   'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'shell', 'fillet', 'chamfer', 'text',
-  'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror', 'rotate', 'split',
+  'repeat-linear', 'repeat-circular', 'repeat-matrix', 'mirror', 'translate', 'rotate', 'split',
   // A copy row opens the Copy dialog — a connector copy row too, filed with
   // its part's connectors in the timeline; a copy that follows a repeat
   // (`copy(holes, bolt)`) opens it on "Along a repeat".
@@ -1643,7 +1794,25 @@ function sketchLocKey(loc: { filePath: string; line: number; column: number }): 
  * unrecognized chains) surface the parse refusal as a toast and leave the
  * plain breakpoint behavior in place.
  */
-async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise<void> {
+/**
+ * `pause` is the gesture's breakpoint edit, acknowledged — the dialog's
+ * session rolls back after the render it triggers (see `EditSession.begin`).
+ * The pause-before rows place theirs here instead, on the same terms.
+ *
+ * A dialog already open when the gesture lands is handed off, not
+ * cancelled: the pause the timeline placed lifted that dialog's stop with
+ * the new one (`pauseLiftsActive`), so the dialog must not lift it again —
+ * that second edit's unpaused render used to land after the new dialog's
+ * rollback and clear the ghost it had just drawn.
+ */
+async function openFeatureEditor(
+  obj: SceneObjectRender,
+  index: number,
+  pause?: Promise<PauseAfterResult | null>,
+): Promise<void> {
+  if (pause && featureEditOpen()) {
+    handOffFeatureDialogs();
+  }
   if (obj.type === 'sketch' && obj.sourceLocation) {
     await enterSketchEdit(obj.sourceLocation, obj.closed === true);
     return;
@@ -1676,7 +1845,11 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
   if (deferredBreakpoint && result.parsed.feature !== 'offset'
     && result.parsed.feature !== 'fillet' && !(result.parsed.feature === 'copy' && isCopy2DRow(obj))
     && !(result.parsed.feature === 'mirror' && isMirror2DRow(obj))) {
-    addBreakpoint(target);
+    const liftActive = featureEditOpen();
+    if (liftActive) {
+      handOffFeatureDialogs();
+    }
+    pause = pauseAfterStatement(target, liftActive ? { liftActive } : undefined);
   }
   if (result.parsed.feature === 'sketch') {
     // The row's line holds a sketch(), not the feature the row's type
@@ -1687,7 +1860,7 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     await enterSketchEdit(target);
     return;
   }
-  const info = { index, type: obj.type, expectedStatement: result.statement };
+  const info = { index, type: obj.type, expectedStatement: result.statement, pause };
   const parsed = result.parsed;
   if (parsed.feature === 'extrude') {
     extrudeService.enterEdit(target, parsed, info);
@@ -1739,6 +1912,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
       // 'repeat' above.
       mirrorService.enterEdit(target, parsed, info);
     }
+  } else if (parsed.feature === 'translate') {
+    translateService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'rotate') {
     // `repeat('rotate', …)` rows parse as feature 'repeat' above, so only
     // `rotate()` rows reach here.
@@ -1872,6 +2047,36 @@ function pauseBeforeSketchStatement(obj: SceneObjectRender, index: number): void
  * back when it closes. A modify pick armed over the old scene retires itself
  * once the render that brings the sketch in arrives.
  */
+/**
+ * Close every edit dialog for a gesture whose own pause edit lifts the stop
+ * the open one holds the build on (see {@link openFeatureEditor}): the
+ * sibling closes a dialog's `onEnter` runs, with `handoff` in place of their
+ * cancel so none of them lifts that stop a second time.
+ */
+function handOffFeatureDialogs(): void {
+  const editEnd = 'handoff' as const;
+  projectionService.exit({ resume: 'lazy', editEnd });
+  modifyService.exit({ editEnd });
+  extrudeService.exit({ editEnd });
+  ribService.exit({ editEnd });
+  holeService.exit({ editEnd });
+  revolveService.exit({ editEnd });
+  helixService.exit({ editEnd });
+  sweepService.exit({ editEnd });
+  loftService.exit({ editEnd });
+  wrapService.exit({ editEnd });
+  repeatService.exit({ editEnd });
+  copyService.exit({ editEnd });
+  mirrorService.exit({ editEnd });
+  rotateService.exit({ editEnd });
+  translateService.exit({ editEnd });
+  splitService.exit({ editEnd });
+  booleanService.exit({ editEnd });
+  connectorService.exit({ editEnd });
+  planeService.exit({ editEnd });
+  textEditService.exit(editEnd);
+}
+
 function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
   if (!opts.keepProjection) {
     projectionService.exit({ resume: 'lazy' });
@@ -1888,6 +2093,7 @@ function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
   copyService.exit();
   mirrorService.exit();
   rotateService.exit();
+  translateService.exit();
   splitService.exit();
   booleanService.exit();
   connectorService.exit();
@@ -2188,6 +2394,7 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -2236,6 +2443,7 @@ const repeatService = new RepeatFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -2275,6 +2483,7 @@ const copyService = new CopyFeatureService(container, viewer, navbar, {
     repeatService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -2316,6 +2525,7 @@ const mirrorService = new MirrorFeatureService(container, viewer, navbar, {
     repeatService.exit();
     copyService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -2333,8 +2543,46 @@ const mirrorService = new MirrorFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
 });
-// Constructed after the mirror service so the two transform tools sit
-// together in one group (…, Repeat, Copy, | Mirror, Rotate).
+// Constructed after the mirror service so the transform tools sit together
+// in one group (…, Repeat, Copy, | Mirror, Translate).
+const translateService = new TranslateFeatureService(container, viewer, navbar, {
+  // The current selection seeds the dialog: every selected face/edge
+  // resolves to its owning solid, opening as a target chip. Captured before
+  // the exits below clear it.
+  onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
+    modifyService.displaceSketchSession();
+    modifyService.exit();
+    extrudeService.exit();
+    ribService.exit();
+    holeService.exit();
+    revolveService.exit();
+    helixService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
+    repeatService.exit();
+    copyService.exit();
+    mirrorService.exit();
+    rotateService.exit();
+    splitService.exit();
+    booleanService.exit();
+    connectorService.exit();
+    planeService.exit();
+    const seed = [...measureController.selection];
+    textEditService.exit();
+    measureController.clearSelection();
+    modifyService.clearPendingPlane();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+    return { seed };
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+});
+// Constructed after the translate service so the transform tools sit
+// together in one group (…, Repeat, Copy, | Mirror, Translate, Rotate).
 const rotateService = new RotateFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: every selected face/edge
   // resolves to its owning solid, opening as a target chip. Captured before
@@ -2355,6 +2603,7 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
     repeatService.exit();
     copyService.exit();
     mirrorService.exit();
+    translateService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2370,8 +2619,8 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
 });
-// Constructed after the rotate service so the three transform tools sit
-// together in one group (…, Repeat, Copy, | Mirror, Rotate, Split).
+// Constructed after the rotate service so the transform tools sit together
+// in one group (…, Repeat, Copy, | Mirror, Translate, Rotate, Split).
 const splitService = new SplitFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: every selected face/edge
   // resolves to its owning solid, opening as a target chip, and a pending
@@ -2393,6 +2642,7 @@ const splitService = new SplitFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
     booleanService.exit();
     connectorService.exit();
     planeService.exit();
@@ -2410,7 +2660,7 @@ const splitService = new SplitFeatureService(container, viewer, navbar, {
   filePath: () => currentSceneAbsPath,
 });
 // Constructed after the transform services so its own navbar group registers
-// after theirs (…, | Mirror, Rotate, Split, | separator |, Boolean).
+// after theirs (…, | Mirror, Translate, Rotate, Split, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: every selected face/edge
   // resolves to its owning solid, opening as a target chip. Captured before
@@ -2432,6 +2682,7 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     connectorService.exit();
@@ -2474,6 +2725,7 @@ const connectorService = new ConnectorFeatureService(container, viewer, navbar, 
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -2512,7 +2764,8 @@ finishSketchButton.onClick = () => {
   void modifyService.finishSketch(breakpointActive);
 };
 // The breakpoint chip steps aside while sketching: Finish Sketch is the one
-// way out of a sketch, paused or not, so it also lifts the pause.
+// way out of a sketch, paused or not, so it also lifts the pause — except
+// for a new sketch written at the user's breakpoint, which returns to it.
 sketchService.onActiveChange = (active) => {
   finishSketchButton.setVisible(active);
   breakpointIndicator.setSketchActive(active);
@@ -2523,7 +2776,7 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
   // it, and a session re-assert would fight the view the user asked for.
-  for (const service of [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, splitService, booleanService, planeService, connectorService]) {
+  for (const service of [modifyService, extrudeService, ribService, holeService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, translateService, rotateService, splitService, booleanService, planeService, connectorService]) {
     if (service.isEditing) {
       service.exit({ editEnd: 'continue' });
     }
@@ -2645,6 +2898,7 @@ const sectionViewService = new SectionViewService(container, viewer, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    translateService.exit();
   splitService.exit();
     splitService.exit();
     booleanService.exit();
@@ -2911,6 +3165,7 @@ const createDialogPicking = () =>
   || repeatService.isPicking
   || copyService.isPicking
   || mirrorService.isPicking
+  || translateService.isPicking
   || rotateService.isPicking
   || splitService.isPicking
   || connectorService.isPicking
@@ -3180,6 +3435,12 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
     rotateService.handleClick(shapeId, sub);
     return;
   }
+  // The armed translate dialog owns clicks — a face or edge selects its
+  // whole solid as a target (its gizmo's own gestures never get here).
+  if (translateService.isPicking) {
+    translateService.handleClick(shapeId, sub);
+    return;
+  }
   // The armed connector tool owns clicks — a face or edge locks its floated
   // anchor suggestion into the dialog's source slot.
   if (connectorService.isPicking) {
@@ -3418,7 +3679,8 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
       || sweepService.sketchUISuspended || wrapService.sketchUISuspended
       || loftService.sketchUISuspended || repeatService.sketchUISuspended
       || copyService.sketchUISuspended || mirrorService.sketchUISuspended
-      || rotateService.sketchUISuspended || splitService.sketchUISuspended || booleanService.sketchUISuspended
+      || translateService.sketchUISuspended || rotateService.sketchUISuspended || splitService.sketchUISuspended
+      || booleanService.sketchUISuspended
       || planeService.sketchUISuspended || extrudeService.sketchUISuspended
       || ribService.sketchUISuspended || holeService.sketchUISuspended || sectionViewService.sketchUISuspended
       || revolveService.sketchUISuspended || helixService.sketchUISuspended
@@ -3447,6 +3709,7 @@ function runSceneServices(result: SceneObjectRender[], renderStop: number, isRol
   repeatService.handleSceneRendered(result, renderStop, isRollback);
   copyService.handleSceneRendered(result, renderStop, isRollback);
   mirrorService.handleSceneRendered(result, renderStop, isRollback);
+  translateService.handleSceneRendered(result, renderStop, isRollback);
   rotateService.handleSceneRendered(result, renderStop, isRollback);
   splitService.handleSceneRendered(result, renderStop, isRollback);
   connectorService.handleSceneRendered(result, renderStop, isRollback);
@@ -3629,6 +3892,9 @@ function applySceneRendered(msg: any): void {
       rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null, {
         filePath: msg.absPath ?? currentSceneAbsPath,
         breakpointStop: msg.breakpointStop,
+        // Every `breakpoint();` the file holds — absent on a compile-error
+        // replay, which keeps the last render's.
+        breakpoints: msg.breakpoints,
         paused: msg.breakpointHit ?? breakpointActive,
         timeline: msg.timeline,
         // Non-fatal per-row notices (an unknown material id) — absent on a
@@ -3658,7 +3924,10 @@ function applySceneRendered(msg: any): void {
     assemblyConnectorCopyService.handleSceneRendered(sceneKind);
     assemblyRelationService.handleSceneRendered(sceneKind);
     if (msg.params !== undefined) {
-      (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? []);
+      (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? [], msg.configurations);
+      renderedConfigurations = msg.configurations ?? null;
+      exportDialog.setConfigurations(renderedConfigurations);
+      selectUrlConfiguration(msg.absPath);
     }
     errorBanner.update(msg.result, msg.compileError ?? null);
     topBar.updateSolids(msg.result, renderedAssembly);
@@ -3731,6 +4000,11 @@ function connectWebSocket() {
       case 'processing-file':
         loadingOverlay.show('Loading model...');
         break;
+      case 'render-version':
+        // Every pass's start and settle — the edit session sequences its
+        // rollback on these (see RenderVersions).
+        renderVersions.note(msg);
+        break;
       case 'scene-rendered': {
         loadingOverlay.hide();
         try {
@@ -3797,6 +4071,11 @@ function connectWebSocket() {
       case 'file-removed':
         // An edit made outside the page: an agent through MCP, a git checkout.
         void editorSurface?.onFileEvent(msg);
+        break;
+      case 'global-params':
+        // The params catalog changed — a value written from the column, a
+        // params file edited anywhere. Pushed even when no model imports it.
+        globalParamsPanel.update(msg);
         break;
     }
   });

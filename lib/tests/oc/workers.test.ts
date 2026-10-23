@@ -1,6 +1,11 @@
-import { afterAll, describe, expect, it } from "vitest";
-import { getOC, setMaxWorkers } from "../../oc/init.js";
+import { describe, expect, it } from "vitest";
+import { getOC } from "../../oc/init.js";
 import { MAX_WORKERS_DEFAULT_CAP, clampMaxWorkers, defaultMaxWorkers, logicalCpuCount } from "../../oc/workers.js";
+
+// The kernel's worker pool is sized once, when it loads. Nothing in this suite
+// moves it afterwards: every later test file shares the same kernel, and a
+// count changed mid-run is not supported — the user restarts the engine to
+// apply a new pool size.
 
 /** The most threads a parallel boolean or mesh may take from the kernel's pool. */
 function launchCap(): number {
@@ -10,7 +15,7 @@ function launchCap(): number {
   return count;
 }
 
-/** Slots in the kernel's pool, one per worker it pre-spawned; the count never moves. */
+/** Slots in the kernel's pool, one per worker it pre-spawned. */
 function poolSlots(): number {
   const pool = getOC().OSD_ThreadPool.DefaultPool();
   const count = pool.NbThreads();
@@ -19,11 +24,6 @@ function poolSlots(): number {
 }
 
 describe("kernel worker count", () => {
-  afterAll(() => {
-    // Every later test file shares this kernel: leave it at the default.
-    setMaxWorkers(defaultMaxWorkers());
-  });
-
   it("defaults to one worker per CPU, at most eight", () => {
     expect(MAX_WORKERS_DEFAULT_CAP).toBe(8);
     expect(defaultMaxWorkers(20)).toBe(8);
@@ -40,24 +40,8 @@ describe("kernel worker count", () => {
     expect(clampMaxWorkers(Number.NaN, 6)).toBeNull();
   });
 
-  it("the loaded kernel starts at the default and follows setMaxWorkers, ignoring a non-number", () => {
+  it("the loaded kernel pre-spawned the default worker count and launches up to that many threads", () => {
+    expect(poolSlots()).toBe(defaultMaxWorkers());
     expect(launchCap()).toBe(defaultMaxWorkers());
-    setMaxWorkers(1);
-    expect(launchCap()).toBe(1);
-    setMaxWorkers(2);
-    const two = Math.min(2, logicalCpuCount());
-    expect(launchCap()).toBe(two);
-    setMaxWorkers(Number.NaN);
-    expect(launchCap()).toBe(two);
-  });
-
-  it("moving the count never re-sizes the pool: its threads stay, only the cap moves, never past the pre-spawned workers", () => {
-    const slots = poolSlots();
-    expect(slots).toBe(defaultMaxWorkers());
-    setMaxWorkers(1);
-    expect(poolSlots()).toBe(slots);
-    setMaxWorkers(logicalCpuCount());
-    expect(poolSlots()).toBe(slots);
-    expect(launchCap()).toBe(Math.min(logicalCpuCount(), slots));
   });
 });

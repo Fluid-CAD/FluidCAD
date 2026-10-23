@@ -1,0 +1,15 @@
+{
+  "name": "fluidcad-cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "latest"
+  },
+  "devDependencies": {
+    "wrangler": "latest",
+    "typescript": "^5.6.0"
+  }
+}

@@ -21,15 +21,29 @@ export const disc = part('Disc', () => {
 });
 ```
 
+## Two rules
+
+- **Every part is exported.** A part is `export const disc = part('Disc', () => { … })` at the top level of its file: the export is how an assembly imports it and how the Insert dialog finds it. A `.name()` or `.material()` chain on the statement, a top-level `const` listed in an `export { disc }` clause, and an exported function that returns the part (`export const bolt = (length = 20) => part('Bolt', …)`) count as exported too. A `part()` nothing exports, one exported only as `default`, and one written inside another part's or assembly's body are refused.
+- **Part names are unique within a file.** The name is what the Part Parameters panel, the configurations tables and the timeline tell the file's parts apart by. The first `part()` of a name builds; a later one with the same name is refused.
+
+A refused part does not build: its timeline row shows the reason as a build error and the rest of the file renders. The messages name the fix:
+
+```text
+part 'Disc': a part must be exported — write it as export const disc = part('Disc', …) at the top level of the file.
+part 'Disc': another part in this file is already named 'Disc' — give each part its own name.
+```
+
+An agent writing the file through the MCP server is stopped before the file is written, with the same messages.
+
 ## In the viewport
 
-Click **Part** on the toolbar. FluidCAD appends `part('Part N', () => {})` to the file, activates it, and routes the next features into its body. Rename it from the timeline row's right-click menu: the name in `part('…')` is rewritten and the exported variable is renamed after it (`Fixed leaf` binds `fixedLeaf`), in the files that import the part too. There is no Apply: the statement is written the moment you click.
+Click **Part** on the toolbar. FluidCAD appends `export const part1 = part('Part 1', () => {})` (the next free `Part N`) to the file, activates it, and routes the next features into its body. Rename it from the timeline row's right-click menu: the name in `part('…')` is rewritten and the exported variable is renamed after it (`Fixed leaf` binds `fixedLeaf`), in the files that import the part too. A name another part of the file already has is refused. There is no Apply: the statement is written the moment you click.
 
 ## The definition is lazy
 
 `part()` returns a **definition**, not built geometry. The callback runs:
 
-- when the file renders on its own — the open part file stays what-you-see-is-what-you-get, so a part nothing exports or inserts still shows in the viewport;
+- when the file renders on its own — the open part file stays what-you-see-is-what-you-get, so every part of the file shows in the viewport, inserted or not;
 - once per **variant** when an assembly inserts it: `insert(def)` and `insert(def, { Width: 120 })` are two builds, while two `insert(def, { Width: 120 })` share one.
 
 Because the body runs later, it must be self-contained: read parameters with [`param()`](./param) inside the callback, not from variables computed outside it.

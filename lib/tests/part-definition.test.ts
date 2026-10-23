@@ -157,9 +157,12 @@ describe("param() inside part definitions", () => {
 
   it("refuses a declaration outside every part body", () => {
     createParamRegistry();
-    // A file has no parameters of its own: the call is refused where it
-    // stands, naming the label, and nothing registers.
-    expect(() => param("Shared", 1)).toThrow(/param\('Shared'\) must be declared inside a part\(\) body/);
+    // A model file has no parameters of its own: the call is refused where it
+    // stands, naming the label, and nothing registers. The decision reads the
+    // calling file (a `*.params.js` module may declare at top level), so the
+    // call runs in a frame attributed to a model file.
+    const body = `"use strict";\nparam("Shared", 1);\n//# sourceURL=/ws/model.fluid.js`;
+    expect(() => new Function("param", body)(param)).toThrow(/param\('Shared'\) must be declared inside a part\(\) body/);
     expect(getParamRegistry().getDefinitions()).toHaveLength(0);
     // A part body declared after the failed call is unaffected.
     part("A", () => { param("Width", 10); });

@@ -4,6 +4,7 @@ import type { Response } from 'express';
 import type { FluidCadServer } from '../../fluidcad-server/index.ts';
 import { FeatureEditDispatcher } from '../../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../../apply-feature-edit/index.ts';
+import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { ForeignPickResolver, type ForeignPickSummary } from '../foreign-exposure.ts';
 import type { SketchLoc } from './locations.ts';
 import { makeSynthesisOptionsForFile } from './synthesis.ts';
@@ -13,6 +14,8 @@ import { validateNewVariables } from './validate/common.ts';
 export type ApplyFeatureServices = {
   fluidCadServer: FluidCadServer;
   dispatcher: FeatureEditDispatcher;
+  /** The global-parameters catalog, so a transform imports the project parameters an expression reads (§2.8). */
+  globals?: GlobalParamCatalog;
   synthesisOptionsForFile: ReturnType<typeof makeSynthesisOptionsForFile>;
   foreignPicks: ForeignPickResolver;
   /** Lands cross-file expose() creates through their own dispatches; answers the request itself on failure. */

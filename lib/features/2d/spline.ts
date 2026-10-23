@@ -2,6 +2,7 @@ import { Geometry } from "../../oc/geometry.js";
 import { Point, Point2D } from "../../math/point.js";
 import { interpolateBSpline2d } from "../../math/bspline-interpolation.js";
 import type { Edge } from "../../common/edge.js";
+import type { LazyVertex } from "../lazy-vertex.js";
 import { ControlPointCurve } from "./control-point-curve.js";
 
 /**
@@ -32,6 +33,10 @@ export class SplineCurve extends ControlPointCurve {
       multiplicities: data.multiplicities,
       degree: data.degree,
     });
+  }
+
+  protected newInstance(controlPoints: LazyVertex[], literalIndices: number[]): ControlPointCurve {
+    return new SplineCurve(controlPoints, literalIndices);
   }
 
   getType(): string {

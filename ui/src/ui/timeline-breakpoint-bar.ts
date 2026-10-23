@@ -106,8 +106,16 @@ export class TimelineBreakpointBar {
     this.handle.setAttribute('aria-valuetext', this.state.stops[this.candidate]?.label ?? 'End of history');
     this.handle.title = this.state.disabled ? 'Finish the sketch to move the breakpoint'
       : 'Drag to move the breakpoint. Use ↑ / ↓ to step, Home / End to jump, Esc to cancel.';
-    this.label.textContent = this.pending ? 'Updating…' : preview
-      ? this.state.stops[this.candidate]?.label : this.state.paused ? 'Breakpoint' : 'End of history';
+    // The line says where the stop is; words only while it is on the move.
+    const text = this.pending ? 'Updating…' : preview ? this.state.stops[this.candidate]?.label ?? '' : '';
+    this.label.textContent = text;
+    this.label.hidden = text === '';
+    // Below the last row there is nothing for the label to cover: hang it
+    // above the line there, so a drag never pushes the list into overflow.
+    if (text !== '') {
+      const room = this.boundaryY(last) - this.boundaryY(this.candidate);
+      this.label.dataset.side = room < this.label.offsetHeight ? 'above' : 'below';
+    }
     this.resume.hidden = !this.state.paused;
     this.resume.disabled = this.disabled;
   }
@@ -148,7 +156,7 @@ export class TimelineBreakpointBar {
 
   private boundaryY(index: number): number {
     const stop = this.state.stops[index];
-    // The resting gap occupies its own height. Measure its top, not the row
+    // The resting element sits on its own gap; measure it, not the row
     // beneath it, so grabbing the handle never jumps to the next feature.
     if (index === this.state.current) return this.element.offsetTop;
     return stop.before?.offsetTop ?? (this.body.lastElementChild as HTMLElement)?.offsetTop
@@ -168,10 +176,9 @@ export class TimelineBreakpointBar {
 
   private preview(index: number): void {
     this.candidate = index;
-    // Center the preview line ON the gap, rather than on the next row's
-    // label. The resting position already has a full-height gap of its own.
-    const center = index === this.state.current ? 0 : this.element.offsetHeight / 2;
-    const dy = this.boundaryY(index) - this.element.offsetTop - center;
+    // The element has no height of its own: its top IS the gap it marks,
+    // so the preview line lands exactly on the target gap.
+    const dy = this.boundaryY(index) - this.element.offsetTop;
     this.element.style.transform = `translateY(${dy}px)`;
     this.sync();
   }

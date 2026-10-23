@@ -12,14 +12,16 @@ import type { PropertyEditSpec } from '../property-edit.ts';
 import type { UsageEditSpec } from '../declaration-usages.ts';
 import type { MoveToPartSpec } from '../move-to-part.ts';
 import type { TimelineBreakpointSpec } from '../timeline-breakpoint.ts';
+import type { PauseAfterSpec } from '../pause-after.ts';
 import type { RemoveFeatureSpec } from '../remove-feature.ts';
 import type { InsertPartEditSpec } from '../part-catalog/insert-edit.ts';
-import type { InstancePoseEditSpec } from '../insert-chain-edit.ts';
+import type { InstancePoseEditSpec, InstanceTransparencySpec } from '../insert-chain-edit.ts';
 import type { InstanceRenameSpec } from '../instance-rename.ts';
 import type { PartRenameSpec } from '../part-rename.ts';
 import type { AssemblyConnectorEditSpec } from '../assembly-connector-edit.ts';
 import type { AssemblyConnectorCopyEditSpec } from '../assembly-connector-copy-edit.ts';
 import type { InsertParamsEditSpec } from '../insert-params-edit.ts';
+import type { ConfigurationEditSpec } from '../configuration-edit.ts';
 import type {
   AssemblyExportEditSpec,
   AssemblyMateEditSpec,
@@ -56,6 +58,7 @@ import type {
 import type { RevolveAxisSpec, RevolveEditOptions } from './features/revolve.ts';
 import type { RibEditOptions } from './features/rib.ts';
 import type { RotateEditAxis, RotateEditOptions } from './features/rotate.ts';
+import type { TranslateEditOptions, TranslationSpec } from './features/translate.ts';
 import type { ShellEditOptions, ShellJoinKind } from './features/shell.ts';
 import type { SweepEditOptions } from './features/sweep.ts';
 import type { TextStatementOptions } from './features/text.ts';
@@ -70,7 +73,7 @@ import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -142,6 +145,8 @@ export type ApplyFeatureEditSpec = {
   split?: SplitEditOptions;
   /** Rotate-only payload; `parts` (if any) render the axis-edge selector. */
   rotate?: RotateEditOptions;
+  /** Translate-only payload; no selector parts. */
+  translate?: TranslateEditOptions;
   /** Boolean-only payload (fuse/subtract/common); no selector parts. */
   boolean?: BooleanEditOptions;
   filePath: string;
@@ -252,6 +257,13 @@ export type ApplyFeatureEditSpec = {
    */
   paramEdit?: ParamEditSpec;
   /**
+   * Configurations-band edit: add, rewrite the cells of, rename or remove a
+   * row of the body's `configurations({…})` table — creating the statement
+   * and its import on the first row, removing them with the last. Rides the
+   * same round trip as `paramEdit`; every other spec field is ignored.
+   */
+  configurationEdit?: ConfigurationEditSpec;
+  /**
    * Parameters-panel property edit: add, rewrite or delete a `property()`
    * call. Rides the same round trip as `paramEdit`; every other spec field
    * is ignored.
@@ -285,6 +297,12 @@ export type ApplyFeatureEditSpec = {
    * ignored.
    */
   instanceRename?: InstanceRenameSpec;
+  /**
+   * The parts panel's Transparency…: set or drop the `.transparent(v)` call
+   * of the `insert()` statement at `sourceLine`. Rides the same round trip
+   * as `instancePose`; every other spec field is ignored.
+   */
+  instanceTransparency?: InstanceTransparencySpec;
   /**
    * The part row's Rename: rewrite the name of the `part()` statement at
    * `sourceLine` and rename the variable it binds after it. Rides the same
@@ -399,6 +417,16 @@ export type ApplyFeatureEditSpec = {
   /** Move or clear the document's breakpoint in one acknowledged source edit. */
   timelineBreakpoint?: TimelineBreakpointSpec;
   /**
+   * Pause the build right after the statement at `referenceRow` (0-based),
+   * keeping every other stop the document holds — the edit-feature gesture's
+   * breakpoint, on the acknowledged round trip so the dialog can sequence
+   * its rollback after the render this edit triggers. A stop already there
+   * leaves the code unchanged (the ack then reports `changed: false`, and no
+   * render follows). `lift` names the open dialog's stop to take out in the
+   * same edit (see `PauseAfter`). Every other spec field is ignored.
+   */
+  pauseAfter?: PauseAfterSpec;
+  /**
    * The `part(...)` call site whose callback body receives the created
    * statement — the timeline's active part — whenever no input pins it
    * elsewhere: the producer-less appends (pick-less sketch, standard-only
@@ -411,12 +439,15 @@ export type ApplyFeatureEditSpec = {
    */
   activePart?: { line: number; column: number };
   /**
-   * Strip every `breakpoint();` after the rewrite. Set when an edit dialog
-   * applies: the double-click that opened it placed a breakpoint, and
-   * applying clears it so the model rebuilds to its tip. Done inside this
-   * one transform so the rewrite and the clear never race on the buffer.
+   * Take out the breakpoint the build is paused on, in the same rewrite.
+   * Set when an edit dialog applies: the double-click that opened it placed
+   * a breakpoint, and applying lifts it so the model runs on — to the next
+   * pending `breakpoint();` the file holds, or to its tip. The site names
+   * the paused statement; `true` stands for the first one in the file.
+   * Done inside this one transform so the rewrite and the removal never
+   * race on the buffer.
    */
-  clearBreakpoints?: boolean;
+  clearBreakpoints?: boolean | { line: number; column: number };
   /**
    * `const <name> = <initializer>;` declarations to write directly before
    * the statement — a dialog expression field's `myVar = 50` (or a fresh
@@ -803,6 +834,20 @@ export type FeatureStatementEditTarget = {
     /** The rotation angle in degrees. */
     angle: ValueExpr;
     /** Keep the originals in place — the `true` third argument. */
+    copy: boolean;
+    /** Full replacement target list; absent keeps the statement's targets. */
+    targets?: RepeatEditTargetSource[];
+  };
+  /**
+   * Translate options. The distances and the copy flag rewrite wholesale
+   * (the dialog owns them); the target list mixes `verbatim` keeps with
+   * re-picked feature statements; an absent list keeps every statement
+   * target.
+   */
+  translate?: {
+    /** The distance along X, Y and Z. */
+    translation: TranslationSpec;
+    /** Keep the originals in place — the `true` after the distances. */
     copy: boolean;
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];

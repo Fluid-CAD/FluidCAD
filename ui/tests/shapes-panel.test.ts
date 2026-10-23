@@ -158,3 +158,44 @@ describe('shapes panel — state and actions', () => {
     expect(h.rows().find((row) => row.dataset.shapeId === 's3')!.className).toContain('bg-primary/10');
   });
 });
+
+describe('shapes panel — rollback previews', () => {
+  /** The scene rolled back to just after Extrude 1: the later holders carry no shapes. */
+  function preview(): SceneObjectRender[] {
+    return scene().map((o, i) => (i > 1 ? { ...o, sceneShapes: [] } : o)) as SceneObjectRender[];
+  }
+
+  it('keeps the complete render\'s rows during a preview and dims the ones past the stop', () => {
+    const h = mount();
+    h.panel.update(scene());
+    const before = h.rows().map((r) => h.label(r));
+    h.panel.update(preview(), { stop: 1, scopePartId: null });
+    expect(h.rows().map((r) => h.label(r))).toEqual(before);
+    expect(h.rows().filter((r) => r.dataset.past === 'true').map((r) => h.label(r))).toEqual(['Solid 1', 'Face 1', 'Solid 1']);
+    expect(h.rowsOf('Bracket')[0].dataset.past).toBeUndefined();
+    // A dimmed row is inert: no eye, no menu, no selection.
+    const past = h.rows().find((r) => r.dataset.past === 'true')!;
+    expect(past.querySelector('[data-eye], [data-dots]')).toBeNull();
+    past.click();
+    expect(h.callbacks.highlight).not.toHaveBeenCalled();
+  });
+
+  it('scopes a part-scoped preview to that part', () => {
+    const h = mount();
+    h.panel.update(scene());
+    h.panel.update(preview(), { stop: 1, scopePartId: 'A' });
+    expect(h.rows().filter((r) => r.dataset.past === 'true').map((r) => h.label(r))).toEqual(['Face 1']);
+  });
+
+  it('lists the preview itself before any complete render, and the next complete render replaces the list', () => {
+    const h = mount();
+    h.panel.update(preview(), { stop: 1, scopePartId: null });
+    expect(h.rows().map((r) => h.label(r))).toEqual(['Solid 1', 'Solid 2']);
+    h.panel.update(scene());
+    expect(h.rows()).toHaveLength(5);
+    expect(h.rows().some((r) => r.dataset.past === 'true')).toBe(false);
+    h.panel.update(preview(), { stop: 1, scopePartId: null });
+    h.panel.update(scene().slice(0, 2));
+    expect(h.rows().map((r) => h.label(r))).toEqual(['Solid 1', 'Solid 2']);
+  });
+});

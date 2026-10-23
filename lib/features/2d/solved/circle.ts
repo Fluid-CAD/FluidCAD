@@ -42,6 +42,8 @@ export class SolvedCircle extends SolvedGeometryBase implements Extrudable {
 
     const circle = Geometry.makeCircle(worldCenter, r, plane.normal);
     const edge = Geometry.makeEdgeFromCircle(circle);
+    // The edge carries its own curve; the circle handle it was built from goes.
+    circle.delete();
     edge.setRole('perimeter');
     this.addShape(edge);
 

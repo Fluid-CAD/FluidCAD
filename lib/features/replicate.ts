@@ -188,6 +188,7 @@ function cloneSeed(
       quaternion: seedRecord.quaternion,
       name,
       replica: tag,
+      configuration: seedRecord.configuration,
     });
     return { handle, id: handle.record.instanceId, ref: { instanceId: handle.record.instanceId } };
   }
@@ -202,6 +203,7 @@ function cloneSeed(
     quaternion: seedRecord.quaternion,
     name,
     replica: tag,
+    configuration: seedRecord.configuration,
   });
   return { handle, id: handle.record.occurrenceId, ref: { occurrenceId: handle.record.occurrenceId } };
 }

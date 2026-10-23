@@ -1,4 +1,5 @@
 import { Axis, AxisTransformOptions } from "../math/axis.js";
+import { SceneObject } from "../common/scene-object.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
 
 export class AxisMiddle extends AxisObjectBase {
@@ -29,6 +30,12 @@ export class AxisMiddle extends AxisObjectBase {
 
     this.setState('axis', middleAxis);
     this.addAxisEdge(middleAxis);
+  }
+
+  override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
+    const axis1 = (remap.get(this.axis1) as AxisObjectBase) || this.axis1;
+    const axis2 = (remap.get(this.axis2) as AxisObjectBase) || this.axis2;
+    return new AxisMiddle(axis1, axis2, this.options);
   }
 
   compareTo(other: AxisMiddle): boolean {

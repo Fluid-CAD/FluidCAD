@@ -24,6 +24,8 @@ export type ContextualEvaluator<B> = (
  * only the targets survive or the conjunction stops being readable. The cap
  * is 4 rather than the design's ≈3 because isolating a repeat instance needs
  * an `above` + `below` bracket (2 atoms) on top of the shape predicates.
+ * Scope atoms (`from(...)`) sit outside the cap: they narrow the universe
+ * the description applies to rather than describing the picks.
  *
  * Atoms without baked geometry constants get a pass of their own first: a
  * conjunction of qualitative/datum/rank predicates (or parameter-linked
@@ -169,8 +171,17 @@ class InductionSearch<B> {
     let survivors = new Set(this.universe);
     const conjunction: Atom<B>[] = [];
 
-    while (!setEquals(survivors, this.targets) && conjunction.length < maxAtoms) {
-      const best = this.pickBest(usable, conjunction, survivors);
+    // A scope atom (`from(...)`) narrows the universe rather than describing
+    // the picks, so only descriptive atoms count toward the cap — and once
+    // the descriptions are spent, a scope may still close the gap.
+    const scopes = usable.filter(atom => atom.scope);
+    const described = () => conjunction.filter(atom => !atom.scope).length;
+    while (!setEquals(survivors, this.targets)) {
+      const pool = described() < maxAtoms ? usable : scopes;
+      if (pool.length === 0) {
+        break;
+      }
+      const best = this.pickBest(pool, conjunction, survivors);
       if (best === null) {
         return null;
       }

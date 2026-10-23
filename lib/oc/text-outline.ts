@@ -228,7 +228,13 @@ export class TextOutline {
         return;
       }
       try {
-        out.push(Geometry.makeEdgeFromBezier(Geometry.makeBezierCurve(poles.map(toWorld))));
+        const curve = Geometry.makeBezierCurve(poles.map(toWorld));
+        try {
+          out.push(Geometry.makeEdgeFromBezier(curve));
+        } finally {
+          // The edge holds its own handle to the curve.
+          curve.delete();
+        }
       } catch {
         // Fall back to a straight chord if the curve can't be built.
         addSegment(poles[0], poles[poles.length - 1]);

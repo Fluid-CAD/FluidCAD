@@ -58,12 +58,12 @@ async function runPublish(opts) {
   // when `publish` actually runs is the justified exception to "no inline
   // imports".
   console.log('Building model…');
-  const { captureParamDefinitions } = await import(
+  const { captureModelParams } = await import(
     '../../server/dist/model-package/capture-params.js'
   );
-  let paramDefinitions;
+  let captured;
   try {
-    paramDefinitions = await captureParamDefinitions(entry, workspace);
+    captured = await captureModelParams(entry, workspace);
   } catch (err) {
     throw new Error(`Model failed to build — fix the error and retry:\n${err?.message ?? err}`);
   }
@@ -79,7 +79,10 @@ async function runPublish(opts) {
     fluidcadVersion: readPackageVersion(),
     name,
     description,
-    paramDefinitions,
+    paramDefinitions: captured.paramDefinitions,
+    // A configurations() table and the row the workspace shows it on.
+    configuration: captured.configuration,
+    configurations: captured.configurations,
     // The project unit ships in the manifest — `fluidcad.json` itself never does.
     unit: readProjectConfig(workspace).unit ?? 'mm',
   });

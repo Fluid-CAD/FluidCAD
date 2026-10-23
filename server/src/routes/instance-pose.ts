@@ -147,18 +147,59 @@ export function createInstancePoseRouter(
     await dispatcher.dispatch(res, spec, { success: true });
   });
 
+  // The parts panel's Transparency…: set (a number) or drop (null) the
+  // insert() statement's `.transparent(v)`. Cross-file targets 422 like
+  // /instance-pose — a sub-assembly's insert() lives in its own file.
+  router.post('/set-instance-transparency', async (req, res) => {
+    const { filePath, sourceLine, transparency } = req.body ?? {};
+    if (
+      typeof filePath !== 'string' || filePath.length === 0
+      || !Number.isInteger(sourceLine) || sourceLine < 1
+      || (transparency !== null
+        && (typeof transparency !== 'number' || !Number.isFinite(transparency) || transparency < 0 || transparency > 1))
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const currentFile = fluidCadServer.getCurrentFileName();
+    if (!currentFile) {
+      res.status(404).json({ error: 'No active scene' });
+      return;
+    }
+    if (normalizePath(filePath) !== normalizePath(currentFile)) {
+      res.status(422).json({
+        success: false,
+        reason: `this insert() lives in ${basename(filePath)} — open that file to change its transparency.`,
+      });
+      return;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: currentFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      instanceTransparency: { sourceLine, transparency },
+    };
+    await dispatcher.dispatch(res, spec, { success: true });
+  });
+
   // Edit-parameters commit: merge the dialog's changed values into the
   // insert() statement's second argument. Same shape as /instance-pose —
   // cross-file targets 422 (a sub-assembly's insert() lives in its own file).
   router.post('/update-insert-params', async (req, res) => {
-    const { filePath, sourceLine, set, unset, newVariables } = req.body ?? {};
+    const { filePath, sourceLine, set, unset, newVariables, configuration } = req.body ?? {};
     const unsetList: unknown = unset ?? [];
+    // `configuration`: a row name sets the statement's string argument, null
+    // clears it (back to the literals); absent leaves it alone.
+    const configurationGiven = configuration !== undefined;
     if (
       typeof filePath !== 'string' || filePath.length === 0
       || !Number.isInteger(sourceLine) || sourceLine < 1
       || set === null || typeof set !== 'object' || Array.isArray(set)
       || !Array.isArray(unsetList) || !unsetList.every(l => typeof l === 'string' && l.length > 0)
-      || (Object.keys(set).length === 0 && unsetList.length === 0)
+      || (configurationGiven && configuration !== null && (typeof configuration !== 'string' || configuration.trim() === ''))
+      || (Object.keys(set).length === 0 && unsetList.length === 0 && !configurationGiven)
       || (newVariables !== undefined && newVariables !== null && !isNewVariables(newVariables))
     ) {
       res.status(400).json({ error: 'Invalid request body' });
@@ -186,6 +227,7 @@ export function createInstancePoseRouter(
         line: sourceLine,
         set,
         ...(unsetList.length > 0 ? { unset: unsetList as string[] } : {}),
+        ...(configurationGiven ? { configuration: configuration as string | null } : {}),
       },
       newVariables: newVariables ?? undefined,
     };

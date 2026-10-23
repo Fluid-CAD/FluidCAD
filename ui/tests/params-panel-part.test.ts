@@ -51,6 +51,7 @@ describe('ParamsPanel part dropdown', () => {
     const editor = { openForCreate: vi.fn(), openForEdit: vi.fn() } as unknown as ParamEditorDialog;
     const panel = new ParamsPanel(host, client, editor, 'assembly');
     panel.update([]);
+    expect(host.querySelector('[data-ref="chevron"] + span')!.textContent).toBe('Assembly Parameters');
     expect(host.textContent).toContain('No assembly parameters yet');
     const add = host.querySelector<HTMLButtonElement>('[data-add-param]')!;
     expect(add.hidden).toBe(false);
@@ -68,6 +69,7 @@ describe('ParamsPanel part dropdown', () => {
   it('lists the parts, on the selected part, above the controls', () => {
     const { panel, host, select } = mount(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
     panel.update([param('Width', lid)]);
+    expect(host.querySelector('[data-ref="chevron"] + span')!.textContent).toBe('Part Parameters');
     // Parts only: a parameter lives inside a part body, so there is no file level to add to.
     expect(Array.from(select()!.options, (o) => o.textContent)).toEqual(['Bracket', 'Lid']);
     expect(select()!.selectedOptions[0].textContent).toBe('Lid');

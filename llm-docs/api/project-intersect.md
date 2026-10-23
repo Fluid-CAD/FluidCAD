@@ -44,13 +44,13 @@ A projection may read geometry another `part()` publishes with
 declared before the consumer, and the exposure lives in the donor's body.
 
 ```js
-const lid = part("Lid", () => {
+export const lid = part("Lid", () => {
   // ...
   const body = extrude(6);
   expose("rim", body.endFaces(0));
 });
 
-const gasket = part("Gasket", () => {
+export const gasket = part("Gasket", () => {
   sketch("xy", () => {
     project(lid.features.rim).guide();   // the lid's outline, fixed
     // ...

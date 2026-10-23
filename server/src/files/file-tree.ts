@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { createWorkspaceIgnore } from './workspace-ignore.ts';
 import { normalizePath } from '../normalize-path.ts';
-import { isFluidScriptFile } from '../file-kind.ts';
+import { isFluidScriptFile, isParamsFile } from '../file-kind.ts';
 
 /**
  * A flat listing of the workspace's editable files. Flat rather than nested
@@ -16,7 +16,12 @@ export type FileKind =
    * (`file-kind.ts`). Opening it changes the rendered scene.
    */
   | 'model'
-  /** A plain source file the model may import. Editor-only. */
+  /**
+   * A plain source file the model may import. Editor-only. A `*.params.js`
+   * global-parameters module is a `source` file too — the editor opens it
+   * like any other module — and carries `params: true` beside its kind, so
+   * every consumer that switches on the three kinds keeps working.
+   */
   | 'source'
   /** Everything else — listed, but not something the editor opens by default. */
   | 'other';
@@ -27,6 +32,8 @@ export type FileTreeEntry = {
   /** Absolute, normalized — what `/api/files/*` and `scene-rendered` use. */
   absPath: string;
   kind: FileKind;
+  /** True for a `*.params.js` global-parameters module (`file-kind.ts`). */
+  params?: true;
   size: number;
   mtimeMs: number;
 };
@@ -41,6 +48,15 @@ export function classifyFile(filePath: string): FileKind {
     return 'model';
   }
   return SOURCE_EXTENSIONS.has(path.extname(filePath)) ? 'source' : 'other';
+}
+
+/**
+ * The `kind` of a listed file plus the params flag a `*.params.js` module
+ * carries — what a {@link FileTreeEntry} and a file event spread in.
+ */
+export function describeFile(filePath: string): { kind: FileKind; params?: true } {
+  const kind = classifyFile(filePath);
+  return isParamsFile(filePath) ? { kind, params: true } : { kind };
 }
 
 export type ListWorkspaceFilesResult = {
@@ -107,7 +123,7 @@ export function listWorkspaceFiles(workspacePath: string): ListWorkspaceFilesRes
       files.push({
         path: relPath,
         absPath: normalizePath(path.join(workspacePath, relPath)),
-        kind: classifyFile(relPath),
+        ...describeFile(relPath),
         size: stat.size,
         mtimeMs: stat.mtimeMs,
       });

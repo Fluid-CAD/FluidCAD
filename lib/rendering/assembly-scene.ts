@@ -38,9 +38,13 @@ export type AssemblyInstance = {
    */
   grounded: boolean;
   name: string;
+  /** `.transparent(v)` on the handle, 0–1; absent when never set. A replica without one follows its seed's. */
+  transparency?: number;
   sourceLocation?: SourceLocation;
   /** Present on a replica: the seed instance, the replicate statement, the row. */
   replica?: ReplicaTag;
+  /** The configuration row `insert(def, 'Name')` built the template from; absent for the literals. */
+  configuration?: string;
 };
 
 /**
@@ -76,6 +80,11 @@ export type AssemblyOccurrence = {
   quaternion: Quat;
   /** .grounded() on the handle: this frame is fixed in the parent scope. */
   grounded: boolean;
+  /**
+   * `.transparent(v)` on the handle, 0–1, applied to every instance under
+   * this frame; absent when never set. A replica without one follows its seed's.
+   */
+  transparency?: number;
   /** The definition's `param()` interface, collected while this occurrence's body ran. */
   params?: ParamDefinition[];
   /** Resolved parameter values of this occurrence's run. */
@@ -90,6 +99,10 @@ export type AssemblyOccurrence = {
    */
   definition?: Assembly<unknown>;
   overrides?: ParamOverrides;
+  /** The configuration row `insert(def, 'Name')` ran the body with; absent for the literals. */
+  configuration?: string;
+  /** The row names the definition's `configurations()` declares, in table order; absent without a table. */
+  configurations?: string[];
   /** Present on a replica: the seed occurrence, the replicate statement, the row. */
   replica?: ReplicaTag;
 };
@@ -253,8 +266,16 @@ export type SerializedInstance = {
   /** Owning scope path; "" for root-scope instances. */
   owner: string;
   name: string;
+  /**
+   * EFFECTIVE transparency in (0, 1]: the instance's own `.transparent()`
+   * combined with every enclosing occurrence's (opacities multiply). Absent
+   * when the instance renders opaque.
+   */
+  transparency?: number;
   /** Resolved parameter values of the instance's template variant (insert-path builds only). */
   paramValues?: Record<string, ParamVal>;
+  /** The configuration `insert(def, 'Name')` named; absent when the instance shows the literals. */
+  configuration?: string;
   /** The variant's `property()` values as the assembly reads them. Set only when the part declares any. */
   properties?: Record<string, ParamVal>;
   sourceLocation?: SourceLocation;
@@ -278,6 +299,10 @@ export type SerializedOccurrence = {
   params?: Omit<ParamDefinition, 'sourceLocation'>[];
   /** Resolved parameter values of this occurrence's run. */
   paramValues?: Record<string, ParamVal>;
+  /** The configuration `insert(def, 'Name')` named; absent when the occurrence shows the literals. */
+  configuration?: string;
+  /** The row names the definition's `configurations()` declares, in table order; absent without a table. */
+  configurations?: string[];
   /**
    * Handles the callback returned, keyed by return-object path — what the
    * mate writer dereferences as `<binding>.parts.<path...>`. Always an
@@ -653,12 +678,57 @@ export class AssemblyScene extends Scene {
     return anchors;
   }
 
+  /**
+   * The transparency a record declared, a replica falling back to its seed's
+   * (the `replica.of` chain, cycle-guarded) — so a seed's `.transparent()`
+   * reaches its replicas whatever the statement order, and a replica's own
+   * call still overrides it.
+   */
+  private declaredTransparency<R extends { transparency?: number; replica?: ReplicaTag }>(
+    record: R,
+    seedOf: (id: string) => R | undefined,
+  ): number {
+    const seen = new Set<R>();
+    for (let cur: R | undefined = record; cur && !seen.has(cur); cur = cur.replica ? seedOf(cur.replica.of) : undefined) {
+      if (cur.transparency !== undefined) {
+        return cur.transparency;
+      }
+      seen.add(cur);
+    }
+    return 0;
+  }
+
+  /**
+   * Each instance's effective transparency: its own, then every enclosing
+   * occurrence's folded in by multiplying opacities. A value with nothing to
+   * fold is returned untouched, so `.transparent(0.3)` serializes as 0.3, not
+   * 1 - (1 - 0.3).
+   */
+  private effectiveTransparencies(): Map<AssemblyInstance, number> {
+    const instancesById = new Map(this._instances.map(i => [i.instanceId, i]));
+    const occurrencesById = new Map(this._occurrences.map(o => [o.occurrenceId, o]));
+    const out = new Map<AssemblyInstance, number>();
+    for (const inst of this._instances) {
+      let t = this.declaredTransparency(inst, id => instancesById.get(id));
+      for (let occ = occurrencesById.get(inst.owner); occ; occ = occurrencesById.get(occ.parentPath)) {
+        const occT = this.declaredTransparency(occ, id => occurrencesById.get(id));
+        if (occT > 0) {
+          t = 1 - (1 - t) * (1 - occT);
+        }
+      }
+      out.set(inst, t);
+    }
+    return out;
+  }
+
   getSerializedInstances(): SerializedInstance[] {
     const connected = this.scopeGroundConnected();
     const world = this.occurrenceWorldPoses();
     const anchors = this.fallbackAnchors(connected);
+    const transparencies = this.effectiveTransparencies();
     return this._instances.map(inst => {
       const pose = composePose(world.get(inst.owner) ?? IDENTITY_POSE, { position: inst.position, quaternion: inst.quaternion });
+      const transparency = transparencies.get(inst) ?? 0;
       return {
         instanceId: inst.instanceId,
         // Read live from inst.part — SceneCompare.inheritIdentityFrom may
@@ -672,7 +742,9 @@ export class AssemblyScene extends Scene {
         grounded: (inst.grounded && (connected.get(inst.owner) ?? false)) || anchors.has(inst),
         owner: inst.owner,
         name: inst.name,
+        ...(transparency > 0 ? { transparency } : {}),
         paramValues: inst.part.paramValues,
+        ...(inst.configuration !== undefined ? { configuration: inst.configuration } : {}),
         properties: serializedProperties(inst.part),
         sourceLocation: inst.sourceLocation,
         replica: inst.replica,
@@ -693,6 +765,8 @@ export class AssemblyScene extends Scene {
       groundConnected: connected.get(occ.occurrenceId) ?? false,
       params: occ.params ? serializableParamDefs(occ.params) : undefined,
       paramValues: occ.paramValues,
+      ...(occ.configuration !== undefined ? { configuration: occ.configuration } : {}),
+      ...(occ.configurations !== undefined ? { configurations: occ.configurations } : {}),
       exports: occ.exports ?? [],
       sourceLocation: occ.sourceLocation,
       replica: occ.replica,

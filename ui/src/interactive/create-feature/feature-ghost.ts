@@ -1,4 +1,4 @@
-import { Group, Object3D } from 'three';
+import { Group, Object3D, Vector3 } from 'three';
 import { GhostFrame, GhostSolid } from '../../api';
 import { EdgeMesh } from '../../meshes/shape-meshes/edge-mesh';
 import { SolidMesh } from '../../meshes/shape-meshes/solid-mesh';
@@ -74,6 +74,8 @@ export class FeatureGhostOverlay {
    */
   set(solids: GhostSolid[], kind: GhostKind, frames: readonly GhostFrame[] = []): void {
     this.clear();
+    this.group.position.set(0, 0, 0);
+    this.group.visible = true;
     for (const frame of frames) {
       this.group.add(buildConnectorGizmo(frame, this.viewer.sceneContext.camera, { opacity: GHOST_FRAME_OPACITY }));
     }
@@ -104,6 +106,20 @@ export class FeatureGhostOverlay {
     // nested faces and edges too, so a preview cannot hide profile vertices
     // from the visibility test or intercept other geometry picks.
     this.group.traverse(node => { node.userData.isMetaShape = true; });
+    this.viewer.sceneContext.requestRender();
+  }
+
+  /**
+   * Slide the drawn bodies rigidly by `offset` from where they were stamped,
+   * or hide them (null) — the translate dialog moves its ghost live this way
+   * under a gizmo drag, between fetches; exact, a translation being rigid.
+   * Every `set()` lands unshifted and shown.
+   */
+  place(offset: Vector3 | null): void {
+    if (offset) {
+      this.group.position.copy(offset);
+    }
+    this.group.visible = offset !== null;
     this.viewer.sceneContext.requestRender();
   }
 

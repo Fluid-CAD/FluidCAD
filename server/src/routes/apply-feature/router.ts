@@ -4,6 +4,7 @@ import { Router, type Response } from 'express';
 import type { FluidCadServer } from '../../fluidcad-server/index.ts';
 import { FeatureEditDispatcher, type EditDispatcherOptions } from '../../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../../apply-feature-edit/index.ts';
+import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { ForeignPickResolver, type ForeignPickSummary } from '../foreign-exposure.ts';
 import { makeSynthesisOptionsForFile } from './synthesis.ts';
 import { registerSelectionEndpoints } from './endpoints/selection.ts';
@@ -19,6 +20,8 @@ export type ApplyFeatureRouterOptions = EditDispatcherOptions & {
    * builds its own from the remaining options (tests, standalone use).
    */
   dispatcher?: FeatureEditDispatcher;
+  /** The global-parameters catalog; absent, no params-file import is ever written. */
+  globals?: GlobalParamCatalog;
 };
 
 export function createApplyFeatureRouter(
@@ -55,6 +58,7 @@ export function createApplyFeatureRouter(
 
   const services: ApplyFeatureServices = {
     fluidCadServer, dispatcher, synthesisOptionsForFile, foreignPicks, dispatchCrossFileCreates, foreignBody,
+    ...(options.globals ? { globals: options.globals } : {}),
   };
   registerSelectionEndpoints(router, services);
   registerApplyFeatureEndpoint(router, services);

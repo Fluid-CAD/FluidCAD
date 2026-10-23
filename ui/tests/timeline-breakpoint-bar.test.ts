@@ -36,10 +36,13 @@ function mountBar(current = 3, paused = false) {
 describe('timeline breakpoint bar interaction', () => {
   it('previews a drag without writing, then applies exactly once on release', async () => {
     const h = mountBar();
+    expect(h.body.querySelector<HTMLElement>('.timeline-breakpoint-label')!.hidden).toBe(true);
     pointer(h.handle, 'pointerdown', 95);
     pointer(window, 'pointermove', 30);
     expect(h.apply).not.toHaveBeenCalled();
     expect(h.handle.getAttribute('aria-valuetext')).toBe('Before feature 1');
+    // Words only while the stop is on the move.
+    expect(h.body.querySelector<HTMLElement>('.timeline-breakpoint-label')!.textContent).toBe('Before feature 1');
     pointer(window, 'pointerup', 30);
     expect(h.apply).toHaveBeenCalledExactlyOnceWith(h.stops[1]);
     await Promise.resolve();
@@ -178,6 +181,49 @@ describe('timeline breakpoint targets', () => {
     const handle = h.container.querySelector('[role="slider"]')!;
     expect(handle.getAttribute('aria-valuemax')).toBe('2');
     expect(handle.getAttribute('aria-valuetext')).toBe('Before other');
+  });
+
+  it('marks every pending breakpoint besides the paused one, at the gap before the statement after it', () => {
+    const h = mountPanel();
+    const live = [row('base', 3), row('fillet', 5)];
+    h.panel.update(live, 1, null, { paused: true, breakpointStop: 1, timeline: [
+      { kind: 'evaluated', index: 0 }, { kind: 'evaluated', index: 1 },
+      { kind: 'unevaluated', row: row('shell', 8) }, { kind: 'unevaluated', row: row('chamfer', 11) },
+    ], breakpoints: [{ line: 6, column: 1 }, { line: 9, column: 1 }, { line: 12, column: 1 }] });
+    // Line 6 is the paused stop (the bar sits before shell); 9 and 12 are pending.
+    const markers = [...h.container.querySelectorAll<HTMLElement>('[data-pending-breakpoint]')];
+    expect(markers.map(m => m.dataset.pendingBreakpoint)).toEqual(['9', '12']);
+    expect(markers[0].nextElementSibling?.textContent).toContain('chamfer');
+    expect(markers[1].nextElementSibling).toBeNull();
+    expect(h.container.querySelector('.timeline-breakpoint')?.nextElementSibling?.textContent).toContain('shell');
+    // The markers and the bar add no height of their own: no resting label.
+    expect(h.container.querySelector<HTMLElement>('.timeline-breakpoint-label')?.hidden).toBe(true);
+  });
+
+  it('keeps the last breakpoint list across a render that carries none', () => {
+    const h = mountPanel();
+    h.panel.update([row('base', 3), row('fillet', 5)], 1, null, { breakpoints: [{ line: 4, column: 1 }] });
+    expect(h.container.querySelectorAll('[data-pending-breakpoint]')).toHaveLength(1);
+    h.panel.update([row('base', 3), row('fillet', 5)], 1, null, {});
+    expect(h.container.querySelectorAll('[data-pending-breakpoint]')).toHaveLength(1);
+    h.panel.update([row('base', 3), row('fillet', 5)], 1, null, { breakpoints: [] });
+    expect(h.container.querySelectorAll('[data-pending-breakpoint]')).toHaveLength(0);
+  });
+
+  it('moves as the single stop and continues to the end with a full clear', async () => {
+    const h = mountPanel();
+    h.panel.update([row('base', 3), row('fillet', 5)], 0, null, { paused: true, breakpointStop: 0 });
+    const handle = h.container.querySelector<HTMLElement>('[role="slider"]')!;
+    handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+    handle.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown' }));
+    expect(h.editor.moveTimelineBreakpoint).toHaveBeenLastCalledWith('/model.part.js', null);
+    // The panel's apply wraps the client call in its own async step: let the ack settle.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    h.panel.update([row('base', 3), row('fillet', 5)], 1, null, { paused: true, breakpointStop: 1 });
+    const again = h.container.querySelector<HTMLElement>('[role="slider"]')!;
+    again.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
+    again.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowUp' }));
+    expect(h.editor.moveTimelineBreakpoint).toHaveBeenLastCalledWith('/model.part.js', { line: 5, column: 1 });
   });
 
   it('hides the bar in a read-only viewer and an empty document', () => {

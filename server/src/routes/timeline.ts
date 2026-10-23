@@ -79,6 +79,12 @@ export function createTimelineRouter(
     loadGlobalMaterials?: () => Promise<ProjectMaterials>;
     /** Where the other model files live — the ones that may read a removed hole's connectors by name. */
     workspacePath?: string;
+    /**
+     * The newest render pass's version (the `render-version` lifecycle
+     * counter) — `/pause-after` reports it so the page can wait for the
+     * render the pause edit triggers, and only that one.
+     */
+    renderVersion?: () => number;
   } = {},
 ): Router {
   const router = Router();
@@ -249,6 +255,13 @@ export function createTimelineRouter(
     }
     const { filePath, line } = sourceLocation;
     const code = await refactor.readFile(filePath);
+    // A name another part of the file has is refused before any importer
+    // follows the rename (part names are unique within a file).
+    const clash = code === null ? null : await PartRename.clash(code, line, name);
+    if (clash !== null) {
+      res.status(422).json({ success: false, reason: clash });
+      return;
+    }
     const plan = code === null ? null : await PartRename.plan(code, filePath, line, name);
     if (plan?.declaration) {
       const specs = await refactor.renameSpecs(plan.declaration, plan.variable, null, plan.variableExport);
@@ -388,11 +401,67 @@ export function createTimelineRouter(
     res.json({ success: true });
   });
 
+  // The edit-feature gesture's pause, acknowledged: a `breakpoint();` after
+  // the statement at `sourceLocation`, every other stop kept — except the
+  // one an open edit dialog is holding the build on, when `liftActive` says
+  // the gesture replaces that dialog. Unlike the
+  // fire-and-forget `/add-breakpoint` above, the answer says whether the
+  // buffer changed — a stop already there is a no-op and no render follows
+  // — and which render version was current when it did, so the dialog can
+  // roll its view back AFTER the render this edit triggers instead of
+  // racing it (the ghost drew, vanished under the late render, and drew
+  // again).
+  router.post('/pause-after', async (req, res) => {
+    const { sourceLocation, liftActive } = req.body ?? {};
+    if (
+      !sourceLocation ||
+      typeof sourceLocation.filePath !== 'string' ||
+      !Number.isInteger(sourceLocation.line) || sourceLocation.line < 1
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    if (!options.dispatcher) {
+      res.status(503).json({ success: false, reason: 'No edit dispatcher is available.' });
+      return;
+    }
+    const outcome = await options.dispatcher.send({
+      feature: 'sketch', filePath: sourceLocation.filePath, producers: [], parts: [], imports: [],
+      // `referenceRow` is 0-based; `line` is 1-based (see the host's
+      // `add-breakpoint` transform). `liftActive`: an open edit dialog holds
+      // the build on the active stop — take it out in this same edit, so the
+      // hand-off to the new dialog is one render (see `PauseAfter`).
+      pauseAfter: {
+        referenceRow: sourceLocation.line - 1,
+        ...(liftActive === true ? { lift: fluidCadServer.getActiveBreakpoint?.() ?? null } : {}),
+      },
+    });
+    if (outcome.error) {
+      res.status(422).json({ success: false, reason: outcome.error });
+      return;
+    }
+    res.json({
+      success: true,
+      // No host answered (standalone server) or an older one that doesn't
+      // say: nothing to wait for.
+      changed: outcome.changed === true,
+      renderVersion: options.renderVersion?.() ?? 0,
+    });
+  });
+
+  // One atomic edit of the document's breakpoints: a move (`before` — the
+  // moved stop is the only one left), Continue (`remove: 'active'` — only
+  // the stop the build paused on; a stop an edit session left further down
+  // stays pending) or continue-to-end (`remove: 'all'`). `filePath`
+  // defaults to the rendered document, which is the only one the edit
+  // applies to.
   router.post('/timeline-breakpoint', async (req, res) => {
-    const { filePath, before } = req.body ?? {};
+    const { before, remove } = req.body ?? {};
+    const filePath = req.body?.filePath ?? fluidCadServer.getCurrentFileName();
     if (typeof filePath !== 'string' || (before !== null && (!before
       || !Number.isInteger(before.line) || before.line < 1
-      || !Number.isInteger(before.column) || before.column < 1))) {
+      || !Number.isInteger(before.column) || before.column < 1))
+      || (remove !== undefined && !['active', 'all'].includes(remove))) {
       res.status(400).json({ error: 'Invalid breakpoint target' });
       return;
     }
@@ -410,9 +479,11 @@ export function createTimelineRouter(
       res.status(422).json({ success: false, reason: 'Wait for the model to rebuild, then try again.' });
       return;
     }
+    const mode = remove ?? 'all';
+    const active = mode === 'active' ? fluidCadServer.getActiveBreakpoint?.() ?? null : null;
     await options.dispatcher.dispatch(res, {
       feature: 'sketch', filePath, producers: [], parts: [], imports: [],
-      timelineBreakpoint: TimelineBreakpoint.capture(code, before),
+      timelineBreakpoint: TimelineBreakpoint.capture(code, before, mode, active),
     }, { success: true });
   });
 

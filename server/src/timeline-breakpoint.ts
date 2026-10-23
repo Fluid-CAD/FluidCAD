@@ -1,16 +1,48 @@
 import { createHash } from 'node:crypto';
-import { enclosingStatementOf, ensureSymbolImport, getJavaScriptParser, isBreakpointStatement, walkTree } from './code-editor/index.ts';
+import {
+  breakpointRemovalEdit, enclosingStatementOf, ensureSymbolImport, findActiveBreakpointStatement,
+  findAllBreakpointStatements, getJavaScriptParser, isBreakpointStatement, type BreakpointSite,
+} from './code-editor/index.ts';
 import type { ApplyFeatureEditResult } from './apply-feature-edit/spec.ts';
 
-/** A single, atomic move of the document's timeline stop. Null resumes the build. */
+/**
+ * Which existing `breakpoint();` statements an edit takes out of the file.
+ * A document may hold several: the build pauses on the first one it reaches
+ * (the ACTIVE one) and the rest stay pending for after it. Several stops
+ * only ever come from editing a feature (Edit feature / double-click places
+ * one and leaves the user's own in place); the history bar's drag keeps a
+ * single stop.
+ * - `active`: the one the build paused on (`active`), else the first in
+ *   document order — Continue: the build runs on to the next pending stop.
+ * - `all`: every one — a move of the bar (the moved stop is the only one
+ *   left) or continue to the end of history.
+ */
+export type BreakpointRemoval = 'active' | 'all';
+
+/** One atomic edit of the document's breakpoints. */
 export type TimelineBreakpointSpec = {
-  before: { line: number; column: number } | null;
+  /** The statement the build should pause before next, or null to add no stop. */
+  before: BreakpointSite | null;
+  /** Absent on a spec from an older client: `all`. */
+  remove?: BreakpointRemoval;
+  /** The breakpoint the build is paused on — `remove: 'active'` names it. */
+  active?: BreakpointSite | null;
+  /**
+   * Hash of the code `before` was captured against. Only a move checks it:
+   * the target is a position, and a position in a file that changed since
+   * means something else. A removal is resolved against the buffer it edits.
+   */
   sourceHash: string;
 };
 
 export class TimelineBreakpoint {
-  static capture(code: string, before: TimelineBreakpointSpec['before']): TimelineBreakpointSpec {
-    return { before, sourceHash: this.hash(code) };
+  static capture(code: string, before: BreakpointSite | null, remove?: BreakpointRemoval, active?: BreakpointSite | null): TimelineBreakpointSpec {
+    return {
+      before,
+      remove: remove ?? 'all',
+      ...(active ? { active } : {}),
+      sourceHash: this.hash(code),
+    };
   }
 
   private static hash(code: string): string {
@@ -18,9 +50,10 @@ export class TimelineBreakpoint {
   }
 
   static async apply(code: string, spec: TimelineBreakpointSpec): Promise<ApplyFeatureEditResult> {
-    if (this.hash(code) !== spec.sourceHash) {
+    if (spec.before && this.hash(code) !== spec.sourceHash) {
       return { newCode: code, error: 'The file changed. Wait for the model to rebuild, then move the breakpoint again.' };
     }
+    const remove = spec.remove ?? 'all';
     const tree = (await getJavaScriptParser()).parse(code);
     try {
       const edits: { start: number; end: number; text: string }[] = [];
@@ -41,18 +74,11 @@ export class TimelineBreakpoint {
       // Delete exact statements, not their whole lines: inline callbacks and
       // adjacent feature statements must survive. Coordinates all refer to
       // the original buffer, so moving in either direction cannot shift them.
-      for (const node of walkTree(tree.rootNode)) {
-        if (!isBreakpointStatement(node)) continue;
-        let start = node.startIndex;
-        let end = node.endIndex;
-        const lineStart = code.lastIndexOf('\n', start - 1) + 1;
-        const newline = code.indexOf('\n', end);
-        const lineEnd = newline < 0 ? code.length : newline;
-        if (/^\s*$/.test(code.slice(lineStart, start)) && /^\s*$/.test(code.slice(end, lineEnd))) {
-          start = lineStart;
-          end = newline < 0 ? lineEnd : newline + 1;
-        }
-        edits.push({ start, end, text: '' });
+      const doomed = remove === 'active'
+        ? [findActiveBreakpointStatement(tree, spec.active)].filter((n): n is NonNullable<typeof n> => n !== null)
+        : findAllBreakpointStatements(tree);
+      for (const node of doomed) {
+        edits.push(breakpointRemovalEdit(code, node));
       }
       let newCode = code;
       for (const edit of edits.sort((a, b) => b.start - a.start)) {

@@ -113,6 +113,7 @@ export class TextEditService {
 
     this.runner = new ApplyRunner({
       panel: this.panel,
+      session: this.session,
       isArmed: () => this.armed && this.editTarget !== null,
       build: () => this.buildRequest(),
       send: (request, extras) => applyTextEdit(this.editTarget!, { ...request, ...extras }),
@@ -437,7 +438,7 @@ export class TextEditService {
     };
   }
 
-  exit(editEnd: 'apply' | 'cancel' | 'continue' | 'gone' = 'cancel'): void {
+  exit(editEnd: 'apply' | 'cancel' | 'continue' | 'handoff' | 'gone' = 'cancel'): void {
     if (!this.armed) {
       return;
     }

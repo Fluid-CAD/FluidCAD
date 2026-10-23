@@ -21,7 +21,7 @@ let workspace: string;
 let fakeServer: http.Server | null = null;
 let fakePort = 0;
 let dirtyFiles: { path: string; lastModifiedMs: number }[] = [];
-let renderRequests: { filePath: string; code: string; changes?: boolean; fitView?: boolean }[] = [];
+let renderRequests: { filePath: string; code: string; changes?: boolean; fitView?: boolean; keepCurrent?: boolean }[] = [];
 // Default outcome for the fake `/api/render`. Tests can override per-case.
 let renderResponse: { status: number; body: unknown } = {
   status: 200,
@@ -78,6 +78,7 @@ function startFakeServer(): Promise<number> {
               code: parsed.code,
               ...(parsed.changes !== undefined ? { changes: parsed.changes } : {}),
               ...(parsed.fitView !== undefined ? { fitView: parsed.fitView } : {}),
+              ...(parsed.keepCurrent !== undefined ? { keepCurrent: parsed.keepCurrent } : {}),
             });
           } catch {
             // fall through — request capture is best-effort
@@ -403,11 +404,108 @@ describe('write_file', () => {
     expect(renderRequests).toHaveLength(0);
   });
 
+  it('refuses a write that breaks a part rule, with the rows', async () => {
+    lintResponse = {
+      status: 200,
+      body: {
+        missing: [],
+        suggestion: '',
+        diagnostics: [
+          { message: "part 'Plate': a part must be exported — write it as export const plate = part('Plate', …) at the top level of the file.", line: 1, column: 0, rule: 'part-export' },
+          { message: "part 'Plate': another part in this file is already named 'Plate' — give each part its own name.", line: 2, column: 21, rule: 'part-name' },
+        ],
+      },
+    };
+    const target = path.join(workspace, 'pair.part.js');
+    const result = await writeFile({ path: 'pair.part.js', content: "import { part } from 'fluidcad/core';\npart('Plate', () => {});\nexport const lid = part('Plate', () => {});" });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('part-rules');
+    expect(result.message).toContain("line 2: part 'Plate': a part must be exported");
+    expect(result.message).toContain('line 3: part \'Plate\': another part in this file is already named');
+    expect((result.details as any)?.diagnostics).toHaveLength(2);
+    expect(fs.existsSync(target)).toBe(false);
+    expect(renderRequests).toHaveLength(0);
+  });
+
   it('lints assembly and part files too, and tells the server which file it is', async () => {
     const result = await writeFile({ path: 'rig.assembly.js', content: 'insert(p);' });
     expect(result.ok).toBe(true);
     expect(lintRequests).toHaveLength(1);
     expect(lintRequests[0].filePath).toBe(path.join(workspace, 'rig.assembly.js'));
+  });
+
+  it('refuses a *.params.js write that breaks the params-file rules, with the rows', async () => {
+    lintResponse = {
+      status: 200,
+      body: {
+        missing: [],
+        suggestion: '',
+        diagnostics: [
+          { message: 'param("Wall") is not exported — write `export const wall` so other files can import it', line: 2, column: 6 },
+          { message: 'extrude() is not allowed in a params file — it holds values, not geometry', line: 3, column: 0 },
+        ],
+      },
+    };
+    const target = path.join(workspace, 'project.params.js');
+    const result = await writeFile({
+      path: 'project.params.js',
+      content: 'import { param, extrude } from "fluidcad/core";\n\nconst wall = param("Wall", 3);\nextrude(wall);\n',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('params-file');
+    expect(result.message).toContain('line 3:');
+    expect(result.message).toContain('line 4:');
+    expect(result.message).toContain('not exported');
+    expect((result.details as any)?.diagnostics).toHaveLength(2);
+    // The lint knew which file it was: the server picks the params rules from the path.
+    expect(lintRequests).toHaveLength(1);
+    expect(lintRequests[0].filePath).toBe(target);
+    expect(fs.existsSync(target)).toBe(false);
+    expect(renderRequests).toHaveLength(0);
+  });
+
+  it('renders a *.params.js write as a dependency of the open model, never as the model', async () => {
+    renderResponse = {
+      status: 200,
+      body: { state: 'rendered', version: 3, absPath: path.join(workspace, 'bracket.part.js'), durationMs: 9 },
+    };
+    const content = 'import { param } from "fluidcad/core";\n\nexport const wall = param("Wall thickness", 3);\n';
+    const result = await writeFile({ path: 'project.params.js', content });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(fs.readFileSync(path.join(workspace, 'project.params.js'), 'utf8')).toBe(content);
+    expect(renderRequests).toHaveLength(1);
+    expect(renderRequests[0].filePath).toBe(path.join(workspace, 'project.params.js'));
+    expect(renderRequests[0].keepCurrent).toBe(true);
+    // The outcome is the open model's render.
+    expect(result.data.render.state).toBe('rendered');
+    expect((result.data.render as any).absPath).toBe(path.join(workspace, 'bracket.part.js'));
+  });
+
+  it('a model write is rendered as the model: no keepCurrent on the request', async () => {
+    const result = await writeFile({ path: 'bracket.part.js', content: '// empty' });
+    expect(result.ok).toBe(true);
+    expect(renderRequests).toHaveLength(1);
+    expect(renderRequests[0].keepCurrent).toBeUndefined();
+  });
+
+  it('surfaces the no-model outcome of a *.params.js write with nothing open', async () => {
+    renderResponse = {
+      status: 200,
+      body: { state: 'no-model', version: 0, absPath: path.join(workspace, 'project.params.js'), durationMs: 1 },
+    };
+    const result = await writeFile({
+      path: 'project.params.js',
+      content: 'import { param } from "fluidcad/core";\nexport const wall = param("Wall", 3);\n',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.data.render.state).toBe('no-model');
+    expect(fs.existsSync(path.join(workspace, 'project.params.js'))).toBe(true);
   });
 
   it('skips the import lint for non-fluid.js paths', async () => {
@@ -564,6 +662,49 @@ describe('edit_range', () => {
     expect(fs.readFileSync(target, 'utf8')).toBe(original);
     expect(renderRequests).toHaveLength(0);
   });
+  it('folds a *.params.js edit into the open model with keepCurrent, after the params-file lint', async () => {
+    const target = path.join(workspace, 'project.params.js');
+    fs.writeFileSync(target, 'import { param } from "fluidcad/core";\nexport const wall = param("Wall", 3);\n');
+    const result = await editRange({
+      path: 'project.params.js',
+      start: { line: 1, column: 34 },
+      end: { line: 1, column: 35 },
+      newText: '4',
+    });
+    expect(result.ok).toBe(true);
+    expect(fs.readFileSync(target, 'utf8')).toContain('param("Wall", 4)');
+    expect(lintRequests).toHaveLength(1);
+    expect(lintRequests[0].filePath).toBe(target);
+    expect(renderRequests).toHaveLength(1);
+    expect(renderRequests[0].keepCurrent).toBe(true);
+    expect(renderRequests[0].code).toContain('param("Wall", 4)');
+  });
+
+  it('refuses a *.params.js edit that breaks the params-file rules', async () => {
+    const target = path.join(workspace, 'project.params.js');
+    const original = 'import { param } from "fluidcad/core";\nexport const wall = param("Wall", 3);\n';
+    fs.writeFileSync(target, original);
+    lintResponse = {
+      status: 200,
+      body: {
+        missing: [],
+        suggestion: '',
+        diagnostics: [{ message: 'importing the model file "./bracket.part.js" from a params file creates a cycle (model → params → model) — move the value into this file instead', line: 0, column: 0 }],
+      },
+    };
+    const result = await editRange({
+      path: 'project.params.js',
+      start: { line: 0, column: 0 },
+      end: { line: 0, column: 0 },
+      newText: 'import { bracket } from "./bracket.part.js";\n',
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('params-file');
+    expect(result.message).toContain('line 1:');
+    expect(fs.readFileSync(target, 'utf8')).toBe(original);
+    expect(renderRequests).toHaveLength(0);
+  });
 });
 
 describe('list_fluid_files', () => {
@@ -610,6 +751,13 @@ describe('change summary descriptions', () => {
         expect(includeChanges.description).toContain('no volumes');
       }
       expect(byName.get('write_file')!.description).toContain('volumes are not included');
+      // A params file is a dependency write: the agent learns the state it
+      // gets with nothing open and the guard that lints the file's own rules.
+      for (const name of ['write_file', 'edit_range']) {
+        expect(byName.get(name)!.description, name).toContain('params-file');
+        expect(byName.get(name)!.description, name).toContain('no-model');
+      }
+      expect(byName.get('write_file')!.description).toContain('`*.params.js`');
       expect(byName.get('write_file')!.description).toContain('reused');
       expect(byName.get('recompute')!.description).toContain('no volumes');
       // rollback_to does not rebuild anything, so it has no summary to offer.

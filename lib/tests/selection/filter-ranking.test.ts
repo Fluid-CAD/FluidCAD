@@ -409,6 +409,29 @@ describe("constant-free induction pass", () => {
     expect(conjunction!.map(a => a.code)).toEqual([".onPlane('xz', -34.64)"]);
   });
 
+  it("does not count a from() scope toward the conjunction cap", () => {
+    // Four descriptive atoms each shed one non-target; the scope sheds the
+    // twin no description can. Scope plus four descriptions must resolve,
+    // where five descriptions would exceed the cap.
+    const scope: Atom<object> = { ...atom('.from({{ref}})', 24, 0), scope: true };
+    const described = ['.a()', '.b()', '.c()', '.d()'].map(code => atom(code, 25, 0));
+    const targets = new Set([1, 2]);
+    const universe = new Set([1, 2, 3, 4, 5, 6, 7]);
+    const matches = new Map<Atom<object>, Set<number>>([
+      [scope, new Set([1, 2, 3, 4, 5, 6])],
+      ...described.map((a, i) => [a, new Set([...universe].filter(k => k !== i + 3))] as [Atom<object>, Set<number>]),
+    ]);
+
+    const conjunction = induceConjunction([scope, ...described], matches, targets, universe);
+    expect(conjunction).not.toBeNull();
+    expect(conjunction!.map(a => a.code).sort()).toEqual(['.a()', '.b()', '.c()', '.d()', '.from({{ref}})']);
+
+    const unscoped = { ...scope, scope: false };
+    const capped = induceConjunction([unscoped, ...described],
+      new Map([...matches].map(([a, m]) => [a === scope ? unscoped : a, m])), targets, universe);
+    expect(capped).toBeNull();
+  });
+
   it("hands a contextual atom the prefix's survivors instead of the universe", () => {
     // `.line()` keeps {1,2,3}; the rank stage must then be asked about
     // exactly those three — replaying the whole chain from the universe for

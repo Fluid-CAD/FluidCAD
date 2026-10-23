@@ -148,6 +148,10 @@ export class Sweep extends ExtrudeBase implements ISweep {
     } finally {
       spineWire.dispose();
     }
+    // The end caps are found again below through the face roles; these two
+    // handles would otherwise keep the cap faces alive past the scene.
+    sweepResult.firstShape.delete();
+    sweepResult.lastShape.delete();
     const solids = sweepResult.solids;
 
     const startFaces: Face[] = [];

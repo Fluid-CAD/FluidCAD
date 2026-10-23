@@ -81,6 +81,8 @@ export class ExpressionField {
   /** A source expression the host set (edit-mode prefill) — read back
    * unchanged it is what the statement already says, never a declaration. */
   private seededExpression: string | null = null;
+  /** A declaration another input committed into this field ({@link setCommitted}). */
+  private committed: { expression: string; newVariable: { name: string; initializer: string } } | null = null;
   private suppressFilter = false;
   /** The user has typed since the value was last set — a late variable list refilters for them. */
   private typing = false;
@@ -162,6 +164,7 @@ export class ExpressionField {
 
   /** Programmatic value (defaults, edit-mode prefill); closes the dropdown. */
   setValue(value: number | string): void {
+    this.committed = null;
     const str = String(value);
     this.input.value = str;
     if (this.isPlainNumber(str)) {
@@ -173,6 +176,19 @@ export class ExpressionField {
     this.typing = false;
     this.closeDropdown();
     this.hideParamBtn();
+  }
+
+  /**
+   * A value another expression input committed for this field — the translate
+   * gizmo's typed distance. The field shows the committed expression and,
+   * while it reads back unchanged, carries that input's declaration, so a
+   * `gap = 20` typed there writes exactly what it would typed here.
+   */
+  setCommitted(expression: string, newVariable?: { name: string; initializer: string }): void {
+    this.setValue(expression);
+    if (newVariable) {
+      this.committed = { expression: expression.trim(), newVariable };
+    }
   }
 
   /** Whether `raw` is the host-set source expression, read back as it stands. */
@@ -197,6 +213,9 @@ export class ExpressionField {
     }
     if (this.isPlainNumber(raw)) {
       return { value: Number(raw) };
+    }
+    if (this.committed && raw === this.committed.expression) {
+      return { value: raw, newVariable: this.committed.newVariable };
     }
     // The statement's own expression, untouched, is not a declaration
     // whatever the variable list knows (it may not have landed yet): the

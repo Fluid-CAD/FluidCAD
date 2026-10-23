@@ -15,6 +15,7 @@ import {
   FILES_PREFIX,
   MANIFEST_FILENAME,
   type ModelPackageCamera,
+  type ModelPackageConfigurations,
   type ModelPackageManifest,
   type ParamValue,
 } from './types.ts';
@@ -33,6 +34,14 @@ export interface PackInputs {
    * stays a pure, engine-free file producer.
    */
   paramDefinitions?: ParamDefinition[];
+  /**
+   * The `configurations()` row the package opens on and the table it was
+   * read from — captured with `paramDefinitions` by `fluidcad publish`, or
+   * taken from the live session by `POST /api/pack`. Recorded only when the
+   * model declares a table.
+   */
+  configuration?: string;
+  configurations?: ModelPackageConfigurations;
   camera?: ModelPackageCamera;
   /**
    * The project unit to record in the manifest. Callers that already hold
@@ -276,6 +285,10 @@ export async function packModel(inputs: PackInputs): Promise<PackResult> {
   }
   if (inputs.paramDefinitions && inputs.paramDefinitions.length > 0) {
     manifest.paramDefinitions = inputs.paramDefinitions;
+  }
+  if (inputs.configurations && inputs.configurations.names.length > 0) {
+    manifest.configurations = { names: inputs.configurations.names, rows: inputs.configurations.rows };
+    manifest.configuration = inputs.configuration ?? 'Default';
   }
   if (inputs.camera) manifest.camera = inputs.camera;
 

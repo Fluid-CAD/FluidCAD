@@ -71,6 +71,12 @@ export class Fillet2D extends GeometrySceneObject {
       const inputEdges = Array.from(wireInfo.edges.keys());
       const filletedWire = FilletOps.fillet2d(wireInfo.wire, this.sketch.getPlane(), this.radius);
       const resultEdges = filletedWire.getEdges();
+      // Only the result edges go to the scene: the chain wire and the
+      // filleted wire are build-time temporaries. The edges are the wire's
+      // cached sub-shapes, so they are detached before the wire is freed.
+      filletedWire.edges = null;
+      filletedWire.dispose();
+      wireInfo.wire.dispose();
 
       // Surviving/trimmed edges keep their source roles; the new corner arcs
       // get 'fillet-arc' provenance, anything else unrecoverable is a trim.

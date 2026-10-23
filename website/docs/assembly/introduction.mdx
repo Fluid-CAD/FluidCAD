@@ -43,7 +43,7 @@ Everything the Insert wizard and the mate dialog write goes inside that callback
 3. If a queued part declares [parameters](/docs/part/param), the next page shows one form per instance — two queued extrusions can get two lengths. See [Part parameters](./parameters).
 4. Click **Insert N**. Every instance is written as one `insert()` statement and the import line is added for you; the new parts appear in the viewport.
 
-Each `insert()` returns a handle. Chain a starting pose and a name on it:
+Each `insert()` returns a handle. Chain a starting pose, a name and a look on it:
 
 | Chain | Effect |
 |-------|--------|
@@ -51,8 +51,11 @@ Each `insert()` returns a handle. Chain a starting pose and a name on it:
 | `.rotate(axis, degrees)` | Turn it about a world axis (`'x'`, `'y'`, `'z'`, or an axis object). |
 | `.grounded()` | Pin it. See [Grounded](./grounded). |
 | `.name('…')` | The label in the Parts panel and the STEP export. |
+| `.transparent(v)` | See through it in the assembly view: `0` opaque to `1` fully transparent, `.transparent()` alone is `0.5`. Display only: the pose, the joints and the export are unchanged. |
 
-Parameter overrides go in the second argument: `insert(plate, { Width: 120 })`. See [Part parameters](./parameters).
+On a sub-assembly, `.transparent(v)` fades every part inside; a part that is transparent on its own gets more transparent (`0.5` inside `0.5` shows at `0.75`).
+
+Parameter overrides go in the second argument: `insert(plate, { Width: 120 })`. See [Part parameters](./parameters). A definition with [configurations](./configurations) takes a row's name there instead, with overrides third: `insert(frame, 'Wide', { Depth: 1000 })`.
 
 ## Moving instances
 
@@ -91,7 +94,7 @@ By default a mate aligns the two frames **face-to-face**: origins coincide and t
 
 ## The rail
 
-- **Parts** — one row per instance: its name, with the part it was inserted from in small grey text below. An instance inserted from the dialog is named after its variable (`const bracket1 = insert(bracket).name('bracket1')`). The eye hides it, the menu offers *Show in source*, *Toggle grounded*, *Rename*, *Delete* and, for parametric parts, *Edit parameters…*. *Rename* rewrites the `.name('…')` chain and renames the variable after it (`Left bracket` binds `leftBracket`), along with every mate and replicate that reads it. An instance its assembly returns (`return { bracket1 }`) is renamed there too, and so are the `.parts.bracket1` reads in every file that inserts the assembly. Sub-assemblies group under a collapsible header.
+- **Parts** — one row per instance: its name, with the part it was inserted from in small grey text below. An instance inserted from the dialog is named after its variable (`const bracket1 = insert(bracket).name('bracket1')`). The eye hides it, the menu offers *Show in source*, *Toggle grounded*, *Transparency…*, *Rename*, *Delete* and, for parametric parts, *Edit parameters…*. *Transparency…* opens a slider at how much of the part shows: 100% for an opaque part. Lower it to fade the part as you drag; when you let go it writes `.transparent(v)` onto the `insert()` (40% showing is `.transparent(0.6)`, back at 100% removes the call). Parts stay where they are on screen through that edit, including one you turned by hand on its joint. *Rename* rewrites the `.name('…')` chain and renames the variable after it (`Left bracket` binds `leftBracket`), along with every mate and replicate that reads it. An instance its assembly returns (`return { bracket1 }`) is renamed there too, and so are the `.parts.bracket1` reads in every file that inserts the assembly. Sub-assemblies group under a collapsible header.
 - **Connectors** — the assembly's own free frames (below). A copied connector heads its family: the row carries the family's size and a chevron that folds out one `instance(k)` row per copy.
 - **Joints** — one row per `mate()`. Clicking a row highlights both connectors; a revolute or slider row offers **Animate…** in its menu, which opens the [animate bar](/docs/getting-started/animate-joint).
 

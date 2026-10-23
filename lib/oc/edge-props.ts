@@ -15,6 +15,8 @@ export class EdgeProps {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
     const adaptor = new oc.BRepAdaptor_Curve(ocEdge);
+    // The adaptor holds its own reference to the edge; the typed copy goes.
+    ocEdge.delete();
 
     const curveType = adaptor.GetType();
     const first = adaptor.FirstParameter();
@@ -54,7 +56,7 @@ export class EdgeProps {
 
     // Fallback: use BRepGProp.LinearProperties for length
     const linearProps = new oc.GProp_GProps();
-    oc.BRepGProp.LinearProperties(ocEdge, linearProps, false, false);
+    oc.BRepGProp.LinearProperties(edge, linearProps, false, false);
     const length = linearProps.Mass();
     linearProps.delete();
 

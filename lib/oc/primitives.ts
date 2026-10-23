@@ -7,9 +7,14 @@ export class Primitives {
   static makeCylinder(radius: number, height: number): Solid {
     const oc = getOC();
     const cylinderMaker = new oc.BRepPrimAPI_MakeCylinder(radius, height);
+    // `Shape()` is a copy of its own: the wrapper takes a typed one and it goes.
     const shape = cylinderMaker.Shape();
     cylinderMaker.delete();
-    return Solid.fromTopoDSSolid(Explorer.toSolid(shape));
+    try {
+      return Solid.fromTopoDSSolid(Explorer.toSolid(shape));
+    } finally {
+      shape.delete();
+    }
   }
 
   static makeSphere(radius: number, angle: number): Solid {
@@ -17,6 +22,10 @@ export class Primitives {
     const sphereMaker = new oc.BRepPrimAPI_MakeSphere(radius, angle);
     const sphere = sphereMaker.Shape();
     sphereMaker.delete();
-    return Solid.fromTopoDSSolid(Explorer.toSolid(sphere));
+    try {
+      return Solid.fromTopoDSSolid(Explorer.toSolid(sphere));
+    } finally {
+      sphere.delete();
+    }
   }
 }

@@ -13,12 +13,20 @@ export type GhostBody = {
   extendEnd?: unknown;
   angle?: unknown;
   offset?: unknown;
+  /** Translate: the distance along X, Y and Z (`offset` is the plane's scalar). */
+  translation?: unknown;
   value?: unknown;
   isAngle?: unknown;
   edges?: unknown;
   axis?: { kind?: unknown; axis?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
   profile?: { filePath?: unknown; line?: unknown };
+  /** Extrude: the "Up to face" target — a picked face or a first/last-face literal. */
+  toFace?: unknown;
   thickness?: unknown;
+  /** Shell: how the offset walls meet at a corner. */
+  joinType?: unknown;
+  /** Shell: the faces to leave open. */
+  faces?: unknown;
   parallel?: unknown;
   extend?: unknown;
   spine?: { filePath?: unknown; line?: unknown };
@@ -75,7 +83,8 @@ export type GhostBody = {
 
 export const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'mirror',
-  'rotate', 'plane', 'rib', 'hole', 'offset', 'fillet2d', 'copy2d', 'mirror2d', 'split',
+  'rotate', 'translate', 'plane', 'rib', 'hole', 'offset', 'fillet2d', 'copy2d', 'mirror2d', 'split',
+  'shell',
 ];
 
 /** The split's keep choices. */
@@ -83,6 +92,9 @@ export const SPLIT_KEEPS = ['both', 'front', 'back'];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
 export const BAND_FEATURES = ['fillet', 'chamfer'];
+
+/** The shell's join forms — `shell().join()`; omitted is the kernel's 'arc'. */
+export const SHELL_JOINS = ['arc', 'intersection', 'tangent'];
 
 /** The features that sweep one profile — the only ones carrying a profile ref. */
 export const PROFILE_FEATURES = ['extrude', 'revolve', 'sweep'];

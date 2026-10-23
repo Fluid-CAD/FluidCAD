@@ -91,6 +91,8 @@ export class EdgeOps {
 
     const topoEdge = oc.TopoDS.Edge(edge);
     const curveAdaptor = new oc.BRepAdaptor_Curve(topoEdge);
+    // The adaptor holds its own reference to the edge; the typed copy goes.
+    topoEdge.delete();
 
     if (curveAdaptor.GetType() === oc.GeomAbs_CurveType.GeomAbs_Line) {
       const line = curveAdaptor.Line();
@@ -138,6 +140,8 @@ export class EdgeOps {
     const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(start, end);
     const edge = edgeMaker.Edge();
     edgeMaker.delete();
+    start.delete();
+    end.delete();
 
     return edge;
   }
@@ -183,23 +187,28 @@ export class EdgeOps {
   static splitEdgeAtMid(edge: Edge): { pieces: [Edge, Edge]; point: Point } {
     const oc = getOC();
     const info = oc.BRep_Tool.Curve(edge.getShape(), 0, 1);
-    const mid = (info.First + info.Last) / 2;
-    const pieces = [[info.First, mid], [mid, info.Last]].map(([from, to]) => {
-      const maker = new oc.BRepBuilderAPI_MakeEdge(info.returnValue, from, to);
-      try {
-        if (!maker.IsDone()) {
-          throw new Error("Failed to split edge: " + maker.Error());
+    try {
+      const mid = (info.First + info.Last) / 2;
+      const pieces = [[info.First, mid], [mid, info.Last]].map(([from, to]) => {
+        const maker = new oc.BRepBuilderAPI_MakeEdge(info.returnValue, from, to);
+        try {
+          if (!maker.IsDone()) {
+            throw new Error("Failed to split edge: " + maker.Error());
+          }
+          return Edge.fromTopoDSEdge(maker.Edge());
+        } finally {
+          maker.delete();
         }
-        return Edge.fromTopoDSEdge(maker.Edge());
-      } finally {
-        maker.delete();
-      }
-    }) as [Edge, Edge];
-    const pnt = new oc.gp_Pnt();
-    info.returnValue.D0(mid, pnt);
-    const point = new Point(pnt.X(), pnt.Y(), pnt.Z());
-    pnt.delete();
-    return { pieces, point };
+      }) as [Edge, Edge];
+      const pnt = new oc.gp_Pnt();
+      info.returnValue.D0(mid, pnt);
+      const point = new Point(pnt.X(), pnt.Y(), pnt.Z());
+      pnt.delete();
+      return { pieces, point };
+    } finally {
+      // The curve handle the read hands back is the caller's to release.
+      info[Symbol.dispose]();
+    }
   }
 
   static reverseEdgeRaw(edge: TopoDS_Edge): TopoDS_Edge {

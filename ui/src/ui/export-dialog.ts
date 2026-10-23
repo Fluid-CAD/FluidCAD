@@ -2,17 +2,33 @@ import { SceneContext } from '../scene/scene-context';
 import { sceneUnit } from '../units/scene-unit';
 import { captureScreenshot } from '../screenshot';
 import { deliverFile } from '../desktop';
+import type { DesktopFileFilter } from '../desktop';
 import type { EngineClient } from '../engine-client';
-import type { ExportFormat, ExportFormatOptions, ExportInstancePose, ExportRequestBody, MeasurePose } from '../api';
+import type { ExportFormat, ExportFormatOptions, ExportInstancePose, ExportRequestBody, MeasurePose, ShapeSelection } from '../api';
+import type { UIConfigurations } from '../types';
+import type { SceneDocument } from '../units/scene-document';
+import { ConfigurationExport, type ConfigurationPick } from './export-configurations';
 import { ICON_CLOSE } from './icons';
 
 /**
- * What the dialog exports: the listed solids, each in its own frame (a
- * part-scene solid, an assembly's part template), or the whole assembly —
- * every instance where it sits.
+ * What the dialog exports: solids, each in its own frame (a part-scene
+ * solid, an assembly's part template), or the whole assembly — every
+ * instance where it sits.
+ *
+ * `shapeIds` lists solids of the scene on screen (a timeline row, the top
+ * bar's pick), or is `'all'` (`EVERY_SOLID`) — File ▸ Export — for every solid
+ * of the scene exported, which for another configuration row is that row's
+ * own set, bodies the screen does not show included.
+ *
+ * `fileBase` is set when the solids are a part scene's — the output of the
+ * file on screen ({@link exportBaseName} of it). It names the download
+ * (`plate.step`, `plate-M8.step`, `plate-configurations.zip`) and lets the
+ * Configuration select export another `configurations()` row of that file.
+ * Without it (an assembly's part template, a host that knows no file) the
+ * solids export as on screen, as `export.<ext>`.
  */
 export type ExportTarget =
-  | { kind: 'shapes'; shapeIds: string[] }
+  | { kind: 'shapes'; shapeIds: ShapeSelection; fileBase?: string }
   | { kind: 'assembly' };
 
 /**
@@ -29,20 +45,40 @@ export interface ExportAssemblyProvider {
   fileBaseName(): string;
 }
 
-/** The per-solid download name; the assembly download is named after its file. */
+/** The download name of solids that name no file; a part scene's and the assembly's are named after their file. */
 const SHAPES_FILE_BASE = 'export';
+
+const ZIP_FILTER: DesktopFileFilter = { name: 'ZIP Archives', extensions: ['zip'] };
+
+/** Why a configuration other than the one on screen can sit differently: the viewer solved the mates for the row it shows. */
+const OFF_SCREEN_POSES = 'place their parts where the source puts them, not where the mates do';
 
 /**
  * The download's base name for a document: the file name without its
- * directory and without the `.assembly.js` / `.js` suffix —
- * `/work/robot.assembly.js` → `robot`, so the export lands as `robot.step`.
+ * directory and without its model suffix — `.assembly.js`, `.part.js`,
+ * `.fluid.js`, else `.js` — so `/work/robot.assembly.js` exports as
+ * `robot.step` and `/work/plate.part.js` as `plate.step`.
  */
 export function exportBaseName(absPath: string): string {
   const file = absPath.split(/[\\/]/).pop() ?? '';
-  return file.replace(/\.assembly\.js$/, '').replace(/\.js$/, '');
+  return file.replace(/\.(?:assembly|part|fluid)\.js$/, '').replace(/\.js$/, '');
 }
 
 export class ExportDialog {
+  /**
+   * The shapes target for `shapeIds` in the scene `document` shows. A part
+   * scene's solids are its file's output, so the target names the file: the
+   * download is called after it and the dialog offers the file's
+   * `configurations()` rows. An assembly's solids are part templates and
+   * export as on screen, unnamed; so do a host's that knows no document.
+   */
+  static shapesTarget(shapeIds: ShapeSelection, document: SceneDocument | null): ExportTarget {
+    if (document?.kind !== 'part') {
+      return { kind: 'shapes', shapeIds };
+    }
+    return { kind: 'shapes', shapeIds, fileBase: exportBaseName(document.absPath) };
+  }
+
   private overlay: HTMLDivElement;
   private titleEl: HTMLHeadingElement;
   private purposeEl: HTMLParagraphElement;
@@ -66,8 +102,17 @@ export class ExportDialog {
   private heightInput: HTMLInputElement;
   private exportBtn: HTMLButtonElement;
   private statusEl: HTMLDivElement;
+  private configurationSection: HTMLDivElement;
+  private configurationSelect: HTMLSelectElement;
+  private configurationNote: HTMLParagraphElement;
   private target: ExportTarget = { kind: 'shapes', shapeIds: [] };
   private selectedFormat: string = 'step';
+  /** The rendered file's table as the last render reported it; null for a file without rows. */
+  private configurations: UIConfigurations | null = null;
+  /** What the user chose in the Configuration select; null follows the row on screen. */
+  private configurationPick: ConfigurationPick | null = null;
+  /** Bumped by every show() and hide(): an export still running for an earlier opening drops its result. */
+  private session = 0;
 
   /**
    * `assembly` is the host's window onto the live assembly; a host that never
@@ -113,8 +158,29 @@ export class ExportDialog {
     this.heightInput = this.overlay.querySelector('[data-ref="png-height"]')!;
     this.exportBtn = this.overlay.querySelector('[data-ref="export-btn"]')!;
     this.statusEl = this.overlay.querySelector('[data-ref="status"]')!;
+    this.configurationSection = this.overlay.querySelector('[data-ref="configuration-section"]')!;
+    this.configurationSelect = this.overlay.querySelector('[data-ref="configuration"]')!;
+    this.configurationNote = this.overlay.querySelector('[data-ref="configuration-note"]')!;
 
     this.bindEvents();
+  }
+
+  /**
+   * The rendered file's `configurations()` table, fed by the host on every
+   * render. A file without rows (or null) has no Configuration select;
+   * otherwise it lists Default, the rows and "All configurations", on the
+   * row on screen unless the user picked something else since the dialog
+   * opened — a pick the new table no longer offers (its row renamed or
+   * removed) goes back to the screen.
+   */
+  setConfigurations(configurations: UIConfigurations | null): void {
+    this.configurations = configurations && configurations.names.length > 0 ? configurations : null;
+    const pick = this.configurationPick;
+    if (pick && (!this.configurations || !ConfigurationExport.offers(this.configurations, pick))) {
+      this.configurationPick = null;
+    }
+    this.renderConfigurationOptions();
+    this.syncConfigurationControls();
   }
 
   show(target: ExportTarget): void {
@@ -127,10 +193,16 @@ export class ExportDialog {
     this.purposeEl.classList.toggle('hidden', !whole);
     this.statusEl.classList.add('hidden');
     this.exportBtn.disabled = false;
+    this.session++;
+    // Every opening starts on the row on screen.
+    this.configurationPick = null;
+    this.syncConfigurationControls();
     this.overlay.classList.remove('hidden');
   }
 
+  /** Close the dialog; an export still running is abandoned and delivers nothing. */
   hide(): void {
+    this.session++;
     this.overlay.classList.add('hidden');
   }
 
@@ -146,6 +218,12 @@ export class ExportDialog {
         <p data-ref="purpose" class="hidden text-xs text-base-content/60 -mt-2 mb-4"></p>
 
         <div class="flex flex-col gap-3">
+          <div data-ref="configuration-section" class="hidden">
+            <label class="text-xs text-base-content/60 mb-1 block">Configuration</label>
+            <select data-ref="configuration" class="select select-sm select-bordered w-full"></select>
+            <p data-ref="configuration-note" class="hidden mt-1.5 text-[11px] text-base-content/50"></p>
+          </div>
+
           <div>
             <label class="text-xs text-base-content/60 mb-1.5 block">Format</label>
             <div data-ref="format-pills" class="join w-full border border-base-content/10 rounded-lg">
@@ -239,6 +317,99 @@ export class ExportDialog {
     this.stepSection.classList.toggle('hidden', format !== 'step');
     this.stlSection.classList.toggle('hidden', format !== 'stl');
     this.pngSection.classList.toggle('hidden', format !== 'png');
+    this.syncConfigurationControls();
+  }
+
+  /**
+   * The select's options: Default and the table's rows — the one on screen
+   * marked — then, past a separator, "All configurations". Values go
+   * through {@link ConfigurationExport.optionValue}, so no row name can pass
+   * for the "all" option.
+   */
+  private renderConfigurationOptions(): void {
+    const table = this.configurations;
+    this.configurationSelect.replaceChildren();
+    if (!table) {
+      return;
+    }
+    for (const name of ConfigurationExport.rows(table)) {
+      const option = document.createElement('option');
+      option.value = ConfigurationExport.optionValue({ kind: 'one', name });
+      option.textContent = name === table.active ? `${name} (on screen)` : name;
+      this.configurationSelect.appendChild(option);
+    }
+    this.configurationSelect.appendChild(document.createElement('hr'));
+    const all = document.createElement('option');
+    all.value = ConfigurationExport.optionValue({ kind: 'all' });
+    all.textContent = 'All configurations (.zip)';
+    this.configurationSelect.appendChild(all);
+  }
+
+  /**
+   * The Configuration select belongs to an export of a file's own output —
+   * the whole assembly, or a part scene's solids (a target naming its file)
+   * — when that file has `configurations()` rows. Solids that name no file
+   * (an assembly's part templates) export what is on screen.
+   */
+  private configurationsOffered(): boolean {
+    if (this.configurations === null) {
+      return false;
+    }
+    return this.target.kind === 'assembly' || this.target.fileBase !== undefined;
+  }
+
+  /** The download's base name: the assembly's or the part scene's file, else {@link SHAPES_FILE_BASE}. */
+  private downloadBase(): string {
+    if (this.target.kind === 'assembly') {
+      return this.assembly?.fileBaseName() || 'assembly';
+    }
+    return this.target.fileBase || SHAPES_FILE_BASE;
+  }
+
+  /**
+   * What a STEP/STL export renders: the user's pick, else the row on screen;
+   * null when the dialog offers no Configuration select.
+   */
+  private configurationToExport(): ConfigurationPick | null {
+    if (!this.configurationsOffered()) {
+      return null;
+    }
+    return this.configurationPick ?? { kind: 'one', name: this.configurations!.active };
+  }
+
+  /**
+   * Show the select for {@link configurationsOffered}, on the pick. A PNG is
+   * captured from the viewport, so for it the select is held on the row on
+   * screen (the pick comes back with STEP or STL). The note says how the
+   * export differs from the viewport: All configurations is one file per
+   * row in a zip, and — the assembly only — a row other than the one on
+   * screen sits at its statement poses, the viewer having solved the mates
+   * for the row it shows. A part scene's other row needs no note: its
+   * solids are simply that row's.
+   */
+  private syncConfigurationControls(): void {
+    const offered = this.configurationsOffered();
+    this.configurationSection.classList.toggle('hidden', !offered);
+    let note = '';
+    if (offered) {
+      const png = this.selectedFormat === 'png';
+      const active = this.configurations!.active;
+      const pick: ConfigurationPick = png ? { kind: 'one', name: active } : this.configurationToExport()!;
+      const whole = this.target.kind === 'assembly';
+      this.configurationSelect.disabled = png;
+      this.configurationSelect.value = ConfigurationExport.optionValue(pick);
+      if (png) {
+        note = 'A PNG captures the configuration on screen.';
+      } else if (pick.kind === 'all') {
+        note = whole
+          ? `Each configuration is its own file in one .zip. Those not on screen ${OFF_SCREEN_POSES}.`
+          : 'Each configuration is its own file in one .zip.';
+      } else if (whole && pick.name !== active) {
+        note = `A configuration other than the one on screen will ${OFF_SCREEN_POSES}.`;
+      }
+    }
+    this.configurationNote.textContent = note;
+    this.configurationNote.classList.toggle('hidden', note === '');
   }
 
   private bindEvents(): void {
@@ -263,6 +434,11 @@ export class ExportDialog {
       this.marginSection.classList.toggle('hidden', !this.autoCropToggle.checked);
     });
 
+    this.configurationSelect.addEventListener('change', () => {
+      this.configurationPick = ConfigurationExport.parseOptionValue(this.configurationSelect.value);
+      this.syncConfigurationControls();
+    });
+
     this.exportBtn.addEventListener('click', () => this.onExport());
   }
 
@@ -275,7 +451,6 @@ export class ExportDialog {
     const options = this.formatOptions(format);
 
     let body: ExportRequestBody;
-    let fileBase: string;
     if (this.target.kind === 'assembly') {
       const poses = this.collectAssemblyPoses();
       if ('reason' in poses) {
@@ -283,36 +458,126 @@ export class ExportDialog {
         return;
       }
       body = { format, assembly: { poses: poses.poses }, ...options };
-      fileBase = this.assembly?.fileBaseName() || 'assembly';
     } else {
       body = { format, shapeIds: this.target.shapeIds, ...options };
-      fileBase = SHAPES_FILE_BASE;
+    }
+    const fileBase = this.downloadBase();
+
+    const configuration = this.configurationToExport();
+    if (configuration?.kind === 'all') {
+      return this.exportAllConfigurations(body, fileBase, format);
+    }
+    if (configuration) {
+      body = { ...body, configuration: configuration.name };
     }
 
+    const session = this.session;
     this.exportBtn.disabled = true;
     this.statusEl.classList.remove('hidden');
-    this.statusEl.innerHTML = '<span class="loading loading-spinner loading-xs"></span><span>Exporting...</span>';
+    this.showProgress('Exporting...');
 
     try {
       const blob = await this.client.exportShapes(body);
-      const ext = format === 'step' ? '.step' : '.stl';
+      if (session !== this.session) {
+        return;
+      }
+      const { extension, filter } = ExportDialog.fileType(format);
       // Desktop: a native Save dialog. Browser: the usual download.
-      const outcome = await deliverFile(blob, `${fileBase}${ext}`, [
-        format === 'step'
-          ? { name: 'STEP Files', extensions: ['step', 'stp'] }
-          : { name: 'STL Files', extensions: ['stl'] },
-      ]);
+      const outcome = await deliverFile(blob, `${fileBase}${extension}`, [filter]);
       if (outcome === 'failed') {
         throw new Error('The file could not be written.');
       }
-      if (outcome !== 'cancelled') {
-        this.hide();
-      }
+      this.finishDelivery(session, outcome === 'cancelled');
     } catch (err: any) {
-      this.showError(err.message);
+      if (session === this.session) {
+        this.showError(err?.message ?? String(err));
+      }
     } finally {
-      this.exportBtn.disabled = false;
+      if (session === this.session) {
+        this.exportBtn.disabled = false;
+      }
     }
+  }
+
+  /**
+   * "All configurations": one request per row — Default first, then the
+   * table's rows in declaration order — one after the other with the
+   * progress in the status line, then every file in one zip
+   * ({@link ConfigurationExport.entries} names them), delivered once. A
+   * failed row stops the run and names it, and nothing is delivered: a
+   * partial archive would pass for a complete one. Closing the dialog
+   * abandons the run.
+   */
+  private async exportAllConfigurations(body: ExportRequestBody, fileBase: string, format: ExportFormat): Promise<void> {
+    const { extension } = ExportDialog.fileType(format);
+    // The rows as the export starts: a render landing mid-run changes the table, not this run.
+    const entries = ConfigurationExport.entries(this.configurations!, fileBase, extension);
+    const session = this.session;
+    this.exportBtn.disabled = true;
+    this.statusEl.classList.remove('hidden');
+
+    try {
+      const files: { fileName: string; blob: Blob }[] = [];
+      for (const [index, entry] of entries.entries()) {
+        this.showProgress(`Exporting ${entry.configuration} (${index + 1} of ${entries.length})...`);
+        let blob: Blob;
+        try {
+          blob = await this.client.exportShapes({ ...body, configuration: entry.configuration });
+        } catch (err: any) {
+          throw new Error(`${entry.configuration}: ${err?.message ?? String(err)}`);
+        }
+        if (session !== this.session) {
+          return;
+        }
+        files.push({ fileName: entry.fileName, blob });
+      }
+
+      this.showProgress('Packing the archive...');
+      const archive = await ConfigurationExport.archive(files);
+      if (session !== this.session) {
+        return;
+      }
+      const outcome = await deliverFile(archive, ConfigurationExport.archiveName(fileBase), [ZIP_FILTER]);
+      if (outcome === 'failed') {
+        throw new Error('The archive could not be written.');
+      }
+      this.finishDelivery(session, outcome === 'cancelled');
+    } catch (err: any) {
+      if (session === this.session) {
+        this.showError(err?.message ?? String(err));
+      }
+    } finally {
+      if (session === this.session) {
+        this.exportBtn.disabled = false;
+      }
+    }
+  }
+
+  /** A delivered file closes the dialog; a cancelled Save dialog leaves it open, its progress line cleared. */
+  private finishDelivery(session: number, cancelled: boolean): void {
+    if (session !== this.session) {
+      return;
+    }
+    if (cancelled) {
+      this.statusEl.classList.add('hidden');
+      return;
+    }
+    this.hide();
+  }
+
+  private static fileType(format: ExportFormat): { extension: string; filter: DesktopFileFilter } {
+    return format === 'step'
+      ? { extension: '.step', filter: { name: 'STEP Files', extensions: ['step', 'stp'] } }
+      : { extension: '.stl', filter: { name: 'STL Files', extensions: ['stl'] } };
+  }
+
+  private showProgress(message: string): void {
+    this.statusEl.replaceChildren();
+    const spinner = document.createElement('span');
+    spinner.className = 'loading loading-spinner loading-xs';
+    const text = document.createElement('span');
+    text.textContent = message;
+    this.statusEl.append(spinner, text);
   }
 
   private formatOptions(format: ExportFormat): ExportFormatOptions {
@@ -382,10 +647,7 @@ export class ExportDialog {
         margin: this.autoCropToggle.checked ? Math.max(0, parseInt(this.marginInput.value) || 0) : 0,
       });
 
-      const fileBase = this.target.kind === 'assembly'
-        ? this.assembly?.fileBaseName() || 'assembly'
-        : SHAPES_FILE_BASE;
-      const outcome = await deliverFile(blob, `${fileBase}.png`, [
+      const outcome = await deliverFile(blob, `${this.downloadBase()}.png`, [
         { name: 'PNG Images', extensions: ['png'] },
       ]);
       if (outcome === 'failed') {

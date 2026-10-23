@@ -9,11 +9,12 @@ import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { injectFilterScope } from "../filters/scope-injection.js";
+import { injectFromMembership } from "../filters/from-object.js";
 import { applyBucketFilters } from "../filters/bucket-scope.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
 import {
-  Atom, ParameterLink, FaceSource, InstanceSource, instantiateEdgeAtoms, instantiateFaceAtoms,
+  Atom, ParameterLink, FaceSource, FromSource, instantiateEdgeAtoms, instantiateFaceAtoms,
 } from "./atoms.js";
 import { induceConjunctions } from "./induction.js";
 import { probeEdge, probeFace } from "./probe.js";
@@ -56,6 +57,8 @@ export type InducedFilter = {
    * substitute its name for the token.
    */
   refs: SceneObject[];
+  /** The subset of `refs` the text only ever passes whole (`from({{r0}})`). */
+  wholeRefs: SceneObject[];
 };
 
 export function bucketContext(
@@ -93,7 +96,7 @@ export function globalContext(
   params: ParameterLink[] = [],
   partScope: SceneObject | null = null,
   faceSources: FaceSource[] = [],
-  instanceSources: InstanceSource[] = [],
+  fromSources: FromSource[] = [],
 ): InductionContext {
   // A face-group reference renders as `<var>.<accessor>()`, and the
   // variable only exists inside the part() callback that declared it — a
@@ -103,7 +106,7 @@ export function globalContext(
   const scopedFaceSources = faceSources.filter(
     source => scene.findEnclosingPart(source.feature) === partScope,
   );
-  const scopedInstanceSources = instanceSources.filter(
+  const scopedFromSources = fromSources.filter(
     source => scene.findEnclosingPart(source.feature) === partScope,
   );
   const solids: Solid[] = [];
@@ -150,7 +153,15 @@ export function globalContext(
     kindFn: kind,
     evaluate: (builders, shapes = universe) => {
       injectFilterScope(builders, () => ({ solids, extraFaces: [] }));
-      return new ShapeFilter(shapes, ...builders).apply();
+      // `from()` membership reads removals through the same scope as the
+      // universe: under an edit boundary the owner still holds the solid
+      // the edited statement consumed.
+      const releaseFrom = injectFromMembership(builders, scope);
+      try {
+        return new ShapeFilter(shapes, ...builders).apply();
+      } finally {
+        releaseFrom();
+      }
     },
     instantiate: attrs => kind === 'edge'
       ? instantiateEdgeAtoms(
@@ -159,14 +170,14 @@ export function globalContext(
         true,
         params,
         scopedFaceSources,
-        scopedInstanceSources,
+        scopedFromSources,
       ) as Atom<FilterBuilderBase<Shape>>[]
       : instantiateFaceAtoms(
         attrs.map(a => probeFace(a.picked as Face)),
         universe as Face[],
         params,
         scopedFaceSources,
-        scopedInstanceSources,
+        scopedFromSources,
       ) as Atom<FilterBuilderBase<Shape>>[],
     orSplit: true,
   };
@@ -279,13 +290,15 @@ export function induceFilterCandidates(
     const filterArgs = conjunctions
       .map(conj => `${ctx.kindFn}()${conj.map(a => renderAtomCode(a, refs)).join('')}`)
       .join(', ');
+    const accessorRefs = new Set(conjunctions.flat().filter(a => a.ref && !a.wholeRef).map(a => a.ref!));
+    const wholeRefs = refs.filter(ref => !accessorRefs.has(ref));
     const constants = conjunctions.reduce(
       (sum, conj) => sum + conj.reduce((s, a) => s + a.constants, 0), 0,
     );
     const bakedConstants = conjunctions.reduce(
       (sum, conj) => sum + conj.reduce((s, a) => s + (a.bakedConstants ?? 0), 0), 0,
     );
-    results.push({ filterArgs, constants, bakedConstants, builders, refs });
+    results.push({ filterArgs, constants, bakedConstants, builders, refs, wholeRefs });
   }
   return results;
 }

@@ -47,11 +47,12 @@ import { validateRevolveAxis, type RevolveAxisInput } from './revolve.ts';
 import { validateRibOptions } from './rib.ts';
 import { validateHoleFasten, validateHoleOptions, validateHolePlacements, type HoleFastenInput, type HolePlacementInput } from './hole.ts';
 import { validateRotateEdit } from './rotate.ts';
+import { validateTranslateEdit } from './translate.ts';
 import { validateSplitEdit, type SplitPlaneInput } from './split.ts';
 import { validateSweepExtend } from './sweep.ts';
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split']);
 
 export type StatementEditRequest = {
   feature: ApplyFeatureEditSpec['feature'];
@@ -173,6 +174,8 @@ export type StatementEditRequest = {
   rotateAxis?: { kind: 'keep' } | RevolveAxisInput;
   /** Full replacement rotate target list; absent keeps the statement's. */
   rotateTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /** Full replacement translate target list; absent keeps the statement's. */
+  translateTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement boolean target list; absent keeps the statement's. */
   booleanTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement plane base list; absent keeps the statement's. */
@@ -200,7 +203,7 @@ export type StatementEditRequest = {
 export function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "boolean", "offset", "project", "hole" or "split" for an edit' };
+    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "translate", "boolean", "offset", "project", "hole" or "split" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -651,6 +654,10 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
 
   if (feature === 'rotate') {
     return validateRotateEdit(body, base, edit);
+  }
+
+  if (feature === 'translate') {
+    return validateTranslateEdit(body, base, edit);
   }
 
   if (feature === 'split') {

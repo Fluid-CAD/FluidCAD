@@ -1,4 +1,4 @@
-import { ICON_CUBE, ICON_FILE_CODE, ICON_FOLDER_PLUS, ICON_PLUS } from '../ui/icons';
+import { ICON_CUBE, ICON_FILE_CODE, ICON_FOLDER_PLUS, ICON_PLUS, ICON_SLIDERS } from '../ui/icons';
 import { listWorkspaceFiles, type FileKind, type WorkspaceFileEntry } from './editor-api';
 import { ASSEMBLY_ACCENT, splitModelName } from './model-name';
 
@@ -26,8 +26,21 @@ export interface QuickOpenHandlers {
   onCreateFolder(relPath: string): Promise<void>;
 }
 
-/** What the query offers to create when nothing answers to it yet. */
-type CreateTarget = { kind: 'file' | 'folder'; path: string };
+/**
+ * What the query offers to create when nothing answers to it yet. A bare
+ * name is offered as each kind of file a project is made of — `type` says
+ * which — while a name spelled with its extension is created as typed.
+ */
+type CreateTarget = { kind: 'file' | 'folder'; path: string; type?: CreateType };
+
+type CreateType = 'part' | 'assembly' | 'params';
+
+/** The file each offer for a bare name creates, in the order they are listed. */
+const CREATE_TYPES: ReadonlyArray<{ type: CreateType; suffix: string; label: string }> = [
+  { type: 'part', suffix: '.part.js', label: 'part' },
+  { type: 'assembly', suffix: '.assembly.js', label: 'assembly' },
+  { type: 'params', suffix: '.params.js', label: 'global params' },
+];
 
 /** Subsequence match — the same shape of matching every quick-open uses. */
 function fuzzyScore(candidate: string, query: string): number | null {
@@ -161,7 +174,7 @@ export class QuickOpen {
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
-      const total = this.results.length + (this.createTarget() ? 1 : 0);
+      const total = this.results.length + this.createTargets().length;
       if (total > 0) {
         const step = event.key === 'ArrowDown' ? 1 : -1;
         this.highlighted = (this.highlighted + step + total) % total;
@@ -178,25 +191,27 @@ export class QuickOpen {
   /**
    * A query that names something which doesn't exist is an offer to create
    * it — creation lives here rather than in a separate dialog. A trailing
-   * slash names a folder; anything else a file, with `a/b` landing in folder
-   * `a` (created on the way if need be).
+   * slash names a folder; a name with an extension the file it spells; a bare
+   * name a part, an assembly or a global params file of that name, minus any
+   * that already exist. `a/b` lands in folder `a` (created on the way if need
+   * be).
    */
-  private createTarget(): CreateTarget | null {
+  private createTargets(): CreateTarget[] {
     const name = this.query.trim();
     if (name === '') {
-      return null;
+      return [];
     }
     if (name.endsWith('/')) {
       const folder = name.replace(/\/+$/, '');
       if (folder === '' || this.folders.includes(folder)) {
-        return null;
+        return [];
       }
-      return { kind: 'folder', path: folder };
+      return [{ kind: 'folder', path: folder }];
     }
-    if (this.files.some((file) => file.path === name)) {
-      return null;
-    }
-    return { kind: 'file', path: /\.[a-z0-9]+$/i.test(name) ? name : `${name}.part.js` };
+    const targets: CreateTarget[] = /\.[a-z0-9]+$/i.test(name)
+      ? [{ kind: 'file', path: name }]
+      : CREATE_TYPES.map(({ type, suffix }) => ({ kind: 'file', path: `${name}${suffix}`, type }));
+    return targets.filter((target) => !this.files.some((file) => file.path === target.path));
   }
 
   private activate(index: number, list: HTMLElement): void {
@@ -206,8 +221,8 @@ export class QuickOpen {
       this.handlers.onOpen(entry);
       return;
     }
-    const target = this.createTarget();
-    if (!target || index !== this.results.length) {
+    const target = this.createTargets()[index - this.results.length];
+    if (!target) {
       return;
     }
     if (target.kind === 'file') {
@@ -278,13 +293,13 @@ export class QuickOpen {
       }));
     }
 
-    const createTarget = this.createTarget();
-    if (createTarget) {
+    const createTargets = this.createTargets();
+    for (const [offset, target] of createTargets.entries()) {
+      const index = this.results.length + offset;
       list.appendChild(this.buildRow({
-        icon: QuickOpen.buildIcon(createTarget.kind === 'folder' ? ICON_FOLDER_PLUS : ICON_PLUS),
-        label: createTarget.kind === 'folder' ? `Create folder ${createTarget.path}/` : `Create ${createTarget.path}`,
-        highlighted: this.highlighted === this.results.length,
-        onPick: () => this.activate(this.results.length, list),
+        ...QuickOpen.describeCreate(target),
+        highlighted: this.highlighted === index,
+        onPick: () => this.activate(index, list),
       }));
     }
 
@@ -292,7 +307,7 @@ export class QuickOpen {
     // row the popover has scrolled out of sight; keep it on screen.
     (list.children[this.highlighted] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
 
-    if (this.results.length === 0 && !createTarget) {
+    if (this.results.length === 0 && createTargets.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'px-3 py-2 text-xs text-base-content/40';
       const name = this.query.trim();
@@ -302,6 +317,34 @@ export class QuickOpen {
         : this.files.length === 0 ? 'No files in this workspace.' : 'No matches.';
       list.appendChild(empty);
     }
+  }
+
+  /**
+   * A Create row's icon and wording. A typed bare name reads as the kind of
+   * file it makes — `Create part "bracket"` under its cube, the assembly's in
+   * teal, global params under the Parameters column's sliders — with the file
+   * name it lands as underneath.
+   */
+  private static describeCreate(target: CreateTarget): { icon: HTMLElement; label: string | Node; detail?: string } {
+    if (target.kind === 'folder') {
+      return { icon: QuickOpen.buildIcon(ICON_FOLDER_PLUS), label: `Create folder ${target.path}/` };
+    }
+    const offer = CREATE_TYPES.find((entry) => entry.type === target.type);
+    if (!offer) {
+      return { icon: QuickOpen.buildIcon(ICON_PLUS), label: `Create ${target.path}` };
+    }
+    const basename = target.path.split('/').pop() || target.path;
+    const stem = basename.slice(0, -offer.suffix.length);
+    const kind = document.createElement('strong');
+    kind.className = 'font-semibold';
+    kind.textContent = offer.label;
+    const label = document.createDocumentFragment();
+    label.append('Create ', kind, ` "${stem}"`);
+    return {
+      icon: QuickOpen.buildIcon(offer.type === 'params' ? ICON_SLIDERS : ICON_CUBE, basename),
+      label,
+      detail: target.path,
+    };
   }
 
   /**
@@ -329,7 +372,7 @@ export class QuickOpen {
    */
   private buildRow(options: {
     icon: HTMLElement;
-    label: string;
+    label: string | Node;
     detail?: string;
     highlighted: boolean;
     onPick: () => void;
@@ -346,7 +389,7 @@ export class QuickOpen {
 
     const label = document.createElement('span');
     label.className = 'truncate';
-    label.textContent = options.label;
+    label.append(options.label);
     text.appendChild(label);
 
     if (options.detail !== undefined) {

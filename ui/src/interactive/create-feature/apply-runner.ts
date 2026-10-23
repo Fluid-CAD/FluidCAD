@@ -31,6 +31,13 @@ export class ApplyRunner<R extends object, G = GhostSolid[]> {
   constructor(private readonly opts: {
     panel: RunnerPanel;
     isArmed: () => boolean;
+    /**
+     * The dialog's edit session, when it has one: previews (and the ghost
+     * chained onto them) only run while the session is `settled` — the view
+     * at the pre-statement boundary, or no session at all. The service
+     * re-schedules at the boundary, so a preview held back here is not lost.
+     */
+    session?: { readonly settled: boolean };
     /** The current request (edit or create), or the message blocking it. */
     build: () => R | { error: string };
     /** The matching API call; `extras` carries the preview flag + signal. */
@@ -106,7 +113,7 @@ export class ApplyRunner<R extends object, G = GhostSolid[]> {
 
   schedulePreview(): void {
     this.cancelPreview();
-    if (!this.opts.isArmed()) {
+    if (!this.opts.isArmed() || !this.settled) {
       return;
     }
     this.opts.onSchedule?.();
@@ -126,9 +133,17 @@ export class ApplyRunner<R extends object, G = GhostSolid[]> {
     this.seq++;
   }
 
+  /** Whether the view is one a preview may be drawn against (see `opts.session`). */
+  private get settled(): boolean {
+    return this.opts.session?.settled ?? true;
+  }
+
   private async runPreview(): Promise<void> {
     const { panel } = this.opts;
-    if (!this.opts.isArmed() || this.applying) {
+    // The view can move off the boundary during the debounce — a render
+    // landing mid-session re-asserts the rollback, and the boundary
+    // re-schedules.
+    if (!this.opts.isArmed() || this.applying || !this.settled) {
       return;
     }
     const request = this.opts.build();

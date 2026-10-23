@@ -17,6 +17,8 @@ import {
   type TSNode,
   type TSTree,
 } from '../../code-editor/index.ts';
+import { GlobalImports } from '../../apply-feature-edit/global-imports.ts';
+import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { normalizePath } from '../../normalize-path.ts';
 import { Arithmetic, type ExpressionParser } from './expressions.ts';
 import type { ValueExpr } from './values.ts';
@@ -53,6 +55,12 @@ export type ValueScopeSource = {
    * `part()` binding. Absent, no such access resolves.
    */
   parts?: readonly RenderedPartProperties[];
+  /**
+   * The global-parameters catalog — what an `import { wall } from
+   * './project.params.js'` binding reads (§2.8). Absent, every import
+   * resolves to nothing.
+   */
+  globals?: GlobalParamCatalog;
 };
 
 /**
@@ -96,6 +104,8 @@ export class ValueScope {
     private readonly rendered: RenderedProperties,
     /** The node the dialog's names resolve from. */
     private readonly anchor: TSNode,
+    /** The number each params-file import specifier binds, by its local identifier's span. */
+    private readonly importedGlobals: ReadonlyMap<string, number>,
   ) {}
 
   /** The request's `valueScope` field: null when absent, `'invalid'` when malformed. */
@@ -125,7 +135,59 @@ export class ValueScope {
     const rendered = new RenderedProperties(source.filePath, { instances: source.instances, parts: source.parts });
     const inFile = at !== null && normalizePath(at.filePath) === normalizePath(source.filePath);
     const anchor = inFile ? ValueScope.anchorAt(tree, splitLines(code), at) : tree.rootNode;
-    return new ValueScope(parser, tree, bindings, params, rendered, anchor);
+    const importedGlobals = source.globals
+      ? await ValueScope.importedGlobals(tree, source.filePath, source.globals)
+      : new Map<string, number>();
+    return new ValueScope(parser, tree, bindings, params, rendered, anchor, importedGlobals);
+  }
+
+  /**
+   * The numeric project parameters the file's imports bind, read off the
+   * catalog up front — the lookups are async and the resolution is not.
+   * Keyed by the span of the specifier's local identifier, which is the
+   * `id` of the {@link Binding} the import declares.
+   */
+  private static async importedGlobals(
+    tree: TSTree,
+    filePath: string,
+    globals: GlobalParamCatalog,
+  ): Promise<Map<string, number>> {
+    const values = new Map<string, number>();
+    for (const statement of tree.rootNode.namedChildren) {
+      if (statement.type !== 'import_statement') {
+        continue;
+      }
+      const source = statement.childForFieldName('source')?.text.slice(1, -1);
+      const paramsFile = source ? GlobalImports.resolveParamsImport(filePath, source) : null;
+      if (!paramsFile) {
+        continue;
+      }
+      for (const clause of statement.namedChildren) {
+        if (clause.type !== 'import_clause') {
+          continue;
+        }
+        for (const named of clause.namedChildren) {
+          if (named.type !== 'named_imports') {
+            continue;
+          }
+          for (const specifier of named.namedChildren) {
+            if (specifier.type !== 'import_specifier') {
+              continue;
+            }
+            const name = specifier.childForFieldName('name') ?? specifier.namedChild(0);
+            const local = specifier.childForFieldName('alias') ?? name;
+            if (!name || !local) {
+              continue;
+            }
+            const value = await globals.valueOf(paramsFile, name.text);
+            if (typeof value === 'number' && Number.isFinite(value)) {
+              values.set(`${local.startIndex}:${local.endIndex}`, value);
+            }
+          }
+        }
+      }
+    }
+    return values;
   }
 
   /** A dialog value's number, or null when it isn't one the preview can work out. */
@@ -219,6 +281,11 @@ export class ValueScope {
   }
 
   private computeBindingValue(binding: Binding): number | null {
+    if (binding.kind === 'import') {
+      // A params-file import reads the catalog's number for that export;
+      // any other import is a value the preview cannot know.
+      return this.importedGlobals.get(`${binding.id.startIndex}:${binding.id.endIndex}`) ?? null;
+    }
     const declared = binding.kind === 'const' || binding.kind === 'let' || binding.kind === 'var';
     if (!declared || binding.destructured || !binding.init || this.bindings.isReassigned(binding)) {
       return null;

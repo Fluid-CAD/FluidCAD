@@ -4,12 +4,12 @@ import { BuildError } from "../common/build-error.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { requireShapes } from "../common/operand-check.js";
-import type { ShapeHistory } from "../common/shape-history-tracker.js";
+import { ShapeHistoryTracker, type ShapeHistory } from "../common/shape-history-tracker.js";
 import { Plane } from "../math/plane.js";
 import { getOC } from "../oc/init.js";
 import { Explorer } from "../oc/explorer.js";
 import { SplitOps, type SplitCutter, type SplitSolidResult } from "../oc/split-ops.js";
-import type { CarriedColor } from "../oc/color-transfer.js";
+import { ColorTransfer, type CarriedColor } from "../oc/color-transfer.js";
 import { heldSolidsOf, liveOperandShapes, type HeldShape } from "../helpers/live-solids.js";
 import { recordModifierHistory } from "../helpers/scene-helpers.js";
 import { ISplit } from "../core/interfaces.js";
@@ -107,10 +107,24 @@ export class Split extends SceneObject implements ISplit {
 
       holder.removeShape(shape, this, kept);
       if (history) {
-        recordModifierHistory(this.keep === 'both' ? history : historyWithin(history, kept), holder, this);
+        const within = this.keep === 'both' ? history : historyWithin(history, kept);
+        recordModifierHistory(within, holder, this);
+        // The result wrappers on a thrown-away piece were recorded nowhere.
+        if (within !== history) {
+          const recorded = new Set(ShapeHistoryTracker.shapesOf(within));
+          for (const wrapper of ShapeHistoryTracker.shapesOf(history)) {
+            if (!recorded.has(wrapper)) wrapper.dispose();
+          }
+        }
       }
       this.addShapes(kept);
-      this.recordCarriedColors(carried.filter(c => kept.some(piece => piece === c.shape)));
+      const onKept = carried.filter(c => kept.some(piece => piece === c.shape));
+      this.recordCarriedColors(onKept);
+      // Colours carried onto a piece that is thrown away go with it, as does the piece.
+      ColorTransfer.disposeCarried(carried.filter(c => !onKept.includes(c)));
+      for (const piece of pieces) {
+        if (!kept.includes(piece.solid)) piece.solid.dispose();
+      }
     }
 
     if (splitCount === 0) {
@@ -165,7 +179,10 @@ export class Split extends SceneObject implements ISplit {
   /**
    * The solids this split may cut, each with its holder: the named targets'
    * live solids (each listed once), or — without targets — every live
-   * solid the scope's objects hold before this statement.
+   * solid the scope's objects hold before this statement. The scope is the
+   * context's (the enclosing part's members, or the scene, up to here): a
+   * repeated split sits under its repeat container, whose earlier children
+   * are the instance's other clones, not the bodies to cut.
    */
   private resolveStock(context: BuildSceneObjectContext): HeldShape[] {
     if (this.targetObjects && this.targetObjects.length > 0) {
@@ -182,9 +199,7 @@ export class Split extends SceneObject implements ISplit {
       return out;
     }
 
-    const parent = this.parentId ? this.getParent() : null;
-    const objects = parent ? parent.getPreviousSiblings(this) : context.getSceneObjects();
-    return heldSolidsOf(objects).map(({ holder, solid }) => ({ holder, shape: solid }));
+    return heldSolidsOf(context.getSceneObjects()).map(({ holder, solid }) => ({ holder, shape: solid }));
   }
 
   /** The cut plane as built; null when the cut is a sketched curve's sheet. */
@@ -197,12 +212,23 @@ export class Split extends SceneObject implements ISplit {
     return (this.getState('cut-kind') as 'plane' | 'sheet' | undefined) ?? 'plane';
   }
 
+  /**
+   * The cut alone. The targets name bodies the split reads wherever the
+   * features since left them (`liveOperandShapes`), the way `mirror(p, f)`
+   * and `fuse(a, b)` read theirs — never features to rebuild. Listing them
+   * would make a repeat of the split clone each target's whole producer
+   * chain into every instance (a mirrored copy of the body, then the fillet
+   * and the split failing on it) instead of re-applying the cut to the
+   * pieces the original split left.
+   */
   override getDependencies(): SceneObject[] {
-    return [this.cut, ...(this.targetObjects ?? [])];
+    return [this.cut];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const cut = (remap.get(this.cut) as SplitCut | undefined) ?? this.cut;
+    // A target repeated alongside the split is its clone; any other stays
+    // the original, read live — after the original split, its pieces.
     const targets = this.targetObjects
       ? this.targetObjects.map(obj => remap.get(obj) || obj)
       : null;
@@ -265,12 +291,13 @@ function historyWithin(history: ShapeHistory, solids: Solid[]): ShapeHistory {
   const edges = new oc.TopTools_MapOfShape();
   try {
     for (const solid of solids) {
-      for (const raw of Explorer.findShapes(solid.getShape(), FACE)) {
-        faces.Add(raw);
-      }
-      for (const raw of Explorer.findShapes(solid.getShape(), EDGE)) {
-        edges.Add(raw);
-      }
+      // The maps keep their own references; the explorer copies go.
+      Explorer.withShapes(solid.getShape(), FACE, raws => {
+        for (const raw of raws) faces.Add(raw);
+      });
+      Explorer.withShapes(solid.getShape(), EDGE, raws => {
+        for (const raw of raws) edges.Add(raw);
+      });
     }
     const inFaces = (shape: Shape) => faces.Contains(shape.getShape());
     const inEdges = (shape: Shape) => edges.Contains(shape.getShape());

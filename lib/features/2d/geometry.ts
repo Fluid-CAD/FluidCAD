@@ -23,6 +23,16 @@ export type EdgeTargetArg = SceneObject | FilterBuilderBase<Shape>;
 
 export abstract class GeometrySceneObject extends SceneObject implements IGeometry {
 
+  /**
+   * Every sketch statement must be clonable: repeat() / copy() of a feature
+   * clone its whole sketch, statement by statement, and the SceneObject
+   * default throws at module evaluation — a compile error on the user's
+   * repeat line, found only when someone repeats a sketch holding the new
+   * statement kind (bezier shipped that way; spline inherited it). Abstract
+   * here so a new statement type cannot build without one.
+   */
+  abstract override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject;
+
   constructor() {
     super();
   }
@@ -242,10 +252,10 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
 
     const eps = mmTol(1e-6);
     if (curveType === 'line') {
-      const aStart = EdgeOps.getVertexPoint(EdgeOps.getFirstVertex(a));
+      const aStart = a.getFirstPoint();
       const aMid = EdgeOps.getEdgeMidPoint(a);
-      const bStart = EdgeOps.getVertexPoint(EdgeOps.getFirstVertex(b));
-      const bEnd = EdgeOps.getVertexPoint(EdgeOps.getLastVertex(b));
+      const bStart = b.getFirstPoint();
+      const bEnd = b.getLastPoint();
 
       const dirA = aStart.vectorTo(aMid);
       const dirB = bStart.vectorTo(bEnd);

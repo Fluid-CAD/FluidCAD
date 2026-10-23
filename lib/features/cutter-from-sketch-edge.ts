@@ -7,6 +7,7 @@ import { getOC } from "../oc/init.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { Matrix4 } from "../math/matrix4.js";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
@@ -118,6 +119,27 @@ function chainEdges(edges: Edge[]): Edge[] {
   }
 }
 
+/** The original behind a (possibly repeated) clone of a sketch edge; the edge itself otherwise. */
+function rootGeometry(geometry: GeometrySceneObject): GeometrySceneObject {
+  const root = geometry.getCloneSource();
+  return root instanceof GeometrySceneObject ? root : geometry;
+}
+
+/** The cutter moved by `matrix`; see {@link CutterFromSketchEdge.build} for the sheet's normal. */
+function moveCutter(cutter: SketchEdgeCutter, matrix: Matrix4): SketchEdgeCutter {
+  const center = matrix.transformPoint(cutter.center);
+  if (cutter.kind === 'plane') {
+    return { kind: 'plane', plane: cutter.plane.applyMatrix(matrix), center };
+  }
+  const normal = matrix.transformDirection(cutter.normal);
+  return {
+    kind: 'sheet',
+    edges: cutter.edges.map(edge => ShapeOps.transform(edge, matrix) as Edge),
+    normal: matrix.isMirroring() ? normal.negate() : normal,
+    center,
+  };
+}
+
 /**
  * The datum a `split(edge, …)` names: what its seed edge sweeps out of its
  * sketch (see {@link sketchEdgeCutter}). The edge is only referenced —
@@ -129,7 +151,16 @@ function chainEdges(edges: Edge[]): Edge[] {
  */
 export class CutterFromSketchEdge extends SceneObject {
 
-  constructor(public readonly geometry: GeometrySceneObject) {
+  /**
+   * @param geometry - The seed edge: the statement's own, a clone's when the
+   *   sketch was repeated with the split, else the root original.
+   * @param movesSeed - Whether the cutter is a clone reading the original
+   *   edge, to be moved by its own clone transform (see {@link build}).
+   */
+  constructor(
+    public readonly geometry: GeometrySceneObject,
+    private readonly movesSeed = false,
+  ) {
     super();
   }
 
@@ -137,10 +168,18 @@ export class CutterFromSketchEdge extends SceneObject {
     requireShapes(this.geometry, "edge", "split", { filter: { excludeGuide: false } });
   }
 
+  /**
+   * A cloned sketch's edge is already where the clone put it. A repeated
+   * split whose sketch stayed behind reads the original edge instead and
+   * moves what it seeds by the instance's transform — a mirrored split cuts
+   * at the mirrored plane. A plane moves with its normal, so `front` stays
+   * the image of the original's; a sheet's front is tangent × normal, which
+   * a mirror would flip, so its normal is negated across a mirroring move.
+   */
   build(_context?: BuildSceneObjectContext) {
-    // The edges are already where their (possibly cloned) sketch put them;
-    // nothing to transform here.
-    this.setState('cutter', sketchEdgeCutter(this.geometry));
+    const seed = sketchEdgeCutter(this.geometry);
+    const matrix = this.movesSeed ? this.getTransform() : null;
+    this.setState('cutter', matrix ? moveCutter(seed, matrix) : seed);
   }
 
   /** The cutter as built, or null before the build (or after a failed one). */
@@ -160,9 +199,15 @@ export class CutterFromSketchEdge extends SceneObject {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     // The cloned sketch's own edge, when the clone has one; the copy reads
-    // its edges where the clone put them.
-    const geometry = (remap.get(this.geometry) as GeometrySceneObject | undefined) ?? this.geometry;
-    return new CutterFromSketchEdge(geometry);
+    // its edges where the clone put them. Otherwise the root original's
+    // edge, moved by the copy's transform — the whole move from that root
+    // (cloneWithTransform composes a repeat of a repeat), never a clone's
+    // already-moved edge moved again.
+    const cloned = remap.get(this.geometry) as GeometrySceneObject | undefined;
+    if (cloned) {
+      return new CutterFromSketchEdge(cloned);
+    }
+    return new CutterFromSketchEdge(rootGeometry(this.geometry), true);
   }
 
   compareTo(other: CutterFromSketchEdge): boolean {
@@ -172,7 +217,7 @@ export class CutterFromSketchEdge extends SceneObject {
     if (!super.compareTo(other)) {
       return false;
     }
-    return this.geometry.compareTo(other.geometry);
+    return this.movesSeed === other.movesSeed && this.geometry.compareTo(other.geometry);
   }
 
   getType(): string {

@@ -191,10 +191,15 @@ html.fluidcad-editor-animating {
 }
 
 :root {
-  /* How far in the docked panel column starts: past the panel rail's gutter,
+  /* Where the project Parameters column docks: past the panel rail's gutter,
      then past the editor pane the rail docks against. A host that mounts
      neither (the embedded viewer) resolves it to 0px. */
-  --fluidcad-panel-left: calc(var(--fluidcad-rail-width, 0px) + var(--fluidcad-editor-width, 0px));
+  --fluidcad-dock-left: calc(var(--fluidcad-rail-width, 0px) + var(--fluidcad-editor-width, 0px));
+  /* How far in the docked panel column starts: the chrome above, then the
+     project Parameters column while it is open (GLOBAL_PANEL_WIDTH_VARIABLE
+     in ui/rail-styles.ts, 0px while closed) — chrome like the editor pane,
+     so it pushes the feature tree / parts column right by its width. */
+  --fluidcad-panel-left: calc(var(--fluidcad-dock-left) + var(--fluidcad-global-params-width, 0px));
   /* How far the scene's own left edge is pushed in. The same thing while the
      rail is docked, which is why every overlay that lines up with the scene —
      the centred toasts and pills — reads this rather than adding the pieces
@@ -305,13 +310,4 @@ html.fluidcad-editor-animating {
   to {
     background-color: color-mix(in oklab, var(--color-base-content) 10%, transparent);
   }
-}
-
-/* The Parameters panel's "Add to" picker is a ghost select: transparent at
-   rest. Chrome derives the popup list's surface from the select and its
-   options, so the options carry the solid base surface themselves — the
-   list must never be see-through over the scene. */
-[data-param-part] option {
-  background-color: var(--color-base-100);
-  color: var(--color-base-content);
 }

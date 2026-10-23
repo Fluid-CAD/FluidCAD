@@ -14,6 +14,7 @@ import {
   getSceneSummary,
   getShapeProperties,
   hitTest,
+  listGlobalParams,
   listShapes,
   measure,
   resolveClient,
@@ -164,6 +165,22 @@ describe('inspection tools (unit)', () => {
           ],
           rollbackStop: 1,
           compileError: null,
+          globalParams: [{ name: 'wall', label: 'Wall thickness', value: 3, file: 'project.params.js' }],
+        },
+      }),
+      '/api/global-params': () => ({
+        status: 200,
+        body: {
+          files: [{
+            file: '/tmp/ws-mcp-inspect/project.params.js',
+            relPath: 'project.params.js',
+            params: [
+              { file: '/tmp/ws-mcp-inspect/project.params.js', relPath: 'project.params.js', name: 'wall', label: 'Wall thickness', controlType: 'number', defaultValue: 3, value: 3, derived: false, numeric: true, line: 3, column: 20 },
+              { file: '/tmp/ws-mcp-inspect/project.params.js', relPath: 'project.params.js', name: 'inner', label: 'inner', controlType: 'number', defaultValue: 114, value: 114, derived: true, expression: 'width - 2 * wall', numeric: true, line: 5, column: 21 },
+            ],
+            problems: [],
+          }],
+          projectUnit: 'mm',
         },
       }),
       '/api/scene/shapes': () => ({
@@ -535,6 +552,33 @@ describe('inspection tools (unit)', () => {
     expect((result.data as any).unit).toBe('in');
   });
 
+  it('get_scene_summary passes the globalParams block through untouched', async () => {
+    const result = await getSceneSummary({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect((result.data as any).globalParams).toEqual([
+      { name: 'wall', label: 'Wall thickness', value: 3, file: 'project.params.js' },
+    ]);
+  });
+
+  it('list_global_params answers the catalog snapshot: every params file, its rows and the project unit', async () => {
+    const result = await listGlobalParams({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(lastRequest?.method).toBe('GET');
+    expect(lastRequest?.url).toBe('/api/global-params');
+    const data = result.data as any;
+    expect(data.projectUnit).toBe('mm');
+    expect(data.files).toHaveLength(1);
+    expect(data.files[0].relPath).toBe('project.params.js');
+    expect(data.files[0].params.map((p: any) => p.name)).toEqual(['wall', 'inner']);
+    expect(data.files[0].params[1].derived).toBe(true);
+  });
+
   it('property and measure payloads pass the document unit through untouched', async () => {
     const shape = await getShapeProperties({ shapeId: 'sh-2' });
     expect(shape.ok && (shape.data as any).unit).toBe('in');
@@ -659,6 +703,7 @@ describe('inspection tools (over MCP)', () => {
         'get_scene_summary',
         'list_shapes',
         'get_compile_error',
+        'list_global_params',
         'get_shape_properties',
         'get_face_properties',
         'get_edge_properties',
@@ -721,6 +766,14 @@ describe('inspection tools (over MCP)', () => {
       expect(byName.get('get_scene_summary')).toContain('`hasCustomName`');
       expect(byName.get('get_scene_summary')).toContain('`lineageKey`');
       expect(byName.get('get_scene_summary')).toContain('optional');
+      // The project's shared dimensions ride along: the agent reads them
+      // here, or from list_global_params with no model open, before it
+      // copies a number into a file.
+      expect(byName.get('get_scene_summary')).toContain('`globalParams`');
+      expect(byName.get('get_scene_summary')).toContain('`*.params.js`');
+      expect(byName.get('list_global_params')).toContain('`*.params.js`');
+      expect(byName.get('list_global_params')).toContain('no model open');
+      expect(byName.get('list_global_params')).toContain('`projectUnit`');
       expect(byName.get('list_shapes')).toContain('lineageKey');
       expect(byName.get('list_shapes')).toContain('`label`');
       const shapeIdSchema = JSON.stringify(tools.tools.find((t) => t.name === 'get_shape_properties')!.inputSchema);

@@ -1,4 +1,4 @@
-import { type Camera, type Material, type Object3D, type Raycaster, Vector3 } from 'three';
+import { type Camera, type Intersection, type Material, type Object3D, type Raycaster, Vector3 } from 'three';
 
 /** Mirrors Three's material clipping so clipped faces cannot occlude a pick. */
 export function clippedByMaterial(point: Vector3, material: Material): boolean {
@@ -8,6 +8,31 @@ export function clippedByMaterial(point: Vector3, material: Material): boolean {
   }
   const clipped = planes.map(plane => plane.distanceToPoint(point) < 0);
   return material.clipIntersection ? clipped.every(Boolean) : clipped.some(Boolean);
+}
+
+/** The material a raycast hit landed on: the group's own for a multi-material mesh. */
+export function hitMaterial(hit: Intersection): Material | null {
+  const material = (hit.object as Object3D & { material?: Material | Material[] }).material;
+  if (!material) {
+    return null;
+  }
+  return Array.isArray(material) ? material[hit.face?.materialIndex ?? 0] ?? null : material;
+}
+
+/**
+ * True when `point` of the hit (its own point by default, the closest point
+ * on a fat line for an edge hit) lies on the half a section view removed:
+ * the raycaster ignores material clipping, so a hit there is on geometry the
+ * screen does not show and must neither pick nor occlude.
+ */
+export function hitIsClipped(hit: Intersection, point: Vector3 = hit.point): boolean {
+  const material = hitMaterial(hit);
+  return material !== null && clippedByMaterial(point, material);
+}
+
+/** True when a section view clips the hit's material at all — its kept side is a cut-open view. */
+export function hitIsSectioned(hit: Intersection): boolean {
+  return (hitMaterial(hit)?.clippingPlanes?.length ?? 0) > 0;
 }
 
 /** Visibility along the sight line through the point itself, shared by edges and vertices. */
@@ -25,9 +50,7 @@ export function pointIsVisible(
   const ray = createRaycaster(ndc.x, ndc.y);
   const pointDepth = ray.ray.direction.dot(point.clone().sub(ray.ray.origin));
   for (const hit of ray.intersectObjects(occluders, false)) {
-    const material = (hit.object as Object3D & { material?: Material | Material[] }).material;
-    const hitMaterial = Array.isArray(material) ? material[hit.face?.materialIndex ?? 0] : material;
-    if (hitMaterial && clippedByMaterial(hit.point, hitMaterial)) {
+    if (hitIsClipped(hit)) {
       continue;
     }
     return hit.distance >= pointDepth - tolerance;

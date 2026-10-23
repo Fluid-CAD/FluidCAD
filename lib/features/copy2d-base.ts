@@ -234,6 +234,27 @@ export abstract class Copy2DBase extends GeometrySceneObject {
     };
   }
 
+  /**
+   * Clone support (repeat / copy of the enclosing sketch): the copy shares
+   * this statement's duplicate-entity registration — same solver context,
+   * same tied entity ids — exactly as a solved entity's copy shares its
+   * entity id and an anchor statement's copy its anchor ids. The cloned
+   * sketch's sources carry the originals' entity ids too, so the clone's
+   * build joins its stamped shapes to the same duplicates; the clone's
+   * transform places the result.
+   */
+  protected copyRegistrationTo(copy: Copy2DBase): void {
+    copy._registration = this._registration;
+  }
+
+  /** The named targets re-pointed at their clones (`remap`), or the
+   * target-less form unchanged. */
+  protected remapTargets(remap: Map<SceneObject, SceneObject>): SceneObject[] | null {
+    return this.targetObjects
+      ? this.targetObjects.map(obj => remap.get(obj) ?? obj)
+      : null;
+  }
+
   /** Statement-time view of the build-time source walk: explicit targets
    * filtered to actual siblings, or every previous sibling. */
   private candidateSources(sk: Sketch): SceneObject[] {

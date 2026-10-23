@@ -4,13 +4,16 @@
 // solid instead of a fuse of primitives (the binding has no MakeCone).
 
 import { Shape } from "../../common/shape.js";
+import { Edge } from "../../common/edge.js";
+import { Wire } from "../../common/wire.js";
+import { Face } from "../../common/face.js";
 import { Point } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
 import { Axis } from "../../math/axis.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { WireOps } from "../../oc/wire-ops.js";
 import { FaceOps } from "../../oc/face-ops.js";
-import { ExtrudeOps } from "../../oc/extrude-ops.js";
+import { RevolveOps } from "../../oc/revolve-ops.js";
 import { OccHitTest } from "../../oc/hit-test.js";
 import { buildOrthonormalFrame } from "../shape-anchor.js";
 import { rad } from "../../helpers/math-helpers.js";
@@ -228,15 +231,27 @@ export function buildHoleTool(origin: Point, direction: Vector3d, dims: HoleDime
     origin.add(radial.multiply(radius)).add(axisDir.multiply(depth));
 
   const profile = holeProfile(dims, length).map(at);
-  const edges = [];
-  for (let i = 0; i < profile.length; i++) {
-    const a = profile[i];
-    const b = profile[(i + 1) % profile.length];
-    if (a.distanceTo(b) > 0) {
-      edges.push(EdgeOps.makeLineEdge(a, b));
+  // The half-profile is scaffolding for the revolution; the tool solid
+  // carries its own copies of whatever it keeps.
+  const edges: Edge[] = [];
+  let wire: Wire | null = null;
+  let face: Face | null = null;
+  try {
+    for (let i = 0; i < profile.length; i++) {
+      const a = profile[i];
+      const b = profile[(i + 1) % profile.length];
+      if (a.distanceTo(b) > 0) {
+        edges.push(EdgeOps.makeLineEdge(a, b));
+      }
     }
+    wire = WireOps.makeWireFromEdges(edges);
+    face = FaceOps.makeFaceWrapped(wire);
+    const revol = RevolveOps.makeRevol(face, new Axis(origin, axisDir), 2 * Math.PI, { history: false });
+    revol.dispose();
+    return revol.solid;
+  } finally {
+    face?.dispose();
+    wire?.dispose();
+    for (const edge of edges) edge.dispose();
   }
-  const wire = WireOps.makeWireFromEdges(edges);
-  const face = FaceOps.makeFaceWrapped(wire);
-  return ExtrudeOps.makeRevol(face, new Axis(origin, axisDir), 2 * Math.PI, { history: false }).solid;
 }

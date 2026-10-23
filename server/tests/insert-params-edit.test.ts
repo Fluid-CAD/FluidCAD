@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { applyInsertParamsEdit, getInsertParamExpressions } from '../src/insert-params-edit.ts';
+import {
+  applyInsertParamsEdit,
+  getInsertParamExpressions,
+  readInsertConfiguration,
+  setInsertConfiguration,
+} from '../src/insert-params-edit.ts';
 import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit/index.ts';
 
 describe('applyInsertParamsEdit', () => {
@@ -185,6 +190,41 @@ describe('applyInsertParamsEdit', () => {
     expect(result.newCode).toBe(`const front = insert(extrusion, { Length: 300 });\n`);
   });
 
+  it('sets the configuration name ahead of the value merge as a side-channel spec', async () => {
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: '/ws/index.assembly.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      insertParams: { line: 1, set: { Depth: 1000 }, configuration: 'Wide' },
+    };
+    const result = await applyFeatureEdit(`const front = insert(frame, { Width: 800 });\n`, spec);
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`const front = insert(frame, 'Wide', { Width: 800, Depth: 1000 });\n`);
+  });
+
+  it('a configuration alone is a change; null (or Default) clears the name', async () => {
+    const named = await applyInsertParamsEdit(`const front = insert(frame);\n`, { line: 1, set: {}, configuration: 'Wide' });
+    expect(named.error).toBeUndefined();
+    expect(named.newCode).toBe(`const front = insert(frame, 'Wide');\n`);
+    const cleared = await applyInsertParamsEdit(`const front = insert(frame, 'Wide', { Depth: 1000 });\n`, {
+      line: 1, set: {}, configuration: null,
+    });
+    expect(cleared.newCode).toBe(`const front = insert(frame, { Depth: 1000 });\n`);
+    const byDefault = await applyInsertParamsEdit(`const front = insert(frame, 'Wide');\n`, {
+      line: 1, set: {}, unset: ['Depth'], configuration: 'Default',
+    });
+    expect(byDefault.newCode).toBe(`const front = insert(frame);\n`);
+  });
+
+  it('refuses a configuration on a computed second argument, leaving the code untouched', async () => {
+    const code = `const front = insert(frame, choice, { Depth: 1000 });\n`;
+    const result = await applyInsertParamsEdit(code, { line: 1, set: { Depth: 900 }, configuration: 'Wide' });
+    expect(result.error).toContain('non-literal second argument');
+    expect(result.newCode).toBe(code);
+  });
+
   it('writes an { expr } value verbatim', async () => {
     const code = `const front = insert(extrusion, { Length: 540 });\n`;
     const result = await applyInsertParamsEdit(code, {
@@ -257,6 +297,64 @@ describe('applyInsertParamsEdit', () => {
   });
 });
 
+describe('applyInsertParamsEdit — insert(def, \'Name\', { … })', () => {
+  it('creates the override object behind a configuration name', async () => {
+    const result = await applyInsertParamsEdit(`const f = insert(frame, 'Wide').grounded();\n`, { line: 1, set: { Depth: 1000 } });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`const f = insert(frame, 'Wide', { Depth: 1000 }).grounded();\n`);
+  });
+
+  it('edits the third argument in place and drops it when it empties', async () => {
+    const code = `const f = insert(frame, 'Wide', { Depth: 1000, Lid: lid });\n`;
+    const set = await applyInsertParamsEdit(code, { line: 1, set: { Depth: 900, Width: 1 } });
+    expect(set.newCode).toBe(`const f = insert(frame, 'Wide', { Depth: 900, Lid: lid, Width: 1 });\n`);
+    const unset = await applyInsertParamsEdit(code, { line: 1, set: {}, unset: ['Depth', 'Lid'] });
+    expect(unset.newCode).toBe(`const f = insert(frame, 'Wide');\n`);
+  });
+
+  it('refuses a non-literal third argument', async () => {
+    const result = await applyInsertParamsEdit(`const f = insert(frame, 'Wide', opts);\n`, { line: 1, set: { Depth: 1 } });
+    expect(result.error).toContain('non-literal third argument');
+  });
+});
+
+describe('readInsertConfiguration', () => {
+  it('reads the string second argument, the literals as null, and a computed name as its source', async () => {
+    expect(await readInsertConfiguration(`const f = insert(frame, 'Wide', { Depth: 1 });\n`, 1)).toEqual({ name: 'Wide' });
+    expect(await readInsertConfiguration(`const f = insert(frame, 'it\\'s');\n`, 1)).toEqual({ name: "it's" });
+    expect(await readInsertConfiguration(`const f = insert(frame, { Depth: 1 });\n`, 1)).toEqual({ name: null });
+    expect(await readInsertConfiguration(`const f = insert(frame());\n`, 1)).toEqual({ name: null });
+    expect(await readInsertConfiguration(`const f = insert(gantry, choice);\n`, 1)).toEqual({ name: null, expression: 'choice' });
+    expect(await readInsertConfiguration(`const m = mate('fastened', a, b);\n`, 1)).toBeNull();
+  });
+});
+
+describe('setInsertConfiguration', () => {
+  it('adds the name after the definition, ahead of any overrides', async () => {
+    expect((await setInsertConfiguration(`const f = insert(frame).grounded();\n`, 1, 'Wide')).newCode)
+      .toBe(`const f = insert(frame, 'Wide').grounded();\n`);
+    expect((await setInsertConfiguration(`const f = insert(frame(), { Depth: 1 });\n`, 1, "Extra 'Wide'")).newCode)
+      .toBe(`const f = insert(frame(), 'Extra \\'Wide\\'', { Depth: 1 });\n`);
+  });
+
+  it('replaces an existing name, and clears it for null or Default, the overrides shifting back', async () => {
+    const code = `const f = insert(frame, 'Wide', { Depth: 1 });\n`;
+    expect((await setInsertConfiguration(code, 1, 'Narrow')).newCode).toBe(`const f = insert(frame, 'Narrow', { Depth: 1 });\n`);
+    expect((await setInsertConfiguration(code, 1, null)).newCode).toBe(`const f = insert(frame, { Depth: 1 });\n`);
+    expect((await setInsertConfiguration(code, 1, 'Default')).newCode).toBe(`const f = insert(frame, { Depth: 1 });\n`);
+    expect((await setInsertConfiguration(`const f = insert(frame, 'Wide');\n`, 1, null)).newCode).toBe(`const f = insert(frame);\n`);
+    expect((await setInsertConfiguration(`const f = insert(frame);\n`, 1, null)).newCode).toBe(`const f = insert(frame);\n`);
+  });
+
+  it('refuses an empty name, a computed second argument, and a line without an insert()', async () => {
+    expect((await setInsertConfiguration(`const f = insert(frame);\n`, 1, ' ')).error).toBe('a configuration needs a name.');
+    const computed = await setInsertConfiguration(`const f = insert(gantry, choice);\n`, 1, 'Wide');
+    expect(computed.error).toContain('non-literal second argument');
+    expect(computed.newCode).toBe(`const f = insert(gantry, choice);\n`);
+    expect((await setInsertConfiguration(`const m = mate('fastened', a, b);\n`, 1, 'Wide')).error).toContain('not an insert()');
+  });
+});
+
 describe('getInsertParamExpressions', () => {
   it('returns non-literal entry texts keyed by label', async () => {
     const code = `const front = insert(extrusion, { Length: width - (80 * 2), Size: '80x80', Count: 4 });\n`;
@@ -288,6 +386,11 @@ describe('getInsertParamExpressions', () => {
 
   it('returns null for a non-literal second argument', async () => {
     expect(await getInsertParamExpressions(`const p = insert(plate, opts);\n`, 1)).toBeNull();
+  });
+
+  it('reads the third argument behind a configuration name', async () => {
+    expect(await getInsertParamExpressions(`const p = insert(plate, 'Wide', { Depth: d + 1, Lid: true });\n`, 1)).toEqual({ Depth: 'd + 1' });
+    expect(await getInsertParamExpressions(`const p = insert(plate, 'Wide');\n`, 1)).toEqual({});
   });
 
   it('returns null when the line has no insert()', async () => {

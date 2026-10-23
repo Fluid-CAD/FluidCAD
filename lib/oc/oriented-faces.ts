@@ -1,5 +1,7 @@
 import type { TopoDS_Shape, TopTools_IndexedMapOfShape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
+import { Explorer } from "./explorer.js";
+import { Face } from "../common/face.js";
 
 /**
  * The faces of a result shape, each carrying the orientation it has INSIDE
@@ -34,13 +36,30 @@ export class OrientedFaces {
 
   /**
    * The instance of `face` inside the result (same TShape and location, the
-   * result's orientation). A face the result does not contain is returned
-   * unchanged — a caller may legitimately hold faces that a later cleanup
+   * result's orientation) — a copy of the index's entry, the caller's to
+   * free. A face the result does not contain is returned unchanged (`face`
+   * itself) — a caller may legitimately hold faces that a later cleanup
    * removed, and those keep whatever orientation they had.
    */
   orient(face: TopoDS_Shape): TopoDS_Shape {
     const index = this.map.FindIndex(face);
     return index === 0 ? face : this.map.FindKey(index);
+  }
+
+  /**
+   * `face` as the result holds it, as a Face wrapper. The index hands back
+   * a copy of its entry (embind copies the reference); the wrapper takes its
+   * own typed copy and that one is freed here.
+   */
+  wrapFace(face: TopoDS_Shape): Face {
+    const oriented = this.orient(face);
+    try {
+      return Face.fromTopoDSFace(Explorer.toFace(oriented));
+    } finally {
+      if (oriented !== face) {
+        oriented.delete();
+      }
+    }
   }
 
   delete(): void {

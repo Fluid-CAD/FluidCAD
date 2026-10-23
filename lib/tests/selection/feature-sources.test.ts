@@ -15,6 +15,7 @@ import chamfer from "../../core/chamfer.js";
 import repeat from "../../core/repeat.js";
 import copy from "../../core/copy.js";
 import rotate from "../../core/rotate.js";
+import translate from "../../core/translate.js";
 import rib from "../../core/rib.js";
 import hole from "../../core/hole.js";
 import part from "../../core/part.js";
@@ -821,6 +822,40 @@ describe("feature sources (edit-dialog seeding)", () => {
         { kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 },
       );
     }
+  });
+
+  it("resolves a translate's targets by call site", () => {
+    sketch("xy", () => {
+        testRect(40, 40);
+      });
+    const e = extrude(10);
+    setLocation(e, 4);
+    const t = translate(0, 0, 25, e as never);
+    setLocation(t as never, 6);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "translate", 6));
+
+    expect(result).toEqual({
+      ok: true,
+      feature: "translate",
+      targets: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 }],
+    });
+  });
+
+  it("reports an implicit translate as an empty target list", () => {
+    sketch("xy", () => {
+        testRect(40, 40);
+      });
+    const e = extrude(10);
+    setLocation(e, 4);
+    const t = translate(15);
+    setLocation(t as never, 6);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "translate", 6));
+
+    expect(result).toEqual({ ok: true, feature: "translate", targets: [] });
   });
 
   it("marks a rotate's inline world-axis literal opaque", () => {

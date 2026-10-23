@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { PartRename } from '../src/part-rename.ts';
+import { PartRules } from '../../lib/dist/index.js';
 
 const FILE = '/ws/carcase.part.js';
 
@@ -76,6 +77,15 @@ describe('PartRename', () => {
     });
     const kept = `const box = part('Carcase', () => {});\n`;
     expect((await PartRename.plan(kept, FILE, 1, 'Shell'))?.declaration).toBeNull();
+  });
+
+  it('refuses a name another part of the file has, before it touches anything', async () => {
+    const code = `export const plate = part('Plate', () => {});\nexport const lid = part('Lid', () => {});\n`;
+    const result = await PartRename.apply(code, FILE, { sourceLine: 2, name: ' Plate ' });
+    expect(result.error).toBe(PartRules.duplicateMessage('Plate'));
+    expect(result.newCode).toBe(code);
+    expect(await PartRename.clash(code, 1, 'Plate')).toBeNull();
+    expect(await PartRename.clash(code, 2, 'Cover')).toBeNull();
   });
 
   it('refuses a line that holds no part()', async () => {

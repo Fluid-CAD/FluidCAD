@@ -17,6 +17,10 @@
 //     delete); member rows only offer Show in source — their statements live
 //     in the sub-assembly's file, where an edit would hit every occurrence.
 //  8. Header 👁 hides/shows all member instances at once.
+//  9. ⋮ → Transparency… on a row → the slider opens at 100% for an opaque
+//     part; lowering it fades the part live, releasing writes
+//     `.transparent(1 - v)` onto the insert() (back at 100% drops the call).
+//     A part dragged by hand stays where it is through that re-render.
 //
 // Companion to timeline-panel.ts (part-design rail). Both are mounted on the
 // same container and selected by ui/main.ts based on `sceneKind`.
@@ -33,6 +37,7 @@ import {
   ICON_EYE_OFF,
   ICON_GROUND,
   ICON_PENCIL,
+  ICON_TRANSPARENCY,
   ICON_TRASH,
 } from './icons';
 import { AccordionSection } from './accordion-section';
@@ -66,6 +71,21 @@ export type ReplicateHandlers = {
   onRemoveReplica: (kind: 'instance' | 'occurrence', id: string) => void;
 };
 
+/**
+ * The Transparency… popover's hooks: the slider previews through the
+ * viewport and commits by rewriting the instance's insert() chain.
+ */
+export type TransparencyHandlers = {
+  /** The popover opened on the instance: what it shows now, 0–1 — the slider's start. */
+  open: (instanceId: string) => number;
+  /** Fade the instance live while the slider moves — display only. */
+  preview: (instanceId: string, transparency: number) => void;
+  /** Write `.transparent(v)` onto the insert() — 0 drops the call. */
+  commit: (instanceId: string, transparency: number) => void;
+  /** The popover closed: settle the preview against what was written. */
+  end: (instanceId: string) => void;
+};
+
 export interface PartsPanelOptions {
   /**
    * A host that cannot edit source (the browser viewer): rows keep select /
@@ -75,6 +95,8 @@ export interface PartsPanelOptions {
   readOnly?: boolean;
   /** Replicate entry points; absent on hosts without the replicate dialog. */
   replicate?: ReplicateHandlers;
+  /** Transparency… on instance rows; absent hides the item. */
+  transparency?: TransparencyHandlers;
 }
 
 export class PartsPanel {
@@ -96,6 +118,8 @@ export class PartsPanel {
   private userHidden = false;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
+  /** The open Transparency… popover — hosted by the panel, so it survives row re-renders. */
+  private transparencyPopover: { element: HTMLDivElement; instanceId: string; cleanup: () => void } | null = null;
   private inlineRename: RenameTarget | null = null;
   private collapsedGroups = new Set<string>();
 
@@ -109,6 +133,7 @@ export class PartsPanel {
   private onEditParams: ((kind: 'instance' | 'occurrence', id: string) => void) | null;
   private readonly readOnly: boolean;
   private readonly replicate: ReplicateHandlers | null;
+  private readonly transparency: TransparencyHandlers | null;
 
   constructor(
     container: HTMLElement,
@@ -125,6 +150,7 @@ export class PartsPanel {
   ) {
     this.readOnly = options.readOnly === true;
     this.replicate = options.replicate ?? null;
+    this.transparency = options.transparency ?? null;
     this.onSelectInstance = onSelectInstance;
     this.onToggleVisibility = onToggleVisibility;
     this.onShowInSource = onShowInSource;
@@ -203,6 +229,10 @@ export class PartsPanel {
   update(instances: RenderedInstance[], occurrences: SerializedAssemblyOccurrence[] = []): void {
     this.instances = instances;
     this.occurrences = occurrences;
+    const popover = this.transparencyPopover;
+    if (popover && !instances.some(i => i.instanceId === popover.instanceId && !i.owner && !i.replica)) {
+      this.closeTransparencyPopover();
+    }
     for (const id of [...this.collapsedGroups]) {
       if (!occurrences.some(o => o.occurrenceId === id)) {
         this.collapsedGroups.delete(id);
@@ -246,6 +276,7 @@ export class PartsPanel {
 
   dispose(): void {
     this.closeDropdown();
+    this.closeTransparencyPopover();
     this.panel.remove();
   }
 
@@ -323,7 +354,7 @@ export class PartsPanel {
     const eyeVisibility = allHidden
       ? 'opacity-100 text-base-content/70'
       : 'opacity-0 group-hover:opacity-100 text-base-content/40';
-    const nameCell = this.nameCellHtml({ kind: 'occurrence', id: occurrenceId }, occ.name, occ.assemblyName);
+    const nameCell = this.nameCellHtml({ kind: 'occurrence', id: occurrenceId }, occ.name, occ.assemblyName, occ.configuration);
     let html = `
       <div class="group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80" data-occurrence-id="${occurrenceId}">
         <span data-ref="chevron" class="flex items-center justify-center w-4 h-4 opacity-50 transition-transform${collapsed ? '' : ' rotate-90'}">${ICON_CHEVRON_RIGHT}</span>
@@ -352,7 +383,7 @@ export class PartsPanel {
     const eyeVisibility = inst.visible
       ? 'opacity-0 group-hover:opacity-100 text-base-content/40'
       : 'opacity-100 text-base-content/70';
-    const nameCell = this.nameCellHtml({ kind: 'instance', id: inst.instanceId }, inst.name, inst.partName);
+    const nameCell = this.nameCellHtml({ kind: 'instance', id: inst.instanceId }, inst.name, inst.partName, inst.configuration);
     const padding = indented ? 'pl-8 pr-3' : 'px-3';
     return `
       <div class="group flex items-center gap-2 ${padding} py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80${selectedClass}" data-instance-id="${inst.instanceId}">
@@ -371,15 +402,19 @@ export class PartsPanel {
    * small and muted. The second line shows even when it repeats the first
    * (an insert that never took a name of its own), so every row reads the
    * same way. An occurrence's name reads heavier, marking its row as a
-   * group header.
+   * group header. An insert that picked a `configurations()` row names it
+   * after the source (`frame · Wide`).
    */
-  private nameCellHtml(target: RenameTarget, name: string, sourceName: string): string {
+  private nameCellHtml(target: RenameTarget, name: string, sourceName: string, configuration?: string): string {
     const renaming = this.inlineRename?.kind === target.kind && this.inlineRename.id === target.id;
     const weight = target.kind === 'occurrence' ? ' font-medium' : '';
     const nameLine = renaming
       ? `<input data-rename-input="${target.kind}" value="${escapeAttr(name)}" class="bg-base-100 border border-base-content/20 rounded px-1 py-0 text-sm w-full min-w-0" />`
       : `<span class="truncate${weight}">${escapeHtml(name)}</span>`;
-    const sourceLine = `<span data-ref="source-name" class="truncate text-[10px] text-base-content/50">${escapeHtml(sourceName)}</span>`;
+    const configurationText = configuration
+      ? ` · <span data-ref="configuration-name">${escapeHtml(configuration)}</span>`
+      : '';
+    const sourceLine = `<span data-ref="source-name" class="truncate text-[10px] text-base-content/50">${escapeHtml(sourceName)}${configurationText}</span>`;
     return `<span class="flex flex-col leading-tight min-w-0${renaming ? ' flex-1' : ''}">${nameLine}${sourceLine}</span>`;
   }
 
@@ -575,6 +610,7 @@ export class PartsPanel {
         ${PartsPanel.menuItem('edit-params', ICON_ADJUSTMENTS, 'Edit parameters…', '', !hasParams, 'This part has no parameters')}
         ${this.replicateMenuItem('instance', instanceId)}
         ${PartsPanel.menuItem('set-ground', ICON_GROUND, 'Toggle grounded', inst.grounded ? 'text-warning' : '')}
+        ${this.transparency ? PartsPanel.menuItem('transparency', ICON_TRANSPARENCY, 'Transparency…') : ''}
         ${PartsPanel.menuItem('rename', ICON_PENCIL, 'Rename')}
         ${PartsPanel.menuItem('delete', ICON_TRASH, 'Delete', 'text-error')}`}
       </ul>
@@ -583,6 +619,10 @@ export class PartsPanel {
     dropdown.querySelector('[data-action="show-in-source"]')!.addEventListener('click', () => {
       this.closeDropdown();
       this.onShowInSource(instanceId);
+    });
+    dropdown.querySelector('[data-action="transparency"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      this.showTransparencyPopover(instanceId, position);
     });
     if (replica) {
       this.bindReplicaActions(dropdown, 'instance', instanceId);
@@ -612,6 +652,93 @@ export class PartsPanel {
         this.onDeleteInstance(instanceId);
       });
     }
+  }
+
+  /**
+   * The Transparency… popover at the menu's spot: a 0–100% slider of how
+   * much of the part shows — like the shapes panel's, an opaque part opens
+   * at 100% and lowering it fades the part — previewed live as it moves and
+   * written as `.transparent(1 - v)` when released, one source edit per
+   * release, not per pixel. Closed by ×, Escape or a click elsewhere;
+   * closing settles the preview (see {@link TransparencyHandlers.end}).
+   */
+  private showTransparencyPopover(instanceId: string, position: { top: number; left: number }): void {
+    this.closeTransparencyPopover();
+    const handlers = this.transparency;
+    const inst = this.instances.find(i => i.instanceId === instanceId);
+    if (!handlers || !inst) {
+      return;
+    }
+    const pct = Math.round((1 - handlers.open(instanceId)) * 100);
+    const element = document.createElement('div');
+    element.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)] p-3 w-[200px]';
+    element.dataset.transparencyPopover = instanceId;
+    element.style.top = `${position.top}px`;
+    element.style.left = `${Math.max(4, Math.min(position.left, this.panel.clientWidth - 204))}px`;
+    element.innerHTML = `
+      <div class="flex items-center justify-between gap-2 mb-2">
+        <span class="text-xs font-medium truncate">Transparency — ${escapeHtml(inst.name)}</span>
+        <button class="btn btn-ghost btn-xs btn-square shrink-0" data-action="close" title="Close">×</button>
+      </div>
+      <div class="flex items-center gap-2">
+        <input type="range" min="0" max="100" step="1" value="${pct}" class="range range-xs flex-1" data-ref="slider" aria-label="Transparency" />
+        <span class="text-xs text-base-content/60 w-9 text-right tabular-nums" data-ref="value">${pct}%</span>
+      </div>
+    `;
+    this.panel.appendChild(element);
+
+    const slider = element.querySelector<HTMLInputElement>('[data-ref="slider"]')!;
+    const label = element.querySelector<HTMLElement>('[data-ref="value"]')!;
+    const shown = (): number => Math.min(100, Math.max(0, parseInt(slider.value, 10) || 0));
+    // The slider reads opacity; the handlers (and the code) take transparency.
+    const transparencyOf = (): number => (100 - shown()) / 100;
+    slider.addEventListener('input', () => {
+      label.textContent = `${shown()}%`;
+      handlers.preview(instanceId, transparencyOf());
+    });
+    // `change` fires once the thumb is released (or a key step lands).
+    slider.addEventListener('change', () => {
+      handlers.commit(instanceId, transparencyOf());
+    });
+    element.querySelector('[data-action="close"]')!.addEventListener('click', () => {
+      this.closeTransparencyPopover();
+    });
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (!element.contains(e.target as Node)) {
+        this.closeTransparencyPopover();
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.closeTransparencyPopover();
+      }
+    };
+    // Deferred like the menus: the click that opened the popover must not close it.
+    const timer = setTimeout(() => document.addEventListener('pointerdown', onPointerDown, true), 0);
+    document.addEventListener('keydown', onKeyDown);
+    this.transparencyPopover = {
+      element,
+      instanceId,
+      cleanup: () => {
+        clearTimeout(timer);
+        document.removeEventListener('pointerdown', onPointerDown, true);
+        document.removeEventListener('keydown', onKeyDown);
+      },
+    };
+    slider.focus();
+  }
+
+  private closeTransparencyPopover(): void {
+    const popover = this.transparencyPopover;
+    if (!popover) {
+      return;
+    }
+    this.transparencyPopover = null;
+    popover.cleanup();
+    popover.element.remove();
+    this.transparency?.end(popover.instanceId);
   }
 
   /** The group-header menu — actions target the occurrence's own insert() chain. */

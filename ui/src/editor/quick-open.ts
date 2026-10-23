@@ -325,7 +325,7 @@ export class QuickOpen {
    * teal, global params under the Parameters column's sliders — with the file
    * name it lands as underneath.
    */
-  private static describeCreate(target: CreateTarget): { icon: HTMLElement; label: string; detail?: string } {
+  private static describeCreate(target: CreateTarget): { icon: HTMLElement; label: string | Node; detail?: string } {
     if (target.kind === 'folder') {
       return { icon: QuickOpen.buildIcon(ICON_FOLDER_PLUS), label: `Create folder ${target.path}/` };
     }
@@ -335,9 +335,14 @@ export class QuickOpen {
     }
     const basename = target.path.split('/').pop() || target.path;
     const stem = basename.slice(0, -offer.suffix.length);
+    const kind = document.createElement('strong');
+    kind.className = 'font-semibold';
+    kind.textContent = offer.label;
+    const label = document.createDocumentFragment();
+    label.append('Create ', kind, ` "${stem}"`);
     return {
       icon: QuickOpen.buildIcon(offer.type === 'params' ? ICON_SLIDERS : ICON_CUBE, basename),
-      label: `Create ${offer.label} "${stem}"`,
+      label,
       detail: target.path,
     };
   }
@@ -367,7 +372,7 @@ export class QuickOpen {
    */
   private buildRow(options: {
     icon: HTMLElement;
-    label: string;
+    label: string | Node;
     detail?: string;
     highlighted: boolean;
     onPick: () => void;
@@ -384,7 +389,7 @@ export class QuickOpen {
 
     const label = document.createElement('span');
     label.className = 'truncate';
-    label.textContent = options.label;
+    label.append(options.label);
     text.appendChild(label);
 
     if (options.detail !== undefined) {

@@ -8,7 +8,8 @@ export type ProjectPackageIdentity = { name: string; version: string };
  * Whether a project is a package workspace: its `fluidcad.json` holds a
  * `package` block (research §1 — having the block is what makes a workspace
  * a package; there is no `type` key). Read for the start screen's "Package"
- * badge only.
+ * badge, and its name grammar is what a New Package request is checked
+ * against before the engine's `init --package` is asked to scaffold it.
  *
  * A reader of its own, beside the engine pin's (`engine/project-pin.ts`,
  * whose format is frozen to the one `engine` key and stays untouched): it
@@ -22,9 +23,16 @@ export class ProjectPackage {
    * `@handle/name`, the grammar the engine requires (K11, HD30; the engine's
    * `PackageName`): each part lowercase letters, digits and single dashes,
    * starting with a letter, the handle 2–39 characters and the name at most
-   * 64. Anything else gets no badge, so the badge and the engine agree.
+   * 64. Anything else gets no badge, so the badge and the engine agree. The
+   * start page keeps a copy (`ui/src/start/package-name.ts`), which
+   * `tests/start-contract.test.ts` holds to this one.
    */
-  private static readonly NAME = /^@(?=[a-z0-9-]{2,39}\/)[a-z][a-z0-9]*(?:-[a-z0-9]+)*\/(?=[a-z0-9-]{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+  static readonly NAME = /^@(?=[a-z0-9-]{2,39}\/)[a-z][a-z0-9]*(?:-[a-z0-9]+)*\/(?=[a-z0-9-]{1,64}$)[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+  /** Whether `name` is a scoped package name the engine would accept. */
+  static isValidName(name: string): boolean {
+    return ProjectPackage.NAME.test(name);
+  }
 
   static read(workspacePath: string): ProjectPackageIdentity | null {
     let config: unknown;

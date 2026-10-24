@@ -10,7 +10,7 @@ import path from 'path';
  *   `<workspace>/.engine-pid`, and reports the dirty buffers listed in
  *   `<workspace>/.dirty.json`. `FAKE_ENGINE_FAIL=1` makes it fail to start.
  * - `bin/fluidcad.js init` writes the scaffold a real `init` writes, pinned to
- *   this package's version.
+ *   this package's version; `init --package <name>` the package layout.
  * - `ui/dist-start/` is a start page with the theme literal, and an asset.
  */
 
@@ -88,9 +88,25 @@ const fs = require('fs');
 const path = require('path');
 if (process.argv[2] === 'init') {
   const version = require(path.join(__dirname, '..', 'package.json')).version;
+  const flag = process.argv.indexOf('--package');
+  const name = flag === -1 ? null : process.argv[flag + 1];
+  if (name !== null && !/^@[a-z][a-z0-9-]*\\/[a-z][a-z0-9-]*$/.test(name)) {
+    process.stderr.write('The package name ' + JSON.stringify(name) + ' needs your hub handle as its scope.\\n');
+    process.exit(1);
+  }
   fs.writeFileSync('init.js', "import { init } from 'fluidcad'\\nexport default await init()\\n");
-  fs.writeFileSync('part1.part.js', '');
-  fs.writeFileSync('fluidcad.json', JSON.stringify({ engine: version }) + '\\n');
+  if (name === null) {
+    fs.writeFileSync('part1.part.js', '');
+    fs.writeFileSync('fluidcad.json', JSON.stringify({ engine: version }) + '\\n');
+  } else {
+    // The package layout the real \`init --package\` lays out (server's PackageScaffold).
+    fs.writeFileSync('fluidcad.json', JSON.stringify({ engine: version, package: { name, version: '0.1.0' } }) + '\\n');
+    fs.mkdirSync('parts');
+    fs.writeFileSync(path.join('parts', 'part1.part.js'), '');
+    fs.mkdirSync('features');
+    fs.mkdirSync('assemblies');
+    fs.writeFileSync('README.md', '# ' + name + '\\n');
+  }
 }
 `;
 

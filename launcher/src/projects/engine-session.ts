@@ -4,7 +4,7 @@ import { startEngine, stopEngine, type EngineEvents } from '../engine/process.ts
 import { EngineResolutionError, pinProjectIfNeeded, resolveEngine, type ResolvedEngine } from '../engine/resolver.ts';
 import { isFluidScriptFile } from '../file-kind.ts';
 import { captureThumbnail } from '../previews/thumbnails.ts';
-import type { OpeningStatus } from '../start/contract.ts';
+import { creatingStatus, type OpeningStatus } from '../start/contract.ts';
 import { rememberProject } from './app-state.ts';
 import { ScaffoldError, scaffoldProject } from './scaffold.ts';
 
@@ -44,6 +44,8 @@ export type EngineSessionEvents = {
 export type EngineStartOptions = {
   /** Set the project up first (`fluidcad init`), unless its folder already holds one. */
   create?: boolean;
+  /** With `create`: set a package workspace named `@handle/name` up (`fluidcad init --package`). */
+  package?: string;
   /** Start on this port when it is free, so a page left from an earlier engine finds the new one. */
   preferredPort?: number;
 };
@@ -108,8 +110,8 @@ export class EngineSession {
     const cancelled = () => this.stopped || signal.aborted;
     try {
       if (options.create) {
-        onStatus({ step: 'creating' });
-        await scaffoldProject(this.workspacePath);
+        onStatus(creatingStatus(options.package));
+        await scaffoldProject(this.workspacePath, { package: options.package });
         if (cancelled()) {
           throw new OpenCancelledError();
         }

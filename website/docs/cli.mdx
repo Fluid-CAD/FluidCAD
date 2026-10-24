@@ -488,7 +488,7 @@ Packages install from the hub. FluidCAD downloads the package, checks that its f
 ✓ Installed @acme/mounting-hardware@0.1.0 into your library · 4 features, 2 parts · pinned in fluidcad.json
 ```
 
-A warning that matters gets a short line under it: a deprecated package, a yanked or unpublished version you asked for by its exact version, an older version because the latest needs a newer FluidCAD. A package that can't be installed (unknown, nothing published, a hash that doesn't match, removed by the hub's admins) prints why and the command exits with status 1. A package's code runs in the FluidCAD engine with your permissions: install only packages you trust.
+A warning that matters gets a short line under it: a deprecated package, an unpublished version you asked for by its exact version, an older version because the latest needs a newer FluidCAD. A package that can't be installed (unknown, nothing published, a hash that doesn't match, removed by the hub's admins) prints why and the command exits with status 1. A package's code runs in the FluidCAD engine with your permissions: install only packages you trust.
 
 **A name alone** asks the hub for its latest version this FluidCAD runs, and uses your library's copy of that version when its files are the hub's. When the hub can't be reached, it uses the newest version your library holds, and says so. **A name with `@version`** takes your library's copy (or this project's) when there is one, else downloads it. A name without the scope (`npx fluidcad install mounting-hardware`) is refused with "Name the publisher: `fluidcad install @<handle>/mounting-hardware`."
 

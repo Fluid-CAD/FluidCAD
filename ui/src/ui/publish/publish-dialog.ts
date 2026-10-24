@@ -40,9 +40,8 @@ const ROW_ACTIONS = 'flex items-center gap-0.5 shrink-0 ml-auto -my-1';
  *    problem and nothing else; the button was Publish all the same.
  * 2. **Signed out**: the hub's refusal, with Sign in — the Hub panel's own
  *    flow; the dialog comes back signed in and reads the status again.
- * 3. **The header**: the name and version, with the bump control (patch /
- *    minor / major, or an exact version) writing the block through the
- *    engine; **the status line**: where the package stands on the hub
+ * 3. **The header**: the name and version, with the field for the next
+ *    version (typed; Set writes the block through the engine); **the status line**: where the package stands on the hub
  *    (`fluidcad publish --status`): nothing for a package not there yet, a draft with Open the
  *    wizard and Withdraw, in review with its page and Withdraw, rejected
  *    with the note (Publish again), the latest published version with
@@ -53,7 +52,7 @@ const ROW_ACTIONS = 'flex items-center gap-0.5 shrink-0 ml-auto -my-1';
  *    since the engine checks their length before it packs.
  * 5. **Check** (a dry run: the hub checks everything and stores nothing) or
  *    **Publish**: the engine's preflight refuses at once (the sentence with
- *    its action: Sign in, a bump to above the hub's highest version,
+ *    its action: Sign in, a version above the hub's highest,
  *    Withdraw, "Save your files first"), or packs; the **summary** (the
  *    folders, the files and size, the integrity, the warnings, what happens
  *    next) waits for **Upload** or **Cancel**; then the progress, then the
@@ -73,7 +72,6 @@ export class PublishDialog {
   private readonly versionRow: HTMLDivElement;
   private readonly nameEl: HTMLSpanElement;
   private readonly versionEl: HTMLSpanElement;
-  private readonly bumpButtons: HTMLButtonElement[];
   private readonly versionInput: HTMLInputElement;
   private readonly versionSet: HTMLButtonElement;
   private readonly hubStatus: HTMLDivElement;
@@ -124,14 +122,9 @@ export class PublishDialog {
               <span data-ref="version" class="text-xs text-base-content/60 font-mono tabular-nums"></span>
             </div>
             <div data-ref="bump" class="flex items-center gap-2 shrink-0">
-              <span class="${MUTED}">Bump</span>
+              <label class="${MUTED}" for="fluidcad-publish-version">New version</label>
               <div class="join">
-                <button type="button" data-bump="patch" class="join-item btn btn-xs font-normal">patch</button>
-                <button type="button" data-bump="minor" class="join-item btn btn-xs font-normal">minor</button>
-                <button type="button" data-bump="major" class="join-item btn btn-xs font-normal">major</button>
-              </div>
-              <div class="join">
-                <input data-ref="version-input" class="join-item input input-xs input-bordered w-[4.5rem] font-mono" placeholder="1.2.0" aria-label="An exact version" spellcheck="false">
+                <input id="fluidcad-publish-version" data-ref="version-input" class="join-item input input-xs input-bordered w-[5.5rem] font-mono" placeholder="1.1.0" spellcheck="false">
                 <button type="button" data-ref="version-set" class="join-item btn btn-xs font-normal">Set</button>
               </div>
             </div>
@@ -168,7 +161,6 @@ export class PublishDialog {
     this.versionRow = $('version-row');
     this.nameEl = $('name');
     this.versionEl = $('version');
-    this.bumpButtons = [...this.overlay.querySelectorAll<HTMLButtonElement>('[data-bump]')];
     this.versionInput = $('version-input');
     this.versionSet = $('version-set');
     this.hubStatus = $('hub-status');
@@ -197,9 +189,6 @@ export class PublishDialog {
     this.publishBtn.addEventListener('click', () => void this.start(false));
     this.uploadBtn.addEventListener('click', () => void this.deps.state.confirm());
     this.cancelBtn.addEventListener('click', () => void this.deps.state.cancel());
-    for (const button of this.bumpButtons) {
-      button.addEventListener('click', () => void this.bump(button.dataset.bump!));
-    }
     this.versionSet.addEventListener('click', () => void this.bump(this.versionInput.value));
     this.versionInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -388,12 +377,8 @@ export class PublishDialog {
     this.nameEl.textContent = pkg.name;
     this.versionEl.textContent = pkg.version;
     const disabled = s.busy !== null || running;
-    for (const button of this.bumpButtons) {
-      const part = button.dataset.bump as 'patch' | 'minor' | 'major';
-      const next = PublishText.bumped(pkg.version, part);
-      button.title = next ? `${pkg.version} → ${next}` : `Bump the ${part} number`;
-      button.disabled = disabled;
-    }
+    // The author types the next version (the user's call: no patch / minor / major buttons).
+    this.versionInput.title = `The version to publish next; the package is ${pkg.version}`;
     this.versionInput.disabled = disabled;
     this.versionSet.disabled = disabled;
   }
@@ -618,17 +603,10 @@ export class PublishDialog {
     // `signed-out` has no row action: the footer shows Sign in for it.
     switch (error.code) {
       case 'version-exists':
-      case 'version-not-greater': {
-        const highest = typeof details.highest === 'string' ? details.highest : null;
-        const above = highest ? PublishText.bumped(highest, 'patch') : null;
-        if (above) {
-          const bump = PublishDialog.button('bump-above', `Bump to ${above}`, 'btn btn-xs btn-primary', () => void this.bump(above));
-          bump.title = `${highest} is the highest version published; the next patch above it`;
-          bump.disabled = s.busy !== null;
-          actions.appendChild(bump);
-        }
+      case 'version-not-greater':
+        // The sentence names the hub's highest version; the author types one above it in the header.
+        this.versionInput.focus();
         break;
-      }
       case 'in-review':
       case 'open-version-exists': {
         const open = s.status?.package?.openVersion

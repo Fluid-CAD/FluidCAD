@@ -457,22 +457,6 @@ export class PublishText {
     return `${hub.replace(/\/$/, '')}/${name}/manage`;
   }
 
-  /** `0.1.0` bumped by `patch` → `0.1.1`; null when the version isn't `x.y.z`. */
-  static bumped(version: string, part: 'patch' | 'minor' | 'major'): string | null {
-    const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version.trim());
-    if (!match) {
-      return null;
-    }
-    const [major, minor, patch] = [Number(match[1]), Number(match[2]), Number(match[3])];
-    if (part === 'major') {
-      return `${major + 1}.0.0`;
-    }
-    if (part === 'minor') {
-      return `${major}.${minor + 1}.0`;
-    }
-    return `${major}.${minor}.${patch + 1}`;
-  }
-
   /** `2026-10-24T…` → `2026-10-24`. */
   static day(iso: string): string {
     return iso.slice(0, 10);

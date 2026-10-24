@@ -7,7 +7,7 @@ import { settle } from './fixtures/fake-packages-client';
 
 // The Publish dialog (ui-packages-plan N4, U6–U10): `fluidcad publish` as
 // a dialog over the engine's publish session. The block problem first
-// (U7), signed out with the Hub panel's Sign in, the header with the bump
+// (U7), signed out with the Hub panel's Sign in, the header with the version field
 // control, the hub's status line, the release notes once a version was
 // published, Check / Publish → the summary → Upload → the progress → the
 // result (a first version's wizard opened once, U9), the refusals with
@@ -315,31 +315,21 @@ describe('the status line (fluidcad publish --status)', () => {
   });
 });
 
-describe('the version and its bump control', () => {
-  it('patch / minor / major preview the next version and write the block; the header and the overview follow', async () => {
+describe('the version field', () => {
+  it('Set, or Enter in the field, writes the typed version; the header and the overview follow; a refusal is shown', async () => {
     const h = await mount();
-    const bump = (part: string) => h.overlay.querySelector<HTMLButtonElement>(`[data-bump="${part}"]`)!;
-    expect(bump('patch').title).toBe('0.1.0 → 0.1.1');
-    expect(bump('minor').title).toBe('0.1.0 → 0.2.0');
-    expect(bump('major').title).toBe('0.1.0 → 1.0.0');
-    bump('minor').click();
-    await settle();
-    expect(h.client.bumpVersion).toHaveBeenCalledWith('minor');
-    expect(h.$('version')!.textContent).toBe('0.2.0');
-    expect(h.$('title')!.textContent).toBe('Publish');
-    expect(words(h.$('notice'))).toBe('@acme/kit is 0.2.0 now (was 0.1.0).');
-    expect(h.onVersionChanged).toHaveBeenCalledTimes(1);
-    expect(bump('patch').title).toBe('0.2.0 → 0.2.1');
-  });
-
-  it('an exact version: Set, or Enter in the field; a refusal is shown', async () => {
-    const h = await mount();
+    expect(h.overlay.querySelector('[data-bump]')).toBeNull();
     const input = h.$<HTMLInputElement>('version-input')!;
+    expect(input.title).toBe('The version to publish next; the package is 0.1.0');
     input.value = '2.0.0';
     await h.click('version-set');
     expect(h.client.bumpVersion).toHaveBeenCalledWith('2.0.0');
     expect(h.$('version')!.textContent).toBe('2.0.0');
+    expect(h.$('title')!.textContent).toBe('Publish');
+    expect(words(h.$('notice'))).toBe('@acme/kit is 2.0.0 now (was 0.1.0).');
+    expect(h.onVersionChanged).toHaveBeenCalledTimes(1);
     expect(input.value).toBe('');
+    expect(input.title).toBe('The version to publish next; the package is 2.0.0');
 
     input.value = 'banana';
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
@@ -356,13 +346,13 @@ describe('the version and its bump control', () => {
     expect(h.client.bumpVersion).toHaveBeenCalledTimes(2);
   });
 
-  it('the control waits while a session runs', async () => {
+  it('the field waits while a session runs', async () => {
     const h = await mount();
     await toSummary(h);
-    expect(h.overlay.querySelector<HTMLButtonElement>('[data-bump="patch"]')!.disabled).toBe(true);
     expect(h.$<HTMLInputElement>('version-input')!.disabled).toBe(true);
+    expect(h.$<HTMLButtonElement>('version-set')!.disabled).toBe(true);
     await h.click('cancel');
-    expect(h.overlay.querySelector<HTMLButtonElement>('[data-bump="patch"]')!.disabled).toBe(false);
+    expect(h.$<HTMLInputElement>('version-input')!.disabled).toBe(false);
   });
 });
 
@@ -567,7 +557,7 @@ describe('Publish: the summary, the upload and the result', () => {
     await settle();
     expect(h.$<HTMLButtonElement>('publish')!.disabled).toBe(true);
     expect(h.$<HTMLButtonElement>('check')!.disabled).toBe(true);
-    expect(h.overlay.querySelector<HTMLButtonElement>('[data-bump="patch"]')!.disabled).toBe(true);
+    expect(h.$<HTMLInputElement>('version-input')!.disabled).toBe(true);
     release();
     await settle();
     expect(h.$('session')!.dataset.status).toBe('packing');
@@ -613,24 +603,24 @@ describe('a refusal before the pack, with its action', () => {
     return h;
   }
 
-  it('version-not-greater: Bump to the next patch above the hub\'s highest, which clears the refusal', async () => {
+  it('version-not-greater and version-exists: the sentence names the highest version, and the version field takes the focus', async () => {
     const h = await failed({
       message: '0.1.0 is not greater than 0.3.2, the highest version of @acme/kit published so far. Bump the version, then publish again.',
       code: 'version-not-greater',
       details: { highest: '0.3.2' },
     });
-    expect(h.$('bump-above')!.textContent).toBe('Bump to 0.3.3');
-    await h.click('bump-above');
+    expect(h.$('bump-above')).toBeNull();
+    expect(document.activeElement).toBe(h.$('version-input'));
+    h.$<HTMLInputElement>('version-input')!.value = '0.3.3';
+    await h.click('version-set');
     expect(h.client.bumpVersion).toHaveBeenCalledWith('0.3.3');
     expect(h.$('version')!.textContent).toBe('0.3.3');
     expect(h.$('failed')).toBeNull();
     expect(h.shown('session')).toBe(false);
-    expect(h.onVersionChanged).toHaveBeenCalledTimes(1);
-  });
 
-  it('version-exists: the same action', async () => {
-    const h = await failed({ message: '@acme/kit@0.1.0 is already published, and a published version never changes. Bump the version, then publish again.', code: 'version-exists', details: { highest: '0.1.0' } });
-    expect(h.$('bump-above')!.textContent).toBe('Bump to 0.1.1');
+    const again = await failed({ message: '@acme/kit@0.1.0 is already published, and a published version never changes. Bump the version, then publish again.', code: 'version-exists', details: { highest: '0.1.0' } });
+    expect(again.$('bump-above')).toBeNull();
+    expect(again.$('result-text')!.textContent).toContain('already published');
   });
 
   it('open-version-exists: Withdraw, asked first with the version the refusal names', async () => {
@@ -685,14 +675,6 @@ describe('a refusal before the pack, with its action', () => {
 });
 
 describe('PublishText', () => {
-  it('bumps x.y.z, and refuses anything else', () => {
-    expect(PublishText.bumped('0.1.0', 'patch')).toBe('0.1.1');
-    expect(PublishText.bumped('0.1.9', 'minor')).toBe('0.2.0');
-    expect(PublishText.bumped('1.2.3', 'major')).toBe('2.0.0');
-    expect(PublishText.bumped('1.2.3-beta.1', 'patch')).toBe('1.2.4');
-    expect(PublishText.bumped('1.2', 'patch')).toBeNull();
-    expect(PublishText.bumped('next', 'patch')).toBeNull();
-  });
 
   it('the Manage page is <hub>/@scope/name/manage', () => {
     expect(PublishText.manageUrl('http://localhost:8787/', '@acme/kit')).toBe('http://localhost:8787/@acme/kit/manage');

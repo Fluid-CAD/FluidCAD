@@ -153,7 +153,7 @@ Makes the project a [package](/docs/packages) you can publish on the hub for oth
 
 What the package shares is not listed here: its `features/`, `parts/` and `assemblies/` folders decide it ([Making a package](/docs/packages#making-a-package)). A block with an `exports` list, from before the folders, is refused with a sentence that says to move the files into the folders and remove `exports`.
 
-[`npx fluidcad package init`](/docs/cli#fluidcad-package-init) writes the block, [`npx fluidcad version`](/docs/cli#fluidcad-version) raises the version, and `npx fluidcad publish` packs the project and uploads it to the hub. [`npx fluidcad pack`](/docs/cli#fluidcad-pack) writes the same `.fluidpkg` to look at, without publishing; publishing doesn't need it. Packing changes nothing else in the project. A broken block is reported when the server starts and the project is treated as a plain project; `engine`, `unit` and `materials` keep working.
+**New Package** on the start screen (or [`npx fluidcad init --package`](/docs/cli#fluidcad-init---package)) writes the block into a new package; [`npx fluidcad package init`](/docs/cli#fluidcad-package-init) writes it into an existing project. The **Bump** control of the [Publish dialog](/docs/packages#publishing) or [`npx fluidcad version`](/docs/cli#fluidcad-version) raises the version, and **Publish** or `npx fluidcad publish` packs the project and uploads it to the hub. [`npx fluidcad pack`](/docs/cli#fluidcad-pack) writes the same `.fluidpkg` to look at, without publishing; publishing doesn't need it. Packing changes nothing else in the project. A broken block is reported when the server starts and the project is treated as a plain project; `engine`, `unit` and `materials` keep working.
 
 ### `dependencies`
 

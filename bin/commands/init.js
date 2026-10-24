@@ -86,6 +86,6 @@ export function registerInitCommand(program) {
     .command('init')
     .description('Scaffold init.js, an empty part1.part.js, jsconfig.json, and fluidcad.json in the current directory, and keep .fluidcad/ out of git (.gitignore)')
     .option('--unit <unit>', `project document unit written to fluidcad.json: ${LENGTH_UNITS.join(', ')} (default: the Settings dialog's unit for new projects, mm unless changed)`)
-    .option('--package <@handle/name>', 'scaffold a package workspace instead (an empty directory): the part in parts/, features/ and assemblies/, a README, and the "package" block at version 0.1.0; signed in to the hub, a name without the scope takes your handle')
+    .option('--package <@handle/name>', 'scaffold a package workspace instead (an empty directory): the part in parts/, features/ and assemblies/, a README, and the "package" block at version 1.0.0; signed in to the hub, a name without the scope takes your handle')
     .action(runInit);
 }

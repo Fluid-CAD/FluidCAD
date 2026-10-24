@@ -170,7 +170,7 @@ describe('fluidcad init --package', () => {
     expect(run.status).toBe(0);
     expect(run.stdout).toBe(
       [
-        'FluidCAD package @acme/kit 0.1.0 initialized:',
+        'FluidCAD package @acme/kit 1.0.0 initialized:',
         '  init.js',
         '  fluidcad.json',
         '  parts/part1.part.js',
@@ -189,14 +189,14 @@ describe('fluidcad init --package', () => {
     expect(read('jsconfig.json')).toBe(JSCONFIG);
     expect(read('.gitignore')).toBe(GITIGNORE);
     expect(read('README.md')).toBe('# @acme/kit\n');
-    expect(JSON.parse(read('fluidcad.json'))).toEqual({ engine: ENGINE, package: { name: '@acme/kit', version: '0.1.0' } });
+    expect(JSON.parse(read('fluidcad.json'))).toEqual({ engine: ENGINE, package: { name: '@acme/kit', version: '1.0.0' } });
   });
 
   it('takes --unit too, between the pin and the block', async () => {
     const run = await init(project, ['--package', '@acme/kit', '--unit', 'in']);
 
     expect(run.status).toBe(0);
-    expect(read('fluidcad.json')).toBe(`{\n  "engine": "${ENGINE}",\n  "unit": "in",\n  "package": {\n    "name": "@acme/kit",\n    "version": "0.1.0"\n  }\n}\n`);
+    expect(read('fluidcad.json')).toBe(`{\n  "engine": "${ENGINE}",\n  "unit": "in",\n  "package": {\n    "name": "@acme/kit",\n    "version": "1.0.0"\n  }\n}\n`);
   });
 
   it('signed out, refuses a name without its scope, saying to add the hub handle, and writes nothing', async () => {
@@ -213,8 +213,8 @@ describe('fluidcad init --package', () => {
 
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
-    expect(run.stdout.startsWith(`Named it @acme/kit: your handle on ${HUB}.\nFluidCAD package @acme/kit 0.1.0 initialized:\n`)).toBe(true);
-    expect(JSON.parse(read('fluidcad.json')).package).toEqual({ name: '@acme/kit', version: '0.1.0' });
+    expect(run.stdout.startsWith(`Named it @acme/kit: your handle on ${HUB}.\nFluidCAD package @acme/kit 1.0.0 initialized:\n`)).toBe(true);
+    expect(JSON.parse(read('fluidcad.json')).package).toEqual({ name: '@acme/kit', version: '1.0.0' });
     expect(read('README.md')).toBe('# @acme/kit\n');
   });
 

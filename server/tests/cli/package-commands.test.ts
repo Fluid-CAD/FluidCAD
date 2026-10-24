@@ -114,12 +114,12 @@ afterEach(() => {
 });
 
 describe('fluidcad package init', () => {
-  it('writes the block with the name and version 0.1.0, prints it, and says what the folders export', () => {
+  it('writes the block with the name and version 1.0.0, prints it, and says what the folders export', () => {
     const run = cli('package', 'init', '--name', '@acme/demo');
 
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
-    const block = { name: '@acme/demo', version: '0.1.0' };
+    const block = { name: '@acme/demo', version: '1.0.0' };
     expect(readConfig()).toEqual({ engine: '0.0.46', unit: 'in', package: block });
     expect(run.stdout).toContain('Wrote the "package" block to');
     expect(run.stdout).not.toContain('Named it');
@@ -180,7 +180,7 @@ describe('fluidcad package init', () => {
     expect(run.stderr).toBe('');
     expect(run.status).toBe(0);
     expect(run.stdout).toContain(`Named it @acme/demo: your handle on ${hub.origin}.\nWrote the "package" block to`);
-    expect(readConfig().package).toEqual({ name: '@acme/demo', version: '0.1.0' });
+    expect(readConfig().package).toEqual({ name: '@acme/demo', version: '1.0.0' });
     expect(hub.requests).toEqual([]);
   });
 
@@ -238,7 +238,7 @@ describe('fluidcad package init', () => {
     const run = cli('package', 'init', '--name', '@acme/other');
 
     expect(run.status).toBe(1);
-    expect(run.stderr).toContain('already the package @acme/demo 0.1.0');
+    expect(run.stderr).toContain('already the package @acme/demo 1.0.0');
     expect(readConfig().package.name).toBe('@acme/demo');
   });
 });
@@ -248,11 +248,11 @@ describe('fluidcad version', () => {
     expect(cli('package', 'init', '--name', '@acme/demo').status).toBe(0);
 
     const steps: [string, string][] = [
-      ['patch', '@acme/demo 0.1.0 → 0.1.1'],
-      ['minor', '@acme/demo 0.1.1 → 0.2.0'],
-      ['major', '@acme/demo 0.2.0 → 1.0.0'],
-      ['1.1.0-beta.1', '@acme/demo 1.0.0 → 1.1.0-beta.1'],
-      ['minor', '@acme/demo 1.1.0-beta.1 → 1.1.0'],
+      ['patch', '@acme/demo 1.0.0 → 1.0.1'],
+      ['minor', '@acme/demo 1.0.1 → 1.1.0'],
+      ['major', '@acme/demo 1.1.0 → 2.0.0'],
+      ['2.1.0-beta.1', '@acme/demo 2.0.0 → 2.1.0-beta.1'],
+      ['minor', '@acme/demo 2.1.0-beta.1 → 2.1.0'],
     ];
     for (const [spec, printed] of steps) {
       const run = cli('version', spec);
@@ -262,9 +262,9 @@ describe('fluidcad version', () => {
     }
 
     const config = readConfig();
-    expect(config.package.version).toBe('1.1.0');
+    expect(config.package.version).toBe('2.1.0');
     expect(config).toMatchObject({ engine: '0.0.46', unit: 'in' });
-    expect(config.package).toEqual({ name: '@acme/demo', version: '1.1.0' });
+    expect(config.package).toEqual({ name: '@acme/demo', version: '2.1.0' });
   });
 
   it('refuses outside a package', () => {
@@ -281,7 +281,7 @@ describe('fluidcad version', () => {
 
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('"1.2" is not a version or a bump');
-    expect(readConfig().package.version).toBe('0.1.0');
+    expect(readConfig().package.version).toBe('1.0.0');
   });
 
   it('needs the bump argument', () => {

@@ -35,16 +35,25 @@ export interface TopBarExportHandlers {
 const WHOLE_ASSEMBLY_THUMB = 'whole-assembly';
 const WHOLE_ASSEMBLY_LABEL = 'Whole assembly';
 
+/**
+ * How a host action sits on the bar: `icon` (the default) is the icon alone,
+ * like Import and Export; `labelled` puts {@link TopBarAction.label} beside
+ * the icon; `accent` is the word alone in a bordered accent button, for the
+ * one step on the bar that should catch the eye (Publish). The collapsed
+ * menu's row always shows the icon and the label, whatever the look.
+ */
+export type TopBarActionLook = 'icon' | 'labelled' | 'accent';
+
 /** A button a host adds to the bar of its own — see {@link TopBarActions.addAction}. */
 export interface TopBarAction {
-  /** Inline SVG markup — the bar shows the icon alone. */
+  /** Inline SVG markup: the bar's button (unless the look is `accent`) and the collapsed menu's row. */
   icon: string;
   /** Tooltip on the bar, and the accessible name. */
   title: string;
   /** The row's label in the collapsed menu, where there is room for words. Defaults to {@link title}. */
   label?: string;
-  /** Show {@link label} on the bar's button too, beside the icon (Publish reads as a word, not a glyph). Default: the icon alone. */
-  labelled?: boolean;
+  /** How the bar shows it ({@link TopBarActionLook}). Default: `icon`. */
+  look?: TopBarActionLook;
   onClick(): void;
 }
 
@@ -72,8 +81,12 @@ const COLLAPSE_QUERY = '(width < 40rem)';
 const ACTION_BTN = 'btn btn-ghost btn-sm btn-square text-base-content/70';
 /** The Export disclosure — an icon plus its caret, so it cannot be square. */
 const ACTION_BTN_CARET = 'btn btn-ghost btn-sm px-1.5 gap-0.5 text-base-content/70';
-/** A host action that shows its label beside the icon ({@link TopBarAction.labelled}). */
+/** A host action that shows its label beside the icon (the `labelled` look). */
 const ACTION_BTN_LABELLED = 'btn btn-ghost btn-sm px-2 gap-1.5 font-normal text-base-content/80';
+/** A host action as the word alone in a bordered accent button (the `accent` look). */
+// Shorter than the bar's icon buttons (h-7 against their h-8), so the word
+// sits inside the row rather than filling it.
+const ACTION_BTN_ACCENT = 'btn btn-xs btn-outline btn-accent h-7 px-2.5 font-medium';
 const ACTION_ICON = 'shrink-0 [&>svg]:size-4';
 
 const PANEL =
@@ -221,15 +234,18 @@ export class TopBarActions {
     }
   }
 
-  /** A host action's button as its action says: the icon, the tooltip, and the label beside the icon when `labelled`. */
+  /** A host action's button as its look says ({@link TopBarActionLook}): the classes, the tooltip, the icon and the label. */
   private static dress(button: HTMLButtonElement, action: TopBarAction): void {
-    button.className = action.labelled ? ACTION_BTN_LABELLED : ACTION_BTN;
+    const look = action.look ?? 'icon';
+    button.className = look === 'accent' ? ACTION_BTN_ACCENT : look === 'labelled' ? ACTION_BTN_LABELLED : ACTION_BTN;
     button.title = action.title;
     button.setAttribute('aria-label', action.title);
     const icon = button.firstElementChild as HTMLElement;
     icon.innerHTML = action.icon;
+    // The accent look is the word alone; the icon stays for the menu row.
+    icon.classList.toggle('hidden', look === 'accent');
     const label = button.querySelector<HTMLSpanElement>('[data-ref="action-label"]');
-    if (action.labelled) {
+    if (look !== 'icon') {
       const text = label ?? document.createElement('span');
       text.dataset.ref = 'action-label';
       text.className = 'text-[13px]';

@@ -101,7 +101,7 @@ describe('opening', () => {
   it('shows the package, its version and that it is not on the hub yet; Check and Publish; no notes field', async () => {
     const h = await mount();
     expect(h.dialog.isOpen()).toBe(true);
-    expect(h.$('title')!.textContent).toBe('Publish @acme/kit');
+    expect(h.$('title')!.textContent).toBe('Publish');
     expect(h.$('name')!.textContent).toBe('@acme/kit');
     expect(h.$('version')!.textContent).toBe('0.1.0');
     expect(h.$('hub-status')!.dataset.state).toBe('known');
@@ -235,8 +235,8 @@ describe('the status line (fluidcad publish --status)', () => {
     const h = await mount((client) => {
       client.statusValue = FakePublishClient.onHub({ openVersion: FakePublishClient.version({ draftExpiresAt: '2026-11-23T12:00:00.000Z' }) });
     });
-    expect(words(h.$('open-draft'))).toBe('@acme/kit@0.1.0 is a draft · finish publishing in your browser Open the wizard Withdraw');
-    expect(words(h.$('draft-expires'))).toBe('a draft nobody touches is deleted on 2026-11-23');
+    expect(words(h.$('open-draft'))).toBe('@acme/kit@0.1.0 is a draft. Open the wizard Withdraw');
+    expect(words(h.$('draft-expires'))).toBe('A draft nobody touches is deleted on 2026-11-23.');
     expect(words(h.$('no-version'))).toBeNull();
     await h.click('open-wizard');
     expect(h.openExternal).toHaveBeenCalledWith(`${HUB}/publish/@acme/kit/0.1.0`);
@@ -265,8 +265,8 @@ describe('the status line (fluidcad publish --status)', () => {
         openVersion: FakePublishClient.version({ version: '0.2.0', status: 'in_review', wizardUrl: null, submittedAt: '2026-10-20T08:00:00.000Z' }),
       }, FakePublishClient.version({ version: '0.1.0', status: 'published', publishedAt: '2026-10-01T08:00:00.000Z' }));
     });
-    expect(words(h.$('open-in-review'))).toBe('@acme/kit@0.2.0 is in review since 2026-10-20 View its status Withdraw');
-    expect(words(h.$('latest'))).toBe('latest published 0.1.0 on 2026-10-01 · sha256-abc Manage on the hub');
+    expect(words(h.$('open-in-review'))).toBe('@acme/kit@0.2.0 is in review since 2026-10-20. View its status Withdraw');
+    expect(words(h.$('latest'))).toBe('Latest published 0.1.0 on 2026-10-01. Manage on the hub');
     await h.click('open-review');
     expect(h.openExternal).toHaveBeenCalledWith(`${HUB}/@acme/kit/status`);
     await h.click('manage');
@@ -288,7 +288,7 @@ describe('the status line (fluidcad publish --status)', () => {
     const published = await mount((client) => {
       client.statusValue = FakePublishClient.onHub({}, FakePublishClient.version({ status: 'published', publishedAt: '2026-10-01T08:00:00.000Z' }));
     });
-    expect(words(published.$('latest'))).toBe('@acme/kit: latest published 0.1.0 on 2026-10-01 · sha256-abc Manage on the hub');
+    expect(words(published.$('latest'))).toBe('@acme/kit: latest published 0.1.0 on 2026-10-01. Manage on the hub');
     expect(published.$('publish')!.textContent).toBe('Publish');
   });
 
@@ -322,7 +322,7 @@ describe('the version and its bump control', () => {
     await settle();
     expect(h.client.bumpVersion).toHaveBeenCalledWith('minor');
     expect(h.$('version')!.textContent).toBe('0.2.0');
-    expect(h.$('title')!.textContent).toBe('Publish @acme/kit');
+    expect(h.$('title')!.textContent).toBe('Publish');
     expect(words(h.$('notice'))).toBe('@acme/kit is 0.2.0 now (was 0.1.0).');
     expect(h.onVersionChanged).toHaveBeenCalledTimes(1);
     expect(bump('patch').title).toBe('0.2.0 → 0.2.1');
@@ -383,7 +383,7 @@ describe('release notes', () => {
     expect(h.shown('notes')).toBe(false);
     h.client.advance({ status: 'awaiting-confirm', summary: FakePublishClient.summary({ version: '0.1.1', becomes: 'in_review', notes: 'Fixes the lid.' }) });
     await h.timers.fire();
-    expect(words(h.$('summary-notes'))).toBe('notes: Fixes the lid.');
+    expect(words(h.$('summary-notes'))).toBe('Fixes the lid.');
     expect(words(h.$('becomes'))).toBe('goes straight to review: an admin approves it before it is public');
   });
 
@@ -422,7 +422,7 @@ describe('Check: a dry run', () => {
     await h.timers.fire();
     expect(h.$('session')!.dataset.status).toBe('done');
     expect(words(h.$('result')))
-      .toBe('Dry run: http://localhost:8787 accepts @acme/kit@0.1.0 · sha256-abc · it would be a draft you finish in your browser. Nothing was stored.');
+      .toBe('Dry run: http://localhost:8787 accepts @acme/kit@0.1.0. It would be a draft you finish in your browser. Nothing was stored.');
     expect(h.$('summary')).not.toBeNull();
     expect(h.openExternal).not.toHaveBeenCalled();
     expect(h.timers.pending).toHaveLength(0);
@@ -451,7 +451,7 @@ describe('Publish: the summary, the upload and the result', () => {
     const rows = [...h.overlay.querySelectorAll<HTMLElement>('[data-ref="summary-row"]')].map((el) => [el.dataset.folder, el.textContent]);
     expect(rows).toEqual([['features/', '2 features'], ['parts/', '1 part'], ['assemblies/', '0 assemblies'], ['docs/', '1 page']]);
     expect(words(h.$('summary-size'))).toBe('5 files, 1.1 kB');
-    expect(words(h.$('summary-integrity'))).toBe('integrity: sha256-abc');
+    expect(words(h.$('summary-integrity'))).toBe('sha256-abc');
     expect(h.$('summary-notes')).toBeNull();
     expect(words(h.$('becomes'))).toBe('first version: you finish publishing in your browser (screenshots, license, release notes)');
     expect(words(h.$('warnings-lead'))).toBe('1 warning (nothing is refused for them):');
@@ -491,13 +491,13 @@ describe('Publish: the summary, the upload and the result', () => {
     h.client.advance({ status: 'done', progress: null, result: FakePublishClient.result() });
     await h.timers.fire();
     expect(h.$('session')!.dataset.status).toBe('done');
-    expect(words(h.$('result-text'))).toBe('Uploaded @acme/kit@0.1.0 · sha256-abc · finish publishing in your browser:');
+    expect(words(h.$('result-text'))).toBe('Uploaded @acme/kit@0.1.0. Finish publishing in your browser:');
     expect(h.$('wizard-link')!.textContent).toBe(`${HUB}/publish/@acme/kit/0.1.0`);
     expect(h.openExternal).toHaveBeenCalledTimes(1);
     expect(h.openExternal).toHaveBeenCalledWith(`${HUB}/publish/@acme/kit/0.1.0`);
     // The after-state: the hub's own status, with Open the wizard and Withdraw.
     expect(h.client.status).toHaveBeenCalledTimes(2);
-    expect(words(h.$('open-draft'))).toBe('@acme/kit@0.1.0 is a draft · finish publishing in your browser Open the wizard Withdraw');
+    expect(words(h.$('open-draft'))).toBe('@acme/kit@0.1.0 is a draft. Open the wizard Withdraw');
     expect(h.timers.pending).toHaveLength(0);
 
     // Nothing opens it again: not a re-render, not a reopen.
@@ -525,7 +525,7 @@ describe('Publish: the summary, the upload and the result', () => {
       result: FakePublishClient.result({ version: '0.1.1', status: 'in_review', wizardUrl: null, reviewUrl: `${HUB}/@acme/kit/status`, replaced: true }),
     });
     await h.timers.fire();
-    expect(words(h.$('result-text'))).toBe('Submitted @acme/kit@0.1.1 for review · sha256-abc');
+    expect(words(h.$('result-text'))).toBe('Submitted @acme/kit@0.1.1 for review.');
     expect(words(h.$('replaced'))).toBe('Replaced the draft of @acme/kit@0.1.1; the wizard keeps what you filled in.');
     expect(h.$('review-link')!.textContent).toBe(`${HUB}/@acme/kit/status`);
     expect(h.openExternal).not.toHaveBeenCalled();

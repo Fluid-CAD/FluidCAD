@@ -436,7 +436,8 @@ export class PublishText {
   static dryRun(publish: HubAppPublishState): string {
     const result = publish.result!;
     const next = result.status === 'draft' ? 'a draft you finish in your browser' : 'submitted for review';
-    return `Dry run: ${publish.hub} accepts ${PublishText.at(result.name, result.version)} · ${result.integrity} · it would be ${next}. Nothing was stored.`;
+    // The CLI prints the integrity here too; the dialog leaves it out (the summary below shows it).
+    return `Dry run: ${publish.hub} accepts ${PublishText.at(result.name, result.version)}. It would be ${next}. Nothing was stored.`;
   }
 
   /** `Uploading 12.3 kB of 48.6 kB (25%)`. */

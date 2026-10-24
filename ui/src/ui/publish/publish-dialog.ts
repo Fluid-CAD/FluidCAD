@@ -25,7 +25,10 @@ const LINE = 'text-xs text-base-content/80 leading-snug';
 const MUTED = 'text-[11px] text-base-content/55 leading-snug';
 const LINK_BTN = 'btn btn-ghost btn-xs font-normal text-primary px-1.5';
 const SMALL_BTN = 'btn btn-ghost btn-xs font-normal';
-const CARD = 'rounded-md border border-base-content/10 bg-base-200/40 px-3 py-2 flex flex-col gap-1';
+const CARD = 'rounded-md border border-base-content/10 bg-base-200/40 px-3 py-2.5 flex flex-col gap-1.5';
+/** A status row: the sentence on the left, its buttons grouped on the right (wrapping as a group, never one by one). */
+const ROW = 'flex items-center gap-x-3 gap-y-1 flex-wrap';
+const ROW_ACTIONS = 'flex items-center gap-0.5 shrink-0 ml-auto -my-1';
 
 /**
  * Publishing the workspace's package from the top bar (ui-packages-plan
@@ -112,17 +115,23 @@ export class PublishDialog {
         </div>
         <div data-ref="body" class="overflow-y-auto min-h-0 flex flex-col gap-3">
           <div data-ref="problem" class="hidden"></div>
-          <div data-ref="version-row" class="hidden flex items-center gap-2 flex-wrap">
-            <span data-ref="name" class="text-sm font-medium text-base-content/90 truncate"></span>
-            <span data-ref="version" class="text-sm text-base-content/70 tabular-nums"></span>
-            <span data-ref="bump" class="ml-auto flex items-center gap-1 flex-wrap">
-              <span class="${MUTED} mr-1">Bump</span>
-              <button type="button" data-bump="patch" class="btn btn-xs font-normal">patch</button>
-              <button type="button" data-bump="minor" class="btn btn-xs font-normal">minor</button>
-              <button type="button" data-bump="major" class="btn btn-xs font-normal">major</button>
-              <input data-ref="version-input" class="input input-xs w-20 font-mono" placeholder="1.2.0" aria-label="An exact version" spellcheck="false">
-              <button type="button" data-ref="version-set" class="btn btn-xs font-normal">Set</button>
-            </span>
+          <div data-ref="version-row" class="hidden flex items-center justify-between gap-x-4 gap-y-2 flex-wrap">
+            <div class="flex items-baseline gap-2 min-w-0">
+              <span data-ref="name" class="text-sm font-medium text-base-content/90 truncate"></span>
+              <span data-ref="version" class="text-xs text-base-content/60 font-mono tabular-nums"></span>
+            </div>
+            <div data-ref="bump" class="flex items-center gap-2 shrink-0">
+              <span class="${MUTED}">Bump</span>
+              <div class="join">
+                <button type="button" data-bump="patch" class="join-item btn btn-xs font-normal">patch</button>
+                <button type="button" data-bump="minor" class="join-item btn btn-xs font-normal">minor</button>
+                <button type="button" data-bump="major" class="join-item btn btn-xs font-normal">major</button>
+              </div>
+              <div class="join">
+                <input data-ref="version-input" class="join-item input input-xs input-bordered w-[4.5rem] font-mono" placeholder="1.2.0" aria-label="An exact version" spellcheck="false">
+                <button type="button" data-ref="version-set" class="join-item btn btn-xs font-normal">Set</button>
+              </div>
+            </div>
           </div>
           <div data-ref="hub-status" class="hidden flex flex-col gap-1"></div>
           <div data-ref="withdraw-box" class="hidden"></div>
@@ -300,7 +309,8 @@ export class PublishDialog {
     const running = s.publish !== null && PublishState.isRunning(s.publish);
     const loading = s.pkg === null && s.pkgRefusal === null;
     const signedOut = s.statusRefusal?.code === 'signed-out';
-    this.title.textContent = pkg ? `Publish ${pkg.name}` : 'Publish';
+    // The name sits in the header row with its version; the title stays one word.
+    this.title.textContent = 'Publish';
 
     this.renderProblem(s, loading);
     this.renderVersionRow(s, pkg, running);
@@ -381,27 +391,14 @@ export class PublishDialog {
     if (s.statusRefusal) {
       if (s.statusRefusal.code === 'signed-out') {
         this.hubStatus.dataset.state = 'signed-out';
-        const row = document.createElement('div');
-        row.dataset.ref = 'signed-out';
-        row.className = 'flex items-center gap-2 flex-wrap';
-        const text = document.createElement('span');
-        text.className = LINE;
-        text.textContent = s.statusRefusal.error;
-        row.append(text, this.signInButton());
-        this.hubStatus.appendChild(row);
+        this.hubStatus.appendChild(PublishDialog.row('signed-out', s.statusRefusal.error, [this.signInButton()]));
         return;
       }
       this.hubStatus.dataset.state = 'unknown';
-      const row = document.createElement('div');
-      row.dataset.ref = 'status-problem';
-      row.className = 'flex items-start gap-2';
-      row.appendChild(PublishDialog.icon(ICON_ALERT_TRIANGLE, 'text-warning'));
-      const text = document.createElement('span');
-      text.className = `${LINE} flex-1`;
-      text.textContent = s.statusRefusal.error;
       const retry = PublishDialog.button('status-retry', 'Try again', SMALL_BTN, () => void this.deps.state.reloadStatus());
       retry.disabled = s.busy !== null;
-      row.append(text, retry);
+      const row = PublishDialog.row('status-problem', s.statusRefusal.error, [retry]);
+      row.prepend(PublishDialog.icon(ICON_ALERT_TRIANGLE, 'text-warning'));
       this.hubStatus.appendChild(row);
       return;
     }
@@ -429,24 +426,26 @@ export class PublishDialog {
     if (open) {
       const at = PublishText.at(name, open.version);
       if (open.status === 'draft') {
-        const row = PublishDialog.line('open-draft', `${at} is a draft · finish publishing in your browser`);
+        // The CLI adds "finish publishing in your browser: <url>"; here the button is that sentence.
+        const actions: HTMLElement[] = [];
         if (open.wizardUrl) {
           const url = open.wizardUrl;
-          row.appendChild(PublishDialog.button('open-wizard', 'Open the wizard', LINK_BTN, () => this.deps.openExternal(url), HubIcons.EXTERNAL));
+          actions.push(PublishDialog.button('open-wizard', 'Open the wizard', LINK_BTN, () => this.deps.openExternal(url), HubIcons.EXTERNAL));
         }
-        row.appendChild(this.withdrawButton(open, disabled));
-        lines.push(row);
+        actions.push(this.withdrawButton(open, disabled));
+        // Short on purpose: the row keeps its two buttons beside it at the dialog's width.
+        lines.push(PublishDialog.row('open-draft', `${at} is a draft.`, actions));
         if (open.draftExpiresAt) {
-          lines.push(PublishDialog.line('draft-expires', `a draft nobody touches is deleted on ${PublishText.day(open.draftExpiresAt)}`, MUTED));
+          lines.push(PublishDialog.line('draft-expires', `A draft nobody touches is deleted on ${PublishText.day(open.draftExpiresAt)}.`, MUTED));
         }
       } else if (open.status === 'in_review') {
-        const row = PublishDialog.line('open-in-review', `${at} is in review${open.submittedAt ? ` since ${PublishText.day(open.submittedAt)}` : ''}`);
+        const actions: HTMLElement[] = [];
         if (open.reviewUrl) {
           const url = open.reviewUrl;
-          row.appendChild(PublishDialog.button('open-review', 'View its status', LINK_BTN, () => this.deps.openExternal(url), HubIcons.EXTERNAL));
+          actions.push(PublishDialog.button('open-review', 'View its status', LINK_BTN, () => this.deps.openExternal(url), HubIcons.EXTERNAL));
         }
-        row.appendChild(this.withdrawButton(open, disabled));
-        lines.push(row);
+        actions.push(this.withdrawButton(open, disabled));
+        lines.push(PublishDialog.row('open-in-review', `${at} is in review${open.submittedAt ? ` since ${PublishText.day(open.submittedAt)}` : ''}.`, actions));
       } else {
         lines.push(PublishDialog.line('open-uploading', `${at} is being uploaded.`));
       }
@@ -456,10 +455,9 @@ export class PublishDialog {
     }
     if (status.latest) {
       const when = status.latest.publishedAt ? ` on ${PublishText.day(status.latest.publishedAt)}` : '';
-      const lead = open || rejected ? 'latest published' : `${name}: latest published`;
-      const row = PublishDialog.line('latest', `${lead} ${status.latest.version}${when} · ${status.latest.integrity ?? ''}`.trimEnd());
-      row.appendChild(PublishDialog.button('manage', 'Manage on the hub', LINK_BTN, () => this.deps.openExternal(PublishText.manageUrl(hub, name)), HubIcons.EXTERNAL));
-      lines.push(row);
+      const lead = open || rejected ? 'Latest published' : `${name}: latest published`;
+      const manage = PublishDialog.button('manage', 'Manage on the hub', LINK_BTN, () => this.deps.openExternal(PublishText.manageUrl(hub, name)), HubIcons.EXTERNAL);
+      lines.push(PublishDialog.row('latest', `${lead} ${status.latest.version}${when}.`, [manage]));
     } else if (!open && !rejected) {
       lines.push(PublishDialog.line('no-version', `${name} has no version on ${hub} yet. Publish uploads one.`));
     }
@@ -574,13 +572,14 @@ export class PublishDialog {
     if (result.replaced) {
       card.appendChild(PublishDialog.line('replaced', `Replaced the draft of ${at}; the wizard keeps what you filled in.`, MUTED));
     }
+    // The CLI prints the integrity here too; the dialog leaves it out (the summary already showed it).
     if (result.status === 'draft') {
-      card.appendChild(PublishDialog.lineWithIcon(ICON_CIRCLE_CHECK, 'text-success', `Uploaded ${at} · ${result.integrity} · finish publishing in your browser:`));
+      card.appendChild(PublishDialog.lineWithIcon(ICON_CIRCLE_CHECK, 'text-success', `Uploaded ${at}. Finish publishing in your browser:`));
       if (result.wizardUrl) {
         card.appendChild(this.link('wizard-link', result.wizardUrl));
       }
     } else {
-      card.appendChild(PublishDialog.lineWithIcon(ICON_CIRCLE_CHECK, 'text-success', `Submitted ${at} for review · ${result.integrity}`));
+      card.appendChild(PublishDialog.lineWithIcon(ICON_CIRCLE_CHECK, 'text-success', `Submitted ${at} for review.`));
       if (result.reviewUrl) {
         card.appendChild(this.link('review-link', result.reviewUrl));
       }
@@ -686,30 +685,41 @@ export class PublishDialog {
     title.className = `${LINE} font-medium`;
     title.textContent = PublishText.summaryTitle(summary);
     card.appendChild(title);
+    // One table: the folders, then the archive's size and hash, all sharing the label column.
     const rows = document.createElement('div');
-    rows.className = 'grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 pl-3';
+    rows.className = 'grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 items-baseline';
     for (const [folder, counted] of PublishText.summaryRows(summary)) {
-      const name = document.createElement('span');
-      name.className = `${MUTED} font-mono`;
-      name.textContent = folder;
       const count = document.createElement('span');
       count.dataset.ref = 'summary-row';
       count.dataset.folder = folder;
       count.className = LINE;
       count.textContent = counted;
-      rows.append(name, count);
+      rows.append(PublishDialog.label(folder), count);
+    }
+    const size = document.createElement('span');
+    size.dataset.ref = 'summary-size';
+    size.className = LINE;
+    size.textContent = PublishText.summarySize(summary);
+    rows.append(PublishDialog.label('archive'), size);
+    const integrity = document.createElement('span');
+    integrity.dataset.ref = 'summary-integrity';
+    integrity.className = `${MUTED} font-mono break-all`;
+    integrity.textContent = summary.integrity;
+    rows.append(PublishDialog.label('integrity'), integrity);
+    if (summary.notes) {
+      const notes = document.createElement('span');
+      notes.dataset.ref = 'summary-notes';
+      notes.className = LINE;
+      notes.textContent = summary.notes;
+      rows.append(PublishDialog.label('notes'), notes);
     }
     card.appendChild(rows);
-    card.appendChild(PublishDialog.line('summary-size', PublishText.summarySize(summary), `${LINE} pl-3`));
-    card.appendChild(PublishDialog.line('summary-integrity', `integrity: ${summary.integrity}`, `${MUTED} pl-3 font-mono break-all`));
-    if (summary.notes) {
-      card.appendChild(PublishDialog.line('summary-notes', `notes: ${summary.notes}`, `${LINE} pl-3`));
-    }
-    card.appendChild(PublishDialog.line('becomes', PublishText.becomes(summary), `${LINE} pl-3 text-base-content/90`));
+    // What happens next, set off from the table.
+    card.appendChild(PublishDialog.line('becomes', PublishText.becomes(summary), `${LINE} text-base-content/90 mt-1 pt-2 border-t border-base-content/10`));
     if (summary.warnings.length > 0) {
       const warnings = document.createElement('div');
       warnings.dataset.ref = 'warnings';
-      warnings.className = 'flex flex-col gap-0.5 pl-3';
+      warnings.className = 'flex flex-col gap-0.5';
       warnings.appendChild(PublishDialog.line('warnings-lead', PublishText.warningsLead(summary.warnings.length), `${LINE} text-warning`));
       for (const warning of summary.warnings) {
         warnings.appendChild(PublishDialog.line('warning', `! ${warning.message}`, `${MUTED} pl-3`));
@@ -762,7 +772,33 @@ export class PublishDialog {
     return box;
   }
 
-  private static line(ref: string, text: string, cls = `${LINE} flex items-center gap-1 flex-wrap`): HTMLDivElement {
+  /** The summary table's label column: `features/`, `archive`, `integrity`. */
+  private static label(text: string): HTMLSpanElement {
+    const label = document.createElement('span');
+    label.className = `${MUTED} font-mono`;
+    label.textContent = text;
+    return label;
+  }
+
+  /** A sentence with its buttons grouped at the right end of the row (see {@link ROW}). */
+  private static row(ref: string, text: string, actions: HTMLElement[]): HTMLDivElement {
+    const row = document.createElement('div');
+    row.dataset.ref = ref;
+    row.className = ROW;
+    const span = document.createElement('span');
+    span.className = `${LINE} min-w-0`;
+    span.textContent = text;
+    row.appendChild(span);
+    if (actions.length > 0) {
+      const group = document.createElement('span');
+      group.className = ROW_ACTIONS;
+      group.append(...actions);
+      row.appendChild(group);
+    }
+    return row;
+  }
+
+  private static line(ref: string, text: string, cls = LINE): HTMLDivElement {
     const row = document.createElement('div');
     row.dataset.ref = ref;
     row.className = cls;

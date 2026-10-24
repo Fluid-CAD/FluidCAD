@@ -1100,8 +1100,9 @@ const publishAction: TopBarAction = {
   icon: ICON_CLOUD_UPLOAD,
   title: 'Publish this package on the hub',
   label: 'Publish',
-  // The word on the bar (the user's ask): publishing is a step, not a tool.
-  labelled: true,
+  // The word alone in a bordered accent button (the user's ask): publishing
+  // is the step the bar should draw the eye to, not one tool among the icons.
+  look: 'accent',
   onClick: () => publishDialog.show(),
 };
 const shareButton = topBar.addAction(shareAction);

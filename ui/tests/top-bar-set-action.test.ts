@@ -24,7 +24,7 @@ function mount(collapsed = false) {
   const onShare = vi.fn();
   const onPublish = vi.fn();
   const share = { icon: SHARE_ICON, title: 'Share this model in the FluidCAD viewer', label: 'Share', onClick: onShare };
-  const publish = { icon: PUBLISH_ICON, title: 'Publish this package on the hub', label: 'Publish', labelled: true, onClick: onPublish };
+  const publish = { icon: PUBLISH_ICON, title: 'Publish this package on the hub', label: 'Publish', look: 'accent' as const, onClick: onPublish };
   const button = bar.addAction(share);
   return { container, bar, button, share, publish, onShare, onPublish };
 }
@@ -43,9 +43,12 @@ describe('TopBarActions.setAction', () => {
     expect(h.button.getAttribute('aria-label')).toBe('Publish this package on the hub');
     expect(h.button.querySelector('[data-icon="publish"]')).not.toBeNull();
     expect(h.button.querySelector('[data-icon="share"]')).toBeNull();
-    // Publish reads as a word on the bar; Share stays the icon alone.
+    // Publish is the word alone in a bordered accent button (its icon is kept, hidden, for the menu row); Share stays the icon alone.
     expect(h.button.querySelector('[data-ref="action-label"]')!.textContent).toBe('Publish');
     expect(h.button.classList.contains('btn-square')).toBe(false);
+    expect(h.button.classList.contains('btn-outline')).toBe(true);
+    expect(h.button.classList.contains('btn-accent')).toBe(true);
+    expect(h.button.firstElementChild!.classList.contains('hidden')).toBe(true);
     h.button.click();
     expect(h.onPublish).toHaveBeenCalledTimes(1);
     expect(h.onShare).not.toHaveBeenCalled();
@@ -55,6 +58,8 @@ describe('TopBarActions.setAction', () => {
     expect(h.button.querySelector('[data-icon="share"]')).not.toBeNull();
     expect(h.button.querySelector('[data-ref="action-label"]')).toBeNull();
     expect(h.button.classList.contains('btn-square')).toBe(true);
+    expect(h.button.classList.contains('btn-accent')).toBe(false);
+    expect(h.button.firstElementChild!.classList.contains('hidden')).toBe(false);
     h.button.click();
     expect(h.onShare).toHaveBeenCalledTimes(1);
     expect(h.onPublish).toHaveBeenCalledTimes(1);

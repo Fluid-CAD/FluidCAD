@@ -1,7 +1,7 @@
 ---
 id: concepts/packages
 title: Packages — sharing custom features and parts through the hub
-summary: "A package is a workspace whose fluidcad.json has a \"package\" block (name @<handle>/<name>, the author's own hub handle as its scope; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). That one name is the archive's, the hub's, the pin's, the library folder's and every import's. A new package is made from the start screen (New Package: the name, then the folder) or with fluidcad init --package @scope/name, which lays the folders out with the block at 1.0.0; fluidcad package init adds the block to an existing project. Publishing is the top bar's Publish button (Share's seat in a package workspace: a New version field, Check, Publish, the summary, Upload; a first version opens the hub's wizard in the browser, later ones go to review; Withdraw) or fluidcad publish: both check the layout and the code on the engine, build <scope>-<name>-<version>.fluidpkg (the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json) and upload it. fluidcad pack (MCP pack) runs the same checks and writes that archive to look at, without publishing; it is never a step before publishing. Packages install only from the hub, never from a .fluidpkg file: fluidcad install @scope/name downloads, verifies and installs into the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
+summary: "A package is a workspace whose fluidcad.json has a \"package\" block (name @<handle>/<name>, the author's own hub handle as its scope; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). That one name is the archive's, the hub's, the pin's, the library folder's and every import's. A new package is made from the start screen (New Package: the name, then the folder) or with fluidcad init --package @scope/name, which lays the folders out with the block at 1.0.0; fluidcad package init adds the block to an existing project. Publishing is the top bar's Publish button (Share's seat in a package workspace: a Publish as field proposing the next major above the hub's latest, Check, Publish, the summary, Upload; a first version opens the hub's wizard in the browser, later ones go to review; Withdraw) or fluidcad publish: both check the layout and the code on the engine, build <scope>-<name>-<version>.fluidpkg (the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json) and upload it. fluidcad pack (MCP pack) runs the same checks and writes that archive to look at, without publishing; it is never a step before publishing. Packages install only from the hub, never from a .fluidpkg file: fluidcad install @scope/name downloads, verifies and installs into the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
 tags: [concept, package, custom-feature, sdk, project]
 seeAlso: [concepts/custom-features, concepts/assemblies, concepts/units, api/insert, api/part, api/define-feature]
 ---
@@ -164,7 +164,8 @@ sync:
   signed out, a name without the scope is refused with the sentence above.
   Without `--name` it asks on a terminal (`Package name: @acme/` when signed
   in).
-- The Publish dialog's **New version** field (type the next version, Set) or
+- The Publish dialog's **Publish as** field (it proposes the next major above
+  the hub's latest; type over it; Publish writes it into the block first) or
   `fluidcad version patch|minor|major|<x.y.z>` changes `version`
   (`@acme/mounting-hardware 1.0.0 → 1.0.1`). Packing never bumps.
 - A broken block is reported at startup ("FluidCAD: fluidcad.json has a
@@ -188,8 +189,10 @@ one) the top bar's Share button is **Publish** instead, in every host; a
 plain project keeps Share. Publish opens the Publish dialog, which runs
 `fluidcad publish`'s steps through the running engine:
 
-- the header: the name and version with the **New version** field (typed,
-  then **Set**; no patch / minor / major buttons); a broken block
+- the header: the name and version with the **Publish as** field: the next
+  major above the hub's latest (the block's own version while nothing is
+  published, or when it is already above), typed over at will; Check and
+  Publish write it into the block before packing; a broken block
   shows its problem first ("Fix fluidcad.json, then try again.");
 - where the package stands on the hub (`fluidcad publish --status`'s lines):
   signed out → "Not signed in to <hub>. Sign in to publish." with **Sign in**
@@ -221,7 +224,7 @@ plain project keeps Share. Publish opens the Publish dialog, which runs
 
 Refusals are `fluidcad publish`'s, with the dialog's actions: signed out →
 Sign in; the version not above the hub's latest → the sentence names it and
-the **New version** field takes the focus; a
+the **Publish as** field takes the focus; a
 draft or a version in review → Withdraw; a shipped file with unsaved editor
 changes → "Save your files first."; not a package, another handle's scope,
 not a publisher, the hub unreachable → the sentence. Closing the dialog
@@ -303,7 +306,7 @@ sentence naming the file (`pack-refused` from MCP, with `details.code`):
   in the closure (those three are generated);
 - a shipped file has unsaved editor changes (the route and MCP; save first).
 
-To release a new version: edit, type the next version (or `fluidcad version minor`),
+To release a new version: edit, accept or type the version in **Publish as** (or `fluidcad version minor`),
 **Publish** (or `fluidcad publish`).
 
 Archives packed before the folders existed (modules at the archive root)

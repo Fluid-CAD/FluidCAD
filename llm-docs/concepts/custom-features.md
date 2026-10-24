@@ -354,7 +354,7 @@ to look at without publishing; publishing never needs it first.
   package's name and version; using it pins the package in the project's
   `fluidcad.json` and writes `import { standoff } from '@acme/mounting-hardware'`.
 - An installed feature module is read-only: change it in its workspace, bump
-  the version (the Publish dialog's **New version** field, or `fluidcad version`), and
+  the version (the Publish dialog's **Publish as** field, or `fluidcad version`), and
   publish again.
 
 ## Limits

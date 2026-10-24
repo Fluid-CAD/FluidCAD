@@ -46,8 +46,6 @@ export type HubFileRequest = { signal?: AbortSignal };
 /** How an archive download is sent: its total limit, and an abort (a stall watchdog, a closed window). */
 export type HubArchiveRequest = { timeoutMs?: number; signal?: AbortSignal };
 export type HubUploadResult = Schemas['UploadResult'];
-/** `POST …/versions/{version}/yank` and `…/unyank` (H12): the version's yank and what installs by name get now. */
-export type HubYankResult = Schemas['YankResult'];
 /** The package's listing as its owner edits it: license, links, deprecation, screenshots. */
 export type HubPackageListing = Schemas['PackageListing'];
 /** `PATCH /packages/{scope}/{name}`: listing fields and the deprecation; null clears one. */
@@ -260,20 +258,6 @@ export class HubClient {
   }
 
   // The owner's lifecycle and listing edits (H12)
-
-  /** `POST …/versions/{version}/yank`: hides a published version from latest, search and installs by name. */
-  async yank(name: string, version: string, reason: string): Promise<HubYankResult> {
-    this.requireToken('yank');
-    const route = HubClient.route('/packages/{scope}/{name}/versions/{version}/yank', { ...HubClient.partsOf(name), version });
-    return this.json<HubYankResult>('POST', route, { reason });
-  }
-
-  /** `POST …/versions/{version}/unyank`: brings a yanked version back. */
-  async unyank(name: string, version: string): Promise<HubYankResult> {
-    this.requireToken('unyank');
-    const route = HubClient.route('/packages/{scope}/{name}/versions/{version}/unyank', { ...HubClient.partsOf(name), version });
-    return this.json<HubYankResult>('POST', route);
-  }
 
   /** `PATCH /packages/{scope}/{name}`: the license, links and deprecation (null clears one); answers the listing. */
   async editPackage(name: string, change: HubPackageEdit): Promise<HubPackageListing> {

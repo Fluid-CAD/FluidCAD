@@ -67,17 +67,16 @@ export type PackagesOverview = {
   updatesFrom: Record<string, UpdateSource>;
   /**
    * What the hub's owner said about a pinned package (H12, `HubReleases`,
-   * kept 10 minutes): the pinned version yanked, with its reason, and the
-   * package deprecated, with its message. Only pins with something to say;
-   * empty outside a project or when the hub wasn't asked.
+   * kept 10 minutes): the package deprecated, with its message. Only pins
+   * with something to say; empty outside a project or when the hub wasn't
+   * asked.
    */
   hubMarks: Record<string, HubPinMarks>;
 };
 
-/** A pinned package's marks from the hub: its pinned version's yank, and its deprecation. */
+/** A pinned package's marks from the hub: its deprecation. */
 export type HubPinMarks = {
-  yanked: { at: string; reason: string | null } | null;
-  deprecated: string | null;
+  deprecated: string;
 };
 
 /** Where a newer version of a pinned package is. */
@@ -228,8 +227,8 @@ export class ProjectPackages {
 
   /**
    * `overview` with the hub's marks on its pins (`HubReleases.releases`):
-   * a pin whose version the hub lists as yanked, and a package the hub lists
-   * as deprecated. Nothing changes outside a project or for a broken pin map.
+   * a package the hub lists as deprecated. Nothing changes outside a project
+   * or for a broken pin map.
    */
   static withHubMarks(overview: PackagesOverview, hub: Readonly<Record<string, HubRelease>>): PackagesOverview {
     if (!overview.pins || overview.pinsProblem) {
@@ -237,11 +236,9 @@ export class ProjectPackages {
     }
     const hubMarks: Record<string, HubPinMarks> = {};
     for (const pin of overview.pins) {
-      const release = hub[pin.name];
-      const yanked = release?.yanked[pin.version] ?? null;
-      const deprecated = release?.deprecated ?? null;
-      if (yanked || deprecated) {
-        hubMarks[pin.name] = { yanked, deprecated };
+      const deprecated = hub[pin.name]?.deprecated ?? null;
+      if (deprecated) {
+        hubMarks[pin.name] = { deprecated };
       }
     }
     return { ...overview, hubMarks };

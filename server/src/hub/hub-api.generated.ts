@@ -39,6 +39,865 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/comments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One comment in any state, with its body (admins) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A comment's id (base 36), as comments carry it. */
+                    id: components["schemas"]["CommentIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The comment */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminComment"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/comments/{id}/hide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hide a comment; a first comment with replies stays as a "Hidden by a moderator" placeholder (admins) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A comment's id (base 36), as comments carry it. */
+                    id: components["schemas"]["CommentIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ModerationReason"];
+                };
+            };
+            responses: {
+                /** @description The comment, hidden */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminComment"];
+                    };
+                };
+                /** @description No reason, a reason over the limit, or an action that doesn't apply (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/comments/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Show a hidden comment again (admins) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A comment's id (base 36), as comments carry it. */
+                    id: components["schemas"]["CommentIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The comment, visible */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminComment"];
+                    };
+                };
+                /** @description No reason, a reason over the limit, or an action that doesn't apply (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Find packages in any state (admins) */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Per page: 25 by default, at most 100. */
+                    limit?: number;
+                    /** @description Counts from 1. */
+                    page?: number;
+                    /** @description Part of a name, a handle or (accounts) an email address; empty lists everything. */
+                    q?: string;
+                    /** @description `all` by default. */
+                    status?: components["schemas"]["PackageFilter"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of packages */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminPackagePage"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/packages/{scope}/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One package with every version, its moderation state and open reports (admins) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The package */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminPackageDetail"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/packages/{scope}/{name}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every comment of a package, in any state, with its body (admins)
+         * @description Visible, deleted by their author and hidden ones, replies among them, newest first: an admin finds a comment to hide without a report.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Per page: 25 by default, at most 100. */
+                    limit?: number;
+                    /** @description Counts from 1. */
+                    page?: number;
+                };
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of comments */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminCommentPage"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/packages/{scope}/{name}/hide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hide a package: gone from search and its pages, still installable by an exact version (admins) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ModerationReason"];
+                };
+            };
+            responses: {
+                /** @description The package, hidden */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminPackageDetail"];
+                    };
+                };
+                /** @description No reason, a reason over the limit, or an action that doesn't apply (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/packages/{scope}/{name}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bring a hidden package back (admins) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The package, active */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminPackageDetail"];
+                    };
+                };
+                /** @description No reason, a reason over the limit, or an action that doesn't apply (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/packages/{scope}/{name}/versions/{version}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove a published version: its archive is deleted and it answers 410 with the reason ever after (admins)
+         * @description Latest is recomputed (a removed version is never latest). The reason is public: installers and the owner read it.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The package name after the scope. */
+                    name: components["schemas"]["PackageNameParam"];
+                    /** @description The scope with its `@`: the publisher's handle. */
+                    scope: components["schemas"]["PackageScopeParam"];
+                    /** @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease. */
+                    version: components["schemas"]["VersionParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ModerationReason"];
+                };
+            };
+            responses: {
+                /** @description The package after the removal */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminPackageDetail"];
+                    };
+                };
+                /** @description No reason, a reason over the limit, or an action that doesn't apply (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not published (`not-published`, `details.status`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Already removed (`version-removed`) */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The reports queue, by status (admins)
+         * @description Each report with what it points at as that stands now. Open reports oldest first; closed ones latest closed first.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Per page: 25 by default, at most 100. */
+                    limit?: number;
+                    /** @description Counts from 1. */
+                    page?: number;
+                    /** @description `open` by default. */
+                    status?: components["schemas"]["ReportFilter"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of reports */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminReportPage"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/reports/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close an open report as resolved or dismissed, with a note (admins) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A report's id (a UUID). */
+                    id: components["schemas"]["ReportIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ResolveReportRequest"];
+                };
+            };
+            responses: {
+                /** @description The closed report */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminReport"];
+                    };
+                };
+                /** @description No reason, a reason over the limit, or an action that doesn't apply (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Already closed (`report-closed`, `details.status`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/reviews": {
         parameters: {
             query?: never;
@@ -74,7 +933,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description An admin whose credential lacks the `account` scope, or a cookie write from another origin (`forbidden`) */
+                /** @description An admin without an `admin` token: a browser session, or a token with other scopes (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -143,7 +1002,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description An admin whose credential lacks the `account` scope, or a cookie write from another origin (`forbidden`) */
+                /** @description An admin without an `admin` token: a browser session, or a token with other scopes (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -153,6 +1012,78 @@ export type paths = {
                     };
                 };
                 /** @description Not an admin, or no such version or account (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Find accounts by handle, name or email (admins) */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Per page: 25 by default, at most 100. */
+                    limit?: number;
+                    /** @description Counts from 1. */
+                    page?: number;
+                    /** @description Part of a name, a handle or (accounts) an email address; empty lists everything. */
+                    q?: string;
+                    /** @description `all` by default. */
+                    status?: components["schemas"]["UserFilter"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of accounts */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUserPage"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -210,7 +1141,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description An admin whose credential lacks the `account` scope, or a cookie write from another origin (`forbidden`) */
+                /** @description An admin without an `admin` token: a browser session, or a token with other scopes (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -265,7 +1196,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description An admin whose credential lacks the `account` scope, or a cookie write from another origin (`forbidden`) */
+                /** @description An admin without an `admin` token: a browser session, or a token with other scopes (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -285,6 +1216,314 @@ export type paths = {
                 };
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One account with its sessions, tokens, packages and moderation state (admins) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An account's id (a UUID): a rename doesn't change it. */
+                    id: components["schemas"]["UserIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The account */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUserDetail"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{id}/handle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Rename an account's handle while it is unlocked and holds no package (admins) */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An account's id (a UUID): a rename doesn't change it. */
+                    id: components["schemas"]["UserIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RenameHandleRequest"];
+                };
+            };
+            responses: {
+                /** @description The account with its new handle */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUserDetail"];
+                    };
+                };
+                /** @description No reason, a reason over the limit, or an action that doesn't apply (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Locked or holding packages (`handle-locked`), or taken (`handle-taken`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore a suspended account; it signs in afresh (admins) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An account's id (a UUID): a rename doesn't change it. */
+                    id: components["schemas"]["UserIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The account, active */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUserDetail"];
+                    };
+                };
+                /** @description No reason, a reason over the limit, or an action that doesn't apply (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{id}/suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Suspend an account: its sessions and tokens are revoked, and signing in and publishing are refused (admins) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description An account's id (a UUID): a rename doesn't change it. */
+                    id: components["schemas"]["UserIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ModerationReason"];
+                };
+            };
+            responses: {
+                /** @description The account, suspended */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AdminUserDetail"];
+                    };
+                };
+                /** @description No reason, a reason over the limit, or an action that doesn't apply (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token that is not valid (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description An admin without an `admin` token (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not an admin, or no such report, package, version, account or comment (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -333,7 +1572,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description An admin whose credential lacks the `account` scope, or a cookie write from another origin (`forbidden`) */
+                /** @description An admin without an `admin` token: a browser session, or a token with other scopes (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -424,7 +1663,7 @@ export type paths = {
                         "application/json": components["schemas"]["ErrorBody"];
                     };
                 };
-                /** @description An admin whose credential lacks the `account` scope, or a cookie write from another origin (`forbidden`) */
+                /** @description An admin without an `admin` token: a browser session, or a token with other scopes (`forbidden`) */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -921,7 +2160,7 @@ export type paths = {
         head?: never;
         /**
          * Edit your comment
-         * @description Sets `editedAt` ("edited").
+         * @description Sets `editedAt` ("edited"). The same rules as a new comment: no links.
          */
         patch: {
             parameters: {
@@ -977,6 +2216,15 @@ export type paths = {
                 };
                 /** @description No such public package, published version or visible comment; a placeholder is a deleted comment (`not-found`) */
                 404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A link, a web or an email address in the body (`comment-link`, `details.link`: the text found): Comments can't contain links, web or email addresses: name a package as @scope/name instead. */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1299,6 +2547,51 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether the hub reaches its database */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The database answered */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Health"];
+                    };
+                };
+                /** @description The database didn't answer */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Health"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -1341,7 +2634,61 @@ export type paths = {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Change the profile: name, bio, location, website
+         * @description A browser session, or a token with the `account` scope. A field left out keeps its value; null (or an empty bio, location or website) clears it. The handle is `PUT /me/handle`; the email does not change here.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EditProfileRequest"];
+                };
+            };
+            responses: {
+                /** @description The account as it now is */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Me"];
+                    };
+                };
+                /** @description Not valid (`bad-request`, `handle-invalid`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not allowed (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
     "/api/v1/me/handle": {
@@ -1395,6 +2742,15 @@ export type paths = {
                 };
                 /** @description Not allowed (`forbidden`) */
                 403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such session on the account (`not-found`) */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -1956,6 +3312,180 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The account's browser sessions
+         * @description A browser session, or a token with the `account` scope. The current session (the one this request was made with) comes first and is marked `current`; the rest follow by last use.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Sessions that have not expired */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SessionList"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not allowed (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /**
+         * Sign every other browser out
+         * @description Deletes every session but the one this request was made with (every session, from an API token). Each is refused on its next request.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description How many were signed out */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RevokedSessions"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not allowed (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Sign one browser out
+         * @description Deletes the session, which is refused on its next request. The session this request was made with is refused (`bad-request`, `details.current`): sign out instead.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A browser session id, from `GET /me/sessions`. */
+                    id: components["schemas"]["SessionIdParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Signed out */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not valid (`bad-request`, `handle-invalid`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not signed in (`unauthorized`) */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Not allowed (`forbidden`) */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No such session on the account (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/tokens": {
         parameters: {
             query?: never;
@@ -2003,7 +3533,10 @@ export type paths = {
             };
         };
         put?: never;
-        /** Make a personal API token (from the hub in the browser) */
+        /**
+         * Make a personal API token (from the hub in the browser)
+         * @description A browser session only. An `admin` token (the admin API, for the local admin app) can be made only by an active admin, carries `admin` alone, and expires after 90 days unless `expiresInDays` says otherwise.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -2194,6 +3727,206 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whose mail about new comments an unsubscribe link's token is about, and whether it is on */
+        get: {
+            parameters: {
+                query: {
+                    /** @description The token of a message's unsubscribe link. */
+                    token: components["schemas"]["NotificationToken"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The handle and the setting */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["NotificationState"];
+                    };
+                };
+                /** @description No token (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token the hub didn't sign, or its account is gone (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many requests from this address (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/comments/resubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn mail about new comments back on, with the same token */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["NotificationRequest"];
+                };
+            };
+            responses: {
+                /** @description On */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["NotificationState"];
+                    };
+                };
+                /** @description No token (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token the hub didn't sign, or its account is gone (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many requests from this address (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/comments/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn off mail about new comments, with the token of a message's unsubscribe link */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["NotificationRequest"];
+                };
+            };
+            responses: {
+                /** @description Off */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["NotificationState"];
+                    };
+                };
+                /** @description No token (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A token the hub didn't sign, or its account is gone (`not-found`) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description Too many requests from this address (`rate-limited`) */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/packages/{scope}/{name}": {
         parameters: {
             query?: never;
@@ -2203,13 +3936,15 @@ export type paths = {
         };
         /**
          * A package: its latest version, its versions, listing info and counts
-         * @description Public once a version is approved and the package is active. The owner and admins also see an unpublished package and its open and rejected versions (`openVersion`, `rejectedVersion`), answered `private, no-store`. With `?engine=` and/or `?sdk=`, `compatibility` says whether that engine can run the latest version and which version to install instead. Public answers: `Cache-Control: public, max-age=60, stale-while-revalidate=300` and an `ETag`.
+         * @description Public once a version is approved and the package is active. The owner and admins also see an unpublished package and its open and rejected versions (`openVersion`, `rejectedVersion`), answered `private, no-store`. With `?engine=` and/or `?sdk=`, `compatibility` says whether that engine can run the latest version and which version to install instead. With `?include=shownVersion`, `shownVersion` carries the version the package page shows (the latest; else, for the owner and admins, the open version unless it is still uploading; else the newest version the caller may see that is neither uploading nor removed; else null), exactly as `GET …/versions/{version}` would answer the same caller: one call instead of two; `?include=shownVersion,readme` adds its README (`readme`) to it. Public answers: `Cache-Control: public, max-age=60, stale-while-revalidate=300` and an `ETag`.
          */
         get: {
             parameters: {
                 query?: {
                     /** @description The engine's FluidCAD version (a semver). With it, the answer says which versions it can run. */
                     engine?: string;
+                    /** @description Names separated by commas. With `shownVersion`, the answer also carries `shownVersion`: the version the package page shows, exactly as `GET …/versions/{version}` would answer the same caller, in the same call. With `readme`, that version detail also carries `readme`. */
+                    include?: string;
                     /** @description The engine's feature SDK version (`SDK_VERSION`), a whole number. */
                     sdk?: string;
                 };
@@ -2416,7 +4151,7 @@ export type paths = {
         put?: never;
         /**
          * Comment on a package, or reply
-         * @description About the latest version unless `version` names another published one. With `replyTo`, a reply: threads are one level deep, so a reply to a reply joins the root's thread and takes its version (also when the root is a placeholder; a placeholder itself takes no replies). At most 4000 characters, 50 comments a day (UTC). The publisher is notified (later, by mail). `Cache-Control: private, no-store`.
+         * @description About the latest version unless `version` names another published one. With `replyTo`, a reply: threads are one level deep, so a reply to a reply joins the root's thread and takes its version (also when the root is a placeholder; a placeholder itself takes no replies). At most 4000 characters and no links (`comment-link`), 50 comments a day (UTC). The publisher is notified (later, by mail). `Cache-Control: private, no-store`.
          */
         post: {
             parameters: {
@@ -2483,6 +4218,15 @@ export type paths = {
                 };
                 /** @description The version was removed by the hub's admins (`version-removed`) */
                 410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description A link, a web or an email address in the body (`comment-link`, `details.link`: the text found): Comments can't contain links, web or email addresses: name a package as @scope/name instead. */
+                422: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -2903,7 +4647,7 @@ export type paths = {
         };
         /**
          * A screenshot image (the owner and admins; anyone once the package is public)
-         * @description Served with `nosniff`, `Content-Disposition: inline` and its stored type; immutable once public (an id is never reused), `private, no-store` before.
+         * @description The local-dev fallback: staging and production serve screenshots from `MEDIA_ORIGIN` (`Media.url`), straight from the bucket. Served with `nosniff`, `Content-Disposition: inline` and its stored type; immutable once public (an id is never reused), `private, no-store` before.
          */
         get: {
             parameters: {
@@ -3091,7 +4835,7 @@ export type paths = {
         };
         /**
          * A package's versions, newest first
-         * @description Published versions (yanked and removed ones flagged); the owner and admins also see open and rejected ones with their state.
+         * @description Published versions (removed ones flagged); the owner and admins also see open and rejected ones with their state.
          */
         get: {
             parameters: {
@@ -3169,11 +4913,14 @@ export type paths = {
         };
         /**
          * One version: its manifest, entry table, integrity and state
-         * @description A yanked version answers normally, with `yanked`. A removed one answers 410. An unpublished one answers only its owner and admins (with its review state, `private, no-store`); for them a number used again after a rejection answers its newest row.
+         * @description A removed version answers 410. An unpublished one answers only its owner and admins (with its review state, `private, no-store`); for them a number used again after a rejection answers its newest row. With `?include=readme`, `readme` carries the archive's root `README.md` as text (null when there is none or it is over the `readmeBytes` limit).
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description With `readme`, the answer also carries `readme`. */
+                    include?: string;
+                };
                 header?: never;
                 path: {
                     /** @description The package name after the scope. */
@@ -3993,210 +5740,6 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/packages/{scope}/{name}/versions/{version}/unyank": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Unyank a version (the owner)
-         * @description Brings a yanked version back: latest, search and installs by name see it again.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description The package name after the scope. */
-                    name: components["schemas"]["PackageNameParam"];
-                    /** @description The scope with its `@`: the publisher's handle. */
-                    scope: components["schemas"]["PackageScopeParam"];
-                    /** @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease. */
-                    version: components["schemas"]["VersionParam"];
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The version, no longer yanked; `Cache-Control: private, no-store` */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["YankResult"];
-                    };
-                };
-                /** @description Not a version (`bad-version`), or a reason missing or over 280 characters (`bad-request`) */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-                /** @description Not signed in (`unauthorized`) */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-                /** @description No such package or version, or an unpublished package that isn't yours (`not-found`) */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-                /** @description Not published (`not-published`), or not yanked (`not-yanked`) */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-                /** @description An admin removed the version (`version-removed`) */
-                410: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/packages/{scope}/{name}/versions/{version}/yank": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Yank a published version (the owner)
-         * @description Hides the version from latest, search and installs by name; installing it by its exact version keeps working, and its bytes never change. Latest moves to the next version by the latest rules; with none left, the package leaves search. Yanking a yanked version replaces its reason.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    /** @description The package name after the scope. */
-                    name: components["schemas"]["PackageNameParam"];
-                    /** @description The scope with its `@`: the publisher's handle. */
-                    scope: components["schemas"]["PackageScopeParam"];
-                    /** @description A semver version, MAJOR.MINOR.PATCH with an optional -prerelease. */
-                    version: components["schemas"]["VersionParam"];
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["YankRequest"];
-                };
-            };
-            responses: {
-                /** @description The version, yanked; `Cache-Control: private, no-store` */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["YankResult"];
-                    };
-                };
-                /** @description Not a version (`bad-version`), or a reason missing or over 280 characters (`bad-request`) */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-                /** @description Not signed in (`unauthorized`) */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-                /** @description No `publish` scope or not the owner (`forbidden`), or the package is hidden (`package-unavailable`) */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-                /** @description No such package or version, or an unpublished package that isn't yours (`not-found`) */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-                /** @description Not published: a draft, in review, rejected or uploading (`not-published`, `details.status`) */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-                /** @description An admin removed the version (`version-removed`) */
-                410: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ErrorBody"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/reports": {
         parameters: {
             query?: never;
@@ -4366,6 +5909,73 @@ export type paths = {
                 };
                 /** @description Too many searches from this address (`rate-limited`) */
                 429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{handle}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The account a handle names
+         * @description Public: the handle, display name, avatar (https only) and profile (bio, location, website), the same for every caller: `Cache-Control: public, max-age=60, stale-while-revalidate=300` (the catalog's window, not the social reads' no-cache: nothing social is in it), a weak `ETag`, no `Vary`. A publisher's packages are `GET /search?q=@handle`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A handle as typed; the hub lowercases and trims it. */
+                    handle: components["schemas"]["HandleParam"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The account */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PublicUser"];
+                    };
+                };
+                /** @description Not modified (`If-None-Match`) */
+                304: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not a handle (`bad-request`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorBody"];
+                    };
+                };
+                /** @description No user with that handle (`not-found`) */
+                404: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -4578,6 +6188,8 @@ export type webhooks = Record<string, never>;
 export type components = {
     schemas: {
         Account: {
+            /** @description About the person, at most 280 characters; shown on their publisher page. */
+            bio: string | null;
             canPublish: boolean;
             /** @description ISO 8601. */
             createdAt: string;
@@ -4591,9 +6203,247 @@ export type components = {
             /** Format: uuid */
             id: string;
             image: string | null;
+            location: string | null;
             name: string;
             /** @enum {string} */
             role: "user" | "admin";
+            /** @description Their website (https only), shown on their publisher page. */
+            websiteUrl: string | null;
+        };
+        AdminComment: {
+            author: {
+                handle: string | null;
+                id: string;
+                name: string;
+            } | null;
+            body: string;
+            createdAt: string;
+            /** @description Its author deleted it. */
+            deletedAt: string | null;
+            editedAt: string | null;
+            helpful: number;
+            hidden: components["schemas"]["ModerationMark"];
+            id: string;
+            openReports: number;
+            package: string;
+            /** @description Replies anyone can read, for a first comment. */
+            replies: number;
+            /** @description The thread's first comment, for a reply. */
+            replyTo: string | null;
+            /** @enum {string} */
+            status: "visible" | "hidden";
+            version: string;
+        };
+        AdminCommentPage: {
+            /** @description Newest first, replies among them (`replyTo`). */
+            comments: components["schemas"]["AdminComment"][];
+            limit: number;
+            package: string;
+            page: number;
+            /** @description Comments of the package in every state: visible, deleted by their author, hidden. */
+            total: number;
+        };
+        AdminPackageDetail: {
+            counts: {
+                comments: number;
+                installs: number;
+                likes: number;
+            };
+            createdAt: string;
+            deprecatedMessage: string | null;
+            fullName: string;
+            /** @description Set while the package is hidden. */
+            hidden: {
+                at: string;
+                /** @description The admin's handle; null for an account since deleted, or a script. */
+                by: string | null;
+                reason: string | null;
+            } | null;
+            latestVersion: string | null;
+            listed: boolean;
+            /** @description Open reports about the package or one of its versions. */
+            openReports: number;
+            owner: {
+                handle: string | null;
+                id: string;
+                /** @enum {string} */
+                status: "active" | "suspended";
+            } | null;
+            /** @enum {string} */
+            status: "active" | "hidden" | "removed";
+            updatedAt: string;
+            /** @description Newest first, every state but uploading. */
+            versions: components["schemas"]["AdminVersionRow"][];
+        };
+        AdminPackagePage: {
+            limit: number;
+            /** @description By full name. */
+            packages: components["schemas"]["AdminPackageSummary"][];
+            page: number;
+            q: string;
+            status: components["schemas"]["PackageFilter"];
+            total: number;
+        };
+        AdminPackageSummary: {
+            createdAt: string;
+            fullName: string;
+            latestVersion: string | null;
+            /** @description In search right now. */
+            listed: boolean;
+            openVersion: {
+                status: components["schemas"]["VersionState"];
+                version: string;
+            } | null;
+            /** @description The owner's handle. */
+            owner: string | null;
+            /** @enum {string} */
+            status: "active" | "hidden" | "removed";
+            updatedAt: string;
+            /** @description Rows in any state but uploading. */
+            versions: number;
+        };
+        AdminReport: {
+            /** @description What the reporter saw when they reported it: the names, a comment's body. */
+            context: {
+                [key: string]: unknown;
+            };
+            createdAt: string;
+            details: string;
+            id: string;
+            reason: components["schemas"]["ReportReason"];
+            reasonLabel: string;
+            reporter: {
+                handle: string | null;
+                id: string;
+            } | null;
+            resolution: {
+                at: string;
+                by: string | null;
+                note: string | null;
+                /** @enum {string} */
+                outcome: "resolved" | "dismissed";
+            } | null;
+            /** @enum {string} */
+            status: "open" | "resolved" | "dismissed";
+            target: components["schemas"]["AdminReportTarget"];
+        };
+        AdminReportPage: {
+            counts: {
+                dismissed: number;
+                open: number;
+                resolved: number;
+            };
+            limit: number;
+            page: number;
+            /** @description Open ones oldest first (the queue); closed ones latest closed first. */
+            reports: components["schemas"]["AdminReport"][];
+            status: components["schemas"]["ReportFilter"];
+            /** @description Reports under this filter. */
+            total: number;
+        };
+        AdminReportTarget: {
+            id: string;
+            package: string | null;
+            /** @enum {string|null} */
+            status: "active" | "hidden" | "removed" | null;
+            /** @enum {string} */
+            type: "package";
+        } | {
+            id: string;
+            package: string | null;
+            removed: boolean;
+            status: components["schemas"]["VersionState"] & (string | null);
+            /** @enum {string} */
+            type: "version";
+            version: string | null;
+        } | {
+            /** @description Its author deleted it. */
+            deleted: boolean;
+            /** @description The comment's public id (base 36). */
+            id: string;
+            package: string | null;
+            /** @enum {string|null} */
+            status: "visible" | "hidden" | null;
+            /** @enum {string} */
+            type: "comment";
+        } | {
+            handle: string | null;
+            id: string;
+            /** @enum {string|null} */
+            status: "active" | "suspended" | null;
+            /** @enum {string} */
+            type: "user";
+        };
+        AdminUserDetail: {
+            canPublish: boolean;
+            createdAt: string;
+            email: string;
+            emailVerified: boolean;
+            githubLogin: string | null;
+            handle: string | null;
+            handleLocked: boolean;
+            id: string;
+            name: string;
+            /** @description Mail about new comments on their packages. */
+            notifyComments: boolean;
+            /** @description Open reports about the account. */
+            openReports: number;
+            packages: {
+                fullName: string;
+                latestVersion: string | null;
+                /** @enum {string} */
+                status: "active" | "hidden" | "removed";
+            }[];
+            /** @description The handle can be renamed: set, not locked, and no package under it. */
+            renamable: boolean;
+            /** @enum {string} */
+            role: "user" | "admin";
+            /** @description Browser sessions that have not expired. */
+            sessions: number;
+            /** @enum {string} */
+            status: "active" | "suspended";
+            /** @description Set while the account is suspended. */
+            suspended: {
+                at: string;
+                /** @description The admin's handle; null for an account since deleted, or a script. */
+                by: string | null;
+                reason: string | null;
+            } | null;
+            /** @description API tokens neither revoked nor expired. */
+            tokens: number;
+        };
+        AdminUserPage: {
+            limit: number;
+            page: number;
+            q: string;
+            status: components["schemas"]["UserFilter"];
+            total: number;
+            /** @description Newest account first. */
+            users: components["schemas"]["AdminUserSummary"][];
+        };
+        AdminUserSummary: {
+            canPublish: boolean;
+            createdAt: string;
+            email: string;
+            handle: string | null;
+            handleLocked: boolean;
+            id: string;
+            name: string;
+            /** @enum {string} */
+            role: "user" | "admin";
+            /** @enum {string} */
+            status: "active" | "suspended";
+        };
+        AdminVersionRow: {
+            createdAt: string;
+            isLatest: boolean;
+            publishedAt: string | null;
+            removed: components["schemas"]["ModerationMark"];
+            size: number | null;
+            status: components["schemas"]["VersionState"];
+            submittedAt: string | null;
+            version: string;
+            versionId: string;
         };
         ApiToken: {
             arch: string | null;
@@ -4725,7 +6575,7 @@ export type components = {
             byPublisher: boolean;
             createdAt: string;
             /**
-             * @description Always false here; a thread's deleted first comment that keeps its replies is a placeholder (`CommentThread`, `deleted: true`).
+             * @description Always false here; a thread's first comment that its author deleted, or a moderator hid, while it has replies is a placeholder (`CommentThread`, `deleted: true`).
              * @enum {boolean}
              */
             deleted: false;
@@ -4764,7 +6614,7 @@ export type components = {
          * @enum {string}
          */
         CommentSort: "newest" | "helpful";
-        /** @description A thread's first comment with its replies; `deleted: true` when that comment was deleted and stays as a placeholder. */
+        /** @description A thread's first comment with its replies; `deleted: true` when that comment was deleted or hidden and stays as a placeholder (`reason`). */
         CommentThread: {
             author: components["schemas"]["Person"];
             body: string;
@@ -4772,7 +6622,7 @@ export type components = {
             byPublisher: boolean;
             createdAt: string;
             /**
-             * @description Always false here; a thread's deleted first comment that keeps its replies is a placeholder (`CommentThread`, `deleted: true`).
+             * @description Always false here; a thread's first comment that its author deleted, or a moderator hid, while it has replies is a placeholder (`CommentThread`, `deleted: true`).
              * @enum {boolean}
              */
             deleted: false;
@@ -4801,6 +6651,11 @@ export type components = {
              * @example 1a
              */
             id: string;
+            /**
+             * @description `deleted`: its author deleted it (they can restore it for a while). `hidden`: one of the hub's moderators hid it; clients say "Hidden by a moderator".
+             * @enum {string}
+             */
+            reason: "deleted" | "hidden";
             /** @description Oldest first; deleted replies are left out. */
             replies: components["schemas"]["Comment"][];
             /** @description The version its thread is about. */
@@ -4852,7 +6707,7 @@ export type components = {
             state: string;
         };
         CreateCommentRequest: {
-            /** @description At most 4000 characters, stored as written: a Markdown subset clients render (`code`, fenced blocks, @scope/name), never HTML. */
+            /** @description At most 4000 characters, stored as written: a Markdown subset clients render (`code`, fenced blocks, @scope/name), never HTML. No links: a URL, `www.`, a Markdown link, an email address or a bare host such as `example.com` (in code too) is refused with `comment-link` (`CommentLinks`). */
             body: string;
             /** @description The comment it answers. Threads are one level deep: a reply to a reply joins the root's thread. */
             replyTo?: string;
@@ -4889,7 +6744,7 @@ export type components = {
             id: string;
             /** @description True when it stays in its thread as a placeholder (a thread's first comment with replies); false when it leaves the page. */
             placeholder: boolean;
-            /** @description 30 days after the deletion; purged after. */
+            /** @description 30 days after the deletion; after that it can't be restored (the row stays). */
             restoreUntil: string;
         };
         DiffFile: {
@@ -4899,7 +6754,7 @@ export type components = {
             size: number;
         };
         EditCommentRequest: {
-            /** @description At most 4000 characters, stored as written: a Markdown subset clients render (`code`, fenced blocks, @scope/name), never HTML. */
+            /** @description At most 4000 characters, stored as written: a Markdown subset clients render (`code`, fenced blocks, @scope/name), never HTML. No links: a URL, `www.`, a Markdown link, an email address or a bare host such as `example.com` (in code too) is refused with `comment-link` (`CommentLinks`). */
             body: string;
         };
         EditListRequest: {
@@ -4930,6 +6785,12 @@ export type components = {
             license?: components["schemas"]["LicenseId"] & (string | null);
             repositoryUrl?: components["schemas"]["ListingUrl"];
         };
+        EditProfileRequest: {
+            bio?: string | null;
+            location?: string | null;
+            name?: string;
+            websiteUrl?: components["schemas"]["ProfileUrl"];
+        };
         EditVersionRequest: {
             license?: components["schemas"]["LicenseId"];
             /** @description Release notes, at most 280 characters; empty for none. */
@@ -4939,7 +6800,7 @@ export type components = {
         ErrorBody: {
             error: {
                 /** @enum {string} */
-                code: "bad-request" | "unauthorized" | "forbidden" | "not-found" | "rate-limited" | "internal" | "handle-invalid" | "handle-taken" | "handle-locked" | "cli-request-invalid" | "cli-request-closed" | "invalid-grant" | "not-a-zip" | "unsafe-path" | "too-large" | "no-manifest" | "model-archive" | "newer-manifest" | "bad-manifest" | "files-mismatch" | "blocked-import" | "archive-too-large" | "unpacked-too-large" | "too-many-entries" | "scope-mismatch" | "name-mismatch" | "version-mismatch" | "reserved-name" | "bad-script" | "bad-reference" | "bad-icon" | "bad-params" | "no-models" | "outside-layout" | "wrong-folder" | "email-unverified" | "publishing-closed" | "bad-version" | "length-required" | "unsupported-media-type" | "package-unavailable" | "version-not-greater" | "version-exists" | "open-version-exists" | "in-review" | "integrity-mismatch" | "publish-daily-limit" | "upload-expired" | "version-not-open" | "not-a-draft" | "incomplete" | "image-too-large" | "image-type-mismatch" | "image-dimensions" | "too-many-screenshots" | "unknown-model" | "not-in-review" | "version-removed" | "sources-too-large" | "unknown-license" | "not-published" | "not-yanked" | "handle-required" | "own-comment" | "comment-daily-limit" | "restore-expired" | "too-many-lists" | "list-full" | "already-reported";
+                code: "bad-request" | "unauthorized" | "forbidden" | "not-found" | "rate-limited" | "internal" | "handle-invalid" | "handle-taken" | "handle-locked" | "cli-request-invalid" | "cli-request-closed" | "invalid-grant" | "not-a-zip" | "unsafe-path" | "too-large" | "no-manifest" | "model-archive" | "newer-manifest" | "bad-manifest" | "files-mismatch" | "blocked-import" | "archive-too-large" | "unpacked-too-large" | "too-many-entries" | "scope-mismatch" | "name-mismatch" | "version-mismatch" | "reserved-name" | "bad-script" | "bad-reference" | "bad-icon" | "bad-params" | "no-models" | "outside-layout" | "wrong-folder" | "email-unverified" | "publishing-closed" | "bad-version" | "length-required" | "unsupported-media-type" | "package-unavailable" | "version-not-greater" | "version-exists" | "open-version-exists" | "in-review" | "integrity-mismatch" | "publish-daily-limit" | "upload-expired" | "version-not-open" | "not-a-draft" | "incomplete" | "image-too-large" | "image-type-mismatch" | "image-dimensions" | "too-many-screenshots" | "unknown-model" | "not-in-review" | "version-removed" | "sources-too-large" | "unknown-license" | "not-published" | "handle-required" | "own-comment" | "comment-daily-limit" | "restore-expired" | "too-many-lists" | "list-full" | "already-reported" | "comment-link" | "package-daily-limit" | "report-closed";
                 details?: unknown;
                 message: string;
             };
@@ -4966,6 +6827,17 @@ export type components = {
          * @example acme
          */
         HandleParam: string;
+        Health: {
+            database: {
+                /** @description The round trip, in milliseconds. */
+                ms: number;
+                ok: boolean;
+            };
+            /** @enum {string} */
+            status: "ok" | "unavailable";
+            /** @description The hub's clock, ISO 8601. */
+            time: string;
+        };
         HelpfulState: {
             /** @description The comment's helpful count after the change. */
             helpful: number;
@@ -4979,6 +6851,7 @@ export type components = {
             commentChars: number;
             commentRestoreDays: number;
             commentsPerUserPerDay: number;
+            configurationsPerModel: number;
             draftDays: number;
             entries: number;
             entryBytes: number;
@@ -4988,6 +6861,7 @@ export type components = {
             listTitleChars: number;
             manifestBytes: number;
             modelsPerVersion: number;
+            newPackagesPerUserPerDay: number;
             openVersionsPerPackage: number;
             paramsPerModel: number;
             readmeBytes: number;
@@ -5024,7 +6898,7 @@ export type components = {
             /** @description The card images of up to three of its first packages that have one. */
             mosaic: string[];
             owner: components["schemas"]["Person"];
-            /** @description Listed packages only (a yanked-only, hidden or removed one is left out until it is listed again). */
+            /** @description Listed packages only (a hidden or removed one is left out until it is listed again). */
             packages: components["schemas"]["SearchResult"][];
             slug: string;
             title: string;
@@ -5067,6 +6941,13 @@ export type components = {
             /** @description When it was last renamed, described, or had a package added, moved or removed. */
             updatedAt: string;
         };
+        /** @description One configurations() row of a part or assembly, as pack recorded it. */
+        ManifestConfiguration: {
+            name: string;
+            values: {
+                [key: string]: string | number | boolean | (string | number)[];
+            };
+        };
         Me: {
             account: components["schemas"]["Account"];
             /** @description The calling token (`via: token`), readable with any scope; null for a browser session. */
@@ -5097,7 +6978,7 @@ export type components = {
             modelModule: string | null;
             /** @description The 0-based place in the package page's order. */
             position: number;
-            /** @description Where the image is served, same-origin. */
+            /** @description Where the image is served, absolute. On staging and production the hub's public media origin (https://media.fluidcad.io/media/@scope/name/<id>.png, straight from the bucket); on a local hub the API's own route (GET /api/v1/packages/{scope}/{name}/media/{id}). Use it as given. */
             url: string;
             width: number;
         };
@@ -5125,9 +7006,29 @@ export type components = {
             name: "FluidCAD Hub";
             openapi: string;
         };
+        ModerationMark: {
+            at: string;
+            /** @description The admin's handle; null for an account since deleted, or a script. */
+            by: string | null;
+            reason: string | null;
+        } | null;
+        ModerationReason: {
+            /** @description At most 1000 characters. A removed version's reason is public: installers read it in the 410. */
+            reason: string;
+        };
         MyLists: {
             lists: components["schemas"]["ListSummary"][];
         };
+        NotificationRequest: {
+            token: components["schemas"]["NotificationToken"];
+        };
+        NotificationState: {
+            /** @description Mail about new comments on their packages. */
+            comments: boolean;
+            handle: string | null;
+        };
+        /** @description The token of a message's unsubscribe link. */
+        NotificationToken: string;
         PackageDetail: {
             /**
              * @description `public`: published versions only, cacheable. `owner`/`admin`: open and rejected versions too, `private, no-store`.
@@ -5139,7 +7040,7 @@ export type components = {
                 engine: string | null;
                 /** @description The engine can run the latest version. */
                 latestCompatible: boolean;
-                /** @description The version an install should pick for that engine: by the latest rules (HD11) among the published versions it can run, neither yanked nor removed; null when none. */
+                /** @description The version an install should pick for that engine: by the latest rules (HD11) among the published versions it can run, none removed; null when none. */
                 newestCompatible: string | null;
                 sdk: number | null;
             } | null;
@@ -5151,7 +7052,7 @@ export type components = {
             createdAt: string;
             deprecatedMessage: string | null;
             description: string | null;
-            /** @description The highest published version, yanked ones included: an upload must be greater. */
+            /** @description The highest published version, removed ones included: an upload must be greater. */
             highestVersion: string | null;
             /** @description The latest version's manifest `homepage`. */
             homepage: string | null;
@@ -5255,12 +7156,130 @@ export type components = {
                 /** @description The first-publish wizard, for a `draft`. */
                 wizardUrl: string | null;
             } | null;
+            /** @description Only with `?include=shownVersion`: the version the package page shows. The latest; else, for the owner and admins, the open version unless it is still uploading; else the newest version the caller may see that is neither uploading nor removed; null when there is none. Exactly what `GET …/versions/{version}` answers the same caller. */
+            shownVersion?: {
+                /** @enum {string} */
+                access: "public" | "owner" | "admin";
+                /** @description Null when the archive is gone (a rejected version) or still uploading. */
+                archiveUrl: string | null;
+                createdAt: string;
+                /** @description The package's deprecation message (it applies to every version), or null. */
+                deprecatedMessage: string | null;
+                /** @description For a draft: when it may be deleted if nothing changes (`updatedAt` + `draftDays`). */
+                draftExpiresAt: string | null;
+                engine: string | null;
+                /** @description Every file of the archive, sorted, with its size. */
+                entries: {
+                    path: string;
+                    size: number;
+                }[];
+                /** @description Null while uploading. */
+                integrity: string | null;
+                isLatest: boolean;
+                /** @description The manifest's license, until the owner picks one. */
+                license: string | null;
+                /** @description The owner set the license in the wizard (a re-upload keeps it unless its manifest names one). */
+                licenseEdited: boolean;
+                /** @description Null only while uploading. */
+                manifest: ({
+                    author?: string;
+                    contents: ("features" | "parts")[];
+                    description?: string;
+                    engine: string;
+                    features: ({
+                        exportName: string;
+                        id: string;
+                        meta: {
+                            description?: string;
+                            icon?: string;
+                            id: string;
+                            label: string;
+                            params?: {
+                                [key: string]: {
+                                    options?: ({
+                                        image?: string;
+                                    } & {
+                                        [key: string]: unknown;
+                                    })[];
+                                } & {
+                                    [key: string]: unknown;
+                                };
+                            };
+                        } & {
+                            [key: string]: unknown;
+                        };
+                        module: string;
+                    } & {
+                        [key: string]: unknown;
+                    })[];
+                    files: string[];
+                    fileUnits: {
+                        [key: string]: "mm" | "cm" | "m" | "in" | "ft";
+                    };
+                    homepage?: string;
+                    keywords?: string[];
+                    license?: string;
+                    /** @enum {number} */
+                    manifestVersion: 1;
+                    minEngine: string;
+                    name: string;
+                    parts: ({
+                        configurations?: components["schemas"]["ManifestConfiguration"][];
+                        /** @enum {string} */
+                        exportKind: "value" | "factory";
+                        exportName: string;
+                        /** @enum {string} */
+                        kind: "part" | "assembly";
+                        module: string;
+                        name: string;
+                        params: components["schemas"]["CatalogParamDef"][];
+                    } & {
+                        [key: string]: unknown;
+                    })[];
+                    sdkVersion: number;
+                    /** @enum {string} */
+                    unit: "mm" | "cm" | "m" | "in" | "ft";
+                    version: string;
+                } & {
+                    [key: string]: unknown;
+                }) | null;
+                minEngine: string | null;
+                name: string;
+                /** @description Release notes, at most 280 characters. */
+                notes: string;
+                /** @description The owner set the notes in the wizard (a re-upload keeps them unless it sends `--notes`). */
+                notesEdited: boolean;
+                publishedAt: string | null;
+                /** @description Only with `?include=readme`: the archive's root `README.md` as Markdown text, or null when the version has none or it is over the `readmeBytes` limit (the file route still serves it). Shown as text or through a sanitizing renderer, never as HTML. */
+                readme?: string | null;
+                reviewedAt: string | null;
+                /** @description Why a reviewer rejected the version. */
+                reviewNote: string | null;
+                /** @description The owner's status page, for any other state. */
+                reviewUrl: string | null;
+                sdkVersion: number | null;
+                size: number | null;
+                status: components["schemas"]["VersionState"];
+                submittedAt: string | null;
+                unit: string | null;
+                unpackedSize: number | null;
+                /** @description The last change: an upload or a wizard save. */
+                updatedAt: string;
+                version: string;
+                /** @description The first-publish wizard, for a `draft`. */
+                wizardUrl: string | null;
+            } | null;
             /** @enum {string} */
             status: "active" | "hidden" | "removed";
             updatedAt: string;
             /** @description Newest first. The owner and admins also see open and rejected versions. */
             versions: components["schemas"]["VersionSummary"][];
         };
+        /**
+         * @description `all` by default.
+         * @enum {string}
+         */
+        PackageFilter: "all" | "active" | "hidden" | "removed";
         PackageListing: {
             /** @description The deprecation message, or null when the package is not deprecated. */
             deprecatedMessage: string | null;
@@ -5320,6 +7339,22 @@ export type components = {
             handle: string | null;
             name: string;
         };
+        /**
+         * Format: uri
+         * @example https://lindqvist.dev
+         */
+        ProfileUrl: string | null;
+        PublicUser: {
+            /** @description Their avatar (https only), or null. */
+            avatarUrl: string | null;
+            /** @description About them, as they wrote it on their Settings page, or null. */
+            bio: string | null;
+            handle: string;
+            location: string | null;
+            name: string;
+            /** @description Their website (https only), or null. */
+            websiteUrl: string | null;
+        };
         PublisherFlag: {
             canPublish: boolean;
             handle: string;
@@ -5327,6 +7362,9 @@ export type components = {
         RejectRequest: {
             /** @description What the owner should change, at most 2000 characters. They read it on the status page, in `fluidcad publish --status` and in the email. */
             reason: string;
+        };
+        RenameHandleRequest: {
+            handle: components["schemas"]["HandleParam"];
         };
         Report: {
             createdAt: string;
@@ -5337,6 +7375,13 @@ export type components = {
             status: "open" | "resolved" | "dismissed";
             target: components["schemas"]["ReportTarget"];
         };
+        /**
+         * @description `open` by default.
+         * @enum {string}
+         */
+        ReportFilter: "open" | "resolved" | "dismissed" | "all";
+        /** @description A report's id (a UUID). */
+        ReportIdParam: string;
         /**
          * @description `spam` (Spam or advertising), `abuse` (Harassment or abuse), `malware` (Harmful or malicious code), `copyright` (Copyright or license violation), `impersonation` (Impersonation or a misleading name), `other` (Something else)
          * @enum {string}
@@ -5361,6 +7406,15 @@ export type components = {
             handle: string;
             /** @enum {string} */
             type: "user";
+        };
+        ResolveReportRequest: {
+            /** @description For the admins' record, at most 1000 characters. The reporter isn't told. */
+            note: string;
+            /**
+             * @description `resolved`: acted on. `dismissed`: nothing to do.
+             * @enum {string}
+             */
+            outcome: "resolved" | "dismissed";
         };
         ReviewDecision: {
             /** @description The package's latest after the decision (HD11's rules). */
@@ -5449,6 +7503,10 @@ export type components = {
             uploadedBy: string | null;
             version: string;
             versionId: string;
+        };
+        RevokedSessions: {
+            /** @description How many sessions were signed out. */
+            revoked: number;
         };
         /** @enum {string} */
         ScreenshotType: "image/png" | "image/jpeg" | "image/webp";
@@ -5564,13 +7622,41 @@ export type components = {
          * @enum {string}
          */
         SearchSort: "relevance" | "installs" | "likes" | "updated" | "newest";
+        Session: {
+            /**
+             * @description The browser and system, from the user agent at sign-in: "Chrome on macOS", or "Unknown browser".
+             * @example Chrome on macOS
+             */
+            client: string;
+            /** @description When it signed in (ISO 8601). */
+            createdAt: string;
+            /** @description The session this request was made with (always false for a request made with an API token). */
+            current: boolean;
+            /** @description When it ends unless it is used again (ISO 8601). */
+            expiresAt: string;
+            /** Format: uuid */
+            id: string;
+            /** @description The address the session was signed in from, or null when the hub did not see one. */
+            ipAddress: string | null;
+            /** @description When the hub last extended it (ISO 8601): within a day of its last use. */
+            lastSeenAt: string;
+        };
+        /**
+         * Format: uuid
+         * @description A browser session id, from `GET /me/sessions`.
+         */
+        SessionIdParam: string;
+        SessionList: {
+            /** @description Sessions that have not expired: the current one first, then the most recently used. */
+            sessions: components["schemas"]["Session"][];
+        };
         /** Format: uuid */
         TokenIdParam: string;
         /**
-         * @description `publish`: upload versions and manage your packages' listings. `social`: like packages and keep lists. `account`: manage the account and its tokens, and everything `social` allows. The CLI sign-in (`fluidcad login`, the app's Sign in) grants `publish` and `social`. Comments, Helpful marks and reports take a browser session, whatever a token holds.
+         * @description `publish`: upload versions and manage your packages' listings. `social`: like packages and keep lists. `account`: manage the account and its tokens, and everything `social` allows. `admin`: the admin API, for the hub's local admin app; only an active admin can make one, it carries `admin` alone, and a browser session never has it. The CLI sign-in (`fluidcad login`, the app's Sign in) grants `publish` and `social`. Comments, Helpful marks and reports take a browser session, whatever a token holds.
          * @enum {string}
          */
-        TokenScope: "account" | "publish" | "social";
+        TokenScope: "account" | "admin" | "publish" | "social";
         /**
          * @description The package's manifest `unit`: `metric` (mm, cm, m) or `imperial` (in, ft).
          * @enum {string}
@@ -5597,12 +7683,19 @@ export type components = {
             /** @description The first-publish wizard, for a `draft`. */
             wizardUrl: string | null;
         };
+        /**
+         * @description `all` by default.
+         * @enum {string}
+         */
+        UserFilter: "all" | "active" | "suspended" | "admin" | "publisher";
+        /** @description An account's id (a UUID): a rename doesn't change it. */
+        UserIdParam: string;
         UserLikes: {
             handle: string;
             limit: number;
             page: number;
             results: components["schemas"]["SearchResult"][];
-            /** @description Liked packages that are listed now (a yanked-only, hidden or removed package is left out). */
+            /** @description Liked packages that are listed now (a hidden or removed package is left out). */
             total: number;
         };
         UserLists: {
@@ -5699,6 +7792,7 @@ export type components = {
                 minEngine: string;
                 name: string;
                 parts: ({
+                    configurations?: components["schemas"]["ManifestConfiguration"][];
                     /** @enum {string} */
                     exportKind: "value" | "factory";
                     exportName: string;
@@ -5724,6 +7818,8 @@ export type components = {
             /** @description The owner set the notes in the wizard (a re-upload keeps them unless it sends `--notes`). */
             notesEdited: boolean;
             publishedAt: string | null;
+            /** @description Only with `?include=readme`: the archive's root `README.md` as Markdown text, or null when the version has none or it is over the `readmeBytes` limit (the file route still serves it). Shown as text or through a sanitizing renderer, never as HTML. */
+            readme?: string | null;
             reviewedAt: string | null;
             /** @description Why a reviewer rejected the version. */
             reviewNote: string | null;
@@ -5740,7 +7836,6 @@ export type components = {
             version: string;
             /** @description The first-publish wizard, for a `draft`. */
             wizardUrl: string | null;
-            yanked: components["schemas"]["Yank"];
         };
         /**
          * @description A package version's id (a UUID), as the review queue lists it.
@@ -5820,28 +7915,6 @@ export type components = {
              */
             status: "uploading" | "draft" | "in_review" | "rejected" | "published";
             version: string;
-            yanked: components["schemas"]["Yank"];
-        };
-        /** @description A yanked version: still installable by its exact version, never picked by name. */
-        Yank: {
-            at: string;
-            reason: string | null;
-        } | null;
-        YankRequest: {
-            /** @description Why, at most 280 characters; shown as "Yanked: <reason>" beside the version. */
-            reason: string;
-        };
-        YankResult: {
-            isLatest: boolean;
-            /** @description What installs by name get now; null when every published version is yanked. */
-            latestVersion: string | null;
-            name: string;
-            version: string;
-            /** @description Null after an unyank. */
-            yanked: {
-                at: string;
-                reason: string | null;
-            } | null;
         };
     };
     responses: never;

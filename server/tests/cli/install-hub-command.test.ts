@@ -248,14 +248,9 @@ describe('fluidcad install <@scope/name> from the hub', () => {
     );
   });
 
-  it('a yanked exact version installs with its note; a removed one refuses with the reason', async () => {
-    await publish(KIT, '0.1.0', { yanked: { at: '2026-10-10T00:00:00.000Z', reason: 'wrong thread pitch' } });
+  it('a removed exact version refuses with the reason', async () => {
     await publish(KIT, '0.2.0', { removed: { at: '2026-10-10T00:00:00.000Z', reason: 'malware' } });
     await publish(KIT, '0.3.0');
-
-    const yanked = await cli(outside, ['install', `${KIT}@0.1.0`]);
-    expect(yanked.status).toBe(0);
-    expect(yanked.stdout).toBe(KIT_LINE('Installed @acme/kit@0.1.0 into your library') + '  ! Yanked (wrong thread pitch): installed because you asked for this version.\n');
 
     const removed = await cli(outside, ['install', `${KIT}@0.2.0`]);
     expect(removed.status).toBe(1);

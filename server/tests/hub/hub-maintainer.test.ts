@@ -10,8 +10,8 @@ import { ArchiveFixture } from '../packages/archive-fixture.ts';
 import { FakeHub } from '../fixtures/fake-hub.ts';
 
 /**
- * `HubMaintainer` (hub-plan Stage H12) against the in-process FakeHub: yank
- * and unyank, deprecation, and the listing edits after the first publish,
+ * `HubMaintainer` (hub-plan Stage H12) against the in-process FakeHub:
+ * deprecation and the listing edits after the first publish,
  * each with the account checked first (a package under another handle, a
  * token without `publish`, signed out: refused before any request about the
  * package) and the hub's refusals worded with their next step.
@@ -70,17 +70,14 @@ function packageRequests(): string[] {
   return hub.requests.filter((request) => request.path.startsWith('/api/v1/packages/')).map((request) => `${request.method} ${request.path}`);
 }
 
-describe('naming the package and version', () => {
-  it('takes @scope/name@version, a version alone in the package workspace, and refuses the rest with the way to name it', () => {
+describe('naming the package', () => {
+  it('takes @scope/name, the package workspace\'s name, and refuses the rest with the way to name it', () => {
     const workspace = path.join(tmp, 'ws');
     fs.mkdirSync(workspace);
     fs.writeFileSync(path.join(workspace, 'fluidcad.json'), JSON.stringify({ package: { name: '@acme/kit', version: '0.2.0' } }));
-    expect(HubMaintainer.versionRef('@acme/kit@0.2.0', tmp)).toEqual({ name: '@acme/kit', version: '0.2.0' });
-    expect(HubMaintainer.versionRef('0.1.0', workspace)).toEqual({ name: '@acme/kit', version: '0.1.0' });
+    expect(HubMaintainer.packageName('@acme/kit', tmp)).toBe('@acme/kit');
     expect(HubMaintainer.packageName(null, workspace)).toBe('@acme/kit');
-    expect(() => HubMaintainer.versionRef('@acme/kit', workspace)).toThrow('Say which version of @acme/kit: @acme/kit@<version>, such as @acme/kit@0.1.0.');
-    expect(() => HubMaintainer.versionRef('@acme/kit@latest', workspace)).toThrow('"latest" is not a version');
-    expect(() => HubMaintainer.versionRef('@Acme/kit@0.1.0', workspace)).toThrow('is not a package name');
+    expect(() => HubMaintainer.packageName('@Acme/kit', workspace)).toThrow('is not a package name');
     expect(() => HubMaintainer.packageName(null, tmp)).toThrow('Name the package (@scope/name), or run this in its workspace.');
   });
 
@@ -110,8 +107,8 @@ describe('naming the package and version', () => {
 describe('the account, checked before anything about the package is sent', () => {
   it('refuses signed out, a package under another handle and a token without publish, with no package request', async () => {
     await published();
-    expect((await refusal(maintainer(null).yank({ name: '@acme/kit', version: '0.2.0' }, 'x'))).code).toBe('signed-out');
-    const other = await refusal(maintainer().yank({ name: '@bea-tools/kit', version: '0.2.0' }, 'x'));
+    expect((await refusal(maintainer(null).deprecate('@acme/kit', 'Gone.'))).code).toBe('signed-out');
+    const other = await refusal(maintainer().deprecate('@bea-tools/kit', 'Gone.'));
     expect(other.code).toBe('forbidden');
     expect(other.message).toContain('@bea-tools/kit is under @bea-tools, but you are signed in to');
     const account = hub.issueToken({ kind: 'personal', scopes: ['account'] }).token;
@@ -122,34 +119,8 @@ describe('the account, checked before anything about the package is sent', () =>
   it('words a refused token with the way back', async () => {
     const stale = hub.issueToken({ kind: 'cli', scopes: ['publish'] });
     stale.revoked = true;
-    const err = await refusal(maintainer(stale.token).unyank({ name: '@acme/kit', version: '0.1.0' }));
+    const err = await refusal(maintainer(stale.token).deprecate('@acme/kit', 'Gone.'));
     expect(err.message).toBe(`${hub.origin} no longer accepts your token (revoked or expired). Run \`fluidcad login\`, then try again.`);
-  });
-});
-
-describe('yank and unyank', () => {
-  it('yanks the latest (latest moves back), then unyanks it', async () => {
-    await published();
-    const yanked = await maintainer().yank({ name: '@acme/kit', version: '0.2.0' }, '  Breaks the bolt circle.  ');
-    expect(yanked).toMatchObject({ version: '0.2.0', yanked: { reason: 'Breaks the bolt circle.' }, isLatest: false, latestVersion: '0.1.0' });
-    expect(JSON.parse(hub.requestsTo('/api/v1/packages/@acme/kit/versions/0.2.0/yank')[0].body)).toEqual({ reason: 'Breaks the bolt circle.' });
-    const restored = await maintainer().unyank({ name: '@acme/kit', version: '0.2.0' });
-    expect(restored).toMatchObject({ yanked: null, isLatest: true, latestVersion: '0.2.0' });
-  });
-
-  it('refuses an empty reason locally, and passes on the hub’s refusals with their next step', async () => {
-    await published(['0.1.0']);
-    expect((await refusal(maintainer().yank({ name: '@acme/kit', version: '0.1.0' }, '   '))).message).toBe(
-      'Say why with --reason: installers see it as "Yanked: <reason>" beside the version.',
-    );
-    expect((await refusal(maintainer().unyank({ name: '@acme/kit', version: '0.1.0' }))).message).toBe("@acme/kit@0.1.0 isn't yanked.");
-    hub.packages.get('@acme/kit')!.versions.push({ version: '0.2.0', status: 'in_review' });
-    const open = await refusal(maintainer().yank({ name: '@acme/kit', version: '0.2.0' }, 'x'));
-    expect(open.code).toBe('not-published');
-    expect(open.message).toBe(
-      '@acme/kit@0.2.0 is in review: only a published version can be yanked. Only a published version can be yanked or unyanked; `fluidcad publish --withdraw` withdraws a draft or a version in review.',
-    );
-    expect((await refusal(maintainer().yank({ name: '@acme/kit', version: '9.9.9' }, 'x'))).code).toBe('not-found');
   });
 });
 

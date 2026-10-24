@@ -49,11 +49,10 @@ import { TreeHash } from '../../src/packages/tree-hash.ts';
  *   package has a published version). The detail lists the screenshots and
  *   the latest version's features with their icon URLs.
  *
- * - the owner's lifecycle and listing routes (H12): `POST …/versions/v/yank`
- *   and `…/unyank` (the owner only, a published version only:
- *   `not-published`, `not-yanked`), `PATCH /api/v1/packages/@s/n` (license,
- *   links and `deprecatedMessage`, licenses from the hub's list with its
- *   sentence), `PATCH …/versions/v` (an open version's notes and license),
+ * - the owner's listing routes (H12): `PATCH /api/v1/packages/@s/n`
+ *   (license, links and `deprecatedMessage`, licenses from the hub's list
+ *   with its sentence), `PATCH …/versions/v` (an open version's notes and
+ *   license),
  *   `GET`/`POST …/media` and `PATCH`/`DELETE …/media/<id>` (caption, place,
  *   card). A stranger's write is 403 on a package with a published version,
  *   404 otherwise, as the hub answers.
@@ -109,7 +108,6 @@ export type FakeHubVersion = {
   minEngine?: string;
   sdkVersion?: number;
   license?: string | null;
-  yanked?: { at: string; reason: string | null } | null;
   removed?: { at: string; reason: string | null } | null;
 };
 
@@ -288,7 +286,7 @@ export class FakeHub {
    * package (the `wrong-package` and HD29-archive tests) — published unless
    * `row` says otherwise, with the tree hash of its files as its integrity
    * and the manifest's engine fields. Answers the version row, which a test
-   * may change afterwards (yank it, remove it).
+   * may change afterwards (remove it).
    */
   async addArchive(archive: Buffer, row: Partial<FakeHubVersion> = {}, name?: string): Promise<FakeHubVersion> {
     const zip = await JSZip.loadAsync(archive);
@@ -437,11 +435,6 @@ export class FakeHub {
         if (social) {
           return this.socialRoute(req, res, `${decodeURIComponent(social[1])}/${decodeURIComponent(social[2])}`, social[3] as 'like' | 'me');
         }
-        const lifecycle = req.method === 'POST' ? FakeHub.LIFECYCLE_ROUTE.exec(url.pathname) : null;
-        if (lifecycle) {
-          const name = `${decodeURIComponent(lifecycle[1])}/${decodeURIComponent(lifecycle[2])}`;
-          return this.lifecycleRoute(req, res, body, name, decodeURIComponent(lifecycle[3]), lifecycle[4] as 'yank' | 'unyank');
-        }
         const publish = FakeHub.PUBLISH_ROUTE.exec(url.pathname);
         if (publish) {
           const name = `${decodeURIComponent(publish[1])}/${decodeURIComponent(publish[2])}`;
@@ -460,7 +453,6 @@ export class FakeHub {
   private static readonly MEDIA_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)\/media\/([^/]+)$/;
   private static readonly MEDIA_LIST_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)\/media$/;
   private static readonly SOCIAL_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)\/(like|me)$/;
-  private static readonly LIFECYCLE_ROUTE = /^\/api\/v1\/packages\/(@[^/]+|%40[^/]+)\/([^/]+)\/versions\/([^/]+)\/(yank|unyank)$/;
   /** The hub's safe types (`ArchiveFiles`): images by extension, text as plain text, anything else as bytes. */
   private static readonly FILE_TYPES: Record<string, string> = {
     '.svg': 'image/svg+xml',
@@ -646,7 +638,7 @@ export class FakeHub {
     });
   }
 
-  // The owner's lifecycle and listing routes (H12)
+  // The owner's listing routes (H12)
 
   /**
    * The owner's write to `name`, or the refusal already answered: 401
@@ -670,38 +662,6 @@ export class FakeHub {
       return null;
     }
     return pkg;
-  }
-
-  /** `POST …/versions/v/yank|unyank`. */
-  private lifecycleRoute(req: http.IncomingMessage, res: http.ServerResponse, body: string, name: string, version: string, action: 'yank' | 'unyank'): void {
-    const pkg = this.owned(req, res, name);
-    if (!pkg) {
-      return;
-    }
-    let reason: string | null = null;
-    if (action === 'yank') {
-      const parsed = FakeHub.parseJson(body) as { reason?: unknown } | null;
-      reason = typeof parsed?.reason === 'string' ? parsed.reason.trim() : '';
-      if (reason === '' || reason.length > 280) {
-        return FakeHub.json(res, 400, {
-          error: { code: 'bad-request', message: 'The request is not valid.', details: { issues: [{ path: ['reason'], message: 'Say why the version is yanked: installers see the reason beside it.' }] } },
-        });
-      }
-    }
-    const rows = pkg.versions.filter((v) => v.version === version);
-    const row = rows.find((v) => v.status === 'published');
-    if (!row) {
-      const other = rows.at(-1);
-      return other
-        ? FakeHub.json(res, 409, { error: { code: 'not-published', message: `${name}@${version} is ${other.status.replace('_', ' ')}: only a published version can be ${action}ed.`, details: { status: other.status } } })
-        : FakeHub.error(res, 404, 'not-found', `${name}@${version} doesn't exist.`);
-    }
-    if (action === 'unyank' && !row.yanked) {
-      return FakeHub.error(res, 409, 'not-yanked', `${name}@${version} isn't yanked.`);
-    }
-    row.yanked = action === 'yank' ? { at: row.yanked?.at ?? new Date().toISOString(), reason } : null;
-    const latest = FakeHub.pickLatest(pkg.versions.filter((v) => v.status === 'published'));
-    FakeHub.json(res, 200, { name, version, yanked: row.yanked, isLatest: row === latest, latestVersion: latest?.version ?? null });
   }
 
   /** `PATCH /packages/@s/n`: the license, links and deprecation; null clears one. */
@@ -1002,8 +962,8 @@ export class FakeHub {
   /**
    * `PackageDetail` (the hub's H7 shape, with the owner's `PackageStatus`
    * fields), derived from the version rows: latest by HD11 (the highest
-   * release that is neither yanked nor removed, else the highest such
-   * prerelease), and `compatibility` for `offer`.
+   * release that isn't removed, else the highest such prerelease), and
+   * `compatibility` for `offer`.
    */
   private packageDetail(
     name: string,
@@ -1121,7 +1081,6 @@ export class FakeHub {
       sdkVersion: row.sdkVersion ?? null,
       notes: row.notes ?? '',
       publishedAt: row.publishedAt ?? null,
-      yanked: row.yanked ?? null,
       removed: row.removed ?? null,
       isLatest: row === latest,
     };
@@ -1139,7 +1098,6 @@ export class FakeHub {
       unit: 'mm',
       manifest: row.manifest ?? null,
       entries: row.entries ?? [],
-      yanked: row.yanked ?? null,
       isLatest: row === latest,
       deprecatedMessage: pkg.deprecatedMessage ?? null,
       archiveUrl: row.archive && row.status !== 'rejected' && row.status !== 'uploading' ? this.archiveUrl(name, row.version) : null,
@@ -1154,9 +1112,9 @@ export class FakeHub {
     return Semver.parse(a.version)!.compareTo(Semver.parse(b.version)!);
   }
 
-  /** HD11 over published rows: the highest release neither yanked nor removed, else the highest such prerelease. */
+  /** HD11 over published rows: the highest release not removed, else the highest such prerelease. */
   private static pickLatest(published: FakeHubVersion[]): FakeHubVersion | null {
-    const candidates = published.filter((v) => !v.yanked && !v.removed);
+    const candidates = published.filter((v) => !v.removed);
     const releases = candidates.filter((v) => !Semver.parse(v.version)!.isPrerelease);
     return [...(releases.length > 0 ? releases : candidates)].sort(FakeHub.byVersion).at(-1) ?? null;
   }

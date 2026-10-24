@@ -26,6 +26,11 @@ describe('OpeningOverlay.describe', () => {
       detail: target.path,
       fraction: null,
     });
+    expect(OpeningOverlay.describe(target, { step: 'creating', package: '@acme/kit' })).toEqual({
+      line: 'Setting the package @acme/kit up…',
+      detail: target.path,
+      fraction: null,
+    });
     expect(OpeningOverlay.describe(target, { step: 'resolving' })).toEqual({
       line: 'Finding the engine for this project…',
       detail: target.path,

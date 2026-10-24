@@ -11,6 +11,7 @@ import {
   checkProjectList,
   checkSessionEvent,
   checkSessionView,
+  checkStartCommand,
   checkUpgradePreview,
   checkWindowState,
 } from '../../src/start/contract-guards';
@@ -114,9 +115,19 @@ describe('contract guards', () => {
     );
   });
 
-  it("accepts a new project's set-up step", () => {
+  it("accepts a new project's set-up step, with or without the package it sets up", () => {
     const creating = { phase: 'opening', project: { path: '/p', name: 'p' }, status: { step: 'creating' } };
     expect(checkWindowState(creating)).toEqual(creating);
+    const packaged = { ...creating, status: { step: 'creating', package: '@acme/kit' } };
+    expect(checkWindowState(packaged)).toEqual(packaged);
+    expect(contractError(() => checkWindowState({ ...creating, status: { step: 'creating', package: 3 } })).message).toBe(
+      'windowState().status.package: expected a string',
+    );
+  });
+
+  it("knows the launcher's commands to the page, and nothing else", () => {
+    expect(checkStartCommand('new-package')).toBe('new-package');
+    expect(contractError(() => checkStartCommand('new-project')).message).toBe("onCommand(): expected one of 'new-package'");
   });
 
   it("checks npx fluidcad's sessions, and sends a tab only to a project page on the start server", () => {

@@ -111,7 +111,11 @@ export class OpeningOverlay {
   ): { line: string; detail: string; fraction: number | null } {
     switch (status.step) {
       case 'creating':
-        return { line: 'Setting the new project up…', detail: project.path, fraction: null };
+        return {
+          line: status.package ? `Setting the package ${status.package} up…` : 'Setting the new project up…',
+          detail: project.path,
+          fraction: null,
+        };
       case 'resolving':
         return { line: 'Finding the engine for this project…', detail: project.path, fraction: null };
       case 'downloading': {

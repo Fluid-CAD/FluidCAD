@@ -1,10 +1,14 @@
 import { ICON_CLOSE, ICON_FOLDER, ICON_FOLDER_UP, ICON_HOME } from '../ui/icons';
 import { shortenPath } from './format';
-import type { FolderCheck, FolderEntry, FolderListing, ProjectDialogs } from './host';
+import type { CreateOptions, FolderCheck, FolderEntry, FolderListing, ProjectDialogs } from './host';
+import { PackageName } from './package-name';
 
 type PageDialogs = Extract<ProjectDialogs, { kind: 'page' }>;
 
 export type FolderPickerMode = 'open' | 'create';
+
+/** What the create mode makes: a plain project, or a package workspace (named `@handle/name`). */
+export type FolderPickerKind = 'project' | 'package';
 
 export type FolderPickerHandlers = {
   /**
@@ -12,8 +16,8 @@ export type FolderPickerHandlers = {
    * browser opens the project's tab only while it handles the user's gesture.
    */
   open(path: string): void;
-  /** Set a new project up at `path` and open it; inside the click, like {@link open}. */
-  create(path: string): void;
+  /** Set a new project (or the package `options` name) up at `path` and open it; inside the click, like {@link open}. */
+  create(path: string, options?: CreateOptions): void;
 };
 
 /** Where the picker was last, per browser: the next one starts there. */
@@ -30,18 +34,29 @@ const ROW_SELECTED = `${ROW} bg-primary/15 text-base-content`;
 
 type StatusTone = 'neutral' | 'error';
 
-const COPY: Record<FolderPickerMode, { title: string; lede: string; action: string }> = {
+type Copy = { title: string; lede: string; action: string };
+
+const COPY: Record<'open' | FolderPickerKind, Copy> = {
   open: {
     title: 'Open a project',
     lede: 'Pick the folder that holds your project. It opens in a new tab.',
     action: 'Open',
   },
-  create: {
+  project: {
     title: 'New project',
     lede: 'Go to the folder the project should live in, and name it. FluidCAD creates a folder with that name and sets the project up inside it.',
     action: 'Create project',
   },
+  package: {
+    title: 'New package',
+    lede: 'Go to the folder the package should live in, and name it. FluidCAD creates a folder for it there and sets the package up inside it.',
+    action: 'Create package',
+  },
 };
+
+const KIND_BUTTON = 'btn btn-sm join-item';
+const KIND_IDLE = `${KIND_BUTTON} btn-outline border-base-content/20`;
+const KIND_SELECTED = `${KIND_BUTTON} btn-primary`;
 
 function readLastFolder(): string | null {
   try {
@@ -96,7 +111,11 @@ function projectIcon(): HTMLSpanElement {
  * double-click to look inside it; a project
  * double-clicked in the Open picker opens. The New Project picker sets the
  * project up in a new folder named after it, inside the folder on show, and
- * says before anything happens what that would create.
+ * says before anything happens what that would create. Its Project / Package
+ * choice makes the new project a package workspace instead (U2): the package's
+ * `@handle/name` is asked for too, checked as the page checks it
+ * (`PackageName`), and the folder name follows the part after the slash until
+ * the user types one of their own.
  *
  * Built like the engine dialog: a fixed overlay, a header with a close button,
  * a scrolling body and a footer of actions.
@@ -113,6 +132,13 @@ export class FolderPicker {
   /** Narrows the list to the folders named; cleared whenever the picker goes elsewhere. */
   private readonly filter: HTMLInputElement;
   private readonly list: HTMLDivElement;
+  /** Project / Package, in create mode. */
+  private readonly kindRow: HTMLDivElement;
+  private readonly kindButtons: Record<FolderPickerKind, HTMLButtonElement>;
+  /** The package's `@handle/name`, when a package is being made. */
+  private readonly packageRow: HTMLLabelElement;
+  private readonly packageInput: HTMLInputElement;
+  private readonly packageProblem: HTMLParagraphElement;
   private readonly nameRow: HTMLLabelElement;
   private readonly nameLabel: HTMLSpanElement;
   private readonly nameInput: HTMLInputElement;
@@ -126,6 +152,9 @@ export class FolderPicker {
   private readonly status: HTMLDivElement;
   private readonly actionBtn: HTMLButtonElement;
   private mode: FolderPickerMode = 'open';
+  private kind: FolderPickerKind = 'project';
+  /** The user typed a folder name of their own: the package name no longer fills it in. */
+  private folderNamed = false;
   private listing: FolderListing | null = null;
   private selected: string | null = null;
   /** What the typed name would create, once asked; stale while a newer check runs. */
@@ -171,6 +200,16 @@ export class FolderPicker {
           <div data-ref="roots" class="hidden flex flex-wrap gap-1"></div>
           <input data-ref="filter" type="search" spellcheck="false" placeholder="Filter folders" aria-label="Filter folders by name" class="input input-sm w-full" />
           <div data-ref="list" role="listbox" aria-label="Folders" class="flex-1 min-h-[200px] max-h-[40vh] overflow-y-auto border border-base-content/10 rounded-md p-1"></div>
+          <div data-ref="kind-row" role="radiogroup" aria-label="What to create" class="hidden join">
+            <button data-ref="kind-project" type="button" role="radio" class="${KIND_SELECTED}">Project</button>
+            <button data-ref="kind-package" type="button" role="radio" class="${KIND_IDLE}">Package</button>
+          </div>
+          <label data-ref="package-row" class="hidden flex flex-col items-stretch gap-1.5">
+            <span class="text-sm text-base-content/80">Package name</span>
+            <input data-ref="package" type="text" spellcheck="false" autocomplete="off" placeholder="${PackageName.PLACEHOLDER}" class="input input-sm w-full font-mono" />
+            <span class="text-xs text-base-content/60">${PackageName.HINT}</span>
+            <p data-ref="package-problem" class="hidden text-xs text-error break-words" aria-live="polite"></p>
+          </label>
           <label data-ref="name-row" class="hidden flex items-center gap-3">
             <span data-ref="name-label" class="text-sm text-base-content/80 shrink-0">Project name</span>
             <input data-ref="name" type="text" spellcheck="false" placeholder="e.g. bracket" class="input input-sm flex-1 min-w-0" />
@@ -194,6 +233,11 @@ export class FolderPicker {
     this.roots = ref('roots');
     this.filter = ref('filter');
     this.list = ref('list');
+    this.kindRow = ref('kind-row');
+    this.kindButtons = { project: ref('kind-project'), package: ref('kind-package') };
+    this.packageRow = ref('package-row');
+    this.packageInput = ref('package');
+    this.packageProblem = ref('package-problem');
     this.nameRow = ref('name-row');
     this.nameLabel = ref('name-label');
     this.nameInput = ref('name');
@@ -221,8 +265,22 @@ export class FolderPicker {
         this.renderList(this.listing);
       }
     });
-    this.nameInput.addEventListener('input', () => this.scheduleCheck());
+    this.nameInput.addEventListener('input', () => {
+      // A folder name typed by hand is the user's; the package name stops filling it in.
+      this.folderNamed = this.nameInput.value !== '';
+      this.scheduleCheck();
+    });
     this.nameInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        this.act();
+      }
+    });
+    for (const kind of ['project', 'package'] as const) {
+      this.kindButtons[kind].addEventListener('click', () => this.setKind(kind));
+    }
+    this.packageInput.addEventListener('input', () => this.packageNameChanged());
+    this.packageInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
         this.act();
@@ -264,28 +322,27 @@ export class FolderPicker {
   /**
    * Show the picker, starting where it was last (or next to the latest
    * project). With a projects folder (`root`), there is nowhere to browse: a
-   * new project is named, and made in that folder.
+   * new project is named, and made in that folder. `kind` preselects what the
+   * create mode makes; the user can still switch.
    */
-  async show(mode: FolderPickerMode, root: string | null = null): Promise<void> {
+  async show(mode: FolderPickerMode, root: string | null = null, options: { kind?: FolderPickerKind } = {}): Promise<void> {
     this.mode = mode;
     this.root = root;
+    this.kind = options.kind ?? 'project';
+    this.folderNamed = false;
     const rooted = root !== null;
     const naming = rooted && mode === 'create';
-    this.title.textContent = COPY[mode].title;
-    this.lede.textContent = COPY[mode].lede;
-    // In a projects folder there is nothing to explain: a label, the field, and where it lands.
-    this.lede.classList.toggle('hidden', naming);
     this.nav.classList.toggle('hidden', rooted);
     this.filter.classList.toggle('hidden', naming);
     this.filter.value = '';
     this.list.classList.toggle('hidden', naming);
+    this.kindRow.classList.toggle('hidden', mode !== 'create');
     this.nameRow.classList.toggle('hidden', mode !== 'create');
     this.nameRow.classList.toggle('flex-col', naming);
     this.nameRow.classList.toggle('items-stretch', naming);
     this.nameRow.classList.toggle('gap-1.5', naming);
     this.nameRow.classList.toggle('items-center', !naming);
     this.nameRow.classList.toggle('gap-3', !naming);
-    this.nameLabel.textContent = naming ? 'Project Name' : 'Project name';
     // Under its label the field takes the whole row; daisyUI's input has a
     // width of its own otherwise. `flex-1` is for the row: in a column it
     // would be the field's height, collapsing it.
@@ -294,10 +351,12 @@ export class FolderPicker {
     this.folder.classList.toggle('hidden', !naming);
     this.folderText.textContent = '';
     this.nameInput.value = '';
+    this.packageInput.value = '';
     this.checked = null;
     this.selected = null;
     this.listing = null;
     this.list.replaceChildren();
+    this.renderKind();
     this.setStatus('', 'neutral');
     this.sync();
     this.element.classList.remove('hidden');
@@ -312,7 +371,81 @@ export class FolderPicker {
         await this.browse(null);
       }
     }
-    (mode === 'create' ? this.nameInput : this.list.querySelector<HTMLElement>('button') ?? this.pathInput).focus();
+    this.focusFirstField();
+  }
+
+  /** The create mode's kind: what the picker makes, and which fields it shows. */
+  private setKind(kind: FolderPickerKind): void {
+    if (this.kind === kind) {
+      return;
+    }
+    this.kind = kind;
+    this.renderKind();
+    if (kind === 'package') {
+      // The folder name is the package's to fill in, until the user types one.
+      this.folderNamed = false;
+      this.packageNameChanged();
+    } else {
+      this.scheduleCheck(0);
+    }
+    this.focusFirstField();
+  }
+
+  /** The copy, the kind buttons and the package row, from the mode and the kind. */
+  private renderKind(): void {
+    const copy = COPY[this.mode === 'open' ? 'open' : this.kind];
+    const naming = this.root !== null && this.mode === 'create';
+    const making = this.mode === 'create' && this.kind === 'package';
+    this.title.textContent = copy.title;
+    this.lede.textContent = copy.lede;
+    // In a projects folder there is nothing to explain: a label, the field, and where it lands.
+    this.lede.classList.toggle('hidden', naming);
+    for (const kind of ['project', 'package'] as const) {
+      const selected = kind === this.kind;
+      this.kindButtons[kind].className = selected ? KIND_SELECTED : KIND_IDLE;
+      this.kindButtons[kind].setAttribute('aria-checked', String(selected));
+    }
+    this.packageRow.classList.toggle('hidden', !making);
+    this.showPackageProblem(null);
+    const field = making ? 'Folder name' : 'Project name';
+    this.nameLabel.textContent = naming ? field.replace(' name', ' Name') : field;
+  }
+
+  private focusFirstField(): void {
+    if (this.mode === 'create') {
+      (this.kind === 'package' ? this.packageInput : this.nameInput).focus();
+      return;
+    }
+    (this.list.querySelector<HTMLElement>('button') ?? this.pathInput).focus();
+  }
+
+  /** The package name's part after the slash becomes the folder name, until the user names the folder. */
+  private packageNameChanged(): void {
+    const name = this.packageInput.value.trim();
+    this.showPackageProblem(PackageName.problem(name));
+    if (!this.folderNamed) {
+      const folderName = PackageName.folderNameOf(name);
+      if (this.nameInput.value !== folderName) {
+        this.nameInput.value = folderName;
+        this.scheduleCheck();
+        return;
+      }
+    }
+    this.sync();
+  }
+
+  /** The package name typed, when it is one; null while it is not. */
+  private packageName(): string | null {
+    if (this.mode !== 'create' || this.kind !== 'package') {
+      return null;
+    }
+    const name = this.packageInput.value.trim();
+    return PackageName.isValid(name) ? name : null;
+  }
+
+  private showPackageProblem(sentence: string | null): void {
+    this.packageProblem.textContent = sentence ?? '';
+    this.packageProblem.classList.toggle('hidden', sentence === null);
   }
 
   close(): void {
@@ -480,7 +613,12 @@ export class FolderPicker {
     }
     const name = this.nameInput.value.trim();
     if (!name) {
-      this.setStatus('Name the project. The name becomes its folder.', 'neutral');
+      this.setStatus(
+        this.kind === 'package'
+          ? 'Name the package. The part after the slash becomes its folder.'
+          : 'Name the project. The name becomes its folder.',
+        'neutral',
+      );
       return;
     }
     this.checkTimer = setTimeout(() => void this.runCheck(name), delay);
@@ -518,7 +656,7 @@ export class FolderPicker {
         this.setStatus(`Creates ${where} and opens it in a new tab.`, 'neutral');
         return;
       case 'empty':
-        this.setStatus(`Sets the project up in the empty folder ${where}.`, 'neutral');
+        this.setStatus(`Sets the ${this.kind} up in the empty folder ${where}.`, 'neutral');
         return;
       case 'project':
         this.setStatus(`${where} already holds a project. Choose another name, or open that one.`, 'error');
@@ -545,6 +683,9 @@ export class FolderPicker {
     if (this.mode === 'open') {
       return true;
     }
+    if (this.kind === 'package' && this.packageName() === null) {
+      return false;
+    }
     return this.checked !== null && (this.checked.state === 'missing' || this.checked.state === 'empty');
   }
 
@@ -557,7 +698,7 @@ export class FolderPicker {
       const target = this.openTarget();
       this.actionBtn.textContent = target ? `Open ${baseName(target.path)}` : COPY.open.action;
     } else {
-      this.actionBtn.textContent = COPY.create.action;
+      this.actionBtn.textContent = COPY[this.kind].action;
     }
   }
 
@@ -577,9 +718,12 @@ export class FolderPicker {
 
   /** Hand the folder over, inside this click, and get out of the way. */
   private choose(folder: string): void {
+    const packageName = this.packageName();
     this.close();
     if (this.mode === 'open') {
       this.handlers.open(folder);
+    } else if (packageName !== null) {
+      this.handlers.create(folder, { package: packageName });
     } else {
       this.handlers.create(folder);
     }

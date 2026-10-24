@@ -2,10 +2,11 @@ import { closePopupMenu } from '../ui/popup-menu';
 import { ContractError } from './contract-guards';
 import { EngineDialog } from './engine-dialog';
 import { FolderPicker } from './folder-picker';
-import { START_SCREEN_PROTOCOL, type StartProject, type StartScreenHost } from './host';
+import { START_SCREEN_PROTOCOL, type ProjectDialogs, type StartProject, type StartScreenHost } from './host';
 import { LearnPanel } from './learn-panel';
 import { Notices } from './notices';
 import { OpeningOverlay } from './opening-overlay';
+import { PackageNameDialog } from './package-name-dialog';
 import { PROTOCOL_MISMATCH, problemText } from './problem';
 import { ProjectGrid } from './project-grid';
 import { StartTopBar } from './start-top-bar';
@@ -15,12 +16,16 @@ const THEME_NAME = /^[\w-]+$/;
 
 /**
  * The start screen: where the desktop app's windows and `npx fluidcad`'s
- * browser tabs begin. A top bar with Open Project and New Project, the feed's
- * notifications, the recent projects, and "Learn FluidCAD". In the desktop
- * app, opening a project shows this page under the opening overlay until the
- * project's own page takes its place in the same window. In a browser the
- * project opens in a tab of its own, which shows the overlay alone
- * (`project-tab-screen.ts`) while this page stays as it is.
+ * browser tabs begin. A top bar with Open Project, New Package and New
+ * Project, the feed's notifications, the recent projects, and "Learn
+ * FluidCAD". In the desktop app, opening a project shows this page under the
+ * opening overlay until the project's own page takes its place in the same
+ * window. In a browser the project opens in a tab of its own, which shows the
+ * overlay alone (`project-tab-screen.ts`) while this page stays as it is.
+ *
+ * New Package makes a package workspace (U2): with native dialogs the page
+ * asks the `@handle/name` in a small dialog of its own first, then the native
+ * folder dialog follows; the browser's folder picker asks both at once.
  *
  * Everything it shows comes from the host and every action goes back to it;
  * the page keeps no state of its own beyond what is on screen. It re-reads the
@@ -37,6 +42,8 @@ export class StartScreen {
   private readonly engineDialog: EngineDialog;
   /** The page's own folder picker, for a host without native dialogs (a browser). */
   private readonly folderPicker: FolderPicker | null;
+  /** New Package's name dialog, for a host with native dialogs (the desktop app); the picker asks the name otherwise. */
+  private readonly packageNameDialog: PackageNameDialog | null;
   private readonly content: HTMLElement;
   private home = '';
   /** The folder every project lives in, when the launcher keeps them in one. */
@@ -53,9 +60,10 @@ export class StartScreen {
       dialogs.kind === 'page'
         ? new FolderPicker(dialogs, {
             open: (path) => void this.run(() => this.host.open(path)),
-            create: (path) => void this.run(() => dialogs.create(path)),
+            create: (path, options) => void this.run(() => dialogs.create(path, options)),
           })
         : null;
+    this.packageNameDialog = dialogs.kind === 'native' ? new PackageNameDialog() : null;
     this.topBar = new StartTopBar({
       openProject: () =>
         this.run(() => (dialogs.kind === 'native' ? dialogs.open() : this.folderPicker!.show('open'))),
@@ -63,6 +71,7 @@ export class StartScreen {
         this.run(() =>
           dialogs.kind === 'native' ? dialogs.create() : this.folderPicker!.show('create', this.projectsRoot),
         ),
+      newPackage: () => this.run(() => this.newPackage(dialogs)),
     });
 
     this.problem = document.createElement('div');
@@ -113,7 +122,24 @@ export class StartScreen {
       this.overlay.element,
       this.engineDialog.element,
       ...(this.folderPicker ? [this.folderPicker.element] : []),
+      ...(this.packageNameDialog ? [this.packageNameDialog.element] : []),
     );
+  }
+
+  /**
+   * New Package: the name first, then the folder. The browser's picker takes
+   * both; with native dialogs the page's own dialog asks the name and the
+   * native folder dialog follows, as New Project shows it.
+   */
+  private async newPackage(dialogs: ProjectDialogs): Promise<void> {
+    if (dialogs.kind === 'page') {
+      await this.folderPicker!.show('create', this.projectsRoot, { kind: 'package' });
+      return;
+    }
+    const name = await this.packageNameDialog!.ask();
+    if (name !== null) {
+      await dialogs.create({ package: name });
+    }
   }
 
   /** Introduce the page to its host, subscribe, and draw everything once. */
@@ -134,6 +160,12 @@ export class StartScreen {
 
     this.host.onWindowState((state) => this.showWindowState(state));
     this.host.onChanged(() => void this.refreshProjects());
+    // File › New Package… in the desktop app: the same flow as the bar's button, buttons waiting alike.
+    this.host.onCommand((command) => {
+      if (command === 'new-package') {
+        void this.topBar.newPackage();
+      }
+    });
     this.host.onUpgradeProgress((progress) => this.engineDialog.progress(progress));
     window.addEventListener('focus', () => {
       void this.refreshAppearance();
@@ -192,6 +224,7 @@ export class StartScreen {
       closePopupMenu();
       this.engineDialog.close();
       this.folderPicker?.close();
+      this.packageNameDialog?.close();
     }
   }
 

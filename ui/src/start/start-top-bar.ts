@@ -4,13 +4,16 @@ import { shortenPath } from './format';
 export type StartTopBarHandlers = {
   openProject(): Promise<void>;
   newProject(): Promise<void>;
+  /** A new package workspace: the page asks its name first (U2, U5), then where it goes. */
+  newPackage(): Promise<void>;
 };
 
 /**
  * The start screen's top bar, built like the product's: the same height,
  * surface and border, with the brand where the product's sits. Where a
- * project's bar names the workspace, this one says what to do; the two
- * project actions sit at the right.
+ * project's bar names the workspace, this one says what to do; the three
+ * project actions sit at the right — Open Project, New Package and New
+ * Project, the last one leading.
  */
 export class StartTopBar {
   readonly element: HTMLElement;
@@ -32,12 +35,18 @@ export class StartTopBar {
     spacer.className = 'flex-1';
 
     const open = this.button('Open Project', 'btn btn-sm btn-outline', () => this.handlers.openProject());
+    const createPackage = this.button('New Package', 'btn btn-sm btn-outline', () => this.handlers.newPackage());
     const create = this.button('New Project', 'btn btn-sm btn-primary', () => this.handlers.newProject());
-    this.buttons = [open, create];
+    this.buttons = [open, createPackage, create];
     this.hint = hint;
     this.openButton = open;
 
-    this.element.append(createBrand().element, divider, hint, spacer, open, create);
+    this.element.append(createBrand().element, divider, hint, spacer, open, createPackage, create);
+  }
+
+  /** New Package as the button does it (the desktop's File › New Package… lands here): the buttons wait while it runs. */
+  newPackage(): Promise<void> {
+    return this.busyWhile(() => this.handlers.newPackage());
   }
 
   /**
@@ -59,7 +68,7 @@ export class StartTopBar {
     return button;
   }
 
-  /** One native dialog at a time: both buttons wait while either one's dialog is up. */
+  /** One native dialog at a time: every button waits while any one's dialog is up. */
   private async busyWhile(action: () => Promise<void>): Promise<void> {
     for (const button of this.buttons) {
       button.disabled = true;

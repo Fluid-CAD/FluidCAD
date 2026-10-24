@@ -2,7 +2,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { ShapeFilter } from "../filters/filter.js";
-import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import { BuildSceneObjectContext, SceneObject, SourceLocation } from "../common/scene-object.js";
 import { ISelect } from "../core/interfaces.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
@@ -58,14 +58,24 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
    * Claims every selection a builder call received as an operand — passed
    * bare, or wrapped in a lazy accessor such as `select(...).center()` whose
    * dependencies lead back to the selection.
+   *
+   * A selection written inline in the call's own arguments (`hole(7,
+   * select(…).center())`, `fillet(2, select(…))`, `connector('c', select(…))`)
+   * is internal to that call: it has no statement of its own to list, name
+   * or edit, so the timeline leaves it out. One bound to a name earlier
+   * (`const rim = select(…); fillet(2, rim)`) keeps its row. `consumer` is
+   * the claiming call's own stamped location; without it nothing is marked.
    */
-  static claimOperands(args: ArrayLike<unknown>): void {
+  static claimOperands(args: ArrayLike<unknown>, consumer: SourceLocation | null = null): void {
     const visit = (value: unknown, depth: number) => {
       if (!(value instanceof SceneObject) || depth > 2) {
         return;
       }
       if (value instanceof SelectSceneObject) {
         value.markClaimed();
+        if (consumer && value.isWrittenInline(consumer)) {
+          value.markInternal();
+        }
         return;
       }
       for (const dep of value.getDependencies()) {

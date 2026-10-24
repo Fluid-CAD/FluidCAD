@@ -7,7 +7,18 @@ import { BooleanOps } from "../oc/boolean-ops.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
+import { FaceBoundedSweep } from "./face-bounded-sweep.js";
 import { Extruder } from "./simple-extruder.js";
+
+/**
+ * Where an up-to-face ghost ends: the face the dialog picked, or the
+ * `'first-face'` / `'last-face'` literal with every face the extrusion could
+ * run into. The faces are the caller's — resolved from the scene and freed
+ * with its scratch; the ghost only reads them.
+ */
+export type ExtrudeGhostTarget =
+  | { kind: 'face'; face: Face }
+  | { kind: 'first-face' | 'last-face'; candidates: Face[] };
 
 /** The dialog values a ghost extrusion is built from, all resolved to numbers. */
 export type ExtrudeGhostOptions = {
@@ -29,6 +40,12 @@ export type ExtrudeGhostOptions = {
   /** Ghost length for a through-all cut; the caller derives it from scene bounds. */
   throughAllLength: number;
   /**
+   * Up-to-face: the extrusion ends on this target instead of at a distance —
+   * `distance`, `distance2` and `symmetric` are not read. The ghost sweeps
+   * exactly what `ExtrudeToFace` would, through the same `FaceBoundedSweep`.
+   */
+  toFace?: ExtrudeGhostTarget;
+  /**
    * The picked `.region()` faces, already resolved from the profile's
    * regions — built in place of the profile's own regions. Ignored by a thin
    * extrude, which offsets the whole profile (the kernel's own rule). Owned
@@ -42,6 +59,12 @@ export type ExtrudeGhostSolids = {
   solids: Shape[];
   /** Everything built on the way there; dispose it alongside `solids`. */
   scratch: Shape[];
+  /**
+   * Why an up-to-face target left nothing to sweep: a first/last-face
+   * extrusion that runs into no face at all. Unlike an empty profile, this
+   * is worth saying in the dialog — the apply would fail the same way.
+   */
+  refusal?: string;
 };
 
 /** The stretch of the sketch-plane normal the ghost body occupies. */
@@ -67,7 +90,8 @@ export function buildExtrudeGhostSolids(
 ): ExtrudeGhostSolids {
   const scratch: Shape[] = [];
   try {
-    return { solids: buildSolids(profile, options, scratch), scratch };
+    const built = buildSolids(profile, options, scratch);
+    return 'refusal' in built ? { solids: [], scratch, refusal: built.refusal } : { solids: built, scratch };
   } catch (err) {
     // A throw strands the scratch out of the caller's reach — free it here so
     // a failed ghost costs nothing.
@@ -82,11 +106,16 @@ function buildSolids(
   profile: { getGeometries(): Edge[]; getPlane(): Plane },
   options: ExtrudeGhostOptions,
   scratch: Shape[],
-): Shape[] {
+): Shape[] | { refusal: string } {
   const plane = profile.getPlane();
   const geometries = profile.getGeometries();
-  const span = ghostSpan(options);
-  if (!plane || geometries.length === 0 || !span) {
+  if (!plane || geometries.length === 0) {
+    return [];
+  }
+  // A face-bounded sweep has no span of its own; the distance modes refuse
+  // early, before any profile face is built, when theirs is empty.
+  const span = options.toFace ? null : ghostSpan(options);
+  if (!options.toFace && !span) {
     return [];
   }
 
@@ -96,6 +125,10 @@ function buildSolids(
   }
 
   const draft = options.draft ? [options.draft, options.draft] as [number, number] : null;
+
+  if (options.toFace) {
+    return sweepToFace(faces, plane, options.toFace, draft, options.endOffset, scratch);
+  }
 
   // A span straddling the sketch plane is two sweeps in the kernel. Drafted,
   // it has to stay that way — the taper widens outward from the plane in each
@@ -119,10 +152,56 @@ function buildSolids(
  */
 function extrudeInto(extruder: Extruder, scratch: Shape[]): Shape[] {
   const solids = extruder.extrude();
+  parkClassifiedFaces(extruder, scratch);
+  return solids;
+}
+
+function parkClassifiedFaces(extruder: Extruder, scratch: Shape[]): void {
   scratch.push(
     ...extruder.getStartFaces(), ...extruder.getEndFaces(),
     ...extruder.getSideFaces(), ...extruder.getInternalFaces(),
   );
+}
+
+/**
+ * The up-to-face form: every profile face swept to the one target, exactly
+ * as `ExtrudeToFace.build` sweeps it — a cut's tool runs to the face the
+ * same way, so the op plays no part. A first/last-face literal resolves
+ * against the candidate faces first, by the kernel's own reach test; when
+ * nothing lies ahead there is no body to show and the dialog is told why.
+ */
+function sweepToFace(
+  faces: Face[],
+  plane: Plane,
+  target: ExtrudeGhostTarget,
+  draft: [number, number] | null,
+  endOffset: number | null,
+  scratch: Shape[],
+): Shape[] | { refusal: string } {
+  const targetFace = target.kind === 'face'
+    ? target.face
+    : FaceBoundedSweep.pickReached(target.candidates, plane, target.kind === 'first-face' ? 'first' : 'last', faces, draft);
+  if (!targetFace) {
+    return { refusal: `No face lies ahead of the sketch for an up-to-${target.kind === 'first-face' ? 'first' : 'last'}-face extrude.` };
+  }
+  const options = { draft, endOffset: endOffset ?? undefined };
+  const solids: Shape[] = [];
+  try {
+    for (const face of faces) {
+      const swept = FaceBoundedSweep.sweep(face, targetFace, plane, options);
+      solids.push(...swept.solids);
+      if (swept.extruder) {
+        parkClassifiedFaces(swept.extruder, scratch);
+      }
+    }
+  } catch (err) {
+    // A later face's sweep failing strands the earlier bodies outside the
+    // caller's scratch — free them before the throw reaches it.
+    for (const solid of solids) {
+      solid.dispose();
+    }
+    throw err;
+  }
   return solids;
 }
 

@@ -41,7 +41,12 @@ import {
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { getSceneManager } from "../scene-manager.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
-import { horizontal, vertical, fix, distance } from "../core/constraints/index.js";
+import { coincident, horizontal, vertical, fix, distance } from "../core/constraints/index.js";
+import { Extrude } from "../features/extrude.js";
+import { ExtrudeToFace } from "../features/extrude-to-face.js";
+import { Face } from "../common/face.js";
+import { Shape } from "../common/shape.js";
+import { MeshBuilder } from "../rendering/mesh-builder.js";
 import { testRect } from "./helpers/profiles.js";
 import { runFluid, FLUID_FILE } from "./helpers/run-fluid.js";
 import { buildSketchRegions } from "../rendering/sketch-regions.js";
@@ -222,6 +227,174 @@ describe("feature ghost", () => {
     expect(Math.min(...zs)).toBeLessThan(-20);
     expect(Math.min(...zs)).toBeGreaterThan(-100);
     expect(Math.max(...zs)).toBeCloseTo(0, 3);
+  });
+});
+
+/**
+ * The "Up to face" directions. The target is resolved against the rendered
+ * scene — a picked face by its viewport address, a first/last-face literal
+ * by the kernel's own reach test over every scene face — and the sweep is
+ * the applied feature's (FaceBoundedSweep), so the ghost ends exactly where
+ * the apply will.
+ */
+describe("feature ghost — up to face", () => {
+  setupOC();
+
+  /** A slab across the extrusion path: `thickness` tall, standing at `z`. */
+  function slabAcrossPath(z: number, thickness: number): void {
+    sketch(plane("xy", { offset: z }), () => { testRect(80, 80, { at: [-25, -25] }); });
+    extrude(thickness).new();
+  }
+
+  /** A wall beside the path — tall, near, and never in the way. */
+  function wallBesidePath(): void {
+    sketch("xy", () => { testRect(10, 50, { at: [40, -25] }); });
+    extrude(200).new();
+  }
+
+  /** The first scene face the predicate accepts, as a viewport pick names it. */
+  function pickFace(scene: Scene, accept: (face: Face) => boolean): { shapeId: string; index: number } {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (!shape.isSolid()) {
+          continue;
+        }
+        const faces = Explorer.findFacesWrapped(shape);
+        try {
+          const index = faces.findIndex(accept);
+          if (index >= 0) {
+            return { shapeId: shape.id, index };
+          }
+        } finally {
+          for (const face of faces) {
+            face.dispose();
+          }
+        }
+      }
+    }
+    throw new Error('no such face in the scene');
+  }
+
+  /** A shape's extent off its own mesh — like-for-like with {@link bounds}. */
+  function meshBounds(shape: Shape) {
+    const meshes = new MeshBuilder(DEFAULT_MESH_CONFIG).build(shape)!;
+    const faces = meshes.find(m => m.label === 'solid-faces')!;
+    const along = (offset: number) => faces.vertices.filter((_, i) => i % 3 === offset);
+    const [xs, ys, zs] = [along(0), along(1), along(2)];
+    return {
+      minX: Math.min(...xs), maxX: Math.max(...xs),
+      minY: Math.min(...ys), maxY: Math.max(...ys),
+      minZ: Math.min(...zs), maxZ: Math.max(...zs),
+    };
+  }
+
+  it("ends on a picked parallel face exactly where the apply does", () => {
+    sketch("xy", () => { testRect(100, 50); });
+    extrude(50);
+    locatedSketch(7, () => { testRect(30, 30, { at: [200, 0] }); });
+    const scene = render();
+
+    const result = ghost(scene, 7, { distance: null, toFace: { kind: 'face', ...topFace(scene) } });
+
+    expect(refusal(result)).toBe('');
+    const box = bounds(result);
+    expect(box.minZ).toBeCloseTo(0, 3);
+    expect(box.maxZ).toBeCloseTo(50, 3);
+    expect(box.minX).toBeCloseTo(200, 3);
+    expect(box.maxX).toBeCloseTo(230, 3);
+  });
+
+  it("sweeps a cut's tool to the face the same way", () => {
+    sketch("xy", () => { testRect(100, 50); });
+    extrude(50);
+    locatedSketch(7, () => { testRect(30, 30, { at: [200, 0] }); });
+    const scene = render();
+
+    const result = ghost(scene, 7, { op: 'remove', distance: null, toFace: { kind: 'face', ...topFace(scene) } });
+
+    const box = bounds(result);
+    expect(box.minZ).toBeCloseTo(0, 3);
+    expect(box.maxZ).toBeCloseTo(50, 3);
+  });
+
+  it("stops at the first face the sweep runs into, and runs on to the last", () => {
+    slabAcrossPath(30, 10);
+    slabAcrossPath(60, 10);
+    wallBesidePath();
+    locatedSketch(9, () => { testRect(30, 30); });
+    const scene = render();
+
+    const first = ghost(scene, 9, { distance: null, toFace: { kind: 'first-face' } });
+    const last = ghost(scene, 9, { distance: null, toFace: { kind: 'last-face' } });
+
+    expect(bounds(first).maxZ).toBeCloseTo(30, 3);
+    expect(bounds(last).maxZ).toBeCloseTo(70, 3);
+    expect(bounds(first).minZ).toBeCloseTo(0, 3);
+  });
+
+  it("tells the dialog when nothing lies ahead of a first-face sweep", () => {
+    wallBesidePath();
+    locatedSketch(9, () => { testRect(30, 30); });
+    const scene = render();
+
+    const result = ghost(scene, 9, { distance: null, toFace: { kind: 'first-face' } });
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toMatch(/No face lies ahead/);
+    expect('surface' in result && result.surface).toBe(true);
+  });
+
+  it("refuses a picked face the scene no longer holds, quietly", () => {
+    locatedSketch(7, () => { testRect(30, 30); });
+    const scene = render();
+
+    const result = ghost(scene, 7, { distance: null, toFace: { kind: 'face', shapeId: 'gone', index: 0 } });
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toBe('That face is not in the rendered scene.');
+    expect('surface' in result && result.surface).toBeFalsy();
+  });
+
+  /** The edit dialog: the statement's own profile reads back though it is consumed. */
+  it("still sweeps a profile the edited up-to-face statement already consumed", () => {
+    sketch("xy", () => { testRect(100, 50); });
+    const base = extrude(50) as Extrude;
+    locatedSketch(7, () => { testRect(30, 30, { at: [200, 0] }); });
+    extrude(base.endFaces());
+    const scene = render();
+
+    const result = ghost(scene, 7, { distance: null, toFace: { kind: 'face', ...topFace(scene) } });
+
+    expect(refusal(result)).toBe('');
+    expect(bounds(result).maxZ).toBeCloseTo(50, 3);
+  });
+
+  it("matches the applied feature against a conical target", () => {
+    sketch("top", () => { circle([0, 0], 50); });
+    const base = extrude(50).draft(-8) as Extrude;
+    const slot = sketch(plane("front", 50), () => {
+      const side1 = line([-5, 10], [-5, 30]);
+      const capTop = arc([-5, 30], [5, 30], [0, 30]).cw();
+      const side2 = line([5, 30], [5, 10]);
+      const capBottom = arc([5, 10], [-5, 10], [0, 10]).cw();
+      coincident(side1.end(), capTop.start());
+      coincident(capTop.end(), side2.start());
+      coincident(side2.end(), capBottom.start());
+      coincident(capBottom.end(), side1.start());
+    }) as Sketch;
+    slot.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    let scene = render();
+    const cone = pickFace(scene, face => FaceQuery.getSurfaceType(face) === 'cone');
+
+    const previewed = bounds(ghost(scene, 9, { distance: null, toFace: { kind: 'face', ...cone } }));
+
+    const applied = extrude(base.sideFaces()).new() as ExtrudeToFace;
+    scene = render();
+    expect(applied.getShapes()).toHaveLength(1);
+    const built = meshBounds(applied.getShapes()[0]);
+    for (const side of ['minX', 'maxX', 'minY', 'maxY', 'minZ', 'maxZ'] as const) {
+      expect(previewed[side]).toBeCloseTo(built[side], 3);
+    }
   });
 });
 

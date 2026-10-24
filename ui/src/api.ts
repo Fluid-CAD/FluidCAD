@@ -503,6 +503,7 @@ export type FeatureGhostRequest =
   | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
+  | ShellGhostRequest
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
@@ -556,7 +557,23 @@ export type ExtrudeGhostRequest = {
    * region; an empty list is the bare `.region()`, which builds nothing.
    */
   regions?: RegionPick[];
+  /**
+   * The "Up to face" directions: the extrusion ends on this target and the
+   * distance fields are not read. Absent is the distance form.
+   */
+  toFace?: GhostExtrudeTargetRef;
 };
+
+/**
+ * Where an up-to-face extrude ends, as the ghost endpoint resolves it: the
+ * `'first-face'` / `'last-face'` literal the statement writes, or a picked
+ * face by its viewport address on the rendered (edit mode: rolled-back)
+ * scene. A kept "Current: …" target travels only once the sources query has
+ * resolved it to such a pick — see `ExtrudeTargetSlot`.
+ */
+export type GhostExtrudeTargetRef =
+  | { kind: ExtrudeFaceTarget }
+  | { kind: 'face'; shapeId: string; index: number };
 
 export type RibGhostRequest = {
   feature: 'rib';
@@ -703,6 +720,23 @@ export type FilletGhostRequest = {
    * the ghost does too rather than drop the pick.
    */
   edges: { shapeId: string; index: number; kind: 'edge' | 'face' }[];
+};
+
+/**
+ * The shell dialog on the ghost wire. A shell, like a fillet, reworks a solid
+ * the scene already holds, so it carries no op and no profile — the dialog's
+ * thickness and join, and the faces to leave open. What comes back is the
+ * walls the hollowing would create, each already told apart as material
+ * leaving (an inward shell) or arriving (an outward one).
+ */
+export type ShellGhostRequest = {
+  feature: 'shell';
+  /** Wall thickness: negative hollows inward, positive builds the wall outside the solid. */
+  thickness: ValueExpr;
+  /** How the offset walls meet at a corner — the join dropdown. */
+  joinType: ShellJoinType;
+  /** The picked faces, each by the solid it was picked on and its index there. */
+  faces: { shapeId: string; index: number }[];
 };
 
 /**

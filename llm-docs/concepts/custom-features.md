@@ -276,6 +276,13 @@ shape: {
   evaluated, and each **named** export that is a feature builder becomes a
   catalog entry. A default export is skipped (the dialog writes named
   imports). Nothing is registered in `init.js`.
+- **The editor's `+` button creates one.** Type a name and pick **Create
+  feature**: the file (`<name>.feature.js`, beside Create part / assembly /
+  global params) starts as a working create feature named after it — a boss
+  standing on a picked planar face, with the `Feature.with()` class, its
+  `static id` (the file's base name), `buildTool()` and the `defineFeature()`
+  export in place — so it lists in the Custom dropdown at once, ready to
+  reshape.
 - **The suffix matters.** `*.feature.js` is not a model suffix, so the
   engine skips the module's own stack frames: a statement's timeline row and
   edits point at the model's call line.

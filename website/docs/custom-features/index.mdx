@@ -53,6 +53,7 @@ A feature can follow what it is picked at. `framesOf(ref)` gives every placement
 ### How FluidCAD finds it
 
 - Every `*.feature.js` file in the project (outside `node_modules`, dot folders and gitignored paths) is scanned, and every **named** export that is a feature builder is offered in the Custom dropdown. Nothing is registered in `init.js`.
+- The editor's **+** button makes one: type a name and pick **Create feature**. The file starts as a working feature named after it (a boss standing on a picked face) with the class, the id, `buildTool()` and the `defineFeature()` export in place, ready to reshape.
 - A feature that can't be offered shows as a greyed entry with the reason as its tooltip: a file that fails to load, a file that exports no feature, two features with one id.
 - The file is loaded again on every render, so saving it rebuilds the statements that use it, in every open model, with no restart.
 - The code runs in the FluidCAD engine; the page only receives the description. Node built-ins such as `fs` or `child_process` are blocked in feature files, as in models.

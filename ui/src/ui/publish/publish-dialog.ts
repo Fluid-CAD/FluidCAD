@@ -86,6 +86,9 @@ export class PublishDialog {
   private readonly notice: HTMLDivElement;
   private readonly footerNote: HTMLSpanElement;
   private readonly checkBtn: HTMLButtonElement;
+  private readonly signInBtn: HTMLButtonElement;
+  private readonly closeBtn: HTMLButtonElement;
+  private readonly bumpControl: HTMLDivElement;
   private readonly publishBtn: HTMLButtonElement;
   private readonly uploadBtn: HTMLButtonElement;
   private readonly cancelBtn: HTMLButtonElement;
@@ -146,14 +149,15 @@ export class PublishDialog {
           <div data-ref="session" class="hidden flex flex-col gap-2"></div>
           <div data-ref="notice" class="hidden text-xs leading-snug"></div>
         </div>
-        <div data-ref="footer" class="flex items-center justify-end gap-2 pt-3 shrink-0">
+        <div data-ref="footer" class="flex items-center justify-end gap-2 pt-4 shrink-0">
           <span data-ref="footer-note" class="${MUTED} mr-auto hidden"></span>
+          <button data-ref="done" type="button" class="btn btn-ghost btn-sm">Close</button>
+          <button data-ref="cancel" type="button" class="btn btn-ghost btn-sm hidden">Cancel</button>
           <button data-ref="retry" type="button" class="btn btn-sm hidden">Try again</button>
           <button data-ref="check" type="button" class="btn btn-sm hidden" title="A dry run: the hub checks everything and stores nothing">Check</button>
+          <button data-ref="sign-in" type="button" class="btn btn-sm btn-primary gap-1.5 hidden">${HubIcons.span(HubIcons.SIGN_IN, '[&>svg]:size-3.5').outerHTML}Sign in</button>
           <button data-ref="publish" type="button" class="btn btn-sm btn-primary hidden">Publish</button>
           <button data-ref="upload" type="button" class="btn btn-sm btn-primary hidden">Upload</button>
-          <button data-ref="cancel" type="button" class="btn btn-sm hidden">Cancel</button>
-          <button data-ref="done" type="button" class="btn btn-sm">Close</button>
         </div>
       </div>
     `;
@@ -178,12 +182,16 @@ export class PublishDialog {
     this.footerNote = $('footer-note');
     this.retryBtn = $('retry');
     this.checkBtn = $('check');
+    this.signInBtn = $('sign-in');
+    this.closeBtn = $('done');
+    this.bumpControl = $('bump');
     this.publishBtn = $('publish');
     this.uploadBtn = $('upload');
     this.cancelBtn = $('cancel');
 
     $('close').addEventListener('click', () => this.hide());
-    $('done').addEventListener('click', () => this.hide());
+    this.closeBtn.addEventListener('click', () => this.hide());
+    this.signInBtn.addEventListener('click', () => void this.signIn());
     this.retryBtn.addEventListener('click', () => void this.deps.state.load());
     this.checkBtn.addEventListener('click', () => void this.start(true));
     this.publishBtn.addEventListener('click', () => void this.start(false));
@@ -320,22 +328,32 @@ export class PublishDialog {
     this.renderSession(s, loading);
     this.renderNotice(s);
 
-    // The footer
+    // The footer: every primary action lives here (Sign in, Publish, Upload),
+    // never inside a row, so the dialog reads top to bottom and ends on what
+    // to do next. Close is the ghost at the group's left, as the Export
+    // dialog's Cancel is; Cancel takes its place while a session can be stopped.
     const canPublish = pkg !== null && problem === null && !signedOut;
     const idle = !running;
     const busy = s.busy !== null;
     const status = s.publish?.status;
     const rejected = s.status?.package?.rejectedVersion !== null && s.status?.package?.rejectedVersion !== undefined && !s.status?.package?.openVersion;
+    // A revoked token surfaces as a failed session rather than a status refusal.
+    const needsSignIn = pkg !== null && problem === null && (signedOut || (status === 'failed' && s.publish?.error?.code === 'signed-out'));
+    const cancellable = status === 'checking' || status === 'packing' || status === 'awaiting-confirm';
     PublishDialog.toggle(this.retryBtn, !loading && (s.pkgRefusal !== null || problem !== null));
+    PublishDialog.toggle(this.signInBtn, needsSignIn);
     PublishDialog.toggle(this.checkBtn, canPublish && idle);
     PublishDialog.toggle(this.publishBtn, canPublish && idle);
     this.publishBtn.textContent = rejected ? 'Publish again' : 'Publish';
     PublishDialog.toggle(this.uploadBtn, status === 'awaiting-confirm');
-    PublishDialog.toggle(this.cancelBtn, status === 'checking' || status === 'packing' || status === 'awaiting-confirm');
+    PublishDialog.toggle(this.cancelBtn, cancellable);
+    PublishDialog.toggle(this.closeBtn, !cancellable);
+    // The version is the author's to change only when publishing is on the table.
+    PublishDialog.toggle(this.bumpControl, canPublish && idle);
     const uploading = status === 'uploading' || status === 'verifying';
     PublishDialog.toggle(this.footerNote, uploading);
     this.footerNote.textContent = uploading ? "Closing this window doesn't stop the upload." : '';
-    for (const button of [this.retryBtn, this.checkBtn, this.publishBtn, this.uploadBtn, this.cancelBtn]) {
+    for (const button of [this.retryBtn, this.signInBtn, this.checkBtn, this.publishBtn, this.uploadBtn, this.cancelBtn]) {
       button.disabled = busy;
     }
   }
@@ -390,8 +408,9 @@ export class PublishDialog {
     const hub = s.hub ?? 'the hub';
     if (s.statusRefusal) {
       if (s.statusRefusal.code === 'signed-out') {
+        // The sentence alone; Sign in is the footer's primary button.
         this.hubStatus.dataset.state = 'signed-out';
-        this.hubStatus.appendChild(PublishDialog.row('signed-out', s.statusRefusal.error, [this.signInButton()]));
+        this.hubStatus.appendChild(PublishDialog.line('signed-out', s.statusRefusal.error));
         return;
       }
       this.hubStatus.dataset.state = 'unknown';
@@ -598,10 +617,8 @@ export class PublishDialog {
     card.appendChild(PublishDialog.lineWithIcon(ICON_ALERT_TRIANGLE, 'text-error', error.message));
     const actions = document.createElement('div');
     actions.className = 'flex items-center gap-2 flex-wrap';
+    // `signed-out` has no row action: the footer shows Sign in for it.
     switch (error.code) {
-      case 'signed-out':
-        actions.appendChild(this.signInButton());
-        break;
       case 'version-exists':
       case 'version-not-greater': {
         const highest = typeof details.highest === 'string' ? details.highest : null;
@@ -650,12 +667,6 @@ export class PublishDialog {
   // ---------------------------------------------------------------------------
   // Pieces
   // ---------------------------------------------------------------------------
-
-  private signInButton(): HTMLButtonElement {
-    const button = PublishDialog.button('sign-in', 'Sign in', 'btn btn-xs btn-primary gap-1', () => void this.signIn(), HubIcons.SIGN_IN);
-    button.disabled = this.deps.state.current.busy !== null;
-    return button;
-  }
 
   private withdrawButton(open: Pick<HubVersionStatus, 'version' | 'status'>, disabled: boolean, cls = LINK_BTN): HTMLButtonElement {
     const button = PublishDialog.button('withdraw', 'Withdraw', cls, () => this.askWithdraw(open));

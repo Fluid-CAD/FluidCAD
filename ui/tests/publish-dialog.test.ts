@@ -182,10 +182,13 @@ describe('signed out', () => {
       client.statusRefusal = FakePublishClient.signedOut();
     });
     expect(h.$('hub-status')!.dataset.state).toBe('signed-out');
-    expect(words(h.$('signed-out'))).toBe('Not signed in to http://localhost:8787. Sign in to publish. Sign in');
+    expect(words(h.$('signed-out'))).toBe('Not signed in to http://localhost:8787. Sign in to publish.');
+    // Sign in is the footer's primary button; the bump control waits for a signed-in author.
+    expect(h.shown('sign-in')).toBe(true);
     expect(h.shown('check')).toBe(false);
     expect(h.shown('publish')).toBe(false);
     expect(h.shown('version-row')).toBe(true);
+    expect(h.shown('bump')).toBe(false);
   });
 
   it('Sign in hands over to the Hub panel; the dialog comes back signed in and reads the status again', async () => {
@@ -659,7 +662,9 @@ describe('a refusal before the pack, with its action', () => {
 
   it('signed-out (a revoked token): Sign in', async () => {
     const h = await failed({ message: 'http://localhost:8787 refused the token. Sign in again, then publish again.', code: 'signed-out', details: { reason: 'token-refused' } });
-    expect(h.overlay.querySelector('[data-ref="failed"] [data-ref="sign-in"]')).not.toBeNull();
+    // No row action in the card: the footer's Sign in is the one button.
+    expect(h.overlay.querySelector('[data-ref="failed"] [data-ref="sign-in"]')).toBeNull();
+    expect(h.shown('sign-in')).toBe(true);
     await h.click('sign-in');
     expect(h.signIn).toHaveBeenCalledTimes(1);
     expect(h.dialog.isOpen()).toBe(false);

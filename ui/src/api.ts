@@ -7238,10 +7238,9 @@ export type PinnedPackage = {
   directory: string | null;
 };
 
-/** A pinned package's marks from the hub (H12): its pinned version's yank with the reason, and the package's deprecation. */
+/** A pinned package's marks from the hub (H12): the package's deprecation. */
 export type HubPinMarks = {
-  yanked: { at: string; reason: string | null } | null;
-  deprecated: string | null;
+  deprecated: string;
 };
 
 /** A package the project can't load (`code: 'missing'` for a pin installed nowhere). */
@@ -7257,7 +7256,7 @@ export type PackagesOverview = {
   updates?: Record<string, string>;
   /** Where each of `updates` is: `library` when the library holds it, else `hub`. */
   updatesFrom?: Record<string, 'library' | 'hub'>;
-  /** Pinned name → what the hub's owner said about it (H12): the pinned version yanked, the package deprecated. Only pins with something to say. */
+  /** Pinned name → what the hub's owner said about it (H12): the package deprecated. Only pins with something to say. */
   hubMarks?: Record<string, HubPinMarks>;
   problems: PackageProblem[];
   defaultTarget: PackageTarget;
@@ -7508,7 +7507,6 @@ export type HubVersionSummary = {
   sdkVersion: number | null;
   notes: string;
   publishedAt: string | null;
-  yanked: { at: string; reason: string | null } | null;
   removed: { at: string; reason: string | null } | null;
   isLatest: boolean;
 };
@@ -7565,7 +7563,6 @@ export type HubVersion = {
   size: number | null;
   notes: string;
   publishedAt: string | null;
-  yanked: { at: string; reason: string | null } | null;
   isLatest: boolean;
   /** The README on the engine's file proxy, or null. */
   readmeUrl: string | null;

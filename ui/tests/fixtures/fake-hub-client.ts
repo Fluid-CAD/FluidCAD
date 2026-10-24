@@ -302,8 +302,8 @@ export class FakeHubClient implements HubClient {
         ],
       },
       versions: [
-        { version: '0.1.1', status: 'published', prerelease: false, integrity: 'sha256-OxEErIDdT', size: 24_100, engine: '0.0.46', minEngine: '0.0.45', sdkVersion: 1, notes: 'A keyword.', publishedAt: '2026-10-11T10:00:00.000Z', yanked: null, removed: null, isLatest: true },
-        { version: '0.1.0', status: 'published', prerelease: false, integrity: 'sha256-SCTD2', size: 24_000, engine: '0.0.46', minEngine: '0.0.45', sdkVersion: 1, notes: 'First release.', publishedAt: '2026-10-10T10:00:00.000Z', yanked: null, removed: null, isLatest: false },
+        { version: '0.1.1', status: 'published', prerelease: false, integrity: 'sha256-OxEErIDdT', size: 24_100, engine: '0.0.46', minEngine: '0.0.45', sdkVersion: 1, notes: 'A keyword.', publishedAt: '2026-10-11T10:00:00.000Z', removed: null, isLatest: true },
+        { version: '0.1.0', status: 'published', prerelease: false, integrity: 'sha256-SCTD2', size: 24_000, engine: '0.0.46', minEngine: '0.0.45', sdkVersion: 1, notes: 'First release.', publishedAt: '2026-10-10T10:00:00.000Z', removed: null, isLatest: false },
       ],
       compatibility: { engine: '0.0.46', sdk: 1, latestCompatible: true, newestCompatible: '0.1.1' },
       listing: {

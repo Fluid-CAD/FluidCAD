@@ -733,9 +733,6 @@ export class HubPackageView {
     } else if (v.status === 'rejected') {
       badge('rejected', 'badge-soft badge-error');
     }
-    if (v.yanked) {
-      badge('yanked', 'badge-soft badge-error');
-    }
     if (pkg.local.installed.includes(v.version)) {
       badge('installed', 'badge-soft badge-success');
     }
@@ -751,14 +748,6 @@ export class HubPackageView {
     meta.textContent = [when, v.minEngine ? `Engine ≥ ${v.minEngine}` : null, v.sdkVersion !== null ? `SDK ${v.sdkVersion}` : null, v.size !== null ? HubPackageView.bytes(v.size) : null]
       .filter(Boolean).join(' · ');
     text.appendChild(meta);
-    if (v.yanked) {
-      const yanked = document.createElement('p');
-      yanked.dataset.ref = 'yank-reason';
-      yanked.className = 'text-hub-xs text-base-content/75 leading-snug';
-      yanked.textContent = v.yanked.reason ? `Yanked: ${v.yanked.reason}` : 'Yanked by its publisher';
-      yanked.title = 'Installs by name skip a yanked version; a project that pins it keeps installing it by its exact version.';
-      text.appendChild(yanked);
-    }
     if (v.notes) {
       const notes = document.createElement('p');
       notes.className = 'text-hub-sm text-base-content/75 leading-snug';

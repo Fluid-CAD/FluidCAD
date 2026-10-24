@@ -208,7 +208,7 @@ Without the flag, the unit comes from **Settings ▸ Units ▸ Unit for new proj
 npx fluidcad init --package @acme/mounting-hardware
 ```
 
-Scaffolds a package in the **current directory**, which has to be empty (a `.git` folder or a `.gitignore` is fine): the files of a project, with the starter part in `parts/`, the two other export folders, a `README.md` with the name as its heading, and the [`package` block](/docs/project-configuration#package) at version `0.1.0`. It is what **New Package** on the start screen creates.
+Scaffolds a package in the **current directory**, which has to be empty (a `.git` folder or a `.gitignore` is fine): the files of a project, with the starter part in `parts/`, the two other export folders, a `README.md` with the name as its heading, and the [`package` block](/docs/project-configuration#package) at version `1.0.0`. It is what **New Package** on the start screen creates.
 
 ```
 mounting-hardware/
@@ -224,7 +224,7 @@ mounting-hardware/
 ```
 
 ```
-FluidCAD package @acme/mounting-hardware 0.1.0 initialized:
+FluidCAD package @acme/mounting-hardware 1.0.0 initialized:
   init.js
   fluidcad.json
   parts/part1.part.js
@@ -449,14 +449,14 @@ A [package](/docs/packages) is a project's custom features and parts, which `flu
 npx fluidcad package init --name @acme/mounting-hardware
 ```
 
-Makes the project a package by writing the [`package` block](/docs/project-configuration#package) of its `fluidcad.json`: the name and version `0.1.0`. The name is `@<your hub handle>/<name>` ([Package names](/docs/packages#package-names)). Signed in to the hub (`npx fluidcad login`), a name without the scope takes your handle, and the command says so; signed out, it is refused with `"name" "mounting-hardware" needs your hub handle as its scope: write "@<your-handle>/mounting-hardware"`. What the package shares is what its `features/`, `parts/` and `assemblies/` folders hold, and the command says how much that is today:
+Makes the project a package by writing the [`package` block](/docs/project-configuration#package) of its `fluidcad.json`: the name and version `1.0.0`. The name is `@<your hub handle>/<name>` ([Package names](/docs/packages#package-names)). Signed in to the hub (`npx fluidcad login`), a name without the scope takes your handle, and the command says so; signed out, it is refused with `"name" "mounting-hardware" needs your hub handle as its scope: write "@<your-handle>/mounting-hardware"`. What the package shares is what its `features/`, `parts/` and `assemblies/` folders hold, and the command says how much that is today:
 
 ```
 Named it @acme/mounting-hardware: your handle on https://hub.fluidcad.io.
 Wrote the "package" block to …/mounting-hardware/fluidcad.json:
   {
     "name": "@acme/mounting-hardware",
-    "version": "0.1.0"
+    "version": "1.0.0"
   }
 The package exports what features/, parts/ and assemblies/ hold. Today: features/ 4 modules, parts/ 2 modules, assemblies/ none.
 ```

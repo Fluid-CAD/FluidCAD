@@ -163,7 +163,7 @@ mounting-hardware/
 
    ![The browser's folder picker on Package](/img/docs/ui/new-package-picker.png)
 
-3. The package opens on `parts/part1.part.js`. Its folder holds the block (version `0.1.0`), the three folders, a `README.md` with the name as its heading, and the files every project has (`init.js`, `jsconfig.json`, `.gitignore`). On the start screen its card wears a **Package** badge.
+3. The package opens on `parts/part1.part.js`. Its folder holds the block (version `1.0.0`), the three folders, a `README.md` with the name as its heading, and the files every project has (`init.js`, `jsconfig.json`, `.gitignore`). On the start screen its card wears a **Package** badge.
 
 Model as in any project: write the features in `features/`, the parts in `parts/`, the assemblies in `assemblies/`, and try them in test models at the root. Only new packages are made this way; FluidCAD doesn't turn an existing project into a package.
 
@@ -175,7 +175,7 @@ In a package, the top bar's **Share** seat reads **Publish**.
 
 ![The top bar of a package, with Publish](/img/docs/ui/publish-button.png)
 
-1. Click **Publish**. The dialog shows the package's name and version, with **Bump** (**patch**, **minor**, **major**, or an exact version and **Set**), and where the package stands on the hub. Signed out, it says so and offers **Sign in**: the hub's sign-in page opens in your browser, and the dialog comes back signed in.
+1. Click **Publish**. The dialog shows the package's name and version, a **New version** field (type the next version and press **Set**; there are no patch / minor / major buttons), and where the package stands on the hub. Signed out, it says so and offers **Sign in**: the hub's sign-in page opens in your browser, and the dialog comes back signed in.
 2. For a version that follows a published one, type the **release notes** (at most 280 characters; left empty, the hub takes the `CHANGELOG.md` section for the version). A first version has no field: the hub asks in the next step.
 3. Click **Publish** (**Check** runs the same steps against the hub without storing anything). FluidCAD packs the package with the running engine and shows the summary: what each folder holds, the number of files and the size, the archive's integrity hash, and what happens next. Nothing is sent yet.
 
@@ -187,11 +187,11 @@ In a package, the top bar's **Share** seat reads **Publish**.
 
    A later version goes straight to review, with **View its status**. A version the admins turned down shows their note and **Publish again** under the same version number. The latest published version has **Manage on the hub**.
 
-**Withdraw** deletes the draft or the version in review from the hub, after a confirmation; its number is free again. The dialog refuses to publish while a file of the package has unsaved changes (save first), while another version of it is a draft or in review (withdraw it, or finish it on the hub), and when the version is not above the latest one on the hub (**Bump**). A broken `package` block opens the dialog on the problem.
+**Withdraw** deletes the draft or the version in review from the hub, after a confirmation; its number is free again. The dialog refuses to publish while a file of the package has unsaved changes (save first), while another version of it is a draft or in review (withdraw it, or finish it on the hub), and when the version is not above the latest one on the hub (type a higher one in **New version**). A broken `package` block opens the dialog on the problem.
 
 Before anything is uploaded, FluidCAD builds every part and assembly and checks every feature; a problem stops it with a sentence naming the file. A part file inside `features/`, an assembly inside `parts/`, or an import of a file outside the three folders stops it too. The package holds the three folders' files, the files they import and the pictures the features declare, as they are. The project's test models and `init.js` stay out.
 
-To release a new version: edit the files, raise the version with **Bump**, and publish again.
+To release a new version: edit the files, type the next version in **New version** and press **Set**, and publish again.
 
 From the terminal, `npx fluidcad publish` runs the same steps and prints the same summary, asking before the upload (`--notes <text>`, `--dry-run`, `--status` for where the package stands, `--withdraw`); `npx fluidcad version minor` (or `patch`, `major`, or an exact `1.2.0`) raises the version. To look at what would be published without publishing anything, pack the project. Publishing never needs this: **Publish** and `npx fluidcad publish` pack on their own.
 

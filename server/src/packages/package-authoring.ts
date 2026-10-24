@@ -40,7 +40,7 @@ export type PackageVersionChange = {
  */
 export class PackageAuthoring {
   /** The version a new package starts at. */
-  static readonly INITIAL_VERSION = '0.1.0';
+  static readonly INITIAL_VERSION = '1.0.0';
 
   /** The refusal of a package command in a workspace without a `package` block. */
   static readonly NOT_A_PACKAGE = "This workspace isn't a package — run `fluidcad package init` first.";
@@ -83,7 +83,7 @@ export class PackageAuthoring {
 
   /**
    * Write a new `package` block: the package's `name` (`@acme/feature-tests`,
-   * the author's hub handle as its scope, HD30) and version `0.1.0`. What
+   * the author's hub handle as its scope, HD30) and version `1.0.0`. What
    * the package exports is what its `features/`, `parts/` and `assemblies/`
    * folders hold (HD20), returned as `exports` so the command can say so.
    * Refuses a workspace that is already a package, so an existing identity

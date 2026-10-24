@@ -16,7 +16,7 @@ export type PackageScaffoldOptions = ScaffoldOptions & { name: string };
  * out the way a package ships (HD20): the starter part in `parts/`, since
  * the layout decides what is exported; `features/` and `assemblies/`
  * created empty; a `README.md` with the package's name as its heading; and
- * the `package` block (`name`, version 0.1.0) beside the engine pin and the
+ * the `package` block (`name`, version 1.0.0) beside the engine pin and the
  * unit in `fluidcad.json`. The start screen's New Package (Stage N2) runs
  * this through the launcher, so the rules live here and not in a dialog.
  *

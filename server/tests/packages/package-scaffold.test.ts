@@ -70,7 +70,7 @@ describe('PackageScaffold.write', () => {
     expect(read('jsconfig.json')).toBe('{\n  "compilerOptions": {\n    "checkJs": true,\n    "module": "node20",\n    "maxNodeModuleJsDepth": 8\n  }\n}\n');
     expect(read('.gitignore')).toBe('.fluidcad/\n');
     expect(read('README.md')).toBe('# @acme/kit\n');
-    expect(read('fluidcad.json')).toBe('{\n  "engine": "0.0.47",\n  "package": {\n    "name": "@acme/kit",\n    "version": "0.1.0"\n  }\n}\n');
+    expect(read('fluidcad.json')).toBe('{\n  "engine": "0.0.47",\n  "package": {\n    "name": "@acme/kit",\n    "version": "1.0.0"\n  }\n}\n');
   });
 
   it('is a package the engine reads, whose one export is the starter part', () => {
@@ -86,14 +86,14 @@ describe('PackageScaffold.write', () => {
   it('writes the unit between the pin and the block when one is asked for', () => {
     PackageScaffold.write(workspace, { ...OPTIONS, unit: 'in' });
 
-    expect(JSON.parse(read('fluidcad.json'))).toEqual({ engine: '0.0.47', unit: 'in', package: { name: '@acme/kit', version: '0.1.0' } });
+    expect(JSON.parse(read('fluidcad.json'))).toEqual({ engine: '0.0.47', unit: 'in', package: { name: '@acme/kit', version: '1.0.0' } });
     expect(Object.keys(JSON.parse(read('fluidcad.json')))).toEqual(['engine', 'unit', 'package']);
     expect(readProjectConfig(workspace).unit).toBe('in');
   });
 
   it('starts at the version package init starts at', () => {
     expect(PackageScaffold.INITIAL_VERSION).toBe(PackageAuthoring.INITIAL_VERSION);
-    expect(PackageScaffold.INITIAL_VERSION).toBe('0.1.0');
+    expect(PackageScaffold.INITIAL_VERSION).toBe('1.0.0');
   });
 
   it('refuses a name without its scope with the sentence saying to add the handle, writing nothing', () => {

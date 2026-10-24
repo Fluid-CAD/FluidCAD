@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 describe('PackageAuthoring.init', () => {
-  it('writes name and version 0.1.0, no exports list, keeping the rest of the file', async () => {
+  it('writes name and version 1.0.0, no exports list, keeping the rest of the file', async () => {
     writeConfig({ engine: '0.0.46', unit: 'in', materials: { pine: { name: 'Pine', density: 0.5 } } });
     write('init.js');
     write('features/boss.feature.js');
@@ -49,7 +49,7 @@ describe('PackageAuthoring.init', () => {
     const { info, configPath } = await PackageAuthoring.init(workspace, '@acme/demo');
 
     expect(configPath).toBe(path.join(workspace, PROJECT_CONFIG_FILENAME));
-    expect(info).toEqual({ name: '@acme/demo', version: '0.1.0' });
+    expect(info).toEqual({ name: '@acme/demo', version: '1.0.0' });
     expect(readStored()).toEqual({
       engine: '0.0.46',
       unit: 'in',
@@ -95,7 +95,7 @@ describe('PackageAuthoring.init', () => {
 
     await PackageAuthoring.init(workspace, '@acme/demo');
 
-    expect(readStored()).toEqual({ package: { name: '@acme/demo', version: '0.1.0' } });
+    expect(readStored()).toEqual({ package: { name: '@acme/demo', version: '1.0.0' } });
   });
 
   it.each(['@Acme/demo', '@acme/demo_x', '@acme/', '@acme/3d-demo', '@3d/demo', '@acme/demo--x', '@a/demo', ''])('refuses the name %j with the rule', async (name) => {

@@ -269,8 +269,8 @@ npx fluidcad remove @acme/mounting-hardware [--project]  # @scope/name@version w
   nothing) and prints one line per package: `✓ Installed
   @acme/mounting-hardware@0.1.0 into your library · 4 features, 2 parts ·
   pinned in fluidcad.json` (a zero count left out), then a short `!` line
-  per warning: deprecated, a yanked or unpublished exact version, an older
-  version because the latest needs a newer engine, a package needing a
+  per warning: deprecated, an unpublished exact version, an older version
+  because the latest needs a newer engine, a package needing a
   newer engine or another SDK version. A refusal prints its sentence and
   exits 1. A package's code runs in the FluidCAD engine with the user's
   permissions: install only packages the user trusts.

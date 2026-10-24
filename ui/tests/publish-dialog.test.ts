@@ -98,14 +98,15 @@ async function toSummary(h: Awaited<ReturnType<typeof mount>>, summary = FakePub
 }
 
 describe('opening', () => {
-  it('shows the package, its version and that it is not on the hub yet; Check and Publish; no notes field', async () => {
+  it('shows the package and its version, no status line for a package not on the hub yet; Check and Publish; no notes field', async () => {
     const h = await mount();
     expect(h.dialog.isOpen()).toBe(true);
     expect(h.$('title')!.textContent).toBe('Publish');
     expect(h.$('name')!.textContent).toBe('@acme/kit');
     expect(h.$('version')!.textContent).toBe('0.1.0');
     expect(h.$('hub-status')!.dataset.state).toBe('known');
-    expect(words(h.$('not-on-hub'))).toBe('@acme/kit is not on http://localhost:8787 yet. Publish uploads its first version.');
+    // Not on the hub yet: no status line at all (the footer's Publish says what comes next).
+    expect(h.$('hub-status')!.childElementCount).toBe(0);
     expect(h.shown('check')).toBe(true);
     expect(h.shown('publish')).toBe(true);
     expect(h.$('publish')!.textContent).toBe('Publish');
@@ -240,7 +241,7 @@ describe('the status line (fluidcad publish --status)', () => {
     });
     expect(words(h.$('open-draft'))).toBe('@acme/kit@0.1.0 is a draft. Open the wizard Withdraw');
     expect(words(h.$('draft-expires'))).toBe('A draft nobody touches is deleted on 2026-11-23.');
-    expect(words(h.$('no-version'))).toBeNull();
+    expect(h.$('no-version')).toBeNull();
     await h.click('open-wizard');
     expect(h.openExternal).toHaveBeenCalledWith(`${HUB}/publish/@acme/kit/0.1.0`);
 
@@ -259,7 +260,7 @@ describe('the status line (fluidcad publish --status)', () => {
     // The status was read again: the draft is gone.
     expect(h.client.status).toHaveBeenCalledTimes(2);
     expect(h.$('open-draft')).toBeNull();
-    expect(words(h.$('no-version'))).toBe('@acme/kit has no version on http://localhost:8787 yet. Publish uploads one.');
+    expect(h.$('hub-status')!.childElementCount).toBe(0);
   });
 
   it('in review: the date, its status page, Withdraw', async () => {

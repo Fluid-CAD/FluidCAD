@@ -43,7 +43,7 @@ const ROW_ACTIONS = 'flex items-center gap-0.5 shrink-0 ml-auto -my-1';
  * 3. **The header**: the name and version, with the bump control (patch /
  *    minor / major, or an exact version) writing the block through the
  *    engine; **the status line**: where the package stands on the hub
- *    (`fluidcad publish --status`): not there yet, a draft with Open the
+ *    (`fluidcad publish --status`): nothing for a package not there yet, a draft with Open the
  *    wizard and Withdraw, in review with its page and Withdraw, rejected
  *    with the note (Publish again), the latest published version with
  *    Manage on the hub.
@@ -437,7 +437,7 @@ export class PublishDialog {
     const lines: HTMLElement[] = [];
     const pkg = status.package;
     if (!pkg) {
-      lines.push(PublishDialog.line('not-on-hub', `${name} is not on ${hub} yet. Publish uploads its first version.`));
+      // Nothing on the hub yet: no line (the user's call); Publish in the footer says what comes next.
       return lines;
     }
     const open = pkg.openVersion;
@@ -477,8 +477,6 @@ export class PublishDialog {
       const lead = open || rejected ? 'Latest published' : `${name}: latest published`;
       const manage = PublishDialog.button('manage', 'Manage on the hub', LINK_BTN, () => this.deps.openExternal(PublishText.manageUrl(hub, name)), HubIcons.EXTERNAL);
       lines.push(PublishDialog.row('latest', `${lead} ${status.latest.version}${when}.`, [manage]));
-    } else if (!open && !rejected) {
-      lines.push(PublishDialog.line('no-version', `${name} has no version on ${hub} yet. Publish uploads one.`));
     }
     if (pkg.status !== 'active') {
       lines.push(PublishDialog.line('package-status', `the package is ${pkg.status} by the hub's admins`, `${MUTED} text-warning`));

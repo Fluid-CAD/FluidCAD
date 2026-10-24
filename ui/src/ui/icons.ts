@@ -54,6 +54,7 @@ import iconCopyX from '@tabler/icons/outline/copy-x.svg?raw';
 import iconArrowBarToLeft from '@tabler/icons/outline/arrow-bar-to-left.svg?raw';
 import iconArrowBarToRight from '@tabler/icons/outline/arrow-bar-to-right.svg?raw';
 import iconPackage from '@tabler/icons/outline/package.svg?raw';
+import iconPuzzle from '@tabler/icons/outline/puzzle.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -112,6 +113,8 @@ export const ICON_FOLDER_UP = iconCornerLeftUp;
 export const ICON_UNDO = iconArrowBackUp;
 /** An installed package: the project's Packages dialog, the badge on a package's timeline rows. */
 export const ICON_PACKAGE = iconPackage;
+/** A custom feature module (`*.feature.js`): a piece that plugs into the toolbar. */
+export const ICON_PUZZLE = iconPuzzle;
 export const ICON_REDO = iconArrowForwardUp;
 export const ICON_ROUNDED_RECT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="5"/></svg>';
 

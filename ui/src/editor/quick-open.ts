@@ -1,4 +1,4 @@
-import { ICON_CUBE, ICON_FILE_CODE, ICON_FOLDER_PLUS, ICON_PLUS, ICON_SLIDERS } from '../ui/icons';
+import { ICON_CUBE, ICON_FILE_CODE, ICON_FOLDER_PLUS, ICON_PLUS, ICON_PUZZLE, ICON_SLIDERS } from '../ui/icons';
 import { listWorkspaceFiles, type FileKind, type WorkspaceFileEntry } from './editor-api';
 import { ASSEMBLY_ACCENT, splitModelName } from './model-name';
 
@@ -33,14 +33,18 @@ export interface QuickOpenHandlers {
  */
 type CreateTarget = { kind: 'file' | 'folder'; path: string; type?: CreateType };
 
-type CreateType = 'part' | 'assembly' | 'params';
+type CreateType = 'part' | 'assembly' | 'params' | 'feature';
 
 /** The file each offer for a bare name creates, in the order they are listed. */
 const CREATE_TYPES: ReadonlyArray<{ type: CreateType; suffix: string; label: string }> = [
   { type: 'part', suffix: '.part.js', label: 'part' },
   { type: 'assembly', suffix: '.assembly.js', label: 'assembly' },
   { type: 'params', suffix: '.params.js', label: 'global params' },
+  { type: 'feature', suffix: '.feature.js', label: 'feature' },
 ];
+
+/** A custom feature module (`*.feature.js`): the server's `FeatureModules.SUFFIX`. */
+const FEATURE_SUFFIX = '.feature.js';
 
 /** Subsequence match — the same shape of matching every quick-open uses. */
 function fuzzyScore(candidate: string, query: string): number | null {
@@ -285,7 +289,7 @@ export class QuickOpen {
     for (const [index, file] of this.results.entries()) {
       const basename = file.path.split('/').pop() || file.path;
       list.appendChild(this.buildRow({
-        icon: QuickOpen.buildIcon(file.kind === 'model' ? ICON_CUBE : ICON_FILE_CODE, basename),
+        icon: QuickOpen.buildIcon(QuickOpen.fileIcon(file.kind, basename), basename),
         label: basename,
         detail: file.path,
         highlighted: index === this.highlighted,
@@ -319,11 +323,31 @@ export class QuickOpen {
     }
   }
 
+  /** A listed file's icon: a model's cube, a feature module's puzzle piece, a plain module's file. */
+  private static fileIcon(kind: FileKind, basename: string): string {
+    if (kind === 'model') {
+      return ICON_CUBE;
+    }
+    return basename.endsWith(FEATURE_SUFFIX) ? ICON_PUZZLE : ICON_FILE_CODE;
+  }
+
+  /** The icon a Create offer's row wears: the file's own, as {@link fileIcon} draws it once it exists. */
+  private static createIcon(type: CreateType): string {
+    switch (type) {
+      case 'params':
+        return ICON_SLIDERS;
+      case 'feature':
+        return ICON_PUZZLE;
+      default:
+        return ICON_CUBE;
+    }
+  }
+
   /**
    * A Create row's icon and wording. A typed bare name reads as the kind of
    * file it makes — `Create part "bracket"` under its cube, the assembly's in
-   * teal, global params under the Parameters column's sliders — with the file
-   * name it lands as underneath.
+   * teal, global params under the Parameters column's sliders, a feature
+   * under a puzzle piece — with the file name it lands as underneath.
    */
   private static describeCreate(target: CreateTarget): { icon: HTMLElement; label: string | Node; detail?: string } {
     if (target.kind === 'folder') {
@@ -341,7 +365,7 @@ export class QuickOpen {
     const label = document.createDocumentFragment();
     label.append('Create ', kind, ` "${stem}"`);
     return {
-      icon: QuickOpen.buildIcon(offer.type === 'params' ? ICON_SLIDERS : ICON_CUBE, basename),
+      icon: QuickOpen.buildIcon(QuickOpen.createIcon(offer.type), basename),
       label,
       detail: target.path,
     };

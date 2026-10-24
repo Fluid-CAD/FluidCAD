@@ -457,6 +457,45 @@ export class PublishText {
     return `${hub.replace(/\/$/, '')}/${name}/manage`;
   }
 
+  /** `2.0.0` → `3.0.0`, the next major above a version; null when it isn't `x.y.z`. */
+  static nextMajor(version: string): string | null {
+    const parts = PublishText.parts(version);
+    return parts === null ? null : `${parts[0] + 1}.0.0`;
+  }
+
+  /**
+   * The version the dialog proposes to publish (the user's rule): the next
+   * major above the hub's latest, unless the block already sits above it;
+   * with nothing on the hub, the block's own version. The author overrides
+   * it by typing.
+   */
+  static proposedVersion(current: string, latest: string | null): string {
+    if (latest === null || PublishText.compare(current, latest) > 0) {
+      return current;
+    }
+    return PublishText.nextMajor(latest) ?? current;
+  }
+
+  /** `x.y.z` order (a prerelease suffix ignored); a non-version sorts below every version. */
+  static compare(a: string, b: string): number {
+    const pa = PublishText.parts(a);
+    const pb = PublishText.parts(b);
+    if (pa === null || pb === null) {
+      return pa === pb ? 0 : pa === null ? -1 : 1;
+    }
+    for (let i = 0; i < 3; i++) {
+      if (pa[i] !== pb[i]) {
+        return pa[i] < pb[i] ? -1 : 1;
+      }
+    }
+    return 0;
+  }
+
+  private static parts(version: string): [number, number, number] | null {
+    const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version.trim());
+    return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+  }
+
   /** `2026-10-24T…` → `2026-10-24`. */
   static day(iso: string): string {
     return iso.slice(0, 10);

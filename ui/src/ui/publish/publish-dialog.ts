@@ -40,8 +40,9 @@ const ROW_ACTIONS = 'flex items-center gap-0.5 shrink-0 ml-auto -my-1';
  *    problem and nothing else; the button was Publish all the same.
  * 2. **Signed out**: the hub's refusal, with Sign in — the Hub panel's own
  *    flow; the dialog comes back signed in and reads the status again.
- * 3. **The header**: the name and version, with the field for the next
- *    version (typed; Set writes the block through the engine); **the status line**: where the package stands on the hub
+ * 3. **The header**: the name and version, with the **Publish as** field,
+ *    proposing the next major above the hub's latest (the author types over
+ *    it); Check and Publish write it into the block first; **the status line**: where the package stands on the hub
  *    (`fluidcad publish --status`): nothing for a package not there yet, a draft with Open the
  *    wizard and Withdraw, in review with its page and Withdraw, rejected
  *    with the note (Publish again), the latest published version with
@@ -73,7 +74,6 @@ export class PublishDialog {
   private readonly nameEl: HTMLSpanElement;
   private readonly versionEl: HTMLSpanElement;
   private readonly versionInput: HTMLInputElement;
-  private readonly versionSet: HTMLButtonElement;
   private readonly hubStatus: HTMLDivElement;
   private readonly withdrawBox: HTMLDivElement;
   private readonly notes: HTMLDivElement;
@@ -97,6 +97,8 @@ export class PublishDialog {
   private confirmingWithdraw: Pick<HubVersionStatus, 'version' | 'status'> | null = null;
   /** The session whose wizard this page opened, so a draft's wizard opens once. */
   private openedWizardFor: string | null = null;
+  /** The author typed in the version field: the proposal stops overwriting it (reset on open). */
+  private versionTouched = false;
   private destroyed = false;
 
   constructor(container: HTMLElement, private readonly deps: PublishDialogDeps) {
@@ -122,11 +124,8 @@ export class PublishDialog {
               <span data-ref="version" class="text-xs text-base-content/60 font-mono tabular-nums"></span>
             </div>
             <div data-ref="bump" class="flex items-center gap-2 shrink-0">
-              <label class="${MUTED}" for="fluidcad-publish-version">New version</label>
-              <div class="join">
-                <input id="fluidcad-publish-version" data-ref="version-input" class="join-item input input-xs input-bordered w-[5.5rem] font-mono" placeholder="1.1.0" spellcheck="false">
-                <button type="button" data-ref="version-set" class="join-item btn btn-xs font-normal">Set</button>
-              </div>
+              <label class="${MUTED}" for="fluidcad-publish-version">Publish as</label>
+              <input id="fluidcad-publish-version" data-ref="version-input" class="input input-xs input-bordered w-[5.5rem] font-mono" spellcheck="false">
             </div>
           </div>
           <div data-ref="hub-status" class="hidden flex flex-col gap-1"></div>
@@ -162,7 +161,6 @@ export class PublishDialog {
     this.nameEl = $('name');
     this.versionEl = $('version');
     this.versionInput = $('version-input');
-    this.versionSet = $('version-set');
     this.hubStatus = $('hub-status');
     this.withdrawBox = $('withdraw-box');
     this.notes = $('notes');
@@ -189,11 +187,14 @@ export class PublishDialog {
     this.publishBtn.addEventListener('click', () => void this.start(false));
     this.uploadBtn.addEventListener('click', () => void this.deps.state.confirm());
     this.cancelBtn.addEventListener('click', () => void this.deps.state.cancel());
-    this.versionSet.addEventListener('click', () => void this.bump(this.versionInput.value));
+    // Typing takes the field over from the proposal until the dialog is opened again; Enter publishes.
+    this.versionInput.addEventListener('input', () => {
+      this.versionTouched = true;
+    });
     this.versionInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        void this.bump(this.versionInput.value);
+        void this.start(false);
       }
     });
     this.notesField.addEventListener('input', () => this.renderNotesCount());
@@ -215,6 +216,7 @@ export class PublishDialog {
   /** Open: everything is read again, and a session left running is followed. */
   show(): void {
     this.confirmingWithdraw = null;
+    this.versionTouched = false;
     this.render(this.deps.state.current);
     this.overlay.classList.remove('hidden');
     void this.deps.state.load();
@@ -246,21 +248,30 @@ export class PublishDialog {
   // Actions
   // ---------------------------------------------------------------------------
 
+  /**
+   * Check or Publish: the version field is applied first (the block is
+   * written through the engine when the field differs from it; a refusal
+   * stops here with its sentence and the field focused), then the session
+   * starts. An empty field publishes the block's version as it is.
+   */
   private async start(dryRun: boolean): Promise<void> {
+    const pkg = this.deps.state.current.pkg?.package ?? null;
+    const typed = this.versionInput.value.trim();
+    if (pkg && typed !== '' && typed !== pkg.version) {
+      await this.deps.state.bump(typed);
+      if (this.deps.state.current.notice?.tone !== 'info') {
+        this.versionInput.focus();
+        return;
+      }
+      this.deps.onVersionChanged?.();
+    }
     const notes = this.notes.classList.contains('hidden') ? null : this.notesField.value.trim() || null;
     await this.deps.state.start({ notes, dryRun });
   }
 
-  private async bump(spec: string): Promise<void> {
-    if (spec.trim() === '') {
-      this.versionInput.focus();
-      return;
-    }
-    await this.deps.state.bump(spec.trim());
-    if (this.deps.state.current.notice?.tone === 'info') {
-      this.versionInput.value = '';
-      this.deps.onVersionChanged?.();
-    }
+  /** The version Publish would upload: the field's, else the block's. */
+  private publishVersion(pkg: { version: string }): string {
+    return this.versionInput.value.trim() || pkg.version;
   }
 
   /** Sign in: the Hub panel takes over; the dialog is back once signed in. */
@@ -377,10 +388,17 @@ export class PublishDialog {
     this.nameEl.textContent = pkg.name;
     this.versionEl.textContent = pkg.version;
     const disabled = s.busy !== null || running;
-    // The author types the next version (the user's call: no patch / minor / major buttons).
-    this.versionInput.title = `The version to publish next; the package is ${pkg.version}`;
+    // The field proposes the next major above the hub's latest (the block's
+    // own version when nothing is published yet, or it is already above);
+    // the author's typing wins until the dialog is opened again.
+    const latest = s.status?.latest?.version ?? null;
+    if (!this.versionTouched && document.activeElement !== this.versionInput) {
+      this.versionInput.value = PublishText.proposedVersion(pkg.version, latest);
+    }
+    this.versionInput.title = latest
+      ? `The version to publish; the hub's latest is ${latest} and the package is ${pkg.version} now`
+      : `The version to publish; the package is ${pkg.version} now`;
     this.versionInput.disabled = disabled;
-    this.versionSet.disabled = disabled;
   }
 
   private renderHubStatus(s: PublishSnapshot, pkg: { name: string; version: string } | null, running: boolean): void {
@@ -503,7 +521,8 @@ export class PublishDialog {
       return;
     }
     this.notesField.disabled = s.busy !== null;
-    this.notesHint.textContent = `${pkg!.version} goes to review. Left empty, the hub takes the CHANGELOG section for ${pkg!.version}.`;
+    const version = this.publishVersion(pkg!);
+    this.notesHint.textContent = `${version} goes to review. Left empty, the hub takes the CHANGELOG section for ${version}.`;
     this.renderNotesCount();
   }
 
@@ -604,7 +623,7 @@ export class PublishDialog {
     switch (error.code) {
       case 'version-exists':
       case 'version-not-greater':
-        // The sentence names the hub's highest version; the author types one above it in the header.
+        // The sentence names the hub's highest version; the author types one above it in the header, and Publish applies it.
         this.versionInput.focus();
         break;
       case 'in-review':

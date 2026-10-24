@@ -316,41 +316,78 @@ describe('the status line (fluidcad publish --status)', () => {
 });
 
 describe('the version field', () => {
-  it('Set, or Enter in the field, writes the typed version; the header and the overview follow; a refusal is shown', async () => {
-    const h = await mount();
-    expect(h.overlay.querySelector('[data-bump]')).toBeNull();
-    const input = h.$<HTMLInputElement>('version-input')!;
-    expect(input.title).toBe('The version to publish next; the package is 0.1.0');
-    input.value = '2.0.0';
-    await h.click('version-set');
-    expect(h.client.bumpVersion).toHaveBeenCalledWith('2.0.0');
-    expect(h.$('version')!.textContent).toBe('2.0.0');
-    expect(h.$('title')!.textContent).toBe('Publish');
-    expect(words(h.$('notice'))).toBe('@acme/kit is 2.0.0 now (was 0.1.0).');
-    expect(h.onVersionChanged).toHaveBeenCalledTimes(1);
-    expect(input.value).toBe('');
-    expect(input.title).toBe('The version to publish next; the package is 2.0.0');
+  it('proposes the next major above the hub\'s latest, the block\'s own version otherwise', async () => {
+    const fresh = await mount();
+    expect(fresh.overlay.querySelector('[data-bump]')).toBeNull();
+    expect(fresh.$('version-set')).toBeNull();
+    expect(fresh.$<HTMLInputElement>('version-input')!.value).toBe('0.1.0');
+    expect(fresh.$<HTMLInputElement>('version-input')!.title).toBe('The version to publish; the package is 0.1.0 now');
 
-    input.value = 'banana';
+    const published = await mount((client) => {
+      client.statusValue = FakePublishClient.onHub({}, FakePublishClient.version({ version: '0.3.2', status: 'published' }));
+    });
+    expect(published.$<HTMLInputElement>('version-input')!.value).toBe('1.0.0');
+    expect(published.$<HTMLInputElement>('version-input')!.title).toBe("The version to publish; the hub's latest is 0.3.2 and the package is 0.1.0 now");
+
+    const above = await mount((client) => {
+      client.statusValue = FakePublishClient.onHub({}, FakePublishClient.version({ version: '0.3.2', status: 'published' }));
+      client.packageValue = { package: { name: '@acme/kit', version: '0.4.0' }, problem: null };
+    });
+    expect(above.$<HTMLInputElement>('version-input')!.value).toBe('0.4.0');
+  });
+
+  it('Publish writes the field\'s version into the block first, then starts; the header and the overview follow', async () => {
+    const h = await mount((client) => {
+      client.statusValue = FakePublishClient.onHub({}, FakePublishClient.version({ version: '0.3.2', status: 'published' }));
+    });
+    await h.click('publish');
+    expect(h.client.bumpVersion).toHaveBeenCalledWith('1.0.0');
+    expect(h.$('version')!.textContent).toBe('1.0.0');
+    // The start clears the bump's notice: the session's own state says what is happening.
+    expect(h.onVersionChanged).toHaveBeenCalledTimes(1);
+    expect(h.client.start).toHaveBeenCalledTimes(1);
+    expect(h.$('session')!.dataset.status).toBe('packing');
+  });
+
+  it('a typed version wins over the proposal, Enter publishes it, and a refusal stops before anything starts', async () => {
+    const h = await mount();
+    const input = h.$<HTMLInputElement>('version-input')!;
+    input.value = '2.0.0';
+    input.dispatchEvent(new Event('input'));
+    // A status refresh does not overwrite what was typed.
+    await h.state.reloadStatus();
+    expect(input.value).toBe('2.0.0');
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await settle();
+    expect(h.client.bumpVersion).toHaveBeenCalledWith('2.0.0');
+    expect(h.$('version')!.textContent).toBe('2.0.0');
+    expect(h.client.start).toHaveBeenCalledTimes(1);
+    h.client.advance({ status: 'failed', error: { message: 'x', code: 'hub-unreachable' } });
+    await h.timers.fire();
+
+    input.value = 'banana';
+    input.dispatchEvent(new Event('input'));
+    await h.click('publish');
     expect(h.client.bumpVersion).toHaveBeenLastCalledWith('banana');
     expect(h.$('notice')!.dataset.code).toBe('refused');
     expect(words(h.$('notice'))).toMatch(/^"banana" is not a version or a bump/);
     expect(h.$('version')!.textContent).toBe('2.0.0');
+    expect(h.client.start).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(input);
     expect(h.onVersionChanged).toHaveBeenCalledTimes(1);
 
-    // An empty field just asks for one.
-    input.value = '';
-    await h.click('version-set');
+    // The block's version as it is: no write.
+    input.value = '2.0.0';
+    input.dispatchEvent(new Event('input'));
+    await h.click('publish');
     expect(h.client.bumpVersion).toHaveBeenCalledTimes(2);
+    expect(h.client.start).toHaveBeenCalledTimes(2);
   });
 
   it('the field waits while a session runs', async () => {
     const h = await mount();
     await toSummary(h);
     expect(h.$<HTMLInputElement>('version-input')!.disabled).toBe(true);
-    expect(h.$<HTMLButtonElement>('version-set')!.disabled).toBe(true);
     await h.click('cancel');
     expect(h.$<HTMLInputElement>('version-input')!.disabled).toBe(false);
   });
@@ -603,20 +640,21 @@ describe('a refusal before the pack, with its action', () => {
     return h;
   }
 
-  it('version-not-greater and version-exists: the sentence names the highest version, and the version field takes the focus', async () => {
+  it('version-not-greater and version-exists: the sentence names the highest version, the field takes the focus, and Publish applies what is typed', async () => {
     const h = await failed({
       message: '0.1.0 is not greater than 0.3.2, the highest version of @acme/kit published so far. Bump the version, then publish again.',
       code: 'version-not-greater',
       details: { highest: '0.3.2' },
     });
     expect(h.$('bump-above')).toBeNull();
-    expect(document.activeElement).toBe(h.$('version-input'));
-    h.$<HTMLInputElement>('version-input')!.value = '0.3.3';
-    await h.click('version-set');
+    const input = h.$<HTMLInputElement>('version-input')!;
+    expect(document.activeElement).toBe(input);
+    input.value = '0.3.3';
+    input.dispatchEvent(new Event('input'));
+    await h.click('publish');
     expect(h.client.bumpVersion).toHaveBeenCalledWith('0.3.3');
     expect(h.$('version')!.textContent).toBe('0.3.3');
-    expect(h.$('failed')).toBeNull();
-    expect(h.shown('session')).toBe(false);
+    expect(h.client.start).toHaveBeenCalledTimes(2);
 
     const again = await failed({ message: '@acme/kit@0.1.0 is already published, and a published version never changes. Bump the version, then publish again.', code: 'version-exists', details: { highest: '0.1.0' } });
     expect(again.$('bump-above')).toBeNull();
@@ -675,6 +713,19 @@ describe('a refusal before the pack, with its action', () => {
 });
 
 describe('PublishText', () => {
+  it('proposes the next major above the hub\'s latest, or the block\'s version', () => {
+    expect(PublishText.nextMajor('2.0.0')).toBe('3.0.0');
+    expect(PublishText.nextMajor('0.3.2-beta.1')).toBe('1.0.0');
+    expect(PublishText.nextMajor('next')).toBeNull();
+    expect(PublishText.proposedVersion('1.0.0', null)).toBe('1.0.0');
+    expect(PublishText.proposedVersion('0.1.0', '0.3.2')).toBe('1.0.0');
+    expect(PublishText.proposedVersion('0.3.2', '0.3.2')).toBe('1.0.0');
+    expect(PublishText.proposedVersion('0.4.0', '0.3.2')).toBe('0.4.0');
+    expect(PublishText.compare('1.2.3', '1.10.0')).toBeLessThan(0);
+    expect(PublishText.compare('2.0.0', '1.9.9')).toBeGreaterThan(0);
+    expect(PublishText.compare('1.0.0-beta', '1.0.0')).toBe(0);
+  });
+
 
   it('the Manage page is <hub>/@scope/name/manage', () => {
     expect(PublishText.manageUrl('http://localhost:8787/', '@acme/kit')).toBe('http://localhost:8787/@acme/kit/manage');

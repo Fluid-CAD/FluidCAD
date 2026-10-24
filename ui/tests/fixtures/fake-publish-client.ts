@@ -12,7 +12,6 @@ import type {
   PublishRefusal,
   PublishResult,
 } from '../../src/api';
-import { PublishText } from '../../src/ui/publish/publish-state';
 
 export const HUB = 'http://localhost:8787';
 
@@ -108,7 +107,7 @@ export class FakePublishClient implements PublishClient {
       return this.bumpRefusal;
     }
     const pkg = this.packageValue.package!;
-    const to = spec === 'patch' || spec === 'minor' || spec === 'major' ? PublishText.bumped(pkg.version, spec)! : spec;
+    const to = spec;
     if (!/^\d+\.\d+\.\d+$/.test(to)) {
       return { ok: false, status: 400, error: `"${spec}" is not a version or a bump: use major, minor, patch, or a version such as 1.2.0.`, code: 'refused' };
     }

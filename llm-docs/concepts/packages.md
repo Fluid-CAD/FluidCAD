@@ -1,7 +1,7 @@
 ---
 id: concepts/packages
 title: Packages — sharing custom features and parts through the hub
-summary: "A package is a workspace whose fluidcad.json has a \"package\" block (name @<handle>/<name>, the author's own hub handle as its scope; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). That one name is the archive's, the hub's, the pin's, the library folder's and every import's. fluidcad publish packs the workspace and uploads it in one command: it checks the layout and the code on the engine and builds <scope>-<name>-<version>.fluidpkg, the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json. fluidcad pack (MCP pack) runs the same checks and writes that archive to look at, without publishing; it is never a step before publishing. Packages install only from the hub, never from a .fluidpkg file: fluidcad install @scope/name downloads, verifies and installs into the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
+summary: "A package is a workspace whose fluidcad.json has a \"package\" block (name @<handle>/<name>, the author's own hub handle as its scope; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). That one name is the archive's, the hub's, the pin's, the library folder's and every import's. A new package is made from the start screen (New Package: the name, then the folder) or with fluidcad init --package @scope/name, which lays the folders out with the block at 0.1.0; fluidcad package init adds the block to an existing project. Publishing is the top bar's Publish button (Share's seat in a package workspace: Bump, Check, Publish, the summary, Upload; a first version opens the hub's wizard in the browser, later ones go to review; Withdraw) or fluidcad publish: both check the layout and the code on the engine, build <scope>-<name>-<version>.fluidpkg (the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json) and upload it. fluidcad pack (MCP pack) runs the same checks and writes that archive to look at, without publishing; it is never a step before publishing. Packages install only from the hub, never from a .fluidpkg file: fluidcad install @scope/name downloads, verifies and installs into the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
 tags: [concept, package, custom-feature, sdk, project]
 seeAlso: [concepts/custom-features, concepts/assemblies, concepts/units, api/insert, api/part, api/define-feature]
 ---
@@ -10,8 +10,8 @@ seeAlso: [concepts/custom-features, concepts/assemblies, concepts/units, api/ins
 
 A package is how a project's custom features ([[concepts/custom-features]])
 and parts travel to other projects and other people, through the FluidCAD
-hub. `fluidcad publish` packs it into one file,
-`<scope>-<name>-<version>.fluidpkg`, and uploads it in one command
+hub. The top bar's **Publish** button, or `fluidcad publish`, packs it into
+one file, `<scope>-<name>-<version>.fluidpkg`, and uploads it
 (`fluidcad pack` writes the same file to look at, without publishing);
 other projects install it from the hub with `fluidcad install @scope/name`.
 The archive itself never installs. Installed,
@@ -134,14 +134,38 @@ sync:
 - **To publish on the hub, a package needs at least one part or assembly**,
   so its page has a model to show. A features-only package still packs, but
   can't be published.
+- **A new package starts on the start screen**: **New Package**, beside New
+  Project. The desktop app asks the full name (`@acme/mounting-hardware`; the
+  dialog says "The part before the slash is your hub handle; the part after
+  it names the package." and refuses a name that doesn't fit), then an empty
+  folder in the native dialog ("New FluidCAD package" / "Create package");
+  **File › New Package…** opens the same name dialog. In the browser
+  (`npx fluidcad`) the folder picker's create form has a **Project / Package**
+  choice; Package adds the name field, and the folder name follows the part
+  after the slash until typed over; **Create package**. Both run
+  `fluidcad init --package <name>` through the launcher: `init.js`,
+  `fluidcad.json` with the block at `0.1.0` (and the engine pin and unit),
+  `parts/part1.part.js`, empty `features/` and `assemblies/`, a `README.md`
+  holding the name as its heading, `jsconfig.json`, `.gitignore`. The package
+  opens on `parts/part1.part.js`; its start-screen card carries a **Package**
+  badge. Nothing converts an existing project into a package from the UI.
+- `fluidcad init --package @acme/mounting-hardware` is that scaffold from
+  the terminal, in an empty directory (dot-entries such as `.git` don't
+  count; anything visible refuses it: "This directory is not empty (a, b, c
+  and N more). A new package needs an empty directory."). It prints
+  `FluidCAD package @acme/mounting-hardware 0.1.0 initialized:` and one line
+  per path. Signed in, a bare `--package mounting-hardware` takes the handle
+  as `package init` does; signed out it is refused, with nothing written.
 - `fluidcad package init --name @acme/mounting-hardware` writes the block
-  (the name and version `0.1.0`) and says what the folders hold. Signed in
+  alone (the name and version `0.1.0`) into a project that exists, and says
+  what the folders hold. Signed in
   (`fluidcad login`), `--name mounting-hardware` takes the signed-in handle
   and prints "Named it @acme/mounting-hardware: your handle on <hub>.";
   signed out, a name without the scope is refused with the sentence above.
   Without `--name` it asks on a terminal (`Package name: @acme/` when signed
   in).
-- `fluidcad version patch|minor|major|<x.y.z>` bumps `version`
+- The Publish dialog's **Bump** (patch / minor / major, or an exact version
+  and Set) or `fluidcad version patch|minor|major|<x.y.z>` bumps `version`
   (`@acme/mounting-hardware 0.1.0 → 0.1.1`). Packing never bumps.
 - A broken block is reported at startup ("FluidCAD: fluidcad.json has a
   "package" whose "name" "@acme/3d-gears" is not a package name (…). Treating this
@@ -157,12 +181,58 @@ features, or parameters whose defaults keep old statements building the
 same; **patch** fixes. Pins are exact, so no version changes under a project
 by itself.
 
+## Publishing from the editor
+
+In a package workspace (a `package` block in `fluidcad.json`, even a broken
+one) the top bar's Share button is **Publish** instead, in every host; a
+plain project keeps Share. Publish opens the Publish dialog, which runs
+`fluidcad publish`'s steps through the running engine:
+
+- the header: the name and version with **Bump** (patch / minor / major
+  with their previews, or an exact version and **Set**); a broken block
+  shows its problem first ("Fix fluidcad.json, then try again.");
+- where the package stands on the hub (`fluidcad publish --status`'s lines):
+  signed out → "Not signed in to <hub>. Sign in to publish." with **Sign in**
+  (the hub's sign-in page opens in the browser; the dialog comes back signed
+  in); "<name> is not on <hub> yet. Publish uploads its first version."; a
+  draft with **Open the wizard** / **Withdraw** and the day it is deleted; in
+  review since <date> with **View its status** / **Withdraw**; rejected with
+  the admins' note ("Fix it, then publish again (the same version number is
+  free)."); the latest published version with **Manage on the hub**;
+- **release notes** (at most 280 characters; empty, the hub takes the
+  `CHANGELOG.md` section for the version) when a version was published
+  before, so the next one goes to review; a first version has no field (the
+  wizard asks);
+- **Check** (a dry run: the hub checks everything and stores nothing) and
+  **Publish**: packing, then the summary (`features/`, `parts/`,
+  `assemblies/`, `docs/` counts, the archive's files and size, its
+  integrity, the notes, and what happens next: "first version: you finish
+  publishing in your browser (screenshots, license, release notes)" or
+  "<version> goes straight to review"), with **Upload** / **Cancel**;
+  "Nothing is sent until you upload." The archive is packed once;
+- **Upload**: progress, then the result. A first version is a draft: the
+  hub's publishing wizard opens once in the browser and the dialog shows
+  "Uploaded <name>@<version>. Finish publishing in your browser:" with the
+  link; a later version reads "Submitted <name>@<version> for review." with
+  the status link. Then the dialog shows the hub's status (above);
+- **Withdraw** asks first ("<name>@<version> is the draft on <hub>.
+  Withdrawing deletes it there; its number is free again." → **Keep it** /
+  **Withdraw it**) and deletes the draft or the version in review.
+
+Refusals are `fluidcad publish`'s, with the dialog's actions: signed out →
+Sign in; the version not above the hub's latest → **Bump to <next>**; a
+draft or a version in review → Withdraw; a shipped file with unsaved editor
+changes → "Save your files first."; not a package, another handle's scope,
+not a publisher, the hub unreachable → the sentence. Closing the dialog
+stops nothing: an upload goes on, and reopening it picks the session up.
+
 ## Packing
 
-`fluidcad publish` packs the workspace itself, with the checks below, and
-uploads the result: publishing is one command. `fluidcad pack` is optional:
-it builds the same archive and writes it out, to look at what would be
-published (its files, `manifest.json`, the contents) without publishing.
+**Publish** and `fluidcad publish` pack the workspace themselves, with the
+checks below, and upload the result: publishing is one step. `fluidcad pack`
+is optional: it builds the same archive and writes it out, to look at what
+would be published (its files, `manifest.json`, the contents) without
+publishing.
 
 ```bash
 npx fluidcad pack                    # → acme-mounting-hardware-0.1.0.fluidpkg in the workspace
@@ -232,7 +302,8 @@ sentence naming the file (`pack-refused` from MCP, with `details.code`):
   in the closure (those three are generated);
 - a shipped file has unsaved editor changes (the route and MCP; save first).
 
-To release a new version: edit, `fluidcad version minor`, `fluidcad publish`.
+To release a new version: edit, **Bump** (or `fluidcad version minor`),
+**Publish** (or `fluidcad publish`).
 
 Archives packed before the folders existed (modules at the archive root)
 still install and load: the layout is checked when packing (and by the hub
@@ -416,7 +487,7 @@ their own JavaScript (no `.d.ts` needed), with no setup:
 
 - No package-to-package imports and no npm dependencies inside a package
   (pack refuses both).
-- No hub yet: packages travel as files; `fluidcad install` with no arguments
-  only lists what is missing.
+- No conversion from the UI: an existing project becomes a package only
+  through `fluidcad package init`; the start screen makes new packages.
 - Moving a project to a newer version of a package it pins is not supported
   yet (the Packages dialog shows "x.y.z available").

@@ -323,11 +323,15 @@ shape: {
 ## Sharing as a package
 
 A feature module serves the workspace it lives in. To use it in other
-projects, make the workspace a package and publish it on the hub
-([[concepts/packages]]):
+projects, write it in a package and publish it on the hub
+([[concepts/packages]]): **New Package** on the start screen makes a package
+workspace (`features/`, `parts/`, `assemblies/` and the `package` block),
+and the top bar's **Publish** button (Share's seat in a package) packs and
+uploads it. From the terminal:
 
 ```bash
-npx fluidcad package init --name @acme/mounting-hardware   # the "package" block: name and version
+npx fluidcad init --package @acme/mounting-hardware        # a new package workspace, in an empty directory
+npx fluidcad package init --name @acme/mounting-hardware   # or: the "package" block into an existing project
 npx fluidcad publish                                       # packs it and uploads it; an admin reviews it before it is public
 ```
 
@@ -350,7 +354,8 @@ to look at without publishing; publishing never needs it first.
   package's name and version; using it pins the package in the project's
   `fluidcad.json` and writes `import { standoff } from '@acme/mounting-hardware'`.
 - An installed feature module is read-only: change it in its workspace, bump
-  the version with `fluidcad version`, and publish again.
+  the version (the Publish dialog's **Bump**, or `fluidcad version`), and
+  publish again.
 
 ## Limits
 

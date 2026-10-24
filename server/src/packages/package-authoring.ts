@@ -66,6 +66,22 @@ export class PackageAuthoring {
   }
 
   /**
+   * Why `name` can't name a new package, or null when it can: a name
+   * without its scope (`kit`) gets the sentence saying to add the handle; a
+   * name that follows neither grammar gets the rule. `init` and the package
+   * scaffold (`PackageScaffold`) share it, so the rule lives once.
+   */
+  static nameProblem(name: string): string | null {
+    if (PackageName.isBare(name)) {
+      return `${PackageFields.unscopedProblem(name)}.`;
+    }
+    if (!PackageName.isValid(name)) {
+      return `${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`;
+    }
+    return null;
+  }
+
+  /**
    * Write a new `package` block: the package's `name` (`@acme/feature-tests`,
    * the author's hub handle as its scope, HD30) and version `0.1.0`. What
    * the package exports is what its `features/`, `parts/` and `assemblies/`
@@ -77,11 +93,9 @@ export class PackageAuthoring {
     workspacePath: string,
     name: string,
   ): Promise<{ info: PackageInfo; configPath: string; exports: string[] }> {
-    if (PackageName.isBare(name)) {
-      throw new PackageAuthoringError(`${PackageFields.unscopedProblem(name)}.`);
-    }
-    if (!PackageName.isValid(name)) {
-      throw new PackageAuthoringError(`${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
+    const problem = PackageAuthoring.nameProblem(name);
+    if (problem !== null) {
+      throw new PackageAuthoringError(problem);
     }
     if (!PackageAuthoring.isWorkspace(workspacePath)) {
       throw new PackageAuthoringError(

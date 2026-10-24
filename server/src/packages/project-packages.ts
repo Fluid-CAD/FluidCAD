@@ -10,6 +10,7 @@ import { PackagePinError, PackagePins, type PinnedPackage } from './package-pins
 import { PackageRoots, type PackageLocation, type PackageTarget } from './package-roots.ts';
 import { Semver } from './semver.ts';
 import { TreeHash } from './tree-hash.ts';
+import { readProjectConfig } from '../project-config.ts';
 import type { HubRelease } from '../hub/hub-releases.ts';
 
 export type InstallInspectedRequest = {
@@ -46,6 +47,9 @@ export type RemoveOutcome = {
   strandedPin: PinnedPackage | null;
 };
 
+/** A package workspace's identity: the `name` and `version` of its `package` block. */
+export type PackageIdentity = { name: string; version: string };
+
 /** The two roots and a project's pins, as `fluidcad packages` and `GET /api/packages` show them. */
 export type PackagesOverview = {
   /** `source`: where the path comes from — `FLUIDCAD_PACKAGES`, the Settings preference, or the default. */
@@ -56,6 +60,18 @@ export type PackagesOverview = {
   pins: PinnedPackage[] | null;
   /** Why the pins couldn't be read (a broken `dependencies` map). */
   pinsProblem?: string;
+  /**
+   * The package this workspace is (the `package` block of its
+   * `fluidcad.json`, ui-packages-plan N1): what the page's Publish button
+   * and dialog are about. Null for a plain project and outside a project.
+   */
+  package: PackageIdentity | null;
+  /**
+   * Why the `package` block couldn't be read (`readProjectConfig().problems.package`).
+   * The workspace still counts as a package (U7): the page shows Publish,
+   * and the dialog opens on this sentence.
+   */
+  packageProblem?: string;
   /**
    * Each pinned package with a newer version the library holds or the hub
    * offers this engine (`HubReleases`, hub-plan H10), with the newest one:
@@ -162,12 +178,14 @@ export class ProjectPackages {
       library: { path: PackageRoots.libraryPath(), source: PackageRoots.librarySource(), packages: PackageInstaller.list('library', project) },
       project: null,
       pins: null,
+      package: null,
       updates: {},
       updatesFrom: {},
       hubMarks: {},
     };
     if (project) {
       overview.project = { path: PackageRoots.projectCopyPath(project), packages: PackageInstaller.list('project', project) };
+      Object.assign(overview, ProjectPackages.identity(project));
       try {
         overview.pins = PackagePins.availability(project);
         Object.assign(overview, ProjectPackages.updates(overview.pins, overview.library.packages));
@@ -180,6 +198,22 @@ export class ProjectPackages {
       }
     }
     return overview;
+  }
+
+  /**
+   * The workspace's own package identity for the overview: the block's
+   * name and version when it reads, else the problem sentence when the
+   * block is there but broken; neither for a plain project.
+   */
+  private static identity(project: string): Pick<PackagesOverview, 'package' | 'packageProblem'> {
+    const config = readProjectConfig(project);
+    if (config.package) {
+      return { package: { name: config.package.name, version: config.package.version } };
+    }
+    if (config.problems?.package !== undefined) {
+      return { package: null, packageProblem: config.problems.package };
+    }
+    return { package: null };
   }
 
   /**

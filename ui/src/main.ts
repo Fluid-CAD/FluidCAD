@@ -20,7 +20,10 @@ import { EngineSuspectBanner } from './ui/engine-suspect-banner';
 import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
+import type { TopBarAction } from './ui/top-bar-actions';
 import { ShareDialog } from './ui/share-dialog';
+import { PublishDialog } from './ui/publish/publish-dialog';
+import { PublishState } from './ui/publish/publish-state';
 import { PanelRail } from './ui/panel-rail';
 import { DEFAULT_PARAMS_FILE, GlobalParamsPanel } from './ui/global-params-panel';
 import { listWorkspaceFiles } from './editor/editor-api';
@@ -81,7 +84,7 @@ import { TextEditService } from './interactive/create-feature/text-edit-service'
 import { FeatureDialogRegistry } from './interactive/feature-dialog-registry';
 import { PartFeatureDialogs } from './interactive/part-feature-dialogs';
 import type { ConnectorData, SceneObjectRender, UIConfigurations } from './types';
-import { ICON_LIST_TREE, ICON_PACKAGE, ICON_SHARE, ICON_TRASH } from './ui/icons';
+import { ICON_CLOUD_UPLOAD, ICON_LIST_TREE, ICON_PACKAGE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
 import { applyEditorPreferences } from './editor/editor-prefs';
@@ -90,7 +93,7 @@ import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
 import { applyEnginePreferences } from './ui/settings/engine-settings';
 import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials';
 import { applyPackagePreferences, packageSettings } from './ui/settings/package-settings';
-import { HttpHubClient, HttpPackagesClient, ProjectUiStateClient, recompute } from './api';
+import { HttpHubClient, HttpPackagesClient, HttpPublishClient, ProjectUiStateClient, recompute } from './api';
 import { PackagesState } from './ui/packages/packages-state';
 import { ProjectPackagesDialog } from './ui/packages/project-packages-dialog';
 import { PackageConsentDialog } from './ui/packages/package-consent-dialog';
@@ -1070,11 +1073,45 @@ void getEngineVersion().then((version) => {
 // Share: the rendered model opens in the public viewer as a link that
 // carries its source — after the user confirms it goes public.
 const shareDialog = new ShareDialog(container);
-topBar.addAction({
+const shareAction: TopBarAction = {
   icon: ICON_SHARE,
   title: 'Share this model in the FluidCAD viewer',
   label: 'Share',
   onClick: () => shareDialog.show(currentSceneAbsPath, renderedConfigurations?.active ?? null),
+};
+// Publish (ui-packages-plan U6/U7): in a package workspace — a `package`
+// block in fluidcad.json, readable or not — Share's seat is Publish, which
+// runs `fluidcad publish` through the engine (PublishDialog). The overview
+// says which, and refreshes on every fluidcad.json change, so a block that
+// appears or vanishes swaps the button; every host gets it, since the
+// action is the bar's own.
+const publishDialog = new PublishDialog(container, {
+  state: new PublishState(new HttpPublishClient(), {
+    hubUrl: async () => {
+      const answer = await hubClient.status();
+      return answer.ok ? answer.status.hubUrl : null;
+    },
+  }),
+  signIn: () => hubPanel.signIn(),
+  openExternal: (url) => void ExternalLinks.open(url),
+  onVersionChanged: () => void packagesState.refresh(),
+});
+const publishAction: TopBarAction = {
+  icon: ICON_CLOUD_UPLOAD,
+  title: 'Publish this package on the hub',
+  label: 'Publish',
+  // The word on the bar (the user's ask): publishing is a step, not a tool.
+  labelled: true,
+  onClick: () => publishDialog.show(),
+};
+const shareButton = topBar.addAction(shareAction);
+let publishShown = false;
+packagesState.subscribe(() => {
+  const publish = packagesState.isPackageWorkspace;
+  if (publish !== publishShown) {
+    publishShown = publish;
+    topBar.setAction(shareButton, publish ? publishAction : shareAction);
+  }
 });
 
 // Packages: the project's pins and where each loads from. A project action

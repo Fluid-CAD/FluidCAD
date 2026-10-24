@@ -7828,3 +7828,254 @@ export class HttpHubClient implements HubClient {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Publishing the workspace's package (ui-packages-plan N3/N4): the Publish
+// dialog over the engine's `/api/publish/*` routes, which run `fluidcad
+// publish`'s own `HubPublisher` and pack once.
+// ---------------------------------------------------------------------------
+
+/** Where a session stands; the first five are running, nothing else may start meanwhile. */
+export type HubAppPublishStatus = 'checking' | 'packing' | 'awaiting-confirm' | 'uploading' | 'verifying' | 'done' | 'declined' | 'failed';
+
+export const HUB_APP_PUBLISH_RUNNING: readonly HubAppPublishStatus[] = ['checking', 'packing', 'awaiting-confirm', 'uploading', 'verifying'];
+
+/**
+ * Why a session ended `failed` or `declined`, and every publish route's
+ * refusal body: the sentence in the dialog's words, and the code it acts
+ * on — `signed-out` (Sign in), `version-exists` / `version-not-greater`
+ * (bump; `details.highest`), `in-review` / `open-version-exists`
+ * (Withdraw; `details.version`, `details.status`), `unsaved-changes`
+ * (save first), `not-a-package` / `bad-config` (the block problem),
+ * `forbidden`, `email-unverified`, `publishing-closed`, `cli-too-old`,
+ * `no-models`, the hub's limits (`archive-too-large`, `notes-too-long`, …),
+ * `nothing-open`, `integrity-mismatch`, `hub-unreachable`, `cancelled` and
+ * `confirm-timeout` (declined), `publish-running`, `nothing-to-confirm`,
+ * `hub-config`.
+ */
+export type HubAppPublishRefusal = { message: string; code: string; details?: unknown };
+
+/** What the archive holds, as the pack found it. */
+export type HubPublishContents = {
+  features: { id: string; exportName: string; module: string }[];
+  parts: { exportName: string; name: string; module: string; params: number }[];
+  assemblies: { exportName: string; name: string; module: string; params: number }[];
+  models: number;
+  docs: string[];
+};
+
+/** Something pack noticed but packed anyway; never a refusal. */
+export type HubPublishWarning = { code: string; file: string; message: string; target?: string; line?: number };
+
+/** What is, or was, uploaded: what `fluidcad publish` prints before `Upload it?`. */
+export type HubPublishSummary = {
+  hub: string;
+  handle: string;
+  name: string;
+  version: string;
+  /** The archive in bytes. */
+  size: number;
+  /** Files in the archive, `manifest.json` included. */
+  files: number;
+  integrity: string;
+  contents: HubPublishContents;
+  warnings: HubPublishWarning[];
+  /** `draft` for a package's first version (finished in the browser), else `in_review`. */
+  becomes: 'draft' | 'in_review';
+  /** A draft of this version is on the hub: the upload replaces its archive, and the wizard keeps its edits. */
+  replacesDraft: boolean;
+  notes: string | null;
+  dryRun: boolean;
+};
+
+/** The hub's answer to an upload. */
+export type HubUploadResult = {
+  name: string;
+  version: string;
+  /** `draft`: the package's first version, finished in the wizard; `in_review`: submitted for review. */
+  status: 'draft' | 'in_review';
+  /** The first-publish wizard, for a `draft`. */
+  wizardUrl: string | null;
+  /** The owner's status page, for a version `in_review`. */
+  reviewUrl: string | null;
+  integrity: string;
+  size: number;
+  unpackedSize: number;
+  /** A draft of this version was replaced. */
+  replaced: boolean;
+  dryRun: boolean;
+};
+
+/** `GET api/publish`: one publish, as the page follows it. */
+export type HubAppPublishState = {
+  id: string;
+  /** The hub's origin. */
+  hub: string;
+  status: HubAppPublishStatus;
+  dryRun: boolean;
+  notes: string | null;
+  startedAt: string;
+  /** While `awaiting-confirm`: when it is declined on its own. */
+  confirmBy: string | null;
+  /** From `awaiting-confirm` on (a dry run: from `uploading` on). */
+  summary: HubPublishSummary | null;
+  /** While `uploading`: the bytes sent so far. */
+  progress: { sent: number; total: number } | null;
+  /** `done`: the hub's answer. */
+  result: HubUploadResult | null;
+  /** `failed`: the refusal; `declined`: why (`cancelled`, `confirm-timeout`). */
+  error: HubAppPublishRefusal | null;
+};
+
+/** `POST api/publish`'s body. */
+export type HubAppPublishRequest = { notes?: string | null; dryRun?: boolean };
+
+/** `GET api/publish/package`: the dialog's header (U7: a broken block is still a package workspace, with its problem). */
+export type HubAppPublishPackage = {
+  package: { name: string; version: string } | null;
+  problem: string | null;
+};
+
+export type HubVersionState = 'uploading' | 'draft' | 'in_review' | 'rejected' | 'published';
+
+/** One version as its owner sees it (the hub's `VersionStatus`): the fields the dialog shows. */
+export type HubVersionStatus = {
+  name: string;
+  version: string;
+  status: HubVersionState;
+  /** The first-publish wizard, for a `draft`. */
+  wizardUrl: string | null;
+  /** The owner's status page, for any other state. */
+  reviewUrl: string | null;
+  /** For a draft: when it may be deleted if nothing changes. */
+  draftExpiresAt: string | null;
+  submittedAt: string | null;
+  publishedAt: string | null;
+  reviewedAt: string | null;
+  /** Why a reviewer rejected the version. */
+  reviewNote: string | null;
+  integrity: string | null;
+  notes: string;
+  size: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** The package as its owner sees it (the hub's `PackageDetail`): what `fluidcad publish --status` reads. */
+export type HubPackageStatus = {
+  name: string;
+  /** `active`, or what the hub's admins made it. */
+  status: string;
+  /** The draft, in-review or uploading version, if any. */
+  openVersion: HubVersionStatus | null;
+  /** The most recent rejection above the highest published version, with its reason. */
+  rejectedVersion: HubVersionStatus | null;
+  /** What installs by name get; null until a version is approved. */
+  latestVersion: string | null;
+  /** The highest published version, removed ones included: an upload must be greater. */
+  highestVersion: string | null;
+};
+
+/** `GET api/publish/status`: where the package stands on the hub. */
+export type HubPublishStatus = {
+  name: string;
+  /** Null when the hub has no such package for this account (nothing uploaded yet). */
+  package: HubPackageStatus | null;
+  /** The latest published version, when there is one. */
+  latest: HubVersionStatus | null;
+};
+
+/** `POST api/publish/version`: what the block's version became. */
+export type PackageVersionChange = { name: string; from: string; to: string; configPath: string };
+
+/** A refusal from a publish route: the sentence, the code ({@link HubAppPublishRefusal}) and its details. */
+export type PublishRefusal = { ok: false; status: number; error: string; code: string; details?: unknown };
+
+export type PublishResult<T> = ({ ok: true } & T) | PublishRefusal;
+
+/**
+ * The publish routes as one object the Publish dialog is handed (tests give
+ * it a fake, `ui/tests/fixtures/fake-publish-client.ts`). Every call answers
+ * a result rather than throwing; a refusal carries the engine's sentence
+ * and code. A preflight refusal is **not** a refusal here: `start` answers
+ * `ok` with `publish.status === 'failed'` and the refusal in `publish.error`.
+ */
+export interface PublishClient {
+  /** The workspace's `package` block, or its problem. */
+  packageInfo(): Promise<PublishResult<{ package: HubAppPublishPackage }>>;
+  /** Where the package stands on the hub; `signed-out` (401) without credentials. */
+  status(): Promise<PublishResult<{ status: HubPublishStatus }>>;
+  /** Begin a publish; answers once the preflight is through (`packing`, or `failed`). 409 `publish-running` while one runs. */
+  start(request: HubAppPublishRequest): Promise<PublishResult<{ publish: HubAppPublishState }>>;
+  /** The session running or last ended; null for none. */
+  current(): Promise<PublishResult<{ publish: HubAppPublishState | null }>>;
+  /** Upload what an `awaiting-confirm` session packed. */
+  confirm(): Promise<PublishResult<{ publish: HubAppPublishState }>>;
+  /** Stop a session before anything is sent. */
+  cancel(): Promise<PublishResult<{ publish: HubAppPublishState | null }>>;
+  /** Withdraw the draft or the version in review. */
+  withdraw(): Promise<PublishResult<{ withdrawn: HubVersionStatus }>>;
+  /** Bump the block's version: `major`, `minor`, `patch` or a version. */
+  bumpVersion(spec: string): Promise<PublishResult<{ change: PackageVersionChange }>>;
+}
+
+/** {@link PublishClient} over the engine's `/api/publish/*` routes. */
+export class HttpPublishClient implements PublishClient {
+  async packageInfo(): Promise<PublishResult<{ package: HubAppPublishPackage }>> {
+    const answer = await HttpPublishClient.send('api/publish/package', {});
+    return answer.ok === false ? answer : { ok: true, package: answer.body as HubAppPublishPackage };
+  }
+
+  async status(): Promise<PublishResult<{ status: HubPublishStatus }>> {
+    const answer = await HttpPublishClient.send('api/publish/status', {});
+    return answer.ok === false ? answer : { ok: true, status: answer.body as HubPublishStatus };
+  }
+
+  async start(request: HubAppPublishRequest): Promise<PublishResult<{ publish: HubAppPublishState }>> {
+    const answer = await HttpPublishClient.send('api/publish', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(request) });
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState }).publish };
+  }
+
+  async current(): Promise<PublishResult<{ publish: HubAppPublishState | null }>> {
+    const answer = await HttpPublishClient.send('api/publish', {});
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState | null }).publish };
+  }
+
+  async confirm(): Promise<PublishResult<{ publish: HubAppPublishState }>> {
+    const answer = await HttpPublishClient.send('api/publish/confirm', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState }).publish };
+  }
+
+  async cancel(): Promise<PublishResult<{ publish: HubAppPublishState | null }>> {
+    const answer = await HttpPublishClient.send('api/publish', { method: 'DELETE' });
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState | null }).publish };
+  }
+
+  async withdraw(): Promise<PublishResult<{ withdrawn: HubVersionStatus }>> {
+    const answer = await HttpPublishClient.send('api/publish/withdraw', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+    return answer.ok === false ? answer : { ok: true, withdrawn: (answer.body as { withdrawn: HubVersionStatus }).withdrawn };
+  }
+
+  async bumpVersion(spec: string): Promise<PublishResult<{ change: PackageVersionChange }>> {
+    const answer = await HttpPublishClient.send('api/publish/version', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ spec }) });
+    return answer.ok === false ? answer : { ok: true, change: answer.body as PackageVersionChange };
+  }
+
+  /** One request: the parsed body on success, the engine's refusal (sentence, code, details) or a network one otherwise. */
+  private static async send(url: string, init: RequestInit): Promise<{ ok: true; body: unknown } | PublishRefusal> {
+    try {
+      const res = await fetch(url, init);
+      const body = await res.json().catch(() => null) as { error?: string; code?: string; details?: unknown } | null;
+      if (!res.ok) {
+        const refusal: PublishRefusal = { ok: false, status: res.status, error: body?.error ?? `The engine answered ${res.status}.`, code: body?.code ?? 'internal' };
+        if (body?.details !== undefined) {
+          refusal.details = body.details;
+        }
+        return refusal;
+      }
+      return { ok: true, body };
+    } catch (err: any) {
+      return { ok: false, status: 0, error: `The engine didn't answer: ${err?.message ?? String(err)}`, code: 'engine-unreachable' };
+    }
+  }
+}

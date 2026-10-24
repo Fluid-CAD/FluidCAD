@@ -7252,6 +7252,17 @@ export type PackagesOverview = {
   project: { path: string; packages: InstalledPackage[] } | null;
   pins: PinnedPackage[] | null;
   pinsProblem?: string;
+  /**
+   * The package this workspace is (the `package` block of its
+   * `fluidcad.json`): what the top bar's Publish button is about. Null for
+   * a plain project and outside a project.
+   */
+  package: { name: string; version: string } | null;
+  /**
+   * Why the `package` block couldn't be read. The workspace still counts as
+   * a package (the button is Publish, and the dialog opens on this sentence).
+   */
+  packageProblem?: string;
   /** Pinned name → the newest version above the pin, from the library or the hub (H10). */
   updates?: Record<string, string>;
   /** Where each of `updates` is: `library` when the library holds it, else `hub`. */

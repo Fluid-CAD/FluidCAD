@@ -77,6 +77,7 @@ export class FakePackagesClient implements PackagesClient {
       library: { path: '/lib', source: 'default', packages: [FakePackagesClient.installed('@acme/kit', '0.1.0')] },
       project: { path: '/ws/packages', packages: [] },
       pins: [],
+      package: null,
       updates: {},
       problems: [],
       defaultTarget: 'library',

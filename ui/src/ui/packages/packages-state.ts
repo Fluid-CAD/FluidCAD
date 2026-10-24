@@ -46,6 +46,26 @@ export class PackagesState {
   get hasProject(): boolean {
     return this.current?.project != null;
   }
+
+  /**
+   * Whether the open workspace is itself a package: its `fluidcad.json` has
+   * a `package` block, readable or not. A block the engine can't read still
+   * counts, so the top bar shows Publish and the dialog can say what is
+   * wrong with it, never Share.
+   */
+  get isPackageWorkspace(): boolean {
+    return this.current?.package != null || this.current?.packageProblem !== undefined;
+  }
+
+  /** The workspace's own package, when its block reads. */
+  get package(): { name: string; version: string } | null {
+    return this.current?.package ?? null;
+  }
+
+  /** Why the workspace's `package` block can't be read, when it can't. */
+  get packageProblem(): string | null {
+    return this.current?.packageProblem ?? null;
+  }
 }
 
 /** How the package UI words a package: its name and version, its contents, its size. */

@@ -29,6 +29,7 @@ import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
 import { createRenderRouter, UI_APPLY_WAIT_MS, type LiveRenderOptions, type RenderOutcome } from './routes/render.ts';
 import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
+import { createPublishRouter } from './routes/publish.ts';
 import { createPackagesRouter } from './routes/packages.ts';
 import { createHubRouter } from './routes/hub.ts';
 import { createHostActionsRouter } from './routes/host-actions.ts';
@@ -331,6 +332,7 @@ app.use('/api', createUnitRouter({
   broadcastToUI,
 }));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
+app.use('/api', createPublishRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION, engine: fluidCadServer }));
 app.use('/api', createPackagesRouter({ workspacePath: WORKSPACE_PATH, releases: new HubReleases({ engineVersion: PACKAGE_VERSION }) }));
 app.use('/api', createHubRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION }));
 app.use('/api', createHostActionsRouter({ send: sendToHost, hasHost: () => hosts.effectiveCapabilities() !== null }));

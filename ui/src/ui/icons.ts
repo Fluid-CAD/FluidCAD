@@ -9,6 +9,7 @@ import iconScissors from '@tabler/icons/outline/scissors.svg?raw';
 import iconListTree from '@tabler/icons/outline/list-tree.svg?raw';
 import iconFileImport from '@tabler/icons/outline/file-import.svg?raw';
 import iconShare from '@tabler/icons/outline/share.svg?raw';
+import iconCloudUpload from '@tabler/icons/outline/cloud-upload.svg?raw';
 import iconDownload from '@tabler/icons/outline/download.svg?raw';
 import iconMenu2 from '@tabler/icons/outline/menu-2.svg?raw';
 import iconCopy from '@tabler/icons/outline/copy.svg?raw';
@@ -64,6 +65,8 @@ export const ICON_SCISSORS = iconScissors;
 export const ICON_LIST_TREE = iconListTree;
 export const ICON_FILE_IMPORT = iconFileImport;
 export const ICON_SHARE = iconShare;
+/** The top bar's Publish action in a package workspace (Share's seat). */
+export const ICON_CLOUD_UPLOAD = iconCloudUpload;
 export const ICON_DOWNLOAD = iconDownload;
 /** The top bar's collapsed actions menu on a narrow window. */
 export const ICON_MENU = iconMenu2;

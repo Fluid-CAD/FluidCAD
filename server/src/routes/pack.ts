@@ -35,7 +35,8 @@ export type PackJsonResponse = {
  * A refusal — not a package, or a pack check failing — is a 400 whose
  * `error` is the sentence the CLI prints and whose `code` is the
  * {@link PackageBuildError}'s (`wrong-folder`, `outside-layout`,
- * `no-exports`, `docs-file`, `docs-too-large`, else `refused`).
+ * `no-exports`, `docs-file`, `docs-too-large`, `not-a-package`,
+ * `bad-config`, `unsaved-changes`, else `refused`).
  */
 export function createPackRouter(
   fluidCadServer: FluidCadServer,

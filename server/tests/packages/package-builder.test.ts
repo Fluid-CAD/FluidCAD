@@ -487,7 +487,7 @@ describe('what pack refuses', () => {
       block.exports = ['features/standoff.feature.js'];
     });
     const err = await refused();
-    expect(err.code).toBe('refused');
+    expect(err.code).toBe('bad-config');
     expect(err.message).toBe(
       'fluidcad.json has a "package" with an "exports" list, but a package exports its features/, parts/ and assemblies/ ' +
         'folders: remove "exports" (this workspace has features/ and parts/). Fix it, then try again.',

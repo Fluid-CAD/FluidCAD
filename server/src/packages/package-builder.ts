@@ -94,8 +94,13 @@ export type PackWarning = {
  * - `outside-layout`: a shipped module outside the three folders, or a script in `docs/`;
  * - `docs-file`: a file in `docs/` that is neither a markdown page nor an image;
  * - `docs-too-large`: a doc page, a doc image or the whole of `docs/` over its cap.
+ * Two more name what the author must do before packing again, for a page
+ * that offers the step (the Publish dialog, ui-packages-plan N3/N4):
+ * - `not-a-package`: the workspace has no `package` block;
+ * - `bad-config`: `fluidcad.json` can't be read, or its block, pin, unit or materials are broken;
+ * - `unsaved-changes`: a shipped file whose editor buffer differs from the disk (a running engine packs).
  */
-export type PackageBuildErrorCode = 'refused' | 'no-exports' | 'wrong-folder' | 'outside-layout' | 'docs-file' | 'docs-too-large';
+export type PackageBuildErrorCode = 'refused' | 'no-exports' | 'wrong-folder' | 'outside-layout' | 'docs-file' | 'docs-too-large' | 'not-a-package' | 'bad-config' | 'unsaved-changes';
 
 /** A refusal to pack, worded for the author: one sentence that names the file. */
 export class PackageBuildError extends Error {
@@ -188,15 +193,15 @@ export class PackageBuilder {
     const problems = config.problems ?? {};
     for (const key of ['file', 'package'] as const) {
       if (problems[key]) {
-        throw new PackageBuildError(`${problems[key]} Fix it, then try again.`);
+        throw new PackageBuildError(`${problems[key]} Fix it, then try again.`, 'bad-config');
       }
     }
     if (!config.package) {
-      throw new PackageBuildError(PackageAuthoring.NOT_A_PACKAGE);
+      throw new PackageBuildError(PackageAuthoring.NOT_A_PACKAGE, 'not-a-package');
     }
     for (const key of ['engine', 'unit', 'materials'] as const) {
       if (problems[key]) {
-        throw new PackageBuildError(`${problems[key]} Fix it, then try again.`);
+        throw new PackageBuildError(`${problems[key]} Fix it, then try again.`, 'bad-config');
       }
     }
     return config.package;
@@ -369,7 +374,7 @@ export class PackageBuilder {
         disk = null;
       }
       if (disk !== buffer) {
-        throw new PackageBuildError(`${rel} has unsaved changes: save it, then pack again.`);
+        throw new PackageBuildError(`${rel} has unsaved changes: save it, then pack again.`, 'unsaved-changes');
       }
     }
   }

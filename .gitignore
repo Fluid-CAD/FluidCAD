@@ -20,3 +20,4 @@ llm-docs/api/index.json
 shell/release/
 shell/engine/
 .verify-tmp/
+deploy/cloudflare/

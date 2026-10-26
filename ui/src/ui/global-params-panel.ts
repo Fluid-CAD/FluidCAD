@@ -1,7 +1,7 @@
 import type { GlobalParam, GlobalParamsFile, GlobalParamsSnapshot } from '../types';
 import type { ParamEditResponse } from '../api';
 import { AccordionSection } from './accordion-section';
-import { ICON_ALERT_TRIANGLE, ICON_CODE, ICON_PENCIL } from './icons';
+import { ICON_ALERT_TRIANGLE, ICON_CODE } from './icons';
 import { GLOBAL_PANEL_CLASS, GLOBAL_PANEL_WIDTH, GLOBAL_PANEL_WIDTH_VARIABLE } from './rail-styles';
 import {
   ParamDebouncer,
@@ -41,7 +41,7 @@ export interface GlobalParamsPanelHandlers {
   fetch: () => Promise<GlobalParamsSnapshot | null>;
   /** `POST api/global-params/set`: a control's new value for the declaration `label` names in `file`. */
   setValue: (file: string, label: string, value: unknown) => Promise<ParamEditResponse>;
-  /** Activate the editor tab for `file` at the line — the header's Open file, a derived row's pencil. */
+  /** Activate the editor tab for `file` at the line — the header's Open file. */
   openFile: (file: string, line: number, column: number) => void;
   /** The header +: a new declaration in `file`, or — null — in a params file that does not exist yet. */
   onAdd: (file: string | null) => void;
@@ -54,8 +54,10 @@ export interface GlobalParamsPanelHandlers {
 }
 
 /**
- * The project Parameters column: every `*.params.js` file's exports, one
- * collapsible section per file, docked beside the panel rail. Toggled from
+ * The project Parameters column: every `*.params.js` file's `param()`
+ * exports, one collapsible section per file, docked beside the panel rail.
+ * A derived `export const` is left out — its value is an expression, edited
+ * in the file, not a control. Toggled from
  * the rail's Parameters button, and the same column in both workbenches —
  * the part/assembly swap that rebuilds the feature tree never touches it,
  * since a project parameter belongs to no one model.
@@ -175,12 +177,20 @@ export class GlobalParamsPanel {
    * or changed shape.
    */
   update(snapshot: GlobalParamsSnapshot): void {
-    this.snapshot = snapshot;
-    if (this.renderedSignature === GlobalParamsPanel.signatureOf(snapshot)) {
-      this.updateInPlace(snapshot);
+    this.snapshot = GlobalParamsPanel.withoutDerived(snapshot);
+    if (this.renderedSignature === GlobalParamsPanel.signatureOf(this.snapshot)) {
+      this.updateInPlace(this.snapshot);
     } else {
       this.render();
     }
+  }
+
+  /** The catalog's `param()` rows only — what the column draws. */
+  private static withoutDerived(snapshot: GlobalParamsSnapshot): GlobalParamsSnapshot {
+    return {
+      ...snapshot,
+      files: snapshot.files.map((file) => ({ ...file, params: file.params.filter((p) => !p.derived) })),
+    };
   }
 
   /** Everything that decides a row's markup — not its value. */
@@ -188,9 +198,7 @@ export class GlobalParamsPanel {
     return JSON.stringify(snapshot.files.map((file) => [
       file.file,
       file.problems,
-      file.params.map((p) => p.derived
-        ? ['derived', p.name, p.expression ?? null, p.problems ?? null]
-        : [controlSignature(GlobalParamsPanel.rowOf(p)), p.name, p.problems ?? null]),
+      file.params.map((p) => [controlSignature(GlobalParamsPanel.rowOf(p)), p.name, p.problems ?? null]),
     ]));
   }
 
@@ -218,16 +226,7 @@ export class GlobalParamsPanel {
       if (!list) {
         continue;
       }
-      updateParamValuesInPlace(list, file.params.filter((p) => !p.derived).map(GlobalParamsPanel.rowOf));
-      for (const p of file.params) {
-        if (!p.derived) {
-          continue;
-        }
-        const el = list.querySelector<HTMLElement>(`[data-derived-value="${CSS.escape(p.name)}"]`);
-        if (el) {
-          el.textContent = GlobalParamsPanel.valueText(p.value);
-        }
-      }
+      updateParamValuesInPlace(list, file.params.map(GlobalParamsPanel.rowOf));
     }
   }
 
@@ -341,7 +340,7 @@ export class GlobalParamsPanel {
     }
     list.innerHTML = html;
 
-    const find = (label: string) => file.params.find((p) => p.label === label && !p.derived);
+    const find = (label: string) => file.params.find((p) => p.label === label);
     bindParamHandlers(list, {
       lookup: (label) => {
         const p = find(label);
@@ -366,14 +365,6 @@ export class GlobalParamsPanel {
       // Enter or blur, never a half-typed number.
       sendOn: 'commit',
     });
-    list.querySelectorAll<HTMLElement>('[data-derived-open]').forEach((el) => {
-      el.addEventListener('click', () => {
-        const p = file.params.find((candidate) => candidate.derived && candidate.name === el.dataset.derivedOpen);
-        if (p) {
-          this.handlers.openFile(file.file, p.line, p.column);
-        }
-      });
-    });
     bindParamGroups(list, this.collapsedGroups, (group) => `${file.file}\n${group}`);
 
     section.mount(this.column);
@@ -382,34 +373,7 @@ export class GlobalParamsPanel {
   private renderRow(p: GlobalParam): string {
     const chip = `<code class="${CHIP_CLASS}" data-param-name="${escapeHtml(p.name)}" title="Type ${escapeHtml(p.name)} in an expression to read it">${escapeHtml(p.name)}</code>`;
     const warning = GlobalParamsPanel.warningMark(p.problems);
-    if (p.derived) {
-      return this.renderDerivedRow(p, chip, warning);
-    }
     return renderParamControl(GlobalParamsPanel.rowOf(p), { editable: true, labelTrailing: `${warning}${chip}` });
-  }
-
-  /**
-   * A plain `export const` — read-only here: its value is an expression,
-   * which the pencil opens in the file rather than a control to drag.
-   */
-  private renderDerivedRow(p: GlobalParam, chip: string, warning: string): string {
-    const expression = p.expression ?? '';
-    const value = GlobalParamsPanel.valueText(p.value);
-    return `
-      <div class="px-3 py-1.5 group" data-derived-row="${escapeHtml(p.name)}">
-        <div class="flex items-center gap-1">
-          ${chip.replace(CHIP_CLASS, `${CHIP_CLASS} !max-w-full`)}
-          <span class="flex-1"></span>
-          ${warning}
-          <span class="text-sm text-base-content/80 tabular-nums font-mono truncate max-w-[45%]" data-derived-value="${escapeHtml(p.name)}" title="Computed from the expression below">${escapeHtml(value)}</span>
-          <button class="btn btn-ghost btn-xs btn-square h-4 min-h-0 w-4 opacity-0 group-hover:opacity-100 focus:opacity-100 text-base-content/40 hover:text-base-content/70"
-            data-derived-open="${escapeHtml(p.name)}" title="Open in the code editor">
-            <span class="[&>svg]:size-3">${ICON_PENCIL}</span>
-          </button>
-        </div>
-        <div class="mt-0.5 text-xs font-mono text-base-content/55 truncate" title="${escapeHtml(expression)}">= ${escapeHtml(expression)}</div>
-      </div>
-    `;
   }
 
   /** The timeline's warning triangle, carrying the row's lint findings. */
@@ -419,19 +383,5 @@ export class GlobalParamsPanel {
     }
     const text = escapeHtml(problems.join('\n'));
     return `<span class="text-warning shrink-0 [&>svg]:w-3 [&>svg]:h-3" data-warning="${text}" title="${text}">${ICON_ALERT_TRIANGLE}</span>`;
-  }
-
-  /** A computed value as a derived row prints it. */
-  private static valueText(value: GlobalParam['value']): string {
-    if (value === null || value === undefined) {
-      return 'computed at render';
-    }
-    if (Array.isArray(value)) {
-      return `[${value.join(', ')}]`;
-    }
-    if (typeof value === 'number') {
-      return String(Number.isInteger(value) ? value : Number(value.toFixed(4)));
-    }
-    return String(value);
   }
 }

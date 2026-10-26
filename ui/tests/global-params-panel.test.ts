@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // The project Parameters column: one section per `*.params.js` file, the
 // same controls the model's Parameters section draws, an identifier chip on
-// every row, derived exports read-only. A value edit is a source write
+// every row, derived exports left out. A value edit is a source write
 // (POST api/global-params/set) — debounced for typed fields, on release for
 // a slider — and the push that answers it redraws in place.
 
@@ -118,7 +118,7 @@ describe('GlobalParamsPanel', () => {
     expect(control<HTMLSelectElement>('Finish').tagName).toBe('SELECT');
     const chips = Array.from(container.querySelectorAll('[data-param-name]'), (el) => el.textContent);
     // Ungrouped rows first, then each group's — the model section's order.
-    expect(chips).toEqual(['wall', 'clearance', 'halfWall', 'finish']);
+    expect(chips).toEqual(['wall', 'clearance', 'finish']);
     // `group` folds rows under a collapse card, as in the model's section.
     const group = container.querySelector<HTMLElement>('[data-param-group="Looks"]')!;
     expect(group.contains(control('Finish'))).toBe(true);
@@ -188,15 +188,23 @@ describe('GlobalParamsPanel', () => {
     await vi.waitFor(() => expect(handlers.onError).toHaveBeenCalledWith('read-only file'));
   });
 
-  it('draws a derived export read-only: identifier, expression, value, and a pencil that opens the file', async () => {
-    const { container, handlers, open } = mount();
+  it('leaves derived exports out, and a push that only changed one redraws nothing', async () => {
+    const { container, panel, open, control } = mount();
     await open();
-    const row = container.querySelector<HTMLElement>('[data-derived-row="halfWall"]')!;
-    expect(row.querySelector('[data-param-label]')).toBeNull();
-    expect(row.textContent).toContain('wall / 2');
-    expect(row.querySelector('[data-derived-value="halfWall"]')!.textContent).toBe('1.5');
-    row.querySelector<HTMLButtonElement>('[data-derived-open]')!.click();
-    expect(handlers.openFile).toHaveBeenCalledWith(FILE, 7, 0);
+    expect(container.querySelector('[data-param-name="halfWall"]')).toBeNull();
+    expect(container.textContent).not.toContain('wall / 2');
+    const before = control<HTMLInputElement>('Wall thickness');
+    panel.update(snapshot([WALL, CLEARANCE, FINISH, param({ ...HALF, expression: 'wall / 4', value: 0.75 })]));
+    expect(control<HTMLInputElement>('Wall thickness')).toBe(before);
+  });
+
+  it('shows a file of derived exports only as a section with nothing to edit yet', async () => {
+    const { container, open } = mount(snapshot([HALF]));
+    await open();
+    const headers = Array.from(container.querySelectorAll('[data-ref="chevron"] + span'), (el) => el.textContent);
+    expect(headers).toEqual(['project.params.js']);
+    expect(container.textContent).toContain('No parameters in this file yet');
+    expect(container.querySelector('[data-param-name]')).toBeNull();
   });
 
   it('opens the dialog on a row from its pencil, and the file from the header', async () => {
@@ -230,13 +238,12 @@ describe('GlobalParamsPanel', () => {
   });
 
   it('updates values in place on a push that changed nothing else, and redraws otherwise', async () => {
-    const { container, panel, open, control } = mount();
+    const { panel, open, control } = mount();
     await open();
     const before = control<HTMLInputElement>('Wall thickness');
     panel.update(snapshot([param({ value: 8 }), CLEARANCE, FINISH, param({ ...HALF, value: 4 })]));
     expect(control<HTMLInputElement>('Wall thickness')).toBe(before);
     expect(before.value).toBe('8');
-    expect(container.querySelector('[data-derived-value="halfWall"]')!.textContent).toBe('4');
 
     // A slider whose bounds moved has to be redrawn to honour them.
     panel.update(snapshot([param({ value: 8 }), { ...CLEARANCE, max: 2 }, FINISH, HALF]));

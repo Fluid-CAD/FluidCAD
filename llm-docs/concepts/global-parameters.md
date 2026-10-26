@@ -20,7 +20,7 @@ import { param } from "fluidcad/core";
 export const wall = param("Wall thickness", 3, "number", { min: 1, max: 10, step: 0.5 });
 export const boltSize = param("Bolt", "M4", "select", { options: [{ label: "M3", value: "M3" }, { label: "M4", value: "M4" }] });
 export const width = param("Width", 120);
-export const innerWidth = width - 2 * wall;   // derived — read-only in the panel
+export const innerWidth = width - 2 * wall;   // derived — edited here, not in the panel
 ```
 
 ```js
@@ -59,9 +59,9 @@ build error at render:
 4. Labels are unique per file; identifiers are valid JS identifiers.
 5. No `unit()`: numbers are in the **project unit**.
 
-A plain `export const` without `param()` is a **derived value**: listed
-with its expression and evaluated value, read-only in the panel (edit the
-expression in the file).
+A plain `export const` without `param()` is a **derived value**: not
+listed in the Global Parameters panel (edit the expression in the file),
+imported by models like any other export.
 
 ## Units
 

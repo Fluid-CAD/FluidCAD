@@ -71,7 +71,7 @@ import { param } from "fluidcad/core";
 
 export const wall = param("Wall thickness", 3, "number", { min: 1, max: 10, step: 0.5 });
 export const width = param("Width", 120);
-export const innerWidth = width - 2 * wall;   // derived, read-only in the panel
+export const innerWidth = width - 2 * wall;   // derived, edited here, not in the panel
 ```
 
 ```js

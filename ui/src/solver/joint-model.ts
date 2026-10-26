@@ -681,6 +681,15 @@ export function unwrapAngleNear(angle: number, ref: number): number {
 }
 
 /**
+ * Shift `angle` (degrees) onto the 360° branch the limit range lives on
+ * (nearest its midpoint), so a measured angle — always in (-180°, 180°]
+ * — compares against bounds authored past the cut, e.g. limits(75, 185).
+ */
+export function unwrapAngleToLimits(angle: number, limits: [number, number]): number {
+  return unwrapAngleNear(angle, (limits[0] + limits[1]) / 2);
+}
+
+/**
  * Enforce `.limits(min, max)` on the joint's limited param (mutates
  * `params`). For rotZ the angle is first unwrapped onto the branch
  * nearest the snapshot angle, so a hinge pushed past 180° pins at 180°
@@ -696,9 +705,13 @@ export function clampParamsToLimits(
 ): void {
   if (!limits || !spec.limitParam) return;
   if (spec.limitParam === 'rotZ') {
-    let angle = params.rotZ;
-    if (snapshotParams) angle = unwrapAngleNear(angle, snapshotParams.rotZ);
-    params.rotZ = clampToLimits(angle, limits);
+    // The snapshot angle is a measurement in (-180°, 180°]; the limit
+    // range need not be (limits(75, 185)). Put the reference on the
+    // range's branch FIRST — otherwise a hinge over-centre at 183° reads
+    // -177°, the new angle unwraps beside it and the clamp hauls both to
+    // the far bound (75°): the toggle-clamp fold.
+    const ref = unwrapAngleToLimits(snapshotParams ? snapshotParams.rotZ : params.rotZ, limits);
+    params.rotZ = clampToLimits(unwrapAngleNear(params.rotZ, ref), limits);
   } else {
     params.slideZ = clampToLimits(params.slideZ, limits);
   }

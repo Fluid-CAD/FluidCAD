@@ -61,6 +61,10 @@ color("silver", body, lid)              // both solids
 color("gold", body.endFaces(), lid.endFaces())
 ```
 
+## Colour and appearance
+
+A part shaded with an [appearance](/docs/appearance/appearance) — `part(…).appearance('oak')` — keeps every painted face flat: paint is the override. The unpainted faces show the wood or the metal; a painted one shows its colour.
+
 ## Colour never consumes a selection
 
 A colour changes no geometry, so it takes nothing away from the model. The solid stays with the feature that built it, and a selection you pass to `color()` is still there for the next feature:

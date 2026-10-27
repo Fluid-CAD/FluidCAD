@@ -88,6 +88,16 @@ A material that is in neither list is added first — to Settings → Materials,
 
 Only parts carry a material. A solid outside any part is measured with a material picked in Shape properties for that calculation alone; nothing is written to the file. See [Shape properties](/docs/user-interface#shapes-and-shape-properties).
 
+## Appearance
+
+A part can also carry an appearance — the look the viewport shades it with (`oak`, `steel`, `brass`, …), independent of the material:
+
+```js
+export const shelf = part('Shelf', () => { /* … */ }).material('fluidcad-pine').appearance('oak');
+```
+
+**Set appearance…** on the same row menu writes the chain. Faces painted with `color()` keep their colour over it. See [Appearance](/docs/appearance/appearance).
+
 ## Export it
 
 An assembly can only insert what the part file exports:

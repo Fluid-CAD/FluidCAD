@@ -1,0 +1,46 @@
+---
+sidebar_position: 2
+title: "Appearance"
+---
+
+# Appearance
+
+`.appearance(id)` gives a part a look: wood, steel, brass, rubber — a physically-based material the viewport shades its bodies with, reflections included. It is a chain on the `part()` statement, next to `.name()` and `.material()`:
+
+```js
+export const shelf = part('Shelf', () => {
+    sketch('xy', () => { /* … */ });
+    extrude(18);
+}).appearance('oak');
+```
+
+An appearance is a **look, not a substance**. [`.material()`](/docs/part/part-definition#material) says what a part is made of — its density, for the mass Shape properties computes — and `.appearance()` how it is drawn. They are independent: a 3D-printed part can be measured as PLA and shown as oak, and a part with an appearance and no material still has no mass.
+
+## In the viewport
+
+1. Click the **⋮** button at the right edge of the part's row in the History panel (or right-click the row) and choose **Set appearance…**.
+2. The **Set appearance** dialog lists the built-in appearances with a swatch each; the part's current one is checked, and **None** removes it. Click a row and **Apply** (or double-click it, or press <kbd>Enter</kbd>).
+3. FluidCAD writes `.appearance('<id>')` on the `part()` statement — replacing the id if the chain is already there — and every solid of the part takes the look on the next render.
+
+## The appearances
+
+| Id | Look |
+|----|------|
+| `oak` | A light, warm wood. The grain is computed, not an image: stripes run along the body's longest extent, the end faces show rings, and it is continuous across faces and seamless at every edge, sized in real millimetres whatever the document unit. |
+| `walnut` | The same grain on a darker brown. |
+| `steel` | A polished grey metal. |
+| `aluminum` | A lighter, softer-sheen metal. |
+| `brass` | A warm yellow metal. |
+| `copper` | A red-brown metal. |
+| `plastic` | A matte, light grey dielectric. |
+| `rubber` | A near-black, fully matte surface. |
+
+An id outside this list is a warning, not an error: the part builds and is drawn plain, its row carries a warning triangle (hover it for `Unknown appearance: <id>`), and the dialog shows the id as a checked, unpickable row until another is picked.
+
+## Colour overrides appearance
+
+A face painted with [`color()`](/docs/appearance/color) keeps its flat colour over the appearance — paint is the override, so an oak shelf with `color('tomato', top)` shows a tomato top on an oak body. Painting a whole object (`color('red', e)`) covers every face, and the appearance shows nothing until the paint is removed.
+
+## What it does not touch
+
+The appearance is display only: it changes no geometry, no mass, and no export. STEP files carry the [colours](/docs/appearance/color#export) but not the appearance. Parts without one — and every solid outside a part — are drawn as they always have been.

@@ -1,16 +1,17 @@
 // Typed-in kinds: the one table of a custom feature's typed-in types — checked, written, read back, previewed.
 
 import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
-import { anyValueArg, booleanArgValue, listArgValue, numericArgValue, stringArgValue } from '../ast/args.ts';
-import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
+import { anyValueArg, booleanArgValue, listArgValue, numericArgValue, refArgValue, stringArgValue } from '../ast/args.ts';
+import { formatValue, validRef, validValueExpr, type RefValue, type ValueExpr } from '../value-expr.ts';
 import type { CustomValueSource } from './custom.ts';
 
 /**
  * A choice bound to a variable rather than to one of its options: the name
  * the statement writes bare (`size: holeSize`, `size: inst.properties.kind`)
- * — an identifier or a dotted member path, never an expression.
+ * — an identifier or a dotted member path, never an expression. The one
+ * `RefValue` every dialog slot travels.
  */
-export type TypedInRef = { ref: string };
+export type TypedInRef = RefValue;
 
 /** A typed-in value as a dialog holds it: a number or expression, a boolean, a string, a multi-select's list of option values, a choice's reference. */
 export type TypedInValue = ValueExpr | boolean | string | (string | number)[] | TypedInRef;
@@ -66,13 +67,6 @@ export class TypedInKinds {
 
   /** The most characters any text may have, whatever it declares. */
   private static readonly TEXT_LIMIT = 2000;
-
-  /**
-   * What a choice may reference: an identifier, or a dotted member path of
-   * identifiers (`inst.properties.kind`) — the number rows' dropdown
-   * completes the same shapes. Calls, indexes and `this` are not references.
-   */
-  private static readonly REF = /^[a-zA-Z_$][\w$]*(\.[a-zA-Z_$][\w$]*)*$/;
 
   private static readonly BOOLEAN: TypedInKind = {
     name: 'true or false',
@@ -198,11 +192,12 @@ export class TypedInKinds {
 
   /**
    * The name a reference holds, when it is one a choice may name — an
-   * identifier or a dotted member path (`holeSize`, `inst.properties.kind`)
-   * — or null for a malformed one (an expression, a call, an index, a blank).
+   * identifier or a dotted member path (`holeSize`, `inst.properties.kind`),
+   * as `validRef` has it — or null for a malformed one (an expression, a
+   * call, an index, a blank).
    */
   static refText(value: TypedInRef): string | null {
-    return TypedInKinds.REF.test(value.ref) ? value.ref : null;
+    return validRef(value) ? value.ref : null;
   }
 
   /** A string as a single-quoted literal. */
@@ -231,28 +226,13 @@ export class TypedInKinds {
   }
 
   /**
-   * A statement's argument as the reference it names: an identifier, or a
-   * member expression whose every step is an identifier or a property name
-   * (`inst.properties.kind`). A call, an index, `this`, an optional chain:
-   * null — the kind then reads the node as a literal, and fails.
+   * A statement's argument as the reference it names — `refArgValue`'s
+   * shapes: an identifier, or a member expression of identifiers and
+   * property names. A call, an index, `this`, an optional chain: null — the
+   * kind then reads the node as a literal, and fails.
    */
   private static refRead(node: TSNode): TypedInRef | null {
-    if (!TypedInKinds.isPlainPath(node) || !TypedInKinds.REF.test(node.text)) {
-      return null;
-    }
-    return { ref: node.text };
-  }
-
-  private static isPlainPath(node: TSNode): boolean {
-    if (node.type === 'identifier') {
-      return true;
-    }
-    if (node.type !== 'member_expression') {
-      return false;
-    }
-    const object = node.childForFieldName('object');
-    const property = node.childForFieldName('property');
-    return object !== null && property?.type === 'property_identifier' && TypedInKinds.isPlainPath(object);
+    return refArgValue(node);
   }
 
   /** The refusal of a reference on a kind that takes none. */

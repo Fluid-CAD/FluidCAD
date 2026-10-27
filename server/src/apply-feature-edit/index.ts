@@ -2,7 +2,17 @@
 // tests import from here; the modules behind it are grouped by concern.
 
 export { isExpressionText } from '../code-editor/index.ts';
-export { validCountValue, validValueExpr, type RegionItemRefSpec, type RegionName, type RegionPickSpec, type ValueExpr } from './value-expr.ts';
+export {
+  validCountValue,
+  validRef,
+  validValueExpr,
+  type RefValue,
+  type RegionItemRefSpec,
+  type RegionName,
+  type RegionPickSpec,
+  type ValueExpr,
+} from './value-expr.ts';
+export { refArgValue } from './ast/args.ts';
 export type {
   ApplyFeatureEditResult,
   ApplyFeatureEditSpec,

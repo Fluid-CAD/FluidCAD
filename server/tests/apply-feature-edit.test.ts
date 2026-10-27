@@ -6531,7 +6531,8 @@ describe('applyFeatureEdit (plane in-place statement edit)', () => {
 // plus the `newVariables` declarations the expression fields commit.
 // ---------------------------------------------------------------------------
 
-import { isExpressionText, validValueExpr } from '../src/apply-feature-edit/index.ts';
+import { isExpressionText, refArgValue, validRef, validValueExpr } from '../src/apply-feature-edit/index.ts';
+import { getJavaScriptParser } from '../src/code-editor/index.ts';
 
 describe('isExpressionText', () => {
   it('accepts identifiers, arithmetic and call expressions', () => {
@@ -6556,6 +6557,53 @@ describe('isExpressionText', () => {
     expect(isExpressionText('a >= 2 ? 3 : 4')).toBe(true);
     expect(validValueExpr('h * 2', { nonzero: true })).toBe(true);
     expect(validValueExpr(0, { nonzero: true })).toBe(false);
+  });
+});
+
+// A value slot bound to a variable: `{ ref }` on the wire, the name read back off the statement.
+describe('validRef', () => {
+  it('accepts the shape holding an identifier or a dotted member path', () => {
+    for (const ref of ['holeSize', 'inst.properties.kind', '$_ok.a1', '_', 'a.b.c.d']) {
+      expect(validRef({ ref }), ref).toBe(true);
+    }
+  });
+
+  it('refuses a malformed name in the shape, and anything not the shape', () => {
+    for (const ref of ['', ' holeSize', 'hole size', 'a + b', 'size()', 'a[0]', 'a.', '.a', '1st', 'a?.b', 'a..b', "'m4'", 'a.b\n']) {
+      expect(validRef({ ref }), JSON.stringify(ref)).toBe(false);
+    }
+    expect(validRef({ ref: 3 })).toBe(false);
+    expect(validRef({ name: 'holeSize' })).toBe(false);
+    expect(validRef(['holeSize'])).toBe(false);
+    expect(validRef('holeSize')).toBe(false);
+    expect(validRef(null)).toBe(false);
+    expect(validRef(undefined)).toBe(false);
+  });
+});
+
+describe('refArgValue', () => {
+  /** The one argument of `f(…)` as parsed. */
+  async function argument(text: string) {
+    const parser = await getJavaScriptParser();
+    const call = parser.parse(`f(${text})`).rootNode.namedChildren[0].namedChildren[0];
+    return call.childForFieldName('arguments')!.namedChildren[0];
+  }
+
+  it('reads an identifier and a member path of identifiers and property names', async () => {
+    expect(refArgValue(await argument('holeSize'))).toEqual({ ref: 'holeSize' });
+    expect(refArgValue(await argument('inst.properties.kind'))).toEqual({ ref: 'inst.properties.kind' });
+    expect(refArgValue(await argument('$_ok.a1'))).toEqual({ ref: '$_ok.a1' });
+  });
+
+  it('reads nothing off a call, an index, this, an optional chain, a literal or a parenthesised name', async () => {
+    for (const text of ['size()', 'a[0]', 'this.x', 'a?.b', "'m4'", '3', '(a)', 'a.b()', 'a().b', 'a + b', '[a]', '{ a }']) {
+      expect(refArgValue(await argument(text)), text).toBeNull();
+    }
+  });
+
+  it('reads nothing off a path spelt across whitespace or a comment', async () => {
+    expect(refArgValue(await argument('a . b'))).toBeNull();
+    expect(refArgValue(await argument('a /* x */ .b'))).toBeNull();
   });
 });
 

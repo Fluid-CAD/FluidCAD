@@ -1,12 +1,15 @@
-import type { FeatureChoiceOption, FeatureRefValue, NewVariable } from '../../../api';
-import type { ParameterChip, ParameterChoice } from '../../../ui/controls';
+import type { FeatureChoiceOption, FeatureRefValue, NewVariable } from '../../api';
+import type { ParameterChip, ParameterChoice } from '../../ui/controls';
 import {
   choiceLiteral, choiceParamInitializer, isValidNewIdentifier, matchRank, ParamDeclareMode, suggestionChip,
   type VariableInfo, type VariableLiteral,
-} from '../../../ui/expression-core';
+} from '../../ui/expression-core';
 
 /** A choice's value: its option's. */
-type ChoiceValue = string | number;
+export type ChoiceValue = string | number;
+
+/** What a choice row knows of each option: the label it shows and the value it writes — a feature's declared option, or a hand-rolled panel's item. */
+export type ChoiceOption = Pick<FeatureChoiceOption, 'label' | 'value'>;
 
 /**
  * What the variable a choice row names resolves to, against the row's
@@ -40,7 +43,7 @@ export class ChoiceParameters {
     /** The row's label, for the messages. */
     private readonly label: string,
     /** The row's declared options, as they stand (narrowing included). */
-    private readonly options: () => readonly FeatureChoiceOption[],
+    private readonly options: () => readonly ChoiceOption[],
     /** The row holds a list: a parameter's value has to be one. */
     private readonly multiple: boolean,
   ) {}

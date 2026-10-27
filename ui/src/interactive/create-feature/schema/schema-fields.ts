@@ -7,7 +7,7 @@ import {
 } from '../../../ui/controls';
 import { ExpressionField } from '../../../ui/expression-field';
 import type { VariableInfo } from '../../../ui/expression-core';
-import { ChoiceParameters } from './choice-parameters';
+import { ChoiceParameters } from '../choice-parameters';
 import { FeatureSchema } from './feature-schema';
 
 /**

@@ -11,6 +11,7 @@ import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { orientCameraForView, resolveView, type ScreenshotView } from './screenshot-view';
 import { findGeometryRoot, geometryBoundsOf } from './scene/scene-geometry-bounds';
 import { runFrameHooks } from './meshes/frame-hooks';
+import { disposeEnvironmentOf, environmentFor, sceneUsesEnvironment } from './meshes/appearance/environment';
 import { withSketchConstraintVisibility } from './meshes/containers/sketch-constraint-visibility';
 import {
   MultiViewLayout,
@@ -363,7 +364,19 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // viewport's zoom made them; the next live frame lays them out again for
   // the screen.
   runFrameHooks(tmpRenderer, camera);
+  // The live environment texture belongs to the viewport's GL context: an
+  // appearance part is shaded against one generated for this renderer, and
+  // the scene gets its own back before the viewport draws again.
+  const liveEnvironment = scene.environment;
+  const ownsEnvironment = sceneUsesEnvironment(scene);
+  if (ownsEnvironment) {
+    scene.environment = environmentFor(tmpRenderer);
+  }
   tmpRenderer.render(scene, camera);
+  if (ownsEnvironment) {
+    scene.environment = liveEnvironment;
+    disposeEnvironmentOf(tmpRenderer);
+  }
   // Project while the camera is still posed for the capture; painted below.
   const plannedAnnotations = ScreenshotAnnotationPlan.project(annotations, camera, width, height);
   // Before the crop measures bounds, and before the overlays it clipped go.

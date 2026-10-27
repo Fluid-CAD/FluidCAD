@@ -13,6 +13,7 @@ import {
 } from 'three';
 import { SceneIndex } from '../../helpers/scene-index';
 import { buildObjectMesh } from '../../meshes/mesh-factory';
+import { disposeEnvironmentOf, environmentFor } from '../../meshes/appearance/environment';
 import { computeSceneBounds, eyeTargetForNamedView } from '../../screenshot-view';
 import { FIT_PADDING } from '../../scene/scene-context';
 import { Solver, makeWorldBody, matesReferenceWorld, worldConnectorRef } from '../../solver';
@@ -125,7 +126,10 @@ export class PartThumbnailRenderer {
   }
 
   dispose(): void {
-    this.renderer?.dispose();
+    if (this.renderer) {
+      disposeEnvironmentOf(this.renderer);
+      this.renderer.dispose();
+    }
     this.renderer = null;
   }
 
@@ -134,6 +138,8 @@ export class PartThumbnailRenderer {
     const renderer = this.ensureRenderer();
     const scene = new Scene();
     scene.add(new AmbientLight(0xddeeff, 2.5));
+    // An appearance part's thumbnail reflects the same studio the viewport does.
+    scene.environment = environmentFor(renderer);
 
     hideConnectors(group);
     scene.add(group);

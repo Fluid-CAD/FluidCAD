@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ContactEntity } from '../solver/types';
+import type { Appearance } from '../../../lib/common/appearances';
 
 export type SourceLocation = {
   filePath: string;
@@ -214,6 +215,12 @@ export type EdgeMeshOptions = {
 export type MeshRenderOptions = {
   face?: FaceMeshOptions;
   edge?: EdgeMeshOptions;
+  /**
+   * The enclosing part's `.appearance(id)`, resolved: its unpainted solid
+   * faces take the preset's PBR material instead of the Phong default. A
+   * `color()`-painted face group keeps its flat colour.
+   */
+  appearance?: Appearance;
 };
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,11 @@ import {
   MeshPhongMaterial,
 } from 'three';
 import { FaceMeshOptions, SceneObjectPart } from '../../types';
+import type { Appearance } from '../../../../lib/common/appearances';
 import { themeColors } from '../../scene/theme-colors';
+import { createAppearanceMaterial, type GrainAxis } from '../appearance/appearance-material';
+import { MM_PER_UNIT } from '../../units/units';
+import { sceneUnit } from '../../units/scene-unit';
 
 const DEFAULTS: Required<FaceMeshOptions> = {
   color: '',
@@ -16,7 +20,13 @@ const DEFAULTS: Required<FaceMeshOptions> = {
 };
 
 export class FaceMesh extends Group {
-  constructor(shape: SceneObjectPart, options: FaceMeshOptions = {}) {
+  /**
+   * `appearance` is the enclosing part's preset (a solid's faces only): an
+   * unpainted face group — no `meshData.color`, no overlay tint — is shaded
+   * with it; a `color()`-painted group keeps its flat Phong colour, the
+   * paint being the override.
+   */
+  constructor(shape: SceneObjectPart, options: FaceMeshOptions = {}, appearance?: Appearance, grainAxis?: GrainAxis) {
     super();
     const opts = { ...DEFAULTS, ...options };
 
@@ -31,7 +41,14 @@ export class FaceMesh extends Group {
       const faceColor = options?.color ?? meshData.color ?? '#' + themeColors.faceColor.getHexString();
 
       const isOverlay = options?.color !== undefined || options?.opacity !== undefined;
-      const material = new MeshPhongMaterial({
+      const material = appearance && !isOverlay && meshData.color === undefined
+        ? createAppearanceMaterial(appearance, {
+          unitsPerMm: 1 / MM_PER_UNIT[sceneUnit.current],
+          grainAxis,
+          opacity: opts.opacity,
+          depthTest: opts.depthTest,
+        })
+        : new MeshPhongMaterial({
         color: faceColor,
         transparent: isOverlay || opts.opacity < 1,
         opacity: opts.opacity,

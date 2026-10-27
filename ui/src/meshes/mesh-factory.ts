@@ -8,6 +8,7 @@ import { ConnectorMesh } from './containers/connector-mesh';
 import { ShapeGroup } from './containers/shape-group';
 import { themeColors } from '../scene/theme-colors';
 import { rowWithHiddenShapes } from '../helpers/scene-utils';
+import { resolveAppearance } from '../../../lib/common/appearances';
 
 /** Ids of the consumed rows (sketches, planes, axes) to draw anyway — the viewer's eye and dialog reveals. */
 const NO_SHOWN_ROWS: ReadonlySet<string> = new Set();
@@ -43,9 +44,26 @@ function resolveOptions(
   uniqueType: string | undefined,
   inherited?: MeshRenderOptions,
 ): MeshRenderOptions | undefined {
-  if (inherited) return inherited;
-  if (uniqueType === 'select') return getSelectOptions();
-  return undefined;
+  // A part's appearance rides `inherited` too, but it is not a style: a
+  // select under an oak part still draws as a selection.
+  const styled = inherited && (inherited.face || inherited.edge) ? inherited
+    : uniqueType === 'select' ? getSelectOptions()
+    : undefined;
+  if (!inherited?.appearance) return styled;
+  return { ...styled, appearance: inherited.appearance };
+}
+
+/**
+ * The options a part row hands its subtree: `inherited` plus the part's
+ * `.appearance(id)`, resolved against the built-in table. An id the table
+ * lacks shades plain (the row carries the warning).
+ */
+function withPartAppearance(obj: SceneObjectRender, inherited?: MeshRenderOptions): MeshRenderOptions | undefined {
+  if (obj.type !== 'part' || typeof obj.object?.appearance !== 'string') {
+    return inherited;
+  }
+  const appearance = resolveAppearance(obj.object.appearance);
+  return appearance ? { ...inherited, appearance } : inherited;
 }
 
 /**
@@ -107,7 +125,7 @@ export function buildObjectMesh(
 
   // --- generic objects: resolve options and recurse into children ---
   const isSelect = obj.uniqueType === 'select';
-  const options = resolveOptions(obj.uniqueType, inherited);
+  const options = resolveOptions(obj.uniqueType, withPartAppearance(obj, inherited));
   const children = SceneIndex.of(allObjects).children(obj.id);
 
   let result: Object3D;

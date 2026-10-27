@@ -3506,6 +3506,49 @@ export async function applyBoolean(options: BooleanApplyOptions): Promise<ApplyF
   }, options.signal);
 }
 
+/**
+ * What a colour paints: whole objects — the solid-bearing statements picked
+ * in the viewport, by call site (the dialog's Solid tab) — or picked faces
+ * synthesized into selectors like a shell's (the Face tab).
+ */
+export type ColorPaint =
+  | { kind: 'solids'; targets: SketchSourceRef[] }
+  | {
+    kind: 'faces';
+    entities: ApplyFeatureEntity[];
+    chains?: ApplyFeatureChain[];
+    /** User-edited argument list; replaces the synthesized selectors verbatim. */
+    selectorOverride?: string;
+  };
+
+export type ColorApplyOptions = {
+  /** The CSS colour to write — a hex value, a colour name or an `rgb(…)` string. */
+  value: string;
+  paint: ColorPaint;
+  /** Render the statement preview (and, for faces, synthesize the selectors) without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a colour
+ * statement — `color('#3498db', e)` for whole objects, `color('#3498db',
+ * e.endFaces())` for picked faces. Same endpoint and response shape as
+ * {@link applyFeature}; a face preview carries the synthesized `args` and
+ * their `alternatives` for the expression row.
+ */
+export async function applyColor(options: ColorApplyOptions): Promise<ApplyFeatureResponse> {
+  const paint = options.paint;
+  return postApplyFeature({
+    feature: 'color',
+    value: options.value,
+    ...(paint.kind === 'solids'
+      ? { targets: paint.targets }
+      : { entities: paint.entities, chains: paint.chains, selectorOverride: paint.selectorOverride }),
+    preview: options.preview,
+  }, options.signal);
+}
+
 // ---------------------------------------------------------------------------
 // Feature statement editing (timeline double-click → edit dialog)
 // ---------------------------------------------------------------------------
@@ -3559,6 +3602,12 @@ export type FeatureSourcesResult =
   | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
   | { ok: true; feature: 'helix'; source: SourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlotRef }
+  /**
+   * A colour: the faces it paints, as entities on the pre-statement solids
+   * (`opaque` when it paints whole objects or nothing pickable), plus the
+   * objects it paints whole, by call site.
+   */
+  | { ok: true; feature: 'color'; selection: SourceSlotRef; targets: SourceSlotRef[] }
   | {
     ok: true;
     feature: 'projection' | 'intersect';
@@ -4044,6 +4093,21 @@ export type ParsedFeatureStatement =
       rotationAxes: PlaneRotationAxes;
       /** Normalized 0–1 position along the edge; null for the other forms. */
       position: ValueExpr | null;
+    }
+  | {
+      feature: 'color';
+      /** The CSS colour the statement writes, as its string literal spells it. */
+      value: string;
+      /** Target argument list after the colour, verbatim (`''` when absent). */
+      argsText: string;
+      /** Target texts, verbatim, in argument order; empty paints the last selection, or every face in scope. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
     }
   | {
       feature: 'boolean';
@@ -4791,6 +4855,52 @@ export async function applyBooleanEdit(
     expectedStatement: options.expectedStatement,
     kind: options.kind,
     targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * One target of an edited colour's Solid tab, in argument order: an
+ * untouched target by its position in the statement's own argument list, or
+ * a re-picked solid statement by call site.
+ */
+export type ColorEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type ColorEditOptions = EditSessionFields & {
+  /** The CSS colour to write; the dialog owns it outright. */
+  value: string;
+  /**
+   * What replaces the statement's arguments, if anything: the Solid tab's
+   * full target list (empty makes the paint implicit), or the Face tab's
+   * re-picked faces and/or edited expression. Absent keeps the statement's
+   * own arguments.
+   */
+  paint?:
+    | { kind: 'solids'; targets: ColorEditTargetRef[] }
+    | { kind: 'faces'; entities?: ApplyFeatureEntity[]; chains?: ApplyFeatureChain[]; selectorOverride?: string };
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the colour statement at `edit` in place. */
+export async function applyColorEdit(
+  edit: FeatureEditTarget,
+  options: ColorEditOptions,
+): Promise<ApplyFeatureResponse> {
+  const paint = options.paint;
+  return postApplyFeature({
+    feature: 'color',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    value: options.value,
+    ...(paint?.kind === 'solids'
+      ? { targets: paint.targets }
+      : paint?.kind === 'faces'
+        ? { entities: paint.entities, chains: paint.chains, selectorOverride: paint.selectorOverride }
+        : {}),
     preview: options.preview,
   }, options.signal);
 }

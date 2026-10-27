@@ -139,7 +139,7 @@ class FakeService {
 
 const PART_ORDER = [
   'extrude', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix',
-  'repeat', 'copy', 'mirror', 'translate', 'rotate', 'split', 'connector', 'boolean', 'plane', 'text',
+  'repeat', 'copy', 'mirror', 'translate', 'rotate', 'split', 'connector', 'boolean', 'color', 'plane', 'text',
 ] as const;
 type PartId = typeof PART_ORDER[number];
 
@@ -305,7 +305,7 @@ describe('PartFeatureDialogs', () => {
   });
 
   it('gives a viewport click to the armed dialog only while its click slot is armed', () => {
-    const plainClickers: PartId[] = ['rib', 'hole', 'helix', 'repeat', 'copy', 'mirror', 'translate', 'rotate', 'split', 'connector', 'boolean', 'plane'];
+    const plainClickers: PartId[] = ['rib', 'hole', 'helix', 'repeat', 'copy', 'mirror', 'translate', 'rotate', 'split', 'connector', 'boolean', 'color', 'plane'];
     for (const id of plainClickers) {
       const service = arm(id);
       expect(registry.routeClick('s1', FACE), id).toBe(true);
@@ -422,6 +422,17 @@ describe('PartFeatureDialogs', () => {
     expect(registry.routeContextMenu('s1', FACE, 1, 2)).toBe(true);
     expect(registry.routeDoubleClick('s1', FACE)).toBe(true);
     expect(fakes.sweep.calls).toEqual(['context', 'dblclick']);
+    fakes.sweep.exit();
+    fakes.sweep.edgePicking = false;
+
+    // The Color dialog's Face tab takes both as well; its Solid tab does not.
+    arm('color');
+    expect(registry.routeContextMenu('s1', FACE, 1, 2)).toBe(false);
+    expect(registry.routeDoubleClick('s1', FACE)).toBe(false);
+    fakes.color.facePicking = true;
+    expect(registry.routeContextMenu('s1', FACE, 1, 2)).toBe(true);
+    expect(registry.routeDoubleClick('s1', FACE)).toBe(true);
+    expect(fakes.color.calls).toEqual(['context', 'dblclick']);
   });
 
   it('reads which dialogs own the viewport for the neutral-mode menu', () => {
@@ -495,7 +506,7 @@ describe('PartFeatureDialogs', () => {
     const rowTypes = [
       'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix',
       'repeat-linear', 'repeat-circular', 'repeat-matrix', 'copy-linear', 'copy-circular', 'copy-pattern',
-      'mirror', 'translate', 'rotate', 'split', 'connector', 'fuse', 'subtract', 'common', 'plane', 'text',
+      'mirror', 'translate', 'rotate', 'split', 'connector', 'fuse', 'subtract', 'common', 'color', 'plane', 'text',
     ];
     for (const type of rowTypes) {
       expect(registry.editsRowType(type), type).toBe(true);
@@ -507,7 +518,7 @@ describe('PartFeatureDialogs', () => {
       ['extrude', 'extrude'], ['rib', 'rib'], ['hole', 'hole'], ['revolve', 'revolve'], ['sweep', 'sweep'],
       ['wrap', 'wrap'], ['loft', 'loft'], ['helix', 'helix'], ['repeat', 'repeat'], ['copy', 'copy'],
       ['mirror', 'mirror'], ['translate', 'translate'], ['rotate', 'rotate'], ['split', 'split'], ['connector', 'connector'], ['boolean', 'boolean'],
-      ['plane', 'plane'], ['text', 'text'],
+      ['color', 'color'], ['plane', 'plane'], ['text', 'text'],
     ];
     for (const [kind, id] of kinds) {
       const dialog = registry.forParsedFeature(kind);

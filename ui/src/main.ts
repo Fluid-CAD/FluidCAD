@@ -53,6 +53,7 @@ import { TranslateFeatureService } from './interactive/create-feature/translate-
 import { SplitFeatureService } from './interactive/create-feature/split-service';
 import { ConnectorFeatureService } from './interactive/create-feature/connector-service';
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
+import { ColorFeatureService } from './interactive/create-feature/color-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
 import { isPlaneStatementRow } from './interactive/create-feature/plane-bases';
 import { FinishSketchButton } from './interactive/create-feature/finish-sketch-button';
@@ -2385,13 +2386,28 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
   onResumeSketchUI: resumeSketchForFeature,
 });
 
-// The Offset button's group renders right after the boolean group — navbar
+// Constructed after the boolean service so its own navbar group follows the
+// Boolean button — appearance after the shape tools (…, | Boolean, | Color).
+const colorService = new ColorFeatureService(container, viewer, navbar, {
+  // The current selection seeds the dialog: faces alone open the Face tab
+  // picked; anything else resolves to its solids on the Solid tab.
+  // enterPartDialog captures it before its exits clear it.
+  onEnter: () => {
+    const { selection } = enterPartDialog('color', { clearPendingPlane: true });
+    return { seed: selection };
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+});
+
+// The Offset button's group renders right after the color group — navbar
 // groups sit in registration order, so it mounts here.
 modifyService.mountOffsetButton();
 
 // Constructed after every other part-mode tool — the connector is assembly
 // prep rather than modelling, so its group registers last and the Connector
-// button sits at the very end of the bar (…, | Boolean, | Offset, | Connector).
+// button sits at the very end of the bar (…, | Boolean, | Color, | Offset, | Connector).
 const connectorService = new ConnectorFeatureService(container, viewer, navbar, {
   onEnter: () => {
     enterPartDialog('connector', { clearPendingPlane: true });
@@ -2420,6 +2436,7 @@ PartFeatureDialogs.register(featureDialogs, {
   split: splitService,
   connector: connectorService,
   boolean: booleanService,
+  color: colorService,
   plane: planeService,
   text: textEditService,
 });

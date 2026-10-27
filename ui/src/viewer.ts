@@ -1837,7 +1837,7 @@ export class Viewer {
   }
 
   /** Tint one whole shape (all faces of a solid, or its edges) in place. */
-  private applyShapeHighlight(shapeId: string, instanceId: string | null = null): void {
+  private applyShapeHighlight(shapeId: string, instanceId: string | null = null, tint: Color | null = null): void {
     const part = this.findShapeById(shapeId);
     if (!part) return;
 
@@ -1856,7 +1856,7 @@ export class Viewer {
       if (isFaceHighlight && child instanceof Mesh && !isEdge) {
         const mat = (child as any).material;
         child.userData.originalColor = mat.color.getHex();
-        mat.color.set(themeColors.highlightColor);
+        mat.color.set(tint ?? themeColors.highlightColor);
         if (mat.opacity < 1 || mat.transparent) {
           child.userData.originalOpacity = mat.opacity;
           child.userData.originalTransparent = mat.transparent;
@@ -2122,8 +2122,17 @@ export class Viewer {
     solidShapeIds: string[] = [],
     planeQuadShapeIds: string[] = [],
     instanceId: string | null = null,
+    options: {
+      /**
+       * A colour in place of the theme's highlight for the faces and whole
+       * solids — the Color dialog's live paint; edges and wires keep the
+       * highlight colour, so a tinted pick still reads as selected.
+       */
+      tint?: string;
+    } = {},
   ): void {
     this.clearHighlightState();
+    const tint = options.tint ? new Color(options.tint) : null;
     // A consumed sketch's wire, axis line or plane quad has no mesh until
     // its row is drawn: reveal the rows these shapes belong to first, then
     // highlight.
@@ -2140,7 +2149,7 @@ export class Viewer {
       // light up for one pick.
       const scopeId = entity.instanceId ?? instanceId;
       if (entity.sub.type === 'face') {
-        this.applyFaceHighlight(entity.shapeId, entity.sub.index, scopeId);
+        this.applyFaceHighlight(entity.shapeId, entity.sub.index, scopeId, tint);
       } else if (entity.sub.type === 'edge') {
         this.applyEdgeHighlight(entity.shapeId, entity.sub.index, scopeId);
       }
@@ -2149,7 +2158,7 @@ export class Viewer {
       this.applySketchWireHighlight(shapeId);
     }
     for (const shapeId of solidShapeIds) {
-      this.applyShapeHighlight(shapeId);
+      this.applyShapeHighlight(shapeId, null, tint);
     }
     for (const shapeId of planeQuadShapeIds) {
       this.applyPlaneQuadHighlight(shapeId);
@@ -2196,7 +2205,9 @@ export class Viewer {
     this.highlightEntities([{ shapeId, sub: { type: 'edge', index: edgeIndex } }], [], [], [], instanceId);
   }
 
-  private applyFaceHighlight(shapeId: string, faceIndex: number, instanceId: string | null = null): void {
+  private applyFaceHighlight(
+    shapeId: string, faceIndex: number, instanceId: string | null = null, tint: Color | null = null,
+  ): void {
     const scope = this.resolveScope(instanceId);
     if (!scope) {
       return;
@@ -2210,7 +2221,7 @@ export class Viewer {
       // base face and draw on top, so boundaries between two highlighted
       // faces stay visible.
       const overlayMat = new MeshPhongMaterial({
-        color: themeColors.highlightColor,
+        color: tint ?? themeColors.highlightColor,
         depthWrite: false,
         polygonOffset: true,
         polygonOffsetFactor: -2,

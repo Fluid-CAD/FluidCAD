@@ -157,6 +157,8 @@ export type ObjectType =
   | 'mirror'
   /** A 3D `split(plane | line, …)` — parts solids at a plane. */
   | 'split'
+  /** A `color(value, …)` — paints faces or whole solids; a reference row that holds no body. */
+  | 'color'
   | 'linear-pattern'
   // 3D copies — `copy('linear' | 'circular', …)`, and `copy(pattern, …)`
   // following a repeat

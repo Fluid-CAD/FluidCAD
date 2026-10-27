@@ -997,11 +997,126 @@ describe('a multi-select: a list of option values, written as one array literal'
   });
 
   it('refuses a statement whose list is no plain list of strings and numbers, by message', async () => {
-    for (const coats of [`[...base]`, `base`, `['prime', two]`, `'prime'`, `[['prime']]`]) {
+    for (const coats of [`[...base]`, `base()`, `['prime', two]`, `'prime'`, `[['prime']]`]) {
       const refused = await rimAt(src(`import { rim } from './rim.feature.js'`, ``, `rim(${coats}, ['deburr'], 4)`));
       expect(refused.ok === false && refused.reason).toContain(`rim()'s 'coats' is not a plain list of strings or numbers`);
     }
     const read = await rimAt(src(`import { rim } from './rim.feature.js'`, ``, `rim(["prime", 2], [], 4)`));
     expect(read.ok && read.parsed).toMatchObject({ values: { coats: ['prime', 2], finishes: [], depth: 4 } });
+    // A bare name is a reference to a list-valued variable, not a malformed list.
+    const bound = await rimAt(src(`import { rim } from './rim.feature.js'`, ``, `rim(base, ['deburr'], 4)`));
+    expect(bound.ok && bound.parsed).toMatchObject({ values: { coats: { ref: 'base' }, finishes: ['deburr'], depth: 4 } });
+  });
+});
+
+// A select (or a radio, the same kind) may hold a reference to a variable
+// in place of one of its options — `{ ref: 'holeSize' }` on the wire, the
+// name written bare in the statement the way a number row writes an
+// expression, and read back as the reference. Only a name or a dotted
+// member path is a reference; a text takes none.
+describe('a choice bound to a variable', () => {
+  const select = TypedInKinds.of('select')!;
+  const list = TypedInKinds.of('select', true)!;
+  const SCREW = (CLIP_META.params as Record<string, TypedInSpec>).size;
+  const FINISHES = { label: 'Finishes', type: 'select', multiple: true, min: 1, max: 2, options: [{ value: 'deburr' }, { value: 'chamfer' }] };
+
+  function clipSpec(values: CustomFeatureOptions['values']): ApplyFeatureEditSpec {
+    return {
+      feature: 'custom', filePath: MODEL, producers: [], parts: [], imports: [],
+      custom: { id: 'acme.clip', exportName: 'clip', modulePath: '/ws/clip.feature.js', shape: CustomFeatureStatement.shapeOf(CLIP_META), values },
+    };
+  }
+
+  async function clipAt(statement: string) {
+    const code = src(`import { clip } from './clip.feature.js'`, ``, statement);
+    return parseFeatureStatement(code, 3, await catalog().calleesFor(code, MODEL));
+  }
+
+  it('writes a reference bare, as the number rows write an expression', async () => {
+    expect(select.source(SCREW, { ref: 'holeSize' })).toEqual({ kind: 'value', value: 'holeSize' });
+    expect(select.source(SCREW, { ref: 'inst.properties.kind' })).toEqual({ kind: 'value', value: 'inst.properties.kind' });
+    expect(select.source(SCREW, { ref: '$_ok.a1' })).toEqual({ kind: 'value', value: '$_ok.a1' });
+    expect(TypedInKinds.text({ kind: 'value', value: 'holeSize' })).toBe('holeSize');
+
+    const written = await applyFeatureEdit(PLATE, clipSpec({ size: { kind: 'value', value: 'holeSize' }, head: { kind: 'literal', value: 'plain' } }), { callees: catalog() });
+    expect(written.error).toBeUndefined();
+    expect(written.newCode).toContain(`clip({ size: holeSize, head: 'plain' })`);
+  });
+
+  it('refuses a malformed reference by name, and lets a non-reference fall through to the options', () => {
+    for (const ref of ['', ' holeSize', 'hole size', 'a + b', 'size()', 'a[0]', 'a.', '.a', '1st', 'a?.b', 'a..b', "'m4'"]) {
+      expect(select.source(SCREW, { ref }), ref).toBe('Screw must name a variable');
+      expect(select.preview(SCREW, { ref }), ref).toBe('Screw must name a variable');
+      expect(list.source(FINISHES, { ref }), ref).toBe('Finishes must name a variable');
+      expect(list.preview(FINISHES, { ref }), ref).toBe('Finishes must name a variable');
+    }
+    expect(select.preview(SCREW, { ref: 'holeSize' })).toBeNull();
+    expect(list.preview(FINISHES, { ref: 'coats' })).toBeNull();
+    // Not a reference's shape at all: checked as an option, as before.
+    expect(select.source(SCREW, { ref: 3 })).toBe('Screw must be one of "m3", "m4"');
+    expect(select.source(SCREW, { name: 'holeSize' })).toBe('Screw must be one of "m3", "m4"');
+    expect(select.preview(SCREW, { ref: 3 })).toBe('Screw must be one of its options');
+    expect(TypedInKinds.isRef({ ref: 'x' })).toBe(true);
+    expect(TypedInKinds.isRef({ ref: 3 })).toBe(false);
+    expect(TypedInKinds.isRef(['x'])).toBe(false);
+    expect(TypedInKinds.refText({ ref: 'a.b' })).toBe('a.b');
+    expect(TypedInKinds.refText({ ref: 'a-b' })).toBeNull();
+  });
+
+  it('refuses a reference on a text, which stays a literal, and on a boolean', () => {
+    const text = TypedInKinds.of('text')!;
+    const NOTE = { label: 'Note', type: 'text' };
+    expect(text.source(NOTE, { ref: 'label' })).toBe('Note is text, which takes no variable');
+    expect(text.preview(NOTE, { ref: 'label' })).toBe('Note is text, which takes no variable');
+    expect(text.source(NOTE, 'label')).toEqual({ kind: 'literal', value: 'label' });
+    const flag = TypedInKinds.of('boolean')!;
+    expect(flag.source({ label: 'Flush', type: 'boolean' }, { ref: 'flush' })).toBe('Flush must be true or false');
+  });
+
+  it('reads a bare name or a dotted path back as the reference, and nothing else', async () => {
+    const named = await clipAt(`clip({ size: holeSize, head: 'plain' })`);
+    expect(named.ok && named.parsed).toMatchObject({ feature: 'custom', values: { size: { ref: 'holeSize' }, head: 'plain' } });
+    const path = await clipAt(`clip({ size: inst.properties.kind, head: 'plain' })`);
+    expect(path.ok && path.parsed).toMatchObject({ values: { size: { ref: 'inst.properties.kind' } } });
+    // A radio is the same kind: a bound radio statement is editable too.
+    const radio = await clipAt(`clip({ size: 'm4', head: headKind })`);
+    expect(radio.ok && radio.parsed).toMatchObject({ values: { size: 'm4', head: { ref: 'headKind' } } });
+
+    for (const head of [`pick()`, `this.x`, `kinds[0]`, `inst?.properties.kind`, `a.b()`, `(holeSize)`, `\`m4\``, `inst.properties.kind + ''`]) {
+      const refused = await clipAt(`clip({ size: 'm4', head: ${head} })`);
+      expect(refused.ok === false && refused.reason, head).toContain(`clip()'s 'head' is not a plain string or number`);
+    }
+  });
+
+  it('edits around a reference, and binds and unbinds one', async () => {
+    const code = src(`import { clip } from './clip.feature.js'`, ``, `clip({ size: holeSize, head: 'plain' })`);
+    const edit = (values: CustomFeatureOptions['values']) => applyFeatureEdit(code, {
+      feature: 'custom', filePath: MODEL, producers: [], parts: [], imports: [],
+      edit: { line: 3, column: 0, custom: { id: 'acme.clip', values } },
+    }, { callees: catalog() });
+    const kept = await edit({ size: { kind: 'keep' }, head: { kind: 'literal', value: 'counterbore' } });
+    expect(kept.error).toBeUndefined();
+    expect(kept.newCode).toContain(`clip({ size: holeSize, head: 'counterbore' })`);
+    const unbound = await edit({ size: { kind: 'literal', value: 'm3' }, head: { kind: 'keep' } });
+    expect(unbound.newCode).toContain(`clip({ size: 'm3', head: 'plain' })`);
+    const rebound = await edit({ size: { kind: 'value', value: 'inst.properties.kind' }, head: { kind: 'value', value: 'headKind' } });
+    expect(rebound.newCode).toContain(`clip({ size: inst.properties.kind, head: headKind })`);
+  });
+
+  it('binds a multi-select to a list-valued variable, written bare and read back', async () => {
+    expect(list.source(FINISHES, { ref: 'coats' })).toEqual({ kind: 'value', value: 'coats' });
+    expect(list.source(FINISHES, { ref: 'inst.properties.coats' })).toEqual({ kind: 'value', value: 'inst.properties.coats' });
+    const written = await applyFeatureEdit(PLATE, {
+      feature: 'custom', filePath: MODEL, producers: [], parts: [], imports: [],
+      custom: {
+        id: 'acme.rim', exportName: 'rim', modulePath: '/ws/rim.feature.js', shape: CustomFeatureStatement.shapeOf(RIM_META),
+        values: { coats: { kind: 'value', value: 'chosen' }, finishes: { kind: 'list', values: ['deburr'] } },
+      },
+    }, { callees: catalog() });
+    expect(written.error).toBeUndefined();
+    expect(written.newCode).toContain(`rim(chosen, ['deburr'])`);
+    const line = written.newCode.split('\n').findIndex(row => row.includes('rim(')) + 1;
+    const parsed = await parseFeatureStatement(written.newCode, line, await catalog().calleesFor(written.newCode, MODEL));
+    expect(parsed.ok && parsed.parsed).toMatchObject({ values: { coats: { ref: 'chosen' }, finishes: ['deburr'] } });
   });
 });

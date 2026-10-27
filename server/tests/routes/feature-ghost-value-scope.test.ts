@@ -363,6 +363,86 @@ describe('ValueScope — part definition properties', () => {
   });
 });
 
+// A choice bound to a variable reads the literal the name holds — a string,
+// a number, a list — by the same scoping as the numbers; the numeric
+// consumers keep refusing anything that is no number.
+describe('ValueScope — literals', () => {
+  const SHOP = [
+    `import { part, param, property, insert, extrude } from 'fluidcad/core';`,
+    `const finish = 'top';`,
+    `export const bracket = part('Bracket', () => {`,
+    `  const finish = 'brushed';`,
+    `  const screw = param('Screw', 'm3', 'select', { options: [{ label: 'M3', value: 'm3' }] });`,
+    `  const count = param('Count', 4);`,
+    `  const turns = count - 1;`,
+    `  const coats = ['prime', 2, -1];`,
+    `  const alias = finish;`,
+    `  const kind = property('Kind', 'kind', 'bent');`,
+    `  const flag = true;`,
+    `  let moody = 'a';`,
+    `  moody = 'b';`,
+    `  const mixed = ['prime', flag];`,
+    `  const inst = insert(Bolt);`,
+    `  property('Grade', 'grade', 'A2-70');`,
+    `  extrude(1);`,
+    `});`,
+  ].join('\n');
+  const rendered = [{ sourceLocation: { filePath: FILE, line: 15, column: 15 }, properties: { kind: 'm4', turns: 3, flag: false } }];
+  const EXTRUDE = 17;
+
+  async function shopScope(definitions: ParamSiteDefinition[] = []): Promise<ValueScope> {
+    return ValueScope.open({ code: SHOP, filePath: FILE, definitions, instances: rendered }, statement(EXTRUDE));
+  }
+
+  it('reads a string, a number, a list, a name through its binding, and the innermost declaration', async () => {
+    const scope = await shopScope();
+    expect(scope.literal('finish')).toBe('brushed');
+    expect(scope.literal('alias')).toBe('brushed');
+    expect(scope.literal('coats')).toEqual(['prime', 2, -1]);
+    expect(scope.literal('turns')).toBe(3);
+    expect(scope.literal('count')).toBe(4);
+    expect(scope.literal(' finish ')).toBe('brushed');
+    const top = await ValueScope.open({ code: SHOP, filePath: FILE, definitions: [] }, null);
+    expect(top.literal('finish')).toBe('top');
+  });
+
+  it("reads a param()'s default, else the registry's current value, and a property()'s published value", async () => {
+    expect((await shopScope()).literal('screw')).toBe('m3');
+    expect((await shopScope([definedAt('Screw', 'm4', 5)])).literal('screw')).toBe('m4');
+    expect((await shopScope([definedAt('Count', 6, 6)])).literal('turns')).toBe(5);
+    const scope = await shopScope();
+    expect(scope.literal('kind')).toBe('bent');
+    // The enclosing part's bare property, by name.
+    expect(scope.literal('grade')).toBe('A2-70');
+  });
+
+  it('reads a rendered property of an instance, string or number', async () => {
+    const scope = await shopScope();
+    expect(scope.literal('inst.properties.kind')).toBe('m4');
+    expect(scope.literal('inst.properties.turns')).toBe(3);
+    expect(scope.literal('inst.properties.flag')).toBeNull();
+    expect(scope.literal('inst.properties.none')).toBeNull();
+    expect(scope.literal('inst.kind')).toBeNull();
+  });
+
+  it('resolves nothing for a boolean, a mixed list, a reassigned let, an unknown name, or arithmetic', async () => {
+    const scope = await shopScope();
+    for (const ref of ['flag', 'mixed', 'moody', 'nowhere', 'count + 1', 'Math.PI', "param('x', 'y')", 'inst', 'extrude']) {
+      expect(scope.literal(ref), ref).toBeNull();
+    }
+  });
+
+  it('leaves the numeric consumers reading numbers only', async () => {
+    const scope = await shopScope();
+    expect(scope.resolve('finish')).toBeNull();
+    expect(scope.resolve('screw')).toBeNull();
+    expect(scope.resolve('coats')).toBeNull();
+    expect(scope.resolve('inst.properties.kind')).toBeNull();
+    expect(scope.resolve('turns')).toBe(3);
+    expect(scope.resolve('inst.properties.turns')).toBe(3);
+  });
+});
+
 describe("ValueScope — a part's property() values", () => {
   const HOUSING = [
     `import { part, param, sketch, circle, extrude, property } from 'fluidcad/core';`,

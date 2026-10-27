@@ -221,11 +221,11 @@ describe('the sketch-edits router', () => {
     const names = body.variables.map((v: any) => v.name);
     expect(names.slice(0, names.indexOf('wall'))).not.toContain('bolt');
     expect(body.variables.find((v: any) => v.name === 'wall')).toEqual({
-      name: 'wall', initializer: '3', numeric: true,
+      name: 'wall', initializer: '3', numeric: true, value: 3,
       global: { file: 'project.params.js', label: 'Wall thickness', unit: 'mm', imported: false },
     });
     expect(body.variables.find((v: any) => v.name === 'bolt')).toEqual({
-      name: 'bolt', initializer: `'M4'`, numeric: false,
+      name: 'bolt', initializer: `'M4'`, numeric: false, value: 'M4',
       global: { file: 'project.params.js', label: 'Bolt', imported: false },
     });
     expect(body.variables.find((v: any) => v.name === 'rounded')).toMatchObject({ initializer: 'true', numeric: false });
@@ -252,11 +252,11 @@ describe('collectVariablesInScope with globals', () => {
     const code = `import { wall as w, bolt } from './project.params.js';\n${BRACKET}`;
     const variables = await extractVariablesInPart(code, 4, undefined, await scopeGlobals());
     expect(variables.filter((v) => v.name === 'w')).toEqual([{
-      name: 'w', initializer: '3', numeric: true,
+      name: 'w', initializer: '3', numeric: true, value: 3,
       global: { file: 'project.params.js', label: 'Wall thickness', unit: 'mm', imported: true, alias: 'w' },
     }]);
     expect(variables.filter((v) => v.name === 'bolt')).toEqual([{
-      name: 'bolt', initializer: `'M4'`, numeric: false,
+      name: 'bolt', initializer: `'M4'`, numeric: false, value: 'M4',
       global: { file: 'project.params.js', label: 'Bolt', imported: true },
     }]);
     expect(variables.some((v) => v.name === 'wall')).toBe(false);

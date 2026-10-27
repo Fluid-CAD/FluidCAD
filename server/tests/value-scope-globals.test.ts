@@ -74,4 +74,18 @@ describe('ValueScope with project parameters', () => {
     const scope = await open(`import { wall } from '../project.params.js';\n`, undefined, null);
     expect(scope.resolve('wall')).toBeNull();
   });
+
+  it("reads a global's string or number as a choice's literal, and nothing for an unknown export or another module", async () => {
+    const scope = await open([
+      `import { wall, bolt, missing } from '../project.params.js';`,
+      `import { depth } from '../other.part.js';`,
+      ``,
+    ].join('\n'));
+    expect(scope.literal('bolt')).toBe('M4');
+    expect(scope.literal('wall')).toBe(3);
+    expect(scope.literal('missing')).toBeNull();
+    expect(scope.literal('depth')).toBeNull();
+    const bare = await open(`import { bolt } from '../project.params.js';\n`, undefined, null);
+    expect(bare.literal('bolt')).toBeNull();
+  });
 });

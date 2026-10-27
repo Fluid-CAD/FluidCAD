@@ -95,12 +95,14 @@ let entries: FeatureCatalogEntry[] | null;
 let received: any;
 let answer: any;
 let code: string;
+let definitions: unknown[];
+let instances: unknown[];
 
 const fakeServer = {
   getCurrentCode: () => code,
   getCurrentFileName: () => FILE,
-  getParamDefinitions: () => [] as unknown[],
-  getRenderedInstances: () => [] as unknown[],
+  getParamDefinitions: () => definitions,
+  getRenderedInstances: () => instances,
   getRenderedParts: () => [] as unknown[],
   featureGhost: async (request: unknown) => {
     received = request;
@@ -154,6 +156,8 @@ beforeEach(() => {
   received = undefined;
   answer = { status: 200, solids: [{ meshes: [] }] };
   code = '';
+  definitions = [];
+  instances = [];
 });
 
 describe('feature-ghost route — custom features', () => {
@@ -361,6 +365,94 @@ describe('feature-ghost route — custom features', () => {
     const answered = await post({ feature: 'custom', id: 'acme.finish', values: { steps: 'polish' } });
     expect(answered).toEqual({ status: 400, body: { success: false, reason: 'Steps must be a list of its options' } });
     expect(received).toBeUndefined();
+  });
+
+  // A choice bound to a variable — `{ ref: 'holeSize' }` — previews as the
+  // literal the variable holds where the statement sits, resolved by the
+  // same scope the number rows use; a name with no value there draws nothing.
+  describe('a choice bound to a variable', () => {
+    const FINISH_META = {
+      id: 'acme.finish', label: 'Finish', group: 'create', kind: 'tool', operations: [],
+      params: { steps: { type: 'select', multiple: true, label: 'Steps', default: [], options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Polish', value: 'polish' }] } },
+      call: [{ steps: 'steps' }], ghost: true, contexts: ['part'],
+    } as unknown as ScannedFeature['meta'];
+
+    const PART = [
+      `import { part, param } from 'fluidcad/core';`,
+      `export const plate = part('Plate', () => {`,
+      `  const holeSize = 'm4';`,
+      `  const screw = param('Screw', 'm3', 'select', { options: [{ label: 'M3', value: 'm3' }, { label: 'M4', value: 'm4' }] });`,
+      `  const turns = 2;`,
+      `  const steps = ['polish'];`,
+      `  const count = param('Count', 4);`,
+      `  const flat = true;`,
+      `  const one = 'polish';`,
+      `});`,
+    ].join('\n');
+    const scope = { kind: 'append', filePath: FILE, line: 2, column: 22 };
+
+    beforeEach(() => {
+      code = PART;
+      entries!.push(entry(CLIP_META, 'clip', '/ws/clip.feature.js'), entry(FINISH_META, 'finish', '/ws/finish.feature.js'));
+    });
+
+    it('resolves a string const, a param() default, a number and a list to the literals the engine takes', async () => {
+      await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'holeSize' }, head: 'plain', turns: { ref: 'turns' } }, valueScope: scope });
+      expect(received).toMatchObject({ exportName: 'clip', values: { size: 'm4', head: 'plain', turns: 2 } });
+
+      await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'screw' } }, valueScope: scope });
+      expect(received).toMatchObject({ values: { size: 'm3' } });
+
+      await post({ feature: 'custom', id: 'acme.finish', values: { steps: { ref: 'steps' } }, valueScope: scope });
+      expect(received).toMatchObject({ exportName: 'finish', values: { steps: ['polish'] } });
+    });
+
+    it("prefers the registry's current value of a param() over its default", async () => {
+      definitions = [{ label: 'Screw', currentValue: 'm4', sourceLocation: { filePath: FILE, line: 4 } }];
+      await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'screw' } }, valueScope: scope });
+      expect(received).toMatchObject({ values: { size: 'm4' } });
+    });
+
+    it('resolves a rendered instance property through its binding', async () => {
+      code = [
+        `import { part, insert } from 'fluidcad/core';`,
+        `export const plate = part('Plate', () => {`,
+        `  const inst = insert(Bolt);`,
+        `});`,
+      ].join('\n');
+      instances = [{ sourceLocation: { filePath: FILE, line: 3, column: 15 }, properties: { kind: 'm4', turns: 2 } }];
+      await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'inst.properties.kind' }, turns: { ref: 'inst.properties.turns' } }, valueScope: scope });
+      expect(received).toMatchObject({ values: { size: 'm4', turns: 2 } });
+    });
+
+    it('draws nothing for a name with no value here, saying so by the label and the name', async () => {
+      const unknown = await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'nowhere' } }, valueScope: scope });
+      expect(unknown).toEqual({ status: 200, body: { success: false, reason: 'Screw names nowhere, which has no value here' } });
+      // A boolean is no option's value; a name out of scope (the top level sees no part body) has none either.
+      const flag = await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'flat' } }, valueScope: scope });
+      expect(flag.body).toEqual({ success: false, reason: 'Screw names flat, which has no value here' });
+      const outside = await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'holeSize' } } });
+      expect(outside.body).toEqual({ success: false, reason: 'Screw names holeSize, which has no value here' });
+      expect(received).toBeUndefined();
+    });
+
+    it('refuses a malformed reference, and a literal of the wrong shape for the kind', async () => {
+      const malformed = await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'hole size' } }, valueScope: scope });
+      expect(malformed).toEqual({ status: 400, body: { success: false, reason: 'Screw must name a variable' } });
+      // A list where one option is wanted, a string where a list is.
+      const listed = await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'steps' } }, valueScope: scope });
+      expect(listed.body).toEqual({ success: false, reason: 'Screw must be one of its options' });
+      const single = await post({ feature: 'custom', id: 'acme.finish', values: { steps: { ref: 'one' } }, valueScope: scope });
+      expect(single.body).toEqual({ success: false, reason: 'Steps must be a list of its options' });
+      expect(received).toBeUndefined();
+    });
+
+    it('leaves the number rows as they were: a reference shape is no number', async () => {
+      const refused = await post({ feature: 'custom', id: 'acme.standoff', values: { height: { ref: 'count' } }, refs: { face: [FACE] }, valueScope: scope });
+      expect(refused).toEqual({ status: 400, body: { success: false, reason: 'Height must be a number or an expression' } });
+      await post({ feature: 'custom', id: 'acme.standoff', values: { height: 'count * 2' }, refs: { face: [FACE] }, valueScope: scope });
+      expect(received).toMatchObject({ values: { height: 8 } });
+    });
   });
 
   it('refuses custom features when the router has no catalog', async () => {

@@ -10,15 +10,18 @@ import {
   LexicalBindings,
   RenderedProperties,
   splitLines,
+  stringLiteralValue,
   type Binding,
   type PropertySourceKind,
   type RenderedInstanceProperties,
   type RenderedPartProperties,
+  type RenderedPropertyValue,
   type TSNode,
   type TSTree,
 } from '../../code-editor/index.ts';
 import { GlobalImports } from '../../apply-feature-edit/global-imports.ts';
 import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
+import type { GlobalParamValue } from '../../global-params/types.ts';
 import { normalizePath } from '../../normalize-path.ts';
 import { Arithmetic, type ExpressionParser } from './expressions.ts';
 import type { ValueExpr } from './values.ts';
@@ -64,6 +67,13 @@ export type ValueScopeSource = {
 };
 
 /**
+ * What a choice bound to a variable resolves to: an option's value — a
+ * string or a number — or a multi-select's list of them. Never a boolean,
+ * which no choice offers.
+ */
+export type ScopeLiteral = string | number | (string | number)[];
+
+/**
  * The numbers a dialog value's names stand for, read the way JavaScript
  * reads them where the statement sits: the innermost declaration visible
  * there wins, so a part body's `param()` resolves inside that part and
@@ -89,6 +99,13 @@ export type ValueScopeSource = {
  *
  * Without a site in the rendered file — an older client, a statement in
  * another file — names resolve at the file's top level.
+ *
+ * A choice bound to a variable reads a {@link ScopeLiteral} through
+ * {@link literal} by the same scoping: a declaration's string, number or
+ * list literal, a `param()`'s current value or default, a `property()`'s
+ * published value, an imported global's value, a rendered
+ * `<binding>.properties.<name>`. Every numeric consumer keeps reading
+ * numbers only: a string where a number is wanted stays null.
  */
 export class ValueScope {
   /** Each binding's number by its declaration's span; null for one no number can be read from. */
@@ -104,8 +121,8 @@ export class ValueScope {
     private readonly rendered: RenderedProperties,
     /** The node the dialog's names resolve from. */
     private readonly anchor: TSNode,
-    /** The number each params-file import specifier binds, by its local identifier's span. */
-    private readonly importedGlobals: ReadonlyMap<string, number>,
+    /** The value each params-file import specifier binds, by its local identifier's span. */
+    private readonly importedGlobals: ReadonlyMap<string, GlobalParamValue>,
   ) {}
 
   /** The request's `valueScope` field: null when absent, `'invalid'` when malformed. */
@@ -137,22 +154,22 @@ export class ValueScope {
     const anchor = inFile ? ValueScope.anchorAt(tree, splitLines(code), at) : tree.rootNode;
     const importedGlobals = source.globals
       ? await ValueScope.importedGlobals(tree, source.filePath, source.globals)
-      : new Map<string, number>();
+      : new Map<string, GlobalParamValue>();
     return new ValueScope(parser, tree, bindings, params, rendered, anchor, importedGlobals);
   }
 
   /**
-   * The numeric project parameters the file's imports bind, read off the
-   * catalog up front — the lookups are async and the resolution is not.
-   * Keyed by the span of the specifier's local identifier, which is the
-   * `id` of the {@link Binding} the import declares.
+   * The project parameters the file's imports bind, read off the catalog
+   * up front — the lookups are async and the resolution is not. Keyed by
+   * the span of the specifier's local identifier, which is the `id` of the
+   * {@link Binding} the import declares.
    */
   private static async importedGlobals(
     tree: TSTree,
     filePath: string,
     globals: GlobalParamCatalog,
-  ): Promise<Map<string, number>> {
-    const values = new Map<string, number>();
+  ): Promise<Map<string, GlobalParamValue>> {
+    const values = new Map<string, GlobalParamValue>();
     for (const statement of tree.rootNode.namedChildren) {
       if (statement.type !== 'import_statement') {
         continue;
@@ -180,7 +197,7 @@ export class ValueScope {
               continue;
             }
             const value = await globals.valueOf(paramsFile, name.text);
-            if (typeof value === 'number' && Number.isFinite(value)) {
+            if (value !== null) {
               values.set(`${local.startIndex}:${local.endIndex}`, value);
             }
           }
@@ -207,6 +224,21 @@ export class ValueScope {
         member: (access) => this.propertyValue(access, this.anchor),
       })
       : null;
+  }
+
+  /**
+   * The literal a choice's reference stands for where the dialog's
+   * statement sits — `holeSize`, or `inst.properties.kind` — or null when
+   * the name has no string, number or list value here. A reference is a
+   * name or a member path, never arithmetic: nothing else resolves.
+   */
+  literal(ref: string): ScopeLiteral | null {
+    const text = ref.trim();
+    if (Arithmetic.isName(text)) {
+      return this.literalAt(text, this.anchor);
+    }
+    const expression = Arithmetic.parse(text, this.parser);
+    return expression?.type === 'member_expression' ? this.propertyLiteral(expression, this.anchor) : null;
   }
 
   /**
@@ -284,7 +316,8 @@ export class ValueScope {
     if (binding.kind === 'import') {
       // A params-file import reads the catalog's number for that export;
       // any other import is a value the preview cannot know.
-      return this.importedGlobals.get(`${binding.id.startIndex}:${binding.id.endIndex}`) ?? null;
+      const value = this.importedGlobals.get(`${binding.id.startIndex}:${binding.id.endIndex}`);
+      return typeof value === 'number' && Number.isFinite(value) ? value : null;
     }
     const declared = binding.kind === 'const' || binding.kind === 'let' || binding.kind === 'var';
     if (!declared || binding.destructured || !binding.init || this.bindings.isReassigned(binding)) {
@@ -309,6 +342,17 @@ export class ValueScope {
    * a number for it.
    */
   private propertyValue(access: TSNode, at: TSNode): number | null {
+    const value = this.renderedProperty(access, at);
+    return typeof value === 'number' ? value : null;
+  }
+
+  /** The string, number or list `<binding>.properties.<name>` stands for where `at` sits — a choice's reference. */
+  private propertyLiteral(access: TSNode, at: TSNode): ScopeLiteral | null {
+    return ValueScope.asLiteral(this.renderedProperty(access, at));
+  }
+
+  /** The value the last render computed for `<binding>.properties.<name>` where `at` sits, whatever its type. */
+  private renderedProperty(access: TSNode, at: TSNode): RenderedPropertyValue | null {
     const properties = access.childForFieldName('object');
     const name = access.childForFieldName('property');
     if (properties?.type !== 'member_expression' || name?.type !== 'property_identifier') {
@@ -328,8 +372,7 @@ export class ValueScope {
     if (!source || !this.isFluidCadCall(source.call, source.kind)) {
       return null;
     }
-    const value = this.rendered.of(source)?.[name.text];
-    return typeof value === 'number' ? value : null;
+    return this.rendered.of(source)?.[name.text] ?? null;
   }
 
   /** Whether the call names FluidCAD's `insert` / `part` — imported from a fluidcad module, or bare and unbound like `param`. */
@@ -364,5 +407,132 @@ export class ValueScope {
     }
     const fallback = ParamSites.defaultOf(call);
     return fallback ? this.evaluateSource(fallback) : null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Literals — what a choice bound to a variable reads
+  // -------------------------------------------------------------------------
+
+  /** The literal `name` holds where `at` sits, or null. */
+  private literalAt(name: string, at: TSNode): ScopeLiteral | null {
+    const binding = this.bindings.resolve(name, at);
+    return binding ? this.bindingLiteral(binding) : this.bareLiteral(name, at);
+  }
+
+  /** The literal a bare `property()` of the part enclosing `at` publishes under `name`. */
+  private bareLiteral(name: string, at: TSNode): ScopeLiteral | null {
+    const part = findEnclosingPart(this.tree, at.startPosition.row);
+    const bare = part ? bareProperties(part.body).find((p) => p.name === name) : undefined;
+    if (!bare?.value || this.bindings.fluidCadCallee(bare.call)?.name !== 'property') {
+      return null;
+    }
+    return this.guarded(`literal:property:${bare.call.startIndex}`, () => this.literalOf(bare.value!));
+  }
+
+  /**
+   * A binding's literal: an import's is its global's value, a declaration's
+   * its initializer's — read once per binding, a cycle reading as nothing.
+   */
+  private bindingLiteral(binding: Binding): ScopeLiteral | null {
+    const span = `${binding.id.startIndex}:${binding.id.endIndex}`;
+    if (binding.kind === 'import') {
+      return ValueScope.asLiteral(this.importedGlobals.get(span));
+    }
+    const declared = binding.kind === 'const' || binding.kind === 'let' || binding.kind === 'var';
+    if (!declared || binding.destructured || !binding.init || this.bindings.isReassigned(binding)) {
+      return null;
+    }
+    const init = binding.init;
+    return this.guarded(`literal:${span}`, () => this.literalOf(init));
+  }
+
+  /**
+   * The literal an initializer of the model's source holds: a string or an
+   * array of strings and numbers as written, a name through its own
+   * binding, a `param()`'s current value or default, a `property()`'s
+   * published value, a rendered property — and anything numeric the way the
+   * number consumers evaluate it, so `turns = base + 1` reads as its number.
+   */
+  private literalOf(node: TSNode): ScopeLiteral | null {
+    switch (node.type) {
+      case 'string':
+        return stringLiteralValue(node);
+      case 'array':
+        return ValueScope.listLiteral(node);
+      case 'identifier':
+        return this.literalAt(node.text, node);
+      case 'call_expression':
+        return this.declaredLiteral(node);
+      case 'member_expression':
+        return this.propertyLiteral(node, node) ?? this.evaluateSource(node);
+      default:
+        return this.evaluateSource(node);
+    }
+  }
+
+  /**
+   * The literal a declaration call stands for: a `param()`'s is the value
+   * the last render gave this call site, else the default it declares; a
+   * `property()`'s is the value it publishes. Any other call is a number
+   * or nothing.
+   */
+  private declaredLiteral(call: TSNode): ScopeLiteral | null {
+    const callee = this.bindings.fluidCadCallee(call)?.name;
+    if (callee === 'property') {
+      const value = call.childForFieldName('arguments')?.namedChildren.filter(a => a.type !== 'comment')[2];
+      return value ? this.literalOf(value) : null;
+    }
+    if (callee !== 'param') {
+      return this.evaluateSource(call);
+    }
+    const definition = this.params.definitionOf(call);
+    if (definition) {
+      return ValueScope.asLiteral(definition.currentValue);
+    }
+    const fallback = ParamSites.defaultOf(call);
+    return fallback ? this.literalOf(fallback) : null;
+  }
+
+  /** `read` under `key` unless that very read is already under way — `const a = b; const b = a` reads as nothing. */
+  private guarded(key: string, read: () => ScopeLiteral | null): ScopeLiteral | null {
+    if (this.evaluating.has(key)) {
+      return null;
+    }
+    this.evaluating.add(key);
+    try {
+      return read();
+    } finally {
+      this.evaluating.delete(key);
+    }
+  }
+
+  /** An array literal's strings and numbers, in order; null when any element is anything else. */
+  private static listLiteral(array: TSNode): (string | number)[] | null {
+    const values: (string | number)[] = [];
+    for (const element of array.namedChildren) {
+      if (element.type === 'comment') {
+        continue;
+      }
+      const value = element.type === 'string' ? stringLiteralValue(element) : Arithmetic.evaluate(element, { identifier: () => null });
+      if (value === null) {
+        return null;
+      }
+      values.push(value);
+    }
+    return values;
+  }
+
+  /** A value already computed (a registry's, a render's, a catalog's) as a choice's literal, or null for any other type. */
+  private static asLiteral(value: unknown): ScopeLiteral | null {
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : null;
+    }
+    if (Array.isArray(value) && value.every(entry => typeof entry === 'string' || (typeof entry === 'number' && Number.isFinite(entry)))) {
+      return [...value] as (string | number)[];
+    }
+    return null;
   }
 }

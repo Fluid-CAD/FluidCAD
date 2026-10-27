@@ -12,33 +12,32 @@ interface ColorFunction {
    */
   (color: StringParam): ISceneObject;
   /**
-   * Applies a color to the given selection or object.
+   * Applies a color to the given selections or objects — any mix of face
+   * selections and scene objects; every face of an object's solids is colored.
    * @param color - The color value (CSS color string)
-   * @param selection - A face selection, or any scene object — every face of
-   * the object's solids is colored
+   * @param selections - Face selections, or any scene objects
    */
-  (color: StringParam, selection: ISceneObject): ISceneObject;
+  (color: StringParam, ...selections: ISceneObject[]): ISceneObject;
 }
 
 function build(context: SceneParserContext): ColorFunction {
   return function color() {
-    let selection: SceneObject | undefined;
-    if (arguments.length >= 2 && arguments[1] instanceof SceneObject) {
-      selection = arguments[1] as SceneObject;
-    } else {
+    const explicit = Array.from(arguments).slice(1).filter((arg): arg is SceneObject => arg instanceof SceneObject);
+    let selections: SceneObject[] = explicit;
+    if (explicit.length === 0) {
       // A bare color() takes the last unclaimed selection and claims it: a
       // bare fillet(2) after it must not inherit a face selection (D1).
       const implicit = context.getLastSelection();
       if (implicit) {
         implicit.markClaimed();
-        selection = implicit;
+        selections = [implicit];
       }
     }
 
-    if (selection) {
+    for (const selection of selections) {
       context.addSceneObject(selection);
     }
-    const obj = new Color(resolveParam(arguments[0] as StringParam), selection);
+    const obj = new Color(resolveParam(arguments[0] as StringParam), selections);
 
     context.addSceneObject(obj);
     return obj;

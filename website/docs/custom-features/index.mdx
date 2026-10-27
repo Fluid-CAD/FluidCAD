@@ -35,6 +35,25 @@ The written call is plain code, and later features use the feature's faces like 
 
 <ExplainedCode code={standoffPlate} fileName="pcb-plate.part.js" />
 
+### Parameters in a dropdown
+
+A `select` row of a feature dialog takes a [parameter](/docs/part/param) the way a number field does. The fastener hole below offers its screws as a dropdown (**Screw**: M3, M4, M5); the part declares `holeSize`, a `param('Hole size', 'm4', 'select', { options: [...] })` with the same values.
+
+1. Open the dropdown. Under the options, a **Parameters** group lists every variable of the part the row can take, with the option its current value selects beside it: `holeSize` is `'m4'`, so the row reads **M4**.
+
+   ![The Screw dropdown with holeSize under Parameters](/img/docs/ui/custom-feature-select-parameters.png)
+
+2. Click it. The button shows the parameter's name with the resolved option muted beside it, and the preview draws that option. The statement reads `fastener(…, { size: holeSize })`: the name, written bare, as a number field writes `extrude(height)`.
+
+   ![The Screw row bound to holeSize](/img/docs/ui/custom-feature-select-bound.png)
+
+3. To unbind, open the dropdown again and pick an option: Apply writes the literal, `size: 'm5'`.
+
+- **Typing** in the search box filters the options and the parameters together. A name that matches neither is offered as a **new** row, as a number field offers a fresh name: <kbd>Enter</kbd> declares it over the option the row shows, `const holeSize = param('holeSize', 'm3', 'select', { options: [...the row's options] })` at the top of the part body, and uses it in the statement. The **P / V** chip on the row follows the same toggle as the number fields: with it off, the declaration is a plain `const holeSize = 'm3'`.
+- **Compatible by type.** A dropdown of string options lists string parameters and constants (`select`, `text`, a `const finish = 'deburr'`); numeric options list number parameters; a `multiple: true` select lists list values (`const fin = ['deburr']`). A number never appears in a string dropdown. A parameter whose current value is not one of the options is still listed, in the warning colour, and binding it refuses Apply with the reason (`Screw: finish is 'deburr', which is not one of the options.`) until the value or the binding changes.
+- **A `radio` has no parameter path.** Its buttons or cards hold no list; declare a `select` when a value should be bindable.
+- **Editing** a statement written by hand as `size: holeSize` opens with the bound button. Any other expression (`a ? 'm4' : 'm5'`) leaves the statement not editable from the dialog.
+
 ## Writing a feature
 
 A feature file holds a class and the builder it exports:

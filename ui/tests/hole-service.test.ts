@@ -93,6 +93,34 @@ function plateScene(): SceneObjectRender[] {
   ] as SceneObjectRender[];
 }
 
+/** Choose a dropdown's option by its label (the size / fit / pitch controls). */
+function choose(container: HTMLElement, role: string, label: string): void {
+  container.querySelector<HTMLButtonElement>(`[data-role="${role}"]`)!.click();
+  [...document.body.querySelectorAll<HTMLElement>('[role="option"]:not([data-parameter])')]
+    .find(option => option.querySelector('.truncate')!.textContent === label)!.click();
+}
+
+/** Pick a parameter row of a dropdown's Parameters group. */
+function pick(container: HTMLElement, role: string, name: string): void {
+  container.querySelector<HTMLButtonElement>(`[data-role="${role}"]`)!.click();
+  document.body.querySelector<HTMLElement>(`[data-parameter="${name}"]`)!.click();
+}
+
+const VARIABLES = [
+  { name: 'holeSize', initializer: "param('Size', 'M8', 'select', { options: [] })", numeric: true, value: 'M8' },
+  { name: 'pitch', initializer: '1', numeric: true, value: 1 },
+];
+
+/**
+ * Hand the dialog the scope's variables as its fetch would. Fed directly: the
+ * suite runs without isolation, so `option-relabeler` calls whichever file's
+ * `getScopeVariables` mock loaded it first — not this file's. Called once the
+ * service's own fetch has settled, so nothing overwrites them.
+ */
+function feedVariables(service: HoleFeatureService): void {
+  (service as unknown as { panel: { setScopeVariables(variables: typeof VARIABLES): void } }).panel.setScopeVariables(VARIABLES);
+}
+
 function rowOf(id: string): SceneObjectRender {
   return plateScene().find(row => row.id === id)!;
 }
@@ -354,7 +382,7 @@ describe('Hole dialog service', () => {
       el.value = value;
       el.dispatchEvent(new Event('change'));
     };
-    select('fasten-pitch', '0.75');
+    choose(container, 'fasten-pitch', '0.75 mm');
     await vi.advanceTimersByTimeAsync(300);
     expect(lastPreview()!.fasten).toEqual({ pitch: 0.75, depth: null, tipAngle: null });
     // A blind tapped hole sends its depth, to the statement and to the ghost.
@@ -386,6 +414,70 @@ describe('Hole dialog service', () => {
     expect(hidden('fasten-section')).toBe(true);
     await vi.advanceTimersByTimeAsync(300);
     expect(lastPreview()!.fasten).toBeNull();
+  });
+
+  it('sends a size and a fasten pitch bound to parameters as references, the ghost drawn from what they resolve to', async () => {
+    const { service, container, lastPreview } = mount();
+    service.enter();
+    await vi.advanceTimersByTimeAsync(0);
+    feedVariables(service);
+    service.handleConnectorPick('bolt');
+    const lastGhost = () => vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0] as { diameter: unknown; fasten?: unknown };
+    pick(container, 'size', 'holeSize');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastPreview()!.size).toEqual({ kind: 'fastener', label: { ref: 'holeSize' } });
+    expect(lastPreview()!.newVariables).toBeUndefined();
+    expect(lastGhost().diameter).toBe(9);
+    const fasten = container.querySelector<HTMLInputElement>('[data-role="fasten"]')!;
+    fasten.checked = true;
+    fasten.dispatchEvent(new Event('change'));
+    expect(container.querySelector<HTMLInputElement>('[data-role="fasten-size"]')!.value).toBe('M8');
+    pick(container, 'fasten-pitch', 'pitch');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastPreview()!.fasten).toEqual({ pitch: { ref: 'pitch' }, depth: null, tipAngle: null });
+    expect(lastGhost().fasten).toEqual({ diameter: 7, depth: null, tipAngle: null });
+    // A parameter the file does not list yet is declared with the statement.
+    container.querySelector<HTMLButtonElement>('[data-role="size"]')!.click();
+    const box = document.body.querySelector<HTMLInputElement>('[data-mode] input[type="search"]')!;
+    box.value = 'boltSize';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    document.body.querySelector<HTMLElement>('[data-parameter="boltSize"][data-new="true"]')!.click();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastPreview()!.size).toEqual({ kind: 'fastener', label: { ref: 'boltSize' } });
+    expect(lastPreview()!.newVariables).toEqual([{ name: 'boltSize', initializer: expect.stringMatching(/^param\('boltSize', 'M8', 'select', \{ options: \[/) }]);
+  });
+
+  it('seeds an edit session from bound slots and resolves them once the scope\'s variables arrive', async () => {
+    const { service, container } = mount();
+    const parsed: Extract<ParsedFeatureStatement, { feature: 'hole' }> = {
+      feature: 'hole',
+      size: { kind: 'fastener', label: { ref: 'holeSize' } },
+      fastener: { type: 'clearance', fit: 'normal' },
+      style: null, depth: null, tipAngle: null,
+      placementTexts: ['bolt'], placementRefs: [{ line: 6, column: 15 }],
+      fasten: { pitch: { ref: 'pitch' }, depth: null, tipAngle: null },
+      scopeTexts: [], scopeRefs: [],
+    };
+    const scene = [...plateScene(), {
+      id: 'hole', type: 'hole', name: 'Hole', parentId: 'part', visible: true, sceneShapes: [], ownShapes: [],
+      object: { frames: [{ origin: [20, 0, 10], normal: [0, 0, 1] }] },
+      sourceLocation: at(12, 0),
+    } as unknown as SceneObjectRender];
+    service.update(scene);
+    service.enterEdit(at(12, 0), parsed, { index: 6, type: 'hole', expectedStatement: 'hole(…)' });
+    const size = container.querySelector<HTMLButtonElement>('[data-role="size"]')!;
+    expect(size.querySelector('[data-role="parameter"]')!.textContent).toBe('holeSize');
+    expect(size.querySelector('[data-role="resolved"]')).toBeNull();
+    await vi.advanceTimersByTimeAsync(0);
+    feedVariables(service);
+    expect(size.querySelector('[data-role="resolved"]')!.textContent).toBe('M8');
+    expect(container.querySelector<HTMLButtonElement>('[data-role="fasten-pitch"]')!.querySelector('[data-role="resolved"]')!.textContent).toBe('1 mm');
+    service.handleSceneRendered(scene, 5, true);
+    await vi.advanceTimersByTimeAsync(300);
+    const edit = vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1];
+    expect(edit.size).toEqual({ kind: 'fastener', label: { ref: 'holeSize' } });
+    expect(edit.fasten).toEqual({ pitch: { ref: 'pitch' }, depth: null, tipAngle: null });
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0]).toMatchObject({ diameter: 9, fasten: { diameter: 7 } });
   });
 
   it('asks for hole anchors and promises a connector only when the face is in a part', async () => {
@@ -520,7 +612,7 @@ describe('Hole dialog service', () => {
     service.enterEdit(at(12, 0), parsed, { index: 6, type: 'hole', expectedStatement: 'hole(…)' });
     const fasten = container.querySelector<HTMLInputElement>('[data-role="fasten"]')!;
     expect(fasten.checked).toBe(true);
-    expect(container.querySelector<HTMLSelectElement>('[data-role="fasten-pitch"]')!.value).toBe('0.75');
+    expect(container.querySelector<HTMLButtonElement>('[data-role="fasten-pitch"]')!.textContent).toBe('0.75 mm');
 
     service.handleSceneRendered(scene, 5, true);
     await vi.advanceTimersByTimeAsync(300);

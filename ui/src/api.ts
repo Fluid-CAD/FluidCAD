@@ -2753,15 +2753,19 @@ export async function applyRib(options: RibApplyOptions): Promise<ApplyFeatureRe
 // Hole
 // ---------------------------------------------------------------------------
 
-/** The hole size: a drilled diameter, or a fastener size label ('M6', '1/4', '#10'). */
+/** The hole size: a drilled diameter, or a fastener size label ('M6', '1/4', '#10') — a variable's too, written bare. */
 export type HoleSizeSpec =
   | { kind: 'diameter'; value: ValueExpr }
-  | { kind: 'fastener'; label: string };
+  | { kind: 'fastener'; label: string | FeatureRefValue };
 
-/** How a fastener size becomes a diameter: a clearance fit, or the tap drill for a pitch (null = coarse). */
+/**
+ * How a fastener size becomes a diameter: a clearance fit, or the tap drill
+ * for a pitch (null = coarse). The fit and the pitch take a variable in place
+ * of the literal; a referenced pitch always writes the argument.
+ */
 export type HoleFastenerSpec =
-  | { type: 'clearance'; fit: 'close' | 'normal' | 'loose' }
-  | { type: 'tapped'; pitch: number | null };
+  | { type: 'clearance'; fit: 'close' | 'normal' | 'loose' | FeatureRefValue }
+  | { type: 'tapped'; pitch: number | FeatureRefValue | null };
 
 /** The entry of the hole; null values read the fastener tables. */
 export type HoleStyleSpec =
@@ -2796,11 +2800,11 @@ export type HolePlacementRef =
 /**
  * The `.fasten(…)` chain of a clearance hole: the matching tapped hole cut
  * into the next solid along each hole's axis — its pitch (null is the coarse
- * pitch), its blind depth from the face it enters that solid through (null
- * is through all) and the drill point angle below that depth (null is a
- * flat bottom).
+ * pitch; a variable's name writes bare), its blind depth from the face it
+ * enters that solid through (null is through all) and the drill point angle
+ * below that depth (null is a flat bottom).
  */
-export type HoleFastenRef = { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null };
+export type HoleFastenRef = { pitch: number | FeatureRefValue | null; depth: ValueExpr | null; tipAngle: ValueExpr | null };
 
 export type HoleApplyOptions = HoleOptionValues & {
   placements: HolePlacementRef[];
@@ -3741,7 +3745,7 @@ export type ParsedFeatureStatement =
        * (null is through all) and its tip angle (null is a flat bottom); null
        * without the chain. Absent on older servers.
        */
-      fasten?: { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null } | null;
+      fasten?: HoleFastenRef | null;
     })
   | (ParsedScopeChain & ParsedRegionChain & {
       feature: 'sweep';

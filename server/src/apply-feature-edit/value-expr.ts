@@ -61,11 +61,19 @@ const REF_RE = /^[a-zA-Z_$][\w$]*(\.[a-zA-Z_$][\w$]*)*$/;
  * caller telling the two apart tests the shape first (`TypedInKinds.isRef`).
  */
 export function validRef(value: unknown): value is RefValue {
+  return refShaped(value) && REF_RE.test(value.ref);
+}
+
+/**
+ * Whether a value is a reference's shape, `{ ref: string }` — well formed or
+ * not. A writer that answers "must name a variable" for a malformed name
+ * (rather than fall through to its slot's literal check) tests this first.
+ */
+export function refShaped(value: unknown): value is RefValue {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
   }
-  const ref = (value as { ref?: unknown }).ref;
-  return typeof ref === 'string' && REF_RE.test(ref);
+  return typeof (value as { ref?: unknown }).ref === 'string';
 }
 
 /** A repeat count slot: an integer of at least 2, or safe expression text. */

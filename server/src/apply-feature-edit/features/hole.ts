@@ -1,12 +1,13 @@
 // hole(): option types, validation, statement rendering and chain parsing.
 
-import { chainRootCallee, type LexicalBindings, type TSNode } from '../../code-editor/index.ts';
+import { chainRootCallee, type LexicalBindings, type TSNode, type ValueKind } from '../../code-editor/index.ts';
 import type { SolvedEmissionTarget } from '../../../../lib/dist/selection/sketch-target.js';
 import {
   anyValueArg,
   connectorInstanceRead,
   numericArgValue,
   numericValueArg,
+  refArgValue,
   resolveIdentifierCall,
   stringArgValue,
 } from '../ast/args.ts';
@@ -15,19 +16,28 @@ import type { ChainParse, ParsedScopeChain } from '../parse/parsed-statement.ts'
 import { renderScopeChain } from '../render/chains.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
-import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
+import { formatValue, refShaped, validRef, validValueExpr, type RefValue, type ValueExpr } from '../value-expr.ts';
 
-/** The hole's first argument: a drilled diameter, or a fastener size label (`'M6'`, `'1/4'`, `'#10'`). */
+/**
+ * The hole's first argument: a drilled diameter, or a fastener size label
+ * (`'M6'`, `'1/4'`, `'#10'`) — the label a variable's too (`hole(holeSize, c)`),
+ * written bare.
+ */
 export type HoleSizeSpec =
   | { kind: 'diameter'; value: ValueExpr }
-  | { kind: 'fastener'; label: string };
+  | { kind: 'fastener'; label: string | RefValue };
 
 export type HoleFit = 'close' | 'normal' | 'loose';
 
-/** `.clearance(fit)` or `.tapped([pitch])` — fastener sizes only; null for a drilled hole. */
+/**
+ * `.clearance(fit)` or `.tapped([pitch])` — fastener sizes only; null for a
+ * drilled hole. The fit and the pitch each take a variable in place of the
+ * literal; a referenced pitch always writes the argument (never the bare
+ * `.tapped()` the coarse pitch collapses to).
+ */
 export type HoleFastenerSpec =
-  | { type: 'clearance'; fit: HoleFit }
-  | { type: 'tapped'; pitch: number | null };
+  | { type: 'clearance'; fit: HoleFit | RefValue }
+  | { type: 'tapped'; pitch: number | RefValue | null };
 
 /** `.counterbore([d, h])` or `.countersink([d, a])`; null values read the fastener tables. */
 export type HoleStyleSpec =
@@ -42,7 +52,7 @@ export type HoleStyleSpec =
  * tip angle is the drill point below a blind depth (null is a flat bottom).
  */
 export type HoleFastenSpec = {
-  pitch: number | null;
+  pitch: number | RefValue | null;
   depth?: ValueExpr | null;
   tipAngle?: ValueExpr | null;
 };
@@ -52,7 +62,7 @@ export function renderHoleFastenChain(fasten: HoleFastenSpec): string {
   const args: string[] = [];
   const depth = fasten.depth ?? null;
   if (fasten.pitch !== null || depth !== null) {
-    args.push(fasten.pitch === null ? "'coarse'" : formatValue(fasten.pitch));
+    args.push(fasten.pitch === null ? "'coarse'" : HoleRefSlots.pitchText(fasten.pitch));
   }
   if (depth !== null) {
     args.push(formatValue(depth));
@@ -108,6 +118,81 @@ export type HoleEditOptions = HoleValueOptions & {
 
 export const HOLE_FITS: readonly HoleFit[] = ['close', 'normal', 'loose'];
 
+/**
+ * The hole's variable slots — the size label, the clearance fit, the tapped
+ * pitch and the fasten pitch — as the dialog's dropdowns bind them: how a
+ * reference is validated and written, and when an identifier in the source
+ * reads back as one.
+ *
+ * Reading, a reference is taken into a slot unless its static kind
+ * (`LexicalBindings.kindOf`) contradicts the slot. The size argument is the
+ * ambiguous one: a drilled diameter and a fastener label share it, so a
+ * name bound to a number (`param('Bore', 6)`, `width / 4`) is the diameter
+ * expression it always was — the number rows take such expressions — and
+ * any other name (`param('Size', 'M6', 'select', …)`, a `const` string, an
+ * import, a parameter, a member path such as `cfg.size`) is a fastener
+ * label. The fit is a string slot too: a number is never one. The pitch
+ * slots want a number: a name bound to anything else (`other` — a string,
+ * a list, a solid as `.fasten()` once took) is no pitch and fails as
+ * before; a number or an undecidable one is the pitch variable.
+ */
+export class HoleRefSlots {
+  /** The size argument: a fastener label held by a variable, or null for a literal, a number variable or a non-name. */
+  static label(node: TSNode, bindings: LexicalBindings): RefValue | null {
+    return HoleRefSlots.read(node, bindings, kind => kind !== 'number');
+  }
+
+  /** A `.clearance()` fit held by a variable, or null for a literal, a number variable or a non-name. */
+  static fit(node: TSNode, bindings: LexicalBindings): RefValue | null {
+    return HoleRefSlots.read(node, bindings, kind => kind !== 'number');
+  }
+
+  /** A `.tapped()` / `.fasten()` pitch held by a variable, or null for a literal, a non-number variable or a non-name. */
+  static pitch(node: TSNode, bindings: LexicalBindings): RefValue | null {
+    return HoleRefSlots.read(node, bindings, kind => kind !== 'other');
+  }
+
+  /** A pitch as the statement writes it: the variable's name bare, or the number. */
+  static pitchText(pitch: number | RefValue): string {
+    return validRef(pitch) ? pitch.ref : formatValue(pitch);
+  }
+
+  /** A positive pitch, a variable, or null (the coarse pitch). */
+  static validPitch(pitch: unknown): pitch is number | RefValue | null {
+    return pitch === null || validRef(pitch) || (typeof pitch === 'number' && Number.isFinite(pitch) && pitch > 0);
+  }
+
+  /**
+   * Why the option values refuse before their shapes are checked: a
+   * reference whose name is malformed (`a + b`, `size()`, a blank) in the
+   * size, fit or pitch slot. Null when every reference is a name.
+   */
+  static optionsError(opts: unknown): string | null {
+    const o = opts as { size?: { label?: unknown }; fastener?: { fit?: unknown; pitch?: unknown } | null } | null;
+    if (!o || typeof o !== 'object') {
+      return null;
+    }
+    return HoleRefSlots.malformed(o.size?.label, 'the hole size')
+      ?? HoleRefSlots.malformed(o.fastener?.fit, 'the clearance fit')
+      ?? HoleRefSlots.malformed(o.fastener?.pitch, 'the tapped pitch');
+  }
+
+  /** Why a `.fasten(…)` spec refuses before its shape is checked: a malformed reference in the pitch slot. */
+  static fastenError(fasten: unknown): string | null {
+    const f = fasten as { pitch?: unknown } | null | undefined;
+    return f && typeof f === 'object' ? HoleRefSlots.malformed(f.pitch, 'the fasten pitch') : null;
+  }
+
+  private static malformed(value: unknown, field: string): string | null {
+    return refShaped(value) && !validRef(value) ? `${field} must name a variable` : null;
+  }
+
+  private static read(node: TSNode, bindings: LexicalBindings, fits: (kind: ValueKind) => boolean): RefValue | null {
+    const ref = refArgValue(node);
+    return ref && fits(bindings.kindOf(node)) ? ref : null;
+  }
+}
+
 export function validHoleSize(size: unknown): size is HoleSizeSpec {
   const s = size as { kind?: unknown; value?: unknown; label?: unknown } | null;
   if (!s || typeof s !== 'object') {
@@ -116,7 +201,10 @@ export function validHoleSize(size: unknown): size is HoleSizeSpec {
   if (s.kind === 'diameter') {
     return validValueExpr(s.value, { positive: true });
   }
-  return s.kind === 'fastener' && typeof s.label === 'string' && /^\S{1,16}$/.test(s.label) && !/['\\]/.test(s.label);
+  if (s.kind !== 'fastener') {
+    return false;
+  }
+  return validRef(s.label) || (typeof s.label === 'string' && /^\S{1,16}$/.test(s.label) && !/['\\]/.test(s.label));
 }
 
 export function validHoleFastener(fastener: unknown): fastener is HoleFastenerSpec | null {
@@ -128,10 +216,9 @@ export function validHoleFastener(fastener: unknown): fastener is HoleFastenerSp
     return false;
   }
   if (f.type === 'clearance') {
-    return HOLE_FITS.includes(f.fit as HoleFit);
+    return HOLE_FITS.includes(f.fit as HoleFit) || validRef(f.fit);
   }
-  return f.type === 'tapped'
-    && (f.pitch === null || (typeof f.pitch === 'number' && Number.isFinite(f.pitch) && f.pitch > 0));
+  return f.type === 'tapped' && HoleRefSlots.validPitch(f.pitch);
 }
 
 export function validHoleStyle(style: unknown): style is HoleStyleSpec | null {
@@ -166,7 +253,7 @@ export function validHoleFasten(fasten: unknown, opts: HoleValueOptions): fasten
   if (typeof f !== 'object' || opts.size.kind !== 'fastener' || opts.fastener?.type === 'tapped') {
     return false;
   }
-  return (f.pitch === null || (typeof f.pitch === 'number' && Number.isFinite(f.pitch) && f.pitch > 0))
+  return HoleRefSlots.validPitch(f.pitch)
     && (f.depth === undefined || f.depth === null || validValueExpr(f.depth, { positive: true }))
     && (f.tipAngle === undefined || f.tipAngle === null
       || ((f.depth ?? null) !== null && validValueExpr(f.tipAngle, { positive: true })));
@@ -194,9 +281,12 @@ export function validHoleOptions(opts: unknown): opts is HoleValueOptions {
     && (o.tipAngle === null || (o.depth !== null && validValueExpr(o.tipAngle, { positive: true })));
 }
 
-/** A fastener size label as the statement writes it: single-quoted. */
+/** A fastener size label as the statement writes it: single-quoted, or the variable's name bare. */
 function renderSizeArg(size: HoleSizeSpec): string {
-  return size.kind === 'fastener' ? `'${size.label}'` : formatValue(size.value);
+  if (size.kind !== 'fastener') {
+    return formatValue(size.value);
+  }
+  return validRef(size.label) ? size.label.ref : `'${size.label}'`;
 }
 
 /**
@@ -214,9 +304,11 @@ export function renderHoleStatement(
 ): string {
   let statement = `hole(${[renderSizeArg(opts.size), ...placementExprs].join(', ')})`;
   if (opts.fastener?.type === 'clearance') {
-    statement += `.clearance('${opts.fastener.fit}')`;
+    const fit = opts.fastener.fit;
+    statement += validRef(fit) ? `.clearance(${fit.ref})` : `.clearance('${fit}')`;
   } else if (opts.fastener?.type === 'tapped') {
-    statement += opts.fastener.pitch === null ? '.tapped()' : `.tapped(${formatValue(opts.fastener.pitch)})`;
+    const pitch = opts.fastener.pitch;
+    statement += pitch === null ? '.tapped()' : `.tapped(${HoleRefSlots.pitchText(pitch)})`;
   }
   if (opts.style?.kind === 'counterbore') {
     const args = opts.style.diameter !== null && opts.style.depth !== null
@@ -301,7 +393,7 @@ export type ParsedHole = ParsedScopeChain & HoleValueOptions & {
    * (null is through all) and its tip angle (null is a flat bottom); null
    * without the chain.
    */
-  fasten: { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null } | null;
+  fasten: { pitch: number | RefValue | null; depth: ValueExpr | null; tipAngle: ValueExpr | null } | null;
 };
 
 /**
@@ -340,7 +432,7 @@ export function parseHoleChain(
     return { error: 'the hole has no placement — hole(size, placement, …) — edit it in the source' };
   }
   let size: HoleSizeSpec;
-  const label = stringArgValue(args[0]);
+  const label = stringArgValue(args[0]) ?? HoleRefSlots.label(args[0], bindings);
   if (label !== null) {
     size = { kind: 'fastener', label };
   } else {
@@ -365,17 +457,20 @@ export function parseHoleChain(
     if (clearanceSeg.args.length > 1) {
       return { error: "the .clearance() chain takes one fit ('close', 'normal' or 'loose') — edit it in the source" };
     }
-    const fit = clearanceSeg.args.length === 1 ? stringArgValue(clearanceSeg.args[0]) : 'normal';
-    if (fit === null || !HOLE_FITS.includes(fit as HoleFit)) {
+    const fitArg = clearanceSeg.args[0];
+    const fitRef = fitArg === undefined ? null : HoleRefSlots.fit(fitArg, bindings);
+    const fit = fitArg === undefined ? 'normal' : stringArgValue(fitArg);
+    if (fitRef === null && (fit === null || !HOLE_FITS.includes(fit as HoleFit))) {
       return { error: "the .clearance() fit is not 'close', 'normal' or 'loose' — edit it in the source" };
     }
-    fastener = { type: 'clearance', fit: fit as HoleFit };
+    fastener = { type: 'clearance', fit: fitRef ?? (fit as HoleFit) };
   } else if (tappedSeg) {
     if (tappedSeg.args.length > 1) {
       return { error: 'the .tapped() chain takes at most one pitch — edit it in the source' };
     }
-    const pitch = tappedSeg.args.length === 1 ? numericArgValue(tappedSeg.args[0]) : null;
-    if (tappedSeg.args.length === 1 && (pitch === null || pitch <= 0)) {
+    const pitchArg = tappedSeg.args[0];
+    const pitch = pitchArg === undefined ? null : HoleRefSlots.pitch(pitchArg, bindings) ?? numericArgValue(pitchArg);
+    if (pitchArg !== undefined && (pitch === null || (typeof pitch === 'number' && pitch <= 0))) {
       return { error: 'the .tapped() pitch is not a plain positive number — edit it in the source' };
     }
     fastener = { type: 'tapped', pitch };
@@ -440,14 +535,14 @@ export function parseHoleChain(
     // is no pitch.
     const pitchNode = fastenSeg.args[0];
     const coarse = pitchNode === undefined || pitchNode.type === 'null' || stringArgValue(pitchNode) === 'coarse';
-    const pitch = coarse ? null : numericArgValue(pitchNode);
+    const pitch = coarse ? null : HoleRefSlots.pitch(pitchNode, bindings) ?? numericArgValue(pitchNode);
     if (fastenSeg.args.length > 3 || (!coarse && pitch === null)) {
       return { error: 'the .fasten() chain takes an optional pitch, depth and tip angle — edit it in the source' };
     }
     if (size.kind !== 'fastener' || fastener?.type === 'tapped') {
       return { error: ".fasten() goes with a clearance hole of a fastener size such as 'M6' — edit the statement in the source" };
     }
-    if (pitch !== null && pitch <= 0) {
+    if (typeof pitch === 'number' && pitch <= 0) {
       return { error: "the .fasten() pitch is not a plain positive number or 'coarse' — edit it in the source" };
     }
     const fastenDepth = fastenSeg.args.length >= 2 ? anyValueArg(fastenSeg.args[1]) : null;

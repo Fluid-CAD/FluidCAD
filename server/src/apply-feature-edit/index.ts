@@ -3,6 +3,7 @@
 
 export { isExpressionText } from '../code-editor/index.ts';
 export {
+  refShaped,
   validCountValue,
   validRef,
   validValueExpr,
@@ -42,6 +43,7 @@ export {
 export { renderRibStatement, type RibEditOptions } from './features/rib.ts';
 export {
   HOLE_FITS,
+  HoleRefSlots,
   renderHolePlacementExprs,
   renderHoleStatement,
   validHoleFasten,

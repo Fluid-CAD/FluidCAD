@@ -2,7 +2,7 @@
 
 import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
 import { anyValueArg, booleanArgValue, listArgValue, numericArgValue, refArgValue, stringArgValue } from '../ast/args.ts';
-import { formatValue, validRef, validValueExpr, type RefValue, type ValueExpr } from '../value-expr.ts';
+import { formatValue, refShaped, validRef, validValueExpr, type RefValue, type ValueExpr } from '../value-expr.ts';
 import type { CustomValueSource } from './custom.ts';
 
 /**
@@ -187,7 +187,7 @@ export class TypedInKinds {
 
   /** Whether a request's value is a reference's shape, `{ ref: string }` — well formed or not. */
   static isRef(value: unknown): value is TypedInRef {
-    return typeof value === 'object' && value !== null && !Array.isArray(value) && typeof (value as { ref?: unknown }).ref === 'string';
+    return refShaped(value);
   }
 
   /**

@@ -7479,6 +7479,24 @@ describe('apply-feature route validation', () => {
       expect(scoped.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten('coarse', 12).scope(e)`);
     });
 
+    it('previews a bound size, fit and pitch bare, and names the slot of a malformed reference', async () => {
+      const placements = [{ kind: 'connector', filePath: FILE, line: 6, column: 2 }];
+      const bound = await post({
+        ...BASE, size: { kind: 'fastener', label: { ref: 'holeSize' } }, fastener: { type: 'clearance', fit: { ref: 'fit' } },
+        placements, fasten: { pitch: { ref: 'pitch' }, depth: 12 },
+      });
+      expect(bound.status).toBe(200);
+      expect(bound.body.preview).toBe(`hole(holeSize, bolt).clearance(fit).fasten(pitch, 12)`);
+      const tapped = await post({ ...BASE, fastener: { type: 'tapped', pitch: { ref: 'cfg.pitch' } }, placements });
+      expect(tapped.body.preview).toBe(`hole('M6', bolt).tapped(cfg.pitch)`);
+      const malformed = await post({ ...BASE, size: { kind: 'fastener', label: { ref: 'a + b' } }, placements });
+      expect(malformed.status).toBe(400);
+      expect(malformed.body.error).toBe('the hole size must name a variable');
+      const fasten = await post({ ...BASE, placements, fasten: { pitch: { ref: 'pitch()' } } });
+      expect(fasten.status).toBe(400);
+      expect(fasten.body.error).toBe('the fasten pitch must name a variable');
+    });
+
     it('edits the fasten chain in place: kept, re-pitched, deepened and dropped', async () => {
       currentCode = PART_CODE.replace(`  })\n})`, `  })\n  hole('M6', bolt).clearance('close').fasten(0.75)\n})`)
         .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);

@@ -1,12 +1,14 @@
 // hole request validation: the dialog's option values, the placements and the scope.
 
 import {
+  HoleRefSlots,
   validConnectorAnchor,
   validValueExpr,
   validHoleOptions,
   validHolePlacementSlot,
   type ConnectorAnchorSpec,
   type HoleValueOptions,
+  type RefValue,
   type ValueExpr,
 } from '../../../apply-feature-edit/index.ts';
 import { validateScopeLocs, validateSketchLoc, type SketchLoc } from '../locations.ts';
@@ -24,12 +26,12 @@ export type HolePlacementInput =
 
 /**
  * The `.fasten(…)` chain as the dialog sends it: the tapped hole the next
- * solid along the axis takes — its pitch (null is coarse), its blind depth
- * (null is through all) and the drill point angle below that depth (null is
- * a flat bottom).
+ * solid along the axis takes — its pitch (null is coarse; a variable's name
+ * writes bare), its blind depth (null is through all) and the drill point
+ * angle below that depth (null is a flat bottom).
  */
 export type HoleFastenInput = {
-  pitch: number | null;
+  pitch: number | RefValue | null;
   depth: ValueExpr | null;
   tipAngle: ValueExpr | null;
 };
@@ -53,6 +55,11 @@ export function validateHoleOptions(body: any): HoleValueOptions | { error: stri
     depth: body?.depth ?? null,
     tipAngle: body?.tipAngle ?? null,
   };
+  // A reference of the shape with a malformed name is told apart from a bad literal.
+  const refError = HoleRefSlots.optionsError(options);
+  if (refError !== null) {
+    return { error: refError };
+  }
   if (!validHoleOptions(options)) {
     return { error: "hole options must carry a size ({kind: 'diameter', value} or {kind: 'fastener', label}), "
       + 'a fastener (clearance fit or tapped pitch, fastener sizes only), a style (counterbore or countersink), '
@@ -78,9 +85,13 @@ export function validateHoleFasten(body: any, options: HoleValueOptions, edit: b
   if (options.size.kind !== 'fastener' || options.fastener?.type === 'tapped') {
     return { error: 'fasten goes with a clearance hole of a fastener size — the solid past it takes the tapped hole' };
   }
+  const refError = HoleRefSlots.fastenError(raw);
+  if (refError !== null) {
+    return { error: refError };
+  }
   const pitch = raw.pitch ?? null;
-  if (pitch !== null && (typeof pitch !== 'number' || !Number.isFinite(pitch) || pitch <= 0)) {
-    return { error: 'the fasten pitch must be a positive number, or null for the coarse pitch' };
+  if (!HoleRefSlots.validPitch(pitch)) {
+    return { error: 'the fasten pitch must be a positive number, a variable, or null for the coarse pitch' };
   }
   const depth = raw.depth ?? null;
   if (depth !== null && !validValueExpr(depth, { positive: true })) {

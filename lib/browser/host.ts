@@ -12,6 +12,7 @@ import type { MeasureEntityRef } from "../oc/measure/measure-types.js";
 import { installEngineNamespaces } from "./linking.js";
 import { DEFAULT_LENGTH_UNIT, parseLengthUnit, type LengthUnit } from "../units/units.js";
 import { mergeMaterials, resolveMaterial, type Material, type ProjectMaterials } from "../common/materials.js";
+import { resolveAppearance } from "../common/appearances.js";
 import {
   VIEWER_PROTOCOL_VERSION,
   type BrowserObjectBuildError,
@@ -549,7 +550,7 @@ export class BrowserEngineHost {
     for (let index = 0; index < result.length; index++) {
       const obj = result[index] as {
         type?: string; id: string; name: string; uniqueType: string;
-        object?: { material?: unknown; warnings?: unknown } | null; sourceLocation?: BrowserObjectBuildError["sourceLocation"];
+        object?: { material?: unknown; appearance?: unknown; warnings?: unknown } | null; sourceLocation?: BrowserObjectBuildError["sourceLocation"];
       };
       if (!obj) {
         continue;
@@ -571,10 +572,14 @@ export class BrowserEngineHost {
         }
       }
       const material = obj.type === "part" ? obj.object?.material : undefined;
-      if (typeof material !== "string" || material === "" || this.resolveMaterial(material) !== undefined) {
-        continue;
+      if (typeof material === "string" && material !== "" && this.resolveMaterial(material) === undefined) {
+        warn(`Unknown material: ${material}`);
       }
-      warn(`Unknown material: ${material}`);
+      // Same for `.appearance(id)`: the part built and is shaded plain.
+      const appearance = obj.type === "part" ? obj.object?.appearance : undefined;
+      if (typeof appearance === "string" && appearance !== "" && resolveAppearance(appearance) === undefined) {
+        warn(`Unknown appearance: ${appearance}`);
+      }
     }
     return warnings;
   }

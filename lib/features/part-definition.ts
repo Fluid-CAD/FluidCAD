@@ -51,6 +51,9 @@ export class PartDefinition<T = unknown> {
   /** Material id new variants materialize with — `.material()` sets it; null until then. */
   private materialId: string | null = null;
 
+  /** Appearance id new variants materialize with — `.appearance()` sets it; null until then. */
+  private appearanceId: string | null = null;
+
   /** One warning per definition when a callback still returns a features object. */
   private warnedReturn = false;
 
@@ -163,6 +166,33 @@ export class PartDefinition<T = unknown> {
   /** The material id `.material()` assigned, or null. */
   getMaterial(): string | null {
     return this.materialId;
+  }
+
+  /**
+   * Assigns the part's appearance by id — the look the viewport shades its
+   * bodies with (`'oak'`, `'steel'`, `'brass'`, …; see the Appearance docs
+   * for the list). A look, not a substance: it is independent of
+   * `.material()`, which names what the part is made of for its mass. A
+   * face painted with `color()` keeps its flat colour over the appearance.
+   * An id the table does not know is a warning on the part's row, never a
+   * build error: the geometry builds and the raw id stays on the part.
+   * Variants materialized after this call carry it, like `.name()`.
+   *
+   *     export const shelf = part('Shelf', () => { … }).appearance('oak')
+   *
+   * @param id - An appearance id from the built-in list.
+   */
+  appearance(id: string): this {
+    if (typeof id !== "string" || id.length === 0) {
+      throw new Error(`part '${this.partName}': .appearance() takes an appearance id, e.g. .appearance('oak').`);
+    }
+    this.appearanceId = id;
+    return this;
+  }
+
+  /** The appearance id `.appearance()` assigned, or null. */
+  getAppearance(): string | null {
+    return this.appearanceId;
   }
 
   private variantsIn(scene: Scene): Map<string, Part> {
@@ -327,13 +357,14 @@ export class PartDefinition<T = unknown> {
     return partObj;
   }
 
-  /** A new, empty variant: the definition's name, location and material, in its unit, consumed in `targetUnit`. */
+  /** A new, empty variant: the definition's name, location, material and appearance, in its unit, consumed in `targetUnit`. */
   private newVariant(definitionUnit: LengthUnit, targetUnit: LengthUnit): Part {
     const partObj = new Part(this.displayName);
     if (this.sourceLocation) {
       partObj.setSourceLocation(this.sourceLocation);
     }
     partObj.setMaterial(this.materialId);
+    partObj.setAppearance(this.appearanceId);
     // The Part itself bypasses registerBuilder so it is stamped here.
     partObj.setUnit(definitionUnit);
     partObj.setTargetUnit(targetUnit);

@@ -57,6 +57,13 @@ export class Part extends SceneObject implements IPart {
    */
   private _material: string | null = null;
 
+  /**
+   * The appearance id the definition's `.appearance()` assigned, copied
+   * here like the material; null when none. The raw id rides the payload
+   * for the viewer to shade with — an unknown id is a row warning there.
+   */
+  private _appearance: string | null = null;
+
   constructor(public partName: string) {
     super();
     this.name(partName);
@@ -98,6 +105,12 @@ export class Part extends SceneObject implements IPart {
       return false;
     }
 
+    // Same rule for the appearance: an appearance-only edit must re-serve
+    // the part so the viewer reshades it.
+    if (this._appearance !== other._appearance) {
+      return false;
+    }
+
     return true;
   }
 
@@ -112,6 +125,15 @@ export class Part extends SceneObject implements IPart {
   /** The material id `.material()` assigned on the definition, or null. */
   getMaterial(): string | null {
     return this._material;
+  }
+
+  setAppearance(id: string | null): void {
+    this._appearance = id;
+  }
+
+  /** The appearance id `.appearance()` assigned on the definition, or null. */
+  getAppearance(): string | null {
+    return this._appearance;
   }
 
   /** The unit the defining file's numbers are in. */
@@ -323,6 +345,8 @@ export class Part extends SceneObject implements IPart {
       name: this.partName,
       /** The material id, absent when the definition assigned none. */
       material: this._material ?? undefined,
+      /** The appearance id, absent when the definition assigned none. */
+      appearance: this._appearance ?? undefined,
       paramValues: this.paramValues,
       configurations: this.configurations,
       // Control metadata for per-instance parameter editing (sourceLocation

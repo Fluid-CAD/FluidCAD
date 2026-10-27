@@ -258,6 +258,8 @@ export type SerializedInstance = {
   partName: string;
   /** The template part's material id (`part(...).material(id)`); absent when none. */
   material?: string;
+  /** The template part's appearance id (`part(...).appearance(id)`); absent when none. */
+  appearance?: string;
   /** World warm-start pose — occurrence-chain transforms already composed in. */
   position: Vec3;
   quaternion: Quat;
@@ -737,6 +739,7 @@ export class AssemblyScene extends Scene {
         partId: inst.part.id,
         partName: inst.part.partName,
         material: inst.part.getMaterial() ?? undefined,
+        appearance: inst.part.getAppearance() ?? undefined,
         position: pose.position,
         quaternion: pose.quaternion,
         grounded: (inst.grounded && (connected.get(inst.owner) ?? false)) || anchors.has(inst),

@@ -1,7 +1,15 @@
 import { MENU_HEADER_CLASS } from '../menu-styles';
-import { ChoiceImage, type ChoiceItem } from './choice-item';
+import { ChoiceImage, ParameterRows, type ChoiceItem, type ParameterChoice } from './choice-item';
 
 export type OptionPopoverMode = 'list' | 'grid';
+
+/**
+ * The parameters listed under the options for what the search box holds
+ * (`query`, trimmed), given how many options it matched — the host's rules
+ * decide which parameters fit and whether a typed name is an offer to
+ * declare one. None listed, no Parameters group.
+ */
+export type ParameterSource = (query: string, optionsMatched: number) => readonly ParameterChoice[];
 
 export interface OptionPopoverOptions<V> {
   /** What the popover hangs off, and where focus returns after a choice or Escape. */
@@ -15,11 +23,20 @@ export interface OptionPopoverOptions<V> {
   columns?: number;
   /** A search box over label, description and keywords. */
   search?: boolean;
+  /** Parameters offered under the options, as rows the search box filters too; none without. */
+  parameters?: ParameterSource;
+  /** The parameter the control holds in place of an option, by name — its row marked selected and focused on open. */
+  bound?: string;
   /** A choice was made; the popover has already closed and focus is back on the anchor. */
   onChoose(value: V): void;
+  /** A parameter was chosen (an offer to declare one included); the popover has closed and focus is back on the anchor. */
+  onChooseParameter?(choice: ParameterChoice): void;
   /** The popover closed, by a choice or without one. */
   onClose?(): void;
 }
+
+/** One row or cell on show: an option, or a parameter listed under them. */
+type Entry<V> = { item: ChoiceItem<V>; parameter?: undefined } | { item?: undefined; parameter: ParameterChoice };
 
 /** A popover several options may be chosen from: a choice toggles its option and the popover stays open. */
 export interface OptionMultiPopoverOptions<V> extends Omit<OptionPopoverOptions<V>, 'value' | 'onChoose'> {
@@ -54,6 +71,8 @@ const CELL =
 const CELL_LABEL = 'block max-w-full truncate text-[11px] leading-tight';
 const DESCRIPTION = 'block truncate text-[11px] text-base-content/50';
 const EMPTY = 'px-2 py-1.5 text-base-content/50 select-none';
+/** The heading over the parameters listed under the options. */
+const PARAMETERS = 'Parameters';
 // Several may be chosen: every option carries a check mark, drawn only while it is — a
 // row's ahead of its label, where it keeps the labels in one column; a cell's in its corner.
 const CHECK = 'shrink-0 w-3.5 h-3.5 text-primary';
@@ -79,7 +98,10 @@ const CELL_REM = 5.5;
  * and closes on a choice, a press or wheel elsewhere, Tab and Escape — an
  * Escape it keeps to itself, so a dialog under it stays open. With
  * `multiple`, a choice toggles its option's check mark and the popover
- * stays open until it is dismissed.
+ * stays open until it is dismissed. Given `parameters`, a Parameters group
+ * lists them after the options for what the search box holds; choosing one
+ * closes the popover (of several too) and hands the choice to
+ * `onChooseParameter`.
  */
 export class OptionPopover<V> {
   /** The floating panel; on the page body only while open. */
@@ -92,15 +114,18 @@ export class OptionPopover<V> {
   private readonly selected: Set<V> | null;
   private readonly mode: OptionPopoverMode;
   private readonly columns: number;
+  private readonly parameters: ParameterSource | null;
+  private readonly bound: string | undefined;
   private readonly onChoose?: (value: V) => void;
+  private readonly onChooseParameter?: (choice: ParameterChoice) => void;
   private readonly onToggle?: (value: V) => void;
   private readonly onClose?: () => void;
 
   private readonly searchInput: HTMLInputElement | null = null;
   private readonly list: HTMLElement;
-  /** The options on show, in reading order, and the items behind them. */
+  /** The options on show, in reading order, and the entries behind them. */
   private options: HTMLElement[] = [];
-  private shown: ChoiceItem<V>[] = [];
+  private shown: Entry<V>[] = [];
   /** The options as rows (a list's rows hold one each) — what the arrows walk. */
   private rows: number[][] = [];
   /** The one option in the tab order. */
@@ -121,6 +146,9 @@ export class OptionPopover<V> {
     }
     this.mode = options.mode ?? 'list';
     this.columns = Math.min(6, Math.max(2, Math.round(options.columns ?? 3)));
+    this.parameters = options.parameters ?? null;
+    this.bound = options.bound;
+    this.onChooseParameter = options.onChooseParameter;
     this.onClose = options.onClose;
 
     this.element = document.createElement('div');
@@ -173,7 +201,7 @@ export class OptionPopover<V> {
     document.addEventListener('scroll', this.onMovedUnder, { capture: true, passive: true });
     window.addEventListener('resize', this.onResize);
     // The chosen option (the first of several) when there is one; else the search box, so typing filters at once.
-    const chosen = this.shown.findIndex(item => this.isChosen(item));
+    const chosen = this.shown.findIndex(entry => this.isChosen(entry));
     if (chosen < 0 && this.searchInput) {
       this.searchInput.focus({ preventScroll: true });
     } else if (this.options.length) {
@@ -256,37 +284,20 @@ export class OptionPopover<V> {
         body.style.maxWidth = '100%';
         body.style.minWidth = '100%';
       }
-      if (section.group) {
-        const heading = document.createElement('div');
-        heading.className = MENU_HEADER_CLASS;
-        heading.setAttribute('role', 'presentation');
-        heading.textContent = section.group;
-        this.list.appendChild(heading);
-        body.setAttribute('role', 'group');
-        body.setAttribute('aria-label', section.group);
-      } else {
-        body.setAttribute('role', 'presentation');
-      }
+      this.head(body, section.group);
       section.items.forEach((item, at) => {
-        const index = this.options.length;
         if (at % perRow === 0) {
           this.rows.push([]);
         }
-        this.rows[this.rows.length - 1].push(index);
         const option = this.mode === 'grid' ? this.buildCell(item) : this.buildRow(item, boxed);
-        option.dataset.index = String(index);
-        option.setAttribute('role', 'option');
-        option.tabIndex = -1;
         if (this.selected) {
           option.prepend(this.buildCheck());
         }
-        this.mark(option, this.isChosen(item));
-        this.options.push(option);
-        this.shown.push(item);
-        body.appendChild(option);
+        this.place(body, option, { item });
       });
       this.list.appendChild(body);
     }
+    this.renderParameters(query.trim(), matching.length);
     if (!this.options.length) {
       const empty = document.createElement('div');
       empty.className = EMPTY;
@@ -296,8 +307,87 @@ export class OptionPopover<V> {
     }
     // Of several, a search starts from its first match — Enter in the box
     // toggles what was searched for, not a chosen option further down.
-    const chosen = this.selected && query.trim() ? -1 : this.shown.findIndex(item => this.isChosen(item));
+    const chosen = this.selected && query.trim() ? -1 : this.shown.findIndex(entry => this.isChosen(entry));
     this.setActive(this.options.length ? Math.max(chosen, 0) : -1);
+  }
+
+  /**
+   * The Parameters group after the options: a row per parameter the host
+   * lists for the query, under its heading — rows whatever the mode, since a
+   * parameter has no image to make a cell of. Nothing when the host lists none.
+   */
+  private renderParameters(query: string, optionsMatched: number): void {
+    const parameters = this.parameters?.(query, optionsMatched) ?? [];
+    if (parameters.length === 0) {
+      return;
+    }
+    const body = document.createElement('div');
+    body.className = ROWS;
+    body.dataset.role = 'parameters';
+    this.head(body, PARAMETERS);
+    for (const parameter of parameters) {
+      this.rows.push([]);
+      this.place(body, this.buildParameterRow(parameter), { parameter });
+    }
+    this.list.appendChild(body);
+  }
+
+  /** A section's heading before `body` (none for the loose items), and the roles that tie the two. */
+  private head(body: HTMLElement, group: string | undefined): void {
+    if (!group) {
+      body.setAttribute('role', 'presentation');
+      return;
+    }
+    const heading = document.createElement('div');
+    heading.className = MENU_HEADER_CLASS;
+    heading.setAttribute('role', 'presentation');
+    heading.textContent = group;
+    this.list.appendChild(heading);
+    body.setAttribute('role', 'group');
+    body.setAttribute('aria-label', group);
+  }
+
+  /** One more option on show, in `body` and the current row: indexed, marked, kept with its entry. */
+  private place(body: HTMLElement, option: HTMLElement, entry: Entry<V>): void {
+    const index = this.options.length;
+    this.rows[this.rows.length - 1].push(index);
+    option.dataset.index = String(index);
+    option.setAttribute('role', 'option');
+    option.tabIndex = -1;
+    this.mark(option, this.isChosen(entry));
+    this.options.push(option);
+    this.shown.push(entry);
+    body.appendChild(option);
+  }
+
+  /**
+   * A parameter's row, as the expression dropdowns draw theirs: the kind
+   * chip, the name, a project parameter's label dimmed after it, the "new"
+   * badge of an offer to declare, and the option its value selects at the
+   * right — or the raw value in the warning colour when no option carries it.
+   */
+  private buildParameterRow(choice: ParameterChoice): HTMLElement {
+    const row = document.createElement('div');
+    row.className = ROW;
+    row.dataset.parameter = choice.name;
+    if (choice.isNew) {
+      row.dataset.new = 'true';
+    }
+    const text = document.createElement('span');
+    text.className = 'flex-1 min-w-0 flex items-center gap-1';
+    text.append(ParameterRows.name(choice));
+    for (const part of [ParameterRows.label(choice), ParameterRows.badge(choice)]) {
+      if (part) {
+        text.append(part);
+      }
+    }
+    row.append(ParameterRows.chip(choice.chip), text);
+    const value = ParameterRows.value(choice);
+    if (value) {
+      value.classList.add('ml-auto', 'pl-3');
+      row.append(value);
+    }
+    return row;
   }
 
   private buildRow(item: ChoiceItem<V>, boxed: boolean): HTMLElement {
@@ -354,8 +444,12 @@ export class OptionPopover<V> {
     return check;
   }
 
-  private isChosen(item: ChoiceItem<V>): boolean {
-    return this.selected ? this.selected.has(item.value) : item.value === this.value;
+  /** An option is chosen as the value (one of the values) says; a parameter's row, as the bound name says — never an offer to declare. */
+  private isChosen(entry: Entry<V>): boolean {
+    if (entry.parameter) {
+      return !entry.parameter.isNew && entry.parameter.name === this.bound;
+    }
+    return this.selected ? this.selected.has(entry.item.value) : entry.item.value === this.value;
   }
 
   /** Show an option chosen or not: its `aria-selected`, its tint and, of several, its check mark. */
@@ -386,17 +480,24 @@ export class OptionPopover<V> {
   }
 
   private choose(index: number): void {
-    const item = this.shown[index];
-    if (!item) {
+    const entry = this.shown[index];
+    if (!entry) {
+      return;
+    }
+    if (entry.parameter) {
+      // A parameter stands for the whole value, of several too: nothing is left to toggle.
+      this.close();
+      this.anchor.focus({ preventScroll: true });
+      this.onChooseParameter?.(entry.parameter);
       return;
     }
     if (this.selected) {
-      this.toggle(index, item);
+      this.toggle(index, entry.item);
       return;
     }
     this.close();
     this.anchor.focus({ preventScroll: true });
-    this.onChoose?.(item.value);
+    this.onChoose?.(entry.item.value);
   }
 
   /** One of several, chosen or let go where it stands: the popover stays, and the option is the arrows' next start. */

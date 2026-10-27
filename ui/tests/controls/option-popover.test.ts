@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ChoiceImage, OptionPopover, type ChoiceItem, type OptionPopoverOptions } from '../../src/ui/controls';
+import { ChoiceImage, OptionPopover, type ChoiceItem, type OptionPopoverOptions, type ParameterChoice } from '../../src/ui/controls';
 
 // The floating listbox on its own: what a list and a grid render, group
 // headings, the search box, the keys, what closes it, where it hangs. jsdom
@@ -615,5 +615,177 @@ describe('OptionPopover multiple', () => {
     elsewhere.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(second.popover.isOpen).toBe(false);
     expect(second.onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('OptionPopover parameters', () => {
+  const P = { letter: 'P', title: 'Parameter — param()', colors: 'bg-primary/20 text-primary border-primary/40' };
+  const G = { letter: 'G', title: 'Project parameter', colors: 'bg-accent/20 text-accent border-accent/40' };
+  const PARAMS: ParameterChoice[] = [
+    { name: 'holeSize', chip: P, value: 'M5' },
+    { name: 'stock', chip: G, label: 'Stock size', labelTitle: 'shop.params.js', value: "'m8'", warning: "stock is 'm8', which is not one of the options." },
+    { name: 'kind', chip: P },
+  ];
+
+  function withParams(
+    source = vi.fn((query: string, _matched: number) => PARAMS.filter(p => p.name.includes(query))),
+    options: Partial<OptionPopoverOptions<string>> = {},
+  ) {
+    const onChooseParameter = vi.fn();
+    const m = mount({ search: true, parameters: source, onChooseParameter, ...options });
+    return { ...m, source, onChooseParameter, parameters: () => [...m.panel.querySelectorAll<HTMLElement>('[data-parameter]')] };
+  }
+
+  it('lists the parameters under their heading after the options, each as the expression dropdowns draw a row', () => {
+    const { popover, panel, parameters, options } = withParams();
+    popover.open();
+    const list = panel.querySelector('[role="listbox"]')!;
+    const headings = [...list.children].filter(el => el.getAttribute('role') === 'presentation' && !el.querySelector('[role="option"]')).map(el => el.textContent);
+    expect(headings).toEqual(['Metric', 'Imperial', 'Parameters']);
+    const group = panel.querySelector<HTMLElement>('[data-role="parameters"]')!;
+    expect(group.getAttribute('role')).toBe('group');
+    expect(group.getAttribute('aria-label')).toBe('Parameters');
+    expect(list.lastElementChild).toBe(group);
+    expect(options()).toHaveLength(9);
+    const rows = parameters();
+    expect(rows.map(r => r.dataset.parameter)).toEqual(['holeSize', 'stock', 'kind']);
+    const [hole, stock, kind] = rows;
+    expect(hole.getAttribute('role')).toBe('option');
+    expect(hole.dataset.new).toBeUndefined();
+    const chip = hole.querySelector<HTMLElement>('[data-role="chip"]')!;
+    expect(chip.textContent).toBe('P');
+    expect(chip.title).toBe('Parameter — param()');
+    expect(chip.className).toContain('bg-primary/20 text-primary border-primary/40');
+    expect(chip.className).toContain('rounded border text-[10px] font-semibold');
+    expect(hole.querySelector('[data-role="parameter"]')!.textContent).toBe('holeSize');
+    expect(hole.querySelector('[data-role="parameter"]')!.className).toContain('font-mono');
+    expect(hole.querySelector<HTMLElement>('[data-role="resolved"]')!.textContent).toBe('M5');
+    expect(hole.querySelector<HTMLElement>('[data-role="resolved"]')!.className).toContain('text-base-content/50');
+    expect(hole.querySelector('[data-role="parameter-label"]')).toBeNull();
+    expect(hole.querySelector('[data-role="new"]')).toBeNull();
+    // A project parameter's label after its name, the file its tooltip; a value no option carries in the warning colour.
+    expect(stock.querySelector<HTMLElement>('[data-role="chip"]')!.textContent).toBe('G');
+    expect(stock.querySelector<HTMLElement>('[data-role="parameter-label"]')!.textContent).toBe('Stock size');
+    expect(stock.querySelector<HTMLElement>('[data-role="parameter-label"]')!.title).toBe('shop.params.js');
+    const raw = stock.querySelector<HTMLElement>('[data-role="resolved"]')!;
+    expect(raw.textContent).toBe("'m8'");
+    expect(raw.className).toContain('text-warning');
+    expect(raw.title).toBe("stock is 'm8', which is not one of the options.");
+    // Nothing known to show beside the name.
+    expect(kind.querySelector('[data-role="resolved"]')).toBeNull();
+  });
+
+  it('asks the source for each search, with how many options matched, and drops the group when it answers none', () => {
+    const { popover, panel, search, source, parameters, options } = withParams();
+    popover.open();
+    expect(source).toHaveBeenLastCalledWith('', 6);
+    type(search()!, ' hole ');
+    expect(source).toHaveBeenLastCalledWith('hole', 0);
+    expect(options().filter(o => !o.dataset.parameter)).toEqual([]);
+    expect(parameters().map(r => r.dataset.parameter)).toEqual(['holeSize']);
+    expect(panel.querySelector('[role="listbox"]')!.textContent).not.toContain('No matches');
+    type(search()!, 'm');
+    expect(source).toHaveBeenLastCalledWith('m', 3);
+    type(search()!, 'zzz');
+    expect(parameters()).toEqual([]);
+    expect(panel.querySelector('[data-role="parameters"]')).toBeNull();
+    expect(panel.querySelector('[role="listbox"]')!.textContent).toBe('No matches');
+  });
+
+  it('shows the group only while the source lists something, and never without a source', () => {
+    const none = withParams(vi.fn(() => []));
+    none.popover.open();
+    expect(none.panel.querySelector('[data-role="parameters"]')).toBeNull();
+    expect(none.options()).toHaveLength(6);
+    const plain = mount({ search: true });
+    plain.popover.open();
+    expect(plain.panel.querySelector('[data-role="parameters"]')).toBeNull();
+  });
+
+  it('marks the bound parameter selected and focuses it on open; an offer to declare wears the badge and is never selected', () => {
+    const offer: ParameterChoice = { name: 'boltSize', chip: P, isNew: true, value: 'M4' };
+    const { popover, parameters, options } = withParams(vi.fn(() => [PARAMS[0], offer]), { bound: 'holeSize' });
+    popover.open();
+    const [hole, fresh] = parameters();
+    expect(hole.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(hole);
+    expect(options().filter(o => !o.dataset.parameter).map(o => o.getAttribute('aria-selected'))).toEqual(Array(6).fill('false'));
+    expect(fresh.dataset.new).toBe('true');
+    expect(fresh.getAttribute('aria-selected')).toBe('false');
+    expect(fresh.querySelector('[data-role="new"]')!.textContent).toBe('new');
+    expect(fresh.querySelector('[data-role="resolved"]')!.textContent).toBe('M4');
+    // Bound to a name the source lists as an offer only: nothing is selected.
+    const unlisted = withParams(vi.fn(() => [offer]), { bound: 'boltSize' });
+    unlisted.popover.open();
+    expect(unlisted.parameters()[0].getAttribute('aria-selected')).toBe('false');
+  });
+
+  it('chooses a parameter on a click or Enter: closed, focus back on the anchor, the choice handed on, no option chosen', () => {
+    const { popover, parameters, onChooseParameter, onChoose, onClose, anchor, search } = withParams();
+    popover.open();
+    parameters()[0].click();
+    expect(onChooseParameter).toHaveBeenCalledTimes(1);
+    expect(onChooseParameter).toHaveBeenCalledWith(PARAMS[0]);
+    expect(onChoose).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(popover.isOpen).toBe(false);
+    expect(document.activeElement).toBe(anchor);
+    popover.open();
+    // Nothing chosen: the search box has the focus; ArrowDown reaches the list, End its last row — a parameter.
+    expect(document.activeElement).toBe(search());
+    key(search()!, 'ArrowDown');
+    key(document.activeElement!, 'End');
+    expect((document.activeElement as HTMLElement).dataset.parameter).toBe('kind');
+    key(document.activeElement!, 'Enter');
+    expect(onChooseParameter).toHaveBeenLastCalledWith(PARAMS[2]);
+    expect(popover.isOpen).toBe(false);
+  });
+
+  it('commits the offer typed in the search box on Enter, as the first match', () => {
+    const offer: ParameterChoice = { name: 'boltSize', chip: P, isNew: true, value: 'M4' };
+    const { popover, search, onChooseParameter } = withParams(vi.fn((query: string) => query === 'boltSize' ? [offer] : []));
+    popover.open();
+    type(search()!, 'boltSize');
+    key(search()!, 'Enter');
+    expect(onChooseParameter).toHaveBeenCalledWith(offer);
+    expect(popover.isOpen).toBe(false);
+  });
+
+  it('walks from the options into the parameters with the arrows, from a grid too', () => {
+    const { popover, focused } = withParams(undefined, { mode: 'grid', columns: 2, value: 'n6' });
+    popover.open();
+    expect(focused()).toBe('#6');
+    key(document.activeElement!, 'ArrowDown');
+    expect((document.activeElement as HTMLElement).dataset.parameter).toBe('holeSize');
+    key(document.activeElement!, 'ArrowDown');
+    expect((document.activeElement as HTMLElement).dataset.parameter).toBe('stock');
+    key(document.activeElement!, 'ArrowRight');
+    expect((document.activeElement as HTMLElement).dataset.parameter).toBe('kind');
+    key(document.activeElement!, 'Home');
+    expect(focused()).toBe('Dowel pin');
+    key(document.activeElement!, 'End');
+    expect((document.activeElement as HTMLElement).dataset.parameter).toBe('kind');
+    key(document.activeElement!, 'ArrowDown');
+    expect((document.activeElement as HTMLElement).dataset.parameter).toBe('kind');
+  });
+
+  it('closes a popover of several on a parameter choice, nothing toggled, no check mark on the row', () => {
+    const anchor = document.createElement('button');
+    document.body.appendChild(anchor);
+    const onToggle = vi.fn();
+    const onChooseParameter = vi.fn();
+    const popover = new OptionPopover<string>({
+      anchor, items: SCREWS, multiple: true, values: ['m3'], parameters: () => PARAMS, bound: 'kind', onToggle, onChooseParameter,
+    });
+    opened.push(popover);
+    popover.open();
+    const row = popover.element.querySelector<HTMLElement>('[data-parameter="holeSize"]')!;
+    expect(row.querySelector('[data-role="check"]')).toBeNull();
+    expect(popover.element.querySelector<HTMLElement>('[data-parameter="kind"]')!.getAttribute('aria-selected')).toBe('true');
+    row.click();
+    expect(onChooseParameter).toHaveBeenCalledWith(PARAMS[0]);
+    expect(onToggle).not.toHaveBeenCalled();
+    expect(popover.isOpen).toBe(false);
+    expect(document.activeElement).toBe(anchor);
   });
 });

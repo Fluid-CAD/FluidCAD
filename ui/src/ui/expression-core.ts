@@ -12,6 +12,12 @@ export const IDENT_RE = /^[a-zA-Z_$][\w$]*$/;
  * `drawer.properties.width`, the way an inserted instance's property is spelled.
  */
 export const TRAILING_IDENT_RE = /([a-zA-Z_$][\w$]*(?:\.[\w$]*)*)$/;
+/**
+ * What a choice row may name in place of an option (`{ ref }` on the wire):
+ * an identifier or a dotted member path, `holeSize` or `inst.properties.kind`
+ * — the server's `TypedInKinds.REF`, mirrored.
+ */
+export const REF_RE = /^[a-zA-Z_$][\w$]*(\.[a-zA-Z_$][\w$]*)*$/;
 export const ASSIGNMENT_RE = /^([a-zA-Z_$][\w$]*)\s*=\s*(.+?)\s*;?\s*$/;
 
 const RESERVED = new Set([
@@ -41,6 +47,16 @@ export type VariableInfo = {
   numeric?: boolean;
   unbound?: boolean;
   /**
+   * The declaration's literal, when the server could read one: a `param()`'s
+   * default, a `const`'s literal, a project parameter's value, a property's
+   * rendered value. Left out when the value is computed (`width / 2`,
+   * `extrude(…)`). The choice rows match it against their options to show
+   * which one the variable selects, and judge compatibility by its type —
+   * never by `numeric`, which marks every `param()` call numeric, string
+   * defaults included.
+   */
+  value?: VariableLiteral;
+  /**
    * Set on a project parameter — an export of a `*.params.js` file the
    * server offers alongside the file's own variables. `initializer` is its
    * literal, so previews evaluate it like any other variable; `imported`
@@ -49,6 +65,9 @@ export type VariableInfo = {
    */
   global?: VariableGlobalInfo;
 };
+
+/** A declaration's literal as the server reads it: a string, a number, a boolean, or a list of strings and numbers. */
+export type VariableLiteral = string | number | boolean | (string | number)[];
 
 /** Where a project parameter comes from, and how the file sees it. */
 export type VariableGlobalInfo = {
@@ -93,7 +112,37 @@ export function declaredVariableName(
 
 /** A declaration initializer wrapped as a `param()` call, labeled by name — single-quoted, like the rest of the source the UI writes. */
 export function paramInitializer(name: string, initializer: string): string {
-  return `param('${name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', ${initializer})`;
+  return `param('${quoteSingle(name)}', ${initializer})`;
+}
+
+/** `text` between single quotes, backslashes and quotes escaped. */
+function quoteSingle(text: string): string {
+  return text.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+/** One option's value or a list of them as source: strings single-quoted, numbers bare, a list in brackets. */
+export function choiceLiteral(value: string | number | readonly (string | number)[]): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(each => choiceLiteral(each)).join(', ')}]`;
+  }
+  return typeof value === 'number' ? String(value) : `'${quoteSingle(value as string)}'`;
+}
+
+/**
+ * The declaration a choice row's "New" offer writes with the P toggle on: a
+ * `param()` of the typed name over the chosen option, offering the row's own
+ * options — `param('holeSize', 'm4', 'select', { options: [{ label: 'M4',
+ * value: 'm4' }] })`; a list chosen declares a `multi` select. With the toggle
+ * off the initializer is {@link choiceLiteral} of the chosen option alone.
+ */
+export function choiceParamInitializer(
+  name: string,
+  chosen: string | number | readonly (string | number)[],
+  options: readonly { label: string; value: string | number }[],
+): string {
+  const list = options.map(option => `{ label: '${quoteSingle(option.label)}', value: ${choiceLiteral(option.value)} }`).join(', ');
+  const multi = Array.isArray(chosen) ? ', multi: true' : '';
+  return `param('${quoteSingle(name)}', ${choiceLiteral(chosen)}, 'select', { options: [${list}]${multi} })`;
 }
 
 /**
@@ -343,6 +392,8 @@ function evaluateArithmetic(
 }
 
 const PARAM_INIT_RE = /^param\(\s*(['"`])[^'"`]*\1\s*,\s*([\s\S]+)\)\s*;?\s*$/;
+/** A plain string, list or boolean literal — a value the file spells, as a number literal is. */
+const LITERAL_INIT_RE = /^(?:(['"`])[\s\S]*\1|\[[\s\S]*\]|true|false)$/;
 const PROPERTY_INIT_RE =
   /^property\(\s*(['"`])[^'"`]*\1\s*,\s*(['"`])[^'"`]*\2\s*,\s*([\s\S]+)\)\s*;?\s*$/;
 
@@ -405,7 +456,8 @@ export function applyVariableName(value: string, name: string): string {
   return value + name;
 }
 
-function matchRank(name: string, lowerQuery: string): number {
+/** How well a name matches a lower-cased query: 0 exact, 1 prefix, 2 anywhere — the dropdowns' sort order. */
+export function matchRank(name: string, lowerQuery: string): number {
   const lowerName = name.toLowerCase();
   if (lowerName === lowerQuery) {
     return 0;
@@ -475,8 +527,9 @@ export function escapeHtml(str: string): string {
 
 /** What a dropdown entry names: a `param()` declaration, a `property()` the
  * part publishes, a project parameter (an export of a `*.params.js` file),
- * a plain value (a number literal, or an import whose value the file
- * doesn't show), or a value computed from any other expression. */
+ * a plain value (a number, string, list or boolean literal, or an import
+ * whose value the file doesn't show), or a value computed from any other
+ * expression. */
 export type SuggestionKind = 'param' | 'property' | 'global' | 'variable' | 'expression';
 
 /**
@@ -498,14 +551,21 @@ export function suggestionKind(v: Suggestion, newAsParam: boolean): SuggestionKi
   if (PROPERTY_INIT_RE.test(initializer)) {
     return 'property';
   }
-  if (!initializer || Number.isFinite(Number(initializer))) {
+  if (!initializer || Number.isFinite(Number(initializer)) || LITERAL_INIT_RE.test(initializer)) {
     return 'variable';
   }
   return 'expression';
 }
 
+/** The chip before a dropdown row's name: its letter, its tooltip and its colours. */
+export type SuggestionChip = { letter: string; title: string; colors: string };
+
+/** The chip's box, whatever its colours — one class list, so every host draws it alike. */
+export const SUGGESTION_CHIP_CLASS =
+  'inline-flex items-center justify-center shrink-0 min-w-4 h-4 px-0.5 rounded border text-[10px] font-semibold leading-none select-none';
+
 /** The chip before each row's name — P wears the input's own P-toggle blue. */
-const KIND_CHIPS: Record<SuggestionKind, { letter: string; title: string; colors: string }> = {
+const KIND_CHIPS: Record<SuggestionKind, SuggestionChip> = {
   param: {
     letter: 'P',
     title: 'Parameter — param()',
@@ -532,6 +592,11 @@ const KIND_CHIPS: Record<SuggestionKind, { letter: string; title: string; colors
     colors: 'bg-base-content/10 text-base-content/60 border-base-content/20',
   },
 };
+
+/** The chip a suggestion wears — the choice rows' popover draws it with the same markup as the number rows' dropdown. */
+export function suggestionChip(v: Suggestion, newAsParam: boolean): SuggestionChip {
+  return KIND_CHIPS[suggestionKind(v, newAsParam)];
+}
 
 /**
  * The value a row shows beside its name, when the file does not spell it:
@@ -565,8 +630,8 @@ export function suggestionItemHtml(
   newAsParam: boolean,
 ): string {
   const activeClass = active ? 'bg-primary/10' : '';
-  const chip = KIND_CHIPS[suggestionKind(v, newAsParam)];
-  const chipHtml = `<span title="${chip.title}" class="inline-flex items-center justify-center shrink-0 min-w-4 h-4 px-0.5 rounded border text-[10px] font-semibold leading-none select-none ${chip.colors}">${chip.letter}</span>`;
+  const chip = suggestionChip(v, newAsParam);
+  const chipHtml = `<span title="${chip.title}" class="${SUGGESTION_CHIP_CLASS} ${chip.colors}">${chip.letter}</span>`;
   const badge = v.isNew
     ? '<span class="text-primary/70 ml-0.5 text-[10px] uppercase select-none">new</span>'
     : '';

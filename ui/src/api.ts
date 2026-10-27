@@ -1147,7 +1147,7 @@ export type GhostCustomRef =
 export type CustomGhostRequest = {
   feature: 'custom';
   id: string;
-  values: Record<string, ValueExpr | boolean | string | FeatureListValue>;
+  values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue>;
   refs: Record<string, GhostCustomRef[]>;
   operation: FeatureOpKind | null;
   /** Edit mode: the edited statement's call site — the ghost reads the scene as it stood before it. */
@@ -4064,8 +4064,8 @@ export type ParsedFeatureStatement =
       id: string;
       /** The callee as written — an import alias included. */
       callee: string;
-      /** The typed-in values the statement writes, a select of several's as its list; one it leaves out is absent. */
-      values: Record<string, ValueExpr | boolean | string | FeatureListValue>;
+      /** The typed-in values the statement writes, a select of several's as its list, a choice naming a variable as `{ ref }`; one it leaves out is absent. */
+      values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue>;
       /** The picked values it writes, element by element; one it leaves out is absent. */
       picks: Record<string, ParsedCustomPick[]>;
       operation: FeatureOpKind;
@@ -6827,6 +6827,13 @@ export async function fetchInterference(body: InterferenceRequestBody, signal?: 
 export type FeatureScalarValue = number | string | boolean;
 /** What a select of several (`multiple`) holds: the chosen options' values, in the options' order. */
 export type FeatureListValue = (string | number)[];
+/**
+ * A select's, radio's or select-of-several's value naming a variable in place
+ * of an option: an identifier or a dotted member path (`holeSize`,
+ * `inst.properties.kind`), written bare into the statement, where the
+ * variable's value has to be one of the options when the feature runs.
+ */
+export type FeatureRefValue = { ref: string };
 
 /** What a picked face is, as a custom feature's `visibleWhen` tells picks apart (mirror of the engine's `PickedSurface`). */
 export type FeaturePickedSurface = 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'other';
@@ -7132,8 +7139,8 @@ export type CustomPickInput =
 type CustomFeatureFields = {
   /** The feature's catalog id. */
   id: string;
-  /** Typed-in values by name, a select of several's as a list (`[]` writes an empty one); `null` drops one (edit). */
-  values: Record<string, ValueExpr | boolean | string | FeatureListValue | null>;
+  /** Typed-in values by name, a select of several's as a list (`[]` writes an empty one), a choice naming a variable as `{ ref }`; `null` drops one (edit). */
+  values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | null>;
   /** Picked values by name, element by element; an empty list drops one (edit). */
   picks: Record<string, CustomPickInput[]>;
   operation?: FeatureOpKind;

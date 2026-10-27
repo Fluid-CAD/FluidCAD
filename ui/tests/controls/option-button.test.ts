@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OptionButton, type ChoiceItem, type OptionButtonOptions } from '../../src/ui/controls';
+import { OptionButton, type ChoiceItem, type OptionButtonOptions, type ParameterChoice } from '../../src/ui/controls';
 
 // The rich select's trigger: what it shows, what opens its popover, that a
 // choice made there (and only a user's choice) reaches onChange.
@@ -166,5 +166,84 @@ describe('OptionButton', () => {
     el.click();
     key(el, 'ArrowDown');
     expect(popup()).toBeNull();
+  });
+});
+
+describe('OptionButton bound to a parameter', () => {
+  const P = { letter: 'P', title: 'Parameter — param()', colors: 'bg-primary/20 text-primary border-primary/40' };
+  const HOLE: ParameterChoice = { name: 'holeHead', chip: P, value: 'Counterbore' };
+
+  it('shows the parameter\'s name with what it selects muted beside it, and holds no value of its own', () => {
+    const { button, el, onChange } = mount({ value: 'plain' });
+    button.setBinding(HOLE);
+    expect(button.binding).toBe(HOLE);
+    expect(button.value).toBeUndefined();
+    const text = el.querySelector<HTMLElement>('[data-role="binding"]')!;
+    expect(text.className).toContain('flex-1 min-w-0');
+    expect(text.querySelector('[data-role="parameter"]')!.textContent).toBe('holeHead');
+    expect(text.querySelector('[data-role="parameter"]')!.className).toContain('font-mono');
+    expect(text.querySelector('[data-role="resolved"]')!.textContent).toBe('Counterbore');
+    expect(text.querySelector('[data-role="resolved"]')!.className).toContain('text-base-content/50');
+    expect(el.querySelector('img')).toBeNull();
+    expect(el.querySelector('[data-role="chip"]')).toBeNull();
+    expect(el.title).toBe('');
+    expect(onChange).not.toHaveBeenCalled();
+    // A project parameter's label is the tooltip; a value no option carries, the warning.
+    button.setBinding({ name: 'head', chip: P, label: 'Head style', value: "'flat'", warning: "head is 'flat', which is not one of the options." });
+    expect(el.title).toBe("head is 'flat', which is not one of the options.");
+    expect(el.querySelector('[data-role="resolved"]')!.className).toContain('text-warning');
+    button.setBinding({ name: 'head', chip: P, label: 'Head style' });
+    expect(el.title).toBe('Head style');
+    expect(el.querySelector('[data-role="resolved"]')).toBeNull();
+    // Let go: the option chosen before shows again.
+    button.setBinding(undefined);
+    expect(el.textContent).toBe('Plain');
+    expect(button.value).toBe('plain');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('binds on a parameter chosen in the popover, telling onBind once, and marks it selected on the next open', () => {
+    const onBind = vi.fn();
+    const { button, el, onChange, options } = mount({ value: 'plain', parameters: () => [HOLE] });
+    button.onBind = onBind;
+    el.click();
+    const row = () => document.body.querySelector<HTMLElement>('[data-parameter="holeHead"]')!;
+    expect(row().getAttribute('aria-selected')).toBe('false');
+    row().click();
+    expect(onBind).toHaveBeenCalledTimes(1);
+    expect(onBind).toHaveBeenCalledWith(HOLE);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(button.binding).toBe(HOLE);
+    expect(button.value).toBeUndefined();
+    expect(el.querySelector('[data-role="parameter"]')!.textContent).toBe('holeHead');
+    expect(button.isOpen).toBe(false);
+    expect(el.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(el);
+    el.click();
+    expect(row().getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(row());
+    expect(options().filter(o => !o.dataset.parameter).map(o => o.getAttribute('aria-selected'))).toEqual(['false', 'false', 'false']);
+  });
+
+  it('choosing an option again unbinds — the one shown before included — and setValue lets the binding go silently', () => {
+    const { button, el, onChange, options } = mount({ value: 'plain', parameters: () => [HOLE] });
+    button.setBinding(HOLE);
+    el.click();
+    options()[0].click();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('plain');
+    expect(button.binding).toBeUndefined();
+    expect(button.value).toBe('plain');
+    expect(el.textContent).toBe('Plain');
+    button.setBinding(HOLE);
+    button.setValue('cbore');
+    expect(button.binding).toBeUndefined();
+    expect(el.textContent).toBe('Counterbore');
+    // Items swapped under a binding: it stays.
+    button.setBinding(HOLE);
+    button.setItems([{ value: 'hex', label: 'Hex' }]);
+    expect(button.binding).toBe(HOLE);
+    expect(el.querySelector('[data-role="parameter"]')!.textContent).toBe('holeHead');
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 });

@@ -53,7 +53,7 @@ describe('assembly parameters', () => {
   it('offers assembly parameters at the insertion point, excluding later and nested locals', async () => {
     const source = code.replace('  const front', "  function hidden() { const privateWidth = 10; }\n  const front");
     const variables = await extractVariablesInAssembly(source);
-    expect(variables).toContainEqual({ name: 'width', initializer: "param('Width', 700)", numeric: true });
+    expect(variables).toContainEqual({ name: 'width', initializer: "param('Width', 700)", numeric: true, value: 700 });
     expect(variables.map(v => v.name)).not.toContain('privateWidth');
     expect(variables.map(v => v.name)).not.toContain('later');
     const editScope = await extractVariablesInScope(code, 5);

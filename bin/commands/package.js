@@ -94,7 +94,7 @@ export function registerPackageCommand(program) {
 
   pkg
     .command('init')
-    .description('Write the "package" block of fluidcad.json: the name and version 0.1.0 (the features/, parts/ and assemblies/ folders decide the exports)')
+    .description('Write the "package" block of fluidcad.json: the name and version 1.0.0 (the features/, parts/ and assemblies/ folders decide the exports)')
     .option('-w, --workspace <path>', 'Workspace directory (defaults to cwd)')
     .option('-n, --name <@handle/name>', 'Package name, @<your hub handle>/<name>; signed in, a name without the scope takes your handle (asked for when omitted)')
     .option('--hub <url>', 'The hub whose handle scopes a name without one (default: FLUIDCAD_HUB_URL, else https://hub.fluidcad.io)')

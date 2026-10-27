@@ -12,7 +12,7 @@ import { updateDimensionExpression } from './dimensions.ts';
 import { ensureSymbolImport } from './imports.ts';
 import { RenderedProperties, type PropertySourceCall, type RenderedPropertyValue } from './rendered-properties.ts';
 import { indentOf, joinLines, resolveSourceRow, splitLines, type CodeEditResult } from './lines.ts';
-import { findEditableCallAt, walkTree } from './nodes.ts';
+import { findEditableCallAt, numericLiteralValue, stringLiteralValue, walkTree } from './nodes.ts';
 import { getParser, type TSNode, type TSTree } from './parser.ts';
 import {
   bareProperties, declarationImports, declareParamStatementsFor, findEnclosingPart, findPartAt,
@@ -158,6 +158,13 @@ export type VariableGlobalInfo = {
  * parameter from a `*.params.js` file; its `name` is the identifier usable
  * in this file and its initializer the literal value, so the client-side
  * evaluator reads it like any local.
+ *
+ * `value` is the declaration's literal, when one can be read without
+ * evaluating anything: a `const`'s string, number, boolean or list literal,
+ * a `param()`'s default (its second argument), a `property()`'s published
+ * literal, a global's value, a rendered property's value. A choice row
+ * matches it against its options; it is left out for an initializer that
+ * is no literal (`extrude(...)`, `width / 2`, an import).
  */
 export type VariableInfo = {
   name: string;
@@ -165,7 +172,11 @@ export type VariableInfo = {
   numeric?: boolean;
   unbound?: boolean;
   global?: VariableGlobalInfo;
+  value?: VariableLiteral;
 };
+
+/** The literal a variable's declaration holds — the shapes a `param()` default can take. */
+export type VariableLiteral = string | number | boolean | (string | number)[];
 
 /** The project parameters to offer after a file's own variables, and the file they are offered in. */
 export type ScopeGlobals = {
@@ -216,6 +227,65 @@ function isNumericValueNode(node: TSNode, numericByName: Map<string, boolean>): 
     }
     default:
       return false;
+  }
+}
+
+/**
+ * The literal a declaration's initializer holds, read off the syntax alone:
+ * a string, a number (a minus allowed), `true`/`false`, an array of strings
+ * and numbers, a `param()`'s default or a `property()`'s published value
+ * when that is one of these. Undefined for anything that would need
+ * evaluating — the dialogs show a value they can vouch for or none.
+ */
+class LiteralInitializers {
+  /** The declaration calls whose literal sits in an argument: `param(label, default, …)`, `property(label, name, value)`. */
+  private static readonly LITERAL_ARGUMENT: Readonly<Record<string, number>> = { param: 1, property: 2 };
+
+  static of(node: TSNode): VariableLiteral | undefined {
+    switch (node.type) {
+      case 'string':
+        return stringLiteralValue(node) ?? undefined;
+      case 'true':
+        return true;
+      case 'false':
+        return false;
+      case 'number':
+      case 'unary_expression':
+        return numericLiteralValue(node) ?? undefined;
+      case 'array':
+        return LiteralInitializers.list(node);
+      case 'call_expression':
+        return LiteralInitializers.declared(node);
+      default:
+        return undefined;
+    }
+  }
+
+  /** An array of strings and numbers, in order; undefined when any element is anything else. */
+  private static list(array: TSNode): (string | number)[] | undefined {
+    const values: (string | number)[] = [];
+    for (const element of array.namedChildren) {
+      if (element.type === 'comment') {
+        continue;
+      }
+      const value = element.type === 'string' ? stringLiteralValue(element) : numericLiteralValue(element);
+      if (value === null) {
+        return undefined;
+      }
+      values.push(value);
+    }
+    return values;
+  }
+
+  /** The literal argument of a `param()` or `property()` call, when it is one. */
+  private static declared(call: TSNode): VariableLiteral | undefined {
+    const fn = call.childForFieldName('function');
+    const slot = fn?.type === 'identifier' ? LiteralInitializers.LITERAL_ARGUMENT[fn.text] : undefined;
+    if (slot === undefined) {
+      return undefined;
+    }
+    const argument = call.childForFieldName('arguments')?.namedChildren.filter(a => a.type !== 'comment')[slot];
+    return argument ? LiteralInitializers.of(argument) : undefined;
   }
 }
 
@@ -328,7 +398,8 @@ function collectVariablesInScope(
       seen.add(name);
       const numeric = valueNode ? isNumericValueNode(valueNode, numericByName) : true;
       numericByName.set(name, numeric);
-      variables.push({ name, initializer, numeric });
+      const value = valueNode ? LiteralInitializers.of(valueNode) : undefined;
+      variables.push({ name, initializer, numeric, ...(value !== undefined ? { value } : {}) });
     }
   }
 
@@ -348,7 +419,7 @@ function collectVariablesInScope(
       const dotted = `${name}.properties.${property}`;
       if (!seen.has(dotted)) {
         seen.add(dotted);
-        variables.push({ name: dotted, initializer: propertyInitializer(value), numeric: typeof value === 'number' });
+        variables.push({ name: dotted, initializer: propertyInitializer(value), numeric: typeof value === 'number', value });
       }
     }
   }
@@ -462,11 +533,13 @@ function collectVariablesInScope(
       continue;
     }
     seen.add(bare.name);
+    const value = LiteralInitializers.of(bare.value);
     variables.push({
       name: bare.name,
       initializer: bare.call.text,
       numeric: isNumericValueNode(bare.value, numericByName),
       unbound: true,
+      ...(value !== undefined ? { value } : {}),
     });
   }
 
@@ -507,6 +580,7 @@ function appendGlobals(
       name,
       ...(initializer !== undefined ? { initializer } : {}),
       numeric: global.numeric,
+      ...(global.value !== null ? { value: global.value } : {}),
       global: {
         file: global.relPath,
         label: global.label,

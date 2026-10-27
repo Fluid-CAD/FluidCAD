@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OptionMultiButton, type ChoiceItem, type OptionMultiButtonOptions } from '../../src/ui/controls';
+import { OptionMultiButton, type ChoiceItem, type OptionMultiButtonOptions, type ParameterChoice } from '../../src/ui/controls';
 
 // The trigger of a select several are chosen from: what it shows for none,
 // one or two and more, that its popover toggles and stays open, that its
@@ -168,5 +168,58 @@ describe('OptionMultiButton popover', () => {
     expect(button.isOpen).toBe(false);
     el.click();
     expect(button.isOpen).toBe(false);
+  });
+});
+
+describe('OptionMultiButton bound to a parameter', () => {
+  const P = { letter: 'P', title: 'Parameter — param()', colors: 'bg-primary/20 text-primary border-primary/40' };
+  const STEPS: ParameterChoice = { name: 'steps', chip: P, value: 'Deburr, Polish' };
+
+  it('shows the parameter\'s name and what it selects, opens on the list it holds, and a toggle carries on from it', () => {
+    const onBind = vi.fn();
+    const { button, el, onChange, options } = mount({ values: ['chamfer'], parameters: () => [STEPS] });
+    button.onBind = onBind;
+    button.setBinding(STEPS, ['deburr', 'polish']);
+    expect(button.binding).toBe(STEPS);
+    expect(button.value).toEqual(['deburr', 'polish']);
+    expect(el.querySelector('[data-role="binding"]')).not.toBeNull();
+    expect(el.querySelector('[data-role="parameter"]')!.textContent).toBe('steps');
+    expect(el.querySelector('[data-role="resolved"]')!.textContent).toBe('Deburr, Polish');
+    expect(el.title).toBe('');
+    expect(onBind).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+    el.click();
+    expect(options().filter(o => !o.dataset.parameter).map(o => o.getAttribute('aria-selected'))).toEqual(['true', 'false', 'true', 'false']);
+    expect(document.body.querySelector('[data-parameter="steps"]')!.getAttribute('aria-selected')).toBe('true');
+    options()[3].click();
+    expect(button.binding).toBeUndefined();
+    expect(onChange).toHaveBeenLastCalledWith(['deburr', 'polish', 'anodise']);
+    expect(el.textContent).toBe('3 selected');
+    expect(button.isOpen).toBe(true);
+    // Bound to a list unknown to the host: the popover opens on nothing checked.
+    button.setBinding(STEPS, []);
+    expect(button.value).toEqual([]);
+    el.click();
+    expect(options().filter(o => !o.dataset.parameter).map(o => o.getAttribute('aria-selected'))).toEqual(['false', 'false', 'false', 'false']);
+  });
+
+  it('binds on a parameter chosen in the popover — closed, onBind once — and setValue lets it go', () => {
+    const onBind = vi.fn();
+    const { button, el, onChange } = mount({ values: ['chamfer'], parameters: () => [STEPS] });
+    button.onBind = onBind;
+    el.click();
+    document.body.querySelector<HTMLElement>('[data-parameter="steps"]')!.click();
+    expect(onBind).toHaveBeenCalledTimes(1);
+    expect(onBind).toHaveBeenCalledWith(STEPS);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(button.isOpen).toBe(false);
+    expect(button.binding).toBe(STEPS);
+    expect(document.activeElement).toBe(el);
+    expect(el.querySelector('[data-role="parameter"]')!.textContent).toBe('steps');
+    // Until the host says what the parameter holds, the list stays as it was.
+    expect(button.value).toEqual(['chamfer']);
+    button.setValue(['polish']);
+    expect(button.binding).toBeUndefined();
+    expect(el.textContent).toBe('Polish');
   });
 });

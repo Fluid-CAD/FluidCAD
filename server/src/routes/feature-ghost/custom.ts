@@ -2,7 +2,7 @@
 
 import type { Response } from 'express';
 import type { FeatureMetaSnapshot, ParamSpecSnapshot } from '../../../../lib/dist/index.js';
-import { TypedInKinds, type TypedInSpec } from '../../apply-feature-edit/index.ts';
+import { TypedInKinds, type TypedInKind, type TypedInSpec } from '../../apply-feature-edit/index.ts';
 import type { FeatureCatalogEntry } from '../../feature-catalog/catalog.ts';
 import type { CustomGhostRequest, FluidCadServer, GhostCustomRef } from '../../fluidcad-server/index.ts';
 import { parseEntityRefs } from './refs.ts';
@@ -97,6 +97,20 @@ export class CustomGhostRoute {
       }
       values[name] = resolved;
     }
+    // A choice bound to a variable previews as the literal the variable holds here.
+    for (const [name, reference] of Object.entries(shaped.references)) {
+      const resolved = scope.literal(reference.ref);
+      if (resolved === null) {
+        res.json({ success: false, reason: `${reference.spec.label} names ${reference.ref}, which has no value here` });
+        return;
+      }
+      const refusal = reference.kind.preview(reference.spec, resolved);
+      if (refusal) {
+        res.json({ success: false, reason: refusal });
+        return;
+      }
+      values[name] = resolved;
+    }
 
     const request: CustomGhostRequest = {
       feature: 'custom',
@@ -144,12 +158,14 @@ export class CustomGhostRoute {
 
   /**
    * The body checked against the feature: typed-in values by kind (numbers
-   * to resolve, literals as they are), picks by picker, the operation, the
-   * and the edited statement.
+   * to resolve, literals as they are, a choice's reference to resolve to
+   * its literal), picks by picker, the operation, and the edited statement.
    */
   private static shape(body: CustomGhostBody, meta: FeatureMetaSnapshot): {
     numbers: Record<string, ValueExpr>;
     literals: Record<string, string | boolean | number | (string | number)[]>;
+    /** Each choice bound to a variable: the name it reads, and the kind and declaration the literal is checked by. */
+    references: Record<string, { ref: string; kind: TypedInKind; spec: TypedInSpec }>;
     refs: Record<string, GhostCustomRef[]>;
     operation: CustomGhostRequest['operation'];
     exclude: { filePath: string; line: number } | null;
@@ -160,6 +176,7 @@ export class CustomGhostRoute {
     }
     const numbers: Record<string, ValueExpr> = {};
     const literals: Record<string, string | boolean | number | (string | number)[]> = {};
+    const references: Record<string, { ref: string; kind: TypedInKind; spec: TypedInSpec }> = {};
     for (const [name, value] of Object.entries(rawValues)) {
       const spec = meta.params[name];
       if (!spec) {
@@ -181,6 +198,9 @@ export class CustomGhostRoute {
       }
       if (kind.expression) {
         numbers[name] = value as ValueExpr;
+      } else if (TypedInKinds.isRef(value)) {
+        // The preview passed it, so it is well formed.
+        references[name] = { ref: TypedInKinds.refText(value)!, kind, spec: spec as TypedInSpec };
       } else {
         literals[name] = value as string | boolean | number | (string | number)[];
       }
@@ -222,6 +242,7 @@ export class CustomGhostRoute {
     return {
       numbers,
       literals,
+      references,
       refs,
       operation: operation as CustomGhostRequest['operation'],
       exclude,

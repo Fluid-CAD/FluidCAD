@@ -221,8 +221,8 @@ describe('a select of several', () => {
     q('value-v').click();
     expect(popup()!.getAttribute('aria-multiselectable')).toBe('true');
     expect(options().map(o => o.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false', 'false']);
-    // Four plain options: no search box, a list.
-    expect(popup()!.parentElement!.querySelector('input')).toBeNull();
+    // Four plain options: a list, with the search box a parameter's name is typed in.
+    expect(popup()!.parentElement!.querySelector('input[type="search"]')).not.toBeNull();
     expect(popup()!.parentElement!.dataset.mode).toBe('list');
   });
 
@@ -292,7 +292,7 @@ describe('a select of several', () => {
     expect(row.read()).toEqual({ value: ['chamfer', 'polish', 'anodise'] });
   });
 
-  it('honours a grid and its columns, and searches over twelve options unless told otherwise', () => {
+  it('honours a grid and its columns, and drops the search box only when told to', () => {
     const grid = field({ ...FINISHES, display: 'grid', columns: 2 } as FeatureScalarParam, []);
     grid.q('value-v').click();
     expect(popup()!.parentElement!.dataset.mode).toBe('grid');

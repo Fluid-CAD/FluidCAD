@@ -204,6 +204,32 @@ describe('projects', () => {
     await processGone(pid);
   });
 
+  it('sets a new package workspace up when the create request names one, and badges it', async () => {
+    const parent = path.join(root, 'projects');
+    fs.mkdirSync(parent, { recursive: true });
+    const workspace = path.join(parent, 'kit');
+    const events = readEvents((seen) => seen.some((entry) => entry.event === 'session' && entry.data.view.phase === 'running'));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const opened = await (await post('/api/sessions', { path: workspace, create: true, package: '@acme/kit' })).json();
+    expect(opened).toMatchObject({ phase: 'opening', status: { step: 'creating', package: '@acme/kit' } });
+    await events;
+    expect(JSON.parse(fs.readFileSync(path.join(workspace, 'fluidcad.json'), 'utf8')).package).toEqual({ name: '@acme/kit', version: '0.1.0' });
+    expect(fs.existsSync(path.join(workspace, 'parts', 'part1.part.js'))).toBe(true);
+    const { projects } = await (await api('/api/start/projects')).json();
+    expect(projects).toMatchObject([{ path: workspace, open: true, package: { name: '@acme/kit', version: '0.1.0' } }]);
+    const pid = fakeEnginePid(workspace);
+    await server.close();
+    await processGone(pid);
+  });
+
+  it('refuses a package name that is not @handle/name before anything is created', async () => {
+    const workspace = path.join(root, 'projects', 'kit');
+    const response = await post('/api/sessions', { path: workspace, create: true, package: 'kit' });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: '"kit" is not a package name: expected @handle/name.' });
+    expect(fs.existsSync(workspace)).toBe(false);
+  });
+
   it('refuses paths that are not absolute, and says why', async () => {
     const relative = 'relative/bracket';
     const responses = [
@@ -275,7 +301,7 @@ describe('a projects folder', () => {
     }
     fs.mkdirSync(path.join(projectsDir, 'notes'));
     expect(server.projectsRoot).toBe(projectsDir);
-    const hello = await (await post('/api/start/hello', { protocol: 3 })).json();
+    const hello = await (await post('/api/start/hello', { protocol: 4 })).json();
     expect(hello).toMatchObject({ ok: true, projectsRoot: projectsDir });
     const { projects } = await (await api('/api/start/projects')).json();
     expect(projects).toMatchObject([

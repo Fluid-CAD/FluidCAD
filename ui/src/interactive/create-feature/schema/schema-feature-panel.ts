@@ -1,6 +1,6 @@
 import type {
   FeatureLayoutImage, FeatureLayoutItem, FeatureLayoutNote, FeatureLayoutRow, FeatureLayoutSection, FeatureLayoutTabs,
-  FeatureListValue, FeatureOpKind, FeaturePickedSurface, FeaturePickerParam, FeaturePickState, FeatureScalarParam,
+  FeatureListValue, FeatureOpKind, FeaturePickedSurface, FeaturePickerParam, FeaturePickState, FeatureRefValue, FeatureScalarParam,
   FeatureScalarValue, FeatureStaticItem, FeatureVisibleWhen,
 } from '../../../api';
 import { FoldingSection } from '../../../ui/controls';
@@ -293,7 +293,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
    * operation on the tabs. Nothing counts as changed until the user changes it.
    */
   showEdit(state: {
-    values: Record<string, FeatureScalarValue | FeatureListValue>;
+    values: Record<string, FeatureScalarValue | FeatureListValue | FeatureRefValue>;
     operation: FeatureOpKind;
     seedPicks: (picker: SchemaPicker) => void;
   }): void {
@@ -459,7 +459,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
     this.syncVisibility();
   }
 
-  /** The variables the number rows' dropdowns offer. */
+  /** The variables the number rows' dropdowns and the selects' Parameters groups offer. */
   setScopeVariables(variables: VariableInfo[]): void {
     for (const field of this.fields.values()) {
       field.setVariables(variables);

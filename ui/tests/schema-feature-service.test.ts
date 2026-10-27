@@ -33,6 +33,7 @@ import { PreviewPreference } from '../src/interactive/create-feature/schema/prev
 import { FinishSketchButton } from '../src/interactive/create-feature/finish-sketch-button';
 import { FeatureGhostOverlay } from '../src/interactive/create-feature/feature-ghost';
 import { FeatureDialogRegistry } from '../src/interactive/feature-dialog-registry';
+import { ParamDeclareMode } from '../src/ui/expression-core';
 import { setActivePartLocationProvider } from '../src/helpers/scene-utils';
 import { Navbar } from '../src/ui/navbar';
 import { ObjectIcons } from '../src/ui/object-icons';
@@ -286,7 +287,19 @@ function mount(featureMeta: FeatureMetaSnapshot = STANDOFF, opts: { preview?: bo
   const input = (name: string) => panel().querySelector<HTMLInputElement & HTMLSelectElement>(`[data-role="value-${name}"]`)!;
   const type = (name: string, value: string) => {
     input(name).value = value;
-    input(name).dispatchEvent(new Event(input(name).tagName === 'SELECT' ? 'change' : 'input'));
+    input(name).dispatchEvent(new Event('input'));
+  };
+  /** The options a select's popover lists, by label — opened and closed again; parameter rows are not among them. */
+  const listed = (name: string): string[] => {
+    input(name).click();
+    const labels = [...document.querySelectorAll<HTMLElement>('[role="option"]:not([data-parameter])')].map(o => o.querySelector('.truncate')!.textContent!);
+    input(name).click();
+    return labels;
+  };
+  /** Open a select's popover and press the option captioned `label`. */
+  const pick = (name: string, label: string) => {
+    input(name).click();
+    [...document.querySelectorAll<HTMLElement>('[role="option"]:not([data-parameter])')].find(o => o.querySelector('.truncate')!.textContent === label)!.click();
   };
   const opTab = (label: string) => [...panel().querySelectorAll<HTMLButtonElement>('[data-role="op-tabs"] button')]
     .find(b => b.textContent === label)!.click();
@@ -294,7 +307,7 @@ function mount(featureMeta: FeatureMetaSnapshot = STANDOFF, opts: { preview?: bo
   const lastCreate = () => vi.mocked(api.applyCustomFeature).mock.calls.at(-1)?.[0];
   const lastEdit = () => vi.mocked(api.applyCustomFeatureEdit).mock.calls.at(-1)?.[1];
   const lastGhost = () => vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1);
-  return { service, container, viewer, state, navbar, panel, input, type, opTab, message, lastCreate, lastEdit, entered, lastGhost, ghostBodies };
+  return { service, container, viewer, state, navbar, panel, input, type, listed, pick, opTab, message, lastCreate, lastEdit, entered, lastGhost, ghostBodies };
 }
 
 const faceOf = (shapeId: string, index: number) => ({ shapeId, sub: { type: 'face' as const, index } });
@@ -404,11 +417,11 @@ describe('a custom feature dialog', () => {
   });
 
   it('shows a row while its visibleWhen holds, and writes no value for a hidden one', async () => {
-    const { service, input, type, lastCreate } = mount(BRACKET);
+    const { service, input, type, pick, lastCreate } = mount(BRACKET);
     service.enter();
     const gussetRow = () => input('gusset').closest('[data-param]')!;
     expect(gussetRow().classList.contains('hidden')).toBe(true);
-    type('style', '1');
+    pick('style', 'Gusset');
     expect(gussetRow().classList.contains('hidden')).toBe(false);
     type('gusset', '6');
     service.handleTimelinePick(row('sk'));
@@ -416,7 +429,7 @@ describe('a custom feature dialog', () => {
     type('depth', '5');
     await vi.advanceTimersByTimeAsync(300);
     expect(lastCreate()!.values).toEqual({ style: 'gusset', gusset: 6, depth: 5 });
-    type('style', '0');
+    pick('style', 'Flat');
     await vi.advanceTimersByTimeAsync(300);
     expect(lastCreate()!.values).toEqual({ style: 'flat', depth: 5 });
   });
@@ -622,13 +635,13 @@ describe('a row left alone, as the builder gets it', () => {
   const created = () => vi.mocked(api.applyCustomFeature).mock.calls.map(call => call[0]).filter(request => !request.preview);
 
   it('applies an untouched create of a feature whose select and toggle declare no default — each row shows what the builder fills, and nothing is written', async () => {
-    const { service, input, lastCreate, lastGhost } = mount(GRILLE);
+    const { service, input, listed, lastCreate, lastGhost } = mount(GRILLE);
     service.enter();
-    expect([...input('pattern').options].map(o => o.textContent)).toEqual(['Round', 'Slot']);
-    expect(input('pattern').selectedIndex).toBe(0);
+    expect(listed('pattern')).toEqual(['Round', 'Slot']);
+    expect(input('pattern').textContent).toBe('Round');
     expect(input('chamfered').checked).toBe(false);
-    expect([...input('finish').options].map(o => o.textContent)).toEqual(['—', 'Matte', 'Gloss']);
-    expect(input('finish').selectedIndex).toBe(0);
+    expect(listed('finish')).toEqual(['—', 'Matte', 'Gloss']);
+    expect(input('finish').textContent).toBe('—');
 
     service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
     await vi.advanceTimersByTimeAsync(300);
@@ -643,13 +656,13 @@ describe('a row left alone, as the builder gets it', () => {
   });
 
   it("writes the optional select's choice, and nothing for its empty one — an edit choosing it drops the statement's", async () => {
-    const { service, type, input, lastCreate, lastEdit } = mount(GRILLE);
+    const { service, pick, input, lastCreate, lastEdit } = mount(GRILLE);
     service.enter();
     service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
-    type('finish', '2');
+    pick('finish', 'Gloss');
     await vi.advanceTimersByTimeAsync(300);
     expect(lastCreate()!.values).toEqual({ finish: 'gloss' });
-    type('finish', '0');
+    pick('finish', '—');
     await vi.advanceTimersByTimeAsync(300);
     expect(lastCreate()!.values).toEqual({});
     service.exit();
@@ -667,12 +680,12 @@ describe('a row left alone, as the builder gets it', () => {
     service.enterEdit(at(12, 2), statement, { index: 6, type: 'acme.grille', expectedStatement: "grille(pad.endFaces(), { finish: 'matte' })" });
     service.handleSceneRendered(rendered, 5, true);
     // The value it leaves out seeds from the default; untouched, neither is written.
-    expect(input('pattern').selectedIndex).toBe(0);
-    expect(input('finish').selectedIndex).toBe(1);
+    expect(input('pattern').textContent).toBe('Round');
+    expect(input('finish').textContent).toBe('Matte');
     await vi.advanceTimersByTimeAsync(300);
     expect(lastEdit()!.values).toEqual({});
 
-    type('finish', '0');
+    pick('finish', '—');
     await vi.advanceTimersByTimeAsync(300);
     expect(lastEdit()!.values).toEqual({ finish: null });
   });
@@ -1702,21 +1715,21 @@ describe('options that wait on another value in a custom feature dialog', () => 
   }, { operations: ['remove'], defaultOperation: 'remove', call: ['face', { standard: 'standard', size: 'size' }] });
 
   it('writes nothing while untouched, and the size that moved with the standard once it is switched', async () => {
-    const { service, type, input, lastCreate, lastGhost } = mount(TAP);
+    const { service, pick, listed, lastCreate, lastGhost } = mount(TAP);
     service.enter();
-    expect([...input('size').options].map(o => o.textContent)).toEqual(['M3', 'M4']);
+    expect(listed('size')).toEqual(['M3', 'M4']);
     service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
     await vi.advanceTimersByTimeAsync(300);
     expect(lastCreate()!.values).toEqual({});
 
     // The user changed the standard only: its sizes replace the others, and the size shown is written with it.
-    type('standard', '1');
+    pick('standard', 'Imperial');
     await vi.advanceTimersByTimeAsync(300);
-    expect([...input('size').options].map(o => o.textContent)).toEqual(['#4', '#6']);
+    expect(listed('size')).toEqual(['#4', '#6']);
     expect(lastCreate()!.values).toEqual({ standard: 'unc', size: 'n4' });
     expect(lastGhost()![0].values).toEqual({ standard: 'unc', size: 'n4' });
 
-    type('size', '1');
+    pick('size', '#6');
     await vi.advanceTimersByTimeAsync(300);
     expect(lastCreate()!.values).toEqual({ standard: 'unc', size: 'n6' });
     service.exit();
@@ -1795,5 +1808,87 @@ describe('a dialog laid out by its feature', () => {
     expect(created()).toHaveLength(2);
     expect(created()[0].values).toEqual({});
     expect(created()[0]).toEqual(created()[1]);
+  });
+});
+
+describe('a select naming a parameter in a custom feature dialog', () => {
+  const SIZED = meta('acme.sized', 'Sized', {
+    face: { picker: 'face', label: 'On face' },
+    size: { type: 'select', label: 'Size', default: 'm4', options: [{ label: 'M3', value: 'm3' }, { label: 'M4', value: 'm4' }, { label: 'M5', value: 'm5' }] },
+  }, { operations: ['remove'], defaultOperation: 'remove', call: ['face', { size: 'size' }] });
+  const VARIABLES = [{ name: 'holeSize', initializer: "param('holeSize', 'm5', 'select', { options: [] })", numeric: true, value: 'm5' }];
+  const parameter = (name: string) => document.querySelector<HTMLElement>(`[data-parameter="${name}"]`)!;
+
+  // The suite shares one module registry across files, so the scope lookup may be bound to another file's api:
+  // the variables go straight to the panel once the dialog's own lookup has landed, as the panel tests hand them.
+  const inScope = async (service: SchemaFeatureService) => {
+    await vi.advanceTimersByTimeAsync(0);
+    service.dialogPanel.setScopeVariables(VARIABLES);
+  };
+
+  beforeEach(() => {
+    ParamDeclareMode.set(true);
+  });
+
+  it('sends the reference under values — the apply and the ghost alike — and a parameter declared here, the ghost drawing the option it was declared over', async () => {
+    const { service, input, lastCreate, lastGhost } = mount(SIZED);
+    service.enter();
+    await inScope(service);
+    service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
+    input('size').click();
+    const typed = document.querySelector<HTMLInputElement>('[data-mode] input[type="search"]')!;
+    typed.value = 'holeSize';
+    typed.dispatchEvent(new Event('input', { bubbles: true }));
+    parameter('holeSize').click();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()).toMatchObject({ id: 'acme.sized', values: { size: { ref: 'holeSize' } }, preview: true });
+    expect(lastCreate()!.newVariables).toBeUndefined();
+    expect(lastGhost()![0].values).toEqual({ size: { ref: 'holeSize' } });
+    expect(input('size').textContent).toBe('holeSizeM5');
+
+    // A fresh name declares a parameter over the option the row showed: the statement names it, the ghost draws the option.
+    input('size').click();
+    const box = document.querySelector<HTMLInputElement>('[data-mode] input[type="search"]')!;
+    box.value = 'boltSize';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(parameter('boltSize').dataset.new).toBe('true');
+    parameter('boltSize').click();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()).toMatchObject({
+      values: { size: { ref: 'boltSize' } },
+      newVariables: [{
+        name: 'boltSize',
+        initializer: "param('boltSize', 'm5', 'select', { options: [{ label: 'M3', value: 'm3' }, { label: 'M4', value: 'm4' }, { label: 'M5', value: 'm5' }] })",
+      }],
+    });
+    expect(lastGhost()![0].values).toEqual({ size: 'm5' });
+    expect(input('size').textContent).toBe('boltSizeM5');
+    service.exit();
+  });
+
+  it("opens an edit on the statement's reference, bound and untouched, and writes it only when the user chooses again", async () => {
+    const { service, input, pick, lastEdit } = mount(SIZED);
+    const rendered = [...scene(), {
+      id: 'sz', type: 'acme.sized', name: 'Sized', parentId: 'part', ownShapes: [], sourceLocation: at(12, 2),
+      sceneShapes: [{ shapeId: 'sized-solid', shapeType: 'solid', meshes: MESH }],
+    }] as SceneObjectRender[];
+    const statement: Extract<ParsedFeatureStatement, { feature: 'custom' }> = {
+      feature: 'custom', id: 'acme.sized', callee: 'sized',
+      values: { size: { ref: 'holeSize' } }, picks: { face: [{ text: 'pad.endFaces()', start: 0, end: 14 }] },
+      operation: 'remove', scopeTexts: [], scopeRefs: [],
+    };
+    service.enterEdit(at(12, 2), statement, { index: 6, type: 'acme.sized', expectedStatement: 'sized(pad.endFaces(), { size: holeSize })' });
+    // Opened on the statement's name alone: bound, nothing resolved until the scope lands.
+    expect(input('size').textContent).toBe('holeSize');
+    await inScope(service);
+    service.handleSceneRendered(rendered, 5, true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(input('size').textContent).toBe('holeSizeM5');
+    expect(service.dialogPanel.fields.get('size')!.dirty).toBe(false);
+    expect(lastEdit()!.values).toEqual({});
+    pick('size', 'M3');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastEdit()!.values).toEqual({ size: 'm3' });
+    service.exit();
   });
 });

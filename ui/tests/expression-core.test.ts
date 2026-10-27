@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  applyVariableName, classifyCommit, declaredVariableName, filterSuggestions, paramInitializer,
-  resolveExpressionValue, suggestionItemHtml, suggestionKind, suggestsExistingName,
+  applyVariableName, choiceLiteral, choiceParamInitializer, classifyCommit, declaredVariableName, filterSuggestions, paramInitializer,
+  REF_RE, resolveExpressionValue, SUGGESTION_CHIP_CLASS, suggestionChip, suggestionItemHtml, suggestionKind, suggestsExistingName,
   suggestionValueHint, trailingIdentifier,
 } from '../src/ui/expression-core';
 
@@ -203,6 +203,9 @@ describe('suggestionKind', () => {
     expect(suggestionKind({ name: 'height', initializer: '30' }, false)).toBe('variable');
     expect(suggestionKind({ name: 'offset', initializer: '-2.5' }, false)).toBe('variable');
     expect(suggestionKind({ name: 'scale', initializer: '1e3' }, false)).toBe('variable');
+    expect(suggestionKind({ name: 'size', initializer: "'m4'" }, false)).toBe('variable');
+    expect(suggestionKind({ name: 'steps', initializer: "['deburr', 'polish']" }, false)).toBe('variable');
+    expect(suggestionKind({ name: 'through', initializer: 'true' }, false)).toBe('variable');
     expect(suggestionKind({ name: 'half', initializer: 'w / 2' }, false)).toBe('expression');
     expect(suggestionKind({ name: 'alias', initializer: 'w' }, false)).toBe('expression');
     expect(suggestionKind({ name: 'angle', initializer: 'Math.PI / 4' }, false)).toBe('expression');
@@ -352,5 +355,48 @@ describe('resolveExpressionValue', () => {
       { name: 'b', initializer: 'a + 1' },
     ];
     expect(resolveExpressionValue('a', cyclic)).toBeNull();
+  });
+});
+
+describe('a choice row\'s declaration', () => {
+  const OPTIONS = [{ label: 'M3', value: 'm3' }, { label: "Dowel 'pin'", value: 'pin' }, { label: 'Bar 7', value: 7 }];
+
+  it('writes a select param() of the typed name over the chosen option, offering the row\'s options', () => {
+    expect(choiceParamInitializer('holeSize', 'm3', OPTIONS)).toBe(
+      "param('holeSize', 'm3', 'select', { options: [{ label: 'M3', value: 'm3' }, { label: 'Dowel \\'pin\\'', value: 'pin' }, { label: 'Bar 7', value: 7 }] })");
+    expect(choiceParamInitializer('bar', 7, [OPTIONS[2]])).toBe("param('bar', 7, 'select', { options: [{ label: 'Bar 7', value: 7 }] })");
+  });
+
+  it('declares a multi select over a list', () => {
+    expect(choiceParamInitializer('steps', ['m3', 7], [OPTIONS[0], OPTIONS[2]])).toBe(
+      "param('steps', ['m3', 7], 'select', { options: [{ label: 'M3', value: 'm3' }, { label: 'Bar 7', value: 7 }], multi: true })");
+  });
+
+  it('spells the chosen option alone as its literal — the initializer with the P toggle off', () => {
+    expect(choiceLiteral('m3')).toBe("'m3'");
+    expect(choiceLiteral(7)).toBe('7');
+    expect(choiceLiteral(["it's", 2])).toBe("['it\\'s', 2]");
+    expect(choiceLiteral([])).toBe('[]');
+  });
+
+  it('names a variable or a dotted member path, never an expression', () => {
+    for (const ref of ['holeSize', '_x', '$a1', 'inst.properties.kind', 'a.b.c']) {
+      expect(REF_RE.test(ref)).toBe(true);
+    }
+    for (const ref of ['', '1a', 'a.', '.a', 'a-b', 'a()', 'a[0]', 'a ? b : c', 'a b', "'m4'"]) {
+      expect(REF_RE.test(ref)).toBe(false);
+    }
+  });
+});
+
+describe('suggestionChip', () => {
+  it('is the chip suggestionItemHtml draws, the new offer\'s following the P toggle', () => {
+    const param = { name: 'w', initializer: "param('w', 40)" };
+    const chip = suggestionChip(param, false);
+    expect(chip).toMatchObject({ letter: 'P', title: 'Parameter — param()' });
+    expect(suggestionItemHtml(param, 0, false, false)).toContain(`class="${SUGGESTION_CHIP_CLASS} ${chip.colors}"`);
+    expect(suggestionChip({ name: 'x', isNew: true }, true).letter).toBe('P');
+    expect(suggestionChip({ name: 'x', isNew: true }, false).letter).toBe('V');
+    expect(suggestionChip({ name: 'g', initializer: '3', global: { file: 'a.params.js', label: 'G', imported: true } }, false).letter).toBe('G');
   });
 });

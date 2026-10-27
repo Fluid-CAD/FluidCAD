@@ -107,7 +107,7 @@ describe('POST /api/pack', () => {
     expect(res.status).toBe(400);
     expect(JSON.parse(res.bytes.toString('utf8'))).toEqual({
       error: "This workspace isn't a package — run `fluidcad package init` first.",
-      code: 'refused',
+      code: 'not-a-package',
     });
   });
 
@@ -169,8 +169,9 @@ describe('POST /api/pack', () => {
     buffers.set(path.join(ws, 'features', 'standoff.feature.js').replace(/\\/g, '/'), '// unsaved\n');
     const res = await post();
     expect(res.status).toBe(400);
-    expect(JSON.parse(res.bytes.toString('utf8')).error).toBe(
-      'features/standoff.feature.js has unsaved changes: save it, then pack again.',
-    );
+    expect(JSON.parse(res.bytes.toString('utf8'))).toEqual({
+      error: 'features/standoff.feature.js has unsaved changes: save it, then pack again.',
+      code: 'unsaved-changes',
+    });
   });
 });

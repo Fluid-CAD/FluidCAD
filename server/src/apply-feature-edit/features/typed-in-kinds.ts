@@ -1,12 +1,20 @@
 // Typed-in kinds: the one table of a custom feature's typed-in types — checked, written, read back, previewed.
 
 import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
-import { anyValueArg, booleanArgValue, listArgValue, numericArgValue, stringArgValue } from '../ast/args.ts';
-import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
+import { anyValueArg, booleanArgValue, listArgValue, numericArgValue, refArgValue, stringArgValue } from '../ast/args.ts';
+import { formatValue, refShaped, validRef, validValueExpr, type RefValue, type ValueExpr } from '../value-expr.ts';
 import type { CustomValueSource } from './custom.ts';
 
-/** A typed-in value as a dialog holds it: a number or expression, a boolean, a string, a multi-select's list of option values. */
-export type TypedInValue = ValueExpr | boolean | string | (string | number)[];
+/**
+ * A choice bound to a variable rather than to one of its options: the name
+ * the statement writes bare (`size: holeSize`, `size: inst.properties.kind`)
+ * — an identifier or a dotted member path, never an expression. The one
+ * `RefValue` every dialog slot travels.
+ */
+export type TypedInRef = RefValue;
+
+/** A typed-in value as a dialog holds it: a number or expression, a boolean, a string, a multi-select's list of option values, a choice's reference. */
+export type TypedInValue = ValueExpr | boolean | string | (string | number)[] | TypedInRef;
 
 /** A typed-in value's source: what a statement writes for it. */
 export type TypedInSource = Extract<CustomValueSource, { kind: 'value' | 'literal' | 'list' }>;
@@ -68,46 +76,47 @@ export class TypedInKinds {
     read: node => booleanArgValue(node),
   };
 
+  /** A text stays a literal: a reference is refused by name, never written bare. */
   private static readonly TEXT: TypedInKind = {
     name: 'string',
     expression: false,
-    source: (spec, raw) => TypedInKinds.textSource(spec, raw),
-    preview: (spec, raw) => typeof raw === 'string' ? null : `${spec.label} must be text`,
+    source: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.noRef(spec) : TypedInKinds.textSource(spec, raw),
+    preview: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.noRef(spec) : typeof raw === 'string' ? null : `${spec.label} must be text`,
     read: node => stringArgValue(node),
   };
 
   /**
    * One of the declared options, by its value: a number written as one, a
-   * string as a literal. A select and a radio are the one kind — how the
-   * options are shown never reaches a statement.
+   * string as a literal — or a reference to a variable, written bare. A
+   * select and a radio are the one kind — how the options are shown never
+   * reaches a statement.
    */
   private static readonly CHOICE: TypedInKind = {
     name: 'string or number',
     expression: false,
-    source: (spec, raw) => {
-      const option = (spec.options ?? []).find(o => o.value === raw);
-      if (!option) {
-        return `${spec.label} must be one of ${(spec.options ?? []).map(o => JSON.stringify(o.value)).join(', ')}`;
-      }
-      return typeof option.value === 'number' ? { kind: 'value', value: option.value } : { kind: 'literal', value: option.value };
-    },
-    preview: (spec, raw) => typeof raw === 'string' || typeof raw === 'number' ? null : `${spec.label} must be one of its options`,
-    read: node => stringArgValue(node) ?? numericArgValue(node),
+    source: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.refSource(spec, raw) : TypedInKinds.choiceSource(spec, raw),
+    preview: (spec, raw) => TypedInKinds.isRef(raw)
+      ? TypedInKinds.refPreview(spec, raw)
+      : typeof raw === 'string' || typeof raw === 'number' ? null : `${spec.label} must be one of its options`,
+    read: node => TypedInKinds.refRead(node) ?? stringArgValue(node) ?? numericArgValue(node),
   };
 
   /**
    * A select with `multiple: true`: a list of distinct option values, as
    * many as `min` and `max` allow, written as one array literal — the empty
-   * list as `[]`, never left out.
+   * list as `[]`, never left out — or a reference to a list-valued
+   * variable, written bare.
    */
   private static readonly CHOICES: TypedInKind = {
     name: 'list of strings or numbers',
     expression: false,
-    source: (spec, raw) => TypedInKinds.listSource(spec, raw),
-    preview: (spec, raw) => Array.isArray(raw) && raw.every(entry => typeof entry === 'string' || typeof entry === 'number')
-      ? null
-      : `${spec.label} must be a list of its options`,
-    read: node => listArgValue(node),
+    source: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.refSource(spec, raw) : TypedInKinds.listSource(spec, raw),
+    preview: (spec, raw) => TypedInKinds.isRef(raw)
+      ? TypedInKinds.refPreview(spec, raw)
+      : Array.isArray(raw) && raw.every(entry => typeof entry === 'string' || typeof entry === 'number')
+        ? null
+        : `${spec.label} must be a list of its options`,
+    read: node => TypedInKinds.refRead(node) ?? listArgValue(node),
   };
 
   private static readonly KINDS: Readonly<Record<string, TypedInKind>> = {
@@ -176,6 +185,21 @@ export class TypedInKinds {
     return typeof fallback === 'boolean' ? String(fallback) : undefined;
   }
 
+  /** Whether a request's value is a reference's shape, `{ ref: string }` — well formed or not. */
+  static isRef(value: unknown): value is TypedInRef {
+    return refShaped(value);
+  }
+
+  /**
+   * The name a reference holds, when it is one a choice may name — an
+   * identifier or a dotted member path (`holeSize`, `inst.properties.kind`),
+   * as `validRef` has it — or null for a malformed one (an expression, a
+   * call, an index, a blank).
+   */
+  static refText(value: TypedInRef): string | null {
+    return validRef(value) ? value.ref : null;
+  }
+
   /** A string as a single-quoted literal. */
   static quote(text: string): string {
     const escaped = JSON.stringify(text).slice(1, -1).replace(/\\"/g, '"').replace(/'/g, "\\'");
@@ -185,6 +209,44 @@ export class TypedInKinds {
   /** A list of option values as an array literal: strings single-quoted, numbers bare, `[]` for none. */
   private static listText(values: readonly (string | number)[]): string {
     return `[${values.map(value => typeof value === 'number' ? formatValue(value) : TypedInKinds.quote(value)).join(', ')}]`;
+  }
+
+  /**
+   * A reference as the source a choice writes — the name bare, like a number
+   * row's expression — or why it is no reference a choice takes.
+   */
+  private static refSource(spec: TypedInSpec, raw: TypedInRef): TypedInSource | string {
+    const text = TypedInKinds.refText(raw);
+    return text === null ? `${spec.label} must name a variable` : { kind: 'value', value: text };
+  }
+
+  /** A preview's reference: fine when well formed (the scope resolves it), refused when not. */
+  private static refPreview(spec: TypedInSpec, raw: TypedInRef): string | null {
+    return TypedInKinds.refText(raw) === null ? `${spec.label} must name a variable` : null;
+  }
+
+  /**
+   * A statement's argument as the reference it names — `refArgValue`'s
+   * shapes: an identifier, or a member expression of identifiers and
+   * property names. A call, an index, `this`, an optional chain: null — the
+   * kind then reads the node as a literal, and fails.
+   */
+  private static refRead(node: TSNode): TypedInRef | null {
+    return refArgValue(node);
+  }
+
+  /** The refusal of a reference on a kind that takes none. */
+  private static noRef(spec: TypedInSpec): string {
+    return `${spec.label} is text, which takes no variable`;
+  }
+
+  /** One of the declared options, found by its value: a number written as one, a string as a literal. */
+  private static choiceSource(spec: TypedInSpec, raw: unknown): TypedInSource | string {
+    const option = (spec.options ?? []).find(o => o.value === raw);
+    if (!option) {
+      return `${spec.label} must be one of ${(spec.options ?? []).map(o => JSON.stringify(o.value)).join(', ')}`;
+    }
+    return typeof option.value === 'number' ? { kind: 'value', value: option.value } : { kind: 'literal', value: option.value };
   }
 
   /** A list of the declared options' values, none twice, within the declaration's `min` and `max` counts. */

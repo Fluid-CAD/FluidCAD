@@ -27,6 +27,7 @@ import { renderSplitPlaneExpr, renderSplitStatement, validSplitOptions, validSpl
 import { PROJECTION_OPS } from '../features/projection.ts';
 import type { RepeatAxisSpec, RepeatPlaneSpec } from '../features/repeat.ts';
 import { validTextStatementOptions } from '../features/text.ts';
+import { validTranslation } from '../features/translate.ts';
 import { validHoleFasten, validHoleOptions, validHolePlacementSlot } from '../features/hole.ts';
 import { CustomFeatureImport, CustomFeatureStatement } from '../features/custom.ts';
 import { appendTopLevelStatement, declarationsBefore, resolveInsertion } from '../insertion.ts';
@@ -554,6 +555,21 @@ export async function applyCreateEdit(
       && new Set(selectorParts).size === selectorParts.length;
     if (!valid) {
       return { newCode: code, error: 'malformed rotate edit spec' };
+    }
+  } else if (spec.feature === 'translate') {
+    // Every target is a bound feature producer; a translate renders no
+    // selector parts — its distances are values, not picks.
+    const to = spec.translate;
+    const targets = to?.targets ?? [];
+    const valid = to !== undefined
+      && targets.length >= 1
+      && targets.every(t => isFeatureProducer(spec, t.producer))
+      && new Set(targets.map(t => t.producer)).size === targets.length
+      && validTranslation(to.translation)
+      && typeof to.copy === 'boolean'
+      && spec.parts.length === 0;
+    if (!valid) {
+      return { newCode: code, error: 'malformed translate edit spec' };
     }
   } else if (spec.feature === 'boolean') {
     // Every target is a bound feature producer; booleans render no selector

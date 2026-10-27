@@ -10,6 +10,7 @@ import { FeatureCatalog, type FeatureCatalogEntry } from '../src/feature-catalog
 import { FeatureScanner, type FeatureScanSceneManager } from '../src/feature-catalog/scan.ts';
 import { FeatureModules } from '../src/feature-catalog/walk.ts';
 import { createFeatureCatalogRouter } from '../src/routes/feature-catalog.ts';
+import { newFeatureFileContent } from '../src/file-kind.ts';
 import { getFeatureMeta } from '../../lib/dist/index.js';
 
 // The feature catalog over a real workspace: the JS standoff fixture and a
@@ -536,6 +537,36 @@ describe('the feature catalog routes', () => {
       expect((await fetch(`${baseUrl}/features/asset?id=standoff&path=./standoff.svg`)).status).toBe(503);
     } finally {
       engineUp = true;
+    }
+  });
+});
+
+describe('the starter module the editor’s Create feature row writes', () => {
+  it('lists as a working create feature named after its file', async () => {
+    write('features/my-boss.feature.js', newFeatureFileContent('features/my-boss.feature.js'));
+    try {
+      const entries = await list();
+      const boss = entries.find(entry => entry.id === 'my-boss');
+      expect(boss).toMatchObject({
+        exportName: 'myBoss',
+        modulePath: at('features/my-boss.feature.js'),
+        builtIn: false,
+        meta: {
+          id: 'my-boss',
+          label: 'My boss',
+          group: 'create',
+          kind: 'tool',
+          operations: ['add', 'new'],
+          call: ['face', { diameter: 'diameter', height: 'height' }],
+        },
+      });
+      expect(boss!.error).toBeUndefined();
+      expect(boss!.meta!.params.face).toMatchObject({ picker: 'face', label: 'On face', surface: 'planar' });
+      expect(boss!.meta!.params.diameter).toMatchObject({ type: 'length', default: 6, min: 0 });
+      expect(boss!.meta!.params.height).toMatchObject({ type: 'length', default: 10, min: 0 });
+    } finally {
+      remove('features/my-boss.feature.js');
+      catalog.noteFileChange(at('features/my-boss.feature.js'));
     }
   });
 });

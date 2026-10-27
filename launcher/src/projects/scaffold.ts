@@ -10,7 +10,10 @@ import type { FolderState } from '../start/contract.ts';
  * the same scaffold `npx fluidcad init` produces on the command line
  * (`init.js`, an empty `part1.part.js`, `jsconfig.json`, a `fluidcad.json` pin,
  * and a `.gitignore` keeping `.fluidcad/` out of git) —
- * and the folder may not exist yet: it is created first.
+ * and the folder may not exist yet: it is created first. A new package
+ * workspace is `fluidcad init --package @handle/name` in the same folder: the
+ * engine lays its package layout out, and this launcher knows nothing of it
+ * beyond the flag it passes.
  *
  * `init` comes from the launcher's own engine: it is the engine an unpinned
  * project would resolve to anyway, so the pin `init` writes is the one the
@@ -81,14 +84,21 @@ export class ScaffoldError extends Error {
   }
 }
 
+export type ScaffoldOptions = {
+  /** Set a package workspace up, named `@handle/name`, instead of a plain project. */
+  package?: string;
+};
+
 /**
  * Set a project up in `folder`: create the folder if it does not exist, then
- * run `fluidcad init` in it. A folder that already holds a project is left as
+ * run `fluidcad init` in it (`fluidcad init --package <name>` for a package
+ * workspace). A folder that already holds a project is left as
  * it is — asking twice (a retry after the engine failed to start, a reloaded
  * tab) must not fail on the project the first call made. Any other non-empty
  * folder is refused: `init` would scatter its files among someone else's.
  */
-export async function scaffoldProject(folder: string): Promise<void> {
+export async function scaffoldProject(folder: string, options: ScaffoldOptions = {}): Promise<void> {
+  const what = options.package ? 'package' : 'project';
   let state = inspectFolder(folder);
   if (state === 'project') {
     return;
@@ -105,7 +115,7 @@ export async function scaffoldProject(folder: string): Promise<void> {
     case 'empty':
       break;
     case 'not-empty':
-      throw new ScaffoldError(`${folder} is not empty. A new project needs an empty folder.`);
+      throw new ScaffoldError(`${folder} is not empty. A new ${what} needs an empty folder.`);
     case 'not-a-folder':
       throw new ScaffoldError(`${folder} is a file, not a folder.`);
     default:
@@ -115,20 +125,21 @@ export async function scaffoldProject(folder: string): Promise<void> {
   const engine = defaultEngine();
   if (!engine) {
     throw new ScaffoldError(
-      'No FluidCAD engine is installed to set the project up with. Reinstall FluidCAD, or open an existing project first so an engine gets downloaded.',
+      `No FluidCAD engine is installed to set the ${what} up with. Reinstall FluidCAD, or open an existing project first so an engine gets downloaded.`,
     );
   }
-  await runInit(path.join(engine.packageRoot, 'bin', 'fluidcad.js'), folder);
+  const args = options.package ? ['init', '--package', options.package] : ['init'];
+  await runInit(path.join(engine.packageRoot, 'bin', 'fluidcad.js'), folder, args);
 }
 
-/** `fluidcad init` in `folder`, through this process's own binary running as Node. */
-function runInit(cli: string, folder: string): Promise<void> {
+/** `fluidcad init` (with `args`) in `folder`, through this process's own binary running as Node. */
+function runInit(cli: string, folder: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(cli)) {
       reject(new ScaffoldError(`The engine has no CLI at ${cli}.`));
       return;
     }
-    const child = fork(cli, ['init'], {
+    const child = fork(cli, args, {
       cwd: folder,
       execPath: process.execPath,
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },

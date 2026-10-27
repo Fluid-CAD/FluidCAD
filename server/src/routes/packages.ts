@@ -44,8 +44,7 @@ export type PackagesRouterOptions = {
  * - `GET /api/packages`: both roots and the project's pins, each with where
  *   it is installed (`availability`), and each pin's newer version from the
  *   library or the hub (`updates`, `updatesFrom`), and what the hub's owner
- *   said about a pin (`hubMarks`: a yanked pinned version, a deprecated
- *   package; H12).
+ *   said about a pin (`hubMarks`: a deprecated package; H12).
  * - `POST /api/packages/copy { name, version, to }`: Copy into project
  *   (`to: 'project'`) and Add to my library (`to: 'library'`).
  * - `DELETE /api/packages/@scope/name/<version>?target=library|project`

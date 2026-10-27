@@ -15,6 +15,7 @@ import { InstanceRename } from '../../instance-rename.ts';
 import { PartRename } from '../../part-rename.ts';
 import { MoveToPart } from '../../move-to-part.ts';
 import { TimelineBreakpoint } from '../../timeline-breakpoint.ts';
+import { PauseAfter } from '../../pause-after.ts';
 import { RemoveFeature } from '../../remove-feature.ts';
 import { OrphanedSelections } from '../../orphaned-selections.ts';
 import { applyInsertPartEdit } from '../../part-catalog/insert-edit.ts';
@@ -107,6 +108,7 @@ export async function applyFeatureEdit(
 ): Promise<ApplyFeatureEditResult> {
   // Navigation must only change the breakpoint, without sweeping selections.
   if (spec.timelineBreakpoint) return TimelineBreakpoint.apply(code, spec.timelineBreakpoint);
+  if (spec.pauseAfter) return PauseAfter.apply(code, spec.pauseAfter);
   const result = await applyFeatureEditTransform(code, spec, new EditContext(code, spec.filePath, options));
   if (result.error) {
     return result;

@@ -1,7 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import path from 'path';
 import { ProjectsRootError, type ProjectsRoot } from '../projects/projects-root.ts';
-import { StartCallError, pathArgument, textArgument, type StartApi } from '../start/api.ts';
+import { StartCallError, packageNameArgument, pathArgument, textArgument, type StartApi } from '../start/api.ts';
 import type { FolderListing } from '../start/contract.ts';
 import type { EventStream } from './events.ts';
 import { FolderError, checkFolder, checkNewProject, defaultFolder, listFolder } from './folders.ts';
@@ -94,10 +94,15 @@ export function createApiRouter(deps: ApiDeps): Router {
   /** The page came back into view: retake the previews of the projects it has running. */
   router.post('/start/refresh-previews', route(async () => ({ captured: await sessions.capturePreviews() })));
 
-  // The tabs projects open in.
+  // The tabs projects open in. `package` names a new package workspace to set up (with `create`).
   router.post(
     '/sessions',
-    route((request) => sessions.open(project(body(request).path), { create: body(request).create === true })),
+    route((request) =>
+      sessions.open(project(body(request).path), {
+        create: body(request).create === true,
+        package: packageNameArgument(body(request).package),
+      }),
+    ),
   );
   router.get(
     '/sessions',

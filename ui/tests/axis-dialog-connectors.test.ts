@@ -231,7 +231,7 @@ describe('Revolve — a connector axis', () => {
     const edited = {
       id: 'edited', type: 'revolve', name: 'Revolve', parentId: 'part', visible: true, sceneShapes: [], ownShapes: [], sourceLocation: target,
     } as SceneObjectRender;
-    service.handleSceneRendered([...flangeScene(), edited], 7, true);
+    service.handleSceneRendered([...flangeScene(), edited], 6, true);
     await vi.runAllTimersAsync();
 
     expect(chips('axis-slot')).toEqual(['Connector bolt.instance(1)']);

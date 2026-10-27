@@ -124,7 +124,6 @@ export type HubBridgeVersion = {
   size: number | null;
   notes: string;
   publishedAt: string | null;
-  yanked: HubVersionDetail['yanked'];
   isLatest: boolean;
   /** The archive's root `README.md` on the file proxy, or null when it has none. */
   readmeUrl: string | null;
@@ -162,7 +161,7 @@ export type HubInspectRequest = {
 export type HubBridgeInspection = PackageInspection & {
   /** The target asked for: the dialog's preselected choice. */
   defaultTarget: PackageTarget;
-  /** The resolution's sentences: a yanked or unpublished version, an older one picked for this engine, a refused token. */
+  /** The resolution's sentences: an unpublished version, an older one picked for this engine, a refused token. */
   notes: string[];
   /** Which hub it came from, and the version's state there. */
   source: { hub: string; status: string; access: 'public' | 'owner' | 'admin' };
@@ -262,8 +261,8 @@ export class HubBridge {
    * One version as the Hub panel reads it: the hub's `VersionDetail`
    * (with the signed-in token, so a publisher sees their open version),
    * its features' metadata with every image on the file proxy, and the
-   * README's proxy path. Not kept on disk: a version's `yanked` can change,
-   * while its images go through {@link file}'s cache.
+   * README's proxy path. Not kept on disk: a version's `status` and
+   * `isLatest` can change, while its images go through {@link file}'s cache.
    */
   async version(name: string, version: string): Promise<HubBridgeVersion> {
     HubBridge.checkName(name);
@@ -289,7 +288,6 @@ export class HubBridge {
       size: detail.size,
       notes: detail.notes,
       publishedAt: detail.publishedAt,
-      yanked: detail.yanked,
       isLatest: detail.isLatest,
       readmeUrl: readme ? HubMetaPaths.fileUrl(name, detail.version, readme.path) : null,
       manifest: detail.manifest

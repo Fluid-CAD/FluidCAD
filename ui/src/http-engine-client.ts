@@ -7,6 +7,7 @@ import {
   renameConfiguration,
   writeParamValue,
   moveTimelineBreakpoint,
+  pauseAfterStatement,
   editorRedo,
   editorUndo,
   exportShapes,
@@ -31,7 +32,7 @@ import {
   setPartMaterial,
   setProjectUnit,
 } from './api';
-import type { CatalogParamValue, ConfigurationEditResult, ConfigurationSourceTable, ConfigurationTableCommit, EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocation, SourceLocationParam, UserPreferences } from './api';
+import type { CatalogParamValue, ConfigurationEditResult, ConfigurationSourceTable, ConfigurationTableCommit, EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, PauseAfterOptions, PauseAfterResult, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocation, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
@@ -42,6 +43,10 @@ class HttpEngineEditorClient implements EngineEditorClient {
 
   addBreakpoint(sourceLocation: SourceLocationParam): void {
     addBreakpoint(sourceLocation);
+  }
+
+  pauseAfter(sourceLocation: SourceLocationParam, options?: PauseAfterOptions): Promise<PauseAfterResult | null> {
+    return pauseAfterStatement(sourceLocation, options);
   }
 
   gotoSource(sourceLocation: SourceLocationParam, opts?: { revealEditor?: boolean }): void {

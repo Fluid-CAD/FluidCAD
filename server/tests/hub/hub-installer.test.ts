@@ -20,7 +20,7 @@ import { FakeHub, type FakeHubUser } from '../fixtures/fake-hub.ts';
  * `HubInstaller` and `HubDownload` (hub-plan Stage H8) against the
  * in-process `FakeHub`, over archives built in memory in the packer's
  * shape: which version a spec resolves to (exact, latest, the newest
- * compatible one, yanked, removed, unpublished), the download verified
+ * compatible one, removed, unpublished), the download verified
  * against the hub's header and the pin, the missing pins of a project,
  * and every failure leaving no scratch behind. FLUIDCAD_PACKAGES is a temp
  * library, so nothing reaches the user's own.
@@ -170,41 +170,26 @@ describe('HubInstaller.resolve', () => {
     );
   });
 
-  it('a name alone never picks a yanked version; an exact version installs it, with a note', async () => {
-    await publish('0.1.0');
-    const yanked = await publish('0.2.0', {}, { yanked: { at: '2026-10-10T00:00:00.000Z', reason: 'breaks the standoff' } });
-    expect((await installer().resolve({ name: NAME, version: null })).version).toBe('0.1.0');
-
-    const exact = await installer().resolve({ name: NAME, version: '0.2.0' });
-    expect(exact.integrity).toBe(yanked.integrity);
-    expect(exact.yanked).toEqual({ at: '2026-10-10T00:00:00.000Z', reason: 'breaks the standoff' });
-    expect(exact.notes).toEqual(['@acme/kit@0.2.0 was yanked (breaks the standoff): it installs because you asked for this version, but an install by name never picks it.']);
-  });
-
   it('says a deprecated package is deprecated, first among the notes, by name and by exact version (H12)', async () => {
-    await publish('0.1.0');
-    const yanked = await publish('0.2.0', {}, { yanked: { at: '2026-10-10T00:00:00.000Z', reason: 'breaks the standoff' } });
+    const older = await publish('0.1.0');
+    await publish('0.2.0');
     hub.packages.get(NAME)!.deprecatedMessage = 'Use @acme/other instead.';
     const byName = await installer().resolve({ name: NAME, version: null });
-    expect([byName.version, byName.deprecated, byName.notes]).toEqual(['0.1.0', 'Use @acme/other instead.', ['@acme/kit is deprecated: Use @acme/other instead.']]);
-    const exact = await installer().resolve({ name: NAME, version: '0.2.0' });
-    expect(exact.integrity).toBe(yanked.integrity);
-    expect(exact.notes).toEqual([
-      '@acme/kit is deprecated: Use @acme/other instead.',
-      '@acme/kit@0.2.0 was yanked (breaks the standoff): it installs because you asked for this version, but an install by name never picks it.',
-    ]);
+    expect([byName.version, byName.deprecated, byName.notes]).toEqual(['0.2.0', 'Use @acme/other instead.', ['@acme/kit is deprecated: Use @acme/other instead.']]);
+    const exact = await installer().resolve({ name: NAME, version: '0.1.0' });
+    expect(exact.integrity).toBe(older.integrity);
+    expect(exact.notes).toEqual(['@acme/kit is deprecated: Use @acme/other instead.']);
     hub.packages.get(NAME)!.deprecatedMessage = null;
     expect((await installer().resolve({ name: NAME, version: null })).notes).toEqual([]);
   });
 
-  it('a name alone whose every published version is yanked names one to install by its exact version (H12)', async () => {
-    await publish('0.1.0', {}, { yanked: { at: '2026-10-10T00:00:00.000Z', reason: 'superseded' } });
-    await publish('0.2.0', {}, { yanked: { at: '2026-10-11T00:00:00.000Z', reason: 'breaks the standoff' } });
-    const refused = await refusal(installer().resolve({ name: NAME, version: null }));
+  it('a name alone whose every published version was removed: unknown to others, said so to its owner', async () => {
+    await publish('0.1.0', {}, { removed: { at: '2026-10-10T00:00:00.000Z', reason: 'malware' } });
+    await publish('0.2.0', {}, { removed: { at: '2026-10-11T00:00:00.000Z', reason: 'malware' } });
+    expect((await refusal(installer().resolve({ name: NAME, version: null }))).code).toBe('not-found');
+    const refused = await refusal(installer({ token: owner() }).resolve({ name: NAME, version: null }));
     expect(refused.code).toBe('nothing-published');
-    expect(refused.message).toContain(
-      `Every published version of @acme/kit on ${hub.origin} is yanked, so an install by name has nothing to pick. One still installs by its exact version: \`fluidcad install @acme/kit@0.2.0\` (yanked: breaks the standoff).`,
-    );
+    expect(refused.message).toContain(`Every published version of @acme/kit on ${hub.origin} was removed by its admins: there is nothing to install.`);
   });
 
   it('refuses a removed version with its reason, and an unknown one', async () => {

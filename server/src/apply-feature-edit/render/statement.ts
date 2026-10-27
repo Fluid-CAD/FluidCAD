@@ -16,6 +16,7 @@ import { renderRevolveAxisExpr, renderRevolveStatement } from '../features/revol
 import { renderRibStatement } from '../features/rib.ts';
 import { renderHolePlacementExprs, renderHoleStatement } from '../features/hole.ts';
 import { renderRotateStatement } from '../features/rotate.ts';
+import { renderTranslateStatement } from '../features/translate.ts';
 import { renderSectionPlaneExpr, renderSectionStatement } from '../features/section.ts';
 import { renderSplitPlaneExpr, renderSplitStatement } from '../features/split.ts';
 import { renderShellJoinChain } from '../features/shell.ts';
@@ -152,6 +153,10 @@ export function buildStatement(
     const ro = spec.rotate!;
     const axisExpr = renderRepeatAxisExpr(ro.axis, spec.parts, i => bindings[i].varName);
     return renderRotateStatement(ro, axisExpr, ro.targets.map(t => bindings[t.producer].varName!));
+  }
+  if (spec.feature === 'translate') {
+    const to = spec.translate!;
+    return renderTranslateStatement(to, to.targets.map(t => bindings[t.producer].varName!));
   }
   if (spec.feature === 'boolean') {
     const bo = spec.boolean!;

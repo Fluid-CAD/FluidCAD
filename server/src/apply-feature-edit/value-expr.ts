@@ -38,6 +38,44 @@ export type RegionItemRefSpec = {
  */
 export type RegionPickSpec = { name?: string; items?: RegionItemRefSpec[] };
 
+/**
+ * A dialog value slot bound to a variable rather than holding a literal: the
+ * name the statement writes bare (`size: holeSize`, `hole(size, c)`,
+ * `inst.properties.kind`) — an identifier or a dotted member path, never an
+ * expression. The choice rows of a custom feature and the value arguments of
+ * the built-in dialogs travel it alike.
+ */
+export type RefValue = { ref: string };
+
+/**
+ * What a reference may name: an identifier, or a dotted member path of
+ * identifiers (`inst.properties.kind`) — the number rows' dropdown completes
+ * the same shapes. Calls, indexes, optional chains and blanks are not names.
+ */
+const REF_RE = /^[a-zA-Z_$][\w$]*(\.[a-zA-Z_$][\w$]*)*$/;
+
+/**
+ * Validate one reference slot: the shape `{ ref: string }` holding a
+ * well-formed name. A reference of the shape with a malformed name (`a + b`,
+ * `size()`, `a[0]`, `a?.b`, a blank) fails as any other value does — a
+ * caller telling the two apart tests the shape first (`TypedInKinds.isRef`).
+ */
+export function validRef(value: unknown): value is RefValue {
+  return refShaped(value) && REF_RE.test(value.ref);
+}
+
+/**
+ * Whether a value is a reference's shape, `{ ref: string }` — well formed or
+ * not. A writer that answers "must name a variable" for a malformed name
+ * (rather than fall through to its slot's literal check) tests this first.
+ */
+export function refShaped(value: unknown): value is RefValue {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  return typeof (value as { ref?: unknown }).ref === 'string';
+}
+
 /** A repeat count slot: an integer of at least 2, or safe expression text. */
 export function validCountValue(value: unknown): value is ValueExpr {
   if (typeof value === 'number') {

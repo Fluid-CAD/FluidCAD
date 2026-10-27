@@ -2,7 +2,7 @@
 
 import { isExpressionText, walkTree, type LexicalBindings, type TSNode } from '../../code-editor/index.ts';
 import { enclosingScope } from './nodes.ts';
-import type { ValueExpr } from '../value-expr.ts';
+import { validRef, type RefValue, type ValueExpr } from '../value-expr.ts';
 
 /** Numeric literal text of a node, accepting a unary minus. */
 export function numericLiteralText(node: TSNode): string | null {
@@ -125,6 +125,36 @@ export function stringArgValue(node: TSNode): string | null {
       }
     },
   );
+}
+
+/**
+ * A value argument bound to a variable, as the reference it names: an
+ * identifier, or a member expression whose every step is an identifier or
+ * a property name (`inst.properties.kind`). Null for anything else — a
+ * call, an index, `this.x`, an optional chain, a parenthesised name — so the
+ * reader falls through to the slot's literal, and fails as before.
+ */
+export function refArgValue(node: TSNode): RefValue | null {
+  if (!PlainPaths.is(node)) {
+    return null;
+  }
+  const value = { ref: node.text };
+  return validRef(value) ? value : null;
+}
+
+/** The shapes a reference may be read from: a bare name, or a chain of property names on one. */
+class PlainPaths {
+  static is(node: TSNode): boolean {
+    if (node.type === 'identifier') {
+      return true;
+    }
+    if (node.type !== 'member_expression') {
+      return false;
+    }
+    const object = node.childForFieldName('object');
+    const property = node.childForFieldName('property');
+    return object !== null && property?.type === 'property_identifier' && PlainPaths.is(object);
+  }
 }
 
 /**

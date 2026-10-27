@@ -1,15 +1,30 @@
-import type { FeatureBooleanSpec, FeatureChoiceOption, FeatureListValue, FeatureNumberSpec, FeatureScalarParam, FeatureTextSpec, FeatureScalarValue, NewVariable, ValueExpr } from '../../../api';
-import { OptionButton, OptionMultiButton, RadioGroup, RangeTrack, type ChoiceItem } from '../../../ui/controls';
+import type {
+  FeatureBooleanSpec, FeatureChoiceOption, FeatureListValue, FeatureNumberSpec, FeatureRefValue, FeatureScalarParam, FeatureTextSpec,
+  FeatureScalarValue, NewVariable, ValueExpr,
+} from '../../../api';
+import {
+  OptionButton, OptionMultiButton, RadioGroup, RangeTrack, type ChoiceItem, type ParameterChoice, type ParameterSource,
+} from '../../../ui/controls';
 import { ExpressionField } from '../../../ui/expression-field';
 import type { VariableInfo } from '../../../ui/expression-core';
+import { ChoiceParameters } from '../choice-parameters';
 import { FeatureSchema } from './feature-schema';
 
-/** What a typed-in row holds: a number or an expression, a boolean, a text or an option's value, or a list of options' values. */
-export type FieldValue = ValueExpr | boolean | string | FeatureListValue;
+/**
+ * What a typed-in row holds: a number or an expression, a boolean, a text or
+ * an option's value, a list of options' values, or a variable named in place
+ * of an option (`{ ref }`).
+ */
+export type FieldValue = ValueExpr | boolean | string | FeatureListValue | FeatureRefValue;
 
-/** What one typed-in row reads: a value to write, nothing (left out), or why it can't be read. */
+/**
+ * What one typed-in row reads: a value to write (with a declaration to land
+ * beside it, and what the ghost draws for it where the value names something
+ * the file lacks yet — a choice's new parameter, by the option it declares
+ * over), nothing (left out), or why it can't be read.
+ */
 export type FieldRead =
-  | { value: FieldValue; newVariable?: NewVariable }
+  | { value: FieldValue; newVariable?: NewVariable; ghost?: FieldValue }
   | { empty: true }
   | { error: string };
 
@@ -409,18 +424,26 @@ type ChoiceValue = string | number;
 /**
  * A row over a fixed list of options — a select, of one or of several, or a
  * radio: its label above the control, and the declared options as a control
- * takes them.
+ * takes them. A select may name a variable in place of an option (`{ ref }`):
+ * the row then holds the name, shows what it selects, and writes it bare; the
+ * machinery for that lives here, and a radio takes none of it.
  */
 abstract class OptionsField extends SchemaField {
   protected readonly options: readonly FeatureChoiceOption[];
   /** The options the row lists now: all of them until `setOffered` narrows. */
   protected offered: readonly FeatureChoiceOption[];
+  /** The variable the row names in place of an option, or null while it holds an option (or nothing). */
+  protected ref: string | null = null;
+  /** The parameter the row declared itself over the option it showed: written with the statement. */
+  protected declared: NewVariable | null = null;
+  /** The parameters the row offers and resolves; null for a row that takes none. */
+  protected readonly parameters: ChoiceParameters | null;
   private open: readonly FeatureChoiceOption[];
   private kept: ChoiceValue[] = [];
   private fresh = false;
   private none: HTMLElement | null = null;
 
-  constructor(name: string, spec: FeatureScalarParam, protected readonly context: SchemaFieldContext) {
+  constructor(name: string, spec: FeatureScalarParam, protected readonly context: SchemaFieldContext, parameters: 'none' | 'one' | 'list') {
     super(name, spec);
     this.row.className = 'flex flex-col gap-1.5';
     const label = document.createElement('span');
@@ -429,6 +452,7 @@ abstract class OptionsField extends SchemaField {
     this.row.append(label);
     this.options = spec.type === 'select' || spec.type === 'radio' ? spec.options : [];
     this.offered = this.open = this.options;
+    this.parameters = parameters === 'none' ? null : new ChoiceParameters(spec.label, () => this.options, parameters === 'list');
   }
 
   /** The muted line that stands in for the choices; made the first time there are none, so a row that always has some is unchanged. */
@@ -443,7 +467,7 @@ abstract class OptionsField extends SchemaField {
     return this.none;
   }
 
-  /** What the row holds, as a list: a single choice is a list of one or none. */
+  /** What the row holds, as a list: a single choice is a list of one or none; a named variable, the options it selects. */
   protected abstract held(): ChoiceValue[];
 
   /** Shows `offered` in the control, holding on to what of `before` it still carries. */
@@ -533,6 +557,99 @@ abstract class OptionsField extends SchemaField {
   protected get hasImages(): boolean {
     return this.options.some(option => option.image !== undefined);
   }
+
+  // --- A variable in place of an option -------------------------------------
+
+  /** The option values the named variable selects, when known; none otherwise. */
+  protected resolvedValues(): ChoiceValue[] {
+    if (this.ref === null || !this.parameters) {
+      return [];
+    }
+    const resolution = this.parameters.resolve(this.ref);
+    return resolution.kind === 'options' ? resolution.values : [];
+  }
+
+  /** Show the row bound to `ref` — the name, and what it selects. Never called on a row without parameters. */
+  protected showBinding(): void {}
+
+  /** What a parameter declared now would hold: the option (or list) the row shows; undefined when it shows nothing. */
+  protected seedForNew(): ChoiceValue | ChoiceValue[] | undefined {
+    return undefined;
+  }
+
+  /** The popover's Parameters group, for a row that offers them. */
+  protected parameterSource(): ParameterSource | undefined {
+    const parameters = this.parameters;
+    return parameters ? (query, matched) => parameters.suggest(query, matched, this.seedForNew(), this.ref) : undefined;
+  }
+
+  /** The variable named in place of an option (a seed, a parse), shown bound; not the user's. */
+  protected bind(ref: string): void {
+    this.ref = ref;
+    this.declared = null;
+    this.parameters?.forget();
+    this.showBinding();
+  }
+
+  /** The row holds an option (or nothing) again: the name and any declaration go. */
+  protected unbind(): void {
+    this.ref = null;
+    this.declared = null;
+    this.parameters?.forget();
+  }
+
+  /** The user chose a parameter row: an existing variable, or the offer to declare one over what the row showed when it was offered. */
+  protected takeParameter(choice: ParameterChoice): void {
+    if (!this.parameters) {
+      return;
+    }
+    if (choice.isNew) {
+      const declared = this.parameters.declare(choice.name);
+      if (!declared) {
+        return;
+      }
+      this.declared = declared;
+    } else {
+      this.declared = null;
+      this.parameters.forget();
+    }
+    this.ref = choice.name;
+    this.showBinding();
+    this.touch();
+  }
+
+  /** The user chose an option: the row is its own again. */
+  protected takeOption(): void {
+    this.unbind();
+    this.touch();
+  }
+
+  /**
+   * The bound value to write — the name, with the declaration of a parameter
+   * declared here and the option it was declared over for the ghost to draw
+   * — or why it can't be written: a value no option carries.
+   */
+  protected readBinding(): FieldRead {
+    const ref = this.ref!;
+    const error = this.parameters?.error(ref) ?? null;
+    if (error) {
+      return { error };
+    }
+    const value: FeatureRefValue = { ref };
+    const over = this.parameters?.declaredValue;
+    return this.declared && over !== undefined ? { value, newVariable: this.declared, ghost: over } : { value };
+  }
+
+  /** The variables the popover offers; a bound row shows what its name selects by them. */
+  setVariables(variables: VariableInfo[]): void {
+    if (!this.parameters) {
+      return;
+    }
+    this.parameters.variables = variables;
+    if (this.ref !== null) {
+      this.showBinding();
+    }
+  }
 }
 
 /**
@@ -550,33 +667,46 @@ abstract class ChoiceField extends OptionsField {
   /** No default: the row may hold nothing. */
   protected readonly unset: boolean;
 
-  constructor(name: string, spec: FeatureScalarParam, context: SchemaFieldContext) {
-    super(name, spec, context);
+  constructor(name: string, spec: FeatureScalarParam, context: SchemaFieldContext, parameters: 'none' | 'one') {
+    super(name, spec, context, parameters);
     this.unset = spec.default === undefined;
   }
 
-  /** The chosen option's value; undefined while nothing is. */
+  /** The chosen option's value; undefined while nothing is, or a variable stands in its place. */
   protected abstract get chosen(): ChoiceValue | undefined;
 
   /** Show `value` chosen (undefined: nothing), without it counting as the user's. */
   protected abstract choose(value: ChoiceValue | undefined): void;
 
+  /** The option the row stands on: the chosen one, or the one a named variable selects. */
   current(): FeatureScalarValue | undefined {
-    return this.chosen;
+    return this.ref !== null ? this.resolvedValues()[0] : this.chosen;
   }
 
   read(): FieldRead {
+    const nothing = this.nothingOffered;
+    if (nothing) {
+      return nothing;
+    }
+    if (this.ref !== null) {
+      return this.readBinding();
+    }
     const value = this.chosen;
-    return this.nothingOffered ?? (value === undefined ? { empty: true } : { value });
+    return value === undefined ? { empty: true } : { value };
   }
 
   protected held(): ChoiceValue[] {
-    const value = this.chosen;
-    return value === undefined ? [] : [value];
+    const value = this.current();
+    return value === undefined ? [] : [value as ChoiceValue];
   }
 
+  /** A named variable stays named through a narrowing: what it selects is the file's to say. */
   protected offer(before: ChoiceValue[]): void {
     this.relist();
+    if (this.ref !== null) {
+      this.showBinding();
+      return;
+    }
     const stays = this.offered.some(option => option.value === before[0]);
     this.choose(stays ? before[0] : this.unset ? undefined : this.offered[0]?.value);
   }
@@ -584,65 +714,65 @@ abstract class ChoiceField extends OptionsField {
   /** Rebuilds the control's choices from `offered`. */
   protected abstract relist(): void;
 
-  /** A value no option carries shows as a fresh row does: nothing where the row may hold nothing, else the first option. */
+  protected seedForNew(): ChoiceValue | undefined {
+    return this.current() as ChoiceValue | undefined;
+  }
+
+  /**
+   * A value no option carries shows as a fresh row does: nothing where the row
+   * may hold nothing, else the first option. A variable named in place of an
+   * option shows bound on a row that takes parameters — and as a value no
+   * option carries on one that doesn't (a radio).
+   */
   protected show(value: FieldValue | undefined): void {
+    if (ChoiceParameters.isRef(value)) {
+      if (this.parameters) {
+        this.bind(value.ref);
+        return;
+      }
+      value = undefined;
+    }
+    this.unbind();
     const option = this.options.find(o => o.value === value);
     this.choose(option ? option.value : this.unset ? undefined : this.options[0]?.value);
   }
 }
 
 /**
- * A select. Plain options (`label` and `value` alone) with no `display` or
- * `search` declared are the native `<select>`; anything richer — an image,
- * a description, a group, keywords, a grid, a search box — is a button
- * showing the chosen option that opens a popover of them. Either way a
- * select that may hold nothing offers that as a choice of its own ("—"),
- * first: chosen, the row writes nothing.
+ * A select: a button showing the chosen option that opens a popover of them
+ * — rows, or a grid of images — with a search box, whose text filters the
+ * options and the parameters in scope alike: a parameter picked from the
+ * list stands in for the option, the button showing its name with the option
+ * it selects muted beside it; a fresh name typed there declares one. A select
+ * that may hold nothing offers that as a choice of its own ("—"), first:
+ * chosen, the row writes nothing.
  */
 class SelectField extends ChoiceField {
-  /** Above this many options a select is searched unless it says otherwise. */
-  static readonly SEARCH_ABOVE = 12;
-
   /** What each entry of the control stands for, by its index; the empty choice is undefined. */
   private values: (ChoiceValue | undefined)[] = [];
-  private readonly select: HTMLSelectElement | null = null;
-  /** Under a native select: its longest option, unseen, holding the row open for it. */
-  private readonly sizer: HTMLElement | null = null;
-  private readonly button: OptionButton<number> | null = null;
+  private readonly button: OptionButton<number>;
 
   constructor(name: string, spec: FeatureScalarParam, context: SchemaFieldContext) {
-    super(name, spec, context);
+    super(name, spec, context, 'one');
     this.index();
-    if (SelectField.isRich(spec)) {
-      const select = spec.type === 'select' ? spec : undefined;
-      this.button = new OptionButton<number>({
-        items: this.entries(),
-        placeholder: ChoiceField.NONE,
-        mode: select?.display ?? 'list',
-        columns: select?.columns,
-        search: select?.search ?? this.options.length > SelectField.SEARCH_ABOVE,
-      });
-      this.button.element.dataset.role = `value-${name}`;
-      this.button.onChange = () => this.touch();
-      this.row.append(this.button.element);
-      return;
-    }
-    this.select = document.createElement('select');
-    this.select.dataset.role = `value-${name}`;
-    this.select.className = 'select select-sm select-bordered w-full text-xs';
-    // A native select is as narrow as its box lets it be: the longest option, laid out
-    // unseen under it, is what keeps a row from squeezing its text short.
-    this.sizer = document.createElement('div');
-    this.sizer.dataset.role = 'select-sizer';
-    this.sizer.setAttribute('aria-hidden', 'true');
-    this.sizer.className = 'invisible h-0 -mt-1.5 max-w-full overflow-hidden whitespace-nowrap text-xs pl-3 pr-9';
-    this.relist();
-    this.row.append(this.select, this.sizer);
-    this.select.addEventListener('change', () => this.touch());
+    const select = spec.type === 'select' ? spec : undefined;
+    this.button = new OptionButton<number>({
+      items: this.entries(),
+      placeholder: ChoiceField.NONE,
+      mode: select?.display ?? 'list',
+      columns: select?.columns,
+      // The search box is where a parameter's name is typed: on unless the declaration turns it off.
+      search: select?.search ?? true,
+      parameters: this.parameterSource(),
+    });
+    this.button.element.dataset.role = `value-${name}`;
+    this.button.onChange = () => this.takeOption();
+    this.button.onBind = choice => this.takeParameter(choice);
+    this.row.append(this.button.element);
   }
 
   protected get control(): HTMLElement {
-    return (this.select ?? this.button!.element);
+    return this.button.element;
   }
 
   private index(): void {
@@ -652,49 +782,36 @@ class SelectField extends ChoiceField {
 
   protected relist(): void {
     this.index();
-    if (!this.select) {
-      this.button?.setItems(this.entries());
-      return;
-    }
-    const labels = this.values.map((value, index) => value === undefined ? ChoiceField.NONE : this.offered[index - (this.unset ? 1 : 0)].label);
-    this.select.replaceChildren(...labels.map((label, index) => {
-      const el = document.createElement('option');
-      el.value = String(index);
-      el.textContent = label;
-      return el;
-    }));
-    if (this.sizer) {
-      this.sizer.textContent = labels.reduce((longest, label) => label.length > longest.length ? label : longest, '');
-    }
+    this.button.setItems(this.entries());
   }
 
   protected get chosen(): ChoiceValue | undefined {
-    const index = this.select ? this.select.selectedIndex : this.button?.value;
+    const index = this.button.value;
     return index === undefined ? undefined : this.values[index];
   }
 
   protected choose(value: ChoiceValue | undefined): void {
     const index = this.values.indexOf(value);
-    if (this.select) {
-      this.select.selectedIndex = index >= 0 ? index : 0;
-    } else {
-      // Nothing chosen is the button's placeholder — the empty choice's own caption.
-      this.button?.setValue(value === undefined || index < 0 ? undefined : index);
-    }
+    // Nothing chosen is the button's placeholder — the empty choice's own caption.
+    this.button.setValue(value === undefined || index < 0 ? undefined : index);
+  }
+
+  protected showBinding(): void {
+    this.button.setBinding(this.parameters!.binding(this.ref!));
   }
 
   refreshImages(): void {
-    if (this.button && this.hasImages) {
+    if (this.hasImages) {
       this.button.setItems(this.entries());
     }
   }
 
   dismiss(): void {
-    this.button?.close();
+    this.button.close();
   }
 
   destroy(): void {
-    this.button?.destroy();
+    this.button.destroy();
   }
 
   /** The popover's entries, keyed by their index in {@link values}: the empty choice first where there is one. */
@@ -703,24 +820,15 @@ class SelectField extends ChoiceField {
     const items = this.items().map((item, index) => ({ ...item, value: index + offset }));
     return this.unset ? [{ value: 0, label: ChoiceField.NONE }, ...items] : items;
   }
-
-  /** The declaration asks for more than the native select shows. */
-  private static isRich(spec: FeatureScalarParam): boolean {
-    if (spec.type !== 'select') {
-      return false;
-    }
-    return spec.display !== undefined || spec.search !== undefined || spec.options.some(option =>
-      option.image !== undefined || option.description !== undefined || option.group !== undefined || option.keywords !== undefined);
-  }
 }
 
 /**
- * A select of several (`multiple`): always the button and its popover, whose
- * options toggle while it stays open — the native select has no such list.
- * The row holds a list of the chosen options' values, in the options' own
- * order however they were chosen, and always reads as one: with none chosen
- * it is the empty list, never a value left out. `min` and `max` bound how
- * many it may hold. A list takes no part in `visibleWhen`.
+ * A select of several (`multiple`): the button and its popover, whose
+ * options toggle while it stays open. The row holds a list of the chosen
+ * options' values, in the options' own order however they were chosen, and
+ * always reads as one: with none chosen it is the empty list, never a value
+ * left out — or a variable holding a list, named in place of it. `min` and
+ * `max` bound how many it may hold. A list takes no part in `visibleWhen`.
  */
 class MultiSelectField extends OptionsField {
   private readonly button: OptionMultiButton<ChoiceValue>;
@@ -728,7 +836,7 @@ class MultiSelectField extends OptionsField {
   private readonly max: number | undefined;
 
   constructor(name: string, spec: FeatureScalarParam, context: SchemaFieldContext) {
-    super(name, spec, context);
+    super(name, spec, context, 'list');
     const select = spec.type === 'select' ? spec : undefined;
     this.min = select?.min;
     this.max = select?.max;
@@ -736,10 +844,12 @@ class MultiSelectField extends OptionsField {
       items: this.items(),
       mode: select?.display ?? 'list',
       columns: select?.columns,
-      search: select?.search ?? this.options.length > SelectField.SEARCH_ABOVE,
+      search: select?.search ?? true,
+      parameters: this.parameterSource(),
     });
     this.button.element.dataset.role = `value-${name}`;
-    this.button.onChange = () => this.touch();
+    this.button.onChange = () => this.takeOption();
+    this.button.onBind = choice => this.takeParameter(choice);
     this.row.append(this.button.element);
   }
 
@@ -751,32 +861,60 @@ class MultiSelectField extends OptionsField {
     return this.button.element;
   }
 
+  /** The list the row holds: its own, or the one the named variable holds when known. */
   protected held(): ChoiceValue[] {
-    return this.button.value;
+    return this.ref !== null ? this.resolvedValues() : this.button.value;
   }
 
-  /** The button keeps the values its items still carry, and lets go of the rest. */
+  /** The button keeps the values its items still carry, and lets go of the rest; a named variable stays named. */
   protected offer(): void {
     this.button.setItems(this.items());
+    if (this.ref !== null) {
+      this.showBinding();
+    }
+  }
+
+  protected seedForNew(): ChoiceValue[] | undefined {
+    return this.held();
+  }
+
+  protected showBinding(): void {
+    this.button.setBinding(this.parameters!.binding(this.ref!), this.resolvedValues());
   }
 
   read(): FieldRead {
-    const value = this.button.value;
     const nothing = this.nothingOffered;
     if (nothing) {
       return nothing;
     }
+    if (this.ref !== null) {
+      const bound = this.readBinding();
+      // A list the variable is known to hold keeps to the bounds; one it may hold is the file's to check.
+      const resolved = this.resolvedValues();
+      return 'value' in bound && resolved.length > 0 ? this.bounded(resolved) ?? bound : bound;
+    }
+    const value = this.button.value;
+    return this.bounded(value) ?? { value };
+  }
+
+  /** Why `value` breaks the row's bounds, or null when it keeps to them. */
+  private bounded(value: ChoiceValue[]): FieldRead | null {
     if (this.min !== undefined && value.length < this.min) {
       return { error: `${this.spec.label} takes at least ${this.min}.` };
     }
     if (this.max !== undefined && value.length > this.max) {
       return { error: `${this.spec.label} takes at most ${this.max}.` };
     }
-    return { value };
+    return null;
   }
 
-  /** The options a list names, chosen; anything else — no list, a value no option carries — chooses nothing. */
+  /** The options a list names, chosen; a variable named in its place, bound; anything else — no list, a value no option carries — chooses nothing. */
   protected show(value: FieldValue | undefined): void {
+    if (ChoiceParameters.isRef(value)) {
+      this.bind(value.ref);
+      return;
+    }
+    this.unbind();
     this.button.setValue(Array.isArray(value) ? value : []);
   }
 
@@ -798,12 +936,14 @@ class MultiSelectField extends OptionsField {
 /**
  * A radio: every option on show, laid out as its `display` says. One that
  * may hold nothing starts with none chosen and offers a Clear once one is.
+ * A radio names no variable: an author who wants a bindable value declares
+ * a select, and a statement naming one on a radio shows as a fresh row.
  */
 class RadioField extends ChoiceField {
   private readonly group: RadioGroup<ChoiceValue>;
 
   constructor(name: string, spec: FeatureScalarParam, context: SchemaFieldContext) {
-    super(name, spec, context);
+    super(name, spec, context, 'none');
     this.group = this.build(undefined);
     this.row.append(this.group.element);
   }

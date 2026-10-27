@@ -20,7 +20,6 @@ import { registerLogoutCommand } from './commands/logout.js';
 import { registerWhoamiCommand } from './commands/whoami.js';
 import { registerPublishCommand } from './commands/publish.js';
 import { registerSearchCommand } from './commands/search.js';
-import { registerYankCommands } from './commands/yank.js';
 import { registerDeprecateCommand } from './commands/deprecate.js';
 import { registerListingCommand } from './commands/listing.js';
 
@@ -48,7 +47,6 @@ registerLogoutCommand(program);
 registerWhoamiCommand(program);
 registerPublishCommand(program);
 registerSearchCommand(program);
-registerYankCommands(program);
 registerDeprecateCommand(program);
 registerListingCommand(program);
 

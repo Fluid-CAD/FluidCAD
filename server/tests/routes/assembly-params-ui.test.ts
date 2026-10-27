@@ -64,7 +64,7 @@ describe('assembly parameter UI endpoints', () => {
   it('returns assembly parameters for Insert autocomplete', async () => {
     const response = await post('/scope-variables', { sketchSourceLine: null, assembly: true });
     expect(response.status).toBe(200);
-    expect(response.body.variables).toContainEqual({ name: 'width', initializer: "param('Width', 100)", numeric: true });
+    expect(response.body.variables).toContainEqual({ name: 'width', initializer: "param('Width', 100)", numeric: true, value: 100 });
   });
 
   it('accepts expressions alongside literal values and declarations in a batch insert', async () => {

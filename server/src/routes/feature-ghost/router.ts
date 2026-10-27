@@ -7,6 +7,8 @@ import type {
   FluidCadServer,
   HoleGhostRequest,
   GhostEntityRef,
+  GhostExtrudeTargetRef,
+  GhostFaceRef,
   GhostPlaneBaseRef,
   GhostRepeatDirection,
 } from '../../fluidcad-server/index.ts';
@@ -16,6 +18,8 @@ import { parseCondition, parseLoftConnections } from './loft.ts';
 import {
   parseAxis,
   parseEntityRefs,
+  parseExtrudeTarget,
+  parseFaceRefs,
   parseHelixSource,
   parsePath,
   parsePlaneBases,
@@ -30,12 +34,14 @@ import {
   parseMirror2D,
   parseRepeat,
   parseRotate,
+  parseTranslate,
   type RawCopy,
   type RawCopy2D,
   type RawMirror,
   type RawMirror2D,
   type RawRepeat,
   type RawRotate,
+  type RawTranslate,
   parseSplit,
   type RawSplit,
 } from './transforms.ts';
@@ -43,7 +49,9 @@ import { CustomGhostRoute, type GhostFeatureCatalog } from './custom.ts';
 import { ValueScope } from './value-scope.ts';
 import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { isThin, isValueExprOrNull, type ValueExpr } from './values.ts';
-import { BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, type GhostBody } from './vocabulary.ts';
+import {
+  BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, SHELL_JOINS, type GhostBody,
+} from './vocabulary.ts';
 
 /**
  * Live geometry preview for the open feature dialog ("ghost"): the bodies an
@@ -84,6 +92,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     // dialog, a helix is a wire — it adds and removes nothing at all — and a
     // repeat or a copy inherits whatever its targets already do.
     const isBand = BAND_FEATURES.includes(body.feature);
+    // The shell is a band's sibling: it hollows a solid already there, and
+    // which way its walls go is the sign of its thickness, not an op.
+    const isShell = body.feature === 'shell';
     const isHelix = body.feature === 'helix';
     const isRepeat = body.feature === 'repeat';
     const isCopy = body.feature === 'copy';
@@ -92,6 +103,8 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     const isMirror = body.feature === 'mirror';
     // The rotate IS exempt: it moves (or copies) bodies, no boolean involved.
     const isRotate = body.feature === 'rotate';
+    // So is its straight-line sibling.
+    const isTranslate = body.feature === 'translate';
     // The split IS exempt too: it parts bodies, keeping one side or both.
     const isSplit = body.feature === 'split';
     const isPlane = body.feature === 'plane';
@@ -102,8 +115,8 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     const isMirror2D = body.feature === 'mirror2d';
     // A hole is always a removal — no op to declare.
     const isHole = body.feature === 'hole';
-    if (!isHole && !isBand && !isHelix && !isRepeat && !isCopy && !isRotate && !isSplit && !isPlane && !isOffset
-      && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
+    if (!isHole && !isBand && !isShell && !isHelix && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
+      && !isOffset && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
     }
@@ -138,6 +151,22 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         return;
       }
     }
+    let faceRefs: GhostFaceRef[] | null = null;
+    let shellJoin: 'arc' | 'intersection' | 'tangent' = 'arc';
+    if (isShell) {
+      faceRefs = parseFaceRefs(body.faces);
+      if (!faceRefs || faceRefs.length === 0) {
+        res.status(400).json({ success: false, reason: 'Invalid face selection' });
+        return;
+      }
+      if (body.joinType !== undefined && body.joinType !== null) {
+        if (typeof body.joinType !== 'string' || !SHELL_JOINS.includes(body.joinType)) {
+          res.status(400).json({ success: false, reason: 'Invalid join type' });
+          return;
+        }
+        shellJoin = body.joinType as typeof shellJoin;
+      }
+    }
     let sketchEntities: { shapeId: string }[] | null = null;
     if (isOffset || isFillet2D) {
       sketchEntities = parseSketchEntityRefs(body.entities);
@@ -166,6 +195,17 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         return;
       }
       regions = parsed.regions;
+    }
+    // The extrude's "Up to face" target — absent is the distance form. The
+    // kernel ignores the distance fields beside it, so they may be null.
+    let toFace: GhostExtrudeTargetRef | undefined;
+    if (body.feature === 'extrude' && body.toFace !== undefined && body.toFace !== null) {
+      const parsed = parseExtrudeTarget(body.toFace);
+      if (!parsed) {
+        res.status(400).json({ success: false, reason: 'Invalid face target' });
+        return;
+      }
+      toFace = parsed;
     }
     const isRib = body.feature === 'rib';
     let spineRef: { filePath: string; line: number } | null = null;
@@ -256,7 +296,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     // The transforms' edit mode: the edited statement's call site, so the
     // kernel reads its targets as of just before it (see copyTargetSolids).
     let transformExclude: { filePath: string; line: number } | undefined;
-    if ((isCopy || isMirror || isRotate || isSplit) && body.exclude !== undefined && body.exclude !== null) {
+    if ((isCopy || isMirror || isRotate || isTranslate || isSplit) && body.exclude !== undefined && body.exclude !== null) {
       if (typeof body.exclude.filePath !== 'string' || typeof body.exclude.line !== 'number') {
         res.status(400).json({ success: false, reason: 'Invalid exclude reference' });
         return;
@@ -298,6 +338,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         return;
       }
       rotate = parsed;
+    }
+    let translate: RawTranslate | null = null;
+    if (isTranslate) {
+      const parsed = parseTranslate(body);
+      if (typeof parsed === 'string') {
+        res.status(400).json({ success: false, reason: parsed });
+        return;
+      }
+      translate = parsed;
     }
     let copy2d: RawCopy2D | null = null;
     if (isCopy2D) {
@@ -418,6 +467,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     const center2d = copy2d?.center
       ? [resolve(copy2d.center[0]), resolve(copy2d.center[1])]
       : null;
+    const translation = translate ? translate.translation.map(v => resolve(v)) : null;
 
     if (values.some(v => v === null)) {
       // An expression this server can't evaluate — the client clears the ghost.
@@ -438,6 +488,17 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         distance2: body.feature === 'chamfer' ? distance2 : null,
         isAngle: body.feature === 'chamfer' && body.isAngle === true,
         edges: edgeRefs!,
+      };
+    } else if (isShell) {
+      if (thickness === null || thickness === 0) {
+        res.status(400).json({ success: false, reason: 'Invalid thickness' });
+        return;
+      }
+      request = {
+        feature: 'shell',
+        thickness,
+        joinType: shellJoin,
+        faces: faceRefs!,
       };
     } else if (isHelix) {
       request = {
@@ -518,6 +579,14 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         targets: rotate!.targets,
         axis: rotate!.axis,
         angle,
+        exclude: transformExclude,
+      };
+    } else if (isTranslate) {
+      request = {
+        feature: 'translate',
+        targets: translate!.targets,
+        // Every value resolved above, or the request never reached here.
+        translation: translation as [number, number, number],
         exclude: transformExclude,
       };
     } else if (isMirror2D) {
@@ -672,6 +741,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         thin,
         profile: profileRef!,
         regions,
+        ...(toFace ? { toFace } : {}),
       };
     }
 
@@ -686,7 +756,14 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
       });
       return;
     }
-    res.json({ success: true, solids: result.solids, ...(result.frames ? { frames: result.frames } : {}) });
+    res.json({
+      success: true,
+      solids: result.solids,
+      ...(result.frames ? { frames: result.frames } : {}),
+      // A translate's distances as the statement will read them: the dialog
+      // stands its gizmo on these, a value it cannot evaluate itself included.
+      ...(isTranslate ? { translation } : {}),
+    });
   });
 
   /**

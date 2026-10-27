@@ -15,12 +15,13 @@ import { RepeatBase } from "../features/repeat-base.js";
 import {
   buildCircularCopyGhostMatrices, buildLinearCopyGhostMatrices,
 } from "../features/copy-ghost.js";
-import { buildExtrudeGhostSolids } from "../features/extrude-ghost.js";
+import { buildExtrudeGhostSolids, type ExtrudeGhostTarget } from "../features/extrude-ghost.js";
 import { buildRibGhostSolids } from "../features/rib-ghost.js";
 import { buildHoleTool, fastenedAxis, resolveHoleDimensions, type HoleDimensions } from "../features/hole/hole-profile.js";
 import { liveSolidsIn } from "../helpers/live-solids.js";
 import { Vector3d } from "../math/vector3d.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
+import { buildShellGhostWalls } from "../features/shell-ghost.js";
 import { buildHelixGhostWires } from "../features/helix-ghost.js";
 import {
   HelixSourceKind, resolveHelixEdgeSource, resolveHelixFaceSource,
@@ -43,6 +44,7 @@ import { GeometrySceneObject } from "../features/2d/geometry.js";
 import type { RegionPick } from "../features/2d/regions/region-wire.js";
 import { resolveRegionPicks, sourceRegionContext } from "../features/2d/regions/source-regions.js";
 import { throughAllLength } from "../helpers/through-all.js";
+import type { ShellJoinType } from "../core/interfaces.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { Plane, PlaneRotationAxes, toPlane } from "../math/plane.js";
@@ -83,12 +85,14 @@ export type FeatureGhostRequest =
   | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
+  | ShellGhostRequest
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
   | SplitGhostRequest
   | RotateGhostRequest
+  | TranslateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -117,7 +121,23 @@ export type ExtrudeGhostRequest = {
    * argument-less `.region()`, which builds nothing.
    */
   regions?: RegionPick[];
+  /**
+   * The "Up to face" directions: the extrusion ends on this target and the
+   * distance fields are not read. Absent is the distance form.
+   */
+  toFace?: GhostExtrudeTargetRef;
 };
+
+/**
+ * Where an up-to-face extrude ends, as the dialog addresses it: a picked face
+ * on a scene solid, or the `'first-face'` / `'last-face'` literal the
+ * statement writes — resolved here against every face in the rendered scene,
+ * the way the kernel resolves it at build time.
+ */
+export type GhostExtrudeTargetRef =
+  | { kind: 'first-face' }
+  | { kind: 'last-face' }
+  | { kind: 'face'; shapeId: string; index: number };
 
 export type RibGhostRequest = {
   feature: 'rib';
@@ -282,6 +302,25 @@ export type FilletGhostRequest = {
  * face" — the edge features explode faces at build time.
  */
 export type GhostEntityRef = { shapeId: string; index: number; kind: 'edge' | 'face' };
+
+/**
+ * The shell. It modifies a solid the scene already holds, like a fillet, so
+ * it carries no `op` and no profile: the dialog's thickness and join, and the
+ * faces to leave open. What comes back is the walls the hollowing would
+ * create — see `buildShellGhostWalls`.
+ */
+export type ShellGhostRequest = {
+  feature: 'shell';
+  /** Wall thickness: negative hollows inward, positive builds the wall outside the solid. */
+  thickness: number;
+  /** How the offset walls meet at a corner — `shell().join()`. */
+  joinType: ShellJoinType;
+  /** The faces to open, each by the solid it was picked on and its index there. */
+  faces: GhostFaceRef[];
+};
+
+/** A viewport face pick: a scene shape and the face's index in its mesh order. */
+export type GhostFaceRef = { shapeId: string; index: number };
 
 /**
  * The helix. It sweeps nothing and modifies nothing: the feature IS a curve,
@@ -490,6 +529,30 @@ export type RotateGhostRequest = {
   axis: GhostAxisRef;
   /** The rotation angle in degrees. */
   angle: number;
+  /**
+   * Edit mode: the edited statement's own call site. Its targets are read as
+   * of just before it — a body it (or anything after it) took from a target
+   * stays where it stood then — since the applied statement is in the scene
+   * mid-edit and would otherwise hand the ghost its own result.
+   */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
+ * The translate — the rotate's straight-line sibling, and like it a ghost
+ * that builds no geometry of its own. `translate()` moves the solids its
+ * targets hold by one world-space vector (translate.ts:50-58), so the ghost
+ * stamps those bodies verbatim under the same `Matrix4.fromTranslation` the
+ * apply hands OCC. Unlike a rotate's zero turn, a zero translation still
+ * stamps the bodies — exactly where they stand: the dialog slides its ghost
+ * rigidly under a gizmo drag, and the first drag starts from rest.
+ */
+export type TranslateGhostRequest = {
+  feature: 'translate';
+  /** The solid-bearing statements being moved, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The world-space distance along X, Y and Z. */
+  translation: [number, number, number];
   /**
    * Edit mode: the edited statement's own call site. Its targets are read as
    * of just before it — a body it (or anything after it) took from a target
@@ -801,6 +864,9 @@ function buildFeatureGhostInUnit(
   if (request.feature === 'rotate') {
     return buildRotateGhost(scene, request, meshConfig);
   }
+  if (request.feature === 'translate') {
+    return buildTranslateGhost(scene, request, meshConfig);
+  }
   if (request.feature === 'plane') {
     return buildPlaneGhost(scene, request, meshConfig);
   }
@@ -818,6 +884,9 @@ function buildFeatureGhostInUnit(
   }
   if (request.feature === 'custom') {
     return CustomFeatureGhost.build(scene, request, meshConfig);
+  }
+  if (request.feature === 'shell') {
+    return buildShellGhost(scene, request, meshConfig);
   }
   return buildBandGhost(scene, request, meshConfig);
 }
@@ -974,6 +1043,113 @@ function resolvePickedEdgeGroups(
     }
   }
   return resolved;
+}
+
+/**
+ * The shell branch. The picks are grouped by the solid each face was made on
+ * and each group hollows its own solid, the way `Shell.build` walks the
+ * scene's solids and opens on each the faces that belong to it — a selection
+ * can straddle two bodies, and the maker only ever offsets one. A group whose
+ * maker refuses contributes nothing and the rest still draw. The walls carry
+ * their own kind: an inward shell's bound the material leaving, an outward
+ * one's the material arriving.
+ */
+function buildShellGhost(
+  scene: Scene,
+  request: ShellGhostRequest,
+  meshConfig: MeshSettings,
+): FeatureGhostResult {
+  const groups = resolvePickedFaceGroups(scene, request.faces);
+  if (!groups) {
+    return { ok: false, reason: 'Those faces are not in the rendered scene.' };
+  }
+
+  const solids: GhostSolid[] = [];
+  try {
+    for (const group of groups) {
+      const built = buildShellGhostWalls(group.solid, group.faces, {
+        thickness: request.thickness,
+        joinType: request.joinType,
+      });
+      try {
+        const builder = new MeshBuilder(meshConfig);
+        for (const wall of built.walls) {
+          const meshes = renderFacePatch(wall, builder.resolveConfig(wall));
+          if (meshes.length > 0) {
+            solids.push({ meshes, kind: built.kind });
+          }
+        }
+      } finally {
+        for (const wall of built.walls) {
+          wall.dispose();
+        }
+        for (const shape of built.scratch) {
+          shape.dispose();
+        }
+      }
+    }
+    return { ok: true, solids };
+  } finally {
+    for (const group of groups) {
+      for (const face of group.faces) {
+        face.dispose();
+      }
+    }
+  }
+}
+
+/**
+ * The picked faces, grouped by the solid each was picked on. Picks address
+ * faces by index into the mesh order, so every face of a named solid is
+ * wrapped to reach the indexed one; the spares go back here and the picks
+ * themselves are the caller's to free. A face picked twice counts once. A
+ * pick the scene no longer has is a refusal: a shell ghost missing one of
+ * its openings shows a feature the apply won't produce.
+ */
+function resolvePickedFaceGroups(
+  scene: Scene,
+  refs: GhostFaceRef[],
+): { solid: Solid; faces: Face[] }[] | null {
+  const groups = new Map<string, { solid: Solid; faces: Face[]; explored: Face[] }>();
+  const release = () => {
+    for (const group of groups.values()) {
+      for (const face of group.explored) {
+        face.dispose();
+      }
+    }
+  };
+
+  for (const ref of refs) {
+    let group = groups.get(ref.shapeId);
+    if (!group) {
+      const shape = findShapeById(scene, ref.shapeId);
+      if (!(shape instanceof Solid)) {
+        release();
+        return null;
+      }
+      group = { solid: shape, faces: [], explored: Explorer.findFacesWrapped(shape) };
+      groups.set(ref.shapeId, group);
+    }
+    const face = group.explored[ref.index];
+    if (!face) {
+      release();
+      return null;
+    }
+    if (!group.faces.includes(face)) {
+      group.faces.push(face);
+    }
+  }
+
+  // The picks travel on in the groups; everything explored to reach them
+  // goes back now.
+  for (const group of groups.values()) {
+    for (const face of group.explored) {
+      if (!group.faces.includes(face)) {
+        face.dispose();
+      }
+    }
+  }
+  return [...groups.values()].map(group => ({ solid: group.solid, faces: group.faces }));
 }
 
 /**
@@ -2452,6 +2628,39 @@ function buildRotateGhost(
   };
 }
 
+/**
+ * The translate: the target solids' own bodies, every target stamped into one
+ * instance under the single translation the apply itself uses. Targets are
+ * read where the features since left them, and in the edit dialog `exclude`
+ * keeps the applied translate — a move CONSUMES its targets' bodies — from
+ * handing the ghost its own moved body.
+ *
+ * Like the rotate, nothing here opens a shape: the meshes are read off the
+ * scene, so there is no scratch to free.
+ */
+function buildTranslateGhost(
+  scene: Scene,
+  request: TranslateGhostRequest,
+  meshConfig: MeshSettings,
+): FeatureGhostResult {
+  if (!request.translation.every(Number.isFinite)) {
+    return { ok: false, reason: 'The translation is not a finite distance.' };
+  }
+  const targets = targetObjectsAt(scene, request.targets);
+  if (targets.length === 0) {
+    return { ok: false, reason: 'That solid is not in the rendered scene.' };
+  }
+  const meshes = stampMeshes(copyTargetSolids(scene, targets, request.exclude), new MeshBuilder(meshConfig));
+  if (meshes.length === 0) {
+    return { ok: false, reason: 'That statement has no solid to translate.' };
+  }
+  const [x, y, z] = request.translation;
+  return {
+    ok: true,
+    solids: [{ meshes: transformMeshes(meshes, Matrix4.fromTranslation(x, y, z)), kind: 'add' }],
+  };
+}
+
 /** The bodies to mesh, or why the request names something the scene lost. */
 type GhostBuild = { solids: Shape[]; scratch: Shape[]; matchLines?: (solid: Shape) => number[][] } | { reason: string; surface?: boolean };
 
@@ -2472,6 +2681,8 @@ function buildProfileGhost(
   const geometries = profileEdges(profile);
   const source = { getGeometries: () => geometries, getPlane: () => plane };
   const picked = pickedRegionFaces(profile, plane, request.regions);
+  // The up-to-face target's wrappers, until the build takes them over.
+  const targetScratch: Shape[] = [];
 
   try {
     if (request.feature === 'revolve') {
@@ -2488,7 +2699,11 @@ function buildProfileGhost(
         faces: picked?.faces,
       }), picked);
     }
-    return withPickedScratch(buildExtrudeGhostSolids(source, {
+    const target = request.toFace ? resolveExtrudeTarget(scene, request.toFace, profile, targetScratch) : undefined;
+    if (request.toFace && !target) {
+      return { reason: 'That face is not in the rendered scene.' };
+    }
+    const built = withPickedScratch(buildExtrudeGhostSolids(source, {
       op: request.op,
       distance: request.distance,
       distance2: request.distance2,
@@ -2499,11 +2714,64 @@ function buildProfileGhost(
       thin: request.thin,
       throughAllLength: throughAllGhostLength(scene, geometries, plane),
       faces: picked?.faces,
+      toFace: target ?? undefined,
     }), picked);
+    built.scratch.push(...targetScratch);
+    targetScratch.length = 0;
+    if (built.refusal) {
+      disposeBuilt(built);
+      return { reason: built.refusal, surface: true };
+    }
+    return built;
   } catch (err) {
     disposePicked(picked);
     throw err;
+  } finally {
+    // Still holding the target's faces: the build never took them over (a
+    // refusal before it ran, or a throw).
+    for (const shape of targetScratch) {
+      shape.dispose();
+    }
   }
+}
+
+/** Free a finished build whole — its bodies and everything behind them. */
+function disposeBuilt(built: { solids: Shape[]; scratch: Shape[] }): void {
+  for (const shape of [...built.solids, ...built.scratch]) {
+    shape.dispose();
+  }
+}
+
+/**
+ * The up-to-face target as the ghost builder takes it. A picked face is the
+ * scene solid's indexed face; a first/last-face literal brings every face
+ * the extrusion could run into — the faces of every non-container object in
+ * the scene except the profile's own, the kernel's candidate set
+ * (`ExtrudeToFace.getFirstOrLastFace`) — and the builder picks the one the
+ * sweep reaches. Every wrapper opened here lands in `scratch`. Null when a
+ * picked face is not in the rendered scene any more.
+ */
+function resolveExtrudeTarget(
+  scene: Scene,
+  ref: GhostExtrudeTargetRef,
+  profile: Extrudable,
+  scratch: Shape[],
+): ExtrudeGhostTarget | null {
+  if (ref.kind === 'face') {
+    const face = resolvePickedFace(scene, ref, scratch);
+    return face ? { kind: 'face', face } : null;
+  }
+  const candidates: Face[] = [];
+  for (const obj of scene.getSceneObjects()) {
+    if (obj.isContainer() || obj === profile) {
+      continue;
+    }
+    for (const shape of obj.getShapes()) {
+      candidates.push(...Explorer.findFacesWrapped(shape));
+    }
+  }
+  scratch.push(...candidates);
+  return { kind: ref.kind, candidates };
 }
 
 /** The region faces a `.region()` pick resolved to, plus every other region face to free. */
@@ -2534,10 +2802,10 @@ function pickedRegionFaces(
 }
 
 /** Hand the picked regions' shapes to the build's scratch, so one disposal frees them all. */
-function withPickedScratch(
-  built: { solids: Shape[]; scratch: Shape[] },
+function withPickedScratch<T extends { solids: Shape[]; scratch: Shape[] }>(
+  built: T,
   picked: PickedRegions | null,
-): { solids: Shape[]; scratch: Shape[] } {
+): T {
   if (picked) {
     built.scratch.push(...picked.faces, ...picked.scratch);
   }

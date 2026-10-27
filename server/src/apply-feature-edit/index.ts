@@ -2,7 +2,18 @@
 // tests import from here; the modules behind it are grouped by concern.
 
 export { isExpressionText } from '../code-editor/index.ts';
-export { validCountValue, validValueExpr, type RegionItemRefSpec, type RegionName, type RegionPickSpec, type ValueExpr } from './value-expr.ts';
+export {
+  refShaped,
+  validCountValue,
+  validRef,
+  validValueExpr,
+  type RefValue,
+  type RegionItemRefSpec,
+  type RegionName,
+  type RegionPickSpec,
+  type ValueExpr,
+} from './value-expr.ts';
+export { refArgValue } from './ast/args.ts';
 export type {
   ApplyFeatureEditResult,
   ApplyFeatureEditSpec,
@@ -32,6 +43,7 @@ export {
 export { renderRibStatement, type RibEditOptions } from './features/rib.ts';
 export {
   HOLE_FITS,
+  HoleRefSlots,
   renderHolePlacementExprs,
   renderHoleStatement,
   validHoleFasten,
@@ -108,6 +120,12 @@ export {
 } from './features/mirror.ts';
 export { renderRotateStatement, type RotateEditAxis, type RotateEditOptions } from './features/rotate.ts';
 export {
+  renderTranslateStatement,
+  validTranslation,
+  type TranslateEditOptions,
+  type TranslationSpec,
+} from './features/translate.ts';
+export {
   renderSectionOptionsArg,
   renderSectionPlaneExpr,
   renderSectionStatement,
@@ -157,7 +175,7 @@ export {
   type CustomValueSource,
   type ParsedCustomFeature,
 } from './features/custom.ts';
-export { TypedInKinds, type TypedInKind, type TypedInSource, type TypedInSpec, type TypedInValue } from './features/typed-in-kinds.ts';
+export { TypedInKinds, type TypedInKind, type TypedInRef, type TypedInSource, type TypedInSpec, type TypedInValue } from './features/typed-in-kinds.ts';
 export {
   makeProducerBindable,
   makeProducerBoundProbe,

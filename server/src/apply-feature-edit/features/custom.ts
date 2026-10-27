@@ -21,7 +21,7 @@ import { renderSelectorPartExpr } from '../render/selectors.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 import { validValueExpr, type ValueExpr } from '../value-expr.ts';
 import type { RepeatEditTargetSource } from './repeat.ts';
-import { TypedInKinds } from './typed-in-kinds.ts';
+import { TypedInKinds, type TypedInValue } from './typed-in-kinds.ts';
 
 /**
  * One value of a custom feature, as its statement reads: typed in (its
@@ -142,8 +142,8 @@ export type ParsedCustomFeature = ParsedScopeChain & {
   id: string;
   /** The callee as the statement writes it — an import alias included. */
   callee: string;
-  /** The typed-in values the statement writes; one it leaves out is absent. */
-  values: Record<string, ValueExpr | boolean | string | (string | number)[]>;
+  /** The typed-in values the statement writes — a choice bound to a variable as `{ ref }`; one it leaves out is absent. */
+  values: Record<string, TypedInValue>;
   /** The picked values it writes, element by element; one it leaves out is absent. */
   picks: Record<string, CustomPickText[]>;
   /** The operation the statement applies: its operation chain's, else the feature's default. */

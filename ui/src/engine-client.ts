@@ -17,6 +17,8 @@ import type {
   SetUnitResult,
   ShapeProperties,
   SourceLocation,
+  PauseAfterOptions,
+  PauseAfterResult,
   SourceLocationParam,
   UserPreferences,
 } from './api';
@@ -29,6 +31,13 @@ import type { LengthUnit } from './units/units';
  */
 export interface EngineEditorClient {
   addBreakpoint(sourceLocation: SourceLocationParam): void;
+  /**
+   * The edit-feature gesture's pause after a statement, acknowledged: the
+   * answer says whether the buffer changed and against which render version
+   * (see {@link pauseAfterStatement} in api.ts). A host without it falls
+   * back to {@link addBreakpoint}.
+   */
+  pauseAfter?(sourceLocation: SourceLocationParam, options?: PauseAfterOptions): Promise<PauseAfterResult | null>;
   /**
    * Atomic document breakpoint edit: pause before `before` as the document's
    * only stop (a move takes every other one out), or with null continue to

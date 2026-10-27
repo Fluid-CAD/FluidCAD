@@ -6,6 +6,7 @@ import {
   type HolePlacementSpec,
 } from '../src/apply-feature-edit/index.ts';
 import { HolePlacements } from '../src/apply-feature-edit/hole-placements.ts';
+import { validateHoleFasten, validateHoleOptions } from '../src/routes/apply-feature/validate/hole.ts';
 
 // hole() statements: each placement kind's staging and rendering, the parse
 // round-trip, and in-place edits. Placements are the statement's trailing
@@ -99,6 +100,40 @@ describe('hole statement templates', () => {
       fastener: { type: 'tapped', pitch: null }, placements: [{ kind: 'connector', producer: 0 }],
     }, { producers: [BOLT] }));
     expect(coarse.newCode).toContain(`hole('M6', bolt).tapped().name('Hole 1')\n`);
+  });
+
+  it('writes a variable bare in the size, fit, pitch and fasten pitch slots, and refuses a malformed name', async () => {
+    const placements: HolePlacementSpec[] = [{ kind: 'connector', producer: 0 }];
+    const producers = [BOLT];
+    const bound = await applyFeatureEdit(plate, holeSpec({
+      size: { kind: 'fastener', label: { ref: 'holeSize' } }, fastener: { type: 'clearance', fit: { ref: 'fit' } },
+      placements, fasten: { pitch: { ref: 'pitch' } },
+    }, { producers }));
+    expect(bound.error).toBeUndefined();
+    expect(bound.newCode).toContain(`  hole(holeSize, bolt).clearance(fit).fasten(pitch).name('Hole 1')\n})`);
+    // A referenced pitch always writes the argument; a member path writes as it stands.
+    const tapped = await applyFeatureEdit(plate, holeSpec({
+      size: { kind: 'fastener', label: { ref: 'cfg.size' } }, fastener: { type: 'tapped', pitch: { ref: 'cfg.pitch' } }, placements,
+    }, { producers }));
+    expect(tapped.newCode).toContain(`  hole(cfg.size, bolt).tapped(cfg.pitch).name('Hole 1')\n})`);
+    const blind = await applyFeatureEdit(plate, holeSpec({ placements, fasten: { pitch: { ref: 'pitch' }, depth: 12, tipAngle: 118 } }, { producers }));
+    expect(blind.newCode).toContain(`  hole('M6', bolt).clearance('close').fasten(pitch, 12, 118).name('Hole 1')\n})`);
+    // The transform refuses a malformed name like any other bad value; the route names the slot.
+    const malformed = await applyFeatureEdit(plate, holeSpec({ size: { kind: 'fastener', label: { ref: 'a + b' } }, placements }, { producers }));
+    expect(malformed.error).toBe('malformed hole edit spec');
+    const options = { size: { kind: 'fastener', label: 'M6' }, fastener: { type: 'clearance', fit: 'close' } };
+    expect(validateHoleOptions({ ...options, size: { kind: 'fastener', label: { ref: 'a + b' } } }))
+      .toEqual({ error: 'the hole size must name a variable' });
+    expect(validateHoleOptions({ ...options, fastener: { type: 'clearance', fit: { ref: 'size()' } } }))
+      .toEqual({ error: 'the clearance fit must name a variable' });
+    expect(validateHoleOptions({ ...options, fastener: { type: 'tapped', pitch: { ref: '' } } }))
+      .toEqual({ error: 'the tapped pitch must name a variable' });
+    const valid = validateHoleOptions({ ...options, size: { kind: 'fastener', label: { ref: 'holeSize' } } });
+    expect(valid).toMatchObject({ size: { kind: 'fastener', label: { ref: 'holeSize' } } });
+    expect(validateHoleFasten({ fasten: { pitch: { ref: 'a[0]' } } }, valid as never, false))
+      .toEqual({ error: 'the fasten pitch must name a variable' });
+    expect(validateHoleFasten({ fasten: { pitch: { ref: 'pitch' } } }, valid as never, false))
+      .toEqual({ fasten: { pitch: { ref: 'pitch' }, depth: null, tipAngle: null } });
   });
 
   it('exports a sketch point through the sketch return and names it from outside', async () => {
@@ -308,6 +343,49 @@ describe('hole statement parsing', () => {
     });
   });
 
+  it('reads a variable back from each slot; in the size slot a number variable stays the drilled diameter', async () => {
+    // Declarations ahead of the hole in the part body; the hole's line moves down with them.
+    const declared = (decls: string[], statement: string) => ({
+      code: withHole([...decls, statement].join('\n  ')).replace(`import { part,`, `import { param, part,`)
+        .replace(`  connector('bolt'`, `  const bolt = connector('bolt'`),
+      line: 12 + decls.length,
+    });
+    const parse = async (decls: string[], statement: string) => {
+      const { code, line } = declared(decls, statement);
+      return parseFeatureStatement(code, line);
+    };
+    const bound = await parse(
+      [`const holeSize = param('Size', 'M6', 'select', { options: ['M5', 'M6'] })`, `const fit = 'close'`, `const pitch = 0.75`],
+      `hole(holeSize, bolt).clearance(fit).fasten(pitch, 12)`,
+    );
+    expect(bound.ok && bound.parsed).toMatchObject({
+      size: { kind: 'fastener', label: { ref: 'holeSize' } },
+      fastener: { type: 'clearance', fit: { ref: 'fit' } },
+      fasten: { pitch: { ref: 'pitch' }, depth: 12, tipAngle: null },
+    });
+    const tapped = await parse([`const pitch = param('Pitch', 1)`], `hole('M6', bolt).tapped(pitch)`);
+    expect(tapped.ok && tapped.parsed).toMatchObject({ fastener: { type: 'tapped', pitch: { ref: 'pitch' } } });
+    // A member path and an undeclared name are of no decidable kind: fastener labels.
+    const member = await parse([], `hole(cfg.size, bolt).clearance(cfg.fit)`);
+    expect(member.ok && member.parsed).toMatchObject({
+      size: { kind: 'fastener', label: { ref: 'cfg.size' } }, fastener: { type: 'clearance', fit: { ref: 'cfg.fit' } },
+    });
+    const undeclared = await parse([], `hole(size, bolt)`);
+    expect(undeclared.ok && undeclared.parsed).toMatchObject({ size: { kind: 'fastener', label: { ref: 'size' } }, fastener: null });
+    // A name bound to a number is the drilled diameter expression it always was — never a label.
+    const bore = await parse([`const bore = param('Bore', 6)`], `hole(bore, bolt)`);
+    expect(bore.ok && bore.parsed).toMatchObject({ size: { kind: 'diameter', value: 'bore' }, fastener: null });
+    const derived = await parse([`const bore = 6`], `hole(bore / 2, bolt)`);
+    expect(derived.ok && derived.parsed).toMatchObject({ size: { kind: 'diameter', value: 'bore / 2' } });
+    // The kinds that contradict a slot fail as before: a number is no fit, a string no pitch.
+    const numberFit = await parse([`const n = 5`], `hole('M6', bolt).clearance(n)`);
+    expect(numberFit).toMatchObject({ ok: false, reason: expect.stringContaining("'close', 'normal' or 'loose'") });
+    const stringPitch = await parse([`const fine = 'fine'`], `hole('M6', bolt).tapped(fine)`);
+    expect(stringPitch).toMatchObject({ ok: false, reason: expect.stringContaining('not a plain positive number') });
+    const stringFasten = await parse([`const fine = 'fine'`], `hole('M6', bolt).fasten(fine)`);
+    expect(stringFasten).toMatchObject({ ok: false, reason: expect.stringContaining('takes an optional pitch, depth and tip angle') });
+  });
+
   it('refuses shapes the dialog cannot show', async () => {
     const both = await parseFeatureStatement(withHole(`hole('M6', bolt).clearance('close').tapped()`), 12);
     expect(both).toMatchObject({ ok: false, reason: expect.stringContaining('both .clearance() and .tapped()') });
@@ -342,6 +420,19 @@ describe('hole in-place edits', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  hole('M6', bolt).clearance('close').countersink()\n})`);
+  });
+
+  it('rewrites the options with variables, the fasten pitch included', async () => {
+    const result = await applyFeatureEdit(edited, editSpec({
+      size: { kind: 'fastener', label: { ref: 'holeSize' } }, fastener: { type: 'clearance', fit: { ref: 'fit' } },
+      style: null, depth: null, tipAngle: null, fasten: { pitch: { ref: 'pitch' } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  hole(holeSize, bolt).clearance(fit).fasten(pitch)\n})`);
+    const tapped = await applyFeatureEdit(edited, editSpec({
+      size: { kind: 'fastener', label: 'M6' }, fastener: { type: 'tapped', pitch: { ref: 'pitch' } }, style: null, depth: null, tipAngle: null,
+    }));
+    expect(tapped.newCode).toContain(`  hole('M6', bolt).tapped(pitch)\n})`);
   });
 
   it('replaces the placement list: keeps by position, adds a staged sketch point, drops the rest', async () => {

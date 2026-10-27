@@ -1,15 +1,14 @@
 import { HubRequestError } from './hub-request-error.ts';
 
 /**
- * A change to a package on the hub that didn't happen (`fluidcad yank`,
- * `unyank`, `deprecate`, `listing`, H12), worded for its owner: what is
- * wrong, then what to do. The code is the hub's own when the hub refused
- * (`not-published`, `not-yanked`, `version-removed`, `bad-request`, …), and
- * the same code when the CLI could tell before sending anything. The codes
- * only the CLI gives:
+ * A change to a package on the hub that didn't happen (`fluidcad deprecate`,
+ * `listing`, H12), worded for its owner: what is wrong, then what to do.
+ * The code is the hub's own when the hub refused (`version-not-open`,
+ * `version-removed`, `bad-request`, …), and the same code when the CLI could
+ * tell before sending anything. The codes only the CLI gives:
  * - `signed-out`: no token for this hub;
- * - `bad-name`, `bad-version`: what the command was given isn't a package
- *   name or a version (or the workspace isn't a package);
+ * - `bad-name`: what the command was given isn't a package name (or the
+ *   workspace isn't a package);
  * - `nothing-open`: release notes for a package with no draft or version
  *   in review.
  *
@@ -46,7 +45,6 @@ export class HubMaintainMessages {
 
   private static readonly HINTS: Record<string, string> = {
     unauthorized: HubMaintainMessages.LOGIN_HINT,
-    'not-published': 'Only a published version can be yanked or unyanked; `fluidcad publish --withdraw` withdraws a draft or a version in review.',
     'version-not-open': 'A published version\'s release notes and license are fixed; the next version takes its own from `fluidcad publish --notes`.',
     network: HubMaintainMessages.OFFLINE_HINT,
     stalled: HubMaintainMessages.OFFLINE_HINT,

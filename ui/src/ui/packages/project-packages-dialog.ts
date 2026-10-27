@@ -37,9 +37,8 @@ const CHIP = 'badge badge-xs shrink-0 whitespace-nowrap';
  * - An **update available** chip names a newer version the library holds;
  *   moving to it is Stage P10's previewed upgrade.
  * - What the hub's owner said about a pin (H12, `hubMarks`, kept by the
- *   engine for 10 minutes): a **yanked** pinned version, with "Yanked:
- *   <reason>" (the project keeps installing it by its exact version), and
- *   a **deprecated** package, with "Deprecated: <message>".
+ *   engine for 10 minutes): a **deprecated** package, with "Deprecated:
+ *   <message>".
  *
  * Project-level, so not in Settings (whose tabs are the user's own
  * preferences): it is a project action beside Import, Export and Share.
@@ -232,13 +231,6 @@ export class ProjectPackagesDialog {
       chip.title = `${where} Moving this project to it, with a preview of what changes, comes in a later version.`;
       title.appendChild(chip);
     }
-    if (marks?.yanked) {
-      const chip = document.createElement('span');
-      chip.dataset.ref = 'yanked';
-      chip.className = `${CHIP} badge-error badge-soft`;
-      chip.textContent = 'yanked';
-      title.appendChild(chip);
-    }
     if (marks?.deprecated) {
       const chip = document.createElement('span');
       chip.dataset.ref = 'deprecated';
@@ -254,7 +246,7 @@ export class ProjectPackagesDialog {
       where.title = pin.directory;
     }
     text.append(title, where);
-    for (const line of ProjectPackagesDialog.markLines(pin, marks)) {
+    for (const line of ProjectPackagesDialog.markLines(marks)) {
       text.appendChild(line);
     }
     row.appendChild(text);
@@ -266,21 +258,9 @@ export class ProjectPackagesDialog {
     return row;
   }
 
-  /**
-   * "Yanked: <reason>" and "Deprecated: <message>", each set as text: what
-   * the hub's owner said about the pin. A yanked pin still installs by its
-   * exact version, which the hover says.
-   */
-  static markLines(pin: Pick<PinnedPackage, 'name' | 'version'>, marks: HubPinMarks | null): HTMLDivElement[] {
+  /** "Deprecated: <message>", set as text: what the hub's owner said about the pin. */
+  static markLines(marks: HubPinMarks | null): HTMLDivElement[] {
     const lines: HTMLDivElement[] = [];
-    if (marks?.yanked) {
-      const line = document.createElement('div');
-      line.dataset.ref = 'yank-reason';
-      line.className = 'text-[11px] leading-snug text-base-content/70';
-      line.textContent = marks.yanked.reason ? `Yanked: ${marks.yanked.reason}` : 'Yanked by its publisher';
-      line.title = `${PackageText.label(pin.name, pin.version)} is yanked on the hub: installs by name skip it, and this project keeps installing it by its exact version.`;
-      lines.push(line);
-    }
     if (marks?.deprecated) {
       const line = document.createElement('div');
       line.dataset.ref = 'deprecation';

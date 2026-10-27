@@ -174,7 +174,7 @@ export class HubInstallCli {
   /**
    * The hub's word on `resolved`, one short line each, from its fields (the
    * app shows `resolved.notes`, the full sentences): deprecated, not
-   * published, yanked, an older version than the latest, a refused token.
+   * published, an older version than the latest, a refused token.
    */
   notices(resolved) {
     const lines = [];
@@ -184,9 +184,6 @@ export class HubInstallCli {
     if (resolved.status !== 'published') {
       const state = resolved.status.replace(/_/g, ' ');
       lines.push(`Not published (${state}): installed as its ${resolved.access === 'admin' ? 'reviewer' : 'owner'}.`);
-    }
-    if (resolved.yanked) {
-      lines.push(`Yanked${resolved.yanked.reason ? ` (${resolved.yanked.reason})` : ''}: installed because you asked for this version.`);
     }
     if (resolved.passedOver) {
       lines.push(`The latest, ${resolved.passedOver.version}, needs ${resolved.passedOver.needs}.`);

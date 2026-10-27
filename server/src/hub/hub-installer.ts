@@ -24,12 +24,12 @@ import { HubTransport } from './hub-transport.ts';
  * 0. {@link choose}: where `fluidcad install <name>[@version]` takes the
  *    package from (an installed copy, or the hub), the rule both the CLI
  *    and the app follow.
- * 1. {@link resolve}: an exact version as asked (a yanked one with a note;
- *    an unpublished one only for its owner or an admin, whose token the
- *    hub sees); else the latest; else, when the latest needs a newer
- *    engine, the hub's `newestCompatible`, with a note. A name alone never
- *    picks a yanked, removed or unpublished version: the hub's `latest`
- *    and `compatibility` never name one.
+ * 1. {@link resolve}: an exact version as asked (an unpublished one only
+ *    for its owner or an admin, whose token the hub sees); else the latest;
+ *    else, when the latest needs a newer engine, the hub's
+ *    `newestCompatible`, with a note. A name alone never picks a removed or
+ *    unpublished version: the hub's `latest` and `compatibility` never name
+ *    one.
  * 2. {@link fetch}: the archive downloaded under the stall watchdog
  *    ({@link HubDownload}), `PackageArchive.inspect`, then the inspection's
  *    tree hash must equal the hub's `x-fluidcad-integrity` and the pin's
@@ -80,7 +80,6 @@ export type ResolvedHubPackage = {
   /** `published`, or an open state the owner or an admin may install by exact version. */
   status: string;
   access: 'public' | 'owner' | 'admin';
-  yanked: { at: string; reason: string | null } | null;
   /** The package's deprecation message (H12), or null: it applies to every version. */
   deprecated: string | null;
   /**
@@ -91,7 +90,7 @@ export type ResolvedHubPackage = {
   passedOver: { version: string; needs: string } | null;
   /** The hub refused the saved token, so this was read signed out. */
   signedOut: boolean;
-  /** Sentences for the consent summary: a deprecated package, a yanked or unpublished version, an older compatible one, a refused token. */
+  /** Sentences for the consent summary: a deprecated package, an unpublished version, an older compatible one, a refused token. */
   notes: string[];
 };
 
@@ -348,9 +347,6 @@ export class HubInstaller {
       const state = HubInstaller.STATE_WORDS[detail.status] ?? detail.status;
       notes.push(`${at} isn't published: it is ${state}, and you can install it as its ${detail.access === 'admin' ? 'reviewer' : 'owner'}.`);
     }
-    if (detail.yanked) {
-      notes.push(`${at} was yanked${detail.yanked.reason ? ` (${detail.yanked.reason})` : ''}: it installs because you asked for this version, but an install by name never picks it.`);
-    }
     return {
       hub: this.config.origin,
       name,
@@ -359,7 +355,6 @@ export class HubInstaller {
       size: detail.size,
       status: detail.status,
       access: detail.access,
-      yanked: detail.yanked,
       deprecated,
       passedOver: null,
       signedOut: false,
@@ -403,22 +398,17 @@ export class HubInstaller {
   }
 
   /**
-   * Why a name alone installs nothing: every published version is yanked
-   * (H12; one still installs by its exact version, named with its reason),
+   * Why a name alone installs nothing, for a reader the hub still shows
+   * the package to (its owner or an admin; to anyone else it is
+   * `not-found`): every published version was removed by the hub's admins,
    * or none is published yet (the owner's open version installs by its
    * exact version). The code is `nothing-published` either way.
    */
   static nothingByName(detail: HubPackageDetail, origin: string): HubInstallError {
     const name = detail.name;
-    const yanked = detail.versions.find((v) => v.status === 'published' && !v.removed && v.yanked);
-    if (yanked) {
-      const why = yanked.yanked?.reason ? ` (yanked: ${yanked.yanked.reason})` : '';
-      return HubInstallError.local(
-        'nothing-published',
-        `Every published version of ${name} on ${origin} is yanked, so an install by name has nothing to pick. ` +
-          `One still installs by its exact version: \`fluidcad install ${name}@${yanked.version}\`${why}.`,
-        { yanked: yanked.version },
-      );
+    const published = detail.versions.filter((v) => v.status === 'published');
+    if (published.length > 0 && published.every((v) => v.removed)) {
+      return HubInstallError.local('nothing-published', `Every published version of ${name} on ${origin} was removed by its admins: there is nothing to install.`);
     }
     const open = detail.openVersion ? ` Install ${detail.openVersion.version}, which isn't published yet, by its exact version: \`fluidcad install ${name}@${detail.openVersion.version}\`.` : '';
     return HubInstallError.local('nothing-published', `${name} has no published version on ${origin} yet.${open}`);
@@ -441,7 +431,6 @@ export class HubInstaller {
       size,
       status: 'published',
       access: detail.access,
-      yanked: null,
       deprecated,
       passedOver,
       signedOut: false,

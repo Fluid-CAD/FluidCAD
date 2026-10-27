@@ -669,3 +669,41 @@ describe('ExternalLinks', () => {
     expect(open).toHaveBeenCalledWith('https://hub.fluidcad.io/@acme/kit', '_blank', 'noopener,noreferrer');
   });
 });
+
+describe('signing in for another surface (ui-packages-plan N4: the Publish dialog)', () => {
+  it('signIn() opens the panel, runs the header\'s flow and resolves true once signed in', async () => {
+    const h = mount();
+    expect(h.panel.isOpen()).toBe(false);
+    const outcome = h.panel.signIn();
+    await settle();
+    expect(h.panel.isOpen()).toBe(true);
+    expect(h.hub.login).toHaveBeenCalledTimes(1);
+    expect(h.openExternal).toHaveBeenCalledWith(FakeHubClient.loginState().authorizeUrl);
+    expect(h.account().dataset.state).toBe('waiting');
+    // A second caller joins the same sign-in.
+    const joined = h.panel.signIn();
+    await settle();
+    expect(h.hub.login).toHaveBeenCalledTimes(1);
+
+    h.hub.endLogin({ status: 'signed-in', handle: 'acme' });
+    h.hub.statusValue = FakeHubClient.status({ signedIn: { handle: 'acme' } });
+    await h.timers.fire();
+    expect(await outcome).toBe(true);
+    expect(await joined).toBe(true);
+    expect(h.account().dataset.state).toBe('signed-in');
+  });
+
+  it('resolves false when the sign-in ends otherwise, or could not start', async () => {
+    const h = mount();
+    const denied = h.panel.signIn();
+    await settle();
+    h.hub.endLogin({ status: 'denied', error: 'The sign-in was denied in the browser. Nothing was saved.' });
+    await h.timers.fire();
+    expect(await denied).toBe(false);
+    expect(h.$('[data-ref="sign-in-notice"]')!.textContent).toBe('The sign-in was denied in the browser. Nothing was saved.');
+
+    h.hub.loginRefusal = { status: 503, error: 'no answer', code: 'hub-unreachable' };
+    expect(await h.panel.signIn()).toBe(false);
+    expect(h.timers.pending).toHaveLength(0);
+  });
+});

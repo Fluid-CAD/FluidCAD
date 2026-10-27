@@ -11,6 +11,7 @@ vi.mock('../src/api', () => ({
   updateParam: vi.fn(async () => ({ success: true })),
   removeParam: vi.fn(async () => ({ success: true })),
   getParamUsage: vi.fn(async () => null),
+  getScopeVariables: vi.fn(async () => []),
 }));
 
 import * as api from '../src/api';
@@ -273,5 +274,58 @@ describe('ParamEditorDialog delete', () => {
       + 'Rewrite those reads by hand, then delete the parameter.',
     );
     expect(vi.mocked(api.removeParam)).not.toHaveBeenCalled();
+  });
+});
+
+// A Number default is an expression field: arithmetic over the chosen part's
+// variables, written to the declaration as the number it evaluates to.
+describe('ParamEditorDialog number default', () => {
+  function defaultInput(root: HTMLElement): HTMLInputElement {
+    return root.querySelector<HTMLInputElement>('[data-ref="default-row"] [data-ref="default"]')!;
+  }
+
+  it('evaluates arithmetic over the chosen part\'s variables on save', async () => {
+    vi.mocked(api.getScopeVariables).mockResolvedValueOnce([
+      { name: 'wall', initializer: 'param("Wall", 3)', numeric: true },
+    ]);
+    const { dialog, root } = mount();
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], selected: lid.sourceLocation }));
+    dialog.openForCreate();
+    expect(vi.mocked(api.getScopeVariables)).toHaveBeenLastCalledWith(null, undefined, lid.sourceLocation);
+    expect(defaultInput(root).type).toBe('text');
+
+    labelInput(root).value = 'Depth';
+    await vi.waitFor(async () => {
+      defaultInput(root).value = 'wall * 2 + 1';
+      root.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
+      expect(vi.mocked(addParam)).toHaveBeenCalled();
+    });
+    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(
+      { label: 'Depth', defaultValue: 7, type: 'number' }, lid.sourceLocation, 'part', false,
+    );
+  });
+
+  it('refuses a default that does not evaluate to a number', async () => {
+    const { dialog, root } = mount();
+    dialog.setPartProvider(() => ({ parts: [bracket], selected: bracket.sourceLocation }));
+    dialog.openForCreate();
+    labelInput(root).value = 'Depth';
+    defaultInput(root).value = 'unknown * 2';
+    root.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
+    await Promise.resolve();
+
+    expect(vi.mocked(addParam)).not.toHaveBeenCalled();
+    expect(root.querySelector('[data-ref="message"]')!.textContent).toContain('default value');
+  });
+
+  it('reads a blank default as 0', async () => {
+    const { dialog, root } = mount();
+    dialog.openForCreate();
+    labelInput(root).value = 'Depth';
+    defaultInput(root).value = '';
+    await save(root);
+    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ defaultValue: 0 }), null, 'part', false,
+    );
   });
 });

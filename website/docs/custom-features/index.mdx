@@ -35,6 +35,25 @@ The written call is plain code, and later features use the feature's faces like 
 
 <ExplainedCode code={standoffPlate} fileName="pcb-plate.part.js" />
 
+### Parameters in a dropdown
+
+A `select` row of a feature dialog takes a [parameter](/docs/part/param) the way a number field does. The fastener hole below offers its screws as a dropdown (**Screw**: M3, M4, M5); the part declares `holeSize`, a `param('Hole size', 'm4', 'select', { options: [...] })` with the same values.
+
+1. Open the dropdown. Under the options, a **Parameters** group lists every variable of the part the row can take, with the option its current value selects beside it: `holeSize` is `'m4'`, so the row reads **M4**.
+
+   ![The Screw dropdown with holeSize under Parameters](/img/docs/ui/custom-feature-select-parameters.png)
+
+2. Click it. The button shows the parameter's name with the resolved option muted beside it, and the preview draws that option. The statement reads `fastener(…, { size: holeSize })`: the name, written bare, as a number field writes `extrude(height)`.
+
+   ![The Screw row bound to holeSize](/img/docs/ui/custom-feature-select-bound.png)
+
+3. To unbind, open the dropdown again and pick an option: Apply writes the literal, `size: 'm5'`.
+
+- **Typing** in the search box filters the options and the parameters together. A name that matches neither is offered as a **new** row, as a number field offers a fresh name: <kbd>Enter</kbd> declares it over the option the row shows, `const holeSize = param('holeSize', 'm3', 'select', { options: [...the row's options] })` at the top of the part body, and uses it in the statement. The **P / V** chip on the row follows the same toggle as the number fields: with it off, the declaration is a plain `const holeSize = 'm3'`.
+- **Compatible by type.** A dropdown of string options lists string parameters and constants (`select`, `text`, a `const finish = 'deburr'`); numeric options list number parameters; a `multiple: true` select lists list values (`const fin = ['deburr']`). A number never appears in a string dropdown. A parameter whose current value is not one of the options is still listed, in the warning colour, and binding it refuses Apply with the reason (`Screw: finish is 'deburr', which is not one of the options.`) until the value or the binding changes.
+- **A `radio` has no parameter path.** Its buttons or cards hold no list; declare a `select` when a value should be bindable.
+- **Editing** a statement written by hand as `size: holeSize` opens with the bound button. Any other expression (`a ? 'm4' : 'm5'`) leaves the statement not editable from the dialog.
+
 ## Writing a feature
 
 A feature file holds a class and the builder it exports:
@@ -53,6 +72,7 @@ A feature can follow what it is picked at. `framesOf(ref)` gives every placement
 ### How FluidCAD finds it
 
 - Every `*.feature.js` file in the project (outside `node_modules`, dot folders and gitignored paths) is scanned, and every **named** export that is a feature builder is offered in the Custom dropdown. Nothing is registered in `init.js`.
+- The editor's **+** button makes one: type a name and pick **Create feature**. The file starts as a working feature named after it (a boss standing on a picked face) with the class, the id, `buildTool()` and the `defineFeature()` export in place, ready to reshape.
 - A feature that can't be offered shows as a greyed entry with the reason as its tooltip: a file that fails to load, a file that exports no feature, two features with one id.
 - The file is loaded again on every render, so saving it rebuilds the statements that use it, in every open model, with no restart.
 - The code runs in the FluidCAD engine; the page only receives the description. Node built-ins such as `fs` or `child_process` are blocked in feature files, as in models.
@@ -128,4 +148,4 @@ export class Gear extends Feature.with({ /* the values */ }, {
 
 ## Sharing a feature
 
-A feature file serves the project it lives in. To use it in other projects, or give it to someone, make the project a [package](/docs/packages): move the feature files into a `features/` folder (and the parts that should travel into `parts/`), run `npx fluidcad package init --name @<your handle>/<name>`, then `npx fluidcad publish` to put it on the hub. Installed elsewhere from the hub, its features appear in the Custom dropdown under the package's name.
+A feature file serves the project it lives in. To use it in other projects, or give it to someone, write it in a [package](/docs/packages): **New Package** on the start screen makes one, with a `features/` folder for the feature files and a `parts/` folder for the parts that should travel, and the top bar's **Publish** button puts it on the hub ([Publishing](/docs/packages#publishing)). For a project that already holds the files, `npx fluidcad package init --name @<your handle>/<name>` writes the package block; move the files into the folders. Installed elsewhere from the hub, its features appear in the Custom dropdown under the package's name.

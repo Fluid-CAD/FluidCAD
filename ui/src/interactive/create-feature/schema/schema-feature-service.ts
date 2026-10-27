@@ -1,7 +1,7 @@
 import {
   applyCustomFeature, applyCustomFeatureEdit, featureGhostScope, fetchConnectorAnchors, fetchFeatureGhostResult, fetchFeatureSources, fetchShapeOwners,
   getFaceProperties, type CustomFeatureApplyOptions, type FaceProperties, type FeaturePickedSurface, type CustomFeatureEditOptions, type CustomGhostRequest, type CustomPickInput,
-  type FeatureEditTarget, type FeatureListValue, type FeatureScalarValue, type GhostCustomRef, type GhostSolid, type NewVariable,
+  type FeatureEditTarget, type FeatureListValue, type FeatureRefValue, type FeatureScalarValue, type GhostCustomRef, type GhostSolid, type NewVariable,
   type ParsedFeatureStatement, type ScopeTargetRef, type ValueExpr,
 } from '../../../api';
 import { SceneIndex } from '../../../helpers/scene-index';
@@ -240,6 +240,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.ghost = schema.meta.ghost ? new FeatureGhostOverlay(viewer) : null;
     this.runner = new ApplyRunner<CreateRequest | EditRequest, SchemaGhost>({
       panel: this.panel,
+      session: this.session,
       isArmed: () => this.armed,
       build: purpose => this.editTarget ? this.buildEditRequest(purpose === 'apply') : this.buildRequest(purpose === 'apply'),
       send: (request, extras) => this.editTarget
@@ -345,7 +346,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     void this.loadEditSources();
     void this.refreshScopeVariables();
     this.panel.showEdit({
-      values: parsed.values as Record<string, FeatureScalarValue | FeatureListValue>,
+      values: parsed.values as Record<string, FeatureScalarValue | FeatureListValue | FeatureRefValue>,
       operation: parsed.operation,
       seedPicks: (picker) => picker.seedKeeps(parsed.picks[picker.name], target.filePath),
     });
@@ -870,13 +871,15 @@ export class SchemaFeatureService implements FeatureDialogService {
    * row shows — and refuses a required one never filled in; an edit keeps
    * the statement's own, and a cleared row (an empty choice) drops its value
    * when the builder has something to fall back on. A select of several is
-   * never empty in that sense: with none chosen it writes an empty list.
+   * never empty in that sense: with none chosen it writes an empty list. A
+   * choice naming a variable travels as `{ ref }`, with the declaration of a
+   * parameter it declared alongside, as a number row's does.
    */
   private collectValues(editing: boolean, reveal: boolean): {
-    values: Record<string, ValueExpr | boolean | string | FeatureListValue | null>;
+    values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | null>;
     newVariables?: NewVariable[];
   } | { error: string } {
-    const values: Record<string, ValueExpr | boolean | string | FeatureListValue | null> = {};
+    const values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | null> = {};
     const newVariables: NewVariable[] = [];
     for (const [name, field] of this.panel.fields) {
       if (!field.visible) {
@@ -959,15 +962,17 @@ export class SchemaFeatureService implements FeatureDialogService {
 
   /**
    * The ghost of the form as it stands: the values the rows hold (a new
-   * variable by its value), every pick as the ghost addresses it, the
-   * operation — in edit mode against the scene before the statement. Null
-   * when there is nothing to draw: a row that doesn't read, a pick the
-   * ghost can't address. In edit mode a hidden row's value or pick is the
-   * statement's own, which it keeps, so it travels too.
+   * variable by its value — a number row's initializer, the option a choice
+   * declared its parameter over; a choice naming a variable the file has as
+   * `{ ref }`, resolved where the statement sits), every pick as the ghost
+   * addresses it, the operation — in edit mode against the scene before the
+   * statement. Null when there is nothing to draw: a row that doesn't read, a
+   * pick the ghost can't address. In edit mode a hidden row's value or pick
+   * is the statement's own, which it keeps, so it travels too.
    */
   private ghostRequest(): CustomGhostRequest | null {
     const editing = this.editTarget !== null;
-    const values: Record<string, ValueExpr | boolean | string | FeatureListValue> = {};
+    const values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue> = {};
     for (const [name, field] of this.panel.fields) {
       if ((!field.visible && !editing) || field.isDerived) {
         continue;
@@ -979,7 +984,7 @@ export class SchemaFeatureService implements FeatureDialogService {
       if ('empty' in read) {
         continue;
       }
-      values[name] = read.newVariable ? read.newVariable.initializer : read.value;
+      values[name] = read.ghost ?? (read.newVariable ? read.newVariable.initializer : read.value);
     }
     const refs: Record<string, GhostCustomRef[]> = {};
     for (const [name, picker] of this.panel.pickers) {

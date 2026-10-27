@@ -170,22 +170,6 @@ describe('the tabs', () => {
     expect(h.onInstalled).toHaveBeenCalledWith(expect.objectContaining({ name: '@acme/feature-tests', version: '0.1.0', upgrade: false }));
   });
 
-  it('Versions: a yanked one reads "Yanked: <reason>" beside its yanked badge (H12)', async () => {
-    const base = FakeHubClient.pkg();
-    const versions = base.versions.map((v) => (v.version === '0.1.0' ? { ...v, yanked: { at: '2026-10-12T08:00:00.000Z', reason: 'Breaks the <b>bolt</b> circle.' } } : v));
-    const h = await mount({ ...base, versions });
-    await h.tab('versions');
-    const row = h.$('[data-version="0.1.0"]')!;
-    expect([...row.querySelectorAll('.badge')].map((b) => b.textContent)).toContain('yanked');
-    const reason = row.querySelector<HTMLElement>('[data-ref="yank-reason"]')!;
-    expect(reason.textContent).toBe('Yanked: Breaks the <b>bolt</b> circle.');
-    expect(reason.querySelector('b')).toBeNull();
-    expect(h.$('[data-version="0.1.1"] [data-ref="yank-reason"]')).toBeNull();
-    const noReason = await mount({ ...base, versions: base.versions.map((v) => ({ ...v, yanked: { at: '2026-10-12T08:00:00.000Z', reason: null } })) });
-    await noReason.tab('versions');
-    expect(noReason.$('[data-version="0.1.1"] [data-ref="yank-reason"]')!.textContent).toBe('Yanked by its publisher');
-  });
-
   it('Readme: the notes and README.md as a Markdown subset, or what is missing', async () => {
     const h = await mount();
     await h.tab('readme');

@@ -20,7 +20,10 @@ import { EngineSuspectBanner } from './ui/engine-suspect-banner';
 import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
+import type { TopBarAction } from './ui/top-bar-actions';
 import { ShareDialog } from './ui/share-dialog';
+import { PublishDialog } from './ui/publish/publish-dialog';
+import { PublishState } from './ui/publish/publish-state';
 import { PanelRail } from './ui/panel-rail';
 import { DEFAULT_PARAMS_FILE, GlobalParamsPanel } from './ui/global-params-panel';
 import { listWorkspaceFiles } from './editor/editor-api';
@@ -46,6 +49,7 @@ import { RepeatFeatureService } from './interactive/create-feature/repeat-servic
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { MirrorFeatureService } from './interactive/create-feature/mirror-service';
 import { RotateFeatureService } from './interactive/create-feature/rotate-service';
+import { TranslateFeatureService } from './interactive/create-feature/translate-service';
 import { SplitFeatureService } from './interactive/create-feature/split-service';
 import { ConnectorFeatureService } from './interactive/create-feature/connector-service';
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
@@ -61,9 +65,10 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, restartEngine, getGlobalParams, setGlobalParam, EVERY_SOLID, type ShapeSelection, type UserPreferences } from './api';
+import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, pauseAfterStatement, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, restartEngine, getGlobalParams, setGlobalParam, EVERY_SOLID, type PauseAfterResult, type ShapeSelection, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey, findActiveSketch } from './helpers/scene-utils';
+import { renderVersions } from './render-versions';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { SectionViewService } from './interactive/section-view/section-view-service';
@@ -79,7 +84,7 @@ import { TextEditService } from './interactive/create-feature/text-edit-service'
 import { FeatureDialogRegistry } from './interactive/feature-dialog-registry';
 import { PartFeatureDialogs } from './interactive/part-feature-dialogs';
 import type { ConnectorData, SceneObjectRender, UIConfigurations } from './types';
-import { ICON_LIST_TREE, ICON_PACKAGE, ICON_SHARE, ICON_TRASH } from './ui/icons';
+import { ICON_CLOUD_UPLOAD, ICON_LIST_TREE, ICON_PACKAGE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
 import { applyEditorPreferences } from './editor/editor-prefs';
@@ -88,7 +93,7 @@ import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
 import { applyEnginePreferences } from './ui/settings/engine-settings';
 import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials';
 import { applyPackagePreferences, packageSettings } from './ui/settings/package-settings';
-import { HttpHubClient, HttpPackagesClient, ProjectUiStateClient, recompute } from './api';
+import { HttpHubClient, HttpPackagesClient, HttpPublishClient, ProjectUiStateClient, recompute } from './api';
 import { PackagesState } from './ui/packages/packages-state';
 import { ProjectPackagesDialog } from './ui/packages/project-packages-dialog';
 import { PackageConsentDialog } from './ui/packages/package-consent-dialog';
@@ -1069,11 +1074,46 @@ void getEngineVersion().then((version) => {
 // Share: the rendered model opens in the public viewer as a link that
 // carries its source — after the user confirms it goes public.
 const shareDialog = new ShareDialog(container);
-topBar.addAction({
+const shareAction: TopBarAction = {
   icon: ICON_SHARE,
   title: 'Share this model in the FluidCAD viewer',
   label: 'Share',
   onClick: () => shareDialog.show(currentSceneAbsPath, renderedConfigurations?.active ?? null),
+};
+// Publish (ui-packages-plan U6/U7): in a package workspace — a `package`
+// block in fluidcad.json, readable or not — Share's seat is Publish, which
+// runs `fluidcad publish` through the engine (PublishDialog). The overview
+// says which, and refreshes on every fluidcad.json change, so a block that
+// appears or vanishes swaps the button; every host gets it, since the
+// action is the bar's own.
+const publishDialog = new PublishDialog(container, {
+  state: new PublishState(new HttpPublishClient(), {
+    hubUrl: async () => {
+      const answer = await hubClient.status();
+      return answer.ok ? answer.status.hubUrl : null;
+    },
+  }),
+  signIn: () => hubPanel.signIn(),
+  openExternal: (url) => void ExternalLinks.open(url),
+  onVersionChanged: () => void packagesState.refresh(),
+});
+const publishAction: TopBarAction = {
+  icon: ICON_CLOUD_UPLOAD,
+  title: 'Publish this package on the hub',
+  label: 'Publish',
+  // The word alone in a bordered accent button (the user's ask): publishing
+  // is the step the bar should draw the eye to, not one tool among the icons.
+  look: 'accent',
+  onClick: () => publishDialog.show(),
+};
+const shareButton = topBar.addAction(shareAction);
+let publishShown = false;
+packagesState.subscribe(() => {
+  const publish = packagesState.isPackageWorkspace;
+  if (publish !== publishShown) {
+    publishShown = publish;
+    topBar.setAction(shareButton, publish ? publishAction : shareAction);
+  }
 });
 
 // Packages: the project's pins and where each loads from. A project action
@@ -1596,9 +1636,12 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   };
   // Double-clicking an editable feature row (the enter-breakpoint gesture)
   // also opens that feature's dialog prefilled from its statement.
-  panel.onFeatureEdit = (obj, index) => {
-    void openFeatureEditor(obj, index);
+  panel.onFeatureEdit = (obj, index, pause) => {
+    void openFeatureEditor(obj, index, pause);
   };
+  // An open edit dialog holds the build on its own stop; the gesture's pause
+  // lifts it in the same edit, and openFeatureEditor hands the dialog off.
+  panel.pauseLiftsActive = () => featureEditOpen();
   // Rows with an edit dialog keep the double-click gesture even while the
   // trailing sketch is active — the dialog suspends the sketch UI itself. A
   // plane row only qualifies when it is a plane() statement's own: the plane a
@@ -1696,8 +1739,25 @@ function sketchLocKey(loc: { filePath: string; line: number; column: number }): 
  * Statements the dialogs can't faithfully represent (variable dimensions,
  * unrecognized chains) surface the parse refusal as a toast and leave the
  * plain breakpoint behavior in place.
+ *
+ * `pause` is the gesture's breakpoint edit, acknowledged — the dialog's
+ * session rolls back after the render it triggers (see `EditSession.begin`).
+ * The pause-before rows place theirs here instead, on the same terms.
+ *
+ * A dialog already open when the gesture lands is handed off, not
+ * cancelled: the pause the timeline placed lifted that dialog's stop with
+ * the new one (`pauseLiftsActive`), so the dialog must not lift it again —
+ * that second edit's unpaused render used to land after the new dialog's
+ * rollback and clear the ghost it had just drawn.
  */
-async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise<void> {
+async function openFeatureEditor(
+  obj: SceneObjectRender,
+  index: number,
+  pause?: Promise<PauseAfterResult | null>,
+): Promise<void> {
+  if (pause && featureEditOpen()) {
+    handOffFeatureDialogs();
+  }
   if (obj.package) {
     // An installed package's statement: read-only, nothing to open.
     return;
@@ -1734,7 +1794,11 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
   if (deferredBreakpoint && result.parsed.feature !== 'offset'
     && result.parsed.feature !== 'fillet' && !(result.parsed.feature === 'copy' && isCopy2DRow(obj))
     && !(result.parsed.feature === 'mirror' && isMirror2DRow(obj))) {
-    addBreakpoint(target);
+    const liftActive = featureEditOpen();
+    if (liftActive) {
+      handOffFeatureDialogs();
+    }
+    pause = pauseAfterStatement(target, liftActive ? { liftActive } : undefined);
   }
   if (result.parsed.feature === 'sketch') {
     // The row's line holds a sketch(), not the feature the row's type
@@ -1745,7 +1809,7 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     await enterSketchEdit(target);
     return;
   }
-  const info = { index, type: obj.type, expectedStatement: result.statement };
+  const info = { index, type: obj.type, expectedStatement: result.statement, pause };
   const parsed = result.parsed;
   if (parsed.feature === 'copy' && isCopy2DRow(obj)) {
     if (parsed.kind === 'pattern') {
@@ -1896,6 +1960,19 @@ function pauseBeforeSketchStatement(obj: SceneObjectRender, index: number): void
  * back when it closes. A modify pick armed over the old scene retires itself
  * once the render that brings the sketch in arrives.
  */
+/**
+ * Close every edit dialog for a gesture whose own pause edit lifts the stop
+ * the open one holds the build on (see {@link openFeatureEditor}): the
+ * sibling closes a dialog's `onEnter` runs, with `handoff` in place of their
+ * cancel so none of them lifts that stop a second time.
+ */
+function handOffFeatureDialogs(): void {
+  const editEnd = 'handoff' as const;
+  projectionService.exit({ resume: 'lazy', editEnd });
+  modifyService.exit({ editEnd });
+  featureDialogs.exitAll({ editEnd });
+}
+
 function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
   if (!opts.keepProjection) {
     projectionService.exit({ resume: 'lazy' });
@@ -2249,8 +2326,22 @@ const mirrorService = new MirrorFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
 });
-// Constructed after the mirror service so the two transform tools sit
-// together in one group (…, Repeat, Copy, | Mirror, Rotate).
+// Constructed after the mirror service so the transform tools sit together
+// in one group (…, Repeat, Copy, | Mirror, Translate).
+const translateService = new TranslateFeatureService(container, viewer, navbar, {
+  // The current selection seeds the dialog: every selected face/edge
+  // resolves to its owning solid, opening as a target chip. enterPartDialog
+  // captures it before its exits clear it.
+  onEnter: () => {
+    const { selection } = enterPartDialog('translate', { clearPendingPlane: true });
+    return { seed: selection };
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+});
+// Constructed after the translate service so the transform tools sit
+// together in one group (…, Repeat, Copy, | Mirror, Translate, Rotate).
 const rotateService = new RotateFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: every selected face/edge
   // resolves to its owning solid, opening as a target chip. enterPartDialog
@@ -2263,8 +2354,8 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
 });
-// Constructed after the rotate service so the three transform tools sit
-// together in one group (…, Repeat, Copy, | Mirror, Rotate, Split).
+// Constructed after the rotate service so the transform tools sit together
+// in one group (…, Repeat, Copy, | Mirror, Translate, Rotate, Split).
 const splitService = new SplitFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: every selected face/edge
   // resolves to its owning solid, opening as a target chip, and a pending
@@ -2280,7 +2371,7 @@ const splitService = new SplitFeatureService(container, viewer, navbar, {
   filePath: () => currentSceneAbsPath,
 });
 // Constructed after the transform services so its own navbar group registers
-// after theirs (…, | Mirror, Rotate, Split, | separator |, Boolean).
+// after theirs (…, | Mirror, Translate, Rotate, Split, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: every selected face/edge
   // resolves to its owning solid, opening as a target chip. enterPartDialog
@@ -2324,6 +2415,7 @@ PartFeatureDialogs.register(featureDialogs, {
   repeat: repeatService,
   copy: copyService,
   mirror: mirrorService,
+  translate: translateService,
   rotate: rotateService,
   split: splitService,
   connector: connectorService,
@@ -3439,6 +3531,11 @@ function connectWebSocket() {
         break;
       case 'processing-file':
         loadingOverlay.show('Loading model...');
+        break;
+      case 'render-version':
+        // Every pass's start and settle — the edit session sequences its
+        // rollback on these (see RenderVersions).
+        renderVersions.note(msg);
         break;
       case 'scene-rendered': {
         loadingOverlay.hide();

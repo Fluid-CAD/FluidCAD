@@ -5866,6 +5866,146 @@ describe('apply-feature route validation', () => {
     });
   });
 
+  describe('translate', () => {
+    const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
+    const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+    const CODE = [
+      "import { sketch, circle, extrude, cut } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { circle([0, 0], 100) })",
+      'extrude(30)',
+      "sketch('xy', () => { circle([0, 0], 10) })",
+      'cut(5)',
+      '',
+    ].join('\n');
+
+    it('rejects an empty target list and a duplicate target', async () => {
+      const empty = await post({ feature: 'translate', targets: [], translation: [10, 0, 0] });
+      expect(empty.status).toBe(400);
+      expect(empty.body.error).toContain('targets must be');
+
+      const duplicate = await post({ feature: 'translate', targets: [T1, T1], translation: [10, 0, 0] });
+      expect(duplicate.status).toBe(400);
+      expect(duplicate.body.error).toContain('picked twice');
+    });
+
+    it('rejects distances that are missing, malformed or all zero', async () => {
+      for (const translation of [undefined, [10, 0], [10, 0, ''], [0, 0, 0]]) {
+        const { status, body } = await post({ feature: 'translate', targets: [T1], translation });
+        expect(status, JSON.stringify(translation)).toBe(400);
+        expect(body.error).toContain('translation must be');
+      }
+    });
+
+    it('previews and relays a translate, writing every distance', async () => {
+      currentCode = CODE;
+      const translateBody = {
+        feature: 'translate', targets: [T1, T2], translation: [30, 0, 'h'], copy: false,
+      };
+      const preview = await post({ ...translateBody, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe('translate(30, 0, h, f, f2)');
+      expect(relayed).toEqual([]);
+
+      const { status, body } = await post(translateBody);
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(relayed[0].type).toBe('apply-feature-edit');
+      expect(spec.feature).toBe('translate');
+      expect(spec.translate).toEqual({
+        translation: [30, 0, 'h'], copy: false, targets: [{ producer: 0 }, { producer: 1 }],
+      });
+      expect(spec.producers.every((p: any) => p.featureType === 'feature' && p.bind)).toBe(true);
+      expect(spec.parts).toEqual([]);
+    });
+
+    it('previews the copy flag', async () => {
+      currentCode = CODE;
+      const { status, body } = await post({
+        feature: 'translate', targets: [T1], translation: [0, 0, -12.5], copy: true, preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('translate(0, 0, -12.5, true, f)');
+    });
+  });
+
+  describe('translate edit', () => {
+    const EDIT_CODE = [
+      "import { sketch, circle, extrude, cut, translate } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { circle([0, 0], 100) })",
+      'const e = extrude(30)',
+      "sketch('xy', () => { circle([0, 0], 10) })",
+      'const c = cut(5)',
+      'translate(30, 0, 0, e)',
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 7, column: 0 };
+
+    it('relays a distance/copy change keeping the targets, and previews it', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({ feature: 'translate', edit: EDIT, translation: [30, 0, 15], copy: true });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('translate(30, 0, 15, true, e)');
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'translate',
+        producers: [],
+        parts: [],
+        edit: {
+          line: 7, column: 0,
+          translate: { translation: [30, 0, 15], copy: true },
+        },
+      });
+      expect(relayed[0].spec.edit.translate.targets).toBeUndefined();
+    });
+
+    it('replaces the target list, mixing kept and re-picked features', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'translate', edit: EDIT, translation: [30, 0, 0],
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'feature', filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('translate(30, 0, 0, e, c)');
+      expect(relayed[0].spec).toMatchObject({
+        producers: [{ line: 6, featureType: 'feature', bind: true }],
+        edit: {
+          translate: {
+            targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+          },
+        },
+      });
+    });
+
+    it('rejects an all-zero translation on an edit', async () => {
+      const { status, body } = await post({ feature: 'translate', edit: EDIT, translation: [0, 0, 0] });
+      expect(status).toBe(400);
+      expect(body.error).toContain('translation must be');
+    });
+
+    it('422s an edit whose statement is not a translate', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'translate',
+        edit: { filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+        translation: [10, 0, 0],
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('not a translate');
+      expect(relayed).toHaveLength(0);
+    });
+  });
+
   describe('boolean edit', () => {
     const EDIT_CODE = [
       "import { sketch, circle, extrude, cut, fuse } from 'fluidcad/core'",
@@ -7337,6 +7477,24 @@ describe('apply-feature route validation', () => {
       const scoped = await post({ ...BASE, placements, scope: [{ filePath: FILE, line: 5, column: 12 }], fasten: { pitch: null, depth: 12 } });
       expect(scoped.status).toBe(200);
       expect(scoped.body.preview).toBe(`hole('M6', bolt).clearance('close').fasten('coarse', 12).scope(e)`);
+    });
+
+    it('previews a bound size, fit and pitch bare, and names the slot of a malformed reference', async () => {
+      const placements = [{ kind: 'connector', filePath: FILE, line: 6, column: 2 }];
+      const bound = await post({
+        ...BASE, size: { kind: 'fastener', label: { ref: 'holeSize' } }, fastener: { type: 'clearance', fit: { ref: 'fit' } },
+        placements, fasten: { pitch: { ref: 'pitch' }, depth: 12 },
+      });
+      expect(bound.status).toBe(200);
+      expect(bound.body.preview).toBe(`hole(holeSize, bolt).clearance(fit).fasten(pitch, 12)`);
+      const tapped = await post({ ...BASE, fastener: { type: 'tapped', pitch: { ref: 'cfg.pitch' } }, placements });
+      expect(tapped.body.preview).toBe(`hole('M6', bolt).tapped(cfg.pitch)`);
+      const malformed = await post({ ...BASE, size: { kind: 'fastener', label: { ref: 'a + b' } }, placements });
+      expect(malformed.status).toBe(400);
+      expect(malformed.body.error).toBe('the hole size must name a variable');
+      const fasten = await post({ ...BASE, placements, fasten: { pitch: { ref: 'pitch()' } } });
+      expect(fasten.status).toBe(400);
+      expect(fasten.body.error).toBe('the fasten pitch must name a variable');
     });
 
     it('edits the fasten chain in place: kept, re-pitched, deepened and dropped', async () => {

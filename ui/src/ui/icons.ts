@@ -9,6 +9,7 @@ import iconScissors from '@tabler/icons/outline/scissors.svg?raw';
 import iconListTree from '@tabler/icons/outline/list-tree.svg?raw';
 import iconFileImport from '@tabler/icons/outline/file-import.svg?raw';
 import iconShare from '@tabler/icons/outline/share.svg?raw';
+import iconCloudUpload from '@tabler/icons/outline/cloud-upload.svg?raw';
 import iconDownload from '@tabler/icons/outline/download.svg?raw';
 import iconMenu2 from '@tabler/icons/outline/menu-2.svg?raw';
 import iconCopy from '@tabler/icons/outline/copy.svg?raw';
@@ -55,6 +56,7 @@ import iconArrowBarToRight from '@tabler/icons/outline/arrow-bar-to-right.svg?ra
 import iconPackage from '@tabler/icons/outline/package.svg?raw';
 import iconPin from '@tabler/icons/outline/pin.svg?raw';
 import iconPinnedOff from '@tabler/icons/outline/pinned-off.svg?raw';
+import iconPuzzle from '@tabler/icons/outline/puzzle.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -66,6 +68,8 @@ export const ICON_SCISSORS = iconScissors;
 export const ICON_LIST_TREE = iconListTree;
 export const ICON_FILE_IMPORT = iconFileImport;
 export const ICON_SHARE = iconShare;
+/** The top bar's Publish action in a package workspace (Share's seat). */
+export const ICON_CLOUD_UPLOAD = iconCloudUpload;
 export const ICON_DOWNLOAD = iconDownload;
 /** The top bar's collapsed actions menu on a narrow window. */
 export const ICON_MENU = iconMenu2;
@@ -113,6 +117,8 @@ export const ICON_UNDO = iconArrowBackUp;
 export const ICON_PACKAGE = iconPackage;
 export const ICON_PIN = iconPin;
 export const ICON_PINNED_OFF = iconPinnedOff;
+/** A custom feature module (`*.feature.js`): a piece that plugs into the toolbar. */
+export const ICON_PUZZLE = iconPuzzle;
 export const ICON_REDO = iconArrowForwardUp;
 export const ICON_ROUNDED_RECT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="5"/></svg>';
 

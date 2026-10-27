@@ -113,4 +113,5 @@ export {
   type ScopeGlobals,
   type VariableGlobalInfo,
   type VariableInfo,
+  type VariableLiteral,
 } from './variables.ts';

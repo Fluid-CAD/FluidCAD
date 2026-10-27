@@ -3,7 +3,6 @@ import path from 'path';
 import { readProjectConfig } from '../project-config.ts';
 import { PackageBuilder } from '../packages/package-builder.ts';
 import { PackageName } from '../packages/package-name.ts';
-import { Semver } from '../packages/semver.ts';
 import {
   HubClient,
   type HubMe,
@@ -12,7 +11,6 @@ import {
   type HubPackageDetail,
   type HubPackageListing,
   type HubVersionStatus,
-  type HubYankResult,
 } from './hub-client.ts';
 import { HubConfig } from './hub-config.ts';
 import type { ResolvedHubCredential } from './hub-credentials.ts';
@@ -22,11 +20,10 @@ import { HubTransport } from './hub-transport.ts';
 
 /**
  * What a package's owner changes on the hub after the first publish (H12,
- * HD28): yank and unyank a version, deprecate the package, and the listing
- * the first-publish wizard set (screenshots, license, links, the open
- * version's release notes). `fluidcad yank`, `unyank`, `deprecate` and
- * `listing` are the terminal around it; the hub's Manage page does the same
- * in the browser.
+ * HD28): deprecate the package, and the listing the first-publish wizard
+ * set (screenshots, license, links, the open version's release notes).
+ * `fluidcad deprecate` and `listing` are the terminal around it; the hub's
+ * Manage page does the same in the browser.
  *
  * Every command names its package as `fluidcad publish` does: the public
  * name `@scope/name` when given, else the workspace's `package.name` as
@@ -47,9 +44,6 @@ export type HubMaintainerOptions = {
   /** Defaults to a CLI transport. */
   transport?: HubTransport;
 };
-
-/** A package and one of its versions, as `fluidcad yank` names them. */
-export type HubVersionRef = { name: string; version: string };
 
 /** The listing as the owner reads it, with the open version the license and notes apply to. */
 export type HubOwnerListing = {
@@ -99,49 +93,7 @@ export class HubMaintainer {
     }
   }
 
-  /**
-   * The version `fluidcad yank` and `unyank` act on: `@scope/name@version`,
-   * or a version alone for the workspace's package.
-   */
-  static versionRef(spec: string, workspacePath: string): HubVersionRef {
-    const at = spec.lastIndexOf('@');
-    if (at > 0) {
-      const name = spec.slice(0, at);
-      const version = spec.slice(at + 1);
-      if (!PackageName.isValid(name)) {
-        throw HubMaintainError.local('bad-name', `${JSON.stringify(name)} is not a package name: ${PackageName.RULE}.`);
-      }
-      return { name, version: HubMaintainer.checkedVersion(version) };
-    }
-    if (PackageName.isValid(spec)) {
-      throw HubMaintainError.local('bad-version', `Say which version of ${spec}: ${spec}@<version>, such as ${spec}@0.1.0.`);
-    }
-    return { name: HubMaintainer.packageName(null, workspacePath), version: HubMaintainer.checkedVersion(spec) };
-  }
-
-  private static checkedVersion(text: string): string {
-    if (!Semver.isValid(text)) {
-      throw HubMaintainError.local('bad-version', `${JSON.stringify(text)} is not a version: use MAJOR.MINOR.PATCH, such as 0.1.0.`);
-    }
-    return text;
-  }
-
-  // The lifecycle
-
-  /** Yanks `ref.version` with `reason`: out of latest, search and installs by name; an exact install keeps working. */
-  async yank(ref: HubVersionRef, reason: string): Promise<HubYankResult> {
-    const text = reason.trim();
-    if (text === '') {
-      throw HubMaintainError.local('bad-request', 'Say why with --reason: installers see it as "Yanked: <reason>" beside the version.');
-    }
-    const client = await this.ownerClient(ref.name);
-    return this.ask(client.yank(ref.name, ref.version, text));
-  }
-
-  async unyank(ref: HubVersionRef): Promise<HubYankResult> {
-    const client = await this.ownerClient(ref.name);
-    return this.ask(client.unyank(ref.name, ref.version));
-  }
+  // Deprecation
 
   /** Deprecates `name` with `message`, or clears its deprecation (null). */
   async deprecate(name: string, message: string | null): Promise<HubPackageListing> {

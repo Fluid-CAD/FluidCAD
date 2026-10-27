@@ -144,6 +144,7 @@ export class ProjectionPickService {
 
     this.runner = new ApplyRunner({
       panel: this.panel,
+      session: this.session,
       isArmed: () => this.isPicking,
       build: () => this.buildRequest(),
       // One request for both modes: an armed tool synthesizes a new statement
@@ -363,8 +364,8 @@ export class ProjectionPickService {
    * a forced re-render would fight the view that caller is installing. User
    * cancels resume immediately.
    */
-  exit(opts: { resume?: 'immediate' | 'lazy' } = {}): void {
-    this.close(opts, this.editApplied ? 'apply' : 'cancel');
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'handoff' } = {}): void {
+    this.close(opts, opts.editEnd ?? (this.editApplied ? 'apply' : 'cancel'));
   }
 
   /**
@@ -372,11 +373,12 @@ export class ProjectionPickService {
    * a cancelled edit clears the breakpoint its double-click placed, an
    * `apply`'s transform strips it atomically with the rewrite, `reopen`
    * hands over to a fresh edit whose breakpoint is already in the file, and
-   * `gone` means a code change already superseded the session.
+   * `gone` means a code change already superseded the session, and
+   * `handoff` that another edit gesture's pause lifts the stop with its own.
    */
   private close(
     opts: { resume?: 'immediate' | 'lazy' },
-    reason: 'cancel' | 'apply' | 'reopen' | 'gone',
+    reason: 'cancel' | 'apply' | 'reopen' | 'gone' | 'handoff',
   ): void {
     if (!this.isPicking) {
       return;

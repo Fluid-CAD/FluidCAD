@@ -4,6 +4,7 @@ import type { FeatureMetaSnapshot } from '../src/api';
 import { DerivedLayout, type BareFeatureMeta } from './fixtures/derived-layout';
 import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
 import { SchemaFeaturePanel } from '../src/interactive/create-feature/schema/schema-feature-panel';
+import { ParamDeclareMode, type VariableInfo } from '../src/ui/expression-core';
 
 // The dialog a custom feature's metadata draws: each kind of row, the group
 // headings and tab panes, rows that come and go with `visibleWhen`, and the
@@ -49,13 +50,28 @@ const opTabs = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElemen
 
 const shown = (el: Element | null) => el !== null && !el.closest('.hidden');
 
+/** The options a select's popover lists, by label — opened and closed again; the parameter rows under them are not among these. */
+const optionsOf = (control: HTMLElement): string[] => {
+  control.click();
+  const labels = [...document.querySelectorAll<HTMLElement>('[role="option"]:not([data-parameter])')].map(o => o.querySelector('.truncate')!.textContent!);
+  control.click();
+  return labels;
+};
+
+/** Open a select's popover and press the option captioned `label`. */
+const chooseOption = (control: HTMLElement, label: string): void => {
+  control.click();
+  [...document.querySelectorAll<HTMLElement>('[role="option"]:not([data-parameter])')].find(o => o.querySelector('.truncate')!.textContent === label)!.click();
+};
+
 describe('the schema dialog', () => {
   it('draws each kind of row with its default', () => {
     const { root } = mount();
     const value = (name: string) => root.querySelector<HTMLInputElement & HTMLSelectElement>(`[data-role="value-${name}"]`)!;
     expect(value('count').value).toBe('5');
-    expect(value('style').tagName).toBe('SELECT');
-    expect([...value('style').options].map(o => o.textContent)).toEqual(['Slots', 'Holes']);
+    expect(value('style').tagName).toBe('BUTTON');
+    expect(value('style').textContent).toBe('Slots');
+    expect(optionsOf(value('style'))).toEqual(['Slots', 'Holes']);
     expect(value('rounded').type).toBe('checkbox');
     expect(value('rounded').checked).toBe(true);
     expect(value('note').value).toBe('vent');
@@ -77,9 +93,7 @@ describe('the schema dialog', () => {
 
   it('hides a row, and a heading left with no row, while visibleWhen fails', () => {
     const { root, panel } = mount();
-    const style = root.querySelector<HTMLSelectElement>('[data-role="value-style"]')!;
-    style.selectedIndex = 1;
-    style.dispatchEvent(new Event('change'));
+    chooseOption(root.querySelector<HTMLElement>('[data-role="value-style"]')!, 'Holes');
     expect(shown(root.querySelector('[data-param="width"]'))).toBe(false);
     expect(root.querySelector('[data-group="Slot"]')!.classList.contains('hidden')).toBe(true);
     expect(panel.scalars().style).toBe('hole');
@@ -183,23 +197,20 @@ describe('the schema dialog', () => {
     });
     const value = (name: string) => root.querySelector<HTMLInputElement & HTMLSelectElement>(`[data-role="value-${name}"]`)!;
     const field = (name: string) => panel.fields.get(name)!;
-    const choose = (index: number) => {
-      value('finish').selectedIndex = index;
-      value('finish').dispatchEvent(new Event('change'));
-    };
+    const choose = (label: string) => chooseOption(value('finish'), label);
     const type = (name: string, text: string) => {
       value(name).value = text;
       value(name).dispatchEvent(new Event('input'));
     };
 
     // The optional select opens on its empty choice, and holds nothing there.
-    expect([...value('finish').options].map(o => o.textContent)).toEqual(['—', 'Matte', 'Gloss']);
-    expect(value('finish').selectedIndex).toBe(0);
+    expect(optionsOf(value('finish'))).toEqual(['—', 'Matte', 'Gloss']);
+    expect(value('finish').textContent).toBe('—');
     expect(panel.scalars().finish).toBeUndefined();
     expect(field('finish').read()).toEqual({ empty: true });
-    choose(2);
+    choose('Gloss');
     expect(field('finish').read()).toEqual({ value: 'gloss' });
-    choose(0);
+    choose('—');
     expect(field('finish').read()).toEqual({ empty: true });
     expect(field('finish').dirty).toBe(true);
 
@@ -221,10 +232,10 @@ describe('the schema dialog', () => {
 
     // An edit seeds the statement's own value, or what the builder fills for one it leaves out.
     panel.showEdit({ values: { finish: 'matte' }, operation: 'remove', seedPicks: () => {} });
-    expect(value('finish').selectedIndex).toBe(1);
+    expect(value('finish').textContent).toBe('Matte');
     expect(field('finish').dirty).toBe(false);
     panel.showEdit({ values: {}, operation: 'remove', seedPicks: () => {} });
-    expect(value('finish').selectedIndex).toBe(0);
+    expect(value('finish').textContent).toBe('—');
     expect(value('note').value).toBe('vent');
   });
 
@@ -237,16 +248,16 @@ describe('the schema dialog', () => {
         chamfered: { type: 'boolean', label: 'Chamfered', default: false },
       },
     });
-    const pattern = root.querySelector<HTMLSelectElement>('[data-role="value-pattern"]')!;
-    expect([...pattern.options].map(o => o.textContent)).toEqual(['Round', 'Slot']);
-    expect(pattern.selectedIndex).toBe(0);
+    const pattern = root.querySelector<HTMLElement>('[data-role="value-pattern"]')!;
+    expect(optionsOf(pattern)).toEqual(['Round', 'Slot']);
+    expect(pattern.textContent).toBe('Round');
     expect(root.querySelector<HTMLInputElement>('[data-role="value-chamfered"]')!.checked).toBe(false);
   });
 });
 
-// The choice rows: a plain select stays the native one; a richer one is a
-// button over a popover; a radio shows every option. All three hold, read
-// and dirty alike.
+// The choice rows: every select is a button over a popover with a search box
+// — plain options or rich ones — since the box is where a parameter's name is
+// typed; a radio shows every option. All hold, read and dirty alike.
 
 const SIZES = ['m3', 'm4', 'm5'].map(v => ({ label: v.toUpperCase(), value: v, image: `./clip/${v}.svg` }));
 
@@ -297,21 +308,39 @@ describe('the choice rows of a schema dialog', () => {
     document.querySelectorAll<HTMLElement>('[role="option"]').forEach(o => o.closest<HTMLElement>('[data-mode]')?.remove());
   });
 
-  it('keeps the native select for plain options with no display or search — the row an existing feature has', () => {
-    const { root } = mount();
+  it('draws a plain select — no display, no search, no images — as the button over a popover too, its rows searched', () => {
+    const { root, panel } = mount();
     const row = root.querySelector<HTMLElement>('[data-param="style"]')!;
     expect(row.className).toBe('flex flex-col gap-1.5');
-    expect([...row.children].map(c => c.tagName)).toEqual(['SPAN', 'SELECT', 'DIV']);
-    // Unseen under the select, its longest option holds a row of cells open for it.
-    const sizer = row.querySelector<HTMLElement>('[data-role="select-sizer"]')!;
-    expect(sizer.textContent).toBe('Slots');
-    expect(sizer.getAttribute('aria-hidden')).toBe('true');
-    expect(sizer.className).toContain('invisible h-0');
-    const select = row.querySelector('select')!;
-    expect(select.dataset.role).toBe('value-style');
-    expect(select.className).toBe('select select-sm select-bordered w-full text-xs');
-    expect([...select.options].map(o => [o.value, o.textContent])).toEqual([['0', 'Slots'], ['1', 'Holes']]);
-    expect(select.selectedIndex).toBe(0);
+    expect([...row.children].map(c => c.tagName)).toEqual(['SPAN', 'BUTTON']);
+    expect(row.querySelector('select')).toBeNull();
+    expect(row.querySelector('[data-role="select-sizer"]')).toBeNull();
+    const button = row.querySelector<HTMLButtonElement>('button')!;
+    expect(button.dataset.role).toBe('value-style');
+    expect(button.className).toContain('select select-sm select-bordered w-full text-xs');
+    expect(button.textContent).toBe('Slots');
+    button.click();
+    const popover = document.querySelector<HTMLElement>('[data-mode]')!;
+    expect(popover.dataset.mode).toBe('list');
+    // Two options, no search declared: the box is still there — it is where a parameter's name is typed.
+    expect(popover.querySelector('input[type="search"]')).not.toBeNull();
+    expect([...popover.querySelectorAll<HTMLElement>('[role="option"]')].map(o => o.textContent!.trim())).toEqual(['Slots', 'Holes']);
+    // No variables in scope yet: no Parameters group.
+    expect(popover.querySelector('[data-role="parameters"]')).toBeNull();
+    button.click();
+    chooseOption(button, 'Holes');
+    expect(panel.fields.get('style')!.read()).toEqual({ value: 'hole' });
+    expect(button.textContent).toBe('Holes');
+  });
+
+  it('turns the search box off only when the declaration says so', () => {
+    const { root } = mount({
+      ...VENT,
+      id: 'acme.plain',
+      params: { style: { type: 'select', label: 'Style', search: false, options: [{ label: 'Slots', value: 'slot' }, { label: 'Holes', value: 'hole' }], default: 'slot' } },
+    });
+    root.querySelector<HTMLElement>('[data-role="value-style"]')!.click();
+    expect(document.querySelector<HTMLElement>('[data-mode]')!.querySelector('input')).toBeNull();
   });
 
   it('draws a select with images or a display as a button over a popover: seeded clean, read after a choice', () => {
@@ -330,8 +359,8 @@ describe('the choice rows of a schema dialog', () => {
     expect(panelEl.dataset.columns).toBe('2');
     expect(options().map(o => o.textContent!.trim())).toEqual(['M3', 'M4', 'M5']);
     expect(options().map(o => o.querySelector('img')?.getAttribute('src'))).toEqual(SIZES.map(o => `asset:${o.image}`));
-    // Three options: no search box unless the declaration asks.
-    expect(panelEl.querySelector('input[type="search"]')).toBeNull();
+    // Three options with images: the search box is there all the same, for a parameter's name.
+    expect(panelEl.querySelector('input[type="search"]')).not.toBeNull();
     options()[0].click();
     expect(field('size').read()).toEqual({ value: 'm3' });
     expect(field('size').dirty).toBe(true);
@@ -351,7 +380,7 @@ describe('the choice rows of a schema dialog', () => {
     expect(options()).toEqual([]);
   });
 
-  it('searches a rich select above twelve options, and reads a numeric option as its number', () => {
+  it('searches a long select, and reads a numeric option as its number', () => {
     const { control, field, options, pick } = clip();
     control('stock').click();
     expect(options()).toHaveLength(13);
@@ -576,12 +605,8 @@ describe("dependent options in a schema dialog: an option's 'when'", () => {
     const { panel, root } = mount(SCREW);
     panels.push(panel);
     const control = (name: string) => root.querySelector<HTMLElement>(`[data-role="value-${name}"]`)!;
-    const listed = (name: string) => [...(control(name) as HTMLSelectElement).options].map(option => option.textContent);
-    const pick = (name: string, label: string) => {
-      const select = control(name) as HTMLSelectElement;
-      select.selectedIndex = listed(name).indexOf(label);
-      select.dispatchEvent(new Event('change'));
-    };
+    const listed = (name: string) => optionsOf(control(name));
+    const pick = (name: string, label: string) => chooseOption(control(name), label);
     const field = (name: string) => panel.fields.get(name)!;
     const dirty = () => [...panel.fields].filter(([, each]) => each.dirty).map(([name]) => name);
     // The muted line is made the first time a row has no option; shown is there and not hidden.
@@ -693,12 +718,9 @@ describe("dependent options in a schema dialog: an option's 'when' as a list of 
 
   it('offers an option while any one of its cases holds, and moves off it when none does', () => {
     const { panel, root } = mount(PROFILE);
-    const control = (name: string) => root.querySelector<HTMLSelectElement>(`[data-role="value-${name}"]`)!;
-    const listed = (name: string) => [...control(name).options].map(option => option.textContent);
-    const pick = (name: string, label: string) => {
-      control(name).selectedIndex = listed(name).indexOf(label);
-      control(name).dispatchEvent(new Event('change'));
-    };
+    const control = (name: string) => root.querySelector<HTMLElement>(`[data-role="value-${name}"]`)!;
+    const listed = (name: string) => optionsOf(control(name));
+    const pick = (name: string, label: string) => chooseOption(control(name), label);
     expect(listed('width')).toEqual(['20', '40', '60']);
     expect(panel.fields.get('width')!.read()).toEqual({ value: 40 });
     pick('height', '20');
@@ -766,8 +788,8 @@ describe("the layout tree of a schema dialog", () => {
     const all = (selector: string) => [...root.querySelectorAll<HTMLElement>(selector)];
     const tab = (label: string) => all('[data-role="tabs"] button').find(b => b.textContent === label)!.click();
     const toggle = (section: string) => one(`[data-group="${section}"] > [data-role="section-toggle"]`);
-    const set = (name: string, change: (el: HTMLInputElement & HTMLSelectElement) => void) => {
-      const el = one(`[data-role="value-${name}"]`) as HTMLInputElement & HTMLSelectElement;
+    const set = (name: string, change: (el: HTMLInputElement) => void) => {
+      const el = one(`[data-role="value-${name}"]`) as HTMLInputElement;
       change(el);
       el.dispatchEvent(new Event('change'));
     };
@@ -881,7 +903,7 @@ describe("the layout tree of a schema dialog", () => {
     expect(panel.fields.get('colour')!.visible).toBe(false);
     expect(hidden('[data-group="Notes"]')).toBe(true);
     expect(hidden('[data-group="Coating"]')).toBe(false);
-    set('finish', el => { el.selectedIndex = 1; });
+    chooseOption(one('[data-role="value-finish"]'), 'Anodized');
     expect(hidden('[data-role="tab-Finish"] [data-role="layout-row"]')).toBe(false);
     expect(panel.fields.get('colour')!.visible).toBe(true);
     expect(hidden('[data-group="Notes"]')).toBe(false);
@@ -902,7 +924,7 @@ describe("the layout tree of a schema dialog", () => {
   });
 
   it('takes a cell whose value hides out of its row, so the cells that show share the line', () => {
-    const { panel, all, set } = open({
+    const { panel, all } = open({
       ...PLATE,
       params: {
         by: { type: 'select', label: 'By', options: [{ label: 'Count', value: 'count' }, { label: 'Length', value: 'length' }], default: 'count' },
@@ -914,7 +936,7 @@ describe("the layout tree of a schema dialog", () => {
     });
     const cells = () => all('[data-role="layout-cell"]').map(cell => cell.classList.contains('hidden'));
     expect(cells()).toEqual([false, false, true]);
-    set('by', el => { el.selectedIndex = 1; });
+    chooseOption(all('[data-role="value-by"]')[0], 'Length');
     expect(cells()).toEqual([false, true, false]);
     expect(panel.fields.get('length')!.visible).toBe(true);
   });
@@ -1042,7 +1064,7 @@ describe("the layout tree of a schema dialog", () => {
       countRow.dispatchEvent(new Event('pointerleave'));
       expect(showing()).toBe('depth');
       // Focus moving to a row without an aside brings the feature's back.
-      const finish = panel.fields.get('finish')!.row.querySelector('select')!;
+      const finish = panel.fields.get('finish')!.row.querySelector('button')!;
       finish.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
       expect(showing()).toBe('');
     } finally {
@@ -1072,5 +1094,345 @@ describe("the layout tree of a schema dialog", () => {
       './plate/section.svg?v=2', './plate/depth.svg?v=2', './plate/swatch.svg?v=2', './plate/section.svg?v=2',
     ]);
     expect([...panel.fields.values()].some(field => field.dirty)).toBe(false);
+  });
+});
+
+// A select names a variable in place of an option: the popover lists the
+// compatible ones under its options, a fresh name declares one, the button
+// shows the name with the option it selects, and the row reads `{ ref }`.
+
+describe("parameters in a schema dialog's selects", () => {
+  const BOLT: BareFeatureMeta = {
+    ...VENT,
+    id: 'acme.bolt',
+    label: 'Bolt',
+    params: {
+      size: { type: 'select', label: 'Size', default: 'm4', options: [{ label: 'M3', value: 'm3' }, { label: 'M4', value: 'm4' }, { label: 'M5', value: 'm5' }] },
+      shank: { type: 'length', label: 'Shank', default: 20, visibleWhen: { size: 'm5' } },
+      turns: { type: 'select', label: 'Turns', default: 1, options: [{ label: 'One', value: 1 }, { label: 'Two', value: 2 }] },
+      steps: { type: 'select', multiple: true, label: 'Steps', default: ['deburr'], options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Polish', value: 'polish' }] },
+      head: { type: 'radio', label: 'Head', default: 'pan', options: [{ label: 'Pan', value: 'pan' }, { label: 'Hex', value: 'hex' }] },
+    },
+  };
+  // The scope as the server lists it: a string param() is `numeric: true` there, so the rows go by `value`.
+  const VARIABLES: VariableInfo[] = [
+    { name: 'holeSize', initializer: "param('holeSize', 'm5', 'select', { options: [] })", numeric: true, value: 'm5' },
+    { name: 'finish', initializer: "'matte'", numeric: false, value: 'matte' },
+    { name: 'count', initializer: "param('count', 2)", numeric: true, value: 2 },
+    { name: 'depth', initializer: '12', numeric: true, value: 12 },
+    { name: 'half', initializer: 'depth / 2', numeric: true },
+    { name: 'through', initializer: 'true', numeric: false, value: true },
+    { name: 'finishing', initializer: "['deburr', 'polish']", numeric: false, value: ['deburr', 'polish'] },
+    { name: 'stock', initializer: "'m4'", numeric: false, value: 'm4', global: { file: 'shop.params.js', label: 'Stock size', imported: true } },
+    { name: 'body', initializer: 'extrude(profile, 10)', numeric: false },
+  ];
+  const panels: SchemaFeaturePanel[] = [];
+  const bolt = (variables: VariableInfo[] | null = VARIABLES, id = BOLT.id) => {
+    const { panel, root } = mount({ ...BOLT, id });
+    panels.push(panel);
+    if (variables) {
+      panel.setScopeVariables(variables);
+    }
+    const control = (name: string) => root.querySelector<HTMLElement>(`[data-role="value-${name}"]`)!;
+    const field = (name: string) => panel.fields.get(name)!;
+    const popover = () => document.querySelector<HTMLElement>('[data-mode]');
+    const parameters = () => [...document.querySelectorAll<HTMLElement>('[data-parameter]')];
+    /** The parameters listed, the offer to declare a fresh name aside. */
+    const names = () => parameters().filter(row => !row.dataset.new).map(row => row.dataset.parameter);
+    const offers = () => parameters().filter(row => row.dataset.new).map(row => row.dataset.parameter);
+    const search = (text: string) => {
+      const box = popover()!.querySelector<HTMLInputElement>('input[type="search"]')!;
+      box.value = text;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    /** Binds a row to a parameter: its name typed first, since the parameters come in as the box is typed. */
+    const bind = (name: string, parameter: string) => {
+      control(name).click();
+      search(parameter);
+      parameters().find(row => row.dataset.parameter === parameter)!.click();
+    };
+    const binding = (name: string) => ({
+      name: control(name).querySelector('[data-role="parameter"]')?.textContent,
+      value: control(name).querySelector('[data-role="resolved"]')?.textContent,
+    });
+    const shownValue = (row: HTMLElement) => row.querySelector('[data-role="resolved"]')?.textContent;
+    return { panel, root, control, field, popover, parameters, names, offers, search, bind, binding, shownValue };
+  };
+
+  afterEach(() => {
+    panels.splice(0).forEach(panel => panel.destroy());
+    ParamDeclareMode.set(true);
+  });
+
+  it('lists the compatible parameters under the options — by the type of their value, never by numeric — and no group where none fits', () => {
+    const { control, popover, parameters, names, shownValue, search } = bolt();
+    control('size').click();
+    // Nothing typed: the options stand alone; the parameters come in with the first letter.
+    expect(popover()!.querySelector('[data-role="parameters"]')).toBeNull();
+    search('s');
+    expect(names()).toEqual(['stock', 'holeSize', 'finish']);
+    const [stock, hole, finish] = parameters();
+    expect(hole.querySelector('[data-role="chip"]')!.textContent).toBe('P');
+    expect(shownValue(hole)).toBe('M5');
+    expect(finish.querySelector('[data-role="chip"]')!.textContent).toBe('V');
+    expect(shownValue(finish)).toBe("'matte'");
+    expect(finish.querySelector<HTMLElement>('[data-role="resolved"]')!.title).toBe("finish is 'matte', which is not one of the options.");
+    expect(stock.querySelector('[data-role="chip"]')!.textContent).toBe('G');
+    expect(stock.querySelector('[data-role="parameter-label"]')!.textContent).toBe('Stock size');
+    expect(shownValue(stock)).toBe('M4');
+    expect(popover()!.querySelector('[data-role="parameters"]')!.previousElementSibling!.textContent).toBe('Parameters');
+    control('size').click();
+    control('turns').click();
+    search('t');
+    expect(names()).toEqual(['count', 'depth']);
+    expect(shownValue(parameters()[0])).toBe('Two');
+    expect(shownValue(parameters()[1])).toBe('12');
+    control('turns').click();
+    control('steps').click();
+    search('fin');
+    expect(names()).toEqual(['finishing']);
+    expect(shownValue(parameters()[0])).toBe('Deburr, Polish');
+    control('steps').click();
+    // No variables in scope: no group at all.
+    const bare = bolt(null, 'acme.bare');
+    bare.control('size').click();
+    bare.search('m');
+    expect(bare.popover()!.querySelector('[data-role="parameters"]')).toBeNull();
+    expect(bare.names()).toEqual([]);
+  });
+
+  it('filters the parameters by name and project label as the box is typed, and lists one of unknown value once its name is', () => {
+    const { control, names, offers, search, parameters, shownValue } = bolt();
+    control('size').click();
+    // A typed name is also the offer to declare it, as the number rows' dropdown offers — while it matches no option or variable outright.
+    search('sto');
+    expect(names()).toEqual(['stock']);
+    expect(offers()).toEqual(['sto']);
+    search('stock s');
+    expect(names()).toEqual(['stock']);
+    expect(offers()).toEqual([]);
+    search('HOLE');
+    expect(names()).toEqual(['holeSize']);
+    // A value the file doesn't spell may fit: listed once typed for, nothing resolved beside it.
+    search('bod');
+    expect(names()).toEqual(['body']);
+    expect(shownValue(parameters()[0])).toBeUndefined();
+    // Emptied again, the parameters go: they are listed only for what is typed.
+    search('');
+    expect(names()).toEqual([]);
+    expect(offers()).toEqual([]);
+  });
+
+  it('binds the row to a parameter: the button shows its name and the option it selects, the row reads the reference and feeds visibleWhen that option', () => {
+    const { panel, root, control, field, bind, binding, parameters } = bolt();
+    const shank = () => shown(root.querySelector('[data-param="shank"]'));
+    expect(shank()).toBe(false);
+    bind('size', 'holeSize');
+    expect(binding('size')).toEqual({ name: 'holeSize', value: 'M5' });
+    expect(control('size').title).toBe('');
+    expect(field('size').read()).toEqual({ value: { ref: 'holeSize' } });
+    expect(field('size').dirty).toBe(true);
+    expect(panel.scalars().size).toBe('m5');
+    expect(shank()).toBe(true);
+    // The bound row is the one selected in the popover; an option chosen again unbinds.
+    control('size').click();
+    expect(parameters().find(row => row.dataset.parameter === 'holeSize')!.getAttribute('aria-selected')).toBe('true');
+    control('size').click();
+    chooseOption(control('size'), 'M3');
+    expect(binding('size')).toEqual({ name: undefined, value: undefined });
+    expect(control('size').textContent).toBe('M3');
+    expect(field('size').read()).toEqual({ value: 'm3' });
+    expect(shank()).toBe(false);
+    // A project parameter: its label is the tooltip.
+    bind('size', 'stock');
+    expect(control('size').title).toBe('Stock size');
+    expect(panel.scalars().size).toBe('m4');
+  });
+
+  it('blocks a parameter whose value no option carries, and writes one of unknown value for the file to check', () => {
+    const { panel, control, field, bind, binding, search, parameters } = bolt();
+    bind('size', 'finish');
+    expect(binding('size')).toEqual({ name: 'finish', value: "'matte'" });
+    expect(control('size').title).toBe("finish is 'matte', which is not one of the options.");
+    expect(field('size').read()).toEqual({ error: "Size: finish is 'matte', which is not one of the options." });
+    expect(panel.scalars().size).toBeUndefined();
+    control('size').click();
+    search('body');
+    parameters().find(row => row.dataset.parameter === 'body')!.click();
+    expect(binding('size')).toEqual({ name: 'body', value: undefined });
+    expect(field('size').read()).toEqual({ value: { ref: 'body' } });
+    expect(panel.scalars().size).toBeUndefined();
+  });
+
+  it('seeds a reference from an edited statement, clean, resolves it once the variables arrive, and shows a radio\'s as a fresh row', () => {
+    const { panel, control, field, binding } = bolt(null);
+    panel.showEdit({ values: { size: { ref: 'holeSize' }, steps: { ref: 'finishing' }, head: { ref: 'headStyle' } }, operation: 'remove', seedPicks: () => {} });
+    expect(binding('size')).toEqual({ name: 'holeSize', value: undefined });
+    expect(field('size').read()).toEqual({ value: { ref: 'holeSize' } });
+    expect(field('size').dirty).toBe(false);
+    expect(panel.scalars().size).toBeUndefined();
+    expect(binding('steps')).toEqual({ name: 'finishing', value: undefined });
+    expect(field('steps').read()).toEqual({ value: { ref: 'finishing' } });
+    // A radio takes no parameter: the statement's name shows as a value no option carries does, and the row stays untouched.
+    const radios = [...control('head').querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(radios.map(r => r.checked)).toEqual([true, false]);
+    expect(field('head').read()).toEqual({ value: 'pan' });
+    expect(field('head').dirty).toBe(false);
+    // The scope lands after the dialog opened: the bound rows resolve, still clean.
+    panel.setScopeVariables(VARIABLES);
+    expect(binding('size')).toEqual({ name: 'holeSize', value: 'M5' });
+    expect(panel.scalars().size).toBe('m5');
+    expect(field('size').dirty).toBe(false);
+    expect(binding('steps')).toEqual({ name: 'finishing', value: 'Deburr, Polish' });
+    expect([...panel.fields.values()].some(each => each.dirty)).toBe(false);
+    // A fresh dialog after it starts from the defaults.
+    panel.show();
+    expect(control('size').textContent).toBe('M4');
+    expect(field('size').read()).toEqual({ value: 'm4' });
+  });
+
+  it('offers to declare a parameter of a fresh name over the option shown — a param() with the P toggle on, the literal with it off', () => {
+    const { panel, control, field, search, parameters, names, offers, binding } = bolt();
+    control('size').click();
+    search('boltSize');
+    expect(names()).toEqual([]);
+    expect(offers()).toEqual(['boltSize']);
+    const offer = parameters()[0];
+    expect(offer.dataset.new).toBe('true');
+    expect(offer.querySelector('[data-role="new"]')!.textContent).toBe('new');
+    expect(offer.querySelector('[data-role="chip"]')!.textContent).toBe('P');
+    expect(offer.querySelector('[data-role="resolved"]')!.textContent).toBe('M4');
+    offer.click();
+    expect(binding('size')).toEqual({ name: 'boltSize', value: 'M4' });
+    expect(control('size').querySelector('[data-role="resolved"]')!.className).not.toContain('text-warning');
+    expect(field('size').read()).toEqual({
+      value: { ref: 'boltSize' },
+      newVariable: {
+        name: 'boltSize',
+        initializer: "param('boltSize', 'm4', 'select', { options: [{ label: 'M3', value: 'm3' }, { label: 'M4', value: 'm4' }, { label: 'M5', value: 'm5' }] })",
+      },
+      ghost: 'm4',
+    });
+    expect(field('size').dirty).toBe(true);
+    expect(panel.scalars().size).toBe('m4');
+    // Declared, it is a name the row knows: no second offer.
+    control('size').click();
+    search('boltSize');
+    expect(parameters()).toEqual([]);
+    control('size').click();
+    chooseOption(control('size'), 'M5');
+    expect(field('size').read()).toEqual({ value: 'm5' });
+
+    ParamDeclareMode.set(false);
+    control('turns').click();
+    search('turnCount');
+    expect(parameters()[0].querySelector('[data-role="chip"]')!.textContent).toBe('V');
+    parameters()[0].click();
+    expect(field('turns').read()).toEqual({ value: { ref: 'turnCount' }, newVariable: { name: 'turnCount', initializer: '1' }, ghost: 1 });
+    expect(binding('turns')).toEqual({ name: 'turnCount', value: 'One' });
+    // An option chosen again drops the declaration with the name.
+    chooseOption(control('turns'), 'Two');
+    expect(field('turns').read()).toEqual({ value: 2 });
+  });
+
+  it('offers no declaration over text that matches an option or a variable, is no valid name, or where the row shows nothing', () => {
+    const { control, search, parameters, names } = bolt();
+    control('size').click();
+    search('m3');
+    expect(parameters()).toEqual([]);
+    search('holeSize');
+    expect(names()).toEqual(['holeSize']);
+    expect(parameters().filter(row => row.dataset.new)).toEqual([]);
+    search('class');
+    expect(parameters()).toEqual([]);
+    search('two words');
+    expect(parameters()).toEqual([]);
+    search('3rd');
+    expect(parameters()).toEqual([]);
+    control('size').click();
+    // A select holding nothing has no option to declare over.
+    const { panel, root } = mount({
+      ...BOLT, id: 'acme.loose',
+      params: { finish: { type: 'select', label: 'Finish', optional: true, options: [{ label: 'Matte', value: 'matte' }] } },
+    });
+    panels.push(panel);
+    panel.setScopeVariables(VARIABLES);
+    const finish = root.querySelector<HTMLElement>('[data-role="value-finish"]')!;
+    finish.click();
+    const box = document.querySelector<HTMLInputElement>('[data-mode] input[type="search"]')!;
+    box.value = 'coat';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(document.querySelectorAll('[data-parameter]')).toHaveLength(0);
+  });
+
+  it('binds a select of several to a list parameter, reading the reference, and lets it go on a toggle from the list it holds', () => {
+    const { panel, control, field, bind, binding, search, parameters } = bolt();
+    bind('steps', 'finishing');
+    expect(binding('steps')).toEqual({ name: 'finishing', value: 'Deburr, Polish' });
+    expect(field('steps').read()).toEqual({ value: { ref: 'finishing' } });
+    expect(field('steps').dirty).toBe(true);
+    expect(panel.scalars().steps).toBeUndefined();
+    control('steps').click();
+    const options = () => [...document.querySelectorAll<HTMLElement>('[role="option"]:not([data-parameter])')];
+    expect(options().map(o => o.getAttribute('aria-selected'))).toEqual(['true', 'true']);
+    options()[1].click();
+    expect(binding('steps')).toEqual({ name: undefined, value: undefined });
+    expect(control('steps').textContent).toBe('Deburr');
+    expect(field('steps').read()).toEqual({ value: ['deburr'] });
+    // A fresh name declares a multi select over the list shown.
+    search('finishList');
+    parameters()[0].click();
+    expect(field('steps').read()).toEqual({
+      value: { ref: 'finishList' },
+      newVariable: {
+        name: 'finishList',
+        initializer: "param('finishList', ['deburr'], 'select', { options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Polish', value: 'polish' }], multi: true })",
+      },
+      ghost: ['deburr'],
+    });
+    expect(binding('steps')).toEqual({ name: 'finishList', value: 'Deburr' });
+  });
+
+  it('holds a list parameter to the row\'s bounds when its list is known', () => {
+    const { panel, root } = mount({
+      ...BOLT, id: 'acme.bounded',
+      params: { steps: { type: 'select', multiple: true, label: 'Steps', default: [], max: 1, options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Polish', value: 'polish' }] } },
+    });
+    panels.push(panel);
+    panel.setScopeVariables(VARIABLES);
+    root.querySelector<HTMLElement>('[data-role="value-steps"]')!.click();
+    const box = document.querySelector<HTMLInputElement>('[data-mode] input[type="search"]')!;
+    box.value = 'finishing';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector<HTMLElement>('[data-parameter="finishing"]')!.click();
+    expect(panel.fields.get('steps')!.read()).toEqual({ error: 'Steps takes at most 1.' });
+  });
+
+  it('ignores the variables on a radio, and keeps a bound select bound while another value narrows its options', () => {
+    const { panel, root } = mount({
+      ...BOLT, id: 'acme.narrow',
+      params: {
+        standard: { type: 'select', label: 'Standard', default: 'iso', options: [{ label: 'Metric', value: 'iso' }, { label: 'Imperial', value: 'unc' }] },
+        size: {
+          type: 'select', label: 'Size', default: 'm3',
+          options: [{ label: 'M3', value: 'm3', when: { standard: 'iso' } }, { label: 'M5', value: 'm5', when: { standard: 'iso' } }, { label: '#4', value: 'n4', when: { standard: 'unc' } }],
+        },
+        head: { type: 'radio', label: 'Head', default: 'pan', options: [{ label: 'Pan', value: 'pan' }, { label: 'Hex', value: 'hex' }] },
+      },
+    });
+    panels.push(panel);
+    panel.setScopeVariables(VARIABLES);
+    const control = (name: string) => root.querySelector<HTMLElement>(`[data-role="value-${name}"]`)!;
+    expect(control('head').querySelectorAll('[data-parameter]')).toHaveLength(0);
+    control('size').click();
+    const box = document.querySelector<HTMLInputElement>('[data-mode] input[type="search"]')!;
+    box.value = 'holeSize';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector<HTMLElement>('[data-parameter="holeSize"]')!.click();
+    expect(panel.fields.get('size')!.read()).toEqual({ value: { ref: 'holeSize' } });
+    chooseOption(control('standard'), 'Imperial');
+    expect(control('size').querySelector('[data-role="parameter"]')!.textContent).toBe('holeSize');
+    expect(panel.fields.get('size')!.read()).toEqual({ value: { ref: 'holeSize' } });
+    expect(optionsOf(control('size'))).toEqual(['#4']);
   });
 });

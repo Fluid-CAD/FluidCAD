@@ -1368,6 +1368,54 @@ describe('extractVariablesInScope numeric classification', () => {
   });
 });
 
+// A choice row matches a variable's literal against its options: each
+// variable carries the literal its declaration holds, and nothing when the
+// initializer would need evaluating.
+describe('extractVariablesInScope literal values', () => {
+  it("carries a const's literal, a param()'s default and a property()'s value, and none for the rest", async () => {
+    const code = [
+      "import { sketch, extrude, param, property } from 'fluidcad/core';",
+      "const finish = 'brushed';",
+      'const width = 100;',
+      'const neg = -3;',
+      'const flat = true;',
+      "const coats = ['prime', 2];",
+      "const screw = param('Screw', 'm3', 'select', { options: [{ label: 'M3', value: 'm3' }] });",
+      "const sides = param('Sides', 6);",
+      "const kind = property('Kind', 'kind', 'bent');",
+      'const half = width / 2;',
+      "const mixed = ['prime', flat];",
+      'const profile = sketch(() => {});',
+      'const housing = extrude(profile, 10);',
+      'const tpl = `m4`;',
+      'extrude(profile, half);',
+    ].join('\n');
+    const vars = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER);
+    const valueByName = Object.fromEntries(vars.map(v => [v.name, v.value]));
+    expect(valueByName).toEqual({
+      finish: 'brushed',
+      width: 100,
+      neg: -3,
+      flat: true,
+      coats: ['prime', 2],
+      screw: 'm3',
+      sides: 6,
+      kind: 'bent',
+      half: undefined,
+      mixed: undefined,
+      profile: undefined,
+      housing: undefined,
+      tpl: undefined,
+    });
+    for (const name of ['half', 'profile', 'housing', 'tpl']) {
+      expect(vars.find(v => v.name === name)).not.toHaveProperty('value');
+    }
+    // The listing and the numeric flags are as they were.
+    expect(vars.find(v => v.name === 'finish')).toEqual({ name: 'finish', initializer: `'brushed'`, numeric: false, value: 'brushed' });
+    expect(vars.find(v => v.name === 'sides')).toMatchObject({ numeric: true });
+  });
+});
+
 describe('extractVariablesInPart', () => {
   const code = [
     "import { part, param, sketch, extrude } from 'fluidcad/core';",
@@ -1723,10 +1771,10 @@ describe('instance properties in scope', () => {
     const names = vars.map(v => v.name);
     expect(names.indexOf('drawer.properties.frontWidth')).toBe(names.indexOf('drawer') + 1);
     expect(vars.find(v => v.name === 'drawer.properties.frontWidth')).toEqual({
-      name: 'drawer.properties.frontWidth', initializer: '480', numeric: true,
+      name: 'drawer.properties.frontWidth', initializer: '480', numeric: true, value: 480,
     });
     expect(vars.find(v => v.name === 'drawer.properties.finish')).toEqual({
-      name: 'drawer.properties.finish', initializer: '"oak"', numeric: false,
+      name: 'drawer.properties.finish', initializer: '"oak"', numeric: false, value: 'oak',
     });
     // Only an identifier-shaped name spells as a member access.
     expect(names.some(n => n.includes('odd name'))).toBe(false);
@@ -1787,10 +1835,10 @@ describe('part definition properties in scope', () => {
     const names = vars.map(v => v.name);
     expect(names.indexOf('box.properties.lidClearance')).toBe(names.indexOf('box') + 1);
     expect(vars.find(v => v.name === 'box.properties.lidClearance')).toEqual({
-      name: 'box.properties.lidClearance', initializer: '1', numeric: true,
+      name: 'box.properties.lidClearance', initializer: '1', numeric: true, value: 1,
     });
     expect(vars.find(v => v.name === 'box.properties.finish')).toEqual({
-      name: 'box.properties.finish', initializer: '"oak"', numeric: false,
+      name: 'box.properties.finish', initializer: '"oak"', numeric: false, value: 'oak',
     });
     expect(names.some(n => n.includes('odd name'))).toBe(false);
     expect(names.some(n => n.startsWith('lid.'))).toBe(false);

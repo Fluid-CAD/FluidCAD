@@ -1,5 +1,6 @@
 import { ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
-import { StartApi, StartCallError, textArgument } from '../../../launcher/src/start/api';
+import { StartApi, StartCallError, packageNameArgument, textArgument } from '../../../launcher/src/start/api';
+import type { NewProjectChoice } from '../new-project';
 import { AppWindow } from '../window/app-window';
 
 /**
@@ -18,11 +19,15 @@ import { AppWindow } from '../window/app-window';
 export type StartScreenIpcDeps = {
   api: StartApi;
   /** Open `workspacePath` for a request made on `window`'s start screen (it may focus another window instead). */
-  openFromStartScreen(window: AppWindow, workspacePath: string, options?: { create?: boolean }): void;
+  openFromStartScreen(window: AppWindow, workspacePath: string, options?: { create?: boolean; package?: string }): void;
   /** The native folder picker, as a sheet on `window`. */
   promptForProject(window: AppWindow): Promise<string | null>;
-  /** The native New Project dialog, as a sheet on `window`: the folder to set a project up in, or null. */
-  promptForNewProject(window: AppWindow): Promise<{ path: string; create: boolean } | null>;
+  /**
+   * The native New Project dialog, as a sheet on `window`: the folder to set
+   * a project up in, or null. With `package`, worded for the package of that
+   * name, which the page has already asked for.
+   */
+  promptForNewProject(window: AppWindow, options: { package?: string }): Promise<NewProjectChoice | null>;
 };
 
 function handle(channel: string, answer: (window: AppWindow, ...args: unknown[]) => unknown): void {
@@ -64,10 +69,12 @@ export function registerStartScreenIpc(deps: StartScreenIpcDeps): void {
     }
   });
 
-  handle('shell:start-new-project', async (window) => {
-    const picked = await deps.promptForNewProject(window);
+  handle('shell:start-new-project', async (window, options) => {
+    // The page checked the name already; the main process checks it again before the engine sees it.
+    const packageName = packageNameArgument((options as { package?: unknown } | undefined)?.package);
+    const picked = await deps.promptForNewProject(window, { package: packageName });
     if (picked) {
-      deps.openFromStartScreen(window, picked.path, { create: picked.create });
+      deps.openFromStartScreen(window, picked.path, picked.create ? { create: true, package: picked.package } : { create: false });
     }
   });
 

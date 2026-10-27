@@ -128,7 +128,7 @@ Like every settings tab, the folder and the target wait for **Save**.
 
 ## Making a package
 
-A package is made from a project whose `fluidcad.json` has a `package` block (the package's name and version) and whose features and parts sit in three folders. The folders decide what the package shares:
+A package is a project whose `fluidcad.json` has a `package` block (the package's name and version) and whose features and parts sit in three folders. The folders decide what the package shares:
 
 ```
 mounting-hardware/
@@ -152,27 +152,48 @@ mounting-hardware/
 - Anything outside the three folders stays in the project: test models, `init.js`, notes. A test model at the root imports `./features/standoff.feature.js`.
 - To be published on the hub, a package needs at least one part or assembly, so its page has a model to show. A package of features alone still packs, but can't be published.
 
-1. In the project that holds the features and parts, run:
+### A new package
 
-   ```bash
-   npx fluidcad package init --name @acme/mounting-hardware
-   ```
+1. On the start screen, click **New Package**, beside **New Project**.
+2. Type the package name, `@acme/mounting-hardware`. The part before the slash is your hub handle; the part after it names the package ([Package names](#package-names)). A name that doesn't fit is refused in the dialog, with the rule.
 
-   It writes the block with the name and version `0.1.0`, and says what the folders hold. The part before the slash is your hub handle. Signed in to the hub (`npx fluidcad login`), `--name mounting-hardware` adds your handle and says so; signed out, a name without the handle is refused. See [Project configuration](/docs/project-configuration#package) for every key.
+   ![The New package dialog of the desktop app](/img/docs/ui/new-package-dialog.png)
 
-2. Publish it:
+   The desktop app then asks where the package should live, in the same folder dialog as New Project (**Create package**): pick an empty folder. **File ▸ New Package…** opens the same name dialog. In the browser (`npx fluidcad`), the folder picker's create form has a **Project / Package** choice; **Package** adds the name field, and the folder name follows the part after the slash until you type one. **Create package** opens it.
 
-   ```bash
-   npx fluidcad publish
-   ```
+   ![The browser's folder picker on Package](/img/docs/ui/new-package-picker.png)
 
-   It packs the project and uploads the package under your handle, and an admin reviews it before it is public. The first version finishes in your browser, where you add screenshots, a license and release notes.
+3. The package opens on `parts/part1.part.js`. Its folder holds the block (version `1.0.0`), the three folders, a `README.md` with the name as its heading, and the files every project has (`init.js`, `jsconfig.json`, `.gitignore`). On the start screen its card wears a **Package** badge.
 
-   The package holds the three folders' files, the files they import and the pictures the features declare, as they are. The project's test models and `init.js` stay out. Before anything is uploaded, FluidCAD builds every part and assembly and checks every feature; a problem stops it with a sentence naming the file. A part file inside `features/`, an assembly inside `parts/`, or an import of a file outside the three folders stops it too.
+Model as in any project: write the features in `features/`, the parts in `parts/`, the assemblies in `assemblies/`, and try them in test models at the root. Only new packages are made this way; FluidCAD doesn't turn an existing project into a package.
 
-3. To release a new version, edit the files, raise the version with `npx fluidcad version minor` (or `patch`, `major`, or an exact `1.2.0`), and publish again. Later versions go straight to review.
+From the terminal, [`npx fluidcad init --package @acme/mounting-hardware`](/docs/cli#fluidcad-init) writes the same folder in an empty directory. For a project that already holds the features and parts, [`npx fluidcad package init --name @acme/mounting-hardware`](/docs/cli#fluidcad-package-init) writes the block alone; move the files into the three folders yourself. Signed in to the hub (`npx fluidcad login`), both take a name without the handle and add yours; signed out, it is refused. See [Project configuration](/docs/project-configuration#package) for every key of the block.
 
-To look at what would be published without publishing anything, pack the project. Publishing never needs this: `npx fluidcad publish` packs on its own.
+### Publishing
+
+In a package, the top bar's **Share** seat reads **Publish**.
+
+![The top bar of a package, with Publish](/img/docs/ui/publish-button.png)
+
+1. Click **Publish**. The dialog shows the package's name and version, a **Publish as** field, and where the package stands on the hub. The field proposes the next major version above the latest one on the hub (the package's own version while nothing is published yet); type over it to publish another. **Publish** writes that version into `fluidcad.json` before it packs. Signed out, it says so and offers **Sign in**: the hub's sign-in page opens in your browser, and the dialog comes back signed in.
+2. For a version that follows a published one, type the **release notes** (at most 280 characters; left empty, the hub takes the `CHANGELOG.md` section for the version). A first version has no field: the hub asks in the next step.
+3. Click **Publish** (**Check** runs the same steps against the hub without storing anything). FluidCAD packs the package with the running engine and shows the summary: what each folder holds, the number of files and the size, the archive's integrity hash, and what happens next. Nothing is sent yet.
+
+   ![The Publish dialog's summary, with Upload and Cancel](/img/docs/ui/publish-dialog-summary.png)
+
+4. Click **Upload**. A first version becomes a draft: the hub's publishing wizard opens in your browser, where you add screenshots, a license and release notes, and submit it; an admin reviews it before it is public. The dialog shows the draft with **Open the wizard** and **Withdraw**, and the day a draft nobody touches is deleted.
+
+   ![The Publish dialog after a first upload: the draft row and the wizard link](/img/docs/ui/publish-dialog-draft.png)
+
+   A later version goes straight to review, with **View its status**. A version the admins turned down shows their note and **Publish again** under the same version number. The latest published version has **Manage on the hub**.
+
+**Withdraw** deletes the draft or the version in review from the hub, after a confirmation; its number is free again. The dialog refuses to publish while a file of the package has unsaved changes (save first), while another version of it is a draft or in review (withdraw it, or finish it on the hub), and when the version is not above the latest one on the hub (type a higher one in **Publish as**). A broken `package` block opens the dialog on the problem.
+
+Before anything is uploaded, FluidCAD builds every part and assembly and checks every feature; a problem stops it with a sentence naming the file. A part file inside `features/`, an assembly inside `parts/`, or an import of a file outside the three folders stops it too. The package holds the three folders' files, the files they import and the pictures the features declare, as they are. The project's test models and `init.js` stay out.
+
+To release a new version: edit the files and publish again; the dialog proposes the next major version, or type the one you want.
+
+From the terminal, `npx fluidcad publish` runs the same steps and prints the same summary, asking before the upload (`--notes <text>`, `--dry-run`, `--status` for where the package stands, `--withdraw`); `npx fluidcad version minor` (or `patch`, `major`, or an exact `1.2.0`) raises the version. To look at what would be published without publishing anything, pack the project. Publishing never needs this: **Publish** and `npx fluidcad publish` pack on their own.
 
 ```bash
 npx fluidcad pack
@@ -186,6 +207,6 @@ Packed @acme/mounting-hardware 0.1.0 → …/acme-mounting-hardware-0.1.0.fluidp
   29 files, 18.2 kB, unit mm
 ```
 
-It runs the same checks, then writes into the project the file `fluidcad publish` would upload. Feature ids are plain names (`standoff`); two features of one package can't share one. The same project packed twice gives the same file. The [CLI reference](/docs/cli#fluidcad-pack) has every command and flag.
+It runs the same checks, then writes into the project the file that would be uploaded. Feature ids are plain names (`standoff`); two features of one package can't share one. The same project packed twice gives the same file. The [CLI reference](/docs/cli#fluidcad-pack) has every command and flag.
 
 A package reaches other projects only through the hub. Until an admin approves it, try the package in its own project, with the test models at its root and the parts and assemblies in its folders. There is no step that installs your own file into another project.

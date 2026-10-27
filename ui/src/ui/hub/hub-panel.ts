@@ -75,6 +75,8 @@ export class HubPanel {
   private view: 'search' | 'package' = 'search';
   private searchScroll = 0;
   private searchStale = false;
+  /** Who waits on {@link signIn}'s outcome. */
+  private readonly signInWaiters: ((signedIn: boolean) => void)[] = [];
 
   constructor(private readonly deps: HubPanelDeps) {
     this.width = HubPanel.clampWidth(deps.width());
@@ -106,6 +108,7 @@ export class HubPanel {
       hub: deps.hub,
       openExternal: (url) => deps.openExternal(url),
       onSignedIn: () => this.signedIn(),
+      onSignInEnded: (login) => this.settleSignIn(login.status === 'signed-in'),
       onSignedOut: () => this.signedOut(),
       hubHost: () => this.host(),
       timers: deps.timers,
@@ -214,6 +217,25 @@ export class HubPanel {
     this.deps.onOpenChange?.(false);
   }
 
+  /**
+   * Sign in from elsewhere in the page (the Publish dialog, ui-packages-plan
+   * N4): the panel opens and runs its header's own sign-in, so the wait,
+   * the Cancel and any notice are the panel's. Resolves once the sign-in
+   * has ended — true when signed in, false otherwise (denied, expired,
+   * cancelled, failed, or one that couldn't start). A sign-in already
+   * waiting is joined, not restarted.
+   */
+  async signIn(): Promise<boolean> {
+    this.show();
+    const ended = new Promise<boolean>((resolve) => this.signInWaiters.push(resolve));
+    await this.account.signIn();
+    if (!this.account.signingIn) {
+      // Refused before it started (the hub didn't answer), or nothing to wait on.
+      this.settleSignIn(false);
+    }
+    return ended;
+  }
+
   /** Open a package's detail directly (a row; tests). */
   async openPackage(name: string): Promise<void> {
     this.searchScroll = this.search.el.querySelector<HTMLElement>('[data-ref="results"]')?.scrollTop ?? 0;
@@ -300,6 +322,13 @@ export class HubPanel {
     this.offlineDot.classList.toggle('hidden', this.status?.reachable !== false && this.state.snapshot.mode !== 'offline');
     this.account.setStatus(this.status);
     this.detail.setSignedIn(this.status ? this.status.signedIn !== null : null);
+  }
+
+  /** Whoever asked {@link signIn} hears how it ended. */
+  private settleSignIn(signedIn: boolean): void {
+    for (const resolve of this.signInWaiters.splice(0)) {
+      resolve(signedIn);
+    }
   }
 
   /** A sign-in from the header finished: the status names the handle; an open package is read again (an owner sees more). */

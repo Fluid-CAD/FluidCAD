@@ -10,6 +10,7 @@ import { PackagePinError, PackagePins, type PinnedPackage } from './package-pins
 import { PackageRoots, type PackageLocation, type PackageTarget } from './package-roots.ts';
 import { Semver } from './semver.ts';
 import { TreeHash } from './tree-hash.ts';
+import { readProjectConfig } from '../project-config.ts';
 import type { HubRelease } from '../hub/hub-releases.ts';
 
 export type InstallInspectedRequest = {
@@ -46,6 +47,9 @@ export type RemoveOutcome = {
   strandedPin: PinnedPackage | null;
 };
 
+/** A package workspace's identity: the `name` and `version` of its `package` block. */
+export type PackageIdentity = { name: string; version: string };
+
 /** The two roots and a project's pins, as `fluidcad packages` and `GET /api/packages` show them. */
 export type PackagesOverview = {
   /** `source`: where the path comes from — `FLUIDCAD_PACKAGES`, the Settings preference, or the default. */
@@ -57,6 +61,18 @@ export type PackagesOverview = {
   /** Why the pins couldn't be read (a broken `dependencies` map). */
   pinsProblem?: string;
   /**
+   * The package this workspace is (the `package` block of its
+   * `fluidcad.json`, ui-packages-plan N1): what the page's Publish button
+   * and dialog are about. Null for a plain project and outside a project.
+   */
+  package: PackageIdentity | null;
+  /**
+   * Why the `package` block couldn't be read (`readProjectConfig().problems.package`).
+   * The workspace still counts as a package (U7): the page shows Publish,
+   * and the dialog opens on this sentence.
+   */
+  packageProblem?: string;
+  /**
    * Each pinned package with a newer version the library holds or the hub
    * offers this engine (`HubReleases`, hub-plan H10), with the newest one:
    * the "update available" chip (the previewed upgrade is Stage P10's).
@@ -67,17 +83,16 @@ export type PackagesOverview = {
   updatesFrom: Record<string, UpdateSource>;
   /**
    * What the hub's owner said about a pinned package (H12, `HubReleases`,
-   * kept 10 minutes): the pinned version yanked, with its reason, and the
-   * package deprecated, with its message. Only pins with something to say;
-   * empty outside a project or when the hub wasn't asked.
+   * kept 10 minutes): the package deprecated, with its message. Only pins
+   * with something to say; empty outside a project or when the hub wasn't
+   * asked.
    */
   hubMarks: Record<string, HubPinMarks>;
 };
 
-/** A pinned package's marks from the hub: its pinned version's yank, and its deprecation. */
+/** A pinned package's marks from the hub: its deprecation. */
 export type HubPinMarks = {
-  yanked: { at: string; reason: string | null } | null;
-  deprecated: string | null;
+  deprecated: string;
 };
 
 /** Where a newer version of a pinned package is. */
@@ -163,12 +178,14 @@ export class ProjectPackages {
       library: { path: PackageRoots.libraryPath(), source: PackageRoots.librarySource(), packages: PackageInstaller.list('library', project) },
       project: null,
       pins: null,
+      package: null,
       updates: {},
       updatesFrom: {},
       hubMarks: {},
     };
     if (project) {
       overview.project = { path: PackageRoots.projectCopyPath(project), packages: PackageInstaller.list('project', project) };
+      Object.assign(overview, ProjectPackages.identity(project));
       try {
         overview.pins = PackagePins.availability(project);
         Object.assign(overview, ProjectPackages.updates(overview.pins, overview.library.packages));
@@ -181,6 +198,22 @@ export class ProjectPackages {
       }
     }
     return overview;
+  }
+
+  /**
+   * The workspace's own package identity for the overview: the block's
+   * name and version when it reads, else the problem sentence when the
+   * block is there but broken; neither for a plain project.
+   */
+  private static identity(project: string): Pick<PackagesOverview, 'package' | 'packageProblem'> {
+    const config = readProjectConfig(project);
+    if (config.package) {
+      return { package: { name: config.package.name, version: config.package.version } };
+    }
+    if (config.problems?.package !== undefined) {
+      return { package: null, packageProblem: config.problems.package };
+    }
+    return { package: null };
   }
 
   /**
@@ -228,8 +261,8 @@ export class ProjectPackages {
 
   /**
    * `overview` with the hub's marks on its pins (`HubReleases.releases`):
-   * a pin whose version the hub lists as yanked, and a package the hub lists
-   * as deprecated. Nothing changes outside a project or for a broken pin map.
+   * a package the hub lists as deprecated. Nothing changes outside a project
+   * or for a broken pin map.
    */
   static withHubMarks(overview: PackagesOverview, hub: Readonly<Record<string, HubRelease>>): PackagesOverview {
     if (!overview.pins || overview.pinsProblem) {
@@ -237,11 +270,9 @@ export class ProjectPackages {
     }
     const hubMarks: Record<string, HubPinMarks> = {};
     for (const pin of overview.pins) {
-      const release = hub[pin.name];
-      const yanked = release?.yanked[pin.version] ?? null;
-      const deprecated = release?.deprecated ?? null;
-      if (yanked || deprecated) {
-        hubMarks[pin.name] = { yanked, deprecated };
+      const deprecated = hub[pin.name]?.deprecated ?? null;
+      if (deprecated) {
+        hubMarks[pin.name] = { deprecated };
       }
     }
     return { ...overview, hubMarks };

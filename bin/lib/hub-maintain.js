@@ -3,11 +3,10 @@ import { HubCli } from './hub.js';
 
 /**
  * The terminal around the server's `HubMaintainer` (H12), shared by
- * `fluidcad yank`, `unyank`, `deprecate` and `listing`: the hub and the
- * token as `publish` resolves them (`--hub`, `FLUIDCAD_HUB_URL`, the
- * signed-in credential), the workspace a command without a package name
- * reads `package.name` from, and one way to word a refusal: its sentence,
- * exit 1.
+ * `fluidcad deprecate` and `listing`: the hub and the token as `publish`
+ * resolves them (`--hub`, `FLUIDCAD_HUB_URL`, the signed-in credential), the
+ * workspace a command without a package name reads `package.name` from, and
+ * one way to word a refusal: its sentence, exit 1.
  */
 export class HubMaintainCli {
   /** Runs `work(maintainer, context)`; a refusal prints its sentence and exits 1. */

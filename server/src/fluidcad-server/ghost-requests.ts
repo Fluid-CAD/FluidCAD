@@ -16,12 +16,14 @@ export type FeatureGhostRequest =
   | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
+  | ShellGhostRequest
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
   | SplitGhostRequest
   | RotateGhostRequest
+  | TranslateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -49,7 +51,22 @@ export type ExtrudeGhostRequest = {
    * `.region()`, which builds nothing.
    */
   regions?: RegionPickSpec[];
+  /**
+   * The "Up to face" directions: the extrusion ends on this target and the
+   * distance fields are not read. Absent is the distance form.
+   */
+  toFace?: GhostExtrudeTargetRef;
 };
+
+/**
+ * Where an up-to-face extrude ends: a picked face on a scene solid, or the
+ * `'first-face'` / `'last-face'` literal the statement writes, which the
+ * kernel resolves against every face in the rendered scene.
+ */
+export type GhostExtrudeTargetRef =
+  | { kind: 'first-face' }
+  | { kind: 'last-face' }
+  | { kind: 'face'; shapeId: string; index: number };
 
 export type RibGhostRequest = {
   feature: 'rib';
@@ -196,6 +213,29 @@ export type FilletGhostRequest = {
  * face" — the edge features explode faces at build time.
  */
 export type GhostEntityRef = { shapeId: string; index: number; kind: 'edge' | 'face' };
+
+/**
+ * The shell. It modifies a solid the scene already holds, like a fillet, so
+ * it carries no `op` and no profile: the dialog's thickness and join, and the
+ * faces to leave open. What comes back is the walls the hollowing would
+ * create, each told apart as material leaving (an inward shell) or arriving
+ * (an outward one).
+ */
+export type ShellGhostRequest = {
+  feature: 'shell';
+  /** Wall thickness: negative hollows inward, positive builds the wall outside the solid. */
+  thickness: number;
+  /** How the offset walls meet at a corner — `shell().join()`. */
+  joinType: ShellJoinType;
+  /** The faces to open, each by the solid it was picked on and its index there. */
+  faces: GhostFaceRef[];
+};
+
+/** How a shell's wall offset closes corners; 'arc' is the kernel's default. */
+export type ShellJoinType = 'arc' | 'intersection' | 'tangent';
+
+/** A viewport face pick: a scene shape and the face's index in its mesh order. */
+export type GhostFaceRef = { shapeId: string; index: number };
 
 /**
  * The helix. It sweeps nothing and modifies nothing — the feature IS a curve,
@@ -346,6 +386,21 @@ export type RotateGhostRequest = {
   axis: GhostAxisRef;
   /** The rotation angle in degrees. */
   angle: number;
+  /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
+ * The translate — the rotate's straight-line sibling: the target solids' own
+ * bodies stamped once, under the same translation the apply hands OCC — at a
+ * zero translation too, where they stand, so the dialog can slide them live.
+ */
+export type TranslateGhostRequest = {
+  feature: 'translate';
+  /** The solid-bearing statements being moved, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The world-space distance along X, Y and Z. */
+  translation: [number, number, number];
   /** Edit mode: the edited statement's own call site — its targets read as of just before it. */
   exclude?: { filePath: string; line: number };
 };

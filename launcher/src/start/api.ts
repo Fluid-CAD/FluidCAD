@@ -3,6 +3,7 @@ import path from 'path';
 import { EngineUpgrade, type ReopenTarget, type UpgradePreview } from '../engine/upgrade.ts';
 import { dismissedNotificationIds, dismissNotification, forgetProject } from '../projects/app-state.ts';
 import { engineOptionsFor, listStartProjects } from '../projects/listing.ts';
+import { ProjectPackage } from '../projects/project-package.ts';
 import type { ProjectsRoot } from '../projects/projects-root.ts';
 import type { ThumbnailUrl } from '../previews/thumbnails.ts';
 import {
@@ -62,6 +63,22 @@ export function versionArgument(value: unknown): string {
   const checked = textArgument(value, 'a version');
   if (!VERSION_SHAPE.test(checked)) {
     throw new StartCallError(`"${checked}" is not an engine version.`);
+  }
+  return checked;
+}
+
+/**
+ * `value`, when it is a package name (`@handle/name`) for a new package
+ * workspace; undefined when none was given (a plain new project). Checked
+ * here so a malformed name never reaches the engine's `init --package`.
+ */
+export function packageNameArgument(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const checked = textArgument(value, 'a package name');
+  if (!ProjectPackage.isValidName(checked)) {
+    throw new StartCallError(`"${checked}" is not a package name: expected @handle/name.`);
   }
   return checked;
 }

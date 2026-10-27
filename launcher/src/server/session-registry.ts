@@ -3,7 +3,7 @@ import type { ReopenTarget } from '../engine/upgrade.ts';
 import { probeDirtyFiles } from '../projects/dirty-files.ts';
 import { EngineSession, OpenCancelledError } from '../projects/engine-session.ts';
 import { INITIAL_STATE, projectOf, transition, type OpenEvent, type OpenState } from '../projects/open-state.ts';
-import type { ActionResult, OpeningProject, SessionView } from '../start/contract.ts';
+import { creatingStatus, type ActionResult, type OpeningProject, type OpeningStatus, type SessionView } from '../start/contract.ts';
 import { projectPageUrl } from './engine-proxy.ts';
 
 /**
@@ -37,6 +37,8 @@ type Entry = {
   abort: AbortController | null;
   /** Set the project up first, until an open of it has succeeded. */
   create: boolean;
+  /** With `create`: the package workspace to set up, by name. */
+  package: string | null;
   /** When the engine was last restarted after a crash. */
   restartedAt: number | null;
   /** When the preview was last taken. */
@@ -93,31 +95,34 @@ export class SessionRegistry {
   /**
    * Make `workspacePath` run, however far it got: start it, try a failed open
    * again, or restart an engine that stopped. An open already under way is
-   * left alone. `create` sets a new project up first. Answers with where the
-   * session is now; everything after that arrives through `onView`.
+   * left alone. `create` sets a new project up first — a package workspace
+   * when `package` names one. Answers with where the session is now;
+   * everything after that arrives through `onView`.
    */
-  open(workspacePath: string, options: { create?: boolean } = {}): SessionView {
+  open(workspacePath: string, options: { create?: boolean; package?: string } = {}): SessionView {
     if (this.shuttingDown) {
       throw new Error('FluidCAD is stopping.');
     }
     let entry = this.entries.get(workspacePath);
     if (!entry) {
-      entry = { state: INITIAL_STATE, session: null, abort: null, create: false, restartedAt: null, previewAt: 0 };
+      entry = { state: INITIAL_STATE, session: null, abort: null, create: false, package: null, restartedAt: null, previewAt: 0 };
       this.entries.set(workspacePath, entry);
       this.paths.set(this.hooks.idFor(workspacePath), workspacePath);
     }
     switch (entry.state.phase) {
       case 'home':
         entry.create = options.create === true;
+        entry.package = entry.create ? options.package ?? null : null;
         this.dispatch(workspacePath, entry, {
           type: 'open',
           project: projectFor(workspacePath),
-          status: { step: entry.create ? 'creating' : 'resolving' },
+          status: this.firstStatus(entry),
         });
         void this.run(workspacePath, entry);
         break;
       case 'failed':
         entry.create ||= options.create === true;
+        entry.package ??= options.create === true ? options.package ?? null : null;
         this.retryEntry(workspacePath, entry);
         break;
       case 'opening':
@@ -282,8 +287,13 @@ export class SessionRegistry {
     return true;
   }
 
+  /** Where an open of `entry` starts: setting the project (or package) up, or finding its engine. */
+  private firstStatus(entry: Entry): OpeningStatus {
+    return entry.create ? creatingStatus(entry.package ?? undefined) : { step: 'resolving' };
+  }
+
   private retryEntry(workspacePath: string, entry: Entry): void {
-    if (this.dispatch(workspacePath, entry, { type: 'retry', status: { step: entry.create ? 'creating' : 'resolving' } })) {
+    if (this.dispatch(workspacePath, entry, { type: 'retry', status: this.firstStatus(entry) })) {
       void this.run(workspacePath, entry);
     }
   }
@@ -306,9 +316,10 @@ export class SessionRegistry {
       const url = await session.start(
         abort.signal,
         (status) => this.dispatch(workspacePath, entry, { type: 'progress', attempt, status }),
-        { create: entry.create },
+        { create: entry.create, package: entry.package ?? undefined },
       );
       entry.create = false;
+      entry.package = null;
       if (!this.dispatch(workspacePath, entry, { type: 'ready', attempt, url })) {
         // Cancelled, or superseded, while the engine came up.
         session.stop();

@@ -27,6 +27,7 @@ import type {
   OpeningStatus,
   SessionEvent,
   SessionView,
+  StartCommand,
   StartFeed,
   StartProject,
   StartProjectList,
@@ -145,7 +146,7 @@ const openingStatus: Guard<OpeningStatus> = (value, where) => {
   const step = oneOf('creating', 'resolving', 'downloading', 'starting')(record(value, where).step, `${where}.step`);
   switch (step) {
     case 'creating':
-      return object<{ step: 'creating' }>({ step: oneOf('creating') })(value, where);
+      return object<Extract<OpeningStatus, { step: 'creating' }>>({ step: oneOf('creating'), package: optional(string) })(value, where);
     case 'resolving':
       return object<{ step: 'resolving' }>({ step: oneOf('resolving') })(value, where);
     case 'downloading':
@@ -288,6 +289,8 @@ const folderListing = object<FolderListing>({
   entries: arrayOf(folderEntry),
 });
 
+const startCommand: Guard<StartCommand> = oneOf('new-package');
+
 const folderCheck = object<FolderCheck>({
   path: string,
   state: oneOf('missing', 'empty', 'project', 'not-empty', 'not-a-folder', 'unreadable', 'invalid-name'),
@@ -311,3 +314,4 @@ export const checkSessionView = (value: unknown): SessionView => sessionView(val
 export const checkSessionEvent = (value: unknown): SessionEvent => sessionEvent(value, 'session event');
 export const checkFolderListing = (value: unknown): FolderListing => folderListing(value, 'folders');
 export const checkFolderCheck = (value: unknown): FolderCheck => folderCheck(value, 'folder check');
+export const checkStartCommand = (value: unknown): StartCommand => startCommand(value, 'onCommand()');

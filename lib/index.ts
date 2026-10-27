@@ -230,8 +230,9 @@ export function registerBuilder<T extends Function>(
 
     // A selection handed to this call as an operand is spoken for: it must
     // not double as the implicit last selection of a later bare call. A
-    // feature's call may hand them over in a list or its object of options.
-    SelectSceneObject.claimOperands(meta ? FeatureMetas.operands(arguments) : arguments);
+    // feature's call may hand them over in a list or its object of options,
+    // and one written inline in the arguments is internal to this call.
+    SelectSceneObject.claimOperands(meta ? FeatureMetas.operands(arguments) : arguments, sourceLocation);
 
     return originalFn(...arguments);
   };

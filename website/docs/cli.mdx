@@ -24,7 +24,7 @@ A global install (`npm install -g fluidcad`) is not supported — the engine and
 | Command | What it does |
 |---------|--------------|
 | [`fluidcad`](#fluidcad) | Open the start screen in the browser: your projects, new projects, and the engine each one runs on |
-| [`fluidcad init`](#fluidcad-init) | Scaffold a new project in the current directory |
+| [`fluidcad init`](#fluidcad-init) | Scaffold a new project in the current directory, or a new package with `--package` |
 | [`fluidcad serve`](#fluidcad-serve) | Open one project in the browser and watch its workspace |
 | [`fluidcad export step`](#fluidcad-export-step) | Write a STEP file |
 | [`fluidcad export stl`](#fluidcad-export-stl) | Write an STL mesh |
@@ -48,8 +48,8 @@ npx fluidcad
 ```
 
 Opens FluidCAD's start screen in your browser: the same one the desktop app
-shows, with your recent projects, **New Project** and **Open Project**, and the
-engine each project runs on. It is the one command you can run from anywhere;
+shows, with your recent projects, **New Project**, **New Package** and **Open
+Project**, and the engine each project runs on. It is the one command you can run from anywhere;
 it is not tied to a project folder. (`npx fluidcad start` is the same command
 by its name.)
 
@@ -57,6 +57,8 @@ Every project opens in a tab of its own, and the start screen stays in its tab.
 Opening a project that is already open brings its tab forward. **New Project**
 asks where the project should live and what to call it, creates the folder, and
 sets the project up in it, the same scaffold as [`fluidcad init`](#fluidcad-init).
+**New Package** asks for the package's name too (`@handle/name`) and sets a
+[package](/docs/packages#a-new-package) up, as `fluidcad init --package` does.
 Close a project from the **⋯** menu on its card; FluidCAD refuses while its tab
 has unsaved changes.
 
@@ -100,7 +102,8 @@ npx fluidcad --projects ~/cad
 
 With `--projects`, one folder holds every project. The start screen lists the
 projects in it, all of them rather than the recent ones. **New Project** asks
-only for a name, creates `<dir>/<name>` and sets the project up there. **Open
+only for a name, creates `<dir>/<name>` and sets the project up there; **New
+Package** asks for the package name and the folder name. **Open
 Project** is not offered, since every project in the folder is already on the
 screen, and nothing outside the folder can be opened: the start server refuses
 any path that is not a project in it, which is what makes the folder the
@@ -191,12 +194,49 @@ The command refuses to run if `init.js` already exists, so it can't clobber a pr
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--unit <unit>` | Project length unit written to `fluidcad.json`: `mm`, `cm`, `m`, `in` or `ft` | the unit for new projects from the Settings dialog, `mm` unless changed |
+| `--package <@handle/name>` | Scaffold a [package](/docs/packages#a-new-package) instead of a plain project (below) | _a plain project_ |
 
 ```bash
 npx fluidcad init --unit in        # an inch project
 ```
 
 Without the flag, the unit comes from **Settings ▸ Units ▸ Unit for new projects** in the FluidCAD UI (the gear in the top bar). The desktop app's New Project uses the same setting.
+
+### `fluidcad init --package`
+
+```bash
+npx fluidcad init --package @acme/mounting-hardware
+```
+
+Scaffolds a package in the **current directory**, which has to be empty (a `.git` folder or a `.gitignore` is fine): the files of a project, with the starter part in `parts/`, the two other export folders, a `README.md` with the name as its heading, and the [`package` block](/docs/project-configuration#package) at version `1.0.0`. It is what **New Package** on the start screen creates.
+
+```
+mounting-hardware/
+├── init.js
+├── fluidcad.json       ← engine pin, unit, and the package block
+├── parts/
+│   └── part1.part.js   ← an empty part to start modeling in
+├── features/           ← empty: the package's *.feature.js files
+├── assemblies/         ← empty: the package's *.assembly.js files
+├── README.md
+├── jsconfig.json
+└── .gitignore
+```
+
+```
+FluidCAD package @acme/mounting-hardware 1.0.0 initialized:
+  init.js
+  fluidcad.json
+  parts/part1.part.js
+  features/
+  assemblies/
+  README.md
+  jsconfig.json
+  .gitignore
+Put the package's feature modules in features/, its parts in parts/ and its assemblies in assemblies/: the package exports what those folders hold.
+```
+
+The name is `@<your hub handle>/<name>` ([Package names](/docs/packages#package-names)). Signed in to the hub (`npx fluidcad login`), a name without the scope takes your handle and the command says so (`Named it @acme/mounting-hardware: your handle on https://hub.fluidcad.io.`); signed out, it is refused. A name that doesn't fit the rule, or a directory that isn't empty, is refused before anything is written. `--unit` applies as for a plain project. To make a package of a project that already exists, use [`fluidcad package init`](#fluidcad-package-init).
 
 See [Project configuration](/docs/project-configuration) for what `fluidcad.json` holds.
 
@@ -409,14 +449,14 @@ A [package](/docs/packages) is a project's custom features and parts, which `flu
 npx fluidcad package init --name @acme/mounting-hardware
 ```
 
-Makes the project a package by writing the [`package` block](/docs/project-configuration#package) of its `fluidcad.json`: the name and version `0.1.0`. The name is `@<your hub handle>/<name>` ([Package names](/docs/packages#package-names)). Signed in to the hub (`npx fluidcad login`), a name without the scope takes your handle, and the command says so; signed out, it is refused with `"name" "mounting-hardware" needs your hub handle as its scope: write "@<your-handle>/mounting-hardware"`. What the package shares is what its `features/`, `parts/` and `assemblies/` folders hold, and the command says how much that is today:
+Makes the project a package by writing the [`package` block](/docs/project-configuration#package) of its `fluidcad.json`: the name and version `1.0.0`. The name is `@<your hub handle>/<name>` ([Package names](/docs/packages#package-names)). Signed in to the hub (`npx fluidcad login`), a name without the scope takes your handle, and the command says so; signed out, it is refused with `"name" "mounting-hardware" needs your hub handle as its scope: write "@<your-handle>/mounting-hardware"`. What the package shares is what its `features/`, `parts/` and `assemblies/` folders hold, and the command says how much that is today:
 
 ```
 Named it @acme/mounting-hardware: your handle on https://hub.fluidcad.io.
 Wrote the "package" block to …/mounting-hardware/fluidcad.json:
   {
     "name": "@acme/mounting-hardware",
-    "version": "0.1.0"
+    "version": "1.0.0"
   }
 The package exports what features/, parts/ and assemblies/ hold. Today: features/ 4 modules, parts/ 2 modules, assemblies/ none.
 ```
@@ -429,7 +469,7 @@ The package exports what features/, parts/ and assemblies/ hold. Today: features
 
 Asked in a terminal, the prompt shows your handle when you are signed in (`Package name: @acme/`); a name typed with a scope is taken as typed.
 
-It refuses a project that already has a `package` block, and a `fluidcad.json` it cannot read.
+It refuses a project that already has a `package` block, and a `fluidcad.json` it cannot read. It writes the block only: move the features and parts into the folders yourself. For a package started from an empty directory, [`fluidcad init --package`](#fluidcad-init---package) writes the folders too, and **New Package** on the start screen does the same.
 
 ### `fluidcad version`
 
@@ -488,7 +528,7 @@ Packages install from the hub. FluidCAD downloads the package, checks that its f
 ✓ Installed @acme/mounting-hardware@0.1.0 into your library · 4 features, 2 parts · pinned in fluidcad.json
 ```
 
-A warning that matters gets a short line under it: a deprecated package, a yanked or unpublished version you asked for by its exact version, an older version because the latest needs a newer FluidCAD. A package that can't be installed (unknown, nothing published, a hash that doesn't match, removed by the hub's admins) prints why and the command exits with status 1. A package's code runs in the FluidCAD engine with your permissions: install only packages you trust.
+A warning that matters gets a short line under it: a deprecated package, an unpublished version you asked for by its exact version, an older version because the latest needs a newer FluidCAD. A package that can't be installed (unknown, nothing published, a hash that doesn't match, removed by the hub's admins) prints why and the command exits with status 1. A package's code runs in the FluidCAD engine with your permissions: install only packages you trust.
 
 **A name alone** asks the hub for its latest version this FluidCAD runs, and uses your library's copy of that version when its files are the hub's. When the hub can't be reached, it uses the newest version your library holds, and says so. **A name with `@version`** takes your library's copy (or this project's) when there is one, else downloads it. A name without the scope (`npx fluidcad install mounting-hardware`) is refused with "Name the publisher: `fluidcad install @<handle>/mounting-hardware`."
 

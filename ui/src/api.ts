@@ -505,12 +505,14 @@ export type FeatureGhostRequest =
   | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
+  | ShellGhostRequest
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
   | SplitGhostRequest
   | RotateGhostRequest
+  | TranslateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -557,7 +559,23 @@ export type ExtrudeGhostRequest = {
    * region; an empty list is the bare `.region()`, which builds nothing.
    */
   regions?: RegionPick[];
+  /**
+   * The "Up to face" directions: the extrusion ends on this target and the
+   * distance fields are not read. Absent is the distance form.
+   */
+  toFace?: GhostExtrudeTargetRef;
 };
+
+/**
+ * Where an up-to-face extrude ends, as the ghost endpoint resolves it: the
+ * `'first-face'` / `'last-face'` literal the statement writes, or a picked
+ * face by its viewport address on the rendered (edit mode: rolled-back)
+ * scene. A kept "Current: …" target travels only once the sources query has
+ * resolved it to such a pick — see `ExtrudeTargetSlot`.
+ */
+export type GhostExtrudeTargetRef =
+  | { kind: ExtrudeFaceTarget }
+  | { kind: 'face'; shapeId: string; index: number };
 
 export type RibGhostRequest = {
   feature: 'rib';
@@ -704,6 +722,23 @@ export type FilletGhostRequest = {
    * the ghost does too rather than drop the pick.
    */
   edges: { shapeId: string; index: number; kind: 'edge' | 'face' }[];
+};
+
+/**
+ * The shell dialog on the ghost wire. A shell, like a fillet, reworks a solid
+ * the scene already holds, so it carries no op and no profile — the dialog's
+ * thickness and join, and the faces to leave open. What comes back is the
+ * walls the hollowing would create, each already told apart as material
+ * leaving (an inward shell) or arriving (an outward one).
+ */
+export type ShellGhostRequest = {
+  feature: 'shell';
+  /** Wall thickness: negative hollows inward, positive builds the wall outside the solid. */
+  thickness: ValueExpr;
+  /** How the offset walls meet at a corner — the join dropdown. */
+  joinType: ShellJoinType;
+  /** The picked faces, each by the solid it was picked on and its index there. */
+  faces: { shapeId: string; index: number }[];
 };
 
 /**
@@ -906,6 +941,27 @@ export type RotateGhostRequest = {
 };
 
 /**
+ * The translate on the ghost wire — the rotate's straight-line sibling: the
+ * target solids' own bodies stamped once, under the translation the apply
+ * itself will use. A zero translation still stamps them, where they stand, so
+ * the dialog can slide them under its gizmo from the first drag. The copy
+ * flag never travels — either way the stamp is where the bodies land.
+ */
+export type TranslateGhostRequest = {
+  feature: 'translate';
+  /** The solid-bearing statements being moved, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The distance along X, Y and Z. */
+  translation: Translation;
+  /**
+   * Edit mode: the edited statement's own call site. The scene holds the
+   * applied statement mid-edit; the kernel reads the targets as of just
+   * before it, so the ghost never draws the statement's own result.
+   */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
  * The mirror dialog's plane slot on the ghost wire — the plane sibling of
  * {@link GhostAxisRef}, flattened to what the kernel can resolve without
  * reading code: an origin plane, a `plane()` statement's call site, or a
@@ -1093,7 +1149,7 @@ export type GhostCustomRef =
 export type CustomGhostRequest = {
   feature: 'custom';
   id: string;
-  values: Record<string, ValueExpr | boolean | string | FeatureListValue>;
+  values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue>;
   refs: Record<string, GhostCustomRef[]>;
   operation: FeatureOpKind | null;
   /** Edit mode: the edited statement's call site — the ghost reads the scene as it stood before it. */
@@ -1224,6 +1280,54 @@ export async function fetchFeatureGhostResult(
   /** A custom feature's values its `derive()` fixed from the picks, by name — the dialog locks their rows. Absent when it fixed none. */
   derived?: Record<string, FeatureScalarValue>;
 }> {
+  const answer = await postFeatureGhost(request, valueScope, signal);
+  if ('body' in answer) {
+    const body = answer.body;
+    const derived = body.derived && typeof body.derived === 'object' && !Array.isArray(body.derived) ? body.derived as Record<string, FeatureScalarValue> : undefined;
+    return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null, ...(derived ? { derived } : {}) };
+  }
+  if ('paused' in answer) {
+    return { solids: null, frames: [], notice: null, paused: answer.paused };
+  }
+  return { solids: null, frames: [], notice: answer.notice };
+}
+
+/**
+ * The translate's bodies, plus the distances they were stamped at as the
+ * statement will read them — a name resolved where the statement sits, which
+ * the client's own arithmetic can't always do (a configuration's parameter
+ * value). The dialog stands its gizmo on these. Null whenever there is
+ * nothing to draw, as for {@link fetchFeatureGhost}.
+ */
+export async function fetchTranslateGhost(
+  request: TranslateGhostRequest,
+  valueScope: GhostValueScope | null,
+  signal: AbortSignal,
+): Promise<{ solids: GhostSolid[]; translation: [number, number, number] } | null> {
+  const answer = await postFeatureGhost(request, valueScope, signal);
+  if (!('body' in answer)) {
+    return null;
+  }
+  const translation: unknown = answer.body.translation;
+  if (!Array.isArray(translation) || translation.length !== 3 || !translation.every(Number.isFinite)) {
+    return null;
+  }
+  return { solids: answer.body.solids ?? [], translation: translation as [number, number, number] };
+}
+
+/**
+ * One round trip to the ghost route: the success body; a `paused` reason
+ * when the build ran over the live preview's time limit (a custom
+ * feature's) — no geometry, and why, so the dialog pauses its previews; or
+ * — for any other refusal — only the notice worth reading out (see
+ * {@link fetchFeatureGhostResult}). An abort propagates; any other failure
+ * is a silent refusal.
+ */
+async function postFeatureGhost(
+  request: FeatureGhostRequest,
+  valueScope: GhostValueScope | null,
+  signal: AbortSignal,
+): Promise<{ body: any } | { paused: string } | { notice: string | null }> {
   try {
     const res = await fetch('api/feature-ghost', {
       method: 'POST',
@@ -1233,21 +1337,17 @@ export async function fetchFeatureGhostResult(
     });
     const body = await res.json().catch(() => null);
     if (res.ok && body?.success === true) {
-      const derived = body.derived && typeof body.derived === 'object' && !Array.isArray(body.derived) ? body.derived as Record<string, FeatureScalarValue> : undefined;
-      return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null, ...(derived ? { derived } : {}) };
+      return { body };
     }
     if (body?.paused === true) {
-      // The build ran over the live preview's time limit (a custom
-      // feature's): no geometry, and why — the dialog pauses its previews.
-      return { solids: null, frames: [], notice: null, paused: typeof body.reason === 'string' ? body.reason : 'Building it took longer than a live preview may.' };
+      return { paused: typeof body.reason === 'string' ? body.reason : 'Building it took longer than a live preview may.' };
     }
-    const notice = body?.surface === true && typeof body?.reason === 'string' ? body.reason : null;
-    return { solids: null, frames: [], notice };
+    return { notice: body?.surface === true && typeof body?.reason === 'string' ? body.reason : null };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw err;
     }
-    return { solids: null, frames: [], notice: null };
+    return { notice: null };
   }
 }
 
@@ -2655,15 +2755,19 @@ export async function applyRib(options: RibApplyOptions): Promise<ApplyFeatureRe
 // Hole
 // ---------------------------------------------------------------------------
 
-/** The hole size: a drilled diameter, or a fastener size label ('M6', '1/4', '#10'). */
+/** The hole size: a drilled diameter, or a fastener size label ('M6', '1/4', '#10') — a variable's too, written bare. */
 export type HoleSizeSpec =
   | { kind: 'diameter'; value: ValueExpr }
-  | { kind: 'fastener'; label: string };
+  | { kind: 'fastener'; label: string | FeatureRefValue };
 
-/** How a fastener size becomes a diameter: a clearance fit, or the tap drill for a pitch (null = coarse). */
+/**
+ * How a fastener size becomes a diameter: a clearance fit, or the tap drill
+ * for a pitch (null = coarse). The fit and the pitch take a variable in place
+ * of the literal; a referenced pitch always writes the argument.
+ */
 export type HoleFastenerSpec =
-  | { type: 'clearance'; fit: 'close' | 'normal' | 'loose' }
-  | { type: 'tapped'; pitch: number | null };
+  | { type: 'clearance'; fit: 'close' | 'normal' | 'loose' | FeatureRefValue }
+  | { type: 'tapped'; pitch: number | FeatureRefValue | null };
 
 /** The entry of the hole; null values read the fastener tables. */
 export type HoleStyleSpec =
@@ -2698,11 +2802,11 @@ export type HolePlacementRef =
 /**
  * The `.fasten(…)` chain of a clearance hole: the matching tapped hole cut
  * into the next solid along each hole's axis — its pitch (null is the coarse
- * pitch), its blind depth from the face it enters that solid through (null
- * is through all) and the drill point angle below that depth (null is a
- * flat bottom).
+ * pitch; a variable's name writes bare), its blind depth from the face it
+ * enters that solid through (null is through all) and the drill point angle
+ * below that depth (null is a flat bottom).
  */
-export type HoleFastenRef = { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null };
+export type HoleFastenRef = { pitch: number | FeatureRefValue | null; depth: ValueExpr | null; tipAngle: ValueExpr | null };
 
 export type HoleApplyOptions = HoleOptionValues & {
   placements: HolePlacementRef[];
@@ -3339,6 +3443,39 @@ export async function applyRotate(options: RotateApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
+/** The distance along X, Y and Z — `translate()`'s leading arguments. */
+export type Translation = [ValueExpr, ValueExpr, ValueExpr];
+
+export type TranslateApplyOptions = {
+  /** The solid-bearing statements being moved (whole-solid picks), in order. */
+  targets: SketchSourceRef[];
+  /** The distance along X, Y and Z. */
+  translation: Translation;
+  /** Keep the originals in place — writes the `true` after the distances. */
+  copy: boolean;
+  /** Declarations the dialog's distance fields committed (`gap = 20`). */
+  newVariables?: NewVariable[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a translate
+ * statement moving the target solids along X, Y and Z. Same endpoint and
+ * response shape as {@link applyFeature}.
+ */
+export async function applyTranslate(options: TranslateApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'translate',
+    targets: options.targets,
+    translation: options.translation,
+    copy: options.copy,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** The three boolean operations — each its own callee, one shared dialog. */
 export type BooleanKind = 'fuse' | 'subtract' | 'common';
 
@@ -3468,6 +3605,12 @@ export type FeatureSourcesResult =
    * an empty target list.
    */
   | { ok: true; feature: 'rotate'; targets: SourceSlotRef[]; axis: SourceSlotRef }
+  /**
+   * A standalone translate: the solids it moves, by call site — its distances
+   * are the dialog's own, read off the statement — and an implicit translate,
+   * one naming no targets at all, reports an empty target list.
+   */
+  | { ok: true; feature: 'translate'; targets: SourceSlotRef[] }
   /**
    * A construction plane, by its bases in argument order — one for the offset
    * and edge forms, two for a mid plane. An origin-plane literal is `opaque`:
@@ -3604,7 +3747,7 @@ export type ParsedFeatureStatement =
        * (null is through all) and its tip angle (null is a flat bottom); null
        * without the chain. Absent on older servers.
        */
-      fasten?: { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null } | null;
+      fasten?: HoleFastenRef | null;
     })
   | (ParsedScopeChain & ParsedRegionChain & {
       feature: 'sweep';
@@ -3864,6 +4007,25 @@ export type ParsedFeatureStatement =
       targetRefs: ({ line: number; column: number } | null)[];
     }
   | {
+      feature: 'translate';
+      /**
+       * The distance along X, Y and Z — every statement form (`translate(x)`,
+       * `translate(x, y, z)`, `translate([x, y, z])`) read as three values,
+       * the missing ones zero.
+       */
+      translation: Translation;
+      /** The `true` after the distances — copy instead of move. */
+      copy: boolean;
+      /** Trailing target texts, verbatim; empty moves every active object. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
+    }
+  | {
       feature: 'plane';
       /**
        * The form the dialog opens on: two bases read as a mid plane, a lone
@@ -3908,8 +4070,8 @@ export type ParsedFeatureStatement =
       id: string;
       /** The callee as written — an import alias included. */
       callee: string;
-      /** The typed-in values the statement writes, a select of several's as its list; one it leaves out is absent. */
-      values: Record<string, ValueExpr | boolean | string | FeatureListValue>;
+      /** The typed-in values the statement writes, a select of several's as its list, a choice naming a variable as `{ ref }`; one it leaves out is absent. */
+      values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue>;
       /** The picked values it writes, element by element; one it leaves out is absent. */
       picks: Record<string, ParsedCustomPick[]>;
       operation: FeatureOpKind;
@@ -4562,6 +4724,45 @@ export async function applyRotateEdit(
 }
 
 /**
+ * One target of an edited translate, in argument order: an untouched target
+ * by its position in the statement's own argument list, or a re-picked solid
+ * statement by call site.
+ */
+export type TranslateEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type TranslateEditOptions = EditSessionFields & {
+  /** The distance along X, Y and Z. */
+  translation: Translation;
+  /** Keep the originals in place — writes the `true` after the distances. */
+  copy: boolean;
+  /** Declarations the dialog's distance fields committed (`gap = 20`). */
+  newVariables?: NewVariable[];
+  /** Full replacement target list; omitted keeps the statement's own. */
+  targets?: TranslateEditTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the translate statement at `edit` in place. */
+export async function applyTranslateEdit(
+  edit: FeatureEditTarget,
+  options: TranslateEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'translate',
+    edit,
+    expectedStatement: options.expectedStatement,
+    translation: options.translation,
+    copy: options.copy,
+    newVariables: options.newVariables,
+    targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
  * One target of an edited boolean, in argument order: an untouched target by
  * its position in the statement's own argument list, or a re-picked solid
  * statement by call site.
@@ -4928,6 +5129,40 @@ export function rollback(index: number, scope?: 'part'): void {
 
 export function addBreakpoint(sourceLocation: SourceLocationParam): void {
   postFireAndForget('api/add-breakpoint', { sourceLocation });
+}
+
+/**
+ * What the acknowledged edit-feature pause reports: whether the buffer
+ * changed (a stop already sat after the statement otherwise — then no
+ * render follows) and the render version current when it was acknowledged
+ * (the render the change triggers is a newer one — see `RenderVersions`).
+ */
+export type PauseAfterResult = { changed: boolean; renderVersion: number };
+
+/**
+ * `liftActive`: an open edit dialog holds the build on the active stop and
+ * this gesture replaces that dialog — take its stop out in the same edit,
+ * so the hand-off is one render. The dialog then closes with `handoff`
+ * (see `EditSession.end`) instead of lifting the stop itself.
+ */
+export type PauseAfterOptions = { liftActive?: boolean };
+
+/**
+ * Pause the build after the statement at `sourceLocation`, keeping the
+ * document's other stops — the edit-feature gesture's breakpoint, as an
+ * acknowledged edit. Null when the edit was refused or no host answered;
+ * the caller then proceeds as it did without the ack.
+ */
+export async function pauseAfterStatement(
+  sourceLocation: SourceLocationParam,
+  options: PauseAfterOptions = {},
+): Promise<PauseAfterResult | null> {
+  const answer = await postJson<{ success?: boolean; changed?: boolean; renderVersion?: number }>(
+    'api/pause-after', { sourceLocation, ...(options.liftActive ? { liftActive: true } : {}) });
+  if (!answer || answer.success !== true) {
+    return null;
+  }
+  return { changed: answer.changed === true, renderVersion: answer.renderVersion ?? 0 };
 }
 
 /**
@@ -6598,6 +6833,13 @@ export async function fetchInterference(body: InterferenceRequestBody, signal?: 
 export type FeatureScalarValue = number | string | boolean;
 /** What a select of several (`multiple`) holds: the chosen options' values, in the options' order. */
 export type FeatureListValue = (string | number)[];
+/**
+ * A select's, radio's or select-of-several's value naming a variable in place
+ * of an option: an identifier or a dotted member path (`holeSize`,
+ * `inst.properties.kind`), written bare into the statement, where the
+ * variable's value has to be one of the options when the feature runs.
+ */
+export type FeatureRefValue = { ref: string };
 
 /** What a picked face is, as a custom feature's `visibleWhen` tells picks apart (mirror of the engine's `PickedSurface`). */
 export type FeaturePickedSurface = 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'other';
@@ -6903,8 +7145,8 @@ export type CustomPickInput =
 type CustomFeatureFields = {
   /** The feature's catalog id. */
   id: string;
-  /** Typed-in values by name, a select of several's as a list (`[]` writes an empty one); `null` drops one (edit). */
-  values: Record<string, ValueExpr | boolean | string | FeatureListValue | null>;
+  /** Typed-in values by name, a select of several's as a list (`[]` writes an empty one), a choice naming a variable as `{ ref }`; `null` drops one (edit). */
+  values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | null>;
   /** Picked values by name, element by element; an empty list drops one (edit). */
   picks: Record<string, CustomPickInput[]>;
   operation?: FeatureOpKind;
@@ -7043,10 +7285,9 @@ export type PinnedPackage = {
   directory: string | null;
 };
 
-/** A pinned package's marks from the hub (H12): its pinned version's yank with the reason, and the package's deprecation. */
+/** A pinned package's marks from the hub (H12): the package's deprecation. */
 export type HubPinMarks = {
-  yanked: { at: string; reason: string | null } | null;
-  deprecated: string | null;
+  deprecated: string;
 };
 
 /** A package the project can't load (`code: 'missing'` for a pin installed nowhere). */
@@ -7058,11 +7299,22 @@ export type PackagesOverview = {
   project: { path: string; packages: InstalledPackage[] } | null;
   pins: PinnedPackage[] | null;
   pinsProblem?: string;
+  /**
+   * The package this workspace is (the `package` block of its
+   * `fluidcad.json`): what the top bar's Publish button is about. Null for
+   * a plain project and outside a project.
+   */
+  package: { name: string; version: string } | null;
+  /**
+   * Why the `package` block couldn't be read. The workspace still counts as
+   * a package (the button is Publish, and the dialog opens on this sentence).
+   */
+  packageProblem?: string;
   /** Pinned name → the newest version above the pin, from the library or the hub (H10). */
   updates?: Record<string, string>;
   /** Where each of `updates` is: `library` when the library holds it, else `hub`. */
   updatesFrom?: Record<string, 'library' | 'hub'>;
-  /** Pinned name → what the hub's owner said about it (H12): the pinned version yanked, the package deprecated. Only pins with something to say. */
+  /** Pinned name → what the hub's owner said about it (H12): the package deprecated. Only pins with something to say. */
   hubMarks?: Record<string, HubPinMarks>;
   problems: PackageProblem[];
   defaultTarget: PackageTarget;
@@ -7313,7 +7565,6 @@ export type HubVersionSummary = {
   sdkVersion: number | null;
   notes: string;
   publishedAt: string | null;
-  yanked: { at: string; reason: string | null } | null;
   removed: { at: string; reason: string | null } | null;
   isLatest: boolean;
 };
@@ -7370,7 +7621,6 @@ export type HubVersion = {
   size: number | null;
   notes: string;
   publishedAt: string | null;
-  yanked: { at: string; reason: string | null } | null;
   isLatest: boolean;
   /** The README on the engine's file proxy, or null. */
   readmeUrl: string | null;
@@ -7622,6 +7872,257 @@ export class HttpHubClient implements HubClient {
         return { ok: false, status: 0, error: 'Cancelled.', code: 'aborted' };
       }
       return { ok: false, status: 0, error: `The engine didn't answer: ${err?.message ?? String(err)}` };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Publishing the workspace's package (ui-packages-plan N3/N4): the Publish
+// dialog over the engine's `/api/publish/*` routes, which run `fluidcad
+// publish`'s own `HubPublisher` and pack once.
+// ---------------------------------------------------------------------------
+
+/** Where a session stands; the first five are running, nothing else may start meanwhile. */
+export type HubAppPublishStatus = 'checking' | 'packing' | 'awaiting-confirm' | 'uploading' | 'verifying' | 'done' | 'declined' | 'failed';
+
+export const HUB_APP_PUBLISH_RUNNING: readonly HubAppPublishStatus[] = ['checking', 'packing', 'awaiting-confirm', 'uploading', 'verifying'];
+
+/**
+ * Why a session ended `failed` or `declined`, and every publish route's
+ * refusal body: the sentence in the dialog's words, and the code it acts
+ * on — `signed-out` (Sign in), `version-exists` / `version-not-greater`
+ * (bump; `details.highest`), `in-review` / `open-version-exists`
+ * (Withdraw; `details.version`, `details.status`), `unsaved-changes`
+ * (save first), `not-a-package` / `bad-config` (the block problem),
+ * `forbidden`, `email-unverified`, `publishing-closed`, `cli-too-old`,
+ * `no-models`, the hub's limits (`archive-too-large`, `notes-too-long`, …),
+ * `nothing-open`, `integrity-mismatch`, `hub-unreachable`, `cancelled` and
+ * `confirm-timeout` (declined), `publish-running`, `nothing-to-confirm`,
+ * `hub-config`.
+ */
+export type HubAppPublishRefusal = { message: string; code: string; details?: unknown };
+
+/** What the archive holds, as the pack found it. */
+export type HubPublishContents = {
+  features: { id: string; exportName: string; module: string }[];
+  parts: { exportName: string; name: string; module: string; params: number }[];
+  assemblies: { exportName: string; name: string; module: string; params: number }[];
+  models: number;
+  docs: string[];
+};
+
+/** Something pack noticed but packed anyway; never a refusal. */
+export type HubPublishWarning = { code: string; file: string; message: string; target?: string; line?: number };
+
+/** What is, or was, uploaded: what `fluidcad publish` prints before `Upload it?`. */
+export type HubPublishSummary = {
+  hub: string;
+  handle: string;
+  name: string;
+  version: string;
+  /** The archive in bytes. */
+  size: number;
+  /** Files in the archive, `manifest.json` included. */
+  files: number;
+  integrity: string;
+  contents: HubPublishContents;
+  warnings: HubPublishWarning[];
+  /** `draft` for a package's first version (finished in the browser), else `in_review`. */
+  becomes: 'draft' | 'in_review';
+  /** A draft of this version is on the hub: the upload replaces its archive, and the wizard keeps its edits. */
+  replacesDraft: boolean;
+  notes: string | null;
+  dryRun: boolean;
+};
+
+/** The hub's answer to an upload. */
+export type HubUploadResult = {
+  name: string;
+  version: string;
+  /** `draft`: the package's first version, finished in the wizard; `in_review`: submitted for review. */
+  status: 'draft' | 'in_review';
+  /** The first-publish wizard, for a `draft`. */
+  wizardUrl: string | null;
+  /** The owner's status page, for a version `in_review`. */
+  reviewUrl: string | null;
+  integrity: string;
+  size: number;
+  unpackedSize: number;
+  /** A draft of this version was replaced. */
+  replaced: boolean;
+  dryRun: boolean;
+};
+
+/** `GET api/publish`: one publish, as the page follows it. */
+export type HubAppPublishState = {
+  id: string;
+  /** The hub's origin. */
+  hub: string;
+  status: HubAppPublishStatus;
+  dryRun: boolean;
+  notes: string | null;
+  startedAt: string;
+  /** While `awaiting-confirm`: when it is declined on its own. */
+  confirmBy: string | null;
+  /** From `awaiting-confirm` on (a dry run: from `uploading` on). */
+  summary: HubPublishSummary | null;
+  /** While `uploading`: the bytes sent so far. */
+  progress: { sent: number; total: number } | null;
+  /** `done`: the hub's answer. */
+  result: HubUploadResult | null;
+  /** `failed`: the refusal; `declined`: why (`cancelled`, `confirm-timeout`). */
+  error: HubAppPublishRefusal | null;
+};
+
+/** `POST api/publish`'s body. */
+export type HubAppPublishRequest = { notes?: string | null; dryRun?: boolean };
+
+/** `GET api/publish/package`: the dialog's header (U7: a broken block is still a package workspace, with its problem). */
+export type HubAppPublishPackage = {
+  package: { name: string; version: string } | null;
+  problem: string | null;
+};
+
+export type HubVersionState = 'uploading' | 'draft' | 'in_review' | 'rejected' | 'published';
+
+/** One version as its owner sees it (the hub's `VersionStatus`): the fields the dialog shows. */
+export type HubVersionStatus = {
+  name: string;
+  version: string;
+  status: HubVersionState;
+  /** The first-publish wizard, for a `draft`. */
+  wizardUrl: string | null;
+  /** The owner's status page, for any other state. */
+  reviewUrl: string | null;
+  /** For a draft: when it may be deleted if nothing changes. */
+  draftExpiresAt: string | null;
+  submittedAt: string | null;
+  publishedAt: string | null;
+  reviewedAt: string | null;
+  /** Why a reviewer rejected the version. */
+  reviewNote: string | null;
+  integrity: string | null;
+  notes: string;
+  size: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** The package as its owner sees it (the hub's `PackageDetail`): what `fluidcad publish --status` reads. */
+export type HubPackageStatus = {
+  name: string;
+  /** `active`, or what the hub's admins made it. */
+  status: string;
+  /** The draft, in-review or uploading version, if any. */
+  openVersion: HubVersionStatus | null;
+  /** The most recent rejection above the highest published version, with its reason. */
+  rejectedVersion: HubVersionStatus | null;
+  /** What installs by name get; null until a version is approved. */
+  latestVersion: string | null;
+  /** The highest published version, removed ones included: an upload must be greater. */
+  highestVersion: string | null;
+};
+
+/** `GET api/publish/status`: where the package stands on the hub. */
+export type HubPublishStatus = {
+  name: string;
+  /** Null when the hub has no such package for this account (nothing uploaded yet). */
+  package: HubPackageStatus | null;
+  /** The latest published version, when there is one. */
+  latest: HubVersionStatus | null;
+};
+
+/** `POST api/publish/version`: what the block's version became. */
+export type PackageVersionChange = { name: string; from: string; to: string; configPath: string };
+
+/** A refusal from a publish route: the sentence, the code ({@link HubAppPublishRefusal}) and its details. */
+export type PublishRefusal = { ok: false; status: number; error: string; code: string; details?: unknown };
+
+export type PublishResult<T> = ({ ok: true } & T) | PublishRefusal;
+
+/**
+ * The publish routes as one object the Publish dialog is handed (tests give
+ * it a fake, `ui/tests/fixtures/fake-publish-client.ts`). Every call answers
+ * a result rather than throwing; a refusal carries the engine's sentence
+ * and code. A preflight refusal is **not** a refusal here: `start` answers
+ * `ok` with `publish.status === 'failed'` and the refusal in `publish.error`.
+ */
+export interface PublishClient {
+  /** The workspace's `package` block, or its problem. */
+  packageInfo(): Promise<PublishResult<{ package: HubAppPublishPackage }>>;
+  /** Where the package stands on the hub; `signed-out` (401) without credentials. */
+  status(): Promise<PublishResult<{ status: HubPublishStatus }>>;
+  /** Begin a publish; answers once the preflight is through (`packing`, or `failed`). 409 `publish-running` while one runs. */
+  start(request: HubAppPublishRequest): Promise<PublishResult<{ publish: HubAppPublishState }>>;
+  /** The session running or last ended; null for none. */
+  current(): Promise<PublishResult<{ publish: HubAppPublishState | null }>>;
+  /** Upload what an `awaiting-confirm` session packed. */
+  confirm(): Promise<PublishResult<{ publish: HubAppPublishState }>>;
+  /** Stop a session before anything is sent. */
+  cancel(): Promise<PublishResult<{ publish: HubAppPublishState | null }>>;
+  /** Withdraw the draft or the version in review. */
+  withdraw(): Promise<PublishResult<{ withdrawn: HubVersionStatus }>>;
+  /** Bump the block's version: `major`, `minor`, `patch` or a version. */
+  bumpVersion(spec: string): Promise<PublishResult<{ change: PackageVersionChange }>>;
+}
+
+/** {@link PublishClient} over the engine's `/api/publish/*` routes. */
+export class HttpPublishClient implements PublishClient {
+  async packageInfo(): Promise<PublishResult<{ package: HubAppPublishPackage }>> {
+    const answer = await HttpPublishClient.send('api/publish/package', {});
+    return answer.ok === false ? answer : { ok: true, package: answer.body as HubAppPublishPackage };
+  }
+
+  async status(): Promise<PublishResult<{ status: HubPublishStatus }>> {
+    const answer = await HttpPublishClient.send('api/publish/status', {});
+    return answer.ok === false ? answer : { ok: true, status: answer.body as HubPublishStatus };
+  }
+
+  async start(request: HubAppPublishRequest): Promise<PublishResult<{ publish: HubAppPublishState }>> {
+    const answer = await HttpPublishClient.send('api/publish', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(request) });
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState }).publish };
+  }
+
+  async current(): Promise<PublishResult<{ publish: HubAppPublishState | null }>> {
+    const answer = await HttpPublishClient.send('api/publish', {});
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState | null }).publish };
+  }
+
+  async confirm(): Promise<PublishResult<{ publish: HubAppPublishState }>> {
+    const answer = await HttpPublishClient.send('api/publish/confirm', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState }).publish };
+  }
+
+  async cancel(): Promise<PublishResult<{ publish: HubAppPublishState | null }>> {
+    const answer = await HttpPublishClient.send('api/publish', { method: 'DELETE' });
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState | null }).publish };
+  }
+
+  async withdraw(): Promise<PublishResult<{ withdrawn: HubVersionStatus }>> {
+    const answer = await HttpPublishClient.send('api/publish/withdraw', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+    return answer.ok === false ? answer : { ok: true, withdrawn: (answer.body as { withdrawn: HubVersionStatus }).withdrawn };
+  }
+
+  async bumpVersion(spec: string): Promise<PublishResult<{ change: PackageVersionChange }>> {
+    const answer = await HttpPublishClient.send('api/publish/version', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ spec }) });
+    return answer.ok === false ? answer : { ok: true, change: answer.body as PackageVersionChange };
+  }
+
+  /** One request: the parsed body on success, the engine's refusal (sentence, code, details) or a network one otherwise. */
+  private static async send(url: string, init: RequestInit): Promise<{ ok: true; body: unknown } | PublishRefusal> {
+    try {
+      const res = await fetch(url, init);
+      const body = await res.json().catch(() => null) as { error?: string; code?: string; details?: unknown } | null;
+      if (!res.ok) {
+        const refusal: PublishRefusal = { ok: false, status: res.status, error: body?.error ?? `The engine answered ${res.status}.`, code: body?.code ?? 'internal' };
+        if (body?.details !== undefined) {
+          refusal.details = body.details;
+        }
+        return refusal;
+      }
+      return { ok: true, body };
+    } catch (err: any) {
+      return { ok: false, status: 0, error: `The engine didn't answer: ${err?.message ?? String(err)}`, code: 'engine-unreachable' };
     }
   }
 }

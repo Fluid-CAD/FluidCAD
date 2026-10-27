@@ -10,6 +10,8 @@ export type HubAccountDeps = {
   openExternal(url: string): void;
   /** A sign-in finished: the panel reads the status again (which names the handle). */
   onSignedIn(handle: string | null): void;
+  /** A sign-in ended, whichever way (signed in, denied, expired, cancelled, failed): what waits on it (the Publish dialog) hears. */
+  onSignInEnded?(login: HubLoginState): void;
   /** A sign-out finished: the panel reads the status again and whatever the hub answered for the account. */
   onSignedOut(): Promise<void>;
   /** The hub's host for sentences (`hub.fluidcad.io`), once the status is known. */
@@ -272,12 +274,14 @@ export class HubAccount {
       this.notice = null;
       this.render();
       this.deps.onSignedIn(login.handle);
+      this.deps.onSignInEnded?.(login);
       return;
     }
     this.notice = login.status === 'cancelled'
       ? null
       : { tone: login.status === 'failed' ? 'error' : 'warning', text: login.error ?? 'The sign-in didn’t finish. Nothing was saved.', retry: true };
     this.render();
+    this.deps.onSignInEnded?.(login);
   }
 
   /**

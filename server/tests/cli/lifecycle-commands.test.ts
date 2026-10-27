@@ -7,12 +7,12 @@ import { ArchiveFixture } from '../packages/archive-fixture.ts';
 import { FakeHub } from '../fixtures/fake-hub.ts';
 
 /**
- * `fluidcad yank`, `unyank`, `deprecate` and `listing …` (hub-plan Stage
- * H12), run as the user runs them: the real `bin/fluidcad.js` in a child
- * process against the in-process FakeHub, signed in through
- * `FLUIDCAD_HUB_TOKEN`. FLUIDCAD_HOME and HOME are temp folders. The CLI
- * imports the compiled server out of `server/dist`: run `npm run
- * build:server` after a server change.
+ * `fluidcad deprecate` and `listing …` (hub-plan Stage H12), run as the
+ * user runs them: the real `bin/fluidcad.js` in a child process against
+ * the in-process FakeHub, signed in through `FLUIDCAD_HUB_TOKEN`.
+ * FLUIDCAD_HOME and HOME are temp folders. The CLI imports the compiled
+ * server out of `server/dist`: run `npm run build:server` after a server
+ * change.
  */
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
@@ -90,41 +90,6 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-describe('fluidcad yank and unyank', () => {
-  it('yanks the latest with its reason, says where installs by name go, and unyanks it', async () => {
-    const yank = await cli(['yank', '@acme/kit@0.2.0', '--reason', 'Breaks the bolt circle.'], { cwd: tmp });
-    expect(yank.stderr).toBe('');
-    expect(yank.status).toBe(0);
-    expect(yank.stdout).toBe(
-      `✓ Yanked @acme/kit@0.2.0 on ${hub.origin}: “Breaks the bolt circle.”\n` +
-        '  Installs by name now get 0.1.0; `fluidcad install @acme/kit@0.2.0` still installs 0.2.0.\n' +
-        '  `fluidcad unyank @acme/kit@0.2.0` brings it back.\n',
-    );
-    const unyank = await cli(['unyank', '@acme/kit@0.2.0'], { cwd: tmp });
-    expect(unyank.stdout).toBe(`✓ Unyanked @acme/kit@0.2.0 on ${hub.origin}.\n  It is the latest again: installs by name get 0.2.0.\n`);
-  });
-
-  it('takes the version alone in the package workspace; with every version yanked it says the package leaves search', async () => {
-    expect((await cli(['yank', '0.2.0', '--reason', 'x'])).status).toBe(0);
-    const last = await cli(['yank', '0.1.0', '--reason', 'Wrong unit.']);
-    expect(last.stdout).toContain('No version is left for an install by name, so @acme/kit leaves search');
-  });
-
-  it('needs --reason, refuses a package under another handle before asking the hub, and passes the hub’s refusal on', async () => {
-    const noReason = await cli(['yank', '@acme/kit@0.2.0']);
-    expect(noReason.status).toBe(1);
-    expect(noReason.stderr).toContain("required option '--reason <text>' not specified");
-    const other = await cli(['yank', '@bea-tools/kit@0.1.0', '--reason', 'x']);
-    expect(other.status).toBe(1);
-    expect(other.stderr).toBe(`@bea-tools/kit is under @bea-tools, but you are signed in to ${hub.origin} as @acme, and only its owner can change it: sign in as @bea-tools.\n`);
-    expect(hub.requests.some((request) => request.path.includes('@bea-tools'))).toBe(false);
-    const notYanked = await cli(['unyank', '@acme/kit@0.1.0']);
-    expect([notYanked.status, notYanked.stderr]).toEqual([1, "@acme/kit@0.1.0 isn't yanked.\n"]);
-    const signedOut = await cli(['yank', '@acme/kit@0.1.0', '--reason', 'x'], { token: null });
-    expect(signedOut.stderr).toBe(`Not signed in to ${hub.origin}. Run \`fluidcad login\` first.\n`);
-  });
-});
-
 describe('fluidcad deprecate', () => {
   it('deprecates the workspace’s package with a message, names another by its name, and clears with --clear', async () => {
     const set = await cli(['deprecate', 'Use', '@acme/other', 'instead.']);
@@ -141,6 +106,15 @@ describe('fluidcad deprecate', () => {
     expect(hub.packages.get('@acme/kit')!.deprecatedMessage).toBeNull();
     const nothing = await cli(['deprecate']);
     expect([nothing.status, nothing.stderr]).toEqual([1, 'Write the message (what to use instead, or why), such as `fluidcad deprecate @acme/kit "Use @acme/other instead."`, or pass --clear.\n']);
+  });
+
+  it('refuses a package under another handle before asking the hub, and signed out', async () => {
+    const other = await cli(['deprecate', '@bea-tools/kit', 'Moved.']);
+    expect(other.status).toBe(1);
+    expect(other.stderr).toBe(`@bea-tools/kit is under @bea-tools, but you are signed in to ${hub.origin} as @acme, and only its owner can change it: sign in as @bea-tools.\n`);
+    expect(hub.requests.some((request) => request.path.includes('@bea-tools'))).toBe(false);
+    const signedOut = await cli(['deprecate', 'Moved.'], { token: null });
+    expect(signedOut.stderr).toBe(`Not signed in to ${hub.origin}. Run \`fluidcad login\` first.\n`);
   });
 });
 

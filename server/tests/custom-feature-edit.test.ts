@@ -87,11 +87,17 @@ const SWATCH_META = {
   ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
+/** The screw options as shown: images, a description, a group, keywords — and one offered only while the head is plain. */
+const SHOWN_SCREW_OPTIONS: { label: string; value: string; image: string; description?: string; group: string; keywords?: string[]; when?: Record<string, string> }[] = [
+  { label: 'M3', value: 'm3', image: './clip/m3.svg', description: '3.4 mm', group: 'Metric', keywords: ['iso'] },
+  { label: 'M4', value: 'm4', image: './clip/m4.svg', group: 'Metric', when: { head: 'plain' } },
+];
+
 /** Choices: a select and two radios, shown as a grid and cards with images, groups and keywords. */
 const CLIP_META = {
   id: 'acme.clip', label: 'Clip', group: 'create', kind: 'tool', operations: [],
   params: {
-    size: { type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3, search: true, options: [{ label: 'M3', value: 'm3', image: './clip/m3.svg', description: '3.4 mm', group: 'Metric', keywords: ['iso'] }, { label: 'M4', value: 'm4', image: './clip/m4.svg', group: 'Metric', when: { head: 'plain' } }] },
+    size: { type: 'select', label: 'Screw', default: 'm3', display: 'grid', columns: 3, search: true, options: SHOWN_SCREW_OPTIONS },
     head: { type: 'radio', label: 'Head', default: 'plain', display: 'cards', columns: 2, options: [{ label: 'Plain', value: 'plain', image: './clip/plain.svg' }, { label: 'Counterbore', value: 'counterbore', description: 'A flat recess' }] },
     turns: { type: 'radio', label: 'Turns', optional: true, options: [{ label: 'One', value: 1 }, { label: 'Two', value: 2 }] },
   },
@@ -830,7 +836,7 @@ describe('a radio value, and choices that differ only in how they are shown', ()
     // CLIP_META offers 'm4' while the head is plain only; the dialog narrows, the statement owes it nothing.
     const select = TypedInKinds.of('select')!;
     const [shown, bare] = [CLIP_META, BARE_CLIP_META].map(meta => (meta.params as Record<string, TypedInSpec>).size);
-    expect((shown as { options: { when?: unknown }[] }).options[1].when).toEqual({ head: 'plain' });
+    expect(SHOWN_SCREW_OPTIONS[1].when).toEqual({ head: 'plain' });
     expect(select.source(shown, 'm4')).toEqual({ kind: 'literal', value: 'm4' });
     expect(select.source(shown, 'm4')).toEqual(select.source(bare, 'm4'));
     expect(select.source(shown, 'm9')).toEqual(select.source(bare, 'm9'));

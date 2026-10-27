@@ -62,18 +62,6 @@ const CLIP_META = {
   ghost: true, contexts: ['part'],
 } as unknown as ScannedFeature['meta'];
 
-/** The same choices with nothing but labels and values. */
-const BARE_CLIP_META = {
-  id: 'acme.clip', label: 'Clip', group: 'create', kind: 'tool', operations: [],
-  params: {
-    size: { type: 'select', label: 'Screw', default: 'm3', options: [{ label: 'M3', value: 'm3' }, { label: 'M4', value: 'm4' }] },
-    head: { type: 'radio', label: 'Head', default: 'plain', options: [{ label: 'Plain', value: 'plain' }, { label: 'Counterbore', value: 'counterbore' }] },
-    turns: { type: 'radio', label: 'Turns', optional: true, options: [{ label: 'One', value: 1 }, { label: 'Two', value: 2 }] },
-  },
-  call: [{ size: 'size', head: 'head', turns: 'turns' }],
-  ghost: true, contexts: ['part'],
-} as unknown as ScannedFeature['meta'];
-
 const QUIET_META = { ...STANDOFF_META, id: 'acme.quiet', label: 'Quiet', ghost: false } as unknown as ScannedFeature['meta'];
 
 /** Bosses at connectors, points and face centres: a picker of three kinds. */

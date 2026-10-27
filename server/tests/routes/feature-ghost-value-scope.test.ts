@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ParamSiteDefinition } from '../../src/apply-feature-edit/index.ts';
+import type { RenderedInstanceProperties, RenderedPartProperties } from '../../src/code-editor/index.ts';
 import { ValueScope, type GhostValueScope } from '../../src/routes/feature-ghost/value-scope.ts';
 
 // The numbers a ghost's dialog values stand for, read where the dialog's
@@ -273,7 +274,7 @@ describe('ValueScope — instance properties', () => {
     `  return { drawer, second, box1 };`,
     `});`,
   ].join('\n');
-  const rendered = [
+  const rendered: RenderedInstanceProperties[] = [
     { sourceLocation: { filePath: ASSEMBLY_FILE, line: 4, column: 18 }, properties: { frontWidth: 480, finish: 'oak' } },
     { sourceLocation: { filePath: ASSEMBLY_FILE, line: 8, column: 18 }, properties: { frontWidth: 560, finish: 'oak' } },
     { sourceLocation: { filePath: ASSEMBLY_FILE, line: 9, column: 16 }, properties: { frontWidth: 680 } },
@@ -331,7 +332,7 @@ describe('ValueScope — part definition properties', () => {
     `  extrude(2, s);`,
     `});`,
   ].join('\n');
-  const rendered = [
+  const rendered: RenderedPartProperties[] = [
     { sourceLocation: { filePath: PART_FILE, line: 2, column: 20 }, properties: { lidClearance: 1, finish: 'oak' } },
     { sourceLocation: { filePath: PART_FILE, line: 8, column: 20 }, properties: {} },
   ];
@@ -387,7 +388,7 @@ describe('ValueScope — literals', () => {
     `  extrude(1);`,
     `});`,
   ].join('\n');
-  const rendered = [{ sourceLocation: { filePath: FILE, line: 15, column: 15 }, properties: { kind: 'm4', turns: 3, flag: false } }];
+  const rendered: RenderedInstanceProperties[] = [{ sourceLocation: { filePath: FILE, line: 15, column: 15 }, properties: { kind: 'm4', turns: 3, flag: false } }];
   const EXTRUDE = 17;
 
   async function shopScope(definitions: ParamSiteDefinition[] = []): Promise<ValueScope> {

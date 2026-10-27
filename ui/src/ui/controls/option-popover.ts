@@ -553,6 +553,10 @@ export class OptionPopover<V> {
     style.top = '0px';
     style.bottom = '';
     const natural = this.element.getBoundingClientRect();
+    // The width it opened at is its width for as long as it is open: a
+    // search that empties a grid or drops the longest row must not narrow
+    // it back to the anchor and leave it standing off to one side.
+    style.minWidth = `${Math.round(Math.max(anchor.width, natural.width))}px`;
     const wanted = Math.min(natural.height, MAX_HEIGHT);
     const below = window.innerHeight - anchor.bottom - GAP - EDGE;
     const above = anchor.top - GAP - EDGE;

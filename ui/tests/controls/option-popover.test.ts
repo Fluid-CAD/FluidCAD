@@ -460,6 +460,22 @@ describe('OptionPopover placement', () => {
     expect(panel.style.maxHeight).toBe('320px');
   });
 
+  it('keeps the width it opened at when a search narrows the list', () => {
+    const m = mount({ mode: 'grid', columns: 3, search: true });
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(600);
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1440);
+    vi.spyOn(m.anchor, 'getBoundingClientRect').mockReturnValue(rect({ top: 100, bottom: 130, left: 1201, width: 206 }));
+    vi.spyOn(m.panel, 'getBoundingClientRect').mockReturnValue(rect({ width: 274, height: 230 }));
+    m.popover.open();
+    expect(m.panel.style.minWidth).toBe('274px');
+    expect(m.panel.style.left).toBe('1158px');
+    m.search()!.value = 'nothing-here';
+    m.search()!.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(m.options()).toHaveLength(0);
+    expect(m.panel.style.minWidth).toBe('274px');
+    expect(m.panel.style.left).toBe('1158px');
+  });
+
   it('flips above when the window leaves no room below', () => {
     const { panel } = place({ top: 500, bottom: 530, left: 40, width: 220 }, { width: 220, height: 200 });
     expect(panel.dataset.placement).toBe('above');

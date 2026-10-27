@@ -5433,6 +5433,15 @@ export function setPartMaterial(sourceLocation: SourceLocationParam, material: s
 }
 
 /**
+ * Set (or, with null, remove) the `.appearance('id')` chain on the
+ * `part(...)` statement at `sourceLocation` — the timeline row menu's Set
+ * appearance…. Acked like {@link setPartMaterial}.
+ */
+export function setPartAppearance(sourceLocation: SourceLocationParam, appearance: string | null): Promise<SetUnitResult> {
+  return postAcked('api/set-part-appearance', { sourceLocation, appearance });
+}
+
+/**
  * Rename the `part(...)` statement at `sourceLocation` — the timeline row
  * menu's Rename on a part: the name `part('…', …)` takes, the variable the
  * part is bound to (named after the new name), and every read of it, in the

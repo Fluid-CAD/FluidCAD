@@ -5,7 +5,7 @@ import { TimelineView } from '../helpers/timeline-view';
 import type { TimelineEntry } from '../../../lib/dist/common/timeline';
 import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow, isShowableConsumedRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_ALERT_TRIANGLE, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY, ICON_SCALE, ICON_PACKAGE } from './icons';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_ALERT_TRIANGLE, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY, ICON_SCALE, ICON_PALETTE, ICON_PACKAGE } from './icons';
 import { ObjectIcons, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 import { AccordionSection } from './accordion-section';
@@ -188,6 +188,8 @@ export class TimelinePanel {
   onCopyConnector?: (obj: SceneObjectRender) => void;
   /** A part row's Set material…: open the pick dialog for that part. */
   onSetMaterial?: (obj: SceneObjectRender) => void;
+  /** A part row's Set appearance…: open the pick dialog for that part. */
+  onSetAppearance?: (obj: SceneObjectRender) => void;
   /** Whether this part row is the active part: the one part row highlighted, blue and bold. */
   isPartRowActive?: (obj: SceneObjectRender) => boolean;
 
@@ -1968,12 +1970,19 @@ export class TimelinePanel {
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_SCALE}</span>
           <span>Set material…</span>
         </button></li>`;
+    // The look beside the substance: a part's appearance is a chain on the
+    // same statement, picked from the same menu.
+    const appearanceItem = obj.type !== 'part' ? '' : `
+        <li><button data-action="set-appearance" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PALETTE}</span>
+          <span>Set appearance…</span>
+        </button></li>`;
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         <li><button data-action="rename" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PENCIL}</span>
           <span>Rename</span>
-        </button></li>${editItem}${materialItem}${copyConnectorItem}${tangencyItem}${breakpointItem}
+        </button></li>${editItem}${materialItem}${appearanceItem}${copyConnectorItem}${tangencyItem}${breakpointItem}
         <li><button data-action="remove" class="flex items-center gap-2 text-error">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_TRASH}</span>
           <span>Remove</span>
@@ -2005,6 +2014,11 @@ export class TimelinePanel {
     dropdown.querySelector<HTMLButtonElement>('[data-action="set-material"]')?.addEventListener('click', () => {
       this.closeDropdown();
       this.onSetMaterial?.(obj);
+    });
+
+    dropdown.querySelector<HTMLButtonElement>('[data-action="set-appearance"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      this.onSetAppearance?.(obj);
     });
 
     dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {

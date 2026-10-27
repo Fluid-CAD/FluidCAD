@@ -30,6 +30,7 @@ import {
   savePreference,
   setDocumentUnit,
   setPartMaterial,
+  setPartAppearance,
   setProjectUnit,
 } from './api';
 import type { CatalogParamValue, ConfigurationEditResult, ConfigurationSourceTable, ConfigurationTableCommit, EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, PauseAfterOptions, PauseAfterResult, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocation, SourceLocationParam, UserPreferences } from './api';
@@ -100,6 +101,10 @@ class HttpEngineEditorClient implements EngineEditorClient {
 
   setPartMaterial(sourceLocation: SourceLocationParam, material: string | null): Promise<SetUnitResult> {
     return setPartMaterial(sourceLocation, material);
+  }
+
+  setPartAppearance(sourceLocation: SourceLocationParam, appearance: string | null): Promise<SetUnitResult> {
+    return setPartAppearance(sourceLocation, appearance);
   }
 }
 

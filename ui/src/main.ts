@@ -2,6 +2,7 @@ import { Viewer, type SelectedEntity } from './viewer';
 import { HttpEngineClient } from './http-engine-client';
 import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SetMaterialDialog } from './ui/set-material-dialog';
+import { SetAppearanceDialog } from './ui/set-appearance-dialog';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
 import { PartsPanel } from './ui/parts-panel';
@@ -290,6 +291,9 @@ const shapePropertiesModal = new ShapePropertiesModal(container, engineClient);
 const openMaterialSettings = () => settingsModal.show('materials');
 shapePropertiesModal.setManageMaterialsHandler(openMaterialSettings);
 const setMaterialDialog = new SetMaterialDialog(container, engineClient, { onManage: openMaterialSettings });
+// The look beside the substance: the same row menu's Set appearance… picks
+// from the built-in appearance table (no server list to fetch).
+const setAppearanceDialog = new SetAppearanceDialog(container, engineClient);
 // The properties panel's whole-solid picker (single mode) — the copy dialog
 // shares the component in multiple mode for its targets slot.
 const propertiesSolidPick = new SolidPickSelection(viewer);
@@ -1581,6 +1585,7 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   };
   panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
   panel.onSetMaterial = (obj) => setMaterialDialog.open(obj);
+  panel.onSetAppearance = (obj) => setAppearanceDialog.open(obj);
   // The eye on a consumed sketch, plane or axis row: view state in the
   // viewer, keyed by source location so it survives re-renders. Never
   // written to the file.

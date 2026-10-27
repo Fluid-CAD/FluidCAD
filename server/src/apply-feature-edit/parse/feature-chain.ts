@@ -10,6 +10,7 @@ import {
 } from '../ast/args.ts';
 import { decomposeChain, type ChainSegment } from '../ast/chain.ts';
 import { parseBooleanChain, type BooleanKind } from '../features/boolean.ts';
+import { parseColorChain } from '../features/color.ts';
 import { parseConnectorChain } from '../features/connector.ts';
 import { parseCopyChain } from '../features/copy.ts';
 import type { ExtrudeTargetKind } from '../features/extrude.ts';
@@ -168,6 +169,10 @@ export function parseFeatureChain(
       return { parsed: { feature, value, argsText, distance2, isAngle }, start, end };
     }
     return { parsed: { feature, value, argsText }, start, end };
+  }
+
+  if (feature === 'color') {
+    return parseColorChain(args, code, start, end);
   }
 
   if (feature === 'offset') {

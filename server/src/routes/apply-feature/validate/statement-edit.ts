@@ -20,6 +20,7 @@ import { validateChains, validatePick, validatePicks, validateSketchPicks, type 
 import { validateRegionEdits } from '../regions.ts';
 import { normalizePath } from '../../../normalize-path.ts';
 import { validateBooleanEdit } from './boolean.ts';
+import { validateColorEdit } from './color.ts';
 import { isKeepSlot, validateProfileFeature, validateThinOffsets } from './common.ts';
 import { validateCopyEdit, type CopyEditAxisInput } from './copy.ts';
 import { validateExtrudeOptions } from './extrude.ts';
@@ -52,7 +53,7 @@ import { validateSplitEdit, type SplitPlaneInput } from './split.ts';
 import { validateSweepExtend } from './sweep.ts';
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split', 'color']);
 
 export type StatementEditRequest = {
   feature: ApplyFeatureEditSpec['feature'];
@@ -178,6 +179,8 @@ export type StatementEditRequest = {
   translateTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement boolean target list; absent keeps the statement's. */
   booleanTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /** Full replacement colour target list (the Solid tab); absent keeps the statement's arguments, `[]` makes the paint implicit. */
+  colorTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement plane base list; absent keeps the statement's. */
   planeBases?: PlaneEditBaseInput[];
   /**
@@ -666,6 +669,10 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
 
   if (feature === 'boolean') {
     return validateBooleanEdit(body, base, edit);
+  }
+
+  if (feature === 'color') {
+    return validateColorEdit(body, base, edit);
   }
 
   if (feature === 'plane') {

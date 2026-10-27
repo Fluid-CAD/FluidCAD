@@ -64,7 +64,7 @@ export type SceneManager = {
   synthesizeApplyFeature(
     scene: any,
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
-    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'connector' | 'expose' | 'hole',
+    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'connector' | 'expose' | 'hole' | 'color',
     value: number | string | undefined,
     chains?: {
       seed: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };

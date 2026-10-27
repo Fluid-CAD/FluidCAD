@@ -30,6 +30,7 @@ import type {
 import type { AssemblyReplicateEditSpec } from '../assembly-replicate-edit.ts';
 import type { AssemblyRelationEditSpec } from '../assembly-relation-edit.ts';
 import type { BooleanEditOptions, BooleanKind } from './features/boolean.ts';
+import type { ColorEditOptions } from './features/color.ts';
 import type { ChamferEditOptions } from './features/chamfer.ts';
 import type { ConnectorAnchorSpec, ConnectorEditOptions, ConnectorRotateAxis } from './features/connector.ts';
 import type { CopyEditAxis, CopyEditOptions, CopyEditPattern } from './features/copy.ts';
@@ -74,7 +75,7 @@ import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'custom';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'color' | 'custom';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -150,6 +151,8 @@ export type ApplyFeatureEditSpec = {
   translate?: TranslateEditOptions;
   /** Boolean-only payload (fuse/subtract/common); no selector parts. */
   boolean?: BooleanEditOptions;
+  /** Colour-only payload: the value, plus the objects painted whole — or, with none, `parts` render the painted faces. */
+  color?: ColorEditOptions;
   /**
    * A custom feature's create payload: its id, where its builder is
    * imported from, the catalog's shape of its statements, and every value
@@ -870,6 +873,18 @@ export type FeatureStatementEditTarget = {
   boolean?: {
     kind: BooleanKind;
     /** Full replacement target list; absent keeps the statement's targets. */
+    targets?: RepeatEditTargetSource[];
+  };
+  /**
+   * Colour options. The value rewrites wholesale. The target list — the
+   * Solid tab's — mixes `verbatim` keeps (re-read from the statement's own
+   * argument texts) with re-picked feature statements, and an empty list
+   * makes the paint implicit; absent, the Face tab's re-picked selectors
+   * (`parts`) or expression text (`rawArgs`) replace the arguments, and with
+   * neither the statement's own arguments stand.
+   */
+  color?: {
+    value: string;
     targets?: RepeatEditTargetSource[];
   };
   /**

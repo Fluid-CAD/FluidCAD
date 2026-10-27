@@ -22,6 +22,7 @@ import { handleSplit } from './handlers/split.ts';
 import { handleRotate } from './handlers/rotate.ts';
 import { handleTranslate } from './handlers/translate.ts';
 import { handleBoolean } from './handlers/boolean.ts';
+import { handleColor } from './handlers/color.ts';
 import { handlePlaneSketch } from './handlers/plane-sketch.ts';
 import { handleProject } from './handlers/project.ts';
 import { handleConnector } from './handlers/connector.ts';
@@ -226,6 +227,13 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
     // sketched line exported from its sketch), keeping one side or both.
     if (feature === 'split') {
       await handleSplit(ctx, req, res);
+      return;
+    }
+
+    // A colour paints whole objects (bound feature statements, the boolean's
+    // target idiom) or picked faces (synthesized into selectors, the shell's).
+    if (feature === 'color') {
+      await handleColor(ctx, req, res);
       return;
     }
 

@@ -15,6 +15,7 @@ import {
 import { SelectHoist } from '../../select-hoist.ts';
 import { enclosingStatement, rowOfIndex } from '../ast/nodes.ts';
 import { validChamferOptions } from '../features/chamfer.ts';
+import { ColorValues } from '../features/color.ts';
 import { CONNECTOR_NAME, validConnectorAnchor, validConnectorRotate } from '../features/connector.ts';
 import type { CopyAxisSpec } from '../features/copy.ts';
 import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
@@ -585,6 +586,22 @@ export async function applyCreateEdit(
       && spec.parts.length === 0;
     if (!valid) {
       return { newCode: code, error: 'malformed boolean edit spec' };
+    }
+  } else if (spec.feature === 'color') {
+    // Whole objects are bound feature producers and render no selector parts
+    // (the Solid tab); with none, the painted faces come as selector parts
+    // or an expression override (the Face tab).
+    const co = spec.color;
+    const targets = co?.targets ?? [];
+    const valid = co !== undefined
+      && ColorValues.valid(co.value)
+      && targets.every(t => isFeatureProducer(spec, t.producer))
+      && new Set(targets.map(t => t.producer)).size === targets.length
+      && (targets.length > 0
+        ? spec.parts.length === 0
+        : spec.parts.length > 0 || Boolean(spec.rawArgs?.trim()));
+    if (!valid) {
+      return { newCode: code, error: 'malformed color edit spec' };
     }
   } else if (spec.feature === 'sketch' && spec.sketchOnPlane) {
     // The single producer is the plane statement the sketch targets; there is

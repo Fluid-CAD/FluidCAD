@@ -10059,3 +10059,224 @@ describe('section statements', () => {
     expect(badPlane.error).toBe('malformed section edit spec');
   });
 });
+
+describe('color statement templates', () => {
+  const base = [
+    `import { sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { ellipse(100, 50) })`,
+    `extrude(30)`,
+    `sketch('xy', () => { ellipse(10, 10) })`,
+    `cut(5)`,
+  ].join('\n');
+
+  function colorSpec(
+    color: NonNullable<ApplyFeatureEditSpec['color']>,
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'color',
+      color,
+      filePath: '/ws/model.fluid.js',
+      producers: [
+        { line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 6, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  it('binds the painted objects and appends the colour at end of scope, named', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, colorSpec({
+      value: '#3498db',
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { color, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ellipse(100, 50) })`,
+      `const f = extrude(30)`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
+      `const f2 = cut(5)`,
+      `color('#3498db', f, f2).name('Color 1')`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('renders the picked faces from selector parts, importing the filters they use', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, colorSpec({
+      value: 'steelblue',
+      targets: [],
+    }, {
+      producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+      imports: [],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const e = extrude(30)`);
+    expect(result.newCode).toContain(`color('steelblue', e.endFaces()).name('Color 1')`);
+  });
+
+  it('writes the expression row\'s text verbatim in place of the selector parts', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, colorSpec({
+      value: 'tomato',
+      targets: [],
+    }, {
+      producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+      rawArgs: 'select(face().top())',
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`color('tomato', select(face().top()))`);
+    expect(result.newCode).toContain(`import { face } from 'fluidcad/filters'`);
+  });
+
+  it('quotes a colour value for the single-quoted literal', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, colorSpec({
+      value: 'rgb(10, 20, 30)',
+      targets: [{ producer: 0 }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`color('rgb(10, 20, 30)', f)`);
+  });
+
+  it('refuses a value that is no colour, and a paint with neither objects nor faces', async () => {
+    const noColor = await applyFeatureEdit(`${base}\n`, colorSpec({ value: 'notacolour', targets: [{ producer: 0 }] }));
+    expect(noColor.error).toBe('malformed color edit spec');
+    const nothing = await applyFeatureEdit(`${base}\n`, colorSpec({ value: 'red', targets: [] }));
+    expect(nothing.error).toBe('malformed color edit spec');
+    expect(nothing.newCode).toBe(`${base}\n`);
+  });
+
+  it('refuses objects and selector parts in one statement', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, colorSpec({
+      value: 'red',
+      targets: [{ producer: 0 }],
+    }, {
+      parts: [{ producer: 1, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBe('malformed color edit spec');
+  });
+});
+
+const colorEditBase = [
+  `import { sketch, ellipse, extrude, cut, color } from 'fluidcad/core'`,
+  ``,
+  `sketch('xy', () => { ellipse(100, 50) })`,
+  `const e = extrude(30)`,
+  `sketch('xy', () => { ellipse(10, 10) })`,
+  `const c = cut(5)`,
+].join('\n');
+
+describe('parseFeatureStatement — color', () => {
+  it('reads a colour with identifier targets, resolving them to their statements', async () => {
+    const code = `${colorEditBase}\ncolor('red', e, c)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'color', value: 'red', argsText: 'e, c', targetTexts: ['e', 'c'],
+        targetRefs: [{ line: 4, column: 10 }, { line: 6, column: 10 }],
+      },
+      statement: `color('red', e, c)`,
+    });
+  });
+
+  it('reads a face paint with its argument text verbatim and no statement refs', async () => {
+    const code = `${colorEditBase}\ncolor("#3498db", e.endFaces())\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'color', value: '#3498db', argsText: 'e.endFaces()', targetTexts: ['e.endFaces()'], targetRefs: [null],
+      },
+    });
+  });
+
+  it('reads an argument-less colour as the empty list', async () => {
+    const code = `${colorEditBase}\ncolor('red')\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'color', value: 'red', argsText: '', targetTexts: [], targetRefs: [] },
+    });
+  });
+
+  it('refuses a colour that is not a plain string', async () => {
+    const code = `${colorEditBase}\nconst tint = 'red'\ncolor(tint, e)\n`;
+    const result = await parseFeatureStatement(code, 8);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('not a plain string') });
+  });
+});
+
+describe('applyFeatureEdit (color in-place statement edit)', () => {
+  it('rewrites the colour, keeping the targets verbatim', async () => {
+    const code = `${colorEditBase}\ncolor('red', e, c)\n`;
+    const result = await applyFeatureEdit(code, editSpec('color', {
+      line: 7, column: 0,
+      color: { value: '#ff6347' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`color('#ff6347', e, c)\n`);
+  });
+
+  it('replaces the target list, mixing kept and re-picked objects', async () => {
+    const code = `${colorEditBase}\ncolor('red', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('color', {
+      line: 7, column: 0,
+      color: { value: 'red', targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }] },
+    }, {
+      producers: [{ line: 6, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`color('red', e, c)\n`);
+  });
+
+  it('makes the paint implicit with an empty target list', async () => {
+    const code = `${colorEditBase}\ncolor('red', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('color', {
+      line: 7, column: 0,
+      color: { value: 'gold', targets: [] },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`color('gold')\n`);
+  });
+
+  it('renders re-picked faces from selector parts over an object paint', async () => {
+    const code = `${colorEditBase}\ncolor('red', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('color', {
+      line: 7, column: 0,
+      color: { value: 'red' },
+    }, {
+      producers: [{ line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`color('red', e.endFaces())\n`);
+  });
+
+  it('preserves the binding and a chained suffix', async () => {
+    const code = `${colorEditBase}\nconst paint = color('red', e).name('body paint');\n`;
+    const result = await applyFeatureEdit(code, editSpec('color', {
+      line: 7, column: 0,
+      color: { value: 'seagreen' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const paint = color('seagreen', e).name('body paint');`);
+  });
+
+  it('refuses a target list alongside selector parts', async () => {
+    const code = `${colorEditBase}\ncolor('red', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('color', {
+      line: 7, column: 0,
+      color: { value: 'red', targets: [{ kind: 'verbatim', sourceIndex: 0 }] },
+    }, {
+      producers: [{ line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toContain('malformed color edit spec');
+  });
+});

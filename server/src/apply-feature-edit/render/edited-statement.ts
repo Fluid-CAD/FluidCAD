@@ -1,6 +1,7 @@
 // Re-rendering a parsed feature statement with the edits a dialog committed.
 
 import { renderEditedBoolean } from '../features/boolean.ts';
+import { renderEditedColor } from '../features/color.ts';
 import { renderChamferValueArgs, validChamferOptions } from '../features/chamfer.ts';
 import {
   CONNECTOR_NAME,
@@ -513,6 +514,9 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'boolean') {
     return renderEditedBoolean(parsed, spec, varFor);
+  }
+  if (parsed.feature === 'color') {
+    return renderEditedColor(parsed, spec, varFor);
   }
   if (parsed.feature === 'plane') {
     return renderEditedPlane(parsed, spec, varFor);

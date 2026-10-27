@@ -100,6 +100,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.rotateTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.translateTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.booleanTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
+      ...(request.colorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.planeBases ?? []).flatMap(b => b.kind === 'plane' || b.kind === 'wire' ? [b.loc] : []),
     ];
     for (const loc of sketchLocs) {
@@ -144,7 +145,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     /** Synthesize one re-picked slot against the pre-statement scene. */
     const synthesizeSlot = (
       picks: Pick[],
-      kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector',
+      kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector' | 'color',
       value: ValueExpr | undefined,
       chains: { seed: Pick; members: Pick[] }[],
       extra?: { connector?: { anchor?: ConnectorAnchorSpec } },
@@ -458,7 +459,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       // the re-picked source reads exactly like a freshly created one.
       const synthesis = synthesizeSlot(
         request.picks,
-        request.feature as 'fillet' | 'chamfer' | 'shell' | 'project' | 'offset' | 'connector',
+        request.feature as 'fillet' | 'chamfer' | 'shell' | 'project' | 'offset' | 'connector' | 'color',
         request.feature === 'connector' ? edit.connector!.name : request.value,
         request.chains ?? [],
         request.feature === 'connector' ? { connector: { anchor: request.connectorAnchor } } : undefined,
@@ -992,6 +993,19 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       // Every re-picked target is a bound feature producer; keeps stay
       // text-addressed by their position in the statement.
       edit.boolean!.targets = request.booleanTargets.map(target => target.kind === 'verbatim'
+        ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
+        : {
+          kind: 'feature' as const,
+          producer: mergeProducer({
+            line: target.loc.line, column: target.loc.column,
+            featureType: 'feature', nameHint: 'f', bind: true,
+          }),
+        });
+    }
+    if (request.feature === 'color' && request.colorTargets) {
+      // The Solid tab's list, the boolean's way; an empty list makes the
+      // paint implicit again.
+      edit.color!.targets = request.colorTargets.map(target => target.kind === 'verbatim'
         ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
         : {
           kind: 'feature' as const,

@@ -133,6 +133,7 @@ export {
   type SectionEditOptions,
 } from './features/section.ts';
 export { renderBooleanStatement, type BooleanEditOptions, type BooleanKind } from './features/boolean.ts';
+export { ColorValues, renderColorStatement, type ColorEditOptions } from './features/color.ts';
 export { renderShellJoinChain, type ShellEditOptions, type ShellJoinKind } from './features/shell.ts';
 export { renderChamferValueArgs, type ChamferEditOptions } from './features/chamfer.ts';
 export {

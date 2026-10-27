@@ -5131,6 +5131,127 @@ describe('apply-feature route validation', () => {
     });
   });
 
+  describe('color', () => {
+    const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
+    const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+    const CODE = [
+      "import { sketch, circle, extrude, cut } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { circle([0, 0], 100) })",
+      'extrude(30)',
+      "sketch('xy', () => { circle([0, 0], 10) })",
+      'cut(5)',
+      '',
+    ].join('\n');
+
+    it('rejects a value that is no colour', async () => {
+      const { status, body } = await post({ feature: 'color', value: 'notacolour', targets: [T1] });
+      expect(status).toBe(400);
+      expect(body.error).toContain('CSS colour');
+    });
+
+    it('rejects a paint naming both objects and faces, or neither', async () => {
+      const both = await post({ feature: 'color', value: 'red', targets: [T1], entities: [PICK] });
+      expect(both.status).toBe(400);
+      expect(both.body.error).toContain('exactly one');
+      const neither = await post({ feature: 'color', value: 'red' });
+      expect(neither.status).toBe(400);
+      expect(neither.body.error).toContain('exactly one');
+    });
+
+    it('rejects the same object picked twice, and an edge pick on the faces', async () => {
+      const twice = await post({ feature: 'color', value: 'red', targets: [T1, T1] });
+      expect(twice.status).toBe(400);
+      expect(twice.body.error).toContain('picked twice');
+    });
+
+    it('previews and relays an object paint, bound like a boolean\'s targets', async () => {
+      currentCode = CODE;
+      const paint = { feature: 'color', value: '#3498DB', targets: [T1, T2] };
+      const preview = await post({ ...paint, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe("color('#3498db', f, f2)");
+      expect(relayed).toEqual([]);
+      expect(synthesizeCalls).toEqual([]);
+
+      const { status, body } = await post(paint);
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(relayed[0].type).toBe('apply-feature-edit');
+      expect(spec.feature).toBe('color');
+      expect(spec.color).toEqual({ value: '#3498db', targets: [{ producer: 0 }, { producer: 1 }] });
+      expect(spec.producers).toHaveLength(2);
+      expect(spec.producers.every((p: any) => p.featureType === 'feature' && p.bind)).toBe(true);
+      expect(spec.parts).toEqual([]);
+      expect(spec.imports).toEqual([]);
+    });
+
+    it('synthesizes a face paint and composes the statement around the quoted colour', async () => {
+      currentCode = CODE;
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'color', filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+          imports: [],
+        },
+        preview: 'color(e.endFaces())',
+        args: 'e.endFaces()',
+        alternatives: ['select(face().top())'],
+      };
+      const preview = await post({ feature: 'color', value: 'SteelBlue', entities: [PICK], preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe("color('steelblue', e.endFaces())");
+      expect(preview.body.args).toBe('e.endFaces()');
+      expect(preview.body.alternatives).toEqual(['select(face().top())']);
+      expect(synthesizeCalls).toEqual([{ feature: 'color', value: undefined }]);
+      expect(relayed).toEqual([]);
+
+      const { status, body } = await post({ feature: 'color', value: 'steelblue', entities: [PICK] });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      const spec = relayed[0].spec;
+      expect(spec.feature).toBe('color');
+      expect(spec.color).toEqual({ value: 'steelblue', targets: [] });
+      expect(spec.parts).toEqual([{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }]);
+      expect(spec.rawArgs).toBeUndefined();
+    });
+
+    it('writes an edited expression as the raw arguments when it differs from the synthesis', async () => {
+      currentCode = CODE;
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'color', filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+          imports: [],
+        },
+        preview: 'color(e.endFaces())',
+        args: 'e.endFaces()',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'color', value: 'red', entities: [PICK], selectorOverride: 'select(face().top())',
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("color('red', select(face().top()))");
+      expect(relayed[0].spec.rawArgs).toBe('select(face().top())');
+    });
+
+    it('422s a face paint the kernel refuses', async () => {
+      currentCode = CODE;
+      currentSynthesis = { ok: false, reason: 'a colour paints faces — pick faces only', pick: PICK };
+      const { status, body } = await post({ feature: 'color', value: 'red', entities: [PICK] });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('pick faces only');
+      expect(relayed).toEqual([]);
+    });
+  });
+
   describe('mirror', () => {
     const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
     const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
@@ -6087,6 +6208,108 @@ describe('apply-feature route validation', () => {
       });
       expect(status).toBe(422);
       expect(body.reason).toContain('not a boolean');
+      expect(relayed).toHaveLength(0);
+    });
+  });
+
+  describe('color edit', () => {
+    const EDIT_CODE = [
+      "import { sketch, circle, extrude, cut, color } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { circle([0, 0], 100) })",
+      'const e = extrude(30)',
+      "sketch('xy', () => { circle([0, 0], 10) })",
+      'const c = cut(5)',
+      "color('red', e)",
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 7, column: 0 };
+
+    it('relays a colour change keeping the arguments and previews it', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({ feature: 'color', edit: EDIT, value: '#FF6347' });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("color('#ff6347', e)");
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'color',
+        producers: [],
+        parts: [],
+        edit: { line: 7, column: 0, color: { value: '#ff6347' } },
+        clearBreakpoints: true,
+      });
+      expect(relayed[0].spec.edit.color.targets).toBeUndefined();
+    });
+
+    it('replaces the target list, mixing kept and re-picked objects', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'color', edit: EDIT, value: 'red',
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'feature', filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("color('red', e, c)");
+      expect(relayed[0].spec).toMatchObject({
+        producers: [{ line: 6, featureType: 'feature', bind: true }],
+        edit: { color: { value: 'red', targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }] } },
+      });
+    });
+
+    it('re-synthesizes re-picked faces against the pre-statement boundary', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'color', filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+          imports: [],
+        },
+        preview: 'color(e.endFaces())',
+        args: 'e.endFaces()',
+        alternatives: [],
+      };
+      const before = { index: 3, type: 'color', line: 7, column: 0 };
+      const preview = await post({ feature: 'color', edit: EDIT, value: 'red', entities: [PICK], before, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe("color('red', e.endFaces())");
+      expect(preview.body.args).toBe('e.endFaces()');
+      expect(synthesizeCalls).toEqual([{ feature: 'color', value: undefined }]);
+      expect(synthesizeBoundaries).toEqual([before]);
+      expect(relayed).toEqual([]);
+
+      const { status, body } = await post({ feature: 'color', edit: EDIT, value: 'red', entities: [PICK], before });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("color('red', e.endFaces())");
+      expect(relayed[0].spec.parts).toHaveLength(1);
+      expect(relayed[0].spec.edit.color).toEqual({ value: 'red' });
+    });
+
+    it('rejects a value that is no colour, and targets alongside faces', async () => {
+      const noColor = await post({ feature: 'color', edit: EDIT, value: 'notacolour' });
+      expect(noColor.status).toBe(400);
+      expect(noColor.body.error).toContain('CSS colour');
+      const both = await post({ feature: 'color', edit: EDIT, value: 'red', targets: [], entities: [PICK] });
+      expect(both.status).toBe(400);
+      expect(both.body.error).toContain('not both');
+    });
+
+    it('422s an edit whose statement is not a colour', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'color',
+        edit: { filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+        value: 'red',
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('not a color');
       expect(relayed).toHaveLength(0);
     });
   });

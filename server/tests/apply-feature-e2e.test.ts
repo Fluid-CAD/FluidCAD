@@ -2241,3 +2241,137 @@ describe('a custom feature whose select and toggle declare no default, from an u
     }
   });
 });
+
+describe('a colour, from the dialog\'s picks to the painted model', () => {
+  setupOC();
+  const FILE = '/ws/model.fluid.js';
+
+  /** The faces of `solid` whose every edge midpoint sits at `z`. */
+  function facesAt(solid: Shape, z: number): PickRef[] {
+    const picks: PickRef[] = [];
+    Explorer.findFacesWrapped(solid).forEach((fc, index) => {
+      const mids = fc.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg));
+      if (mids.every(m => Math.abs(m.z - z) < 1e-6)) {
+        picks.push({ shapeId: solid.id, sub: { type: 'face', index } });
+      }
+    });
+    return picks;
+  }
+
+  /** The colour every face of the one solid in `scene` resolves to, by face centre z. */
+  function colorsByZ(scene: Scene): Map<number, string | undefined> {
+    const solid = findSolid(scene) as Solid;
+    const holder = scene.getAllSceneObjects().find(o => !o.isContainer() && o.getAddedShapes().includes(solid))!;
+    const out = new Map<number, string | undefined>();
+    for (const face of solid.getFaces()) {
+      out.set(Math.round(face.center().z), holder.faceColorOf(solid, face));
+    }
+    return out;
+  }
+
+  it('paints the picked top face through a synthesized selector', async () => {
+    const code = [
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+    sketch('xy', () => { drawRect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 4, column: 0 });
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const picks = facesAt(solid, 30);
+    expect(picks).toHaveLength(1);
+
+    // The Face tab: the kernel names the face, the route quotes the colour.
+    const synthesis = synthesizeApplyFeature(scene, picks, 'color');
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.preview).toBe('color(e.endFaces())');
+    expect(synthesis.spec.value).toBeUndefined();
+
+    const edited = await applyFeatureEdit(code, {
+      ...synthesis.spec,
+      feature: 'color',
+      color: { value: '#3498db', targets: [] },
+    });
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`const e = extrude(30)`);
+    expect(edited.newCode).toContain(`color('#3498db', e.endFaces()).name('Color 1')`);
+    expect(edited.newCode).toMatch(/import \{[^}]*\bcolor\b[^}]*\} from 'fluidcad\/core'/);
+
+    // Execute the edited program: the top face is painted, the rest is not.
+    const colors = colorsByZ(runFluid(edited.newCode));
+    expect(colors.get(30)).toBe('#3498db');
+    expect(colors.get(0)).toBeUndefined();
+  });
+
+  it('refuses an edge pick — a colour paints faces', () => {
+    sketch('xy', () => { drawRect(100, 50) });
+    extrude(30);
+    const scene = render();
+    const solid = findSolid(scene);
+    const synthesis = synthesizeApplyFeature(scene, topEdgeRefs(solid, 30).slice(0, 1), 'color');
+    expect(synthesis).toMatchObject({ ok: false, reason: expect.stringContaining('pick faces only') });
+  });
+
+  it('paints a whole object bound by its statement, and seeds the edit dialog from the kernel', async () => {
+    const code = [
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+    // The Solid tab: the picked solid's statement, bound like a boolean target.
+    const edited = await applyFeatureEdit(code, {
+      feature: 'color',
+      color: { value: 'steelblue', targets: [{ producer: 0 }] },
+      filePath: FILE,
+      producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+      parts: [],
+      imports: [],
+    });
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`const f = extrude(30)`);
+    expect(edited.newCode).toContain(`color('steelblue', f).name('Color 1')`);
+
+    const colors = colorsByZ(runFluid(edited.newCode));
+    expect([...colors.values()].every(value => value === '#4682b4')).toBe(true);
+
+    // The edit dialog's seeding: a whole object reads as a statement target
+    // and no face entities. Built in-process with the lines the edited code
+    // puts the statements on, as the live-render stack capture would stamp.
+    sketch('xy', () => { drawRect(100, 50) });
+    const f = extrude(30);
+    (f as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 4, column: 10 });
+    const c = core.color('steelblue', f);
+    (c as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 5, column: 0 });
+    const painted = render();
+    const index = painted.getAllSceneObjects().indexOf(c as unknown as SceneObject);
+    const sources = resolveFeatureSources(painted, { index, type: 'color', line: 5, column: 0 });
+    expect(sources).toMatchObject({
+      ok: true, feature: 'color', selection: { kind: 'opaque' }, targets: [{ kind: 'sketch', line: 4, column: 10 }],
+    });
+  });
+
+  it('seeds the edit dialog of a face paint with the painted faces as picks', async () => {
+    sketch('xy', () => { drawRect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 4, column: 0 });
+    const c = core.color('tomato', (e as any).endFaces());
+    (c as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 5, column: 0 });
+    const scene = render();
+    const index = scene.getAllSceneObjects().indexOf(c as unknown as SceneObject);
+    const sources = resolveFeatureSources(scene, { index, type: 'color', line: 5, column: 0 });
+    expect(sources).toMatchObject({ ok: true, feature: 'color', targets: [] });
+    const selection = (sources as { selection: { kind: string; entities?: PickRef[] } }).selection;
+    expect(selection.kind).toBe('entities');
+    expect(selection.entities).toEqual([{ shapeId: expect.any(String), sub: { type: 'face', index: expect.any(Number) } }]);
+  });
+});

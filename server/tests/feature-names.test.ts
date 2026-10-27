@@ -37,6 +37,7 @@ import { CopyCircular } from '../../lib/features/copy-circular.js';
 import { CopyPattern } from '../../lib/features/copy-pattern.js';
 import { MirrorShape } from '../../lib/features/mirror-shape.js';
 import { Rotate } from '../../lib/features/rotate.js';
+import { Color } from '../../lib/features/color.js';
 import { Translate } from '../../lib/features/translate.js';
 import { Split } from '../../lib/features/split.js';
 import { Fuse } from '../../lib/features/fuse.js';
@@ -101,6 +102,7 @@ describe('DISPLAY_TYPE_BY_CALLEE', () => {
       rotate: [{ cls: Rotate }],
       translate: [{ cls: Translate }],
       split: [{ cls: Split }],
+      color: [{ cls: Color }],
       fuse: [{ cls: Fuse }],
       subtract: [{ cls: Subtract }],
       common: [{ cls: Common }],

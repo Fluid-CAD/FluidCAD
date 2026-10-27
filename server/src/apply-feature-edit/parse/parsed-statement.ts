@@ -13,7 +13,7 @@ import type { SplitKeep } from '../features/split.ts';
 import type { RegionName, ValueExpr } from '../value-expr.ts';
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split' | 'color';
 
 /**
  * A statement's parsed `.scope(…)` chain, shared by every feature that
@@ -408,6 +408,25 @@ export type ParsedFeatureStatement =
     position: ValueExpr | null;
   }
   | {
+    feature: 'color';
+    /** The CSS colour the statement writes, as the string literal spells it. */
+    value: string;
+    /** Target argument list after the colour, verbatim (`''` when absent). */
+    argsText: string;
+    /**
+     * Target texts, verbatim, in argument order; empty paints the last
+     * selection, or every face in scope.
+     */
+    targetTexts: string[];
+    /**
+     * Per-target source location of the feature statement a plain-identifier
+     * target references, or null when the expression doesn't resolve to one.
+     * Same length as `targetTexts`; lets the Solid tab seed targets as
+     * their timeline rows.
+     */
+    targetRefs: ({ line: number; column: number } | null)[];
+  }
+  | {
     feature: 'boolean';
     /** The statement's own callee — fuse, subtract or common. */
     kind: BooleanKind;
@@ -449,6 +468,7 @@ export const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   rotate: 'rotate',
   translate: 'translate',
   split: 'split',
+  color: 'color',
   fuse: 'boolean',
   subtract: 'boolean',
   common: 'boolean',
@@ -499,6 +519,7 @@ export const DISPLAY_TYPE_BY_CALLEE: Record<string, string> = {
   rotate: 'Rotate',
   translate: 'Translate',
   split: 'Split',
+  color: 'Color',
   fuse: 'Fuse',
   subtract: 'Subtract',
   common: 'Common',
@@ -554,6 +575,9 @@ export const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // The targets are the root call's arguments; `.name()` and friends are
   // unrecognized members and survive verbatim.
   boolean: new Set(),
+  // The colour and its targets are the root call's arguments; `.name()` and
+  // friends are unrecognized members and survive verbatim.
+  color: new Set(),
   // The single source is the root argument; every geometry option is a chained
   // configurator. A helix is a wire, so there is no boolean-operation chain.
   helix: new Set(['radius', 'endRadius', 'pitch', 'turns', 'height', 'startOffset', 'endOffset']),

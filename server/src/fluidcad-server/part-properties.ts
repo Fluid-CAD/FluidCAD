@@ -11,6 +11,7 @@ import {
   type MaterialSource,
   type ProjectMaterials,
 } from '../../../lib/dist/common/materials.js';
+import { resolveAppearance } from '../../../lib/dist/common/appearances.js';
 import { MM_PER_UNIT } from '../../../lib/dist/units/units.js';
 import type { ShapeProperties } from '../../../lib/dist/oc/props.js';
 import type { LengthUnit } from '../project-config.ts';
@@ -73,7 +74,7 @@ type RenderedRow = {
   type: string;
   uniqueType?: string;
   parentId: string | null;
-  object?: { material?: unknown; warnings?: unknown } | null;
+  object?: { material?: unknown; appearance?: unknown; warnings?: unknown } | null;
   sceneShapes?: { shapeId?: string; shapeType?: string; isMetaShape?: boolean }[];
   sourceLocation?: { filePath: string; line: number; column: number };
 };
@@ -87,6 +88,11 @@ export class PartPropertiesAggregator {
   /** The warning text a part row shows for an id the merged table lacks. */
   static unknownMaterialWarning(id: string): string {
     return `Unknown material: ${id}`;
+  }
+
+  /** The warning text a part row shows for an appearance id the built-in table lacks. */
+  static unknownAppearanceWarning(id: string): string {
+    return `Unknown appearance: ${id}`;
   }
 
   /**
@@ -126,10 +132,15 @@ export class PartPropertiesAggregator {
         }
       }
       const materialId = PartPropertiesAggregator.materialIdOf(row);
-      if (materialId === null || resolveMaterial(materialId, PartPropertiesAggregator.materialsFor(row, project, packages)) !== undefined) {
-        continue;
+      if (materialId !== null && resolveMaterial(materialId, PartPropertiesAggregator.materialsFor(row, project, packages)) === undefined) {
+        warn(index, row, PartPropertiesAggregator.unknownMaterialWarning(materialId));
       }
-      warn(index, row, PartPropertiesAggregator.unknownMaterialWarning(materialId));
+      // `.appearance(id)` the built-in table lacks: the part built and is
+      // shaded plain, so a notice, not an error.
+      const appearanceId = PartPropertiesAggregator.appearanceIdOf(row);
+      if (appearanceId !== null && resolveAppearance(appearanceId) === undefined) {
+        warn(index, row, PartPropertiesAggregator.unknownAppearanceWarning(appearanceId));
+      }
     }
     return warnings;
   }
@@ -247,6 +258,15 @@ export class PartPropertiesAggregator {
       return null;
     }
     const id = row.object?.material;
+    return typeof id === 'string' && id !== '' ? id : null;
+  }
+
+  /** The raw `.appearance(id)` of a part row, null for any other row or no appearance. */
+  private static appearanceIdOf(row: RenderedRow | null | undefined): string | null {
+    if (!row || row.type !== 'part') {
+      return null;
+    }
+    const id = row.object?.appearance;
     return typeof id === 'string' && id !== '' ? id : null;
   }
 

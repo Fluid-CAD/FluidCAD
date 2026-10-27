@@ -107,6 +107,19 @@ describe('PartPropertiesAggregator.collectWarnings', () => {
     }]);
   });
 
+  it('warns for an appearance id the built-in table lacks, after the material warning, and never for a known one', () => {
+    const known = rows('fluidcad-pla');
+    known[2] = { ...known[2], object: { ...known[2].object, appearance: 'oak' } } as Row;
+    expect(PartPropertiesAggregator.collectWarnings(known, null)).toEqual([]);
+
+    const odd = rows('acme-pla');
+    odd[2] = { ...odd[2], object: { ...odd[2].object, appearance: 'chrome' } } as Row;
+    expect(PartPropertiesAggregator.collectWarnings(odd, null).map(w => [w.index, w.message])).toEqual([
+      [2, 'Unknown material: acme-pla'],
+      [2, 'Unknown appearance: chrome'],
+    ]);
+  });
+
   it("lists a row's own notices (`object.warnings`, a custom feature's value its derive() ignored) ahead of its material's", () => {
     const own = rows('acme-pla');
     own[2] = { ...own[2], object: { ...own[2].object, warnings: [`'size' is "M6", fixed by what the feature was picked at — the statement's "M5" is ignored`, 42] } } as Row;

@@ -2663,7 +2663,10 @@ export class FluidCadServer {
       hasError: !!r.hasError,
       errorMessage: r.errorMessage,
       ...(warningsByIndex.has(index) ? { warnings: warningsByIndex.get(index) } : {}),
-      ...(r.type === 'part' ? { material: typeof r.object?.material === 'string' ? r.object.material : null } : {}),
+      ...(r.type === 'part' ? {
+        material: typeof r.object?.material === 'string' ? r.object.material : null,
+        appearance: typeof r.object?.appearance === 'string' ? r.object.appearance : null,
+      } : {}),
       containerId: r.parentId ?? null,
       isContainer: !!r.isContainer,
       visible: r.visible !== false,

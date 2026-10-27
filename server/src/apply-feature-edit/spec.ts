@@ -425,6 +425,11 @@ export type ApplyFeatureEditSpec = {
    * trip like `sketchClosed`; every other spec field is ignored.
    */
   partMaterial?: PartMaterialEditSpec;
+  /**
+   * The part row menu's "Set appearance…" chain edit, alone on its round
+   * trip like `partMaterial`; every other spec field is ignored.
+   */
+  partAppearance?: PartAppearanceEditSpec;
   /** Move or clear the document's breakpoint in one acknowledged source edit. */
   timelineBreakpoint?: TimelineBreakpointSpec;
   /**
@@ -959,6 +964,14 @@ export type PartMaterialEditSpec = {
   sourceLine: number;
   /** A material id to set or replace, or null to remove the `.material()` chain. */
   material: string | null;
+};
+
+/** The Set appearance… chain edit: see {@link setPartAppearance}. */
+export type PartAppearanceEditSpec = {
+  /** The `part(...)` statement's 1-based source line. */
+  sourceLine: number;
+  /** An appearance id to set or replace, or null to remove the `.appearance()` chain. */
+  appearance: string | null;
 };
 
 export type ApplyFeatureEditResult = {

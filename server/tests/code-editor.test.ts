@@ -14,6 +14,7 @@ import {
   insertSketchImage,
   setSketchImage,
   setPartMaterial,
+  setPartAppearance,
   setSectionOptions,
   insertGeometryCall,
   insertGeometryCallWithVariable,
@@ -1047,6 +1048,38 @@ describe('setPartMaterial', () => {
   it('escapes a quote in the id', async () => {
     const result = await setPartMaterial(`part('A', () => {});\n`, 1, "o'brien");
     expect(result.newCode).toBe(`part('A', () => {}).material('o\\'brien');\n`);
+  });
+});
+
+describe('setPartAppearance', () => {
+  const partCode = `const a = part('A', () => {\n  extrude(5);\n}).name('B').material('fluidcad-pine');\nconst b = part('Bare', () => {});\nextrude(5);\n`;
+
+  it('appends .appearance() after the existing chains, the material chain included', async () => {
+    const result = await setPartAppearance(partCode, 1, 'oak');
+    expect(result.newCode).toBe(`const a = part('A', () => {\n  extrude(5);\n}).name('B').material('fluidcad-pine').appearance('oak');\nconst b = part('Bare', () => {});\nextrude(5);\n`);
+  });
+
+  it('replaces an existing id in place and leaves the material chain alone', async () => {
+    const code = `part('A', () => {}).appearance('oak').material('fluidcad-pla');\n`;
+    const result = await setPartAppearance(code, 1, 'steel');
+    expect(result.newCode).toBe(`part('A', () => {}).appearance('steel').material('fluidcad-pla');\n`);
+  });
+
+  it('removes only the appearance chain with null', async () => {
+    const code = `part('A', () => {}).material('fluidcad-pla').appearance('oak').name('B');\n`;
+    const result = await setPartAppearance(code, 1, null);
+    expect(result.newCode).toBe(`part('A', () => {}).material('fluidcad-pla').name('B');\n`);
+  });
+
+  it('is a no-op when removing from a part without the chain, and refuses a non-part line', async () => {
+    expect((await setPartAppearance(partCode, 4, null)).newCode).toBe(partCode);
+    expect((await setPartAppearance(partCode, 5, 'oak')).newCode).toBe(partCode);
+  });
+
+  it('refuses when the existing argument is not a string literal', async () => {
+    const code = `const look = 'oak';\npart('A', () => {}).appearance(look);\n`;
+    expect((await setPartAppearance(code, 2, 'steel')).newCode).toBe(code);
+    expect((await setPartAppearance(code, 2, null)).newCode).toBe(code);
   });
 });
 

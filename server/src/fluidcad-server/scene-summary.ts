@@ -50,6 +50,11 @@ export type SceneSummaryObject = {
    * the part has none. Resolve it through `GET /api/materials`.
    */
   material?: string | null;
+  /**
+   * Part rows only: the appearance id `.appearance()` assigned, or null
+   * when the part has none — a built-in look (`oak`, `steel`, …).
+   */
+  appearance?: string | null;
   containerId: string | null;
   isContainer: boolean;
   visible: boolean;

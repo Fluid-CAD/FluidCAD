@@ -5,6 +5,7 @@ import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import { FeatureCallees, type ApplyFeatureEditSpec, type FeatureCalleeSource } from '../apply-feature-edit/index.ts';
 import type { SketchImageEdit } from '../code-editor/index.ts';
 import { MaterialCatalog } from '../material-catalog.ts';
+import { isAppearanceId } from '../../../lib/dist/common/appearances.js';
 import { MoveToPart } from '../move-to-part.ts';
 import { PartRename } from '../part-rename.ts';
 import { DeclarationRefactor } from '../declaration-refactor.ts';
@@ -386,6 +387,36 @@ export function createTimelineRouter(
       parts: [],
       imports: [],
       partMaterial: { sourceLine: sourceLocation.line, material },
+    };
+    await options.dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // The part row menu's "Set appearance…" (a built-in appearance id) and
+  // its "None" (null). Acked like set-part-material. Unlike a material, an
+  // appearance has no custom table: an id the built-in list lacks is a bad
+  // request, never written.
+  router.post('/set-part-appearance', async (req, res) => {
+    const { sourceLocation, appearance } = req.body ?? {};
+    if (
+      !sourceLocation ||
+      typeof sourceLocation.filePath !== 'string' ||
+      typeof sourceLocation.line !== 'number' ||
+      (appearance !== null && !isAppearanceId(appearance))
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    if (!options.dispatcher) {
+      res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
+      return;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'part',
+      filePath: sourceLocation.filePath,
+      producers: [],
+      parts: [],
+      imports: [],
+      partAppearance: { sourceLine: sourceLocation.line, appearance },
     };
     await options.dispatcher.dispatch(res, spec, { success: true });
   });

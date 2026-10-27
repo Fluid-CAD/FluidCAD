@@ -3,23 +3,31 @@ sidebar_position: 2
 title: "Appearance"
 ---
 
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import appearanceExample from '!!raw-loader!./_examples/appearance-example.js';
+
 # Appearance
 
-`.appearance(id)` gives a part a look: wood, steel, brass, rubber — a physically-based material the viewport shades its bodies with, reflections included. It is a chain on the `part()` statement, next to `.name()` and `.material()`:
+`.appearance(id)` gives a part a look: wood, steel, brass, rubber — a physically-based material the viewport shades its bodies with, reflections included. It is a chain on the `part()` statement, next to `.name()` and `.material()`.
 
-```js
-export const shelf = part('Shelf', () => {
-    sketch('xy', () => { /* … */ });
-    extrude(18);
-}).appearance('oak');
-```
+![An oak board with a painted end face beside a steel block](/img/docs/appearance/appearance-example.png)
+
+<ExplainedCode code={appearanceExample} fileName="board.part.js">
+The board is drawn as oak, its grain running along the length; the block beside it as polished steel. The board's end face is painted with `color()` and keeps its flat colour over the wood.
+</ExplainedCode>
 
 An appearance is a **look, not a substance**. [`.material()`](/docs/part/part-definition#material) says what a part is made of — its density, for the mass Shape properties computes — and `.appearance()` how it is drawn. They are independent: a 3D-printed part can be measured as PLA and shown as oak, and a part with an appearance and no material still has no mass.
 
 ## In the viewport
 
 1. Click the **⋮** button at the right edge of the part's row in the History panel (or right-click the row) and choose **Set appearance…**.
+
+   ![A part row's menu, with Set material… and Set appearance…](/img/docs/ui/history-context-menu-part.png)
+
 2. The **Set appearance** dialog lists the built-in appearances with a swatch each; the part's current one is checked, and **None** removes it. Click a row and **Apply** (or double-click it, or press <kbd>Enter</kbd>).
+
+   ![The Set appearance dialog](/img/docs/ui/set-appearance-dialog.png)
+
 3. FluidCAD writes `.appearance('<id>')` on the `part()` statement — replacing the id if the chain is already there — and every solid of the part takes the look on the next render.
 
 ## The appearances

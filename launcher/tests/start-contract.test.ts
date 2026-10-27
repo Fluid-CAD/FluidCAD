@@ -22,7 +22,10 @@ import { EngineUpgrade } from '../src/engine/upgrade';
 import { UpgradeDiffer, type EngineSnapshot } from '../src/engine/upgrade-diff';
 import { writeProjectPin } from '../src/engine/project-pin';
 import { FeedService } from '../src/start/feed';
-import { START_SCREEN_PROTOCOL as SHELL_PROTOCOL, helloReply, type UpgradeProgressMessage } from '../src/start/contract';
+import { START_SCREEN_PROTOCOL as SHELL_PROTOCOL, creatingStatus, helloReply, type UpgradeProgressMessage } from '../src/start/contract';
+import { packageNameArgument } from '../src/start/api';
+import { ProjectPackage } from '../src/projects/project-package';
+import { PackageName } from '../../ui/src/start/package-name';
 import { engineOptionsFor, listStartProjects } from '../src/projects/listing';
 import { readSavedTheme } from '../src/start/theme';
 import { rememberProject } from '../src/projects/app-state';
@@ -95,6 +98,7 @@ afterEach(() => {
 describe('the start screen contract', () => {
   it('has one protocol number on both sides', () => {
     expect(SHELL_PROTOCOL).toBe(PAGE_PROTOCOL);
+    expect(PAGE_PROTOCOL).toBe(4);
     const app = { version: '0.0.45', platform: 'linux', home: '/home/you', projectsRoot: null };
     expect(checkHello(helloReply(PAGE_PROTOCOL, app))).toEqual({
       ok: true,
@@ -145,10 +149,26 @@ describe('the start screen contract', () => {
     });
   });
 
+  it('spells a package name the same way as the page, so a name the page accepts is one the launcher takes', () => {
+    expect(ProjectPackage.NAME.source).toBe(PackageName.PATTERN.source);
+    expect(ProjectPackage.NAME.flags).toBe(PackageName.PATTERN.flags);
+    for (const name of ['@acme/kit', '@acme/kit-3d']) {
+      expect(packageNameArgument(name), name).toBe(name);
+      expect(PackageName.problem(name), name).toBeNull();
+    }
+    for (const name of ['kit', '@acme/', '@Acme/kit', '@acme/a--b']) {
+      expect(() => packageNameArgument(name), name).toThrow('is not a package name: expected @handle/name.');
+      expect(PackageName.problem(name), name).toBe(PackageName.PROBLEM);
+    }
+    expect(packageNameArgument(undefined)).toBeUndefined();
+    expect(() => packageNameArgument(3)).toThrow('Expected a package name as a non-empty string.');
+  });
+
   it('sends every window state the page can draw', () => {
     const project = { path: '/home/you/cad/bracket', name: 'bracket' };
     const walk: OpenEvent[] = [
-      { type: 'open', project, status: { step: 'creating' } },
+      { type: 'open', project, status: creatingStatus('@acme/kit') },
+      { type: 'progress', attempt: 1, status: creatingStatus() },
       { type: 'progress', attempt: 1, status: { step: 'resolving' } },
       { type: 'progress', attempt: 1, status: { step: 'downloading', version: '0.0.42', receivedBytes: 10, totalBytes: null } },
       { type: 'progress', attempt: 1, status: { step: 'downloading', version: '0.0.42', receivedBytes: 10, totalBytes: 40 } },
@@ -164,7 +184,9 @@ describe('the start screen contract', () => {
       expect(checkWindowState(sent)).toEqual(sent);
       phases.push(sent.phase);
     }
-    expect(phases).toEqual(['home', 'opening', 'opening', 'opening', 'opening', 'opening', 'failed', 'home']);
+    expect(phases).toEqual(['home', 'opening', 'opening', 'opening', 'opening', 'opening', 'opening', 'failed', 'home']);
+    expect(creatingStatus('@acme/kit')).toEqual({ step: 'creating', package: '@acme/kit' });
+    expect(creatingStatus()).toEqual({ step: 'creating' });
   });
 
   it('sends a feed the page accepts, filtered for this app version', () => {

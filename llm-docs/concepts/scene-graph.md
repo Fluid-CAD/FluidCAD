@@ -3,7 +3,7 @@ id: concepts/scene-graph
 title: The scene graph and feature tree
 summary: Each call to a feature (sketch, extrude, fillet, …) appends a SceneObject to an ordered feature tree. The tree drives history, rollback, and shape reuse across re-renders.
 tags: [concept, architecture]
-seeAlso: [concepts/last-selection, concepts/history-and-rollback, api/sketch, api/extrude]
+seeAlso: [concepts/last-selection, concepts/history-and-rollback, api/sketch, api/extrude, concepts/custom-features]
 ---
 
 # The scene graph
@@ -19,6 +19,10 @@ source for everything that happens later:
 
 Containers (like `part(...)`) introduce a sub-tree: their children only
 auto-fuse with each other, not with the outside world.
+
+A custom feature's statement (`standoff(…)` from a `*.feature.js` module)
+is one object in the tree like a built-in's; a re-render reuses it when its
+id and values match ([[concepts/custom-features]]).
 
 ## Implicit consumption
 
@@ -60,3 +64,13 @@ view: one entry per operation, with `kind` (`sketch`, `extrude`, …),
 `params` (operation-specific), `sourceLocation` (file + line), and
 `shapeIds`. `list_shapes` returns the flat shape list with the owning
 operation's id. Pair them when answering "what does shape X come from?"
+
+In an assembly file the summary also lists `instances`, one per inserted
+instance (sub-assemblies' included): `instanceId`, `name`, the part it
+inserts (`partId`, `partName`), `owner` (the sub-assembly occurrence path,
+`""` at the root), `grounded`, `shapeIds` (the rendered solids it shows,
+the same for every instance of a part), `pose` and `sourceLocation`.
+`instancePoses` says what the poses are: `{ frame: "world", source:
+"statement" }`, where the `insert()` statements put each instance, not
+where the viewer's mate solve draws it. `occurrences` lists inserted
+sub-assemblies. A part file's summary has none of these keys.

@@ -13,6 +13,7 @@ Imported from `fluidcad/core`.
 
 ```ts
 helix(axis: AxisLike)          // e.g. "z", an axis() object, or axis-like
+helix(axis: Connector)         // a connector's Z axis, from its origin
 helix(source: SceneObject)     // face or edge selection
 ```
 

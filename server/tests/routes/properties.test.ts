@@ -32,6 +32,7 @@ describe('properties + measure routes — unit field', () => {
       getShapeProperties: (shapeId: string) =>
         shapeId === 'sh-1' ? { volumeMm3: 12, surfaceAreaMm2: 34, centroid: { x: 0, y: 0, z: 0 } } : null,
       getFaceProperties: () => ({ surfaceType: 'plane', areaMm2: 5 }),
+      getShapeOwners: (shapeId: string, sub: { type: string; index: number }) => shapeId === 'sh-1' ? [{ id: 'h1', type: 'hole', uniqueType: 'hole', name: `Hole ${sub.type} ${sub.index}` }] : null,
       getEdgeProperties: () => ({ curveType: 'line', length: 7 }),
       measure: (refs: unknown[]) => {
         lastMeasureRefs = refs;
@@ -72,6 +73,14 @@ describe('properties + measure routes — unit field', () => {
 
     const edge = await (await fetch(`${baseUrl}/api/edge-properties?shapeId=sh-1&edgeIndex=0`)).json() as any;
     expect(edge).toEqual({ curveType: 'line', length: 7, unit: 'in' });
+  });
+
+  it('GET /api/shape-owners names the features that made a face or an edge, and refuses a malformed ask', async () => {
+    const owners = await (await fetch(`${baseUrl}/api/shape-owners?shapeId=sh-1&kind=face&index=2`)).json() as any;
+    expect(owners).toEqual({ owners: [{ id: 'h1', type: 'hole', uniqueType: 'hole', name: 'Hole face 2' }] });
+    expect((await fetch(`${baseUrl}/api/shape-owners?shapeId=sh-9&kind=edge&index=0`)).status).toBe(404);
+    expect((await fetch(`${baseUrl}/api/shape-owners?shapeId=sh-1&kind=vertex&index=0`)).status).toBe(400);
+    expect((await fetch(`${baseUrl}/api/shape-owners?shapeId=sh-1&kind=face`)).status).toBe(400);
   });
 
   it('GET /api/materials merges the project map over the built-ins with ids and a source flag', async () => {

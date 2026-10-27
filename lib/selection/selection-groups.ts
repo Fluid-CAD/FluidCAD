@@ -69,17 +69,6 @@ function sameMeasure(a: EdgeProperties, b: EdgeProperties): boolean {
   }
 }
 
-/** `extrude` → `Extrude`. */
-function featureLabel(featureType: string): string {
-  return featureType.charAt(0).toUpperCase() + featureType.slice(1);
-}
-
-/** `endEdges` → `End Edges`, `edges` → `Edges`. */
-function accessorLabel(accessor: string): string {
-  const spaced = accessor.replace(/([A-Z])/g, ' $1');
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
 /**
  * Every multi-select group a pick can expand to — the right-click menu's
  * items. Groups smaller than two members are omitted (they'd select nothing
@@ -122,7 +111,10 @@ export function listSelectionGroups(scene: SelectionScene, ref: PickRef): Select
  * select edges the pick doesn't already imply. Sibling labels carry the
  * feature prefix like the own label does: a cut's start/end run sketch-side
  * to exit, which can invert the solid's apparent orientation ("Cut End
- * Edges" on a downward bore is the bottom circle).
+ * Edges" on a downward bore is the bottom circle). A label is the feature's
+ * display name and the bucket's own label: "Extrude End Edges", or a custom
+ * feature's declared bucket, "Gear Tip Edges" — never a package feature's
+ * catalog key.
  */
 function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[] {
   const index = new SelectionIndex(scene);
@@ -134,13 +126,13 @@ function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[]
 
     const groups: SelectionGroup[] = [];
     const producer = attr.producer.bucket;
-    const feature = featureLabel(producer.feature.getType());
+    const feature = producer.feature.getDisplayType();
     const universe = buildPickUniverse(scene, index, ref.sub.type);
     const members = bucketMembers(universe, producer);
     if (members.length > 1) {
       groups.push({
         kind: 'classified',
-        label: `${feature} ${accessorLabel(producer.def.accessor)}`,
+        label: `${feature} ${producer.def.label}`,
         members,
       });
     }
@@ -153,7 +145,7 @@ function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[]
       if (siblingMembers.length > 0) {
         groups.push({
           kind: 'sibling',
-          label: `${feature} ${accessorLabel(bucket.def.accessor)}`,
+          label: `${feature} ${bucket.def.label}`,
           members: siblingMembers,
         });
       }

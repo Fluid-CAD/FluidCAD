@@ -13,19 +13,23 @@ import {
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import { isAxisProducer, isFeatureProducer, isPlaneProducer } from '../producers/predicates.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
+import { ConnectorAxisSpecs, type ConnectorAxisSpec } from './connector-axis.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
 import { formatValue, validCountValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
 
 /**
  * One repeat axis: a standard world axis (renders as its string literal, no
- * producer involved), an existing axis statement bound to a variable, or a
- * picked edge — its selector part wrapped in `axis(…)`. Part-indexed (unlike
- * the revolve axis) because a two-direction linear repeat can pick two edges.
+ * producer involved), an existing axis statement bound to a variable, a
+ * picked edge — its selector part wrapped in `axis(…)` — or a connector
+ * ({@link ConnectorAxisSpec}). Part-indexed (unlike the revolve axis)
+ * because a two-direction linear repeat can pick two edges. The rotate and
+ * the copy take the same shapes.
  */
 export type RepeatAxisSpec =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; producer: number }
   | { kind: 'selector'; part: number }
+  | ConnectorAxisSpec
   /** Sketch-plane axis datum (2D copy only) — renders `xAxis()` / `yAxis()`. */
   | { kind: 'local'; axis: 'x' | 'y' };
 
@@ -154,6 +158,9 @@ export function renderRepeatAxisExpr(
   }
   if (axis.kind === 'axis') {
     return varFor(axis.producer) ?? 'a';
+  }
+  if (axis.kind === 'connector') {
+    return ConnectorAxisSpecs.render(axis, varFor);
   }
   const part = parts[axis.part];
   return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor)})`;
@@ -414,6 +421,10 @@ export function renderEditedRepeat(
     } else if (axis?.kind === 'axis') {
       if (!isAxisProducer(spec as ApplyFeatureEditSpec, axis.producer)) {
         return { error: 'malformed repeat edit spec: the axis references a non-axis producer' };
+      }
+    } else if (axis?.kind === 'connector') {
+      if (!ConnectorAxisSpecs.valid(spec, axis)) {
+        return { error: 'malformed repeat edit spec: the axis references a non-connector producer' };
       }
     } else if (axis?.kind !== 'standard'
       || (axis.axis !== 'x' && axis.axis !== 'y' && axis.axis !== 'z')) {

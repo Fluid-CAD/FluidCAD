@@ -397,8 +397,8 @@ function collectImportedNames(importNode: TSNode, into: Set<string>): void {
  * Collect names that are bound at the top level of the program: `const`,
  * `let`, `var`, `function`, `class`. Used so user code like
  * `const sketch = …` shadows the FluidCAD `sketch` without tripping the
- * lint. We deliberately keep this top-level-only to keep the implementation
- * simple — local shadowing inside a function is rare in `.fluid.js` files.
+ * lint. A name declared inside a function or a block shadows only there:
+ * see {@link collectScopedNames}.
  */
 function collectTopLevelDeclaredNames(root: TSNode, into: Set<string>): void {
   for (const stmt of root.namedChildren) {
@@ -435,6 +435,125 @@ function collectTopLevelDeclaredNames(root: TSNode, into: Set<string>): void {
   }
 }
 
+/** The nodes a name is declared in: a block, a function (its parameters), a loop head, a catch. */
+const SCOPE_TYPES = new Set([
+  'program', 'statement_block', 'arrow_function', 'function_expression', 'function', 'function_declaration',
+  'generator_function', 'generator_function_declaration', 'method_definition', 'for_statement',
+  'for_in_statement', 'catch_clause', 'class_body',
+]);
+
+/** Where `var` and a function's parameters land: the nearest function (or the program). */
+const FUNCTION_SCOPE_TYPES = new Set([
+  'program', 'arrow_function', 'function_expression', 'function', 'function_declaration',
+  'generator_function', 'generator_function_declaration', 'method_definition',
+]);
+
+function scopeKey(node: TSNode): string {
+  return `${node.type}:${node.startIndex}:${node.endIndex}`;
+}
+
+function enclosing(node: TSNode, types: Set<string>): TSNode | null {
+  for (let at = node.parent; at; at = at.parent) {
+    if (types.has(at.type)) {
+      return at;
+    }
+  }
+  return null;
+}
+
+/** The names a binding pattern declares: `a`, `{ a, b: c, ...d }`, `[e, f = 1]`. */
+function patternNames(pattern: TSNode | null, into: string[]): void {
+  if (!pattern) {
+    return;
+  }
+  switch (pattern.type) {
+    case 'identifier':
+    case 'shorthand_property_identifier_pattern':
+      into.push(pattern.text);
+      return;
+    case 'pair_pattern':
+      patternNames(pattern.childForFieldName('value'), into);
+      return;
+    case 'assignment_pattern':
+    case 'object_assignment_pattern':
+      patternNames(pattern.childForFieldName('left'), into);
+      return;
+    default:
+      for (const child of pattern.namedChildren) {
+        patternNames(child, into);
+      }
+  }
+}
+
+/**
+ * Every name the code declares, by the scope it is declared in: `const`,
+ * `let`, `var`, functions, classes, parameters, catch bindings. A local
+ * `const axis = sketch(…)` inside a part body then shadows the FluidCAD
+ * `axis` for the references in that body, and only there.
+ */
+function collectScopedNames(root: TSNode): Map<string, Set<string>> {
+  const scopes = new Map<string, Set<string>>();
+  const declare = (scope: TSNode | null, names: string[]) => {
+    if (!scope) {
+      return;
+    }
+    const key = scopeKey(scope);
+    const set = scopes.get(key) ?? new Set<string>();
+    names.forEach(name => set.add(name));
+    scopes.set(key, set);
+  };
+  walk(root, (n) => {
+    if (n.type === 'variable_declarator') {
+      const names: string[] = [];
+      patternNames(n.childForFieldName('name'), names);
+      const isVar = n.parent?.type === 'variable_declaration';
+      declare(enclosing(n, isVar ? FUNCTION_SCOPE_TYPES : SCOPE_TYPES), names);
+    } else if (n.type === 'function_declaration' || n.type === 'generator_function_declaration' || n.type === 'class_declaration') {
+      const name = n.childForFieldName('name');
+      if (name) {
+        declare(enclosing(n, SCOPE_TYPES), [name.text]);
+      }
+    } else if (FUNCTION_SCOPE_TYPES.has(n.type) && n.type !== 'program') {
+      const names: string[] = [];
+      const params = n.childForFieldName('parameters');
+      if (params) {
+        patternNames(params, names);
+      } else {
+        // `x => …`: a lone parameter with no parentheses.
+        patternNames(n.childForFieldName('parameter'), names);
+      }
+      if (n.type === 'function_expression' || n.type === 'function') {
+        // A named function expression binds its own name inside itself.
+        const name = n.childForFieldName('name');
+        if (name) {
+          names.push(name.text);
+        }
+      }
+      declare(n, names);
+    } else if (n.type === 'for_in_statement' && n.childForFieldName('kind')) {
+      // `for (const [i, x] of …)`: the head declares its pattern for the loop.
+      const names: string[] = [];
+      patternNames(n.childForFieldName('left'), names);
+      declare(n, names);
+    } else if (n.type === 'catch_clause') {
+      const names: string[] = [];
+      patternNames(n.childForFieldName('parameter'), names);
+      declare(n, names);
+    }
+  });
+  return scopes;
+}
+
+/** Whether a scope around `node` declares `name`. */
+function isLocallyBound(node: TSNode, name: string, scopes: Map<string, Set<string>>): boolean {
+  for (let at = node.parent; at; at = at.parent) {
+    if (SCOPE_TYPES.has(at.type) && scopes.get(scopeKey(at))?.has(name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function lintFluidJs(code: string, options: LintFluidJsOptions = {}): Promise<LintFluidJsResult> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code) as { rootNode: TSNode };
@@ -447,6 +566,7 @@ export async function lintFluidJs(code: string, options: LintFluidJsOptions = {}
     }
   }
   collectTopLevelDeclaredNames(root, bound);
+  const scoped = collectScopedNames(root);
 
   const missingByName = new Map<string, MissingImport>();
   walk(root, (n) => {
@@ -459,7 +579,7 @@ export async function lintFluidJs(code: string, options: LintFluidJsOptions = {}
     if (!MODULE_FOR_SYMBOL.has(n.text)) {
       return;
     }
-    if (bound.has(n.text)) {
+    if (bound.has(n.text) || isLocallyBound(n, n.text, scoped)) {
       return;
     }
     if (!isReferenceUse(n)) {

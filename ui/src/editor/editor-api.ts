@@ -31,6 +31,14 @@ export type EngineTypesPayload = {
   bytes: number;
 };
 
+/** `GET /api/packages/types`: the pinned packages' sources, for the language service. */
+export type PackageTypesPayload = {
+  /** Which packages, where, with which contents: the files are registered again only when it changes. */
+  key: string;
+  files: EngineTypeFile[];
+  bytes: number;
+};
+
 /**
  * Every route here answers `{ error }` with a non-2xx on refusal — a traversal
  * attempt is a 403, a missing file a 404. Callers that can act on the reason
@@ -185,6 +193,16 @@ export function saveWorkspaceEditorState(state: WorkspaceEditorState): Promise<W
 /** The running engine's `.d.ts` files, for the language service. */
 export function fetchEngineTypes(): Promise<EngineTypesPayload> {
   return request('api/engine/types');
+}
+
+/** The declarations of the OpenCascade binding the engine runs on — raw OpenCascade's types (about 2 MB). */
+export function fetchOcctTypes(): Promise<EngineTypesPayload> {
+  return request('api/engine/types/occt');
+}
+
+/** The pinned packages' `.js` (and `.d.ts`) files, under `file:///node_modules/@scope/name/…`. */
+export function fetchPackageTypes(): Promise<PackageTypesPayload> {
+  return request('api/packages/types');
 }
 
 /**

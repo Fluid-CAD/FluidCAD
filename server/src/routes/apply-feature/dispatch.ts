@@ -28,7 +28,9 @@ import { handleConnector } from './handlers/connector.ts';
 import { handleExpose } from './handlers/expose.ts';
 import { handleSketchEntities } from './handlers/sketch-entities.ts';
 import { handleSelectorFeature } from './handlers/selector-feature.ts';
+import { handleCustomFeature } from './handlers/custom-feature.ts';
 import type { ApplyFeatureRequestContext, ApplyFeatureServices } from './context.ts';
+import { FeatureCallees } from '../../apply-feature-edit/index.ts';
 
 export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeatureServices): void {
   // Synthesize the selector expressions for the picked edges and relay the
@@ -70,8 +72,23 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
         ? { line: activePartLoc.line, column: activePartLoc.column }
         : undefined;
 
+    // The current buffer's custom feature callees, for the handlers' namers
+    // and probes — resolved once, and only by a branch that synthesizes.
+    let currentCallees: Promise<FeatureCallees> | null = null;
+    const resolveCurrentCallees = (): Promise<FeatureCallees> => {
+      if (!currentCallees) {
+        const code = services.fluidCadServer.getCurrentCode();
+        const filePath = services.fluidCadServer.getCurrentFileName();
+        currentCallees = code && filePath
+          ? services.callees.calleesFor(code, filePath)
+          : Promise.resolve(FeatureCallees.BUILT_IN);
+      }
+      return currentCallees;
+    };
+
     const ctx: ApplyFeatureRequestContext = {
       ...services, feature, value, preview, selectorOverride, newVariables, activePartLoc, activePartFor,
+      currentCallees: resolveCurrentCallees,
     };
 
     // In-place statement edit (timeline double-click → edit dialog): the
@@ -250,6 +267,14 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
     // the frame adjustments (an exposure has no anchor/rotate/offset).
     if (feature === 'expose') {
       await handleExpose(ctx, req, res);
+      return;
+    }
+
+    // A custom feature, named by its catalog id: its values checked against
+    // its metadata, its picks synthesized per picker, its statement written
+    // through its call shape with the builder imported from its module.
+    if (feature === 'custom') {
+      await handleCustomFeature(ctx, req, res);
       return;
     }
 

@@ -2,7 +2,7 @@
 
 import { createHash } from 'crypto';
 import { basename, join, relative } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, realpathSync } from 'fs';
 import { readFile } from 'fs/promises';
 import type { LoadModuleOptions, SceneHost } from '../host/scene-host.ts';
 import { LocalSceneHost } from '../host/local-scene-host.ts';
@@ -16,11 +16,14 @@ import { listBreakpoints, type BreakpointSite } from '../code-editor/index.ts';
 import {
   createParamRegistry,
   getParamRegistry,
+  listFeatureExports,
   getUnitRegistry,
   setParamRegistry,
   setUnitRegistry,
   type AssemblyExportOutcome,
   type AssemblyExportPose,
+  type FeatureSlotRequest,
+  type FeatureSlotSynthesis,
   type ImportReport,
   type InterferenceRequest,
   ParamKey,
@@ -35,18 +38,24 @@ import {
   type SceneInterferenceOutcome,
   type SceneValidationOutcome,
   type ValidateSceneRequest,
+  FeatureKey,
 } from '../../../lib/dist/index.js';
 import { scanFileForParts, type PartScanResult } from '../part-catalog/scan.ts';
+import { FeatureScanner, type FeatureScanResult } from '../feature-catalog/scan.ts';
+import { FeatureModules } from '../feature-catalog/walk.ts';
+import { FeatureRebuilds, type OwedRebuilds } from './feature-rebuilds.ts';
 import { collectRenderedPartProperties, collectSceneProperties, type RenderedPartProperties } from './properties.ts';
 import { MeasureEntityResolver, type MeasureEntity } from '../measure-entities.ts';
-import type { CompileError } from '../ws-protocol.ts';
+import type { CompileError, PackageProblem } from '../ws-protocol.ts';
 import { PROJECT_CONFIG_FILENAME, readProjectConfig, writeProjectMaterials, type LengthUnit, type ProjectMaterial, type ProjectMaterials } from '../project-config.ts';
 import { PartPropertiesAggregator, type PartProperties } from './part-properties.ts';
 import { RenderInputs, type RenderFingerprint } from '../render-inputs.ts';
 import type {
+  CustomGhostRequest,
   FeatureGhostOutcome,
   FeatureGhostRequest,
   GhostFrame,
+  KernelCustomGhostRequest,
   GhostSolid,
   SketchRegionPreview,
   SketchRegionsOutcome,
@@ -69,6 +78,10 @@ import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneConfigur
 import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import { TimelineHistory } from './timeline-history.ts';
+import { PackageRoots } from '../packages/package-roots.ts';
+import { PackageManifests } from '../packages/package-manifests.ts';
+import type { PackageResolveError, ResolvedPackage } from '../packages/resolver.ts';
+import { AssemblySummary } from './scene-summary.ts';
 import type { SceneSummary, SceneSummaryObject, SceneSummaryShape, ShapeList, ShapeListEntry } from './scene-summary.ts';
 import { ShapeLabels } from '../../../lib/dist/rendering/shape-labels.js';
 import { ShapeExportSelection, type ShapeExportRefusal, type ShapeSelection } from './shape-export-selection.ts';
@@ -163,6 +176,32 @@ export class FluidCadServer {
   // queue behind the mutex; one whose successor already landed skips its OC
   // work rather than meshing geometry nobody will draw.
   private ghostGeneration = 0;
+
+  /**
+   * Custom feature builders loaded for ghosts, by module and export name.
+   * Kept until a render or a scan re-evaluates the workspace modules, so a
+   * dialog's keystrokes don't each load the feature's module again.
+   */
+  private ghostBuilders = new Map<string, Function>();
+  /**
+   * A feature module (or a module one imports) changed on disk since the
+   * workspace modules were last evaluated: the next ghost evaluates them
+   * again before it loads a builder, so it draws the saved code.
+   */
+  private ghostCodeStale = false;
+  /** The custom features each session's cached scene was built with older code of. */
+  private readonly featureRebuilds = new FeatureRebuilds();
+  /**
+   * The installed packages each session's cached scene was built with, by
+   * name: when a render resolves another version or tree of one (a pin
+   * switched), that package's features rebuild — their ids stay while
+   * their code moved, so the compare would otherwise keep the old geometry.
+   */
+  private readonly sessionPackages = new Map<string, Map<string, ResolvedPackage>>();
+  /** The package imports the last render refused (see {@link getPackageProblems}). */
+  private packageProblems: PackageResolveError[] = [];
+  /** Each installed package's own `materials` map (its reduced `fluidcad.json`), by directory. */
+  private readonly packageMaterialMaps = new Map<string, ProjectMaterials | null>();
 
   private currentFileName: string = '';
   private currentFilePath: string = '';
@@ -348,6 +387,8 @@ export class FluidCadServer {
     this.lastConfigurations.delete(sessionId);
     this.lastParamDefinitions.delete(sessionId);
     this.sessionFiles.delete(sessionId);
+    this.featureRebuilds.forget(sessionId);
+    this.sessionPackages.delete(sessionId);
   }
 
   /**
@@ -487,7 +528,9 @@ export class FluidCadServer {
       // render was built with, and a reopened workspace shows what was left.
       this.seedActiveConfiguration(sessionId, normalizedFileName);
 
-      if (!ignoreCache) {
+      // A session that owes a feature rebuild has a cached render built with
+      // the old code, whatever its inputs hash to now.
+      if (!ignoreCache && !this.featureRebuilds.owes(sessionId)) {
         const fromCache = this.renderingCache.get(sessionId);
         if (fromCache && this.isFingerprintCurrent(sessionId, fromCache.fingerprint)) {
           // Everything a render would have left behind: the stop, the
@@ -504,6 +547,11 @@ export class FluidCadServer {
         }
       }
 
+      // Taken before the modules load: a feature module saved from here on
+      // is the next render's to rebuild, since this one may have read it
+      // before the save.
+      const owed = this.featureRebuilds.take(sessionId);
+      let compared = false;
       try {
         const readTimelineSource = (path: string): string | null => {
           const buffer = this.host.getBuffer(path);
@@ -517,7 +565,7 @@ export class FluidCadServer {
           ? this.sceneManager.startAssemblyScene()
           : this.sceneManager.startScene();
         this.sceneManager.setCurrentFile(normalizedFileName);
-        this.host.invalidateModule();
+        this.invalidateModules();
 
         const registry = createParamRegistry();
         this.paramSessions.get(sessionId)?.install(registry);
@@ -540,10 +588,11 @@ export class FluidCadServer {
         }
 
         // part() definitions are lazy — a part-kind entry scene materializes
-        // every definition the module created but nothing exported or
-        // inserted, so the open file stays WYSIWYG. Assembly scenes build
-        // strictly via insert(). (Optional call: the workspace's fluidcad
-        // install may predate lazy definitions.)
+        // the definitions the entry file declares but nothing exported or
+        // inserted, so the open file stays WYSIWYG; parts other modules
+        // declare are left out. Assembly scenes build strictly via insert().
+        // (Optional call: the workspace's fluidcad install may predate lazy
+        // definitions.)
         if (sceneKind !== 'assembly') {
           try {
             (scene as { materializeLeftoverDefinitions?: () => void }).materializeLeftoverDefinitions?.();
@@ -596,13 +645,23 @@ export class FluidCadServer {
         // declares), and the fingerprint must describe what is in effect.
         const fingerprint = this.captureFingerprint(sessionId, normalizedFileName);
         this.renderFingerprints.set(sessionId, fingerprint);
+        this.packageProblems = this.host.packageProblems?.() ?? [];
+        const packages = this.host.resolvedPackages?.() ?? [];
 
         if (this.previousScenes.has(sessionId)) {
           const previousScene = this.previousScenes.get(sessionId);
-          scene = this.sceneManager.compare(previousScene, scene, changes);
+          const rebuild = owed ? await this.featureIdsOwed(owed, fingerprint) : new Set<string>();
+          for (const id of this.packageFeatureIdsChanged(sessionId, packages)) {
+            rebuild.add(id);
+          }
+          scene = rebuild.size > 0
+            ? this.sceneManager.compare(previousScene, scene, changes, { rebuild })
+            : this.sceneManager.compare(previousScene, scene, changes);
         }
+        compared = true;
 
         this.previousScenes.set(sessionId, scene);
+        this.sessionPackages.set(sessionId, new Map(packages.map(pkg => [pkg.name, pkg])));
 
         this.sceneManager.renderScene(scene);
         const result = scene.getRenderedObjects();
@@ -613,6 +672,7 @@ export class FluidCadServer {
             obj.sourceLocation.filePath = obj.sourceLocation.filePath.replace('virtual:live-render:', '');
           }
         }
+        this.stampPackageRows(result);
 
         const assembly = this.sceneManager.getAssemblyData(scene);
         if (assembly) {
@@ -715,11 +775,132 @@ export class FluidCadServer {
         return renderChanges ? { ...data, changes: renderChanges } : data;
       }
       catch (error) {
-        this.host.invalidateModule();
+        // Read before the modules are invalidated: that starts the resolver over.
+        this.packageProblems = this.host.packageProblems?.() ?? [];
+        if (owed && !compared) {
+          // The cached scene is still the one built with the old code.
+          this.featureRebuilds.restore(sessionId, owed);
+        }
+        this.invalidateModules();
         console.log('Error processing file:', error);
         throw error;
       }
     });
+  }
+
+  /**
+   * Mark every row a package file's statement made with that package's
+   * name and version (`row.package`): installed packages are read-only
+   * (K8), so the UI hides a row's edit affordances by it. A fork of a
+   * package elsewhere in the workspace is ordinary code and stays unmarked.
+   */
+  private stampPackageRows(rows: any[]): void {
+    const owners = new Map<string, { name: string; version: string } | null>();
+    for (const row of rows) {
+      const file = row?.sourceLocation?.filePath;
+      if (typeof file !== 'string') {
+        continue;
+      }
+      let owner = owners.get(file);
+      if (owner === undefined) {
+        const location = this.packageOwnerOf(file);
+        owner = location ? { name: location.name, version: location.version } : null;
+        owners.set(file, owner);
+      }
+      if (owner) {
+        row.package = owner;
+      } else if (row.package) {
+        delete row.package;
+      }
+    }
+  }
+
+  /** The installed package that owns `file` in this workspace (`PackageRoots.owner`), or null; always null without a workspace. */
+  packageOwnerOf(file: string) {
+    if (!this.workspacePath) {
+      return null;
+    }
+    return PackageRoots.owner(file, this.workspacePath);
+  }
+
+  /**
+   * The feature ids of every package whose resolution changed since the
+   * session's cached scene was built — another version, another tree, or
+   * added or dropped — read from the packages' manifests, old and new.
+   */
+  private packageFeatureIdsChanged(sessionId: string, packages: ResolvedPackage[]): Set<string> {
+    const ids = new Set<string>();
+    const before = this.sessionPackages.get(sessionId) ?? new Map<string, ResolvedPackage>();
+    const now = new Map(packages.map(pkg => [pkg.name, pkg]));
+    for (const name of new Set([...before.keys(), ...now.keys()])) {
+      const old = before.get(name);
+      const current = now.get(name);
+      if (old && current && old.directory === current.directory && old.integrity === current.integrity) {
+        continue;
+      }
+      for (const pkg of [old, current]) {
+        if (pkg) {
+          for (const id of FluidCadServer.packageFeatureIds(pkg)) {
+            ids.add(id);
+          }
+        }
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * A package's feature keys (`@acme/feature-tests:standoff`): the plain ids
+   * its `manifest.json` lists (`PackageManifests`), keyed by the name it is
+   * installed as, as its scene objects are typed. None when it can't be read.
+   */
+  private static packageFeatureIds(pkg: ResolvedPackage): string[] {
+    return PackageManifests.of(pkg.directory)?.features.map(feature => FeatureKey.of(pkg.name, feature.id)) ?? [];
+  }
+
+  /**
+   * The package imports the last render refused — a package not pinned,
+   * not installed, changed, or too new for this engine — one per package,
+   * each with its sentence and, when it is about a pin, the pinned version.
+   * Empty after a render that loaded every package it imports.
+   */
+  getPackageProblems(): PackageProblem[] {
+    return this.packageProblems.map(problem => ({
+      code: problem.code,
+      name: problem.packageName,
+      version: problem.version,
+      message: problem.message,
+    }));
+  }
+
+  /**
+   * The feature ids a render owes a rebuild: those named directly, and
+   * those each saved feature module defines — read from the module as this
+   * render evaluated it (`fingerprint`: what it read). A module the render
+   * no longer reads is left alone: nothing of it is in the scene, and
+   * loading it would evaluate it into the live scene. Runs with the OCC
+   * mutex held, after the modules loaded.
+   */
+  private async featureIdsOwed(owed: OwedRebuilds, fingerprint: RenderFingerprint | null): Promise<Set<string>> {
+    const ids = new Set(owed.ids);
+    if (owed.modules.size === 0 || !fingerprint || typeof this.host.loadModuleRaw !== 'function') {
+      return ids;
+    }
+    for (const modulePath of owed.modules) {
+      if (!fingerprint.files.has(modulePath)) {
+        continue;
+      }
+      try {
+        const namespace = await this.host.loadModuleRaw(modulePath);
+        for (const { meta } of listFeatureExports(namespace)) {
+          ids.add(meta.id);
+        }
+      } catch {
+        // It loaded for this render, so it comes from the loader's cache;
+        // should it not, its statements keep the cached build.
+      }
+    }
+    return ids;
   }
 
   /**
@@ -967,7 +1148,8 @@ export class FluidCadServer {
     this.host.setBuffer(id, code);
     // The hash vouches for the entry's own text; the fingerprint for every
     // file it imports — an edited part or helper module makes this miss.
-    if (cached && cached.paramsHash === paramsHash && this.isFingerprintCurrent(fileName, cached.fingerprint)) {
+    if (cached && cached.paramsHash === paramsHash && this.isFingerprintCurrent(fileName, cached.fingerprint)
+      && !this.featureRebuilds.owes(fileName)) {
       this.compileError = null;
       this.currentFileName = fileName;
       this.currentFilePath = `virtual:live-render:${fileName}`;
@@ -1049,7 +1231,26 @@ export class FluidCadServer {
       if (!this.sceneManager) {
         return null;
       }
+      // The scan re-evaluates the workspace modules.
+      this.forgetGhostBuilders();
       return scanFileForParts(this.host, this.sceneManager, normalizePath(filePath), { projectUnit });
+    });
+  }
+
+  /**
+   * Evaluate one `*.feature.js` module and snapshot the feature builders it
+   * exports (the feature catalog). Serialized with renders on the OCC
+   * mutex, in a throwaway scene, like the part scan. Returns null before
+   * init.
+   */
+  async scanFeaturesInFile(filePath: string): Promise<FeatureScanResult | null> {
+    return this.serialized(async () => {
+      if (!this.sceneManager) {
+        return null;
+      }
+      // The scan re-evaluates the workspace modules.
+      this.forgetGhostBuilders();
+      return FeatureScanner.scanFile(this.host, this.sceneManager, normalizePath(filePath));
     });
   }
 
@@ -1133,6 +1334,7 @@ export class FluidCadServer {
       ? rollbackResult as { stop: number; scopePartId: string | null }
       : { stop: index, scopePartId: null };
     const result = scene.getRenderedObjects();
+    this.stampPackageRows(result);
     const assembly = this.sceneManager.getAssemblyData(scene);
 
     this.lastRollbackStop = stop;
@@ -1203,12 +1405,30 @@ export class FluidCadServer {
       (shapeId) => manager.getShapeProperties(scene, shapeId),
       this.getProjectMaterials(),
       this.getSceneUnit(),
+      (file) => this.packageMaterialsFor(file),
     );
   }
 
   /** The render's non-fatal notices — see `PartPropertiesAggregator.collectWarnings`. */
   private collectObjectWarnings(result: any[]): ObjectBuildWarning[] {
-    return PartPropertiesAggregator.collectWarnings(result, this.getProjectMaterials());
+    return PartPropertiesAggregator.collectWarnings(result, this.getProjectMaterials(), (file) => this.packageMaterialsFor(file));
+  }
+
+  /**
+   * The materials a part defined in `file` resolves against when an
+   * installed package owns the file: that package's own `fluidcad.json`
+   * map (null when it has none — the built-ins alone), never the project's.
+   * Undefined for a file no package owns. Read once per package directory.
+   */
+  packageMaterialsFor(file: string): ProjectMaterials | null | undefined {
+    const owner = this.packageOwnerOf(file);
+    if (!owner) {
+      return undefined;
+    }
+    if (!this.packageMaterialMaps.has(owner.directory)) {
+      this.packageMaterialMaps.set(owner.directory, readProjectConfig(owner.directory).materials);
+    }
+    return this.packageMaterialMaps.get(owner.directory) ?? null;
   }
 
   getFaceProperties(shapeId: string, faceIndex: number): any {
@@ -1220,6 +1440,18 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.getFaceProperties(scene, shapeId, faceIndex);
+  }
+
+  /** The features whose buckets hold a face or an edge of a rendered solid, oldest first; null without a scene or a manager that answers. */
+  getShapeOwners(shapeId: string, sub: { type: 'face' | 'edge'; index: number }): { id: string; type: string; uniqueType: string; name: string }[] | null {
+    if (!this.sceneManager?.getShapeOwners) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.getShapeOwners(scene, shapeId, sub);
   }
 
   getEdgeProperties(shapeId: string, edgeIndex: number): any {
@@ -1372,14 +1604,23 @@ export class FluidCadServer {
       if (!scene) {
         return { status: 422, reason: 'No rendered scene' };
       }
+      const kernelRequest = request.feature === 'custom' ? await this.customGhostRequest(request) : request;
+      if ('error' in kernelRequest) {
+        return { status: 422, reason: kernelRequest.error };
+      }
       try {
-        const result = this.sceneManager.buildFeatureGhost(scene, request);
+        const result = this.sceneManager.buildFeatureGhost(scene, kernelRequest);
         if (result?.ok) {
           return {
             status: 200,
             solids: (result.solids ?? []) as GhostSolid[],
             ...(result.frames?.length ? { frames: result.frames as GhostFrame[] } : {}),
+            ...(result.derived && Object.keys(result.derived).length ? { derived: { ...result.derived } } : {}),
           };
+        }
+        if (result?.paused === true) {
+          // Not a failure: the build ran, slower than a live preview may.
+          return { status: 200, reason: result.reason, paused: true };
         }
         return {
           status: 422,
@@ -1392,6 +1633,44 @@ export class FluidCadServer {
         return { status: 200, reason: err?.message ?? 'Could not build the preview geometry.' };
       }
     });
+  }
+
+  /**
+   * A custom feature's ghost as the kernel takes it: its builder in place of
+   * the module and export that name it — the module loaded through the
+   * workspace loader (see FeatureScanner.loadBuilder), once per render.
+   * Runs with the OCC mutex held.
+   */
+  private async customGhostRequest(request: CustomGhostRequest): Promise<KernelCustomGhostRequest | { error: string }> {
+    if (this.ghostCodeStale) {
+      // A feature module was saved since the modules were last evaluated:
+      // the loader's copy is the old code.
+      this.invalidateModules();
+    }
+    const key = `${normalizePath(request.modulePath)}#${request.exportName}`;
+    let builder = this.ghostBuilders.get(key);
+    if (!builder) {
+      const loaded = await FeatureScanner.loadBuilder(this.host, this.sceneManager!, request.modulePath, request.exportName);
+      if (typeof loaded !== 'function') {
+        return loaded;
+      }
+      builder = loaded;
+      this.ghostBuilders.set(key, builder);
+    }
+    const { modulePath: _modulePath, exportName: _exportName, ...rest } = request;
+    return { ...rest, builder };
+  }
+
+  /** Mark the workspace modules stale for the next load, and the builders loaded from them. */
+  private invalidateModules(): void {
+    this.forgetGhostBuilders();
+    this.host.invalidateModule();
+  }
+
+  /** The workspace modules are about to be evaluated again: every builder a ghost loaded from them is stale. */
+  private forgetGhostBuilders(): void {
+    this.ghostBuilders.clear();
+    this.ghostCodeStale = false;
   }
 
   /**
@@ -1482,6 +1761,31 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains, options, before);
+  }
+
+  /**
+   * The selectors a custom feature's picked values write, every geometry
+   * slot in one pass and checked against its picker — kind-agnostic, so no
+   * feature names its own arm here. An edit's picks resolve against the
+   * world before its statement. Null without a scene; a refusal on a
+   * workspace kernel that predates custom feature pickers.
+   */
+  synthesizeFeatureSlots(
+    request: FeatureSlotRequest,
+    options?: SelectionSynthesisOptions,
+    before?: SelectionBoundary,
+  ): FeatureSlotSynthesis | { ok: false; reason: string } | null {
+    if (!this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    if (!this.sceneManager.synthesizeFeatureSlots) {
+      return { ok: false, reason: "This workspace's FluidCAD version predates custom feature pickers — update its fluidcad dependency." };
+    }
+    return this.sceneManager.synthesizeFeatureSlots(scene, request, options, before);
   }
 
   /**
@@ -2146,6 +2450,135 @@ export class FluidCadServer {
   }
 
   /**
+   * Whether a change to `absPath` on disk left the current file's render
+   * behind what it was built from: the file is an input of that render other
+   * than the current file itself — a module it imports, directly or through
+   * another (a `*.feature.js`, a helper, the part file an assembly inserts),
+   * `fluidcad.json`, a file the engine read — and the inputs no longer match
+   * the render. The current file's own edits reach the server through its
+   * editor host, so they never count here.
+   *
+   * A render that failed keeps the inputs of the last one that succeeded, so
+   * fixing a module that broke it renders again. While the current file does
+   * not compile, a change to any workspace script retries it too: the import
+   * that failed may be the file that just appeared. A render that owes a
+   * feature rebuild (see {@link noteFileChange}) is behind, whatever its
+   * inputs hash to.
+   */
+  isRenderBehind(absPath: string): boolean {
+    const current = this.currentFileName;
+    if (!current) {
+      return false;
+    }
+    const candidates = FluidCadServer.pathForms(absPath);
+    if (candidates.includes(current)) {
+      return false;
+    }
+    // Built with a feature's old code: behind, though its inputs may hash as
+    // current — a render that ran between the save and the watcher's word
+    // read the new file, yet matched the feature's statements to their old
+    // builds.
+    if (this.featureRebuilds.owes(current)) {
+      return true;
+    }
+    const fingerprint = this.renderFingerprints.get(current) ?? null;
+    if (fingerprint && candidates.some(file => fingerprint.files.has(file))) {
+      return !this.isFingerprintCurrent(current, fingerprint);
+    }
+    return this.compileError !== null && /\.[cm]?[jt]s$/.test(candidates[0]);
+  }
+
+  /**
+   * A workspace file changed on disk. When it is feature code — a
+   * `*.feature.js` module, or a workspace module one imports — the features
+   * built with the old code rebuild: every session whose last render read
+   * that module rebuilds the statements of the features it defines on its
+   * next render (see {@link FeatureRebuilds}), though their values are
+   * unchanged, and the next ghost loads the saved code. Answers whether it
+   * was feature code. Any other file changes nothing here, so a render costs
+   * nothing more until feature code is saved.
+   *
+   * The workspace watcher calls this for every change, whichever host saved
+   * the file (the in-page editor, VS Code, Neovim, any other program); an
+   * unsaved editor buffer of a feature module reaches no render.
+   */
+  noteFileChange(absPath: string): boolean {
+    const modules = this.featureModulesChangedBy(absPath);
+    if (modules.size === 0) {
+      return false;
+    }
+    this.ghostBuilders.clear();
+    this.ghostCodeStale = true;
+    for (const [sessionId, fingerprint] of this.renderFingerprints) {
+      if (!fingerprint || !this.previousScenes.has(sessionId)) {
+        continue;
+      }
+      for (const modulePath of modules) {
+        if (fingerprint.files.has(modulePath)) {
+          this.featureRebuilds.noteModule(sessionId, modulePath);
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * The project's pins may have changed (its `fluidcad.json` was saved):
+   * bring the editors' package types in line now, rather than at the next
+   * render (`SceneHost.refreshEditorTypes`).
+   */
+  refreshEditorTypes(): void {
+    this.host.refreshEditorTypes?.();
+  }
+
+  /**
+   * Rebuild every statement of these features on each session's next
+   * render, though their values are unchanged — for a feature whose code
+   * changed without a workspace module being saved (an installed package
+   * upgraded: its ids stay while its modules move). Render again afterwards
+   * (`recomputeCurrentFile`) for the open model to show it.
+   */
+  rebuildFeatures(ids: Iterable<string>): void {
+    const list = [...ids];
+    for (const sessionId of this.previousScenes.keys()) {
+      for (const id of list) {
+        this.featureRebuilds.noteId(sessionId, id);
+      }
+    }
+  }
+
+  /**
+   * The feature modules a change to `absPath` reaches: the file itself when
+   * it is one, and every one that imports it, directly or through another,
+   * as the module graph knows them.
+   */
+  private featureModulesChangedBy(absPath: string): Set<string> {
+    const modules = new Set<string>();
+    for (const file of FluidCadServer.pathForms(absPath)) {
+      if (FeatureModules.isModule(file)) {
+        modules.add(file);
+      }
+      for (const importer of this.host.getModuleImporters?.(file) ?? []) {
+        if (FeatureModules.isModule(importer)) {
+          modules.add(importer);
+        }
+      }
+    }
+    return modules;
+  }
+
+  /** A changed path as the watcher names it, and through its symlinks, as the module graph does. */
+  private static pathForms(absPath: string): string[] {
+    const file = normalizePath(absPath);
+    try {
+      const real = normalizePath(realpathSync(file));
+      return real === file ? [file] : [file, real];
+    } catch {
+      return [file];
+    }
+  }
+
+  /**
    * Forget the current file: the scene it produced was closed and nothing
    * took its place. Every "current code" reader answers null afterwards, and
    * a recompute has nothing to re-run until a file is opened again.
@@ -2235,6 +2668,7 @@ export class FluidCadServer {
       isContainer: !!r.isContainer,
       visible: r.visible !== false,
     }));
+    const assembly = this.sceneManager?.getAssemblyData(scene) ?? null;
     return {
       schemaVersion: 1,
       file: this.currentFileName,
@@ -2243,7 +2677,35 @@ export class FluidCadServer {
       rollbackStop: this.lastRollbackStop,
       ...(this.lastRollbackScopePartId ? { rollbackScopePartId: this.lastRollbackScopePartId } : {}),
       compileError: this.compileError,
+      ...(assembly ? AssemblySummary.fields(assembly, this.sceneManager?.getInstanceShapeIds?.(scene) ?? null) : {}),
     };
+  }
+
+  /**
+   * Every id a screenshot can address in the current render: the shape ids
+   * its rendered objects carry (the ones `getShapesList` lists, which the page
+   * draws, an assembly's inserted parts included) and, in an assembly, its
+   * instance ids. Null with no rendered scene, when there is nothing to check
+   * an id against.
+   */
+  getSceneTargetIds(): Set<string> | null {
+    if (!this.currentFileName || !this.sceneManager) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    const ids = new Set<string>();
+    for (const r of scene.getRenderedObjects() as any[]) {
+      for (const s of (r.sceneShapes ?? []) as any[]) {
+        ids.add(s.shapeId);
+      }
+    }
+    for (const instance of this.sceneManager.getAssemblyData(scene)?.instances ?? []) {
+      ids.add(instance.instanceId);
+    }
+    return ids;
   }
 
   getShapesList(): ShapeList | null {

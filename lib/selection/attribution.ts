@@ -77,7 +77,9 @@ function scopedHits(
   // acquire its boundary edges. That membership can disappear when a
   // dimension changes. Prefer the creator's matching classified bucket;
   // provenance alone never invents an accessor or crosses a part boundary.
-  // Keep the index's ordering when the creator has no eligible bucket.
+  // Keep the index's ordering when the creator has no eligible bucket. The
+  // sort is stable, so the creator's own buckets keep the index's order too:
+  // a custom feature's declared buckets before its standard ones.
   return hits.sort((a, b) =>
     Number(b.bucket.feature === creator) - Number(a.bucket.feature === creator));
 }

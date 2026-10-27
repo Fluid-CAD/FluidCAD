@@ -17,7 +17,7 @@ The workspace is one browser tab: a top bar with the open files, a toolbar, a pa
   markers={[
     {n: 1, x: 20, y: 2.6, label: 'File tabs', description: 'Every open file is a tab. The current model tab owns the viewport; drag to reorder, right-click to rename.'},
     {n: 2, x: 35.2, y: 2.6, label: '+ (Open a file)', description: 'Opens a box listing every file in the workspace. Pick one to open it as a tab, or type a name that does not exist to create it.'},
-    {n: 3, x: 86.3, y: 2.6, label: 'Share', description: 'Publishes the model and the files it imports to the FluidCAD viewer and gives you the public link; anyone with it sees the model and its source.'},
+    {n: 3, x: 86.3, y: 2.6, label: 'Share', description: 'Publishes the model and the files it imports to the FluidCAD viewer and gives you the public link; anyone with it sees the model and its source. In a package this seat reads Publish and opens the Publish dialog (see Packages).'},
     {n: 4, x: 88.8, y: 2.6, label: 'Import', description: 'Imports a STEP file into imports/ and appends a load() statement.'},
     {n: 5, x: 91.7, y: 2.6, label: 'Export', description: 'Lists the scene’s solids; pick one for the STEP / STL / PNG dialog. In an assembly the list leads with Whole assembly.'},
     {n: 6, x: 95.6, y: 2.6, label: 'Settings', description: 'Appearance, Editor, Sketch, Timeline, Units, Materials and Advanced.'},
@@ -50,9 +50,10 @@ The gear in the top bar, just before the light/dark switch, opens the global set
 | Timeline | Which rows the History panel lists under a sketch: all of its children or only the editable features (the ones with an edit dialog, such as offset, projection and intersect), whether its *N constraints* group shows (on by default), and whether its *N regions* group shows (off by default). |
 | Units | The unit new projects are created in. Existing projects keep theirs; change those from the unit chip at the bottom of the viewport. |
 | Materials | Your own materials — name, id, density and unit — kept on this machine and offered beside the built-ins wherever a material is picked. See [Your own materials](#your-own-materials). |
+| Packages | Your package library: the folder it lives in, where new packages go, and the packages installed in it, with Remove. See [Packages](/docs/packages#your-library). |
 | Advanced | Reset every setting to its default, after a confirmation. This one acts at once rather than on Save. |
 
-Project settings, such as the engine pin and the project unit in `fluidcad.json`, are not here; see [Project configuration](/docs/project-configuration).
+Project settings, such as the engine pin and the project unit in `fluidcad.json`, are not here; see [Project configuration](/docs/project-configuration). The packages a project uses are listed by the **Packages** button on the top bar; see [Packages](/docs/packages#the-packages-of-a-project).
 
 ## The History panel
 

@@ -2,7 +2,6 @@ import type { TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
-import { Explorer } from "./explorer.js";
 import { MM_PER_UNIT } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import { getActiveUnit } from "../units/registry.js";
@@ -200,7 +199,6 @@ export class Mesh {
       return false;
     }
 
-    console.log('Triangulating shape of type', Explorer.getShapeType(shape))
     const inc = new oc.BRepMesh_IncrementalMesh(shape, linDefl, relative, angDefl, true);
     inc.delete();
     return true;

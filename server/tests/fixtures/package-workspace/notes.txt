@@ -1,0 +1,1 @@
+Design notes that stay in the workspace: not exported, not imported, never shipped.

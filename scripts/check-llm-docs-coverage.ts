@@ -45,6 +45,29 @@ async function loadApiDocConfig(): Promise<ApiDocConfig> {
   };
 }
 
+// The custom-feature SDK entries (`fluidcad/sdk`, `fluidcad/sdk/kernel`,
+// `fluidcad/sdk/occt`). Their names are not in api-doc-config.ts, yet the
+// docs that teach custom features claim them so `get_api_signature` finds
+// them. Read from the entries' own export lists, so a renamed or removed
+// export still surfaces as a stale claim.
+const SDK_ENTRIES = ['lib/sdk/index.ts', 'lib/sdk/kernel.ts', 'lib/sdk/occt.ts'];
+
+function sdkExports(): Set<string> {
+  const out = new Set<string>();
+  for (const entry of SDK_ENTRIES) {
+    const source = fs.readFileSync(path.join(REPO_ROOT, entry), 'utf8');
+    for (const match of source.matchAll(/^export\s+(?:type\s+)?\{([^}]*)\}/gm)) {
+      for (const name of match[1].split(',')) {
+        const exported = name.trim().split(/\s+as\s+/).pop()!.trim();
+        if (exported.length > 0) {
+          out.add(exported);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 function loadAllowlist(): Set<string> {
   if (!fs.existsSync(ALLOWLIST_FILE)) {
     return new Set();
@@ -85,6 +108,9 @@ function permittedExtras(config: ApiDocConfig): Set<string> {
   }
   for (const internal of Object.keys(config.typeDisplayNameMap)) {
     out.add(internal);
+  }
+  for (const name of sdkExports()) {
+    out.add(name);
   }
   return out;
 }

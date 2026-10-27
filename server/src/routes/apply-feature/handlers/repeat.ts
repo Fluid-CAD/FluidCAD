@@ -18,6 +18,7 @@ import {
 } from '../synthesis.ts';
 import { validateRepeat } from '../validate/repeat.ts';
 import type { RevolveAxisInput } from '../validate/revolve.ts';
+import { AxisInputs } from '../axis-inputs.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
 // Repeat replays one or more timeline features linearly, circularly,
@@ -48,7 +49,7 @@ export async function handleRepeat(ctx: ApplyFeatureRequestContext, req: Request
     }));
 
     const synthesizePick = makePickSynthesizer({
-      res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+      res, fluidCadServer, code, filePath, mergeProducer, parts, imports, callees: ctx.currentCallees,
     });
     const synthesizeInput = (pick: Pick, kind: 'revolve' | 'plane'): Promise<number | null> =>
       synthesizePick(pick, kind, kind === 'plane'
@@ -60,17 +61,8 @@ export async function handleRepeat(ctx: ApplyFeatureRequestContext, req: Request
 
     /** One validated axis input as its spec form; null after refusing. */
     const axisSpec = async (input: RevolveAxisInput): Promise<RepeatAxisSpec | null> => {
-      if (input.kind === 'standard') {
-        return { kind: 'standard', axis: input.axis };
-      }
-      if (input.kind === 'axis') {
-        return {
-          kind: 'axis',
-          producer: mergeProducer({
-            line: input.loc.line, column: input.loc.column,
-            featureType: 'axis', nameHint: 'a', bind: true,
-          }),
-        };
+      if (input.kind !== 'edge') {
+        return AxisInputs.bind(input, mergeProducer);
       }
       const part = await synthesizeInput(input.pick, 'revolve');
       return part === null ? null : { kind: 'selector', part };
@@ -128,7 +120,7 @@ export async function handleRepeat(ctx: ApplyFeatureRequestContext, req: Request
       targets,
     };
     // Truthful preview: the same allocation walk the transform runs.
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const varFor = (i: number): string | null => producerVars[i];
     const inputExprs = request.kind === 'mirror'
       ? [renderRepeatPlaneExpr(plane!, parts, varFor)]

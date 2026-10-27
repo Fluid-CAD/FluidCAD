@@ -50,8 +50,14 @@
     "./server/api": "./server/dist/api.js",
     "./math": "./lib/dist/math/index.js",
     "./units": "./lib/dist/units/index.js",
+    "./sdk": "./lib/dist/sdk/index.js",
+    "./sdk/kernel": "./lib/dist/sdk/kernel.js",
+    "./sdk/occt": "./lib/dist/sdk/occt.js",
     "./browser": "./lib/dist/browser/index.js",
-    "./viewer-ui": "./ui/dist-lib/viewer-ui.js",
+    "./viewer-ui": {
+      "types": "./ui/dist-lib/types/ui/src/viewer-ui.d.ts",
+      "default": "./ui/dist-lib/viewer-ui.js"
+    },
     "./viewer-ui/style.css": "./ui/dist-lib/viewer-ui.css"
   },
   "scripts": {
@@ -59,7 +65,7 @@
     "build:lib": "tsc -p lib/tsconfig.json",
     "build:server": "tsc -p server/tsconfig.json",
     "build:ui": "vite build --config ui/vite.config.ts",
-    "build:viewer-ui": "vite build --config ui/vite.lib.config.ts",
+    "build:viewer-ui": "vite build --config ui/vite.lib.config.ts && node scripts/viewer-ui-types.mjs",
     "build:start-ui": "vite build --config ui/vite.start.config.ts",
     "build:launcher": "tsc -p launcher/tsconfig.json",
     "build:mcp": "tsc -p mcp/tsconfig.json",
@@ -67,6 +73,7 @@
     "build:llm-type-docs": "tsx scripts/build-llm-type-docs.ts",
     "build:llm-docs": "npm run build:llm-type-docs && tsx scripts/build-llm-docs.ts",
     "check:llm-docs": "npm run build:llm-docs && tsx scripts/check-llm-docs-coverage.ts && vitest run lib/tests/llm-docs-examples.test.ts",
+    "hub:types": "node scripts/hub-types.mjs",
     "build": "npm run clean && npm run build:lib && npm run build:server && npm run build:ui && npm run build:start-ui && npm run build:launcher && npm run build:mcp && npm run build:llm-docs",
     "prepublishOnly": "npm run build",
     "dev:lib": "tsc -p lib/tsconfig.json --watch",
@@ -100,6 +107,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@tabler/icons": "^3.40.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/express": "^5.0.6",
@@ -116,6 +124,7 @@
     "jsdom": "^29.1.1",
     "lodash": "^4.17.21",
     "monaco-editor": "^0.57.0",
+    "openapi-typescript": "^7.13.0",
     "prettier": "^3.5.3",
     "tailwindcss": "^4.2.2",
     "three": "^0.180.0",

@@ -150,6 +150,25 @@ export type CompileError = {
   message: string;
   filePath?: string;
   sourceLocation?: { filePath: string; line: number; column: number };
+  /**
+   * The package imports the failed render refused (not pinned, not
+   * installed, changed, too new for this engine), one per package — what a
+   * missing package's Install action needs. Absent when none was refused.
+   */
+  packageProblems?: PackageProblem[];
+};
+
+/**
+ * A package a project can't load, as a structured project problem:
+ * `code` is the resolver's (`missing` for a pin installed in neither the
+ * project copy nor the library), `version` the pinned version when there
+ * is one, and `message` the sentence the render reports.
+ */
+export type PackageProblem = {
+  code: string;
+  name: string;
+  version: string | null;
+  message: string;
 };
 
 /**
@@ -449,6 +468,15 @@ export type RedoMessage = {
   editId: string;
 };
 
+/**
+ * Ask the editor host to open an `http(s)` page in the user's browser (the
+ * Hub panel's "Open on the hub" and part Previews, from a page framed in an
+ * editor that can't open one itself). Not an edit: nothing is acked.
+ */
+export type OpenExternalMessage = {
+  type: 'open-external';
+  url: string;
+};
 
 export type ServerToExtensionMessage =
   | ReadyMessage
@@ -470,7 +498,8 @@ export type ServerToExtensionMessage =
   | UpdateDimensionMessage
   | UpdateDimensionExpressionMessage
   | UndoMessage
-  | RedoMessage;
+  | RedoMessage
+  | OpenExternalMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: Server → UI messages
@@ -678,6 +707,19 @@ export type ScreenshotAnnotation = {
   label?: string;
 };
 
+/**
+ * A capture's framing target that is a set of shapes (or assembly instances)
+ * rather than the highlight: the page frames them as it draws them, instance
+ * poses included, from the capture's view direction. Framing only: nothing is
+ * hidden or ghosted. `margin` is the frame's size as a multiple of what the
+ * shapes cover on screen on the tighter axis (1 = flush with the frame edge;
+ * the page defaults to 1.2).
+ */
+export type ScreenshotShapeFit = {
+  shapes: string[];
+  margin?: number;
+};
+
 
 /** The world datum planes a section can be taken on. */
 export type SectionPlaneName = 'xy' | 'yz' | 'xz';
@@ -728,8 +770,8 @@ export type UITakeScreenshotMessage = {
     focus?: string[];
     /** Labelled lines painted in screen space over the capture. */
     annotations?: ScreenshotAnnotation[];
-    /** Frame the highlighted entities instead of the model. */
-    fitTo?: 'highlight';
+    /** Frame the highlighted entities, or the given shapes/instances, instead of the model. */
+    fitTo?: 'highlight' | ScreenshotShapeFit;
     /** `multi` captures: the cells' views (2-6), two per row, each labelled. */
     views?: ScreenshotView[];
     /** Cut the model away on one side of a plane, cut faces capped; every cell of a `multi` capture. */
@@ -783,6 +825,50 @@ export type UIFileEventMessage = {
 
 
 /**
+ * The workspace's custom features may have changed: a `*.feature.js` module,
+ * or a file one imports, was added, edited or removed on disk. The page
+ * refetches `/api/features/catalog`. UI-only — no editor host receives it.
+ */
+export type UIFeaturesChangedMessage = {
+  type: 'features-changed';
+  /** The file whose change was seen. */
+  absPath: string;
+};
+
+
+/**
+ * The engine can no longer be trusted: the OpenCascade kernel trapped (a
+ * wasm `RuntimeError`), so its memory may be corrupt — most likely a custom
+ * feature's raw OpenCascade code freed or reached memory the engine still
+ * needed. Sent once the first trap happens, again as more follow, and to
+ * every page that connects for the rest of the engine's life: only a fresh
+ * engine is sound. The page shows a banner offering the restart. UI-only —
+ * no editor host receives it.
+ */
+export type UIEngineSuspectMessage = {
+  type: 'engine-suspect';
+  /** What happened, as the banner says it. */
+  message: string;
+  /** The type of the statement whose build (or preview) trapped (`twist`, or `@acme/kit:twist` for an installed package's); null when it was no statement's. */
+  featureType: string | null;
+  /** That statement's name (`Twist`); null when it was no statement's. */
+  featureName: string | null;
+  /** That feature reaches raw OpenCascade (`fluidcad/sdk/occt`): the likeliest cause. */
+  usesOcct: boolean;
+  /** Traps since the engine started. */
+  traps: number;
+  /**
+   * How this page can restart the engine: `engine` — `POST
+   * /api/engine/restart`, and the host starts a fresh one on the same port;
+   * null — the engine can't restart itself, and `hint` says how to. (The
+   * desktop shell restarts its engine itself, whatever this says.)
+   */
+  restart: 'engine' | null;
+  hint: string | null;
+};
+
+
+/**
  * An edit for the in-page editor host to apply — the WebSocket carriage of a
  * message an IPC host would receive on `process.send`. Wrapped rather than
  * sent bare so the host contract's 24 message types can grow without ever
@@ -817,6 +903,8 @@ export type ServerToUIMessage =
   | UIRenderVersionMessage
   | UIEditorCapabilitiesMessage
   | UIFileEventMessage
+  | UIFeaturesChangedMessage
+  | UIEngineSuspectMessage
   | UIHostMessage;
 
 // ---------------------------------------------------------------------------

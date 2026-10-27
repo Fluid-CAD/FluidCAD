@@ -669,12 +669,12 @@ describe("feature sources (edit-dialog seeding)", () => {
   });
 
   /**
-   * A connector copy's keep chips: the connector target and a connector axis
-   * resolve to their `connector()` statements, so the edit ghost can place
-   * the frames and turn them; a copy standing in as the axis
-   * (`bolt.instance(1)`) has no statement of its own and stays opaque.
+   * A connector copy's keep chips: the connector target resolves to its
+   * `connector()` statement and a connector axis to the connector's site,
+   * so the edit ghost can place the frames and turn them; a copy standing
+   * in as the axis (`bolt.instance(1)`) is its seed's site and its slot.
    */
-  it("resolves a copy's connector target and connector axis to their statements", () => {
+  it("resolves a copy's connector target to its statement and its connector axis to the connector's site", () => {
     const made = {} as { statement: unknown; around: unknown };
     part("flange", () => {
       sketch("xy", () => {
@@ -704,13 +704,13 @@ describe("feature sources (edit-dialog seeding)", () => {
       ok: true,
       feature: "copy",
       targets: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 }],
-      axes: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 5, column: 0 }],
+      axes: [{ kind: "connector", filePath: "/ws/model.fluid.js", line: 5, column: 0 }],
     });
     expect(resolveFeatureSources(scene, at(7))).toMatchObject({
       ok: true,
       feature: "copy",
       targets: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 5, column: 0 }],
-      axes: [{ kind: "opaque" }],
+      axes: [{ kind: "connector", filePath: "/ws/model.fluid.js", line: 4, column: 0, slot: 1 }],
     });
   });
 

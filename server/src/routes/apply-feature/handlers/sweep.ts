@@ -40,7 +40,7 @@ export async function handleSweep(ctx: ApplyFeatureRequestContext, req: Request,
     if (request.path.kind === 'edges') {
       const options = code
         ? {
-          namer: await makeProducerNamer(code),
+          namer: await makeProducerNamer(code, await ctx.currentCallees()),
           params: resolveParamValues(
             await extractNumericParams(code),
             fluidCadServer.getParamDefinitions(),
@@ -104,7 +104,7 @@ export async function handleSweep(ctx: ApplyFeatureRequestContext, req: Request,
     // Truthful preview names: the same resolution the transform runs
     // (reused consts, collision-suffixed hints) in one pass, so
     // collision suffixes stay consistent across every input.
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const options: SweepEditOptions = {
       op: request.op, thin: request.thin,
       extendStart: request.extendStart, extendEnd: request.extendEnd,

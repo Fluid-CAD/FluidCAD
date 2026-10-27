@@ -4,12 +4,17 @@ import { ActorRecords } from "./actor-records.js";
 import { Part } from "../features/part.js";
 import { canonicalVariantKey, toOverrideMap } from "../features/param-overrides.js";
 import type { RenderChangeTracker } from "./render-changes.js";
+import { SceneCompare, type SceneCompareOptions } from "./scene-compare.js";
 
 type Pair = { newObj: SceneObject; oldObj: SceneObject };
 
 export class AssemblyCompare {
-  /** `changes`: the MCP-only change summary hook — see SceneCompare.compare. */
-  static compare(oldScene: AssemblyScene, newScene: AssemblyScene, changes?: RenderChangeTracker): AssemblyScene {
+  /**
+   * `changes`: the MCP-only change summary hook — see SceneCompare.compare.
+   * `options.rebuild`: feature types whose code changed — a part holding one
+   * rebuilds whole, as any part whose subtree differs does.
+   */
+  static compare(oldScene: AssemblyScene, newScene: AssemblyScene, changes?: RenderChangeTracker, options?: SceneCompareOptions): AssemblyScene {
     const map = new Map<SceneObject, SceneObject>();
 
     const newTopParts = topLevelParts(newScene);
@@ -37,7 +42,7 @@ export class AssemblyCompare {
       if (!oldPart) {
         continue;
       }
-      const subtreePairs = collectSubtreePairs(newPart, oldPart);
+      const subtreePairs = collectSubtreePairs(newPart, oldPart, options);
       if (subtreePairs) {
         matched.set(newPart, subtreePairs);
       }
@@ -99,7 +104,7 @@ export class AssemblyCompare {
 
       const oldError = oldObj.getError();
       if (oldError) {
-        newObj.setError(oldError);
+        newObj.setError(oldError, { kernelTrap: oldObj.isKernelTrap() });
       }
     }
 
@@ -162,11 +167,8 @@ function topLevelParts(scene: AssemblyScene): Part[] {
 
 // Returns pairs only on complete subtree match — partial matches are
 // discarded so a single divergence leaves the whole Part for full rebuild.
-function collectSubtreePairs(newObj: SceneObject, oldObj: SceneObject): Pair[] | null {
-  if (newObj.getUniqueType() !== oldObj.getUniqueType()) {
-    return null;
-  }
-  if (!oldObj.compareTo(newObj)) {
+function collectSubtreePairs(newObj: SceneObject, oldObj: SceneObject, options?: SceneCompareOptions): Pair[] | null {
+  if (!SceneCompare.matches(oldObj, newObj, options)) {
     return null;
   }
 
@@ -178,7 +180,7 @@ function collectSubtreePairs(newObj: SceneObject, oldObj: SceneObject): Pair[] |
 
   const pairs: Pair[] = [{ newObj, oldObj }];
   for (let i = 0; i < newChildren.length; i++) {
-    const childPairs = collectSubtreePairs(newChildren[i], oldChildren[i]);
+    const childPairs = collectSubtreePairs(newChildren[i], oldChildren[i], options);
     if (!childPairs) {
       return null;
     }

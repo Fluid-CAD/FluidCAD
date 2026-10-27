@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { execFileSync } from 'child_process';
 import type { DevEnvironment } from 'vite';
 import { EngineImportResolver } from '../src/host/engine-import-resolver.ts';
 import { ENGINE_PACKAGE_ROOT } from '../src/host/engine-resolution.ts';
@@ -17,9 +18,12 @@ import { LocalSceneHost } from '../src/host/local-scene-host.ts';
  */
 
 const ROOT = fs.realpathSync(ENGINE_PACKAGE_ROOT);
-const EXPORTS: Record<string, string> = JSON.parse(
-  fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'),
-).exports;
+/** The package's `exports`, each subpath's runtime file: a plain target, or a conditional one's `default` (`./viewer-ui` names its `types` too). */
+const EXPORTS: Record<string, string> = Object.fromEntries(
+  Object.entries(JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).exports as Record<string, string | { default: string }>).map(
+    ([subpath, target]) => [subpath, typeof target === 'string' ? target : target.default],
+  ),
+);
 
 function epermSymlink(): never {
   const err: any = new Error("EPERM: operation not permitted, symlink 'engine' -> 'workspace/node_modules/fluidcad'");
@@ -57,6 +61,21 @@ describe('EngineImportResolver', () => {
     }
   });
 
+  it('evaluates every engine module on its own, as a model that imports it first would', () => {
+    // A module reached first through the wrong door of an import cycle
+    // extends a class before it exists; each entry must hold up alone.
+    for (const [subpath, target] of Object.entries(EXPORTS)) {
+      if (!target.startsWith('./lib/dist/')) {
+        continue;
+      }
+      const specifier = subpath === '.' ? 'fluidcad' : `fluidcad/${subpath.slice(2)}`;
+      expect(() => execFileSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(specifier)})`], {
+        cwd: ROOT,
+        stdio: 'pipe',
+      }), specifier).not.toThrow();
+    }
+  });
+
   it('refuses a subpath the package does not export, like every other resolver', () => {
     expect(() => resolver.resolveFile('fluidcad/lib/dist/index.js')).toThrow(/not defined by "exports"/);
   });
@@ -84,7 +103,9 @@ describe('a workspace whose node_modules cannot hold a link (issue #66)', () => 
       path.join(workspace, 'model.js'),
       "import * as engine from 'fluidcad';\n" +
         "import { sketch } from 'fluidcad/core';\n" +
-        "export const kinds = { init: typeof engine.init, sketch: typeof sketch };\n",
+        "import { Feature } from 'fluidcad/sdk';\n" +
+        "import { Primitives } from 'fluidcad/sdk/kernel';\n" +
+        "export const kinds = { init: typeof engine.init, sketch: typeof sketch, Feature: typeof Feature, Primitives: typeof Primitives };\n",
     );
     const symlink = vi.spyOn(fs, 'symlinkSync').mockImplementation(epermSymlink);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -97,9 +118,9 @@ describe('a workspace whose node_modules cannot hold a link (issue #66)', () => 
       expect(fs.existsSync(path.join(workspace, 'node_modules', 'fluidcad'))).toBe(false);
       expect(warn.mock.calls[0]?.[0]).toMatch(/could not link the engine.*EPERM/);
 
-      // …and the model still resolves both the root and a subpath.
+      // …and the model still resolves the root and the subpaths, the SDK's included.
       const mod = await host.loadModuleRaw(path.join(workspace, 'model.js'));
-      expect(mod.kinds).toEqual({ init: 'function', sketch: 'function' });
+      expect(mod.kinds).toEqual({ init: 'function', sketch: 'function', Feature: 'function', Primitives: 'function' });
 
       // What it loaded is the server's own copy: the identity check compares this.
       expect(host.steeredEngineEntry()).toBe(fs.realpathSync(path.join(ROOT, 'lib/dist/index.js')));

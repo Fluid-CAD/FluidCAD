@@ -4,7 +4,8 @@
  * This is the ONLY entry point downstream consumers (the private hub repo,
  * future tooling) are meant to import from. It re-exports the engine wrapper,
  * the SceneHost extension seam, the HTTP/WS plumbing, the read-only route
- * factories, the wire protocol types, and the model-package packer + types.
+ * factories, the wire protocol types, and the old model packer + types
+ * (`fluidcad publish`'s).
  *
  * Note: `fluidcad/server` (no `/api`) still resolves to the desktop server
  * BINARY (`./index.ts`), which boots Express + a WebSocket server at import
@@ -21,7 +22,11 @@ export { FluidCadServer } from './fluidcad-server/index.ts';
 export type {
   SceneRenderedData,
   SceneSummary,
+  SceneSummaryInstance,
+  SceneSummaryInstancePose,
+  SceneSummaryInstancePoses,
   SceneSummaryObject,
+  SceneSummaryOccurrence,
   SceneSummaryShape,
   ShapeList,
   ShapeListEntry,
@@ -60,8 +65,10 @@ export { createPreferencesRouter } from './routes/preferences.ts';
 export type * from './ws-protocol.ts';
 
 // --- Model package: packer + types -----------------------------------------
-// `packModel` is already public via the `fluidcad pack` CLI; exposing it here
-// lets a hub backend pack uploads programmatically instead of shelling out.
+// The old model packer, kept only as `fluidcad publish`'s until `login` and
+// `publish` are rewritten for the hub, which retires it (`fluidcad pack` now
+// packs packages). Exposed here so a hub backend can pack uploads
+// programmatically instead of shelling out.
 // NOTE: there is no `unpackModel` here on purpose — unpacking is a hub concern
 // and lives in the private repo.
 export { packModel } from './model-package/pack.ts';
@@ -69,7 +76,7 @@ export type { PackInputs, PackResult } from './model-package/pack.ts';
 // Renders a model once to capture its full param schema for the manifest
 // (`fluidcad publish`); boots OC wasm, so it lives behind this side-effect-free
 // surface rather than being called at import time.
-export { captureModelParams, captureParamDefinitions } from './model-package/capture-params.ts';
+export { captureParamDefinitions } from './model-package/capture-params.ts';
 export type {
   ModelPackageManifest,
   ModelPackageCamera,

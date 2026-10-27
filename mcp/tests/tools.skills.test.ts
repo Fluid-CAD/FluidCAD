@@ -21,7 +21,7 @@ import { listSkills, readSkill } from '../src/tools/skills.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_SKILLS = path.resolve(__dirname, '../skills');
-const SKILL_NAMES = ['fluidcad', 'fluidcad-assembly', 'fluidcad-from-drawing'];
+const SKILL_NAMES = ['fluidcad', 'fluidcad-assembly', 'fluidcad-custom-features', 'fluidcad-from-drawing'];
 
 const AnyResult = z.looseObject({});
 

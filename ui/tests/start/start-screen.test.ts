@@ -4,7 +4,7 @@ import { START_SCREEN_PROTOCOL, guardedHost, type ProjectDialogs, type StartScre
 import { StartScreen } from '../../src/start/start-screen';
 
 function fakeBridge(overrides: Partial<StartScreenBridge> = {}) {
-  const pushed: { state?: (state: unknown) => void; changed?: () => void } = {};
+  const pushed: { state?: (state: unknown) => void; changed?: () => void; command?: (command: unknown) => void } = {};
   const bridge: StartScreenBridge = {
     hello: vi.fn(async () => ({ ok: true, appVersion: '0.0.45', platform: 'linux', home: '/home/you', projectsRoot: null })),
     windowState: vi.fn(async () => ({ phase: 'home' })),
@@ -43,6 +43,7 @@ function fakeBridge(overrides: Partial<StartScreenBridge> = {}) {
     applyPin: vi.fn(),
     onUpgradeProgress: vi.fn(),
     onChanged: vi.fn((handler) => (pushed.changed = handler)),
+    onCommand: vi.fn((handler) => (pushed.command = handler)),
     ...overrides,
   };
   return { bridge, pushed };
@@ -143,6 +144,58 @@ describe('StartScreen', () => {
     expect(root.querySelector('#fluidcad-folder-picker-title')).toBeNull();
   });
 
+  it('asks a package its name in its own dialog, then hands it to the native New Package dialog', async () => {
+    const { root, bridge } = await start();
+    const button = (label: string) => [...root.querySelectorAll('button')].find((b) => b.textContent === label)!;
+    const dialog = root.querySelector('#fluidcad-package-name-title')!.closest<HTMLElement>('[role="dialog"]')!;
+    const name = dialog.querySelector<HTMLInputElement>('[data-ref="name"]')!;
+    const create = dialog.querySelector<HTMLButtonElement>('[data-ref="create"]')!;
+    const problem = dialog.querySelector<HTMLElement>('[data-ref="problem"]')!;
+
+    button('New Package').click();
+    expect(dialog.classList.contains('hidden')).toBe(false);
+    expect(dialog.textContent).toContain('The part before the slash is your hub handle');
+    expect(document.activeElement).toBe(name);
+    // The bar waits for the dialog, as it does for a native one.
+    expect(button('New Project').disabled).toBe(true);
+    expect(create.disabled).toBe(true);
+
+    name.value = 'kit';
+    name.dispatchEvent(new Event('input'));
+    expect(problem.classList.contains('hidden')).toBe(false);
+    expect(problem.textContent).toBe('A package name is @handle/name: lowercase letters, digits and single dashes, each part starting with a letter.');
+    expect(create.disabled).toBe(true);
+
+    name.value = '@acme/kit';
+    name.dispatchEvent(new Event('input'));
+    expect(problem.classList.contains('hidden')).toBe(true);
+    expect(create.disabled).toBe(false);
+    create.click();
+    await vi.waitFor(() => expect(bridge.newProject).toHaveBeenCalledWith({ package: '@acme/kit' }));
+    expect(dialog.classList.contains('hidden')).toBe(true);
+    await vi.waitFor(() => expect(button('New Project').disabled).toBe(false));
+
+    // Dismissed: nothing is asked of the shell.
+    button('New Package').click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await vi.waitFor(() => expect(button('New Package').disabled).toBe(false));
+    expect(bridge.newProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the name dialog when the shell's menu asks for a new package", async () => {
+    const { root, pushed, bridge } = await start();
+    pushed.command!('new-package');
+    const dialog = root.querySelector('#fluidcad-package-name-title')!.closest<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.classList.contains('hidden')).toBe(false);
+    const name = dialog.querySelector<HTMLInputElement>('[data-ref="name"]')!;
+    name.value = '@acme/kit';
+    name.dispatchEvent(new Event('input'));
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await vi.waitFor(() => expect(bridge.newProject).toHaveBeenCalledWith({ package: '@acme/kit' }));
+    // A command the page does not know is a contract problem, said in one line.
+    expect(() => pushed.command!('format-disk')).toThrow('onCommand(): expected one of');
+  });
+
   it("draws its own folder picker for a host without native dialogs, as a browser's is", async () => {
     const { bridge } = fakeBridge();
     const listing = { path: '/home/you/cad', project: false, parent: '/home/you', home: '/home/you', roots: ['/'], entries: [] };
@@ -159,7 +212,20 @@ describe('StartScreen', () => {
     await vi.waitFor(() => expect(dialogs.browse).toHaveBeenCalled());
     const title = root.querySelector('#fluidcad-folder-picker-title')!;
     expect(title.textContent).toBe('New project');
-    expect(title.closest('[role="dialog"]')!.classList.contains('hidden')).toBe(false);
+    const picker = title.closest<HTMLElement>('[role="dialog"]')!;
+    expect(picker.classList.contains('hidden')).toBe(false);
+    expect(picker.querySelector('[data-ref="package-row"]')!.classList.contains('hidden')).toBe(true);
+    // No name dialog of its own: the picker asks the name.
+    expect(root.querySelector('#fluidcad-package-name-title')).toBeNull();
+
+    // New Package is the same picker, on Package.
+    picker.querySelector<HTMLButtonElement>('[data-ref="cancel"]')!.click();
+    const newPackage = [...root.querySelectorAll('button')].find((b) => b.textContent === 'New Package')!;
+    await vi.waitFor(() => expect(newPackage.disabled).toBe(false));
+    newPackage.click();
+    await vi.waitFor(() => expect(title.textContent).toBe('New package'));
+    expect(picker.querySelector('[data-ref="package-row"]')!.classList.contains('hidden')).toBe(false);
+    expect(picker.querySelector('[data-ref="kind-package"]')!.getAttribute('aria-checked')).toBe('true');
   });
 
   it('says why a project could not be closed', async () => {

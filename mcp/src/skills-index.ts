@@ -321,6 +321,12 @@ function listFiles(dir: string, prefix = ''): string[] {
     .readdirSync(dir, { withFileTypes: true })
     .sort((a, b) => a.name.localeCompare(b.name));
   for (const entry of entries) {
+    // Dot entries are the host's, not the skill's: Finder's .DS_Store, an
+    // editor's swap file. Serving one would put bytes nobody wrote into the
+    // manifest, and the digest would drift as the host rewrites it.
+    if (entry.name.startsWith('.')) {
+      continue;
+    }
     const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       out.push(...listFiles(path.join(dir, entry.name), rel));

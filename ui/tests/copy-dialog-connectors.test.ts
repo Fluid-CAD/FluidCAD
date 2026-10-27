@@ -364,6 +364,36 @@ describe('Copy dialog — connectors', () => {
     service.exit();
   });
 
+  it("opens an edit whose axis is a connector on that connector's chip — a copy's by its slot — and ghosts around it", async () => {
+    vi.mocked(api.fetchFeatureSources).mockResolvedValue({
+      ok: true, feature: 'copy',
+      targets: [{ kind: 'sketch', ...at(6, 15) }],
+      axes: [{ kind: 'connector', ...at(8, 14), slot: 1 }],
+    });
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: [], frames: [FRAME, FRAME], notice: null });
+    const { service, chips, text, state } = mountCopy();
+    const target = at(10, 2);
+    service.enterEdit(target, {
+      feature: 'copy', kind: 'circular', axisTexts: ['lug.instance(1)'], axisRefs: [null], directions: null, spacingMode: null,
+      centered: false, count: 3, sweep: { mode: 'angle', value: 360 }, center: null, skip: null,
+      targetTexts: ['bolt'], targetRefs: [{ line: 6, column: 15 }],
+    }, { index: 7, type: 'copy-circular', expectedStatement: "copy('circular', lug.instance(1), { count: 3, angle: 360 }, bolt)" });
+    expect(text('axis-slot-1')).toContain('Current: lug.instance(1)');
+    const edited = {
+      id: 'edited', type: 'copy-circular', name: 'Copy', parentId: 'part', visible: true, hideChildren: true,
+      sceneShapes: [], ownShapes: [], sourceLocation: target,
+    } as SceneObjectRender;
+    service.handleSceneRendered([...flangeScene(), edited], 6, true);
+    await vi.runAllTimersAsync();
+
+    expect(chips('axis-slot-1')).toEqual(['Connector lug.instance(1)']);
+    expect(state.picked).toContain('lug-1');
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)?.[0]).toMatchObject({
+      feature: 'copy', kind: 'circular', axes: [{ kind: 'connector', filePath: FILE, line: 8, slot: 1 }],
+    });
+    service.exit();
+  });
+
   it('ghosts an edited copy whose kept axis is an inline axis(<edge>), turning the edge it was built on', async () => {
     // What an edge pick writes: the axis lands inline, so the sources query
     // answers with the edge it names rather than a statement.
@@ -410,7 +440,7 @@ describe('Repeat dialog — connectors (B9)', () => {
     const service = new RepeatFeatureService(container, viewer, new Navbar(container), {});
     service.update(flangeScene());
     const text = (role: string) => container.querySelector<HTMLElement>(`[data-role="${role}"]`)?.textContent ?? '';
-    return { service, state, text };
+    return { service, state, text, container };
   }
 
   it('never offers a connector, or a copy of connectors, as a feature to repeat', () => {
@@ -439,6 +469,30 @@ describe('Repeat dialog — connectors (B9)', () => {
 
     service.exit();
     expect(state.connectorPicking?.armed).toBe(false);
+  });
+
+  it("takes a connector as an armed axis slot's axis — its gizmo, revealed, or its row — and sends it", async () => {
+    const { service, state, text, container } = mountRepeat();
+    service.enter();
+    service.handleTimelinePick(rowOf('plate'));
+    container.querySelector<HTMLElement>('[data-role="axis-slot-1"]')!.click();
+    expect(service.isConnectorPicking).toBe(true);
+    expect(state.connectorPicking).toEqual({ armed: true, reveal: true });
+
+    service.handleConnectorPick('pivot');
+    expect(text('axis-slot-1')).toContain('pivot');
+    expect(state.picked).toEqual(['pivot']);
+    // A copy's row: its seed's statement and its slot.
+    expect(service.handleTimelinePick(rowOf('lug-1'))).toBe(true);
+    expect(text('axis-slot-1')).toContain('lug.instance(1)');
+    expect(text('message')).toBe('');
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(vi.mocked(api.applyRepeat).mock.calls.at(-1)![0]).toMatchObject({
+      targets: [at(5, 12)],
+      directions: [{ axis: { kind: 'connector', ...at(8, 14), slot: 1 } }],
+    });
+    service.exit();
   });
 });
 

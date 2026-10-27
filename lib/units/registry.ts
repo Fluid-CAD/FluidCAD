@@ -15,12 +15,20 @@ export type UnitRegistryOptions = {
   rootFile: string;
   /** Nearest fluidcad.json lookup (Node only); undefined in the browser. */
   projectUnitForFile?: (file: string) => LengthUnit | null;
+  /**
+   * The unit() declarations a host read from the files before running them,
+   * by file: a package manifest's `fileUnits`. A bundled browser model is
+   * one module, so a unit() call there can't tell which file it is in; the
+   * host's static read stands in for it (see {@link UnitRegistry.knowsFileUnits}).
+   */
+  knownFileUnits?: ReadonlyMap<string, LengthUnit>;
 };
 
 export class UnitRegistry {
   projectUnit: LengthUnit;
   rootFile: string;
   private readonly projectUnitForFile: ((file: string) => LengthUnit | null) | undefined;
+  private readonly knownFileUnits: ReadonlyMap<string, LengthUnit>;
   private readonly unitsByFile: Map<string, LengthUnit> = new Map();
   private readonly geometryStartedByFile: Set<string> = new Set();
 
@@ -28,6 +36,15 @@ export class UnitRegistry {
     this.projectUnit = opts.projectUnit;
     this.rootFile = opts.rootFile;
     this.projectUnitForFile = opts.projectUnitForFile;
+    this.knownFileUnits = opts.knownFileUnits ?? new Map();
+  }
+
+  /**
+   * Whether the host told this render each file's unit() up front. A unit()
+   * call whose file can't be found is then that metadata again, not an error.
+   */
+  get knowsFileUnits(): boolean {
+    return this.knownFileUnits.size > 0;
   }
 
   /** Record a file's unit() statement. Once per file, and before its first geometry. */
@@ -41,10 +58,10 @@ export class UnitRegistry {
     this.unitsByFile.set(file, unit);
   }
 
-  /** The unit a file's numbers are in: its own unit() → nearest fluidcad.json → project unit. */
+  /** The unit a file's numbers are in: its own unit() (run, or known to the host) → nearest fluidcad.json → project unit. */
   resolve(file: string | null | undefined): LengthUnit {
     if (file) {
-      const declared = this.unitsByFile.get(file);
+      const declared = this.declared(file);
       if (declared) {
         return declared;
       }
@@ -56,8 +73,9 @@ export class UnitRegistry {
     return this.projectUnit;
   }
 
+  /** The file's unit() declaration: the one that ran, else the one the host read up front, else null. */
   declared(file: string): LengthUnit | null {
-    return this.unitsByFile.get(file) ?? null;
+    return this.unitsByFile.get(file) ?? this.knownFileUnits.get(file) ?? null;
   }
 
   /** Called by every builder invocation: from here on `file` can no longer declare a unit. */

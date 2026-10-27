@@ -14,6 +14,8 @@ import { DirectFaces, DirectFacesResult } from "./direct-faces.js";
 import { SameDomainMerge, SameDomainMergeResult } from "./same-domain-merge.js";
 import { requireValidSolid } from "./solid-validation.js";
 import { ShapeValidator } from "./shape-validator.js";
+import { BooleanBuilders } from "./boolean-builders.js";
+import { CutToolImages } from "./cut-tool-images.js";
 
 export class BooleanOps {
   // Fuzzy tolerance (mm) for the feature cut/fuse builders. A swept tube whose
@@ -105,7 +107,7 @@ export class BooleanOps {
       }),
       Generated: (s: TopoDS_Shape) => through(s, rebuilt => builder.Generated(rebuilt)),
       IsDeleted: (s: TopoDS_Shape) => through(s, rebuilt => builder.IsDeleted(rebuilt)),
-      delete: () => builder.delete(),
+      delete: () => BooleanBuilders.release(builder),
     };
   }
 
@@ -129,14 +131,14 @@ export class BooleanOps {
     }
 
     if (!cutter.IsDone() || cutter.HasErrors()) {
-      cutter.delete();
+      BooleanBuilders.release(cutter);
       progress.delete();
       inputs.direct?.dispose();
       throw new Error("Cut failed");
     }
 
     const result = cutter.Shape();
-    cutter.delete();
+    BooleanBuilders.release(cutter);
     progress.delete();
     inputs.direct?.dispose();
     return result;
@@ -157,7 +159,7 @@ export class BooleanOps {
     const dispose = () => {
       if (disposed) return;
       disposed = true;
-      builder.delete(); progress.delete(); stockList.delete(); toolList.delete(); inputs.direct?.dispose();
+      BooleanBuilders.release(builder); progress.delete(); stockList.delete(); toolList.delete(); inputs.direct?.dispose();
     };
     let result: TopoDS_Shape | undefined;
     try {
@@ -218,10 +220,18 @@ export class BooleanOps {
    * left as it was (see `cutStock`); `makerOf` gives the boolean that ran
    * against a stock, for its lineage. `sectionEdges` and `internalFaces` are
    * the geometry the cut created, across the stocks it changed.
+   *
+   * `options.trackTool` names faces and edges of the tools to follow (a
+   * feature's named members): `toolImages` then gives each one's images in
+   * the uncleaned results, across the stocks the cut changed, in stock
+   * order (see `CutToolImages.inCut`) — none for a member not tracked.
+   * Tracking only reads the builders; without it nothing is gathered.
    */
-  static cutMultiShape(stocks: Shape[], tools: Shape[], plane?: Plane, cutDistance: number = 0, options: { validate?: boolean; stage?: string } = {}) {
+  static cutMultiShape(stocks: Shape[], tools: Shape[], plane?: Plane, cutDistance: number = 0,
+                       options: { validate?: boolean; stage?: string; trackTool?: Shape[] } = {}) {
     const oc = getOC();
     const toolRaws = tools.map(s => s.getShape());
+    const tracked = options.trackTool ?? [];
     const cuts = new Map<Shape, ReturnType<typeof BooleanOps.cutStock>>();
     let disposed = false;
     const dispose = () => {
@@ -231,9 +241,10 @@ export class BooleanOps {
     };
     try {
       for (const stock of stocks) {
-        cuts.set(stock, BooleanOps.cutStock(stock, toolRaws, options));
+        cuts.set(stock, BooleanOps.cutStock(stock, toolRaws, options, tracked));
       }
       const changed = [...cuts.values()].filter(cut => cut.changed);
+      const toolImages = CutToolImages.lookup(tracked, tracked.map((_, i) => changed.flatMap(cut => cut.toolImages[i] ?? [])));
       const modified = (shape: Shape) => {
         const cut = cuts.get(shape);
         if (!cut || !cut.changed) {
@@ -288,6 +299,7 @@ export class BooleanOps {
         endEdges,
         internalEdges,
         internalFaces,
+        toolImages,
         dispose,
       };
     } catch (error) {
@@ -307,8 +319,12 @@ export class BooleanOps {
    * that face split along the contact: the body it was. A stock the cut
    * changed holds a face that descends from none of its own (the tool's
    * wall, laid bare inside it), or has lost one of its own.
+   *
+   * `toolImages` holds, parallel to `tracked`, where a stock the cut changed
+   * put each tracked tool face or edge (see `CutToolImages.inCut`); it is
+   * empty for a stock the cut left as it was.
    */
-  private static cutStock(stock: Shape, tools: TopoDS_Shape[], options: { validate?: boolean; stage?: string }) {
+  private static cutStock(stock: Shape, tools: TopoDS_Shape[], options: { validate?: boolean; stage?: string }, tracked: readonly Shape[] = []) {
     const oc = getOC();
     const cut = BooleanOps.cutWithHistory([stock.getShape()], tools, options);
     const { result, maker: cutMaker, stockRaws } = cut;
@@ -330,7 +346,7 @@ export class BooleanOps {
       const imageCount = images.Size();
       images.delete();
       if (imageCount === 0) {
-        return { maker: cutMaker, empty: cut.empty, changed: cut.empty, sectionEdges: [] as Edge[], internalFaces: [] as Face[], dispose };
+        return { maker: cutMaker, empty: cut.empty, changed: cut.empty, sectionEdges: [] as Edge[], internalFaces: [] as Face[], toolImages: [] as Shape[][], dispose };
       }
 
       // Build maps of all edges and faces that came from the original stock (unchanged or modified).
@@ -374,12 +390,14 @@ export class BooleanOps {
         .filter(rf => !stockFaceMap.Contains(rf))
         .map(rf => Face.fromTopoDSFace(Explorer.toFace(rf)));
 
+      const changed = internalFaces.length > 0 || lostFace;
       return {
         maker: cutMaker,
         empty: cut.empty,
-        changed: internalFaces.length > 0 || lostFace,
+        changed,
         sectionEdges,
         internalFaces,
+        toolImages: changed ? CutToolImages.inCut(cutMaker, result, tracked) : [],
         dispose,
       };
     } catch (error) {
@@ -506,7 +524,7 @@ export class BooleanOps {
         return;
       }
       disposed = true;
-      builder.delete();
+      BooleanBuilders.release(builder);
       progress.delete();
       inputs.direct?.dispose();
       // The result handles live as long as the maker answers for them.
@@ -602,25 +620,17 @@ export class BooleanOps {
 
 
     const progress = new oc.Message_ProgressRange();
-    const tBuild = performance.now();
     builder.Build(progress);
-    console.log(`[perf] BooleanOps.fuse.Build (args=${args.length}): ${(performance.now() - tBuild).toFixed(1)} ms`);
-    const tSimplify = performance.now();
     builder.SimplifyResult(false, true, oc.Precision.Angular());
-    console.log(`[perf] BooleanOps.fuse.SimplifyResult: ${(performance.now() - tSimplify).toFixed(1)} ms`);
 
-    const tUnify = performance.now();
     const builtShape = builder.Shape();
     const resultShape = BooleanOps.unifyEdgesSplitByBoolean(
       builder,
       inputs.raws,
       builtShape,
     );
-    console.log(`[perf] BooleanOps.fuse.unifyEdgesSplitByBoolean: ${(performance.now() - tUnify).toFixed(1)} ms`);
 
-    const tExplore = performance.now();
     const rawShapes = Explorer.findAllShapes(resultShape);
-    console.log(`[perf] BooleanOps.fuse.findAllShapes (count=${rawShapes.length}): ${(performance.now() - tExplore).toFixed(1)} ms`);
     const result = rawShapes.map(s => ShapeFactory.adopt(s));
     if (resultShape !== builtShape) {
       resultShape.delete();
@@ -636,7 +646,6 @@ export class BooleanOps {
 
     const newShapes: Shape[] = [];
 
-    const tPartner = performance.now();
     for (const s of result) {
       const existsInArgs = inputs.raws.some(raw => raw.IsPartner(s.getShape()));
 
@@ -644,7 +653,6 @@ export class BooleanOps {
         newShapes.push(s);
       }
     }
-    console.log(`[perf] BooleanOps.fuse.IsPartner check (result=${result.length} x args=${args.length}): ${(performance.now() - tPartner).toFixed(1)} ms`);
 
     let disposed = false;
     const dispose = () => {
@@ -652,7 +660,7 @@ export class BooleanOps {
         return;
       }
       disposed = true;
-      builder.delete();
+      BooleanBuilders.release(builder);
       progress.delete();
       inputs.direct?.dispose();
     };
@@ -839,13 +847,11 @@ export class BooleanOps {
         }
       }
 
-      console.log('FuseMultiShape: Result shapes count:', rawShapes.length);
       const result = rawShapes.map(s => ShapeFactory.adopt(s));
 
       const modifiedShapes: Shape[] = [];
       for (const shape of args) {
         if (builder.IsDeleted(shape.getShape())) {
-          console.log('=======', 'Shape was deleted in fuse:', shape);
           modifiedShapes.push(shape);
         }
       }
@@ -870,30 +876,38 @@ export class BooleanOps {
     } finally {
       unify?.delete();
       Explorer.deleteAll(scratch);
-      builder.delete();
+      BooleanBuilders.release(builder);
       progress.delete();
     }
   }
 
   static splitShape(shape: Shape, tool: Shape): Shape[] {
     const oc = getOC();
-    const splitter = new oc.BOPAlgo_Splitter();
+    // The API splitter, not BOPAlgo_Splitter: that one keeps its
+    // intersection data on the heap however it is released (BooleanBuilders).
+    const splitter = new oc.BRepAlgoAPI_Splitter();
     splitter.SetRunParallel(true);
     splitter.SetNonDestructive(true);
-    splitter.AddTool(tool.getShape());
-    splitter.AddArgument(shape.getShape());
+    const args = new oc.TopTools_ListOfShape();
+    args.Append(shape.getShape());
+    const tools = new oc.TopTools_ListOfShape();
+    tools.Append(tool.getShape());
+    splitter.SetArguments(args);
+    splitter.SetTools(tools);
 
     const progress = new oc.Message_ProgressRange();
-    splitter.Perform(progress);
+    splitter.Build(progress);
     progress.delete();
+    args.delete();
+    tools.delete();
 
-    if (splitter.HasErrors()) {
-      splitter.delete();
+    if (!splitter.IsDone() || splitter.HasErrors()) {
+      BooleanBuilders.release(splitter);
       throw new Error("Splitter failed");
     }
 
     const resultShape = splitter.Shape();
-    splitter.delete();
+    BooleanBuilders.release(splitter);
 
     if (Explorer.isSolid(resultShape)) {
       return [ShapeFactory.adopt(resultShape)];
@@ -931,7 +945,7 @@ export class BooleanOps {
     builder.Perform(progress);
 
     if (builder.HasErrors()) {
-      builder.delete();
+      BooleanBuilders.release(builder);
       progress.delete();
       inputs.direct?.dispose();
       throw new Error('Common operation failed');
@@ -954,7 +968,6 @@ export class BooleanOps {
     const rawShapes = Explorer.findAllShapes(resultShape);
     const result = rawShapes.map(s => ShapeFactory.adopt(s));
     resultShape.delete();
-    console.log('Common operation: result shape type:', rawShapes.length);
 
     const modifiedShapes: Shape[] = [];
 
@@ -971,7 +984,7 @@ export class BooleanOps {
       }
     });
 
-    builder.delete();
+    BooleanBuilders.release(builder);
     progress.delete();
     inputs.direct?.dispose();
 
@@ -987,10 +1000,6 @@ export class BooleanOps {
 
     const cleanResult = result.map(s => ShapeOps.cleanShape(s));
     const cleanNewShapes = newShapes.map(s => ShapeOps.cleanShape(s));
-
-    console.log('Common operation: result shapes count:', cleanResult.length);
-    console.log('Common operation: new shapes count:', cleanNewShapes.length);
-    console.log('Common operation: modified shapes count:', modifiedShapes.length);
 
     return { result: cleanResult, newShapes: cleanNewShapes, modifiedShapes };
   }
@@ -1008,7 +1017,6 @@ export class BooleanOps {
     if (bbox1.IsOut(bbox2)) {
       bbox1.delete();
       bbox2.delete();
-      console.log(`Intersection test: Bounding boxes do not intersect.`);
       return false;
     }
 
@@ -1028,9 +1036,7 @@ export class BooleanOps {
     const distance = distCalc.IsDone() ? distCalc.Value() : Infinity;
     distCalc.delete();
 
-    console.log(`Intersection test: Minimum distance between shapes is ${distance}.`);
     if (distance <= 0) {
-      console.log(`Intersection test: Shapes are separated by distance ${distance}.`);
       return true;
     }
 
@@ -1039,8 +1045,7 @@ export class BooleanOps {
     common.Build(new oc.Message_ProgressRange());
 
     if (!common.IsDone()) {
-      common.delete();
-      console.log(`Intersection test: Boolean common operation failed.`);
+      BooleanBuilders.release(common);
       return false;
     }
 
@@ -1049,7 +1054,7 @@ export class BooleanOps {
     const volume = props.Mass();
 
     props.delete();
-    common.delete();
+    BooleanBuilders.release(common);
 
     return volume > mmTol3(1e-9);
   }

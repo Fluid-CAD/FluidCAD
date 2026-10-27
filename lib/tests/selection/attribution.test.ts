@@ -527,6 +527,67 @@ describe("apply-feature synthesis", () => {
     }
   });
 
+  it("writes a mirrored clone's face with the index that names it on the instance, and explains it so", () => {
+    // Off the mirror plane, so the copy rebuilds its side faces in another
+    // order than the original's mirror images.
+    sketch("xy", () => {
+        testRect(20, 30, { at: [10, 0] });
+      });
+    const e = extrude(10).new();
+    setLocation(e, 4);
+    const m = repeat("mirror", "yz", e);
+    setLocation(m, 6);
+
+    const scene = render();
+    const clone = findSolids(scene).find(s =>
+      Explorer.findEdgesWrapped(s).every(eg => EdgeOps.getEdgeMidPoint(eg).x < 0))!;
+    expect(clone).toBeDefined();
+    // The walls: the faces whose edges are not all at one height.
+    const walls = allFaceRefs(clone).filter(ref => {
+      const heights = Explorer.findFacesWrapped(clone)[ref.sub.index].getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg).z.toFixed(6));
+      return new Set(heights).size > 1;
+    });
+    expect(walls).toHaveLength(4);
+
+    const centre = (s: Shape) => {
+      const mids = Explorer.findEdgesWrapped(s).map(eg => EdgeOps.getEdgeMidPoint(eg));
+      return { x: mids.reduce((a, p) => a + p.x, 0) / mids.length, y: mids.reduce((a, p) => a + p.y, 0) / mids.length };
+    };
+    const originals = (e as unknown as SceneObject).getState('side-faces') as Shape[];
+    let remapped = 0;
+    for (const wall of walls) {
+      const picked = Explorer.findFacesWrapped(clone)[wall.sub.index];
+      // The original's side face whose mirror image the pick is.
+      const at = centre(picked);
+      const j = originals.findIndex(f => Math.abs(-centre(f).x - at.x) < 1e-6 && Math.abs(centre(f).y - at.y) < 1e-6);
+      expect(j).toBeGreaterThanOrEqual(0);
+
+      const result = synthesizeApplyFeature(scene, [wall], 'fillet', 1);
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        continue;
+      }
+      expect(result.spec.parts[0].accessor).toBe("instance(1).sideFaces");
+      expect([result.args, ...result.alternatives]).toContain(`m.instance(1).sideFaces(${j})`);
+      // Every form written resolves to the pick as the instance's accessor reads it.
+      const index = result.spec.parts[0].indices;
+      if (index) {
+        const lazy = m.instance(1).sideFaces(...index) as unknown as SceneObject;
+        lazy.build();
+        expect(lazy.getShapes().map(f => f.getShape().IsSame(picked.getShape()))).toEqual([true]);
+      }
+      expect(explainSelection(scene, [wall]).picks[0].expression)
+        .toBe(`m.instance(1).sideFaces(${j}) — side faces of Extrude (instance of repeat @ line 6)`);
+      const own = ((m as unknown as { instance(k: number): { getRoots(): SceneObject[] } }).instance(1).getRoots()[0]
+        .getState('side-faces') as Shape[]).findIndex(f => f.getShape().IsSame(picked.getShape()));
+      if (own !== j) {
+        remapped++;
+      }
+    }
+    // The case the index has to follow: the copy's own order is not the original's.
+    expect(remapped).toBeGreaterThan(0);
+  });
+
   it("synthesizes a scene-wide select() when a clone's slot repeats several features (tier 3)", () => {
     sketch("xy", () => {
         testRect(20, 20);
@@ -1255,8 +1316,44 @@ describe("producer naming", () => {
     // The clone binds through its repeat's slot, so the tooltip shows the
     // instance address the synthesizer will write — never a bare `e.`.
     expect(pick.expression).toMatch(/^r\.instance\([12]\)\.\w+Edges\(\d+\) — /);
-    expect(pick.expression).toContain('of extrude() (instance of repeat @ line 6)');
+    expect(pick.expression).toContain('of Extrude (instance of repeat @ line 6)');
     expect(pick.expression).not.toMatch(/^e\./);
+  });
+
+  it("shows the instance address when the clones share the repeat's call site, as the engine stamps them", () => {
+    sketch("xy", () => {
+        testRect(20, 20);
+      });
+    const e = extrude(10).new();
+    setLocation(e, 4);
+    const r = repeat("linear", "x", { count: 3, offset: 40 }, e);
+    setLocation(r, 6);
+
+    const scene = render();
+    // registerBuilder stamps every object the repeat adds with the repeat's
+    // statement, so the two extrude clones of a three-slot repeat share one
+    // call site.
+    const clones = scene.getAllSceneObjects().filter(obj => obj.getCloneSource());
+    for (const clone of clones) {
+      setLocation(clone, 6);
+    }
+    expect(clones.filter(clone => clone.getType() === 'extrude')).toHaveLength(2);
+    const solid = findSolids(scene).find(s =>
+      Explorer.findEdgesWrapped(s).every(eg => EdgeOps.getEdgeMidPoint(eg).x > 70))!;
+    expect(solid).toBeDefined();
+
+    const ref = allEdgeRefs(solid)[0];
+    const pick = explainSelection(scene, [ref]).picks[0];
+    expect(pick.producer!.isClone).toBe(true);
+    expect(pick.producer!.sharedCallSite).toBe(false);
+    expect(pick.expression).toMatch(/^r\.instance\(2\)\.\w+Edges\(\d+\) — \w[\w ]* of Extrude \(instance of repeat @ line 6\)$/);
+
+    // The tooltip and the written code agree.
+    const result = synthesizeApplyFeature(scene, [ref], 'fillet', 1);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.args).toMatch(/^r\.instance\(2\)\./);
+    }
   });
 
   it("labels an unaddressable clone pick honestly in the teach-mode expression", () => {

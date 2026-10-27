@@ -8,7 +8,7 @@
 
 import { readFile, stat } from 'fs/promises';
 import { join } from 'path';
-import { collectWorkspaceFiles } from '../model-package/pack.ts';
+import { WorkspaceFiles } from '../files/workspace-files.ts';
 import { isParamsFile } from '../file-kind.ts';
 import { normalizePath } from '../normalize-path.ts';
 import type { LengthUnit } from '../project-config.ts';
@@ -92,7 +92,7 @@ export class GlobalParamCatalog {
     if (!this.workspacePath) {
       return [];
     }
-    const relFiles = await collectWorkspaceFiles(this.workspacePath);
+    const relFiles = await WorkspaceFiles.collect(this.workspacePath);
     return relFiles.filter(isParamsFile).map((rel) => normalizePath(join(this.workspacePath, rel)));
   }
 

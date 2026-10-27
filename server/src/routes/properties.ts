@@ -72,6 +72,26 @@ export function createPropertiesRouter(
     res.json({ ...props, unit: fluidCadServer.getSceneUnit() });
   });
 
+  // The features whose buckets hold a face or an edge of a rendered solid
+  // (`kind` is face or edge, `index` the sub-shape's index in the solid),
+  // oldest first: a dialog's feature picker takes a click on a hole's wall
+  // as the hole. Empty when no feature names it.
+  router.get('/shape-owners', (req, res) => {
+    const shapeId = (req.query.shapeId as string) || '';
+    const kind = req.query.kind as string;
+    const index = parseInt((req.query.index as string) || '', 10);
+    if (!shapeId || (kind !== 'face' && kind !== 'edge') || isNaN(index) || index < 0) {
+      res.status(400).json({ error: 'Missing or invalid shapeId / kind / index' });
+      return;
+    }
+    const owners = fluidCadServer.getShapeOwners(shapeId, { type: kind, index });
+    if (!owners) {
+      res.status(404).json({ error: 'No scene available' });
+      return;
+    }
+    res.json({ owners });
+  });
+
   router.get('/edge-properties', (req, res) => {
     const shapeId = (req.query.shapeId as string) || '';
     const edgeIndex = parseInt((req.query.edgeIndex as string) || '', 10);

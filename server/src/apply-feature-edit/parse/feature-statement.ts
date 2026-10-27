@@ -10,15 +10,19 @@ import {
 } from '../../code-editor/index.ts';
 import { parseFeatureChain } from './feature-chain.ts';
 import type { ParsedFeatureStatement } from './parsed-statement.ts';
+import { FeatureCallees } from '../producers/callees.ts';
 
 /**
  * Read the feature statement at `line` of `code` into its dialog-editable
  * options — the read half of the double-click → edit-dialog round trip.
  * `statement` is the chain text the dialog would rewrite, for display.
+ * `callees` are the custom features the file imports, read by their call
+ * shapes.
  */
 export async function parseFeatureStatement(
   code: string,
   line: number,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
 ): Promise<{ ok: true; parsed: ParsedFeatureStatement; statement: string } | { ok: false; reason: string }> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
@@ -27,7 +31,7 @@ export async function parseFeatureStatement(
   if (!call) {
     return { ok: false, reason: `no call found at line ${line} — is the file in sync with the last render?` };
   }
-  const chain = parseFeatureChain(call, code, new LexicalBindings(tree));
+  const chain = parseFeatureChain(call, code, new LexicalBindings(tree), callees);
   if ('error' in chain) {
     return { ok: false, reason: chain.error };
   }
@@ -49,6 +53,7 @@ export async function resolveEditedStatementLine(
   code: string,
   line: number,
   expectedStatement: string | undefined,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
 ): Promise<number> {
   if (expectedStatement === undefined) {
     return line;
@@ -58,7 +63,7 @@ export async function resolveEditedStatementLine(
   const lines = splitLines(code);
   const bindings = new LexicalBindings(tree);
   const chainTextOf = (call: TSNode): string | null => {
-    const chain = parseFeatureChain(call, code, bindings);
+    const chain = parseFeatureChain(call, code, bindings, callees);
     return 'error' in chain ? null : code.slice(chain.start, chain.end);
   };
   const atLine = findEditableCallAt(tree, lines, line);

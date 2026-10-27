@@ -5,7 +5,9 @@
 // When the slot holds exactly one repeated feature the instance ALSO
 // forwards that feature's bucket accessors, so `r.instance(1).endEdges()`
 // is the clone's own end-edge bucket — the constant-free way to address
-// one instance of a pattern.
+// one instance of a pattern. The standard accessors are written below; the
+// buckets a custom feature declares (`tipEdges`) get a forwarder of their
+// own on each instance, read off the repeated features' `bucketDefs()`.
 
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import type { SceneObject } from "../common/scene-object.js";
@@ -30,6 +32,7 @@ export class RepeatInstance extends LazySelectionSceneObject {
     // The resolver is never run — build() is a no-op and getShapes() reads
     // the slot's features live (see below).
     super(instanceName, () => [], owner);
+    this.installDeclaredForwarders();
   }
 
   /** The repeated features the instance stands for: its slot's, or their clones on a copy. */
@@ -116,6 +119,31 @@ export class RepeatInstance extends LazySelectionSceneObject {
 
   edges(...indices: number[]): LazySelectionSceneObject {
     return this.forward('edges', indices);
+  }
+
+  /**
+   * One forwarder for every bucket accessor the repeated features answer
+   * that the instance has no method for — the buckets a custom feature
+   * declares (`r.instance(2).tipEdges()`), asked of each feature through
+   * its `bucketDefs()`, never guessed from method names. A slot holding
+   * several features gets them too, so a call says the accessor is
+   * ambiguous rather than failing as no function. Own, non-enumerable
+   * properties; a copy of the instance installs its own (see createCopy).
+   */
+  private installDeclaredForwarders(): void {
+    for (const root of this.getRoots()) {
+      for (const def of [...root.bucketDefs('face'), ...root.bucketDefs('edge')]) {
+        const accessor = def.accessor;
+        if (accessor in this) {
+          continue;
+        }
+        Object.defineProperty(this, accessor, {
+          value: (...args: unknown[]) => this.forward(accessor, args),
+          writable: true,
+          configurable: true,
+        });
+      }
+    }
   }
 
   /**

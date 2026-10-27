@@ -80,6 +80,13 @@ export class EditorHost {
       case 'goto-source':
         await this.deps.reveal(msg.filePath, msg.line, msg.column, msg.revealEditor !== false);
         return;
+      case 'open-external':
+        // Not an edit, nothing to ack: the page this host lives in opens the
+        // link itself (the desktop shell hands a new window to the browser).
+        if (typeof msg.url === 'string' && /^https?:\/\//i.test(msg.url)) {
+          window.open(msg.url, '_blank', 'noopener,noreferrer');
+        }
+        return;
       default:
         await this.applyTransform(msg);
     }

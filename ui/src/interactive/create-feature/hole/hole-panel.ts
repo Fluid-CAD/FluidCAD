@@ -2,9 +2,12 @@ import { ChoiceTabs } from '../panel-controls';
 import { FeaturePanel } from '../feature-panel';
 import { ScopeSlotControl } from '../scope-slot';
 import { PickSlot, PickSlotChip } from '../../pick-slot';
+import { ChoiceControl, type ChoiceRead } from '../choice-control';
 import {
-  HoleFastenerSpec, HoleOptionValues, HoleSizeSpec, HoleStyleSpec, ParsedFeatureStatement, ValueExpr,
+  FeatureRefValue, HoleFastenerSpec, HoleOptionValues, HoleSizeSpec, HoleStyleSpec, NewVariable, ParsedFeatureStatement,
+  ValueExpr,
 } from '../../../api';
+import type { ChoiceItem } from '../../../ui/controls';
 import { ExpressionField, ExpressionFieldResult, collectNewVariables } from '../../../ui/expression-field';
 import { VariableInfo } from '../../../ui/expression-core';
 import { iconUrl } from '../../../ui/icon-url';
@@ -22,17 +25,16 @@ export type HoleTermination = 'through' | 'blind';
 /** The pick slots; exactly one wears the armed border at a time. */
 export type HoleArmedSlot = 'placements' | 'scope';
 
-/** Append a labelled `<optgroup>` of `options` to `select`. */
-function appendOptionGroup(select: HTMLSelectElement, label: string, options: { value: string; label: string }[]): void {
-  const optgroup = document.createElement('optgroup');
-  optgroup.label = label;
-  for (const entry of options) {
-    const option = document.createElement('option');
-    option.value = entry.value;
-    option.textContent = entry.label;
-    optgroup.appendChild(option);
+/** The size dropdown's items: every standard's labels under its heading, metric first. */
+const SIZE_ITEMS: readonly ChoiceItem<string>[] = SIZE_GROUPS.flatMap(group =>
+  sizeLabels(group.standard).map(label => ({ value: label, label, group: group.label })));
+
+/** The pitch dropdowns' items for a size: coarse then fine, each under its heading; none for a size the tables don't list. */
+function pitchItems(label: string | null): ChoiceItem<number>[] {
+  if (label === null) {
+    return [];
   }
-  select.appendChild(optgroup);
+  return pitchGroups(label).flatMap(group => group.pitches.map(pitch => ({ ...pitch, group: group.label })));
 }
 
 /** The tip angle a blind hole starts with — a standard twist drill. */
@@ -72,16 +74,17 @@ export class HolePanel extends FeaturePanel {
   private placementsSlot: PickSlot;
   private scopeSlot: ScopeSlotControl;
   private fastenToggle: HTMLInputElement;
-  private fastenPitchSelect: HTMLSelectElement;
+  private fastenPitchControl: ChoiceControl<number>;
   private fastenThroughToggle: HTMLInputElement;
   private fastenDepthField: ExpressionField;
   private fastenTipField: ExpressionField;
   /** The section drawing: the float's side card, and the sheet's copy in the body. */
   private illustrationEls: HTMLElement[];
   private typeSelect: HTMLSelectElement;
-  private sizeSelect: HTMLSelectElement;
-  private fitSelect: HTMLSelectElement;
-  private pitchSelect: HTMLSelectElement;
+  /** The value dropdowns: each lists the parameters in scope under its options and binds to one. */
+  private sizeControl: ChoiceControl<string>;
+  private fitControl: ChoiceControl<FastenerFit>;
+  private pitchControl: ChoiceControl<number>;
   private terminationSelect: HTMLSelectElement;
   private diameterField: ExpressionField;
   private depthField: ExpressionField;
@@ -136,17 +139,14 @@ export class HolePanel extends FeaturePanel {
           </select>
         </label>
         <div data-role="size-rows" class="flex gap-2">
-          <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="The fastener the hole is for: ISO metric (M3, M6, …) or unified imperial (#10, 1/4, …)">
+          <label data-role="size-row" class="flex flex-col gap-1.5 flex-1 min-w-0" title="The fastener the hole is for: ISO metric (M3, M6, …) or unified imperial (#10, 1/4, …)">
             <span class="text-base-content/70">Size</span>
-            <select data-role="size" class="select select-sm select-bordered w-full text-xs"></select>
           </label>
           <label data-role="fit-row" class="flex flex-col gap-1.5 flex-1 min-w-0" title="How much room the fastener gets — ISO 273 / ASME B18.2.8 fine, medium and coarse series">
             <span class="text-base-content/70">Fastener fit</span>
-            <select data-role="fit" class="select select-sm select-bordered w-full text-xs"></select>
           </label>
           <label data-role="pitch-row" class="hidden flex-col gap-1.5 flex-1 min-w-0" title="The thread pitch; the hole is cut at its tap drill diameter (threads are not modelled yet)">
             <span class="text-base-content/70">Pitch</span>
-            <select data-role="pitch" class="select select-sm select-bordered w-full text-xs"></select>
           </label>
         </div>
         <label class="flex flex-col gap-1.5" title="The hole diameter — typed for a drilled hole, from the tables otherwise">
@@ -190,9 +190,8 @@ export class HolePanel extends FeaturePanel {
               <input data-role="fasten-size" type="text" readonly tabindex="-1"
                 class="input input-sm input-bordered w-full text-xs opacity-70" />
             </label>
-            <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="The thread pitch of the tapped hole in the solid it fastens to">
+            <label data-role="fasten-pitch-row" class="flex flex-col gap-1.5 flex-1 min-w-0" title="The thread pitch of the tapped hole in the solid it fastens to">
               <span class="text-base-content/70">Pitch</span>
-              <select data-role="fasten-pitch" class="select select-sm select-bordered w-full text-xs"></select>
             </label>
             <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="The tap drill diameter the tapped hole is cut at, from the fastener tables">
               <span class="text-base-content/70">Tap drill Ø</span>
@@ -236,7 +235,6 @@ export class HolePanel extends FeaturePanel {
     this.placementsSlot.onArm = () => this.armSlot('placements');
 
     this.fastenToggle = this.role('fasten');
-    this.fastenPitchSelect = this.role('fasten-pitch');
     this.fastenThroughToggle = this.role('fasten-through');
 
     this.scopeSlot = new ScopeSlotControl(this.role('scope-slot'));
@@ -246,18 +244,15 @@ export class HolePanel extends FeaturePanel {
     this.illustrationEls = [this.shell.addSideCard(), this.role('illustration')];
 
     this.typeSelect = this.role('type');
-    this.sizeSelect = this.role('size');
-    this.fitSelect = this.role('fit');
-    this.pitchSelect = this.role('pitch');
     this.terminationSelect = this.role('termination');
-    for (const fit of FASTENER_FITS) {
-      const option = document.createElement('option');
-      option.value = fit.value;
-      option.textContent = fit.label;
-      this.fitSelect.appendChild(option);
-    }
-    this.fillSizes();
-    this.selectSize(DEFAULT_SIZE_LABEL);
+    this.sizeControl = new ChoiceControl<string>({ items: SIZE_ITEMS, value: DEFAULT_SIZE_LABEL, label: 'Size', dataRole: 'size' });
+    this.fitControl = new ChoiceControl<FastenerFit>({ items: FASTENER_FITS, value: 'normal', label: 'Fastener fit', dataRole: 'fit' });
+    this.pitchControl = new ChoiceControl<number>({ items: [], placeholder: 'No pitches', label: 'Pitch', dataRole: 'pitch' });
+    this.fastenPitchControl = new ChoiceControl<number>({ items: [], placeholder: 'No pitches', label: 'Fasten pitch', dataRole: 'fasten-pitch' });
+    this.role('size-row').appendChild(this.sizeControl.element);
+    this.role('fit-row').appendChild(this.fitControl.element);
+    this.role('pitch-row').appendChild(this.pitchControl.element);
+    this.role('fasten-pitch-row').appendChild(this.fastenPitchControl.element);
     this.fillPitches();
 
     this.typeSelect.addEventListener('change', () => {
@@ -265,26 +260,30 @@ export class HolePanel extends FeaturePanel {
       this.syncControls();
       this.onChange?.();
     });
-    for (const control of [this.fastenToggle, this.fastenPitchSelect, this.fastenThroughToggle]) {
+    for (const control of [this.fastenToggle, this.fastenThroughToggle]) {
       control.addEventListener('change', () => {
         this.syncFastenRows();
         this.onChange?.();
       });
     }
-    this.sizeSelect.addEventListener('change', () => {
+    this.fastenPitchControl.onChange = () => {
+      this.syncFastenRows();
+      this.onChange?.();
+    };
+    this.sizeControl.onChange = () => {
       this.fillPitches();
       this.reseedDerived();
       this.syncFastenRows();
       this.onChange?.();
-    });
-    this.fitSelect.addEventListener('change', () => {
+    };
+    this.fitControl.onChange = () => {
       this.reseedDiameter();
       this.onChange?.();
-    });
-    this.pitchSelect.addEventListener('change', () => {
+    };
+    this.pitchControl.onChange = () => {
       this.reseedDiameter();
       this.onChange?.();
-    });
+    };
     this.terminationSelect.addEventListener('change', () => {
       this.syncControls();
       this.onChange?.();
@@ -314,10 +313,26 @@ export class HolePanel extends FeaturePanel {
     this.syncControls();
   }
 
-  /** The variables the fields' dropdowns offer. */
+  /**
+   * The variables the fields' and the dropdowns' lists offer. A dropdown
+   * bound to a name resolves it here — a size or pitch read from an edited
+   * statement before the scope arrived — so what hangs off it (the pitch
+   * lists, the table diameter, untouched entry values, the fasten rows)
+   * follows, and the ghost is asked again.
+   */
   setScopeVariables(variables: VariableInfo[]): void {
     for (const field of this.fields()) {
       field.setVariables(variables);
+    }
+    for (const control of this.choices()) {
+      control.setVariables(variables);
+    }
+    if (this.choices().some(control => control.binding !== undefined)) {
+      this.fillPitches();
+      this.reseedDiameter();
+      this.reseedEntry({ untouchedOnly: true });
+      this.syncFastenRows();
+      this.onChange?.();
     }
   }
 
@@ -333,8 +348,9 @@ export class HolePanel extends FeaturePanel {
     return this.typeSelect.value as HoleType;
   }
 
-  get sizeLabel(): string {
-    return this.sizeSelect.value;
+  /** The fastener size the dialog stands on: the chosen label, or the one a bound variable's value selects — null while that is unknown. */
+  get sizeLabel(): string | null {
+    return this.sizeControl.value ?? null;
   }
 
   get termination(): HoleTermination {
@@ -351,16 +367,39 @@ export class HolePanel extends FeaturePanel {
     return this.fastenAvailable && this.fastenToggle.checked;
   }
 
-  /** The fastened solid's thread pitch as the statement writes it: null for the coarse pitch. */
-  fastenPitch(): number | null {
-    const value = Number(this.fastenPitchSelect.value);
-    const pitch = Number.isFinite(value) && value > 0 ? value : null;
-    return pitch !== null && pitch === coarsePitch(this.sizeLabel) ? null : pitch;
+  /** The fastened solid's thread pitch as the statement writes it: a variable bare, null for the coarse pitch. */
+  fastenPitch(): number | FeatureRefValue | null {
+    const read = this.fastenPitchControl.read();
+    if ('error' in read) {
+      return null;
+    }
+    return 'ref' in read ? { ref: read.ref } : this.writtenPitch(read.value);
   }
 
-  /** The tap drill diameter the fastened solid is cut at, in the document unit. */
+  /** The tap drill diameter the fastened solid is cut at, in the document unit; null while the size or the pitch resolves to nothing. */
   fastenDiameter(): number | null {
-    return tableDiameter(this.sizeLabel, 'tapped', { pitch: this.fastenPitch() });
+    const pitch = HolePanel.tablePitch(this.fastenPitchControl);
+    if (this.sizeLabel === null || pitch === undefined) {
+      return null;
+    }
+    return tableDiameter(this.sizeLabel, 'tapped', { pitch });
+  }
+
+  /** A chosen pitch as the statement writes it: the coarse pitch is what a bare `.tapped()` / `.fasten()` means — written without a value. */
+  private writtenPitch(pitch: number): number | null {
+    return this.sizeLabel !== null && pitch === coarsePitch(this.sizeLabel) ? null : pitch;
+  }
+
+  /**
+   * The pitch a dropdown gives the tables: the option's number, null for
+   * none (the coarse pitch), undefined while a bound name resolves to nothing
+   * — no diameter can be read for it.
+   */
+  private static tablePitch(control: ChoiceControl<number>): number | null | undefined {
+    if (control.binding !== undefined && control.value === undefined) {
+      return undefined;
+    }
+    return control.value ?? null;
   }
 
   /** The fastened solid's tapped hole stops at a depth instead of running through it. */
@@ -391,9 +430,9 @@ export class HolePanel extends FeaturePanel {
     // values would otherwise carry over.
     this.shell.setTitle(null);
     this.styleTabs.reset();
-    this.selectSize(DEFAULT_SIZE_LABEL);
+    this.sizeControl.setValue(DEFAULT_SIZE_LABEL);
     this.typeSelect.value = 'clearance';
-    this.fitSelect.value = 'normal';
+    this.fitControl.setValue('normal');
     this.fillPitches();
     this.fastenToggle.checked = false;
     this.fastenThroughToggle.checked = true;
@@ -417,20 +456,22 @@ export class HolePanel extends FeaturePanel {
     this.shell.setTitle('Edit hole');
     this.styleTabs.setValue(parsed.style?.kind ?? 'simple');
     const fastenerLabel = parsed.size.kind === 'fastener' ? parsed.size.label : null;
-    this.selectSize(fastenerLabel ?? DEFAULT_SIZE_LABEL);
+    HolePanel.seed(this.sizeControl, SIZE_ITEMS, fastenerLabel, DEFAULT_SIZE_LABEL);
     if (parsed.size.kind === 'diameter') {
       this.typeSelect.value = 'drilled';
     } else {
       this.typeSelect.value = parsed.fastener?.type ?? 'clearance';
     }
-    this.fitSelect.value = parsed.fastener?.type === 'clearance' ? parsed.fastener.fit : 'normal';
+    HolePanel.seed(this.fitControl, FASTENER_FITS, parsed.fastener?.type === 'clearance' ? parsed.fastener.fit : null, 'normal');
     this.fillPitches();
-    if (parsed.fastener?.type === 'tapped' && parsed.fastener.pitch !== null) {
-      this.pitchSelect.value = String(parsed.fastener.pitch);
+    // A statement's pitch the list doesn't carry stays on the coarse one, as the lists are filled; a variable binds whatever it holds.
+    const pitches = pitchItems(this.sizeLabel);
+    if (parsed.fastener?.type === 'tapped') {
+      HolePanel.seed(this.pitchControl, pitches, parsed.fastener.pitch, this.pitchControl.value);
     }
     this.fastenToggle.checked = !!parsed.fasten;
-    if (parsed.fasten && parsed.fasten.pitch !== null) {
-      this.fastenPitchSelect.value = String(parsed.fasten.pitch);
+    if (parsed.fasten) {
+      HolePanel.seed(this.fastenPitchControl, pitches, parsed.fasten.pitch, this.fastenPitchControl.value);
     }
     const fastenDepth = parsed.fasten?.depth ?? null;
     this.fastenThroughToggle.checked = fastenDepth === null;
@@ -486,17 +527,19 @@ export class HolePanel extends FeaturePanel {
     }
   }
 
-  /** The diameter the tables give the current choice (null for a drilled hole). */
+  /** The diameter the tables give the current choice (null for a drilled hole, or while a bound size, fit or pitch resolves to nothing). */
   derivedDiameter(): number | null {
-    return tableDiameter(this.sizeLabel, this.holeType, {
-      fit: this.fitSelect.value as FastenerFit,
-      pitch: this.selectedPitch(),
-    });
+    const fit = this.fitControl.value;
+    const pitch = HolePanel.tablePitch(this.pitchControl);
+    if (this.sizeLabel === null || fit === undefined || pitch === undefined) {
+      return null;
+    }
+    return tableDiameter(this.sizeLabel, this.holeType, { fit, pitch });
   }
 
   values(): HoleValues {
     const type = this.holeType;
-    const reads: (ExpressionFieldResult | null)[] = [];
+    const reads: Parameters<typeof collectNewVariables>[0] = [];
 
     let size: HoleSizeSpec;
     let fastener: HoleFastenerSpec | null;
@@ -509,13 +552,35 @@ export class HolePanel extends FeaturePanel {
       size = { kind: 'diameter', value: diameter.value };
       fastener = null;
     } else {
-      size = { kind: 'fastener', label: this.sizeLabel };
+      // A dropdown bound to a variable writes its name; one bound to a value no option carries refuses.
+      const sizeRead = this.sizeControl.read();
+      if ('error' in sizeRead) {
+        return { error: sizeRead.error };
+      }
+      reads.push(HolePanel.declared(sizeRead));
+      size = { kind: 'fastener', label: 'ref' in sizeRead ? { ref: sizeRead.ref } : sizeRead.value };
       if (type === 'clearance') {
-        fastener = { type: 'clearance', fit: this.fitSelect.value as FastenerFit };
+        const fitRead = this.fitControl.read();
+        if ('error' in fitRead) {
+          return { error: fitRead.error };
+        }
+        reads.push(HolePanel.declared(fitRead));
+        fastener = { type: 'clearance', fit: 'ref' in fitRead ? { ref: fitRead.ref } : fitRead.value };
       } else {
-        const pitch = this.selectedPitch();
-        // The coarse pitch is what a bare `.tapped()` means — written without a value.
-        fastener = { type: 'tapped', pitch: pitch !== null && pitch === coarsePitch(this.sizeLabel) ? null : pitch };
+        const pitchRead = this.pitchControl.read();
+        if ('error' in pitchRead) {
+          return { error: pitchRead.error };
+        }
+        reads.push(HolePanel.declared(pitchRead));
+        // A variable always writes the argument; the coarse pitch collapses to a bare `.tapped()`.
+        fastener = { type: 'tapped', pitch: 'ref' in pitchRead ? { ref: pitchRead.ref } : this.writtenPitch(pitchRead.value) };
+      }
+      if (this.fastened) {
+        const fastenPitchRead = this.fastenPitchControl.read();
+        if ('error' in fastenPitchRead) {
+          return { error: fastenPitchRead.error };
+        }
+        reads.push(HolePanel.declared(fastenPitchRead));
       }
     }
 
@@ -608,15 +673,23 @@ export class HolePanel extends FeaturePanel {
       style,
       depth,
       tipAngle,
-      newVariables: collectNewVariables(reads.map(r => r && !('error' in r) ? r : null)),
+      newVariables: collectNewVariables(reads),
     };
   }
 
-  /** The numbers the ghost is drawn with: the derived diameter and the entry values the fields hold. */
+  /**
+   * The numbers the ghost is drawn with: the derived diameter and the entry
+   * values the fields hold. None while the tables give no diameter — a
+   * dropdown bound to a name that resolves to nothing: the diameter field
+   * still shows the last one, which is not this hole's.
+   */
   ghostNumbers(): {
     diameter: ValueExpr; counterbore: { diameter: ValueExpr; depth: ValueExpr } | null;
     countersink: { diameter: ValueExpr; angle: ValueExpr } | null;
   } | null {
+    if (this.holeType !== 'drilled' && this.derivedDiameter() === null) {
+      return null;
+    }
     const diameterRead = this.diameterField.read();
     if ('error' in diameterRead) {
       return null;
@@ -645,6 +718,35 @@ export class HolePanel extends FeaturePanel {
     return 'error' in read && read.error !== 'empty' ? ` ${read.error}.` : '';
   }
 
+  /** The parameter a dropdown declared over its option, to land with the statement; nothing for a chosen option or a variable the file has. */
+  private static declared<V extends string | number>(read: ChoiceRead<V>): { newVariable?: NewVariable } | null {
+    return 'ref' in read && read.newVariable ? { newVariable: read.newVariable } : null;
+  }
+
+  /**
+   * Seed a dropdown from a parsed slot: a variable binds (resolved once the
+   * scope's variables arrive), a listed option is chosen, anything else —
+   * null, a value the list doesn't carry — takes the fallback.
+   */
+  private static seed<V extends string | number>(
+    control: ChoiceControl<V>,
+    items: readonly ChoiceItem<V>[],
+    value: V | FeatureRefValue | null,
+    fallback: V | undefined,
+  ): void {
+    if (value !== null && typeof value === 'object') {
+      control.setRef(value.ref);
+      return;
+    }
+    const listed = value !== null && items.some(item => item.value === value);
+    control.setValue(listed ? value as V : fallback);
+  }
+
+  /** The four dropdowns, as what the scope's variables reach. */
+  private choices(): { setVariables(variables: VariableInfo[]): void; readonly binding: FeatureRefValue | undefined }[] {
+    return [this.sizeControl, this.fitControl, this.pitchControl, this.fastenPitchControl];
+  }
+
   private fields(): ExpressionField[] {
     return [
       this.diameterField, this.depthField, this.tipField,
@@ -653,33 +755,17 @@ export class HolePanel extends FeaturePanel {
     ];
   }
 
-  private selectedPitch(): number | null {
-    const value = Number(this.pitchSelect.value);
-    return Number.isFinite(value) && value > 0 ? value : null;
-  }
-
-  private fillSizes(): void {
-    for (const group of SIZE_GROUPS) {
-      const sizes = sizeLabels(group.standard).map(label => ({ value: label, label }));
-      appendOptionGroup(this.sizeSelect, group.label, sizes);
-    }
-  }
-
-  /** Select `label`, or the default size when the tables don't list it. */
-  private selectSize(label: string): void {
-    this.sizeSelect.value = label;
-    if (this.sizeSelect.value !== label) {
-      this.sizeSelect.value = DEFAULT_SIZE_LABEL;
-    }
-  }
-
-  /** Both pitch lists follow the size: the tapped hole's own, and the fastened solid's. */
+  /**
+   * Both pitch lists follow the size: the tapped hole's own, and the fastened
+   * solid's. A chosen pitch starts over on the coarse one (the first); a
+   * bound variable stays, resolved against the new list.
+   */
   private fillPitches(): void {
-    for (const select of [this.pitchSelect, this.fastenPitchSelect]) {
-      select.innerHTML = '';
-      for (const group of pitchGroups(this.sizeLabel)) {
-        const pitches = group.pitches.map(pitch => ({ value: String(pitch.value), label: pitch.label }));
-        appendOptionGroup(select, group.label, pitches);
+    const items = pitchItems(this.sizeLabel);
+    for (const control of [this.pitchControl, this.fastenPitchControl]) {
+      control.setItems(items);
+      if (control.binding === undefined) {
+        control.setValue(items[0]?.value);
       }
     }
   }
@@ -690,7 +776,8 @@ export class HolePanel extends FeaturePanel {
     this.toggleRow('fasten-rows', this.fastened, 'flex');
     this.toggleRow('fasten-through-wrap', this.fastened, 'flex');
     this.toggleRow('fasten-depth-rows', this.fastenBlind, 'flex');
-    this.role<HTMLInputElement>('fasten-size').value = this.sizeLabel;
+    // The tapped size follows the clearance hole's: its label, or the bare name of a variable that resolves to nothing yet.
+    this.role<HTMLInputElement>('fasten-size').value = this.sizeLabel ?? this.sizeControl.binding?.ref ?? '';
     const diameter = this.fastenDiameter();
     this.role<HTMLInputElement>('fasten-diameter').value = diameter === null ? '' : String(diameter);
   }
@@ -716,24 +803,53 @@ export class HolePanel extends FeaturePanel {
     }
   }
 
-  private reseedEntry(): void {
+  /**
+   * The entry values follow the size's table row. While a bound size resolves
+   * to nothing, the values the fields hold stand for the row (so an untouched
+   * entry still writes `.counterbore()`, left to the tables — the variable
+   * decides at build time). `untouchedOnly` (the scope's variables arriving)
+   * reseeds a field pair only while it still holds its last seed: values an
+   * edited statement spelled out, or the user typed, stay.
+   */
+  private reseedEntry(opts: { untouchedOnly?: boolean } = {}): void {
     if (this.holeType === 'drilled') {
       this.seededCounterbore = null;
       this.seededCountersink = null;
       return;
     }
-    const counterbore = tableCounterbore(this.sizeLabel);
-    if (counterbore) {
+    const label = this.sizeLabel;
+    const counterbore = label === null ? this.heldPair(this.cboreDiameterField, this.cboreDepthField) : tableCounterbore(label);
+    if (counterbore && (!opts.untouchedOnly || this.untouched(this.seededCounterbore, this.cboreDiameterField, this.cboreDepthField))) {
       this.seededCounterbore = counterbore;
       this.cboreDiameterField.setValue(counterbore.diameter);
       this.cboreDepthField.setValue(counterbore.depth);
     }
-    const countersink = tableCountersink(this.sizeLabel);
-    if (countersink) {
-      this.seededCountersink = countersink;
+    const countersink = label === null ? this.heldPair(this.csinkDiameterField, this.csinkAngleField) : tableCountersink(label);
+    if (countersink && (!opts.untouchedOnly || this.untouched(this.seededCountersink, this.csinkDiameterField, this.csinkAngleField))) {
+      this.seededCountersink = { diameter: countersink.diameter, angle: countersink.angle };
       this.csinkDiameterField.setValue(countersink.diameter);
       this.csinkAngleField.setValue(countersink.angle);
     }
+  }
+
+  /** The numbers two entry fields hold, as a seed; null when either holds an expression or nothing. */
+  private heldPair(first: ExpressionField, second: ExpressionField): { diameter: number; depth: number; angle: number } | null {
+    const a = first.read();
+    const b = second.read();
+    if ('error' in a || 'error' in b || typeof a.value !== 'number' || typeof b.value !== 'number') {
+      return null;
+    }
+    return { diameter: a.value, depth: b.value, angle: b.value };
+  }
+
+  /** Whether two entry fields still hold their last seed — nothing typed over them since. */
+  private untouched(seed: { diameter: number; depth?: number; angle?: number } | null, first: ExpressionField, second: ExpressionField): boolean {
+    if (!seed) {
+      return false;
+    }
+    const a = first.read();
+    const b = second.read();
+    return !('error' in a) && !('error' in b) && a.value === seed.diameter && b.value === (seed.depth ?? seed.angle);
   }
 
   /** Show the rows the current choices need; the diameter is typed only for a drilled hole. */

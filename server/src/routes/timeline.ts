@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
+import { FeatureCallees, type ApplyFeatureEditSpec, type FeatureCalleeSource } from '../apply-feature-edit/index.ts';
 import type { SketchImageEdit } from '../code-editor/index.ts';
 import { MaterialCatalog } from '../material-catalog.ts';
 import { MoveToPart } from '../move-to-part.ts';
@@ -79,6 +79,8 @@ export function createTimelineRouter(
     loadGlobalMaterials?: () => Promise<ProjectMaterials>;
     /** Where the other model files live — the ones that may read a removed hole's connectors by name. */
     workspacePath?: string;
+    /** The workspace's custom features, whose statements a move carries along like the built-ins'. */
+    callees?: FeatureCalleeSource;
     /**
      * The newest render pass's version (the `render-version` lifecycle
      * counter) — `/pause-after` reports it so the page can wait for the
@@ -361,6 +363,11 @@ export function createTimelineRouter(
       res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
       return;
     }
+    // A package's part is read-only (K8): refused before the material is
+    // copied into this project's fluidcad.json for nothing.
+    if (options.dispatcher.refuseReadOnly(res, sourceLocation.filePath)) {
+      return;
+    }
     // A global material is copied into fluidcad.json before the source
     // names it, so the render that follows the edit resolves the id (the
     // file is re-read per render) and the project carries what it uses.
@@ -532,7 +539,8 @@ export function createTimelineRouter(
     }
     const moveToPart = { statements: captured.statements, part: { line: part.line, column: part.column } };
     if (dryRun) {
-      const analysis = await MoveToPart.analyze(code, moveToPart);
+      const callees = await (options.callees ?? FeatureCallees.BUILT_IN_SOURCE).calleesFor(code, filePath);
+      const analysis = await MoveToPart.analyze(code, moveToPart, callees);
       if (analysis.ok === false) {
         res.json({ success: false, reason: analysis.reason, ...(analysis.needs ? { needs: analysis.needs } : {}) });
       } else {

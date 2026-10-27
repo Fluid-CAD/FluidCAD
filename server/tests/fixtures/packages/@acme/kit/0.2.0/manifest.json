@@ -1,0 +1,110 @@
+{
+  "manifestVersion": 1,
+  "name": "@acme/kit",
+  "version": "0.2.0",
+  "description": "The 0.2.0 of the hand-written test package: its standoff stands 5 mm taller than asked",
+  "license": "MIT",
+  "author": "Acme Robotics",
+  "keywords": [
+    "test"
+  ],
+  "engine": "0.0.46",
+  "minEngine": "0.0.46",
+  "sdkVersion": 1,
+  "unit": "in",
+  "fileUnits": {},
+  "contents": [
+    "features",
+    "parts"
+  ],
+  "features": [
+    {
+      "id": "acme.standoff",
+      "exportName": "standoff",
+      "module": "standoff.feature.js",
+      "meta": {
+        "id": "acme.standoff",
+        "label": "Standoff",
+        "description": "A boss with a bore through it, standing on a planar face",
+        "icon": "./standoff.svg",
+        "group": "create",
+        "kind": "tool",
+        "operations": [
+          "add",
+          "new"
+        ],
+        "defaultOperation": "add",
+        "params": {
+          "face": {
+            "picker": "face",
+            "label": "On face",
+            "surface": "planar"
+          },
+          "height": {
+            "type": "length",
+            "default": 10,
+            "min": 0,
+            "label": "Height"
+          },
+          "outer": {
+            "type": "length",
+            "default": 6,
+            "min": 0,
+            "label": "Boss diameter"
+          },
+          "hole": {
+            "type": "length",
+            "default": 3,
+            "min": 0,
+            "label": "Hole diameter"
+          }
+        },
+        "call": [
+          "face",
+          {
+            "height": "height",
+            "outer": "outer",
+            "hole": "hole"
+          }
+        ],
+        "ghost": true,
+        "contexts": [
+          "part"
+        ],
+        "layout": [
+          "face",
+          "height",
+          "outer",
+          "hole"
+        ]
+      },
+      "usesOcct": false
+    }
+  ],
+  "parts": [
+    {
+      "exportName": "spacer",
+      "module": "parts/spacer.part.js",
+      "name": "Spacer",
+      "kind": "part",
+      "exportKind": "value",
+      "params": [
+        {
+          "label": "Length",
+          "defaultValue": 0.5,
+          "currentValue": 0.5,
+          "controlType": "number",
+          "min": 0.1
+        }
+      ]
+    }
+  ],
+  "files": [
+    "fluidcad.json",
+    "index.js",
+    "standoff.feature.js",
+    "standoff.svg",
+    "parts/spacer.part.js",
+    "helpers/sizes.js"
+  ]
+}

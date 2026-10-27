@@ -30,6 +30,7 @@ import {
   checkFeed,
   checkHello,
   checkProjectList,
+  checkStartCommand,
   checkUpgradePreview,
   checkUpgradeProgress,
   checkWindowState,
@@ -39,9 +40,12 @@ import {
  * Bumped on any change to the shapes below; the launcher answers `hello` with
  * `ok: false` on a mismatch. 2: a `creating` step while a new project is set
  * up, and closing a project from its card. 3: `projectsRoot` in the hello
- * reply.
+ * reply. 4: new package workspaces — `{ package }` on both `create` dialogs
+ * and on the `creating` step, and the launcher's commands to the page
+ * ({@link StartCommand}: the desktop's File › New Package… opens the name
+ * dialog here, since no native dialog can ask for a name).
  */
-export const START_SCREEN_PROTOCOL = 3;
+export const START_SCREEN_PROTOCOL = 4;
 
 export type HelloReply = {
   ok: boolean;
@@ -64,7 +68,8 @@ export type OpeningProject = { path: string; name: string };
 export type OpeningSource = 'project' | 'cache' | 'builtin' | 'downloaded';
 
 export type OpeningStatus =
-  | { step: 'creating' }
+  /** `package` names the package workspace being set up; absent for a plain project. */
+  | { step: 'creating'; package?: string }
   | { step: 'resolving' }
   | { step: 'downloading'; version: string; receivedBytes: number; totalBytes: number | null }
   | { step: 'starting'; version: string; source: OpeningSource };
@@ -97,6 +102,11 @@ export type StartProject = {
   open: boolean;
   /** A `fluidcad-app://thumbnails/…` URL, or null before the first close with a solid up. */
   thumbnail: string | null;
+  /**
+   * A package workspace's identity — its `fluidcad.json` `package` block —
+   * for the card's "Package" badge. Absent from a launcher that predates it.
+   */
+  package?: { name: string; version: string } | null;
 };
 
 export type StartProjectList = { projects: StartProject[] };
@@ -204,6 +214,21 @@ export type FolderState = 'missing' | 'empty' | 'project' | 'not-empty' | 'not-a
 export type FolderCheck = { path: string; state: FolderState };
 
 /**
+ * What a create asks for beyond the folder: `package` makes the new project a
+ * package workspace named `@handle/name` (`fluidcad init --package`), checked
+ * against {@link PackageName} before it leaves the page.
+ */
+export type CreateOptions = { package?: string };
+
+/**
+ * Something the launcher asks the page to do, on the user's behalf. The
+ * desktop app's File › New Package… sends `new-package`: the page opens its
+ * name dialog, then the native folder dialog follows as the top bar's button
+ * does it. `npx fluidcad` sends none.
+ */
+export type StartCommand = 'new-package';
+
+/**
  * How the page asks for a project's folder. The desktop app shows the
  * operating system's own dialogs. A browser cannot hand a page a real path,
  * so under `npx fluidcad` the page draws its own picker over folders the
@@ -214,8 +239,8 @@ export type ProjectDialogs =
       kind: 'native';
       /** Pick a folder in a native dialog; the project there opens. */
       open(): Promise<void>;
-      /** Pick an empty folder in a native dialog; a project is set up there and opens. */
-      create(): Promise<void>;
+      /** Pick an empty folder in a native dialog; a project (or the package named) is set up there and opens. */
+      create(options?: CreateOptions): Promise<void>;
     }
   | {
       kind: 'page';
@@ -223,8 +248,8 @@ export type ProjectDialogs =
       browse(path: string | null): Promise<FolderListing>;
       /** What creating a project named `name` inside `parent` would do. */
       check(parent: string, name: string): Promise<FolderCheck>;
-      /** Set a project up at `path` (a folder that is missing or empty) and open it. */
-      create(path: string): Promise<void>;
+      /** Set a project (or the package named) up at `path` (a folder that is missing or empty) and open it. */
+      create(path: string, options?: CreateOptions): Promise<void>;
     };
 
 export interface StartScreenHost {
@@ -259,6 +284,8 @@ export interface StartScreenHost {
   onUpgradeProgress(handler: (progress: UpgradeProgress) => void): void;
   /** The recents changed under the page (a project closed, a preview landed). */
   onChanged(handler: () => void): void;
+  /** The launcher asks the page to do something (a menu item with no native dialog of its own). */
+  onCommand(handler: (command: StartCommand) => void): void;
 }
 
 /**
@@ -293,7 +320,7 @@ export function guardedHost(bridge: StartScreenBridge): StartScreenHost {
     feed: async () => checkFeed(await bridge.feed()),
     dismissNotification: (id) => bridge.dismissNotification(id),
     open: (path) => bridge.open(path),
-    dialogs: { kind: 'native', open: () => bridge.openDialog(), create: () => bridge.newProject() },
+    dialogs: { kind: 'native', open: () => bridge.openDialog(), create: (options) => bridge.newProject(options ?? {}) },
     close: async (path) => checkActionResult(await bridge.close(path)),
     forget: (path) => bridge.forget(path),
     openLink: (url) => bridge.openLink(url),
@@ -303,5 +330,6 @@ export function guardedHost(bridge: StartScreenBridge): StartScreenHost {
     onUpgradeProgress: (handler) =>
       bridge.onUpgradeProgress((progress: unknown) => handler(checkUpgradeProgress(progress))),
     onChanged: (handler) => bridge.onChanged(() => handler()),
+    onCommand: (handler) => bridge.onCommand((command: unknown) => handler(checkStartCommand(command))),
   };
 }

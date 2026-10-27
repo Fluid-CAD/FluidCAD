@@ -291,6 +291,12 @@ export type CompileError = {
   message: string;
   filePath?: string;
   sourceLocation?: SourceLocation;
+  /**
+   * The packages the project can't load, structured for an Install action:
+   * `code: 'missing'` for a pin installed in neither the project copy nor
+   * the library.
+   */
+  packageProblems?: { code: string; name: string; version: string | null; message: string }[];
 };
 
 /**
@@ -313,6 +319,12 @@ export type SceneObjectRender = {
   name?: string;
   /** True when `name` comes from a user's `.name('…')` chain, not the type. */
   hasCustomName?: boolean;
+  /**
+   * The installed package whose file made the row (the engine server stamps
+   * it): installed packages are read-only, so the row offers no edit,
+   * rename or removal.
+   */
+  package?: { name: string; version: string };
   parentId?: string | null;
   isContainer?: boolean;
   hideChildren?: boolean;

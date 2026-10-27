@@ -3606,6 +3606,34 @@ describe('parseFeatureStatement — helix', () => {
     });
   });
 
+  // The face test reads the accessor's suffix, never a list of names: the
+  // standard face buckets the old list left out, a custom feature's declared
+  // bucket, and the same through a repeat's instance.
+  it.each([
+    'e.startFaces(0)',
+    'e.capFaces()',
+    'e.internalFaces(0)',
+    'g.boreFaces()',
+    'g.flankFaces(face().planar())',
+    'r.instance(2).boreFaces(0)',
+  ])('reads %s as face mode', async (source) => {
+    const code = `${editBase}\nhelix(${source}).turns(6)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'helix', sourceText: source, sourceMode: 'face', turns: 6 },
+    });
+  });
+
+  it('reads an axis() of a custom edge bucket as axis mode', async () => {
+    const code = `${editBase}\nhelix(axis(g.boreEdges(0))).turns(3)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'helix', sourceText: 'axis(g.boreEdges(0))', sourceMode: 'axis', turns: 3 },
+    });
+  });
+
   it('reads an axis() source as axis mode, kept verbatim', async () => {
     const code = `${editBase}\nhelix(axis(e.edges(3))).turns(3).height(50)\n`;
     const result = await parseFeatureStatement(code, 4);
@@ -6248,6 +6276,34 @@ describe('parseFeatureStatement — plane', () => {
     });
   });
 
+  // The edge test reads the accessor's suffix, never a list of names: the
+  // standard edge buckets the old list left out, a custom feature's declared
+  // bucket, and the same through a repeat's instance.
+  it.each([
+    'e.startEdges(0)',
+    'e.capEdges(1)',
+    'e.internalEdges(0)',
+    'g.tipEdges(3)',
+    'g.boreEdges(edge().circle())',
+    'r.instance(1).tipEdges(0)',
+  ])('reads %s with a position as the edge form', async (base) => {
+    const code = `${planeEditBase}\nplane(${base}, 0.25)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'plane', type: 'edge', bases: [{ text: base, kind: 'edge' }], position: 0.25, offset: null },
+    });
+  });
+
+  it('reads a custom face bucket base as an offset plane', async () => {
+    const code = `${planeEditBase}\nplane(g.flankFaces(0), 5)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'plane', type: 'offset', bases: [{ text: 'g.flankFaces(0)', kind: 'face' }], offset: 5 },
+    });
+  });
+
   it('reads a helix variable as an edge base, named positions included', async () => {
     const code = `${planeEditBase}\nplane(spring, 'middle')\n`;
     const result = await parseFeatureStatement(code, 7);
@@ -6475,7 +6531,8 @@ describe('applyFeatureEdit (plane in-place statement edit)', () => {
 // plus the `newVariables` declarations the expression fields commit.
 // ---------------------------------------------------------------------------
 
-import { isExpressionText, validValueExpr } from '../src/apply-feature-edit/index.ts';
+import { isExpressionText, refArgValue, validRef, validValueExpr } from '../src/apply-feature-edit/index.ts';
+import { getJavaScriptParser } from '../src/code-editor/index.ts';
 
 describe('isExpressionText', () => {
   it('accepts identifiers, arithmetic and call expressions', () => {
@@ -6500,6 +6557,53 @@ describe('isExpressionText', () => {
     expect(isExpressionText('a >= 2 ? 3 : 4')).toBe(true);
     expect(validValueExpr('h * 2', { nonzero: true })).toBe(true);
     expect(validValueExpr(0, { nonzero: true })).toBe(false);
+  });
+});
+
+// A value slot bound to a variable: `{ ref }` on the wire, the name read back off the statement.
+describe('validRef', () => {
+  it('accepts the shape holding an identifier or a dotted member path', () => {
+    for (const ref of ['holeSize', 'inst.properties.kind', '$_ok.a1', '_', 'a.b.c.d']) {
+      expect(validRef({ ref }), ref).toBe(true);
+    }
+  });
+
+  it('refuses a malformed name in the shape, and anything not the shape', () => {
+    for (const ref of ['', ' holeSize', 'hole size', 'a + b', 'size()', 'a[0]', 'a.', '.a', '1st', 'a?.b', 'a..b', "'m4'", 'a.b\n']) {
+      expect(validRef({ ref }), JSON.stringify(ref)).toBe(false);
+    }
+    expect(validRef({ ref: 3 })).toBe(false);
+    expect(validRef({ name: 'holeSize' })).toBe(false);
+    expect(validRef(['holeSize'])).toBe(false);
+    expect(validRef('holeSize')).toBe(false);
+    expect(validRef(null)).toBe(false);
+    expect(validRef(undefined)).toBe(false);
+  });
+});
+
+describe('refArgValue', () => {
+  /** The one argument of `f(…)` as parsed. */
+  async function argument(text: string) {
+    const parser = await getJavaScriptParser();
+    const call = parser.parse(`f(${text})`).rootNode.namedChildren[0].namedChildren[0];
+    return call.childForFieldName('arguments')!.namedChildren[0];
+  }
+
+  it('reads an identifier and a member path of identifiers and property names', async () => {
+    expect(refArgValue(await argument('holeSize'))).toEqual({ ref: 'holeSize' });
+    expect(refArgValue(await argument('inst.properties.kind'))).toEqual({ ref: 'inst.properties.kind' });
+    expect(refArgValue(await argument('$_ok.a1'))).toEqual({ ref: '$_ok.a1' });
+  });
+
+  it('reads nothing off a call, an index, this, an optional chain, a literal or a parenthesised name', async () => {
+    for (const text of ['size()', 'a[0]', 'this.x', 'a?.b', "'m4'", '3', '(a)', 'a.b()', 'a().b', 'a + b', '[a]', '{ a }']) {
+      expect(refArgValue(await argument(text)), text).toBeNull();
+    }
+  });
+
+  it('reads nothing off a path spelt across whitespace or a comment', async () => {
+    expect(refArgValue(await argument('a . b'))).toBeNull();
+    expect(refArgValue(await argument('a /* x */ .b'))).toBeNull();
   });
 });
 

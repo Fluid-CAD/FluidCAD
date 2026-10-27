@@ -7,7 +7,7 @@ import { rad } from "../helpers/math-helpers.js";
 import { LinearRepeatOptions, RepeatAxisSource, RepeatLinear } from "../features/repeat-linear.js";
 import { CircularRepeatOptions, RepeatCircular } from "../features/repeat-circular.js";
 import { cloneWithTransform } from "../helpers/clone-transform.js";
-import { IRepeat, ISceneObject } from "./interfaces.js";
+import { IConnector, IRepeat, ISceneObject, RepeatTargetOf } from "./interfaces.js";
 import { type NumberParam, isNumberParam, resolveParam } from "./param.js";
 import { PlaneLike } from "../math/plane.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
@@ -19,10 +19,11 @@ import { RepeatBase, RepeatSlot, RepeatSlotMatrix } from "../features/repeat-bas
 
 /**
  * Resolve a repeat axis argument to a value usable by LazyMatrix. Scene-
- * resident sources (AxisObjectBase or an edge SceneObject) go through
- * resolveAxis so they end up in the scene and get built before consumers.
- * Primitive inputs (world-axis string, raw Axis) stay as concrete Axis
- * values — no extra scene object, no rendered world-axis line.
+ * resident sources (AxisObjectBase, a connector — its Z axis — or an edge
+ * SceneObject) go through resolveAxis so they end up in the scene and get
+ * built before consumers. Primitive inputs (world-axis string, raw Axis)
+ * stay as concrete Axis values — no extra scene object, no rendered
+ * world-axis line.
  */
 function resolveRepeatAxis(arg: unknown, context: SceneParserContext): RepeatAxisSource {
   if (arg instanceof AxisObjectBase) {
@@ -45,7 +46,14 @@ export type RepeatType = 'linear' | 'circular' | 'mirror' | 'rotate';
  * clone it happened to add to the scene.
  */
 function lastFeature(context: SceneParserContext): SceneObject {
-  const last = context.getSceneObjects().at(-1)!;
+  // The axis a connector argument makes (internal, resolved ahead of the
+  // targets) serves this statement; it is no feature to repeat.
+  const objects = context.getSceneObjects();
+  let index = objects.length - 1;
+  while (index > 0 && objects[index].isInternal()) {
+    index--;
+  }
+  const last = objects[index];
   for (let obj: SceneObject | null = last; obj; obj = obj.getParent()) {
     if (obj instanceof RepeatBase) {
       return obj;
@@ -88,28 +96,28 @@ interface RepeatFunction {
   /**
    * Creates linear repeated instances along an axis.
    * @param type - Must be `'linear'`
-   * @param axis - The axis to repeat along
+   * @param axis - The axis to repeat along — a world axis, an `axis()`, or a connector (its Z axis)
    * @param options - Repeat count, spacing, etc.
    * @param objects - The objects to repeat (defaults to last object); a `repeat()` among them stands for its whole pattern
    */
-  (type: 'linear', axis: AxisLike, options: LinearRepeatOptions, ...objects: ISceneObject[]): IRepeat;
+  <T extends ISceneObject[]>(type: 'linear', axis: AxisLike | IConnector, options: LinearRepeatOptions, ...objects: T): IRepeat<RepeatTargetOf<T>>;
   /**
    * Creates linear repeated instances along multiple axes.
    * @param type - Must be `'linear'`
-   * @param axis - The axes to repeat along
+   * @param axis - The axes to repeat along — each a world axis, an `axis()`, or a connector (its Z axis)
    * @param options - Repeat count, spacing, etc.
    * @param objects - The objects to repeat (defaults to last object); a `repeat()` among them stands for its whole pattern
    */
-  (type: 'linear', axis: AxisLike[], options: LinearRepeatOptions, ...objects: ISceneObject[]): IRepeat;
+  <T extends ISceneObject[]>(type: 'linear', axis: (AxisLike | IConnector)[], options: LinearRepeatOptions, ...objects: T): IRepeat<RepeatTargetOf<T>>;
 
   /**
    * Creates circular repeated instances around an axis.
    * @param type - Must be `'circular'`
-   * @param axis - The axis to repeat around
+   * @param axis - The axis to repeat around — a world axis, an `axis()`, or a connector (its Z axis through its origin)
    * @param options - Repeat count, angle, etc.
    * @param objects - The objects to repeat (defaults to last object); a `repeat()` among them stands for its whole pattern
    */
-  (type: 'circular', axis: AxisLike, options: CircularRepeatOptions, ...objects: ISceneObject[]): IRepeat;
+  <T extends ISceneObject[]>(type: 'circular', axis: AxisLike | IConnector, options: CircularRepeatOptions, ...objects: T): IRepeat<RepeatTargetOf<T>>;
 
   /**
    * Creates a mirrored instance of objects across a plane.
@@ -117,23 +125,23 @@ interface RepeatFunction {
    * @param plane - The plane to mirror across
    * @param objects - The objects to mirror (defaults to last object); a `repeat()` among them stands for its whole pattern
    */
-  (type: 'mirror', plane: PlaneLike, ...objects: ISceneObject[]): IRepeat;
+  <T extends ISceneObject[]>(type: 'mirror', plane: PlaneLike, ...objects: T): IRepeat<RepeatTargetOf<T>>;
 
   /**
    * Creates a rotated clone of objects around an axis.
    * @param type - Must be `'rotate'`
-   * @param axis - The axis to rotate around
+   * @param axis - The axis to rotate around — a world axis, an `axis()`, or a connector (its Z axis through its origin)
    * @param angle - The rotation angle in degrees (defaults to 90)
    * @param objects - The objects to rotate (defaults to last object); a `repeat()` among them stands for its whole pattern
    */
-  (type: 'rotate', axis: AxisLike, angle?: NumberParam, ...objects: ISceneObject[]): IRepeat;
+  <T extends ISceneObject[]>(type: 'rotate', axis: AxisLike | IConnector, angle?: NumberParam, ...objects: T): IRepeat<RepeatTargetOf<T>>;
 
   /**
    * Creates a transformed clone of objects using an arbitrary matrix.
    * @param matrix - The transformation matrix to apply
    * @param objects - The objects to transform (defaults to last object); a `repeat()` among them stands for its whole pattern
    */
-  (matrix: Matrix4, ...objects: ISceneObject[]): IRepeat;
+  <T extends ISceneObject[]>(matrix: Matrix4, ...objects: T): IRepeat<RepeatTargetOf<T>>;
 }
 
 function build(context: SceneParserContext): RepeatFunction {

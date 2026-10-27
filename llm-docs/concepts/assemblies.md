@@ -3,7 +3,7 @@ id: concepts/assemblies
 title: "Parts and assemblies — files, inserting, grounding, mating"
 summary: "A .part.js file exports a part() with param() values, connector() mate frames and expose()d geometry; a .assembly.js file exports an assembly() whose body insert()s parts, .grounded()s one and mate()s the rest. Mates are solved live in the viewport. Units are the project's; parts are scaled in; overrides are in the part's unit."
 tags: [concept, assembly, part]
-seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly, api/insert, api/mate, api/replicate, concepts/units, concepts/global-parameters, concepts/configurations]
+seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly, api/insert, api/mate, api/replicate, concepts/units, concepts/global-parameters, concepts/configurations, concepts/custom-features, concepts/packages]
 ---
 
 # Parts and assemblies
@@ -17,12 +17,19 @@ seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly
 | `.fluid.js` | part | legacy suffix, same as `.part.js` |
 | `.params.js` | — (never rendered) | `export const x = param('X', …)` project parameters every model imports ([[concepts/global-parameters]]) |
 
+A `*.feature.js` file is not a model: it defines a custom feature that part
+files import and call ([[concepts/custom-features]]). Custom features run in
+part bodies and part files, never at the top level of an assembly file.
+
 A part file renders every part it declares. Two rules hold for every
 `part()`, in any file: it is **exported** — `export const x = part('X', …)`
 at the top level of its file, never inside another body — and its **name is
 unique within the file**. A part breaking either is a build error on its
 `part()` call and does not build (see [[api/part]]); only an exported part
-can be inserted elsewhere. A new assembly file is scaffolded as one exported
+can be inserted elsewhere. Parts declared in other files (another part file, or an
+installed package, [[concepts/packages]]) reach a scene only through
+`insert()` in an assembly: importing from such a file does not by itself add its parts
+to a part file. A new assembly file is scaffolded as one exported
 `assembly()` definition; the UI writes inserts and mates inside its callback.
 
 ## A part's interface
@@ -77,7 +84,9 @@ and `repeat()` refuses connectors. See [[api/connector]] and [[api/copy]].
 
 Mates are solved in the viewer, live. The server's render places parts
 where the source puts them; the mated layout is what the viewport shows and
-what the viewer's Export writes.
+what the viewer's Export writes. `get_scene_summary` lists every instance
+under `instances` with that statement pose, the one `interfere`, `measure`
+and `resolve_selection` use; no tool reports the solved pose.
 
 ## Sub-assemblies and connectors
 

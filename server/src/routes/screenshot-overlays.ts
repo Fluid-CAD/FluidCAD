@@ -1,4 +1,4 @@
-import type { NamedView, ScreenshotAnnotation, ScreenshotHighlightRef, ScreenshotView, SectionSpec } from '../ws-protocol.ts';
+import type { NamedView, ScreenshotAnnotation, ScreenshotHighlightRef, ScreenshotShapeFit, ScreenshotView, SectionSpec } from '../ws-protocol.ts';
 import type { ResolveSelectionRequest } from '../../../lib/dist/index.js';
 import { MeasureEntityResolver, type MeasureEntity } from '../measure-entities.ts';
 import { SelectionRequests } from './selection-requests.ts';
@@ -17,13 +17,20 @@ const NAMED_VIEWS: ReadonlySet<NamedView> = new Set([
  */
 export type ScreenshotSelectionResolver = (request: ResolveSelectionRequest) => ReturnType<Parameters<typeof MeasureEntityResolver.resolveMany>[1]>;
 
+/**
+ * The shape and instance ids the current render hands the page — what
+ * `fitTo.shapes` is checked against (`FluidCadServer.getSceneTargetIds`).
+ * Null when nothing has rendered, so there is nothing to check an id against.
+ */
+export type ScreenshotSceneIds = () => ReadonlySet<string> | null;
+
 /** The overlay options a validated request carries to the page, already resolved to index refs. */
 export type ScreenshotOverlayOptions = {
   highlight?: ScreenshotHighlightRef[];
   hide?: string[];
   focus?: string[];
   annotations?: ScreenshotAnnotation[];
-  fitTo?: 'highlight';
+  fitTo?: 'highlight' | ScreenshotShapeFit;
   views?: ScreenshotView[];
   section?: SectionSpec;
 };
@@ -38,11 +45,19 @@ export type ScreenshotOverlayValidation =
  * expressions — and filters are resolved here, every match kept, so the page
  * only ever sees concrete `{ shapeId, kind, index, instanceId? }` refs; an
  * expression matching nothing is refused the way `/measure` refuses it.
+ *
+ * `fitTo` is `"highlight"` (frame the highlighted entities) or
+ * `{ shapes, margin? }` (frame those shape or instance ids as the page draws
+ * them, nothing hidden or ghosted). An id the current render does not hold is
+ * refused here when the scene can tell.
  */
 export class ScreenshotRequests {
 
   static readonly MAX_HIGHLIGHT = 64;
   static readonly MAX_IDS = 64;
+  /** `fitTo.margin` range: 1 is flush with the frame edge, 10 leaves the shapes a tenth of it. */
+  static readonly MIN_FIT_MARGIN = 1;
+  static readonly MAX_FIT_MARGIN = 10;
   static readonly MAX_ANNOTATIONS = 32;
   static readonly MAX_LABEL_LENGTH = 200;
   static readonly MIN_VIEWS = 2;
@@ -112,13 +127,15 @@ export class ScreenshotRequests {
   }
 
   /**
-   * Validate and resolve the overlay fields of a `/screenshot` body. A
-   * section on a face or a statement resolves through `resolveSelection`
-   * and `sceneObject` to the plane the page clips at.
+   * Validate and resolve the overlay fields of a `/screenshot` body.
+   * `fitTo.shapes` ids are checked against `sceneIds` (the current render's
+   * shape and instance ids); a section on a face or a statement resolves
+   * through `resolveSelection` and `sceneObject` to the plane the page clips at.
    */
   static overlays(
     body: Record<string, unknown>,
     resolveSelection: ScreenshotSelectionResolver | undefined,
+    sceneIds?: ScreenshotSceneIds,
     sceneObject?: SectionSceneObjectLookup,
   ): ScreenshotOverlayValidation {
     const options: ScreenshotOverlayOptions = {};
@@ -159,13 +176,18 @@ export class ScreenshotRequests {
     }
 
     if (fitTo !== undefined) {
-      if (fitTo !== 'highlight') {
-        return ScreenshotRequests.refuse(400, 'fitTo must be "highlight" when provided.');
+      if (fitTo === 'highlight') {
+        if (!options.highlight || options.highlight.length === 0) {
+          return ScreenshotRequests.refuse(400, 'fitTo: "highlight" needs a non-empty highlight to frame.');
+        }
+        options.fitTo = 'highlight';
+      } else {
+        const parsed = ScreenshotRequests.shapeFit(fitTo, sceneIds);
+        if (parsed.ok === false) {
+          return parsed;
+        }
+        options.fitTo = parsed.options.fitTo;
       }
-      if (!options.highlight || options.highlight.length === 0) {
-        return ScreenshotRequests.refuse(400, 'fitTo: "highlight" needs a non-empty highlight to frame.');
-      }
-      options.fitTo = 'highlight';
     }
 
     if (views !== undefined) {
@@ -203,6 +225,44 @@ export class ScreenshotRequests {
       parsed.push(view);
     }
     return parsed;
+  }
+
+  /**
+   * `fitTo: { shapes, margin? }`. Every id must be one the current render
+   * holds when `sceneIds` can say (404 `unknown-shape` otherwise); without a
+   * scene to check against the page refuses an id it draws nothing for.
+   */
+  private static shapeFit(raw: unknown, sceneIds: ScreenshotSceneIds | undefined): ScreenshotOverlayValidation {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      return ScreenshotRequests.refuse(400, 'fitTo must be "highlight" or { shapes: [...ids], margin? } when provided.');
+    }
+    const { shapes, margin } = raw as Record<string, unknown>;
+    const problem = ScreenshotRequests.idListError(shapes, 'fitTo.shapes');
+    if (problem) {
+      return ScreenshotRequests.refuse(400, problem);
+    }
+    if (margin !== undefined) {
+      const inRange = typeof margin === 'number'
+        && margin >= ScreenshotRequests.MIN_FIT_MARGIN
+        && margin <= ScreenshotRequests.MAX_FIT_MARGIN;
+      if (!inRange) {
+        return ScreenshotRequests.refuse(400, `fitTo.margin must be a number between ${ScreenshotRequests.MIN_FIT_MARGIN} and ${ScreenshotRequests.MAX_FIT_MARGIN} (1 frames the shapes flush with the frame edge).`);
+      }
+    }
+    const ids = shapes as string[];
+    const known = sceneIds?.() ?? null;
+    if (known) {
+      const unknown = ids.findIndex(id => !known.has(id));
+      if (unknown >= 0) {
+        return {
+          ok: false,
+          status: 404,
+          code: 'unknown-shape',
+          error: `fitTo.shapes[${unknown}] "${ids[unknown]}" is not a shape or instance id of the current render.`,
+        };
+      }
+    }
+    return { ok: true, options: { fitTo: { shapes: [...ids], ...(margin !== undefined ? { margin: margin as number } : {}) } } };
   }
 
   private static highlight(raw: unknown, resolveSelection: ScreenshotSelectionResolver | undefined): ScreenshotOverlayValidation {

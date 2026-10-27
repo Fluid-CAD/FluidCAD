@@ -2,6 +2,7 @@ import { Shape, ShapeFilter } from "./shape.js";
 import { Face } from "./face.js";
 import { Edge } from "./edge.js";
 import { Matrix4 } from "../math/matrix4.js";
+import type { Plane } from "../math/plane.js";
 import { LazyMatrix } from "../math/lazy-matrix.js";
 import { ISceneObject } from "../core/interfaces.js";
 import { FusionScope, OperationMode } from "../features/extrude-options.js";
@@ -10,6 +11,7 @@ import { Profiler } from "./profiler.js";
 import { DEFAULT_LENGTH_UNIT } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import { heldSolidsOf, liveSolidsIn, type HeldSolid } from "../helpers/live-solids.js";
+import { BucketDefs, type BucketDef, type SubShapeKind } from "./bucket-defs.js";
 import { FaceColorView } from "./face-color-view.js";
 import type { CarriedColor } from "../oc/color-transfer.js";
 import { CssColor } from "./css-color.js";
@@ -106,6 +108,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   /** Null until registerBuilder stamps the creating statement's unit — like `_sourceLocation`. */
   private _unit: LengthUnit | null = null;
   private _error: string | null = null;
+  private _kernelTrap = false;
   /** Why the statement refused its operands at parse time — see refuse(). */
   private _refusal: string | null = null;
   private _destroyed: boolean = false;
@@ -296,6 +299,62 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   abstract build(context?: BuildSceneObjectContext): void;
 
   /**
+   * What the object is, as plain data: its `type`, its `unit` (the one its
+   * lengths are in), and the numbers, words
+   * and flags its statement set and its build resolved — what its timeline
+   * row carries (see {@link serialize}): a hole's size, fit, style, depth
+   * and the dimensions it cut; a connector's name and frame; a custom
+   * feature's typed-in values. A custom feature reads a reference's through
+   * `propertiesOf()`, so one feature can follow another — a screw sized by
+   * the hole it is picked at. Lengths are in the object's own unit
+   * ({@link getUnit}). Only plain data survives: a shape, a function or any
+   * other object is left out; a point or a vector becomes its array.
+   * Override to publish a documented set in place of the row's.
+   */
+  describe(): Readonly<Record<string, unknown>> {
+    return Object.freeze({ type: this.getType(), unit: this.getUnit(), ...SceneObject.plainData(this.serialize()) as Record<string, unknown> });
+  }
+
+  /**
+   * Where the object stands, for a feature placed at it — one frame per
+   * placement, origin on the surface, Z out of the material, where it
+   * stands now (a repeat's copy moved): a hole's placements, a connector's
+   * frame. Empty for an object nothing stands at. A custom feature reads
+   * them through `framesOf()`, which also reads the single locations
+   * (`frameOf()`).
+   */
+  locationFrames(): Plane[] {
+    return [];
+  }
+
+  /** `value` reduced to plain data: scalars, null, arrays and plain objects of them; a point or vector as its array; anything else dropped. */
+  private static plainData(value: unknown): unknown {
+    if (value === null || typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.map(entry => SceneObject.plainData(entry)).filter(entry => entry !== undefined);
+    }
+    if (typeof value !== 'object' || value === undefined) {
+      return undefined;
+    }
+    if (typeof (value as { toArray?: unknown }).toArray === 'function') {
+      return SceneObject.plainData((value as { toArray(): unknown }).toArray());
+    }
+    if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
+      return undefined;
+    }
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      const plain = SceneObject.plainData(entry);
+      if (plain !== undefined) {
+        out[key] = plain;
+      }
+    }
+    return out;
+  }
+
+  /**
    * Pre-build validation hook. The renderer calls this before `build()` so
    * features can fail fast with a clear diagnostic (typically a `BuildError`)
    * before any OC work runs. Default is a no-op; overrides should not mutate
@@ -390,6 +449,18 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return [];
   }
 
+  /**
+   * The dependencies a repeat copies along with this object, to rebuild them
+   * moved per instance. A feature built FROM its inputs copies them all (the
+   * default). One that reads its inputs where they stand and moves its own
+   * result by the clone transform instead copies none of them — copying a
+   * face it stands on would drag the body that face belongs to into every
+   * instance.
+   */
+  getCloneDependencies(): SceneObject[] {
+    return this.getDependencies();
+  }
+
   createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     throw new Error("createCopy() not implemented for " + this.getType());
   }
@@ -404,7 +475,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
       }
       visited.add(obj);
 
-      for (const dep of obj.getDependencies()) {
+      for (const dep of obj.getCloneDependencies()) {
         collect(dep);
       }
 
@@ -461,6 +532,21 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getCloneSource(): SceneObject | null {
     return this._cloneSource;
+  }
+
+  /**
+   * The object whose buckets an accessor's index arguments count over when
+   * its selection resolves on a moved copy: the copy's root original — the
+   * feature a repeat or a mirror copied, which every copy rebuilds from,
+   * moved once by its transform (see cloneWithTransform) — else this
+   * object. An index names the root's member carried by the move; on a
+   * mirrored copy, the member nearest the root member's mirror image
+   * (`MirrorIndex`). So `e.sideFaces(2)` carried onto a copy and the copy's
+   * own `sideFaces(2)` — what `r.instance(1).sideFaces(2)` forwards to —
+   * name the same face.
+   */
+  bucketOrigin(): SceneObject {
+    return this._cloneSource ?? this;
   }
 
   getTransformMatrix(): Matrix4 | null {
@@ -944,6 +1030,19 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return type.charAt(0).toUpperCase() + type.slice(1);
   }
 
+  /**
+   * The buckets of `kind` the object can be addressed through, in the
+   * editor's preference order — the one question the selection index asks
+   * of a feature. By default, the standard buckets whose accessor the
+   * object has: one that records a cut's buckets with no accessor for them
+   * (a removing mirror) must not have its picks written as calls it cannot
+   * answer. A hole answers its `faces()`, a custom feature its declared
+   * buckets first.
+   */
+  bucketDefs(kind: SubShapeKind): BucketDef[] {
+    return BucketDefs.standardFor(this, kind);
+  }
+
   hasCustomName(): boolean {
     return this._name !== null;
   }
@@ -1008,16 +1107,28 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     this.state.set(GEOMETRY_UNIT_KEY, unit);
   }
 
-  setError(message: string) {
+  /**
+   * The statement's build error. `kernelTrap`: the OpenCascade kernel itself
+   * trapped (a wasm `RuntimeError`) — not an error the feature raised — so
+   * the engine's memory may be damaged (see `KernelTraps`).
+   */
+  setError(message: string, opts: { kernelTrap?: boolean } = {}) {
     this._error = message;
+    this._kernelTrap = opts.kernelTrap === true;
   }
 
   clearError() {
     this._error = null;
+    this._kernelTrap = false;
   }
 
   getError(): string | null {
     return this._error;
+  }
+
+  /** Whether the build error is a trap of the OpenCascade kernel (see setError). */
+  isKernelTrap(): boolean {
+    return this._error !== null && this._kernelTrap;
   }
 
   /**

@@ -8,6 +8,7 @@ import type { ParsedPlaneBase, PlaneRotationAxes } from '../features/plane.ts';
 import type { ProjectionOp } from '../features/projection.ts';
 import type { ShellJoinKind } from '../features/shell.ts';
 import type { ParsedHole } from '../features/hole.ts';
+import type { ParsedCustomFeature } from '../features/custom.ts';
 import type { SplitKeep } from '../features/split.ts';
 import type { RegionName, ValueExpr } from '../value-expr.ts';
 
@@ -79,6 +80,8 @@ export type ParsedFeatureStatement =
     spineText: string | null;
   })
   | ParsedHole
+  /** A custom feature's statement, read by the call shape its catalog entry declares. */
+  | ParsedCustomFeature
   | (ParsedScopeChain & ParsedRegionChain & {
     feature: 'sweep';
     op: 'add' | 'remove' | 'new';

@@ -5,6 +5,7 @@ import type { SourceLocation } from "../common/scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { Part } from "../features/part.js";
 import { getUnitRegistry } from "../units/registry.js";
+import { EntryFile } from "./entry-file.js";
 import type { LengthUnit } from "../units/units.js";
 
 export type SceneObjectMesh = {
@@ -94,11 +95,23 @@ export type SceneObjectRender = {
   hasError: boolean;
   errorMessage?: string;
   /**
+   * The build error is a trap of the OpenCascade kernel (a wasm
+   * `RuntimeError`), not an error the feature raised: the engine's memory
+   * may be damaged from here on (see `KernelTraps`).
+   */
+  kernelTrap?: boolean;
+  /**
    * `occurrence` is render-derived, never stamped: the 0-based execution
    * index of this object's call site, present only when a loop/helper ran
    * the statement more than once in this render.
    */
   sourceLocation?: { filePath: string; line: number; column: number; occurrence?: number };
+  /**
+   * The installed package whose file made the object, stamped by the
+   * engine server (never by the kernel): installed packages are read-only,
+   * so the timeline offers no edit on such a row.
+   */
+  package?: { name: string; version: string };
   buildDurationMs?: number;
   profileCategories?: { category: string; durationMs: number }[];
   /**
@@ -269,20 +282,46 @@ export class Scene {
   }
 
   /**
-   * Build every tracked definition that has no variant in this scene yet —
-   * the entry-file pass that keeps an open part file WYSIWYG: `part()` no
-   * longer builds at call time, so a definition nothing built would
-   * otherwise silently vanish from the render. One a part rule refused
+   * Build every tracked definition the entry file declares that has no
+   * variant in this scene yet — the pass that keeps an open part file
+   * WYSIWYG: `part()` is lazy, so a definition nothing built would
+   * otherwise silently vanish from its own render. One a part rule refused
    * (an unexported part, a second name) builds as its empty error row.
-   * Called after module evaluation for part-kind entry scenes only;
-   * assembly scenes build strictly via insert().
+   * A definition another file declares — an imported `.part.js`, every part
+   * a package's index re-exports next to the feature the file imported — is
+   * left unbuilt: a part file shows the parts it declares, and other files'
+   * parts reach a scene through insert() in an assembly. Called after module
+   * evaluation for part-kind entry scenes only; assembly scenes build
+   * strictly via insert().
    */
   materializeLeftoverDefinitions(): void {
+    // The entry document of this render: what the host passed to
+    // setCurrentFile(), mirrored on the unit registry (scene.ts never
+    // imports the scene manager).
+    const rootFile = getUnitRegistry().rootFile;
+    const entry = rootFile ? new EntryFile(rootFile) : null;
     for (const { definition } of this.partDefinitions) {
-      if (!definition.hasVariantIn(this)) {
+      if (!definition.hasVariantIn(this) && Scene.isDeclaredIn(definition, entry)) {
         definition.materializeInto(this);
       }
     }
+  }
+
+  /**
+   * Whether `definition`'s `part()` call is written in the entry file. The
+   * call site is the first script frame of the capture, so a `part()`
+   * reached through a plain-module helper the entry file calls counts as
+   * the entry's. A definition with no location (the capture found no script
+   * frame — a bundled browser model, a test) and a scene with no entry file
+   * (a bare scene nothing rendered from a file) keep the behaviour from
+   * before the rule: the definition builds.
+   */
+  private static isDeclaredIn(definition: TrackedPartDefinition, entry: EntryFile | null): boolean {
+    const location = definition.getSourceLocation();
+    if (!location || !entry) {
+      return true;
+    }
+    return entry.matches(location.filePath);
   }
 
   /**

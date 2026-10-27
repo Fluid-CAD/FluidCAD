@@ -36,20 +36,55 @@ import { applyNewPart } from './new-part.ts';
 import { applyStatementEdit } from './statement-edit.ts';
 import { LoftConnections } from '../loft-connections.ts';
 import { HolePlacements } from '../hole-placements.ts';
+import { CustomFeaturePoints } from '../custom-feature-points.ts';
 import { SplitSeeds } from '../split-seeds.ts';
 import { RegionDeclarations } from '../region-declarations.ts';
-import { GlobalImports } from '../global-imports.ts';
-import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
-import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
+import { FeatureCallees, type FeatureCalleeSource } from '../producers/callees.ts';
+import type { ApplyFeatureEditResult, ApplyFeatureEditSpec, FeatureEditApply } from '../spec.ts';
 
-/**
- * What the transform reads beyond the spec: the global-parameters catalog,
- * so an expression that names a project parameter gets its import written
- * (§2.8). Absent — a nested staging call, a test — no import pass runs.
- */
-export type ApplyFeatureEditContext = {
+export type ApplyFeatureEditOptions = {
+  /**
+   * Where the edited file's custom features come from (the server's feature
+   * catalog): their calls bind, repeat and move like the built-ins'. Left
+   * out, only the built-in callees qualify.
+   */
+  callees?: FeatureCalleeSource;
+  /**
+   * The global-parameters catalog, so an expression that names a project
+   * parameter gets its import written (§2.8). Absent — a nested staging
+   * call, a test — no import pass runs.
+   */
   globals?: GlobalParamCatalog;
 };
+
+/**
+ * What one edit's transform arms share: the file's custom feature callees,
+ * resolved on first use (most specs never bind a producer), and the edit
+ * itself with the same options, for the arms that stage a nested edit.
+ */
+class EditContext {
+  private resolved: Promise<FeatureCallees> | null = null;
+
+  constructor(
+    private readonly code: string,
+    private readonly filePath: string | undefined,
+    private readonly options: ApplyFeatureEditOptions,
+  ) {}
+
+  readonly apply: FeatureEditApply = (code, spec) => applyFeatureEdit(code, spec, this.options);
+
+  callees(): Promise<FeatureCallees> {
+    if (!this.resolved) {
+      const source = this.options.callees;
+      this.resolved = source && this.filePath
+        ? source.calleesFor(this.code, this.filePath)
+        : Promise.resolve(FeatureCallees.BUILT_IN);
+    }
+    return this.resolved;
+  }
+}
+import { GlobalImports } from '../global-imports.ts';
+import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 
 /**
  * Apply a synthesized feature statement (fillet/chamfer/shell/sketch) to
@@ -69,12 +104,12 @@ export type ApplyFeatureEditContext = {
 export async function applyFeatureEdit(
   code: string,
   spec: ApplyFeatureEditSpec,
-  context: ApplyFeatureEditContext = {},
+  options: ApplyFeatureEditOptions = {},
 ): Promise<ApplyFeatureEditResult> {
   // Navigation must only change the breakpoint, without sweeping selections.
   if (spec.timelineBreakpoint) return TimelineBreakpoint.apply(code, spec.timelineBreakpoint);
   if (spec.pauseAfter) return PauseAfter.apply(code, spec.pauseAfter);
-  const result = await applyFeatureEditTransform(code, spec);
+  const result = await applyFeatureEditTransform(code, spec, new EditContext(code, spec.filePath, options));
   if (result.error) {
     return result;
   }
@@ -83,8 +118,8 @@ export async function applyFeatureEdit(
   // create and edit, the declarations they land, an insert's `{ expr }`
   // values, a sketch emission's constraint values — ends here, so the one
   // import pass over the spec's expressions covers them all.
-  if (context.globals) {
-    newCode = await GlobalImports.ensure(newCode, spec.filePath, GlobalImports.expressionsOf(spec), context.globals);
+  if (options.globals) {
+    newCode = await GlobalImports.ensure(newCode, spec.filePath, GlobalImports.expressionsOf(spec), options.globals);
   }
   return { ...result, newCode };
 }
@@ -92,13 +127,14 @@ export async function applyFeatureEdit(
 async function applyFeatureEditTransform(
   code: string,
   spec: ApplyFeatureEditSpec,
+  context: EditContext,
 ): Promise<ApplyFeatureEditResult> {
   if (spec.feature === 'loft' && LoftConnections.hasExports(spec)) {
     const staged = await LoftConnections.prepare(code, spec);
     if ('error' in staged) {
       return { newCode: code, error: staged.error };
     }
-    const result = await applyFeatureEditTransform(staged.code, staged.spec);
+    const result = await applyFeatureEditTransform(staged.code, staged.spec, context);
     return result.error ? { newCode: code, error: result.error } : result;
   }
 
@@ -106,11 +142,22 @@ async function applyFeatureEditTransform(
   // authored first (the export, the connector statement), then the hole
   // renders their names — one atomic write, like the loft exports.
   if (spec.feature === 'hole' && HolePlacements.needsStaging(spec)) {
-    const staged = await HolePlacements.prepare(code, spec, applyFeatureEdit);
+    const staged = await HolePlacements.prepare(code, spec, context.apply);
     if ('error' in staged) {
       return { newCode: code, error: staged.error };
     }
-    const result = await applyFeatureEditTransform(staged.code, staged.spec);
+    const result = await applyFeatureEditTransform(staged.code, staged.spec, context);
+    return result.error ? { newCode: code, error: result.error } : result;
+  }
+
+  // A custom feature's picked sketch points are exported from their
+  // sketches first; the statement then names each by its export.
+  if (CustomFeaturePoints.needsStaging(spec)) {
+    const staged = await CustomFeaturePoints.prepare(code, spec);
+    if ('error' in staged) {
+      return { newCode: code, error: staged.error };
+    }
+    const result = await applyFeatureEditTransform(staged.code, staged.spec, context);
     return result.error ? { newCode: code, error: result.error } : result;
   }
 
@@ -122,7 +169,7 @@ async function applyFeatureEditTransform(
     if ('error' in staged) {
       return { newCode: code, error: staged.error };
     }
-    const result = await applyFeatureEditTransform(staged.code, staged.spec);
+    const result = await applyFeatureEditTransform(staged.code, staged.spec, context);
     return result.error ? { newCode: code, error: result.error } : result;
   }
 
@@ -134,7 +181,7 @@ async function applyFeatureEditTransform(
     if ('error' in staged) {
       return { newCode: code, error: staged.error };
     }
-    const result = await applyFeatureEditTransform(staged.code, staged.spec);
+    const result = await applyFeatureEditTransform(staged.code, staged.spec, context);
     return result.error ? { newCode: code, error: result.error } : result;
   }
 
@@ -185,7 +232,7 @@ async function applyFeatureEditTransform(
     return applyNewPart(code, spec.newPart);
   }
   if (spec.moveToPart) {
-    return MoveToPart.apply(code, spec.moveToPart);
+    return MoveToPart.apply(code, spec.moveToPart, await context.callees());
   }
   if (spec.removeFeature) {
     return RemoveFeature.apply(code, spec.removeFeature);
@@ -222,7 +269,7 @@ async function applyFeatureEditTransform(
     return PartRename.apply(code, spec.filePath, spec.partRename);
   }
   if (spec.assemblyMate) {
-    return applyAssemblyMateWithExposeCreates(code, spec.assemblyMate, applyFeatureEdit);
+    return applyAssemblyMateWithExposeCreates(code, spec.assemblyMate, context.apply);
   }
   if (spec.assemblyConnector) {
     return applyAssemblyConnectorWithDecls(code, spec);
@@ -243,19 +290,19 @@ async function applyFeatureEditTransform(
     return applyAssemblyRelationEdit(code, spec.assemblyRelation);
   }
   if (spec.edit) {
-    return applyStatementEdit(code, spec);
+    return applyStatementEdit(code, spec, await context.callees());
   }
   if (spec.feature === 'sketch' && spec.sketchForeign) {
-    return applySketchForeign(code, spec, applyFeatureEdit);
+    return applySketchForeign(code, spec, context.apply);
   }
   if (spec.feature === 'project' && spec.project?.foreign?.length) {
-    return applyProjectForeign(code, spec, applyFeatureEdit);
+    return applyProjectForeign(code, spec, context.apply, await context.callees());
   }
   if (spec.feature === 'plane' && spec.plane?.foreign?.length) {
-    return applyPlaneForeign(code, spec, applyFeatureEdit);
+    return applyPlaneForeign(code, spec, context.apply, await context.callees());
   }
   if (spec.feature === 'sketch' && spec.producers.length === 0 && spec.parts.length === 0) {
     return applyPlaneSketch(code, spec.sketchPlane, spec.activePart);
   }
-  return applyCreateEdit(code, spec);
+  return applyCreateEdit(code, spec, { callees: await context.callees() });
 }

@@ -11,6 +11,7 @@ import { FaceOps } from "./face-ops.js";
 import { Face } from "../common/face.js";
 import { ShapeOps } from "./shape-ops.js";
 import { debug } from '../common/log.js';
+import { BooleanBuilders } from "./boolean-builders.js";
 
 export class FaceMaker2 {
 
@@ -150,7 +151,7 @@ export class FaceMaker2 {
     } finally {
       Explorer.deleteAll(scratch);
       progress.delete();
-      splitter.delete();
+      BooleanBuilders.release(splitter);
       dispose();
     }
   }
@@ -251,7 +252,11 @@ export class FaceMaker2 {
       }
     }
 
-    const cellsBuilder = new oc.BOPAlgo_CellsBuilder();
+    // The general fuse of the shapes is every piece they split each other
+    // into — what a cells builder's parts are with all of them kept — run
+    // through the API algorithm, which releases its intersection data
+    // (BooleanBuilders); BOPAlgo_CellsBuilder never does.
+    const generalFuse = new oc.BRepAlgoAPI_BuilderAlgo();
     const argsList = new oc.TopTools_ListOfShape();
     const progress = new oc.Message_ProgressRange();
     try {
@@ -259,16 +264,15 @@ export class FaceMaker2 {
         argsList.Append(shape.getShape()).delete();
       }
 
-      cellsBuilder.SetArguments(argsList);
-      cellsBuilder.SetNonDestructive(true);
-      cellsBuilder.Perform(progress);
+      generalFuse.SetArguments(argsList);
+      generalFuse.SetNonDestructive(true);
+      generalFuse.Build(progress);
 
-      if (cellsBuilder.HasErrors()) {
+      if (!generalFuse.IsDone() || generalFuse.HasErrors()) {
         return shapes;
       }
 
-      cellsBuilder.AddAllToResult(0, false);
-      const allParts = cellsBuilder.GetAllParts();
+      const allParts = generalFuse.Shape();
       try {
         return Explorer.withShapes(allParts, oc.TopAbs_ShapeEnum.TopAbs_EDGE, raws =>
           raws.map(e => Edge.fromTopoDSEdge(oc.TopoDS.Edge(e))));
@@ -276,7 +280,7 @@ export class FaceMaker2 {
         allParts.delete();
       }
     } finally {
-      cellsBuilder.delete();
+      BooleanBuilders.release(generalFuse);
       argsList.delete();
       progress.delete();
     }

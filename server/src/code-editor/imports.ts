@@ -79,10 +79,14 @@ export async function removeSymbolImport(
   const start = isLast ? consumeLeadingSeparator(code, spec.startIndex) : spec.startIndex;
   const end = isLast ? spec.endIndex : consumeTrailingSeparator(code, spec.endIndex);
   const withoutSpec = spliceCode(code, start, end, '');
-  // `{unit, a }` (the shape ensureSymbolImport writes) becomes `{a }` — put
-  // the space back so the brace pair reads evenly.
-  const braceOffset = findNamedImports(importNode)!.startIndex + 1;
-  if (!isLast && index === 0 && withoutSpec[braceOffset] !== ' ' && withoutSpec[braceOffset] !== '\n') {
+  // `{unit, a }` (an older writer's shape) becomes `{a }` — put the space
+  // back so the brace pair reads evenly. A pair that was already even stays
+  // as it is: `{unit, a}` (what ensureSymbolImport writes into `{a}`) gives
+  // `{a}` back.
+  const namedImports = findNamedImports(importNode)!;
+  const braceOffset = namedImports.startIndex + 1;
+  const closeOffset = namedImports.endIndex - 1 - (end - start);
+  if (!isLast && index === 0 && !/\s/.test(withoutSpec[braceOffset]) && /\s/.test(withoutSpec[closeOffset - 1])) {
     return spliceCode(withoutSpec, braceOffset, braceOffset, ' ');
   }
   return withoutSpec;
@@ -142,6 +146,41 @@ export function findNamedImports(importNode: TSNode): TSNode | null {
     }
   }
   return null;
+}
+
+/** A named import of a file: the export it reads, and the specifier of the module it reads it from. */
+export type NamedImportBinding = { imported: string; source: string };
+
+/**
+ * The file's top-level named imports (`import { a, b as c } from '…'`), by
+ * the local name each binds — `c` reads `b`. Default and namespace imports
+ * bind no named export and are left out.
+ */
+export function namedImportBindings(tree: TSTree): Map<string, NamedImportBinding> {
+  const bindings = new Map<string, NamedImportBinding>();
+  for (const node of tree.rootNode.namedChildren) {
+    if (node.type !== 'import_statement') {
+      continue;
+    }
+    const sourceNode = node.childForFieldName('source');
+    const namedImports = sourceNode ? findNamedImports(node) : null;
+    if (!sourceNode || !namedImports) {
+      continue;
+    }
+    const source = sourceNode.text.slice(1, -1);
+    for (const specifier of namedImports.namedChildren) {
+      if (specifier.type !== 'import_specifier') {
+        continue;
+      }
+      const name = specifier.childForFieldName('name') ?? specifier.namedChild(0);
+      if (!name) {
+        continue;
+      }
+      const alias = specifier.childForFieldName('alias');
+      bindings.set((alias ?? name).text, { imported: name.text, source });
+    }
+  }
+  return bindings;
 }
 
 /** The specifier of `module`'s import that brings in `symbol`, if any. */
@@ -255,13 +294,15 @@ export async function ensureSymbolImport(
   const importNode = module === 'fluidcad/core'
     ? findFluidCadImport(tree)
     : findImportForModule(tree, module);
+  // A new line takes the file's own line break, so a CRLF file stays CRLF.
+  const lineBreak = code.includes('\r\n') ? '\r\n' : '\n';
   if (!importNode) {
     const statement = `import { ${specifier} } from '${module}';`;
     const lastImport = findLastImport(tree);
     if (lastImport) {
-      return spliceCode(code, lastImport.endIndex, lastImport.endIndex, `\n${statement}`);
+      return spliceCode(code, lastImport.endIndex, lastImport.endIndex, `${lineBreak}${statement}`);
     }
-    return `${statement}\n` + code;
+    return `${statement}${lineBreak}` + code;
   }
   const namedImports = findNamedImports(importNode);
   if (!namedImports) {
@@ -278,7 +319,7 @@ export async function ensureSymbolImport(
   if (after === '\n' || after === '\r') {
     const nextLineStart = code.indexOf('\n', openBraceOffset) + 1;
     const indent = code.slice(nextLineStart).match(/^[ \t]*/)?.[0] ?? '';
-    insertText = `\n${indent}${specifier},`;
+    insertText = `${lineBreak}${indent}${specifier},`;
   } else if (after === ' ' || after === '\t') {
     insertText = ` ${specifier},`;
   } else {

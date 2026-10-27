@@ -38,6 +38,7 @@ export {
 export { addGuide, getPointExpression, insertPoint, removeGuide, removePoint } from './points.ts';
 export {
   addBreakpoint,
+  BreakpointMarker,
   breakpointRemovalEdit,
   breakpointSiteOf,
   clearBreakpoints,
@@ -60,7 +61,7 @@ export {
   type SetUnitResult,
   type UnitStatement,
 } from './units.ts';
-export { ensureSymbolImport, importLocalName, removeSymbolImport } from './imports.ts';
+export { ensureSymbolImport, importLocalName, namedImportBindings, removeSymbolImport, type NamedImportBinding } from './imports.ts';
 export {
   findSketchBody,
   insertGeometryCall,
@@ -112,4 +113,5 @@ export {
   type ScopeGlobals,
   type VariableGlobalInfo,
   type VariableInfo,
+  type VariableLiteral,
 } from './variables.ts';

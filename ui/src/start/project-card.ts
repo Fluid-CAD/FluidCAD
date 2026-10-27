@@ -76,8 +76,20 @@ function meta(project: StartProject, context: ProjectCardContext, onUpgrade: () 
   body.className = 'px-3 pt-2.5 pb-3 grid gap-0.5 min-w-0';
 
   const name = document.createElement('div');
-  name.className = 'font-semibold text-sm text-base-content truncate';
-  name.textContent = project.name;
+  name.className = 'flex items-center gap-1.5 min-w-0';
+  const title = document.createElement('span');
+  title.className = 'font-semibold text-sm text-base-content truncate';
+  title.textContent = project.name;
+  name.appendChild(title);
+  // A package workspace (its fluidcad.json has a `package` block) says so.
+  if (project.package) {
+    const badge = document.createElement('span');
+    badge.dataset.ref = 'package-badge';
+    badge.className = 'badge badge-xs badge-soft badge-primary shrink-0';
+    badge.textContent = 'Package';
+    badge.title = `${project.package.name} ${project.package.version}`;
+    name.appendChild(badge);
+  }
 
   // Right-to-left with an isolated left-to-right run: a long path loses its
   // start, not the folder name at its end.

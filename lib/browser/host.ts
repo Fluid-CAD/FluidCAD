@@ -196,11 +196,19 @@ export class BrowserEngineHost {
    * desktop's "use mm" fallback. The project materials follow the same
    * rule (`options.materials`, else the file's `materials` map, else none —
    * see {@link resolveWorkspaceMaterials}). Text values are encoded as UTF-8.
+   *
+   * `options.fileUnits` is a package manifest's per-file `unit()`
+   * declarations, by package path. The model runs as one bundled module, so
+   * a `unit()` call can't tell which file it is in: the desktop reads each
+   * file's own statement, and here the manifest's static read of the same
+   * statements stands in for them (see {@link BrowserEngineHost.fileUnitsOf}).
+   * A file it names then measures in its unit, and its `unit()` call is
+   * accepted rather than refused.
    */
   setWorkspace(
     files: Record<string, string | Uint8Array>,
     entryPath: string,
-    options?: { unit?: string | null; materials?: ProjectMaterials | null },
+    options?: { unit?: string | null; fileUnits?: Record<string, string> | null; materials?: ProjectMaterials | null },
   ): void {
     this.entryPath = entryPath.startsWith("/") ? entryPath : "/" + entryPath;
     const encoder = new TextEncoder();
@@ -212,8 +220,34 @@ export class BrowserEngineHost {
     setAssetProvider((relPath) => bytes.get(relPath) ?? null);
     if (this.manager) {
       this.manager.projectUnit = resolveWorkspaceUnit(options?.unit, bytes.get(PROJECT_CONFIG_FILENAME), this.bootUnit);
+      this.manager.knownFileUnits = BrowserEngineHost.fileUnitsOf(options?.fileUnits);
     }
     this.projectMaterials = resolveWorkspaceMaterials(options?.materials, bytes.get(PROJECT_CONFIG_FILENAME));
+  }
+
+  /**
+   * A package manifest's `fileUnits` (package path → the unit its `unit()`
+   * statement names) keyed the way the host names files to the engine: a
+   * leading `/`, as {@link setWorkspace} sets the entry. An entry whose unit
+   * is not a length unit is skipped, so that file follows the project unit
+   * as it would without a statement.
+   */
+  static fileUnitsOf(fileUnits: Record<string, string> | null | undefined): Map<string, LengthUnit> {
+    const units = new Map<string, LengthUnit>();
+    if (!fileUnits || typeof fileUnits !== "object" || Array.isArray(fileUnits)) {
+      return units;
+    }
+    for (const [path, unit] of Object.entries(fileUnits)) {
+      if (path.trim() === "") {
+        continue;
+      }
+      try {
+        units.set(path.startsWith("/") ? path : "/" + path, parseLengthUnit(unit));
+      } catch {
+        // Not a length unit: the file follows the project unit.
+      }
+    }
+    return units;
   }
 
   /**
@@ -289,7 +323,7 @@ export class BrowserEngineHost {
           result.run();
         }
       }
-      // part() is lazy — every definition the module created shows in a
+      // part() is lazy — every definition the entry file created shows in a
       // part scene (a refused one as its error row); assembly scenes build
       // strictly via insert().
       if (sceneKind !== "assembly") {
@@ -404,12 +438,17 @@ export class BrowserEngineHost {
 
   /**
    * Value-flow only: pick the `configurations()` row the next pass renders
-   * (`'Default'` or null for the literals) and re-render. Session overrides
-   * stay installed and sit on top of the row, as in the desktop panel. A
-   * name no table declares renders the literals, with a console warning.
+   * (`'Default'` or null for the literals) and re-render. The session's
+   * overrides go with the switch, as in the desktop panel (the row's cells
+   * are what shows); `keepOverrides` leaves them installed on top of the
+   * row instead. A name no table declares renders the literals, with a
+   * console warning.
    */
-  async setConfiguration(name: string | null): Promise<BrowserRenderResult> {
+  async setConfiguration(name: string | null, options: { keepOverrides?: boolean } = {}): Promise<BrowserRenderResult> {
     this.activeConfiguration = name === null || name === "Default" ? null : name;
+    if (!options.keepOverrides) {
+      this.overrides.clear();
+    }
     return this.render();
   }
 
@@ -500,29 +539,42 @@ export class BrowserEngineHost {
   /** Ported from FluidCadServer.collectObjectErrors — see that doc comment. */
   /**
    * The render's non-fatal notices, mirroring the desktop's
-   * `objectWarnings`: a `part` row whose `.material(id)` is in neither
-   * the built-in nor the workspace table. The part built; only its mass
-   * is unknown.
+   * `objectWarnings`: a row's own (`object.warnings`, a custom feature's
+   * value its `derive()` ignored), and a `part` row whose `.material(id)`
+   * is in neither the built-in nor the workspace table. The part built;
+   * only its mass is unknown.
    */
   private collectObjectWarnings(result: unknown[]): BrowserObjectBuildError[] {
     const warnings: BrowserObjectBuildError[] = [];
     for (let index = 0; index < result.length; index++) {
       const obj = result[index] as {
         type?: string; id: string; name: string; uniqueType: string;
-        object?: { material?: unknown } | null; sourceLocation?: BrowserObjectBuildError["sourceLocation"];
+        object?: { material?: unknown; warnings?: unknown } | null; sourceLocation?: BrowserObjectBuildError["sourceLocation"];
       };
-      const material = obj?.type === "part" ? obj.object?.material : undefined;
-      if (typeof material !== "string" || material === "" || this.resolveMaterial(material) !== undefined) {
+      if (!obj) {
         continue;
       }
-      warnings.push({
+      const warn = (message: string) => warnings.push({
         index,
         id: obj.id,
         name: obj.name,
         uniqueKind: obj.uniqueType,
-        message: `Unknown material: ${material}`,
+        message,
         sourceLocation: obj.sourceLocation,
       });
+      // A row's own notices (a custom feature's value its derive() ignored).
+      if (Array.isArray(obj.object?.warnings)) {
+        for (const message of obj.object!.warnings as unknown[]) {
+          if (typeof message === "string") {
+            warn(message);
+          }
+        }
+      }
+      const material = obj.type === "part" ? obj.object?.material : undefined;
+      if (typeof material !== "string" || material === "" || this.resolveMaterial(material) !== undefined) {
+        continue;
+      }
+      warn(`Unknown material: ${material}`);
     }
     return warnings;
   }

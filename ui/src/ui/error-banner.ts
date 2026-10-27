@@ -3,6 +3,9 @@ import { ICON_ALERT_TRIANGLE, ICON_CHEVRON_DOWN } from './icons';
 
 type SourceLocation = { filePath: string; line: number; column: number };
 
+/** A pin installed in neither the project copy nor the library, as a compile error carries it. */
+export type MissingPackage = { name: string; version: string | null };
+
 
 export class ErrorBanner {
   private element: HTMLDivElement;
@@ -14,6 +17,15 @@ export class ErrorBanner {
   private primaryLoc: SourceLocation | null = null;
   private onGotoSource: (loc: SourceLocation) => void;
   private sketchActive = false;
+  private installEl: HTMLButtonElement;
+  private missing: MissingPackage | null = null;
+  /**
+   * The missing-package banner's install action (H11: Install from the
+   * hub, which downloads the pinned version, asks for consent and installs
+   * it, never opening the Hub panel); absent, the banner offers no button
+   * and its sentence names the command that downloads the package.
+   */
+  private onInstallMissing: ((pkg: MissingPackage) => void) | null = null;
 
   constructor(container: HTMLElement, onGotoSource: (loc: SourceLocation) => void) {
     this.onGotoSource = onGotoSource;
@@ -27,6 +39,7 @@ export class ErrorBanner {
         <div class="flex items-start gap-3 px-5 py-2.5 text-sm select-none">
           <span class="text-error shrink-0 mt-0.5 [&>svg]:size-5">${ICON_ALERT_TRIANGLE}</span>
           <span data-ref="message" class="text-base-content/90 whitespace-pre-line break-words cursor-pointer hover:underline grow min-w-0"></span>
+          <button data-ref="install-missing" type="button" class="btn btn-xs btn-primary shrink-0 gap-1 hidden">Install from the hub</button>
           <span data-ref="count" class="text-base-content/40 tabular-nums shrink-0 hidden mt-0.5"></span>
           <button data-ref="toggle" class="text-base-content/40 hover:text-base-content/70 shrink-0 hidden cursor-pointer transition-transform mt-0.5" aria-label="Toggle error list">
             ${ICON_CHEVRON_DOWN}
@@ -41,6 +54,12 @@ export class ErrorBanner {
     this.countEl = this.element.querySelector<HTMLSpanElement>('[data-ref="count"]')!;
     this.toggleEl = this.element.querySelector<HTMLButtonElement>('[data-ref="toggle"]')!;
     this.listEl = this.element.querySelector<HTMLDivElement>('[data-ref="list"]')!;
+    this.installEl = this.element.querySelector<HTMLButtonElement>('[data-ref="install-missing"]')!;
+    this.installEl.addEventListener('click', () => {
+      if (this.missing) {
+        this.onInstallMissing?.(this.missing);
+      }
+    });
 
     this.messageEl.addEventListener('click', () => {
       if (this.primaryLoc) {
@@ -69,7 +88,32 @@ export class ErrorBanner {
     this.element.classList.toggle('top-[152px]', this.sketchActive);
   }
 
+  /**
+   * Offer an install on a compile error that says a pinned package isn't
+   * installed (`packageProblems` with `code: 'missing'`): the
+   * missing-package banner. The handler gets the package the project pins.
+   */
+  setInstallMissingHandler(handler: ((pkg: MissingPackage) => void) | null): void {
+    this.onInstallMissing = handler;
+  }
+
+  /** The download behind Install from the hub is running: the button waits and says so. */
+  setInstallBusy(busy: boolean): void {
+    this.installEl.disabled = busy;
+    this.installEl.replaceChildren();
+    if (busy) {
+      const spinner = document.createElement('span');
+      spinner.className = 'loading loading-spinner loading-xs';
+      this.installEl.append(spinner, 'Downloading…');
+    } else {
+      this.installEl.append('Install from the hub');
+    }
+  }
+
   update(sceneObjects: SceneObjectRender[], compileError: CompileError | null): void {
+    const missing = compileError?.packageProblems?.find((problem) => problem.code === 'missing') ?? null;
+    this.missing = missing ? { name: missing.name, version: missing.version } : null;
+    this.installEl.classList.toggle('hidden', this.missing === null || this.onInstallMissing === null);
     if (compileError) {
       const fileName = compileError.filePath ? compileError.filePath.split('/').pop() ?? '' : '';
       const prefix = fileName ? `${fileName}: ` : '';

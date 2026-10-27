@@ -12,8 +12,8 @@ seeAlso: [api/translate, api/mirror]
 Imported from `fluidcad/core`.
 
 ```ts
-// around a world or custom axis
-rotate(axis: AxisLike, angle, ...targets)
+// around a world or custom axis, or a connector's Z axis
+rotate(axis: AxisLike | Connector, angle, ...targets)
 rotate(axis, angle, copy: boolean, ...targets)
 ```
 

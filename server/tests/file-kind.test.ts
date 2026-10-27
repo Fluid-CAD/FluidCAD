@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectKind, isFluidScriptFile, isParamsFile, newFileContent, PARAMS_FILE_TEMPLATE } from '../src/file-kind.ts';
+import { detectKind, isFeatureFile, isFluidScriptFile, isParamsFile, newFeatureFileContent, newFileContent, PARAMS_FILE_TEMPLATE } from '../src/file-kind.ts';
 import { classifyFile, describeFile } from '../src/files/file-tree.ts';
 
 describe('detectKind', () => {
@@ -71,6 +71,39 @@ describe('newFileContent', () => {
   it('prefills a params file with the param import and nothing else', () => {
     expect(newFileContent('project.params.js')).toBe(`import { param } from 'fluidcad/core';\n\n`);
     expect(newFileContent('/ws/sub/tolerances.params.js')).toBe(PARAMS_FILE_TEMPLATE);
+  });
+
+  it('prefills a feature file with a working feature named after the file', () => {
+    const content = newFileContent('features/my-boss.feature.js');
+    expect(content).toBe(newFeatureFileContent('features/my-boss.feature.js'));
+    expect(content).toContain(`import { Feature, defineFeature } from 'fluidcad/sdk';`);
+    expect(content).toContain(`export class MyBoss extends Feature.with({`);
+    expect(content).toContain(`  static id = 'my-boss';`);
+    expect(content).toContain(`  buildTool() {`);
+    expect(content).toContain(`export const myBoss = defineFeature(MyBoss, {`);
+    expect(content).toContain(`  label: 'My boss',`);
+    expect(content).toContain(`  call: ['face', { diameter: 'diameter', height: 'height' }],`);
+  });
+
+  it('falls back when a feature name is not a usable identifier or would shadow an import', () => {
+    expect(newFeatureFileContent('3d.feature.js')).toContain(`export class MyFeature extends Feature.with({`);
+    expect(newFeatureFileContent('3d.feature.js')).toContain(`  static id = '3d';`);
+    expect(newFeatureFileContent('3d.feature.js')).toContain(`export const myFeature = defineFeature(MyFeature, {`);
+    // `Feature` is the class the template imports; `feature` capitalised would shadow it.
+    expect(newFeatureFileContent('feature.feature.js')).toContain(`export class MyFeature extends Feature.with({`);
+    expect(newFeatureFileContent('feature.feature.js')).toContain(`  label: 'Feature',`);
+  });
+});
+
+describe('isFeatureFile', () => {
+  it('matches the .feature.js suffix only, and is never a model', () => {
+    expect(isFeatureFile('standoff.feature.js')).toBe(true);
+    expect(isFeatureFile('/ws/features/standoff.feature.js')).toBe(true);
+    expect(isFeatureFile('standoff.part.js')).toBe(false);
+    expect(isFeatureFile('feature.js')).toBe(false);
+    expect(isFluidScriptFile('standoff.feature.js')).toBe(false);
+    expect(detectKind('standoff.feature.js')).toBeNull();
+    expect(describeFile('standoff.feature.js')).toEqual({ kind: 'source' });
   });
 });
 

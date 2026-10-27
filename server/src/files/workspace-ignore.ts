@@ -1,12 +1,17 @@
 import fs from 'fs';
 import path from 'path';
 import ignoreFactory, { type Ignore } from 'ignore';
+import { PackageRoots } from '../packages/package-roots.ts';
 
 /**
- * Which workspace paths the editor should never see. Two layers:
+ * Which workspace paths the editor should never see. Three layers:
  *
  * - **Always skipped**, regardless of what git thinks: `node_modules` (huge,
  *   never edited), `.git`, and `.fluidcad` (this tool's own state directory).
+ * - **Installed packages** (`PackageRoots.isManaged`): a project copy
+ *   `packages/@scope/name/<version>/` holding `manifest.json`, recognised by
+ *   location plus marker and never by the folder's name, and the installer's
+ *   scratch beside them. Their files are read-only and not the user's to edit.
  * - **`.gitignore`**, honoured per directory the way git does it — a nested
  *   `.gitignore` applies to its own subtree only.
  *
@@ -18,7 +23,7 @@ import ignoreFactory, { type Ignore } from 'ignore';
 const ALWAYS_IGNORED = new Set(['node_modules', '.git', '.fluidcad']);
 
 // `ignore`'s CJS default export isn't callable under this repo's ESM typings —
-// the same cast `model-package/pack.ts` uses.
+// the same cast `files/workspace-files.ts` uses.
 const ignore = ignoreFactory as unknown as (options?: object) => Ignore;
 
 export interface WorkspaceIgnore {
@@ -53,6 +58,9 @@ export function createWorkspaceIgnore(workspacePath: string): WorkspaceIgnore {
         return false;
       }
       if (parts.some((part) => ALWAYS_IGNORED.has(part))) {
+        return true;
+      }
+      if (PackageRoots.isManaged(path.join(workspacePath, ...parts), workspacePath)) {
         return true;
       }
       for (let i = 0; i < parts.length; i++) {

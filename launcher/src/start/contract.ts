@@ -21,9 +21,11 @@ import type { EngineSource } from '../engine/resolver.ts';
 
 /**
  * 2: a `creating` step while a new project is scaffolded, and closing a
- * project from its card. 3: `projectsRoot` in the hello reply.
+ * project from its card. 3: `projectsRoot` in the hello reply. 4: new package
+ * workspaces — a package name on a create request and on the `creating`
+ * step, and the launcher's commands to the page (File › New Package…).
  */
-export const START_SCREEN_PROTOCOL = 3;
+export const START_SCREEN_PROTOCOL = 4;
 
 export type HelloReply = {
   ok: boolean;
@@ -37,7 +39,8 @@ export type HelloReply = {
 export type OpeningProject = { path: string; name: string };
 
 export type OpeningStatus =
-  | { step: 'creating' }
+  /** `package` names the package workspace being set up; absent for a plain project. */
+  | { step: 'creating'; package?: string }
   | { step: 'resolving' }
   | { step: 'downloading'; version: string; receivedBytes: number; totalBytes: number | null }
   | { step: 'starting'; version: string; source: EngineSource };
@@ -60,6 +63,8 @@ export type StartProject = {
   lastOpenedAt: string;
   open: boolean;
   thumbnail: string | null;
+  /** A package workspace's identity (its `fluidcad.json` `package` block), for the card's "Package" badge. */
+  package?: { name: string; version: string } | null;
 };
 
 export type EngineOptions = {
@@ -116,6 +121,18 @@ export type FolderListing = {
 export type FolderState = 'missing' | 'empty' | 'project' | 'not-empty' | 'not-a-folder' | 'unreadable' | 'invalid-name';
 
 export type FolderCheck = { path: string; state: FolderState };
+
+/**
+ * Something the launcher asks the page to do, on the user's behalf: the
+ * desktop app's File › New Package… opens the page's name dialog, since no
+ * native dialog can ask for a name. `npx fluidcad` sends none.
+ */
+export type StartCommand = 'new-package';
+
+/** The `creating` step for a new project, or for a new package named `packageName`. */
+export function creatingStatus(packageName?: string): OpeningStatus {
+  return packageName ? { step: 'creating', package: packageName } : { step: 'creating' };
+}
 
 /** The answer to the page's first call. */
 export function helloReply(

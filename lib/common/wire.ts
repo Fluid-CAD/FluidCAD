@@ -7,6 +7,7 @@ import type { Point } from "../math/point.js";
 import { Vertex } from "./vertex.js";
 import { Explorer } from "../oc/explorer.js";
 import { Edge } from "./edge.js";
+import type { Face } from "./face.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 
 export class Wire extends Shape<TopoDS_Wire> {
@@ -29,6 +30,9 @@ export class Wire extends Shape<TopoDS_Wire> {
     return WireOps.isCW(this, normal);
   }
 
+  getSubShapes(type: 'face'): Face[];
+  getSubShapes(type: 'edge'): Edge[];
+  getSubShapes(type: ShapeType): Shape[];
   getSubShapes(type: ShapeType): Shape[] {
     if (type === 'edge') {
       return this.getEdges();

@@ -216,3 +216,44 @@ describe('instance parameter dialogs', () => {
     expect(root.firstElementChild!.classList.contains('hidden')).toBe(false);
   });
 });
+
+describe('Insert part grouped by package', () => {
+  const scanOf = (name: string) => ({
+    parts: [{ exportName: name.toLowerCase(), partName: name, kind: 'value', params: [], objects: [] }], assemblies: [], errors: [],
+  });
+
+  it("puts the workspace's parts first, then each package's under its heading, a library one marked", async () => {
+    vi.mocked(api.getPartCatalogFiles).mockResolvedValue([
+      { absPath: '/ws/beam.part.js', path: 'beam.part.js' },
+      { absPath: '/lib/@zeta/frames/1.0.0/rail.part.js', path: '@zeta/frames/rail.part.js', package: { name: '@zeta/frames', version: '1.0.0', availability: 'library' } },
+      { absPath: '/lib/@acme/kit/0.1.0/spacer.part.js', path: '@acme/kit/spacer.part.js', package: { name: '@acme/kit', version: '0.1.0', availability: 'dependency' } },
+    ] as any);
+    vi.mocked(api.scanPartCatalogFile).mockImplementation(async (absPath: string) =>
+      scanOf(absPath.includes('rail') ? 'Rail' : absPath.includes('spacer') ? 'Spacer' : 'Beam') as any);
+    dialog = new InsertPartDialog(root);
+    dialog.show('/ws/frame.assembly.js');
+    await vi.waitFor(() => expect(root.querySelectorAll('[data-kind="part"]')).toHaveLength(3));
+    const tree = root.querySelector<HTMLElement>('[data-ref="tree"]')!;
+    const groups = [...tree.querySelectorAll<HTMLElement>('[data-group]')];
+    expect(groups.map(g => g.dataset.group)).toEqual(['workspace', '@acme/kit', '@zeta/frames']);
+    expect(groups.map(g => [...g.querySelectorAll('[data-kind]')].map(t => t.querySelector('span.text-xs')!.textContent))).toEqual([['Beam'], ['Spacer'], ['Rail']]);
+    const headings = [...tree.querySelectorAll<HTMLElement>('[data-group-heading]')];
+    expect(headings.map(h => h.classList.contains('hidden'))).toEqual([false, false, false]);
+    expect(headings[0].textContent).toBe('This project');
+    expect(headings[2].querySelector('[data-ref="not-in-project"]')!.textContent).toBe('not in this project');
+    expect(headings[1].querySelector('[data-ref="not-in-project"]')).toBeNull();
+    // A filter that leaves a group empty hides its heading too.
+    const assemblies = root.querySelector<HTMLInputElement>('input[data-filter="assemblies"]')!;
+    assemblies.checked = true;
+    assemblies.dispatchEvent(new Event('change'));
+    expect(headings.every(h => h.classList.contains('hidden'))).toBe(true);
+  });
+
+  it('shows no headings for a workspace without packages', async () => {
+    dialog = new InsertPartDialog(root);
+    dialog.show('/ws/frame.assembly.js');
+    await vi.waitFor(() => expect(root.querySelector('[data-kind="part"]')).not.toBeNull());
+    const heading = root.querySelector<HTMLElement>('[data-group-heading="workspace"]')!;
+    expect(heading.classList.contains('hidden')).toBe(true);
+  });
+});

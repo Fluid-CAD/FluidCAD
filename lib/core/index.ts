@@ -3,7 +3,7 @@ export type {
   IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IText,
   IConnector, IPart, ILoadFile, LoadOptions,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap,
-  IRepeat, IRepeatInstance, IRegionTarget, IRegionSide, ISection, ISplit,
+  IRepeat, IRepeatInstance, RepeatAccessorsOf, RepeatTargetOf, IRegionTarget, IRegionSide, ISection, ISplit,
 } from "./interfaces.js";
 export type { SketchImageOptions, SketchImageSpec } from "../features/2d/sketch-image.js";
 export { default as axis } from "./axis.js";

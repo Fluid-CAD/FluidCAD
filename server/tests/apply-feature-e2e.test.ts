@@ -5,6 +5,8 @@
 // HTTP/IPC plumbing.
 
 import { describe, it, expect } from 'vitest';
+import express from 'express';
+import http from 'http';
 import { setupOC, render } from '../../lib/tests/setup.js';
 import { getSceneManager } from '../../lib/scene-manager.js';
 import sketch from '../../lib/core/sketch.js';
@@ -28,7 +30,25 @@ import { synthesizeApplyFeature } from '../../lib/selection/explain.js';
 import { synthesizeSketchApplyFeature } from '../../lib/selection/sketch-apply.js';
 import { scopedSceneBefore } from '../../lib/selection/types.js';
 import type { PickRef } from '../../lib/selection/types.js';
-import { applyFeatureEdit, makeProducerBindable, makeProducerNamer, type ApplyFeatureEditSpec } from '../src/apply-feature-edit/index.ts';
+import {
+  applyFeatureEdit,
+  CustomFeatureStatement,
+  makeProducerBindable,
+  makeProducerNamer,
+  parseFeatureStatement,
+  type ApplyFeatureEditSpec,
+} from '../src/apply-feature-edit/index.ts';
+import { FeatureSlotSynthesizer } from '../../lib/selection/feature-slots.js';
+import { resolveFeatureSources } from '../../lib/selection/feature-sources.js';
+import { createFeatureGhostRouter } from '../src/routes/feature-ghost/index.ts';
+import { FeatureCatalog } from '../src/feature-catalog/catalog.ts';
+import { getFeatureMeta, snapshotFeatureMeta } from '../../lib/sdk/meta.js';
+import { defineStandoff, standoff } from '../../lib/tests/fixtures/custom-features/standoff.js';
+import { boss } from '../../lib/tests/fixtures/custom-features/boss.js';
+import { gear, GEAR_DEFAULTS } from '../../lib/tests/fixtures/custom-features/gear.js';
+import { createApplyFeatureRouter } from '../src/routes/apply-feature/index.ts';
+import { Feature, defineFeature } from '../../lib/sdk/index.js';
+import { Primitives, ShapeOps as KernelShapeOps } from '../../lib/sdk/kernel.js';
 
 function findSolid(scene: Scene): Shape {
   const solid = scene.getAllSceneObjects()
@@ -67,10 +87,13 @@ function rectBodySrc(w: number, h: number, x = 0, y = 0): string {
 
 const IMPORT_LINE_RE = /^\s*import\s[\s\S]*?from\s+['"][^'"]+['"]\s*;?\s*$/gm;
 
-/** Execute a .fluid.js source string against the real runtime (fresh scene). */
-function runFluid(source: string): Scene {
+/**
+ * Execute a .fluid.js source string against the real runtime (fresh scene).
+ * `extra` stands in for the file's other imports (a custom feature's builder).
+ */
+function runFluid(source: string, extra: Record<string, unknown> = {}): Scene {
   getSceneManager()!.startScene();
-  const globals: Record<string, unknown> = { ...core, ...filters, ...math };
+  const globals: Record<string, unknown> = { ...core, ...filters, ...math, ...extra };
   const names = Object.keys(globals);
   const values = names.map(n => globals[n]);
   const fn = new Function(...names, `"use strict";\n${source.replace(IMPORT_LINE_RE, '')}`);
@@ -1328,5 +1351,893 @@ describe('create into the active part from a sketch drawn before it', () => {
     expect(built?.getError()).toBeNull();
     expect(built?.getParent()?.getType()).toBe('part');
     expect(built?.getShapes().some(s => s.getType() === 'solid')).toBe(true);
+  });
+});
+
+describe('a custom feature as a producer', () => {
+  setupOC();
+
+  /** The workspace's feature catalog, its one module answered from the TypeScript fixture's metadata. */
+  function standoffCatalog(): FeatureCatalog {
+    const meta = snapshotFeatureMeta(getFeatureMeta(standoff)!);
+    return new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === '/ws/standoff.feature.js'
+        ? { file: absPath, features: [{ exportName: 'standoff', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: 'no such module', deps: [] },
+      builtIns: async () => ({}),
+    });
+  }
+
+  it('fillets a picked standoff rim through the standoff\'s own variable', async () => {
+    const code = [
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
+      `import { standoff } from './standoff.feature.js'`,
+      ``,
+      `sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+      `const e = extrude(10)`,
+      `const s = standoff(e.endFaces(), { height: 12 })`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { drawRect(40, 40, -20, -20) });
+    const e = extrude(10);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 5, column: 10 });
+    const s = standoff(e.endFaces(), { height: 12 });
+    (s as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 6, column: 10 });
+
+    const scene = render();
+    expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    const solid = findSolid(scene);
+    const picks = topEdgeRefs(solid, 22);
+    expect(picks).toHaveLength(2);
+
+    // Without the catalog the standoff's statement is not bindable: the
+    // rim falls to a variable-free selector.
+    const builtIn = synthesizeApplyFeature(scene, picks, 'fillet', 0.5, [], {
+      bindable: await makeProducerBindable(code), namer: await makeProducerNamer(code),
+    });
+    expect(builtIn.ok === true && builtIn.preview).not.toBe('fillet(0.5, s.endEdges())');
+
+    const catalog = standoffCatalog();
+    const callees = await catalog.calleesFor(code, '/ws/model.part.js');
+    const synthesis = synthesizeApplyFeature(scene, picks, 'fillet', 0.5, [], {
+      bindable: await makeProducerBindable(code, callees), namer: await makeProducerNamer(code, callees),
+    });
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.preview).toBe('fillet(0.5, s.endEdges())');
+    expect(synthesis.spec.producers).toMatchObject([{ line: 6, featureType: 'acme.standoff', bind: true }]);
+
+    const edited = await applyFeatureEdit(code, synthesis.spec, { callees: catalog });
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`const s = standoff(e.endFaces(), { height: 12 })\nfillet(0.5, s.endEdges())`);
+
+    // The edited program builds: both rims become fillet faces.
+    const rerun = runFluid(edited.newCode, { standoff });
+    expect(rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    const filleted = findSolid(rerun) as Solid;
+    const tori = filleted.getFaces().filter(f => FaceProps.getProperties(f.getShape()).surfaceType === 'torus');
+    expect(tori.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('places a standoff on a picked face through its call shape, and edits its height', async () => {
+    const code = [
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+      `const e = extrude(10)`,
+      ``,
+    ].join('\n');
+    sketch('xy', () => { drawRect(40, 40, -20, -20) });
+    const e = extrude(10);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 4, column: 10 });
+    const scene = render();
+    const plate = findSolid(scene);
+    const top = Explorer.findFacesWrapped(plate)
+      .map((face, index) => ({ face, index }))
+      .filter(({ face }) => face.getEdges().every(edge => Math.abs(EdgeOps.getEdgeMidPoint(edge).z - 10) < 1e-6));
+    expect(top).toHaveLength(1);
+
+    // The route's two halves: the picked face synthesized as its slot, the
+    // spec written through the feature's call shape.
+    const catalog = standoffCatalog();
+    const callees = await catalog.calleesFor(code, '/ws/model.part.js');
+    const meta = snapshotFeatureMeta(getFeatureMeta(standoff)!);
+    const synthesis = FeatureSlotSynthesizer.synthesize(scene, {
+      slots: { face: { picker: 'face', entities: [{ shapeId: plate.id, sub: { type: 'face', index: top[0].index } }], options: { surface: 'planar' } } },
+    }, { bindable: await makeProducerBindable(code, callees), namer: await makeProducerNamer(code, callees) });
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.slots.face.args).toEqual(['e.endFaces()']);
+    const created = await applyFeatureEdit(code, {
+      feature: 'custom',
+      filePath: '/ws/model.part.js',
+      producers: synthesis.producers,
+      parts: synthesis.parts,
+      imports: synthesis.imports,
+      custom: {
+        id: meta.id,
+        exportName: 'standoff',
+        modulePath: '/ws/standoff.feature.js',
+        shape: CustomFeatureStatement.shapeOf(meta),
+        values: {
+          face: { kind: 'picks', items: synthesis.slots.face.parts.map(part => ({ kind: 'part' as const, part })) },
+          height: { kind: 'value', value: 12 },
+        },
+      },
+    }, { callees: catalog });
+    expect(created.error).toBeUndefined();
+    expect(created.newCode).toContain(`import { standoff } from './standoff.feature.js';`);
+    expect(created.newCode).toContain(`const e = extrude(10)\nstandoff(e.endFaces(), { height: 12 })\n`);
+
+    const tube = (height: number) => Math.PI * (3 ** 2 - 1.5 ** 2) * height;
+    const volume = (source: string) => {
+      const built = runFluid(source, { standoff });
+      expect(built.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      return ShapeProps.getProperties(findSolid(built).getShape()).volumeMm3;
+    };
+    expect(volume(created.newCode)).toBeCloseTo(40 * 40 * 10 + tube(12), 3);
+
+    // The timeline double-click: the statement read back by its shape, its
+    // height changed, everything else kept as written.
+    const line = created.newCode.split('\n').findIndex(l => l.startsWith('standoff(')) + 1;
+    const parsed = await parseFeatureStatement(created.newCode, line, await catalog.calleesFor(created.newCode, '/ws/model.part.js'));
+    expect(parsed).toMatchObject({ ok: true, parsed: { feature: 'custom', values: { height: 12 }, picks: { face: [{ text: 'e.endFaces()' }] } } });
+    const edited = await applyFeatureEdit(created.newCode, {
+      feature: 'custom',
+      filePath: '/ws/model.part.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      edit: {
+        line,
+        column: 0,
+        expectedStatement: parsed.ok ? parsed.statement : undefined,
+        custom: { id: meta.id, values: { face: { kind: 'keep' }, height: { kind: 'value', value: 20 } } },
+      },
+    }, { callees: catalog });
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`\nstandoff(e.endFaces(), { height: 20 })\n`);
+    expect(volume(edited.newCode)).toBeCloseTo(40 * 40 * 10 + tube(20), 3);
+  });
+
+  it('writes a feature that only removes without a chain, and the statement cuts; a spelled-out .remove() edits as written', async () => {
+    // The standoff offering remove alone: its default, so its statement needs no chain.
+    const { standoff: cutter, meta: resolved } = defineStandoff({ operations: ['remove'] });
+    const meta = snapshotFeatureMeta(resolved);
+    expect(meta.defaultOperation).toBe('remove');
+    const catalog = new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === '/ws/standoff.feature.js'
+        ? { file: absPath, features: [{ exportName: 'standoff', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: 'no such module', deps: [] },
+      builtIns: async () => ({}),
+    });
+    // A 20 mm block standing on the plate: the standoff grows into it.
+    const code = [
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+      `const e = extrude(10)`,
+      `sketch(e.endFaces(), () => { ${rectBodySrc(20, 20, -10, -10)} })`,
+      `const b = extrude(20).new()`,
+      ``,
+    ].join('\n');
+
+    const created = await applyFeatureEdit(code, {
+      feature: 'custom',
+      filePath: '/ws/model.part.js',
+      producers: [
+        { line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true },
+        { line: 6, column: 10, featureType: 'extrude', nameHint: 'b', bind: true },
+      ],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
+      imports: [],
+      custom: {
+        id: meta.id,
+        exportName: 'standoff',
+        modulePath: '/ws/standoff.feature.js',
+        shape: CustomFeatureStatement.shapeOf(meta),
+        values: { face: { kind: 'picks', items: [{ kind: 'part', part: 0 }] }, height: { kind: 'value', value: 8 } },
+        operation: 'remove',
+        scope: [{ kind: 'feature', producer: 1 }],
+      },
+    }, { callees: catalog });
+    expect(created.error).toBeUndefined();
+    expect(created.newCode).toContain(`const b = extrude(20).new()\nstandoff(e.endFaces(), { height: 8 }).scope(b)\n`);
+
+    const tube = (height: number) => Math.PI * (3 ** 2 - 1.5 ** 2) * height;
+    const volumes = (source: string) => {
+      const built = runFluid(source, { standoff: cutter });
+      expect(built.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      return built.getAllSceneObjects()
+        .filter(o => !o.isContainer())
+        .flatMap(o => o.getShapes())
+        .filter(shape => shape.getType() === 'solid')
+        .map(shape => ShapeProps.getProperties(shape.getShape()).volumeMm3)
+        .sort((a, b) => a - b);
+    };
+    const grooved = volumes(created.newCode);
+    expect(grooved).toHaveLength(2);
+    expect(grooved[0]).toBeCloseTo(20 * 20 * 20 - tube(8), 3);
+    expect(grooved[1]).toBeCloseTo(40 * 40 * 10, 3);
+
+    // The same statement spelled out with .remove() reads back as the
+    // default, and an edit of its height keeps the chain as written.
+    const spelled = created.newCode.replace('.scope(b)', '.remove().scope(b)');
+    const line = spelled.split('\n').findIndex(l => l.startsWith('standoff(')) + 1;
+    const parsed = await parseFeatureStatement(spelled, line, await catalog.calleesFor(spelled, '/ws/model.part.js'));
+    expect(parsed).toMatchObject({ ok: true, parsed: { operation: 'remove', scopeTexts: ['b'] } });
+    const edited = await applyFeatureEdit(spelled, {
+      feature: 'custom',
+      filePath: '/ws/model.part.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      edit: { line, column: 0, custom: { id: meta.id, values: { face: { kind: 'keep' }, height: { kind: 'value', value: 12 } } } },
+    }, { callees: catalog });
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`\nstandoff(e.endFaces(), { height: 12 }).remove().scope(b)\n`);
+    expect(volumes(edited.newCode)[0]).toBeCloseTo(20 * 20 * 20 - tube(12), 3);
+  });
+});
+
+describe("a custom feature's named buckets, from a viewport pick to the built model", () => {
+  setupOC();
+
+  // A plate centred on (50, 0), an 18-tooth gear fused on its top, and the
+  // gear repeated three times round the z axis: each copy stands on its own.
+  const PLATE_TOP = 10;
+  const GEAR_TOP = PLATE_TOP + GEAR_DEFAULTS.thickness;
+  const TIP_RADIUS = (GEAR_DEFAULTS.module * 18) / 2 + GEAR_DEFAULTS.module;
+  const code = [
+    `import { sketch, line, extrude, repeat } from 'fluidcad/core'`,
+    `import { gear } from './gear.feature.js'`,
+    ``,
+    `sketch('xy', () => { ${rectBodySrc(60, 60, 20, -30)} })`,
+    `const plate = extrude(${PLATE_TOP})`,
+    `const g = gear(plate.endFaces(), { teeth: 18 })`,
+    `const r = repeat('circular', 'z', { count: 3, angle: 360 }, g)`,
+    ``,
+  ].join('\n');
+
+  /** The workspace's feature catalog, its one module answered from the TypeScript gear's metadata. */
+  function gearCatalog(): FeatureCatalog {
+    const meta = snapshotFeatureMeta(getFeatureMeta(gear)!);
+    return new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === '/ws/gear.feature.js'
+        ? { file: absPath, features: [{ exportName: 'gear', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: 'no such module', deps: [] },
+      builtIns: async () => ({}),
+    });
+  }
+
+  function buildModel(): Scene {
+    sketch('xy', () => { drawRect(60, 60, 20, -30) });
+    const plate = extrude(PLATE_TOP);
+    (plate as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 5, column: 14 });
+    const g = gear(plate.endFaces(), { teeth: 18 });
+    (g as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 6, column: 10 });
+    const r = core.repeat('circular', 'z', { count: 3, angle: 360 }, g);
+    (r as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.part.js', line: 7, column: 10 });
+    const scene = render();
+    expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    return scene;
+  }
+
+  /** The solid standing round (`cx`, `cy`) — the plate with its gear, or a copy. */
+  function solidAround(scene: Scene, cx: number, cy: number): Solid {
+    const solid = scene.getAllSceneObjects()
+      .filter(o => !o.isContainer())
+      .flatMap(o => o.getShapes())
+      .find(s => s.getType() === 'solid' && Explorer.findEdgesWrapped(s).some(e => {
+        const mid = EdgeOps.getEdgeMidPoint(e);
+        return Math.abs(Math.hypot(mid.x - cx, mid.y - cy) - TIP_RADIUS) < 1e-3;
+      }));
+    expect(solid).toBeDefined();
+    return solid as Solid;
+  }
+
+  /** One tooth tip's arc round the top of the gear centred on (`cx`, `cy`). */
+  function topTipArc(solid: Shape, cx: number, cy: number): PickRef {
+    const index = Explorer.findEdgesWrapped(solid).findIndex(e => {
+      const mid = EdgeOps.getEdgeMidPoint(e);
+      return Math.abs(Math.hypot(mid.x - cx, mid.y - cy) - TIP_RADIUS) < 1e-3 && Math.abs(mid.z - GEAR_TOP) < 1e-6;
+    });
+    expect(index).toBeGreaterThanOrEqual(0);
+    return { shapeId: solid.id, sub: { type: 'edge', index } };
+  }
+
+  function torusCount(solid: Solid): number {
+    return solid.getFaces().filter(f => FaceProps.getProperties(f.getShape()).surfaceType === 'torus').length;
+  }
+
+  /** Synthesizes a 0.3 fillet over `pick` with the file's names, and writes it into the code. */
+  async function filletThrough(scene: Scene, pick: PickRef): Promise<{ preview: string; newCode: string }> {
+    const catalog = gearCatalog();
+    const callees = await catalog.calleesFor(code, '/ws/model.part.js');
+    const synthesis = synthesizeApplyFeature(scene, [pick], 'fillet', 0.3, [], {
+      bindable: await makeProducerBindable(code, callees), namer: await makeProducerNamer(code, callees),
+    });
+    expect(synthesis.ok, synthesis.ok === false ? synthesis.reason : '').toBe(true);
+    if (synthesis.ok !== true) {
+      throw new Error('unreachable');
+    }
+    const edited = await applyFeatureEdit(code, synthesis.spec, { callees: catalog });
+    expect(edited.error).toBeUndefined();
+    return { preview: synthesis.preview, newCode: edited.newCode };
+  }
+
+  it('fillets one picked tooth tip through the gear\'s own tipEdges bucket, and the model builds', async () => {
+    const scene = buildModel();
+    const { preview, newCode } = await filletThrough(scene, topTipArc(solidAround(scene, 50, 0), 50, 0));
+
+    expect(preview).toMatch(/^fillet\(0\.3, g\.tipEdges\(.+\)\)$/);
+    expect(newCode).toContain(`const r = repeat('circular', 'z', { count: 3, angle: 360 }, g)\n${preview}.name('Fillet 1')\n`);
+
+    const rerun = runFluid(newCode, { gear });
+    expect(rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    expect(torusCount(solidAround(rerun, 50, 0))).toBe(1);
+  });
+
+  it('fillets a copy\'s picked tooth tip through r.instance(k).tipEdges, forwarded by the repeat, and the model builds', async () => {
+    const scene = buildModel();
+    const [cx, cy] = [50 * Math.cos((2 * Math.PI) / 3), 50 * Math.sin((2 * Math.PI) / 3)];
+    const { preview, newCode } = await filletThrough(scene, topTipArc(solidAround(scene, cx, cy), cx, cy));
+
+    expect(preview).toMatch(/^fillet\(0\.3, r\.instance\(1\)\.tipEdges\(.+\)\)$/);
+    expect(newCode).toContain(`\n${preview}.name('Fillet 1')\n`);
+
+    const rerun = runFluid(newCode, { gear });
+    expect(rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    expect(torusCount(solidAround(rerun, cx, cy))).toBe(1);
+    expect(torusCount(solidAround(rerun, 50, 0))).toBe(0);
+  });
+});
+
+describe("a custom feature's ghost, from the dialog's body to the kernel", () => {
+  setupOC();
+
+  const FILE = '/ws/model.part.js';
+  const MODULE = '/ws/standoff.feature.js';
+
+  /**
+   * The ghost route over the real scene: the server half is faked only
+   * where it loads the module — it hands the kernel the TypeScript
+   * fixture's builder, as `FeatureScanner.loadBuilder` hands it the module's.
+   */
+  async function ghostRoute(scene: Scene, code: string): Promise<{ post: (body: unknown) => Promise<any>; close: () => Promise<void> }> {
+    const meta = snapshotFeatureMeta(getFeatureMeta(standoff)!);
+    const fakeServer = {
+      getCurrentCode: () => code,
+      getCurrentFileName: () => FILE,
+      getParamDefinitions: () => [],
+      getRenderedInstances: () => [],
+      getRenderedParts: () => [],
+      featureGhost: async (request: any) => {
+        expect(request).toMatchObject({ modulePath: MODULE, exportName: 'standoff' });
+        const { modulePath: _m, exportName: _e, ...rest } = request;
+        const result = getSceneManager()!.buildFeatureGhost(scene, { ...rest, builder: standoff });
+        return result.ok ? { status: 200, solids: result.solids } : { status: 422, reason: result.reason };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createFeatureGhostRouter(fakeServer as never, {
+      catalog: { list: async () => [{ id: 'acme.standoff', exportName: 'standoff', modulePath: MODULE, builtIn: false, meta: meta as any }] },
+    }));
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const addr = server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+    return {
+      post: async (body) => (await fetch(`${base}/api/feature-ghost`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })).json(),
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  /** The highest z a ghost answer's meshes reach. */
+  function topOf(solids: { meshes: { vertices: number[] }[] }[]): number {
+    let max = -Infinity;
+    for (const solid of solids) {
+      for (const mesh of solid.meshes) {
+        for (let i = 2; i < mesh.vertices.length; i += 3) {
+          max = Math.max(max, mesh.vertices[i]);
+        }
+      }
+    }
+    return max;
+  }
+
+  it('draws the standoff on the face the dialog picked, its height read where the statement lands', async () => {
+    const code = [
+      `import { sketch, line, extrude, part, param } from 'fluidcad/core'`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  const tall = param('tall', 12)`,
+      `  sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+      `  const e = extrude(10)`,
+      `})`,
+    ].join('\n');
+    sketch('xy', () => { drawRect(40, 40, -20, -20) });
+    const e = extrude(10);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 6, column: 13 });
+    const scene = render();
+    const plate = findSolid(scene);
+    const index = Explorer.findFacesWrapped(plate).findIndex(face =>
+      face.getEdges().every(edge => Math.abs(EdgeOps.getEdgeMidPoint(edge).z - 10) < 1e-6));
+
+    const route = await ghostRoute(scene, code);
+    try {
+      const answer = await route.post({
+        feature: 'custom', id: 'acme.standoff', operation: 'add',
+        values: { height: 'tall * 2' },
+        refs: { face: [{ kind: 'entities', entities: [{ shapeId: plate.id, index, kind: 'face' }] }] },
+        valueScope: { kind: 'append', filePath: FILE, line: 3, column: 22 },
+      });
+      expect(answer.success).toBe(true);
+      expect(answer.solids).toHaveLength(1);
+      expect(topOf(answer.solids)).toBeCloseTo(10 + 24, 4);
+    } finally {
+      await route.close();
+    }
+  });
+
+  it('draws an edited standoff from the face its statement stood on, as the edit dialog seeds it', async () => {
+    const code = [
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
+      `import { standoff } from './standoff.feature.js'`,
+      `sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+      `const e = extrude(10)`,
+      `standoff(e.endFaces(), { height: 12 })`,
+    ].join('\n');
+    sketch('xy', () => { drawRect(40, 40, -20, -20) });
+    const e = extrude(10);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 4, column: 11 });
+    const s = standoff((e as unknown as { endFaces(): never }).endFaces(), { height: 12 });
+    (s as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 5, column: 1 });
+    const scene = render();
+    expect((s as unknown as SceneObject).getError()).toBeNull();
+
+    // The edit dialog's keep chip: the face, as /feature/sources resolves it.
+    const index = scene.getAllSceneObjects().indexOf(s as unknown as SceneObject);
+    const sources = resolveFeatureSources(scene, { index, type: 'acme.standoff', line: 5, column: 1 });
+    expect(sources).toMatchObject({ ok: true, feature: 'custom', slots: { face: { kind: 'entities' } } });
+    const entities = (sources as any).slots.face.entities
+      .map((entity: PickRef) => ({ shapeId: entity.shapeId, index: entity.sub.index, kind: entity.sub.type }));
+
+    const route = await ghostRoute(scene, code);
+    try {
+      const answer = await route.post({
+        feature: 'custom', id: 'acme.standoff',
+        values: { height: 20 },
+        refs: { face: [{ kind: 'entities', entities }] },
+        exclude: { filePath: FILE, line: 5 },
+        valueScope: { kind: 'statement', filePath: FILE, line: 5, column: 1 },
+      });
+      expect(answer.success).toBe(true);
+      expect(topOf(answer.solids)).toBeCloseTo(30, 4);
+    } finally {
+      await route.close();
+    }
+  });
+});
+
+describe('a custom feature at locations, from the dialog\'s picks to the built model', () => {
+  setupOC();
+
+  const FILE = '/ws/model.part.js';
+  const MODULE = '/ws/boss.feature.js';
+
+  const CODE = [
+    `import { part, sketch, line, point, extrude, connector, select } from 'fluidcad/core'`,
+    `import { face } from 'fluidcad/filters'`,
+    ``,
+    `part('plate', () => {`,
+    `  sketch('xy', () => { ${rectBodySrc(60, 40, -30, -20)} })`,
+    `  const e = extrude(10)`,
+    `  const bolt = connector('bolt', select(face().planar().onPlane('xy', 10)))`,
+    `  sketch(e.endFaces(), () => {`,
+    `    point([-20, -10])`,
+    `  })`,
+    `})`,
+    ``,
+  ].join('\n');
+
+  /** The scene CODE builds, each statement at its line in CODE. */
+  function build(): { scene: Scene; plate: SceneObject; dot: SceneObject } {
+    const at = (obj: unknown, line: number, column: number) =>
+      (obj as SceneObject).setSourceLocation({ filePath: FILE, line, column });
+    let plate: SceneObject | null = null;
+    let dot: SceneObject | null = null;
+    core.part('plate', () => {
+      sketch('xy', () => { drawRect(60, 40, -30, -20) });
+      const e = extrude(10);
+      at(e, 6, 12);
+      plate = e as unknown as SceneObject;
+      at(core.connector('bolt', core.select(filters.face().planar().onPlane('xy', 10))), 7, 15);
+      const marks = sketch((e as unknown as { endFaces(): never }).endFaces(), () => {
+        dot = core.point([-20, -10]) as unknown as SceneObject;
+        at(dot, 9, 4);
+      });
+      at(marks, 8, 2);
+    });
+    return { scene: render(), plate: plate!, dot: dot! };
+  }
+
+  /** The apply route over the real scene, its slot synthesis the kernel's own. */
+  async function applyRoute(scene: Scene): Promise<{ post: (path: string, body: unknown) => Promise<{ status: number; body: any }>; relayed: any[]; close: () => Promise<void> }> {
+    const meta = snapshotFeatureMeta(getFeatureMeta(boss)!);
+    const catalog = new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === MODULE
+        ? { file: absPath, features: [{ exportName: 'boss', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: `cannot load ${absPath}`, deps: [] },
+      builtIns: async () => ({}),
+    });
+    const fakeServer = {
+      getCurrentCode: () => CODE,
+      getCurrentFileName: () => FILE,
+      getParamDefinitions: () => [],
+      synthesizeFeatureSlots: (request: any, options: any, before?: any) =>
+        getSceneManager()!.synthesizeFeatureSlots(scene, request, options, before),
+    };
+    const relayed: any[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createApplyFeatureRouter(fakeServer as never, (msg: any) => {
+      relayed.push(msg);
+    }, { callees: catalog, catalog: { list: async () => [{ id: 'acme.boss', exportName: 'boss', modulePath: MODULE, builtIn: false, meta: meta as any }] } }));
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const addr = server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}/api`;
+    return {
+      post: async (path, body) => {
+        const res = await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        return { status: res.status, body: await res.json() };
+      },
+      relayed,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  /** The index of the vertex of `shape` at `[x, y, z]`. */
+  function vertexAt(shape: Shape, [x, y, z]: number[]): number {
+    const vertices = Explorer.findVerticesWrapped(shape);
+    const index = vertices.findIndex(vertex => {
+      const p = vertex.toPoint();
+      return Math.abs(p.x - x) < 1e-6 && Math.abs(p.y - y) < 1e-6 && Math.abs(p.z - z) < 1e-6;
+    });
+    expect(index).toBeGreaterThanOrEqual(0);
+    return index;
+  }
+
+  it('stands bosses at a connector, a sketch point, a solid corner and a face centre picked in the dialog', async () => {
+    const { scene, plate, dot } = build();
+    expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    const solid = plate.getShapes().find(s => s.getType() === 'solid')!;
+    const back = Explorer.findFacesWrapped(solid).findIndex(face =>
+      face.getEdges().every(edge => Math.abs(EdgeOps.getEdgeMidPoint(edge).y - 20) < 1e-6));
+    expect(back).toBeGreaterThanOrEqual(0);
+
+    const route = await applyRoute(scene);
+    try {
+      const at = [
+        { kind: 'statement', filePath: FILE, line: 7, column: 15, picker: 'connector' },
+        { kind: 'point', entity: { shapeId: dot.getShapes()[0].id, sub: { type: 'vertex', index: 0 } } },
+        { kind: 'point', entity: { shapeId: solid.id, sub: { type: 'vertex', index: vertexAt(solid, [30, 20, 10]) } } },
+        { kind: 'anchor', entity: { shapeId: solid.id, sub: { type: 'face', index: back } }, anchor: { kind: 'center' } },
+      ];
+      const body = { feature: 'custom', custom: { id: 'acme.boss', values: { height: 4 }, picks: { at }, operation: 'new' } };
+      const preview = await route.post('/apply-feature', { ...body, preview: true });
+      expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+      // The corner is the top end of an upright edge; the back face is a side face.
+      expect(preview.body.preview).toMatch(/^boss\(\[bolt, s\.geometries\.p1, e\.sideEdges\(.+\)\.end\(\), e\.sideFaces\(.+\)\.center\(\)\], \{ height: 4 \}\)\.new\(\)$/);
+
+      const applied = await route.post('/apply-feature', body);
+      expect(applied.status).toBe(200);
+      const written = await route.post('/code/apply-feature', { code: CODE, spec: route.relayed[0].spec });
+      expect(written.body.error).toBeUndefined();
+      const newCode: string = written.body.newCode;
+      expect(newCode).toContain(`import { boss } from './boss.feature.js';`);
+      expect(newCode).toContain(`  const s = sketch(e.endFaces(), () => {\n    const p1 = point([-20, -10])\n    return { p1 };\n  })\n`);
+      expect(newCode).toContain(`  ${preview.body.preview}\n})`);
+
+      // The written model builds: four separate bosses beside the plate.
+      const built = runFluid(newCode, { boss });
+      expect(built.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      const solids = built.getSceneObjects().filter(o => !o.isContainer()).flatMap(o => o.getShapes()).filter(s => s.isSolid());
+      expect(solids).toHaveLength(5);
+      const centres = solids.map(s => ShapeOps.getExactBoundingBox(s))
+        .map(b => [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2].map(v => Math.round(v * 1000) / 1000));
+      // Each stands where it was picked, along its frame: up from the top, up the upright edge, out of the back.
+      expect(centres).toEqual(expect.arrayContaining([[0, 0, 12], [-20, -10, 12], [30, 20, 12], [0, 22, 5]]));
+    } finally {
+      await route.close();
+    }
+  });
+});
+
+/**
+ * Every axis slot takes a connector — its Z axis through its origin. The
+ * dialogs send it as its `connector()` statement (and a copy's slot); the
+ * route binds it and writes `bolt` or `bolt.instance(1)`, the written model
+ * builds around that line, and an edit of the rest keeps it as written —
+ * for a built-in (revolve) and a custom feature's axis value alike.
+ */
+describe('an axis that is a connector, from the dialog\'s pick to the built model', () => {
+  setupOC();
+
+  const FILE = '/ws/flange.part.js';
+  const MODULE = '/ws/pin.feature.js';
+
+  /** `pin(along, { length })`: a Ø2 pin of `length` along the picked axis, from its origin. */
+  class Pin extends Feature.with({
+    along: { picker: 'axis', label: 'Along' },
+    length: { type: 'length', default: 8 },
+  }) {
+    static id = 'acme.pin';
+
+    buildTool(): Shape[] {
+      const along = this.axisOf(this.values.along);
+      const d = along.direction.normalize();
+      const helper = Math.abs(d.z) < 0.9 ? new math.Vector3d(0, 0, 1) : new math.Vector3d(1, 0, 0);
+      const x = helper.cross(d).normalize();
+      const pin = Primitives.makeCylinder(1, this.values.length);
+      const placed = KernelShapeOps.transform(pin, math.Matrix4.fromBasis(x, d.cross(x), d, along.origin));
+      pin.dispose();
+      return [placed];
+    }
+  }
+  const pin = defineFeature(Pin, { label: 'Pin', group: 'create', operations: ['add', 'new'], call: ['along', { length: 'length' }] });
+
+  const CODE = [
+    `import { part, sketch, line, extrude, connector, select, copy } from 'fluidcad/core'`,
+    `import { face } from 'fluidcad/filters'`,
+    ``,
+    `part('flange', () => {`,
+    `  const s = sketch('xz', () => { ${rectBodySrc(10, 10, 40, 20)} })`,
+    `  sketch('xy', () => { ${rectBodySrc(100, 100, -50, -50)} })`,
+    `  extrude(10).new()`,
+    `  const bolt = connector('bolt', select(face().planar().onPlane('xy', 10))).offset(30, 0, 0)`,
+    `  copy('linear', 'y', { count: 2, offset: 20 }, bolt)`,
+    `})`,
+    ``,
+  ].join('\n');
+  const BOLT = { filePath: FILE, line: 8, column: 15 };
+
+  async function applyRoute(code: () => string) {
+    const meta = snapshotFeatureMeta(getFeatureMeta(pin)!);
+    const catalog = new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === MODULE
+        ? { file: absPath, features: [{ exportName: 'pin', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: `cannot load ${absPath}`, deps: [] },
+      builtIns: async () => ({}),
+    });
+    const fakeServer = {
+      getCurrentCode: code,
+      getCurrentFileName: () => FILE,
+      getParamDefinitions: () => [],
+    };
+    const relayed: any[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createApplyFeatureRouter(fakeServer as never, (msg: any) => {
+      relayed.push(msg);
+    }, { callees: catalog, catalog: { list: async () => [{ id: 'acme.pin', exportName: 'pin', modulePath: MODULE, builtIn: false, meta: meta as any }] } }));
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const addr = server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}/api`;
+    return {
+      post: async (path: string, body: unknown) => {
+        const res = await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        return { status: res.status, body: await res.json() as any };
+      },
+      relayed,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  /** The x/y centre of the solids `type`'s objects built. */
+  function centreOf(scene: Scene, type: string): number[] {
+    const solids = scene.getAllSceneObjects().filter(o => o.getType() === type).flatMap(o => o.getShapes()).filter(s => s.isSolid());
+    expect(solids).toHaveLength(1);
+    const b = ShapeOps.getExactBoundingBox(solids[0]);
+    return [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2].map(v => Math.round(v * 1000) / 1000);
+  }
+
+  it('revolves around a connector copy, and edits the angle keeping it as written', async () => {
+    let current = CODE;
+    const route = await applyRoute(() => current);
+    try {
+      const created = await route.post('/apply-feature', {
+        feature: 'revolve', op: 'new', angle: 360, symmetric: false, thin: null,
+        profile: { mode: 'bound', filePath: FILE, line: 5, column: 12 },
+        axis: { kind: 'connector', ...BOLT, slot: 1 }, scope: [], regions: [],
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(200);
+      const written = await route.post('/code/apply-feature', { code: CODE, spec: route.relayed[0].spec });
+      expect(written.body.error).toBeUndefined();
+      current = written.body.newCode;
+      expect(current).toContain(`  revolve(bolt.instance(1), s).new().name('Revolve 1')\n})`);
+
+      // A ring around the copy's line, (30, 20).
+      let scene = runFluid(current);
+      expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      expect(centreOf(scene, 'revolve')).toEqual([30, 20]);
+
+      const edited = await route.post('/apply-feature', {
+        feature: 'revolve', edit: { filePath: FILE, line: 10, column: 2 }, op: 'new', angle: 180,
+      });
+      expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+      const rewritten = await route.post('/code/apply-feature', { code: current, spec: route.relayed[1].spec });
+      expect(rewritten.body.error).toBeUndefined();
+      expect(rewritten.body.newCode).toContain(`  revolve(bolt.instance(1), 180, s).new().name('Revolve 1')\n})`);
+      scene = runFluid(rewritten.body.newCode);
+      expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    } finally {
+      await route.close();
+    }
+  });
+
+  it("stands a custom feature's axis value on a connector picked as one", async () => {
+    const route = await applyRoute(() => CODE);
+    try {
+      const created = await route.post('/apply-feature', {
+        feature: 'custom',
+        custom: {
+          id: 'acme.pin', values: { length: 12 }, operation: 'new',
+          picks: { along: [{ kind: 'statement', ...BOLT, picker: 'connector' }] },
+        },
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(200);
+      expect(created.body.preview).toBe('pin(bolt, { length: 12 }).new()');
+      const written = await route.post('/code/apply-feature', { code: CODE, spec: route.relayed[0].spec });
+      expect(written.body.error).toBeUndefined();
+      expect(written.body.newCode).toContain(`import { pin } from './pin.feature.js';`);
+
+      const scene = runFluid(written.body.newCode, { pin });
+      expect(scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      const solids = scene.getAllSceneObjects().filter(o => o.getType() === 'acme.pin').flatMap(o => o.getShapes()).filter(s => s.isSolid());
+      expect(solids).toHaveLength(1);
+      const b = ShapeOps.getExactBoundingBox(solids[0]);
+      expect([b.minX, b.minY, b.minZ, b.maxX, b.maxY, b.maxZ].map(v => Math.round(v * 1000) / 1000)).toEqual([29, -1, 10, 31, 1, 22]);
+    } finally {
+      await route.close();
+    }
+  });
+});
+
+
+/**
+ * A select and a toggle declared without a default show a value in the
+ * dialog — the first option, off — and the engine resolves them to the same
+ * value: the snapshot carries it, the route asks a create for neither, and
+ * the builder fills both. So an untouched create writes the bare call and
+ * builds. A length without a default stays required: the route refuses a
+ * create without it, as the dialog does.
+ */
+describe('a custom feature whose select and toggle declare no default, from an untouched dialog to the built model', () => {
+  setupOC();
+
+  const FILE = '/ws/model.part.js';
+  const MODULE = '/ws/post.feature.js';
+
+  const CODE = [
+    `import { sketch, line, extrude } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { ${rectBodySrc(40, 40, -20, -20)} })`,
+    `const e = extrude(10)`,
+    ``,
+  ].join('\n');
+
+  /** A post on a picked face, made a body of its own: a diameter to choose, a toggle doubling its height, an optional finish, and a height. */
+  function definePost() {
+    class Post extends Feature.with({
+      face: { picker: 'face', surface: 'planar' },
+      size: { type: 'select', options: [{ label: 'M4', value: 4 }, { label: 'M8', value: 8 }] },
+      tall: { type: 'boolean' },
+      finish: { type: 'select', optional: true, options: [{ label: 'Sunk', value: 'sunk' }] },
+      height: { type: 'length', min: 0 },
+    }) {
+      static id = 'acme.post';
+
+      buildTool(): Shape[] {
+        const { face, size, tall, finish, height } = this.values;
+        if (this.facesOf(face).length !== 1) {
+          throw new Error('post: pick one face');
+        }
+        return [Primitives.makeCylinder(size / 2, (tall ? 2 : 1) * height - (finish === 'sunk' ? 1 : 0))];
+      }
+    }
+    return defineFeature(Post, {
+      label: 'Post', group: 'create', operations: ['new'],
+      call: ['face', { size: 'size', tall: 'tall', finish: 'finish', height: 'height' }],
+    });
+  }
+
+  it('writes the bare call for the rows left alone, and the model builds on the first option and the toggle off', async () => {
+    const post = definePost();
+    const meta = snapshotFeatureMeta(getFeatureMeta(post)!);
+    expect([meta.params.size.default, meta.params.tall.default]).toEqual([4, false]);
+    expect('default' in meta.params.finish).toBe(false);
+    expect('default' in meta.params.height).toBe(false);
+
+    sketch('xy', () => { drawRect(40, 40, -20, -20) });
+    const e = extrude(10);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 4, column: 10 });
+    const scene = render();
+    const plate = findSolid(scene);
+    const top = Explorer.findFacesWrapped(plate).findIndex(face =>
+      face.getEdges().every(edge => Math.abs(EdgeOps.getEdgeMidPoint(edge).z - 10) < 1e-6));
+    expect(top).toBeGreaterThanOrEqual(0);
+
+    const catalog = new FeatureCatalog({
+      workspacePath: '/ws',
+      scan: async (absPath) => absPath === MODULE
+        ? { file: absPath, features: [{ exportName: 'post', meta: meta as any }], deps: [] }
+        : { file: absPath, features: [], error: `cannot load ${absPath}`, deps: [] },
+      builtIns: async () => ({}),
+    });
+    const fakeServer = {
+      getCurrentCode: () => CODE,
+      getCurrentFileName: () => FILE,
+      getParamDefinitions: () => [],
+      synthesizeFeatureSlots: (request: any, options: any, before?: any) =>
+        getSceneManager()!.synthesizeFeatureSlots(scene, request, options, before),
+    };
+    const relayed: any[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createApplyFeatureRouter(fakeServer as never, (msg: any) => {
+      relayed.push(msg);
+    }, { callees: catalog, catalog: { list: async () => [{ id: 'acme.post', exportName: 'post', modulePath: MODULE, builtIn: false, meta: meta as any }] } }));
+    const server = http.createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    const addr = server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}/api`;
+    const postJson = async (path: string, body: unknown) => {
+      const res = await fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      return { status: res.status, body: await res.json() as any };
+    };
+    try {
+      const picks = { face: [{ kind: 'entities', entities: [{ shapeId: plate.id, sub: { type: 'face', index: top } }] }] };
+      const untouched = await postJson('/apply-feature', { feature: 'custom', custom: { id: 'acme.post', values: {}, picks }, preview: true });
+      expect(untouched.status).toBe(422);
+      expect(untouched.body.reason ?? untouched.body.error).toBe('Height is required');
+
+      const body = { feature: 'custom', custom: { id: 'acme.post', values: { height: 5 }, picks } };
+      const preview = await postJson('/apply-feature', { ...body, preview: true });
+      expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+      expect(preview.body.preview).toBe('post(e.endFaces(), { height: 5 })');
+
+      expect((await postJson('/apply-feature', body)).status).toBe(200);
+      const written = await postJson('/code/apply-feature', { code: CODE, spec: relayed[0].spec });
+      expect(written.body.error).toBeUndefined();
+      const newCode: string = written.body.newCode;
+      expect(newCode).toContain(`import { post } from './post.feature.js';`);
+      expect(newCode).toContain(`const e = extrude(10)\npost(e.endFaces(), { height: 5 })\n`);
+
+      const built = runFluid(newCode, { post });
+      expect(built.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+      const posts = built.getAllSceneObjects().filter(o => o.getType() === 'acme.post');
+      expect(posts).toHaveLength(1);
+      expect((posts[0] as unknown as Feature).values).toMatchObject({ size: 4, tall: false, finish: undefined, height: 5 });
+      const volume = ShapeProps.getProperties(posts[0].getShapes().find(s => s.isSolid())!.getShape()).volumeMm3;
+      expect(volume).toBeCloseTo(Math.PI * 2 ** 2 * 5, 3);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

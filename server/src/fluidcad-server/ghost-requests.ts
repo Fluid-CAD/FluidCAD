@@ -28,7 +28,8 @@ export type FeatureGhostRequest =
   | OffsetGhostRequest
   | Fillet2DGhostRequest
   | Copy2DGhostRequest
-  | Mirror2DGhostRequest;
+  | Mirror2DGhostRequest
+  | CustomGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -121,12 +122,12 @@ export type RevolveGhostRequest = {
 };
 
 /**
- * The revolve dialog's axis slot on the wire: a world axis from the X/Y/Z
- * quick buttons, an `axis()` statement by call site, or an edge picked in the
- * viewport. "Keep the current axis" never travels — the client resolves it to
- * the edited statement's own `axis()` call site first. The copy's axis slot
- * also takes a connector — its `connector()` call site, plus a copy's slot —
- * standing for its Z axis through its origin.
+ * An axis slot on the wire (revolve, helix, repeat, rotate, copy): a world
+ * axis clicked in the viewport, an `axis()` statement by call site, an edge
+ * picked in the viewport, or a connector — its `connector()` call site, plus
+ * a copy's slot — standing for its Z axis through its origin. "Keep the
+ * current axis" never travels — the client resolves it to what the edited
+ * statement's own axis names first.
  */
 export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
@@ -254,8 +255,8 @@ export type HelixGhostRequest = {
 };
 
 /**
- * The helix dialog's source slot on the wire: the revolve axis family (a world
- * axis, an `axis()` statement, and a picked edge the dialog writes as
+ * The helix dialog's source slot on the wire: the axis family (a world axis,
+ * an `axis()` statement, a connector, and a picked edge the dialog writes as
  * `axis(<edge>)`), plus the helix's own two — a cylindrical/conical face, and
  * a bare edge source, which only an edit dialog over `helix(select(edge()))`
  * produces.
@@ -263,6 +264,7 @@ export type HelixGhostRequest = {
 export type GhostHelixSourceRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
+  | { kind: 'connector'; filePath: string; line: number; slot?: number }
   | { kind: 'axis-edge'; shapeId: string; index: number }
   | { kind: 'edge'; shapeId: string; index: number }
   | { kind: 'face'; shapeId: string; index: number };
@@ -541,6 +543,64 @@ export type Mirror2DGhostRequest = {
 };
 
 /**
+ * One element of a custom feature's picked value: a statement by call site,
+ * faces or edges picked in the viewport (one element, as the dialog writes
+ * them in one selector), or a world axis or an origin plane.
+ */
+export type GhostCustomRef =
+  | { kind: 'statement'; filePath: string; line: number }
+  | { kind: 'entities'; entities: GhostEntityRef[] }
+  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
+  /** A connector by its statement — a copy by its seed's statement and its slot. */
+  | { kind: 'connector'; filePath: string; line: number; slot?: number }
+  /** A vertex picked in the viewport: a point value's. */
+  | { kind: 'point'; shapeId: string; index: number }
+  /** A face or an edge picked in the viewport and the point taken on it: an anchor value's. */
+  | { kind: 'anchor'; entity: GhostEntityRef; anchor: GhostAnchor }
+  /** Edit mode: the edited statement's own element of the value, by position. */
+  | { kind: 'kept'; index: number };
+
+/** The well-known point an anchor takes on a face or an edge. */
+export type GhostAnchor =
+  | { kind: 'center' | 'start' | 'end' }
+  | { kind: 'offset'; mode: 'relative' | 'absolute'; value: number };
+
+/**
+ * A custom feature's ghost. The feature is named by its builder — the
+ * module the catalog found it in and the name it is exported by — which the
+ * server loads and hands the kernel; the kernel constructs the feature's
+ * class from the values and draws it.
+ */
+export type CustomGhostRequest = {
+  feature: 'custom';
+  /** The feature module's absolute path. */
+  modulePath: string;
+  /** The name the module exports the builder by. */
+  exportName: string;
+  /** Typed-in values by name, numbers resolved; one left out takes its default. */
+  values: Record<string, number | string | boolean | (string | number)[]>;
+  /** Picked values by name, one ref per element. */
+  refs: Record<string, GhostCustomRef[]>;
+  /** The operation the dialog shows; null applies the feature's default. */
+  operation: 'add' | 'remove' | 'new' | null;
+  /** Edit mode: the edited statement's call site — the kernel reads the scene as it stood before it. */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
+ * A custom feature's ghost as the kernel takes it: the builder itself,
+ * loaded from the module, and the time the build may take (null: no limit;
+ * left out: the kernel's own budget).
+ */
+export type KernelCustomGhostRequest = Omit<CustomGhostRequest, 'modulePath' | 'exportName'> & {
+  builder: Function;
+  budgetMs?: number | null;
+};
+
+/** What the kernel's ghost builder takes: every request as the route sent it, a custom one with its builder loaded. */
+export type KernelGhostRequest = Exclude<FeatureGhostRequest, CustomGhostRequest> | KernelCustomGhostRequest;
+
+/**
  * One ghost body's meshes, in the same wire format a rendered solid uses.
  * `kind` overrides the overlay's per-dialog color for this body alone — a
  * fillet takes material away at one edge and puts it back at the next; `plane`
@@ -634,6 +694,8 @@ export type FeatureGhostOutcome = {
   solids?: GhostSolid[];
   /** Connector frames the ghost places, beside its solids — a copy of connectors. */
   frames?: GhostFrame[];
+  /** A custom feature's values its `derive()` fixed from the picks, by name: the dialog locks their rows. */
+  derived?: Record<string, number | string | boolean>;
   reason?: string;
   /**
    * The reason is worth putting in front of the user — a limit they can act
@@ -641,4 +703,6 @@ export type FeatureGhostOutcome = {
    * only flash noise about. Unset means the client clears and says nothing.
    */
   surface?: boolean;
+  /** The build took longer than a live preview may: the dialog pauses its previews. */
+  paused?: boolean;
 };

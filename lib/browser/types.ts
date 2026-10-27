@@ -9,7 +9,13 @@ export type BrowserSceneKind = "part" | "assembly";
 /** The assembly payload the desktop's scene-rendered message carries (instances, mates, occurrences, connectors, replicates). */
 export type BrowserSerializedAssembly = NonNullable<ReturnType<ReturnType<typeof createManager>["getAssemblyData"]>>;
 
-export const VIEWER_PROTOCOL_VERSION = 1;
+/**
+ * The engine worker's message protocol (FluidCAD-Viewer's `engine-worker.js`),
+ * reported in `EngineInfo` so an evergreen shell knows what a pinned engine
+ * understands. Additive: 2 added `select-configuration` and `load-model`'s
+ * `configuration` (the `configurations()` row to open on).
+ */
+export const VIEWER_PROTOCOL_VERSION = 2;
 
 export interface EngineInfo {
   protocolVersion: number;

@@ -33,7 +33,7 @@ export async function handleSection(ctx: ApplyFeatureRequestContext, req: Reques
     const imports = new Set<string>();
 
     const synthesizePick = makePickSynthesizer({
-      res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+      res, fluidCadServer, code, filePath, mergeProducer, parts, imports, callees: ctx.currentCallees,
     });
     const synthesizeFace = (pick: Pick): Promise<number | null> =>
       synthesizePick(pick, 'plane', {
@@ -62,7 +62,7 @@ export async function handleSection(ctx: ApplyFeatureRequestContext, req: Reques
     }
 
     const options: SectionEditOptions = { name: request.name, plane, offset: request.offset, flip: request.flip };
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const statement = renderSectionStatement(options, renderRepeatPlaneExpr(plane, parts, i => producerVars[i]));
     if (preview === true) {
       res.json({ success: true, preview: statement });

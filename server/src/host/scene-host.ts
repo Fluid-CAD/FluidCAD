@@ -10,6 +10,7 @@
  *   - LocalSceneHost: Vite SSR over the workspace directory (desktop).
  *   - HubSceneHost (Phase 2): in-memory consumer of a packed model bundle.
  */
+import type { PackageResolveError, ResolvedPackage } from '../packages/resolver.ts';
 /** What an entry render asks of {@link SceneHost.loadModule} beyond loading the module. */
 export type LoadModuleOptions = {
   /**
@@ -43,12 +44,33 @@ export interface SceneHost {
    */
   getModuleDependencies?(filePath: string): string[];
   /**
+   * The workspace files that import a loaded file, directly or through
+   * another, as far as the loader has evaluated them — the feature modules
+   * a saved helper reaches. Best-effort: empty when nothing loaded the file.
+   */
+  getModuleImporters?(filePath: string): string[];
+  /**
    * The kernel entry file the host itself hands to the workspace's
    * `import 'fluidcad'` (see `EngineImportResolver`), or null when the
    * workspace's own resolution stands. `lib-identity.ts` compares it with
    * the copy the server imports.
    */
   steeredEngineEntry?(): string | null;
+  /**
+   * The installed packages (`@scope/name` imports) the current render
+   * loaded, each with the pin it was checked against — what tells a
+   * session that a package changed under its cached scene. Optional: a
+   * host without packages has none.
+   */
+  resolvedPackages?(): ResolvedPackage[];
+  /** The package imports the current render refused, one per package name. */
+  packageProblems?(): PackageResolveError[];
+  /**
+   * Bring the workspace's editor types for its pinned packages (the
+   * tsserver shims in `node_modules/@types`) in line with its pins.
+   * Optional: a host without a workspace on disk keeps none.
+   */
+  refreshEditorTypes?(): void;
 }
 
 /**

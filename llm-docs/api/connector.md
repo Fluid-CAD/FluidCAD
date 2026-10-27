@@ -4,7 +4,7 @@ title: "connector(name, source, options?) / connector(name, [x, y, z])"
 summary: "Declares a named mate frame. Inside part() it is attached to real geometry (a face, edge, vertex, anchored vertex or plane) and appears on every instance as instance.connectors.name; at the top level of an assembly file it is a free frame at a world point. Chain .offset(x, y, z) and .rotate(axis, deg) to move it in its own axes. copy() patterns it into read-only copies addressed bolt.instance(k)."
 tags: [api, part, assembly, mate]
 symbols: [connector]
-seeAlso: [api/mate, api/part, api/insert, api/select, api/copy, api/replicate, concepts/assemblies]
+seeAlso: [api/mate, api/part, api/insert, api/select, api/copy, api/replicate, concepts/assemblies, api/feature-params]
 ---
 
 # connector
@@ -192,3 +192,9 @@ export const flange = part("Flange", () => {
   copy(holes, bolt);
 });
 ```
+
+A custom feature takes connectors too: a `connector` picker (or a union such
+as `['connector', 'point', 'anchor']`) reads one as a location with
+`frameOf()` — its own frame, a copy's included — and an `axis` picker as its
+Z axis with `axisOf()`. See [[api/feature-params]] and [[api/feature]]; bosses
+standing at a connector and its copy: [[api/feature-example-bosses]].

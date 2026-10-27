@@ -1,6 +1,6 @@
 import { Camera, Vector3 } from 'three';
 import {
-  AnchorPurpose, ApplyFeatureEntity, ConnectorAnchorCandidate, ConnectorAnchorsResult, fetchConnectorAnchors,
+  AnchorPurpose, ApplyFeatureEntity, ConnectorAnchor, ConnectorAnchorCandidate, ConnectorAnchorsResult, fetchConnectorAnchors,
 } from '../../api';
 import { SubSelection } from '../../types';
 import { Viewer } from '../../viewer';
@@ -98,6 +98,17 @@ export class AnchorSuggestions {
       purpose?: AnchorPurpose;
       /** Locks carry the synthesized source expression (`LockedAnchor.args`). */
       needsArgs?: boolean;
+      /**
+       * The anchors the owner takes, asked as each answer lands — a custom
+       * feature's anchor value may take centres only. A face or edge
+       * offering none of them is refused like one the kernel refused.
+       */
+      offers?: (anchor: ConnectorAnchor) => boolean;
+      /**
+       * How the rail asks the engine — the owner's own request (each dialog
+       * hands it the one it imports), `fetchConnectorAnchors` when left out.
+       */
+      request?: typeof fetchConnectorAnchors;
     } = {},
   ) {}
 
@@ -224,7 +235,7 @@ export class AnchorSuggestions {
     this.inFlight = request;
     let result: ConnectorAnchorsResult;
     try {
-      result = await fetchConnectorAnchors(entity, abort.signal, this.opts.purpose, !withArgs);
+      result = await (this.opts.request ?? fetchConnectorAnchors)(entity, abort.signal, this.opts.purpose, !withArgs);
     } catch {
       // Aborted by clear(), which already reset the rail — or the request
       // failed: free the slot; the next hover or click asks again.
@@ -237,6 +248,7 @@ export class AnchorSuggestions {
       return;
     }
     this.inFlight = null;
+    result = this.offered(result);
     // A frames-only answer never replaces one that carries the expression.
     const previous = this.cache.get(key);
     if (!(previous && this.canLock(previous) && !this.canLock({ entity, result }))) {
@@ -246,6 +258,17 @@ export class AnchorSuggestions {
       this.paint(key, this.cache.get(key)!.result, true);
     }
     this.pump();
+  }
+
+  /** The answer with only the anchors the owner takes — a refusal when it takes none of them. */
+  private offered(result: ConnectorAnchorsResult): ConnectorAnchorsResult {
+    if (!result.ok || !this.opts.offers) {
+      return result;
+    }
+    const anchors = result.anchors.filter(candidate => this.opts.offers!(candidate.anchor));
+    return anchors.length > 0
+      ? { ...result, anchors }
+      : { ok: false, reason: 'That face or edge offers no anchor this value takes.' };
   }
 
   /** The answer has what a lock needs: a refusal to report, or the anchors (plus the expression, when asked). */

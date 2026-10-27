@@ -114,6 +114,8 @@ export class InsertPartDialog {
 
   private basket: BasketEntry[] = [];
   private tiles = new Map<string, TileState>();
+  /** The grids by source ('' for the workspace, `name@version` for a package), each with its heading. */
+  private groups = new Map<string, { pkg: CatalogFileEntry['package'] | null; heading: HTMLDivElement; grid: HTMLDivElement }>();
   /** One page per DISTINCT parameterized part; its queued instances are the page's rows. */
   private pages: PageGroup[] = [];
   private pageIndex = 0;
@@ -203,7 +205,7 @@ export class InsertPartDialog {
               name="insert-filter" data-filter="assemblies" aria-label="Assemblies" />
           </div>
           <div data-ref="status" class="text-xs text-base-content/50 mb-2 min-h-4"></div>
-          <div data-ref="tree" class="overflow-y-auto flex-1 grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2 content-start"></div>
+          <div data-ref="tree" class="overflow-y-auto flex-1 flex flex-col gap-1 content-start"></div>
           <div class="flex items-center justify-between pt-3">
             <span data-ref="queued-note" class="text-xs text-base-content/50"></span>
             <button data-ref="next-btn" class="btn btn-primary btn-sm" disabled aria-label="Continue">Insert</button>
@@ -238,6 +240,7 @@ export class InsertPartDialog {
     this.abort = ac;
     this.inserting = false;
     this.gridEl.innerHTML = '';
+    this.groups.clear();
     this.tiles.clear();
     this.basket.forEach(entry => entry.form?.destroy());
     this.basket = [];
@@ -293,7 +296,7 @@ export class InsertPartDialog {
         true,
         failures.join('\n'),
       );
-    } else if (this.gridEl.children.length === 0) {
+    } else if (this.tileEls().length === 0) {
       this.setStatus('Nothing insertable found.', false, skipped.join('\n'));
     } else if (skipped.length > 0) {
       this.setStatus(
@@ -306,14 +309,79 @@ export class InsertPartDialog {
     }
   }
 
-  /** Show only the tiles matching the active chip. */
+  /** Show only the tiles matching the active chip, and a group's heading only while it shows a tile. */
   private applyFilter(): void {
-    for (const el of Array.from(this.gridEl.children) as HTMLElement[]) {
+    for (const el of this.tileEls()) {
       const kind = el.dataset.kind;
       const show = this.filter === 'all'
         || (this.filter === 'parts' ? kind === 'part' : kind === 'assembly');
       el.classList.toggle('hidden', !show);
     }
+    const headed = [...this.groups.values()].some(group => group.pkg !== null);
+    for (const group of this.groups.values()) {
+      const shown = Array.from(group.grid.children).some(tile => !tile.classList.contains('hidden'));
+      group.heading.classList.toggle('hidden', !headed || !shown);
+      group.heading.classList.toggle('flex', headed && shown);
+      group.grid.classList.toggle('hidden', !shown);
+    }
+  }
+
+  private tileEls(): HTMLElement[] {
+    return [...this.groups.values()].flatMap(group => Array.from(group.grid.children) as HTMLElement[]);
+  }
+
+  /**
+   * The grid a file's tiles go in: the workspace's own first, then one per
+   * package (by name, then version) under a heading naming it — a library
+   * package's says it isn't in this project yet (inserting one adds it).
+   * Headings show only once a package is in the dialog, so a workspace with
+   * none keeps the plain grid.
+   */
+  private gridFor(file: CatalogFileEntry): HTMLDivElement {
+    const pkg = file.package ?? null;
+    const key = pkg ? `${pkg.name}@${pkg.version}` : '';
+    const existing = this.groups.get(key);
+    if (existing) {
+      if (pkg && existing.pkg?.availability !== pkg.availability) {
+        existing.pkg = pkg;
+      }
+      return existing.grid;
+    }
+    const heading = InsertPartDialog.groupHeading(pkg);
+    const grid = document.createElement('div');
+    grid.className = 'grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2 content-start mb-2';
+    grid.dataset.group = pkg ? pkg.name : 'workspace';
+    this.groups.set(key, { pkg, heading, grid });
+    // Keep the groups in order: the workspace's, then the packages by key.
+    const ordered = [...this.groups.entries()].sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)));
+    this.gridEl.replaceChildren(...ordered.flatMap(([, group]) => [group.heading, group.grid]));
+    return grid;
+  }
+
+  private static groupHeading(pkg: CatalogFileEntry['package'] | null): HTMLDivElement {
+    const heading = document.createElement('div');
+    // `hidden` and `flex` both set display: applyFilter swaps one for the other.
+    heading.className = 'hidden items-center gap-1.5 px-0.5 pt-1 text-[11px] text-base-content/55';
+    heading.dataset.groupHeading = pkg ? pkg.name : 'workspace';
+    const name = document.createElement('span');
+    name.className = 'font-medium text-base-content/70 truncate';
+    name.textContent = pkg ? pkg.name : 'This project';
+    heading.appendChild(name);
+    if (pkg) {
+      const version = document.createElement('span');
+      version.className = 'tabular-nums';
+      version.textContent = pkg.version;
+      heading.appendChild(version);
+    }
+    if (pkg?.availability === 'library') {
+      const badge = document.createElement('span');
+      badge.dataset.ref = 'not-in-project';
+      badge.className = 'badge badge-xs badge-soft badge-warning whitespace-nowrap';
+      badge.textContent = 'not in this project';
+      badge.title = 'In your library, not used by this project yet: inserting one of its parts adds it to the project.';
+      heading.appendChild(badge);
+    }
+    return heading;
   }
 
   private appendTiles(file: CatalogFileEntry, result: CatalogScanResult): void {
@@ -325,7 +393,7 @@ export class InsertPartDialog {
       const paramNote = params.length > 0
         ? ` · ${params.length} parameter${params.length === 1 ? '' : 's'}`
         : '';
-      this.gridEl.appendChild(this.buildTile({
+      this.gridFor(file).appendChild(this.buildTile({
         kind: 'part',
         thumb: this.thumbs.render(part.objects, part.rootId),
         title: part.partName,
@@ -347,7 +415,7 @@ export class InsertPartDialog {
       // factory (the legacy sub-assembly style was a zero-arg factory).
       const exportKind = sub.exportKind ?? 'factory';
       const params = sub.params ?? [];
-      this.gridEl.appendChild(this.buildTile({
+      this.gridFor(file).appendChild(this.buildTile({
         kind: 'assembly',
         thumb: this.thumbs.renderAssembly(sub.objects, sub.instances, sub.mates, sub.connectors ?? []),
         title: sub.assemblyName ?? sub.exportName,

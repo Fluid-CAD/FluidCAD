@@ -26,6 +26,8 @@ import { parseJoinSegment } from '../features/shell.ts';
 import { parseSweepExtendSegments } from '../features/sweep.ts';
 import { parseTextChain } from '../features/text.ts';
 import { parseHoleChain } from '../features/hole.ts';
+import { CustomFeatureStatement } from '../features/custom.ts';
+import { FeatureCallees } from '../producers/callees.ts';
 import {
   EDITABLE_CALLEES,
   OPTION_MEMBERS,
@@ -64,10 +66,27 @@ function parseScopeSegment(recognized: Map<string, ChainSegment>, start: number)
   };
 }
 
-export function parseFeatureChain(call: TSNode, code: string, bindings: LexicalBindings): ChainParse {
+/**
+ * Read a feature call chain into its dialog-editable options. `callees` are
+ * the custom features the file imports: a call to one reads by its call
+ * shape, ahead of the built-in names (an import may shadow one).
+ */
+export function parseFeatureChain(
+  call: TSNode,
+  code: string,
+  bindings: LexicalBindings,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
+): ChainParse {
   const chain = decomposeChain(call);
   if (!chain) {
     return { error: 'the call at that line is not a plain feature call chain' };
+  }
+  const custom = callees.feature(chain.root.name);
+  if (custom) {
+    if (!custom.shape) {
+      return { error: `${chain.root.name}() is a custom feature the editor has no call shape for — edit it in the source` };
+    }
+    return CustomFeatureStatement.parse(chain, call, bindings, { id: custom.id, shape: custom.shape });
   }
   const feature = EDITABLE_CALLEES[chain.root.name];
   if (!feature) {

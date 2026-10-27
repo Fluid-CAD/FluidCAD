@@ -1,3 +1,4 @@
+import type { FeatureScalar } from "../sdk/feature-inputs.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
@@ -67,6 +68,8 @@ import { MeshPieces } from "./mesh-pieces.js";
 import { renderFacePatch } from "./render-face.js";
 import { Scene, SceneObjectMesh } from "./scene.js";
 import { getActiveUnit, withUnit } from "../units/registry.js";
+import { GhostScene } from "./ghost-scene.js";
+import { CustomFeatureGhost, type CustomGhostRequest } from "./custom-feature-ghost.js";
 import { mmTol } from "../units/tolerance.js";
 
 /**
@@ -94,7 +97,10 @@ export type FeatureGhostRequest =
   | OffsetGhostRequest
   | Fillet2DGhostRequest
   | Copy2DGhostRequest
-  | Mirror2DGhostRequest;
+  | Mirror2DGhostRequest
+  | CustomGhostRequest;
+
+export type { CustomGhostRequest, GhostCustomRef } from "./custom-feature-ghost.js";
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -201,16 +207,15 @@ export type RevolveGhostRequest = {
 };
 
 /**
- * The revolve dialog's axis slot on the wire: a world axis from the X/Y/Z
- * quick buttons, an `axis()` statement by call site, or an edge picked in the
- * viewport — the three things the slot can hold, mirrored from the apply
- * request's own axis ref. "Keep the current axis" never reaches here; the
- * client resolves it to the statement's own `axis()` call site first.
- *
- * The copy's axis slot takes a fourth: a connector, by its `connector()`
- * statement's call site — plus the pattern slot for one of its copies
+ * An axis slot on the wire (revolve, helix, repeat, rotate, copy): a world
+ * axis clicked in the viewport, an `axis()` statement by call site, an edge
+ * picked in the viewport, or a connector — by its `connector()` statement's
+ * call site, plus the pattern slot for one of its copies
  * (`bolt.instance(2)`) — standing for its Z axis through its origin
- * ({@link ConnectorAxis}).
+ * ({@link ConnectorAxis}): the things every axis slot can hold, mirrored
+ * from the apply request's own axis ref. "Keep the current axis" never
+ * reaches here; the client resolves it to what the edited statement's own
+ * axis names first.
  */
 export type GhostAxisRef =
   | { kind: 'standard'; axis: StandardAxis }
@@ -336,9 +341,9 @@ export type HelixGhostRequest = {
 };
 
 /**
- * What the helix dialog's source slot holds, on the wire. The first three are
- * the revolve axis family ({@link GhostAxisRef}) — a world axis, an `axis()`
- * statement, and an edge the dialog turns into `axis(<edge>)`. The last two
+ * What the helix dialog's source slot holds, on the wire. The first four are
+ * the axis family ({@link GhostAxisRef}) — a world axis, an `axis()`
+ * statement, a connector, and an edge the dialog turns into `axis(<edge>)`. The last two
  * are the helix's own: a cylindrical or conical face (the From-face tab), and
  * a bare edge used as the source directly, which only an edit dialog produces
  * — `helix(select(edge().circle()))` coils in that circle's frame, and reading
@@ -347,6 +352,7 @@ export type HelixGhostRequest = {
 export type GhostHelixSourceRef =
   | { kind: 'standard'; axis: StandardAxis }
   | { kind: 'axis'; filePath: string; line: number }
+  | { kind: 'connector'; filePath: string; line: number; slot?: number }
   | { kind: 'axis-edge'; shapeId: string; index: number }
   | { kind: 'edge'; shapeId: string; index: number }
   | { kind: 'face'; shapeId: string; index: number };
@@ -769,6 +775,8 @@ export type FeatureGhostResult =
     solids: GhostSolid[];
     /** Connector frames the ghost places — only a copy of connectors has any. */
     frames?: GhostFrame[];
+    /** A custom feature's values its `derive()` fixed from the picks, by name — the dialog locks their rows. Absent when it fixed none. */
+    derived?: Record<string, FeatureScalar>;
   }
   | {
     ok: false;
@@ -781,6 +789,12 @@ export type FeatureGhostResult =
      * by changing a number, where a silently blank viewport reads as a bug.
      */
     surface?: boolean;
+    /**
+     * The ghost took longer than its budget to build (a custom feature's):
+     * the dialog stops asking for one on every keystroke and says so. Its
+     * geometry is not sent — a preview that slow lags what is typed.
+     */
+    paused?: boolean;
   };
 
 /**
@@ -867,6 +881,9 @@ function buildFeatureGhostInUnit(
   }
   if (request.feature === 'mirror2d') {
     return buildMirror2DGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'custom') {
+    return CustomFeatureGhost.build(scene, request, meshConfig);
   }
   if (request.feature === 'shell') {
     return buildShellGhost(scene, request, meshConfig);
@@ -2043,7 +2060,7 @@ function memberSolids(member: SceneObject): Shape[] {
 
 /**
  * The objects a repeat would clone, gathered exactly as `cloneWithTransform`
- * gathers them (clone-transform.ts:14-40): each target's dependency closure,
+ * gathers them (clone-transform.ts:14-40): each target's clone-dependency closure,
  * plus every descendant. Nothing is cloned here and no transform is resolved —
  * the ghost only needs to know *which* objects an instance rebuilds.
  */
@@ -2062,7 +2079,7 @@ function repeatCloneSet(targets: SceneObject[]): Set<SceneObject> {
       return;
     }
     chain.add(obj);
-    for (const dep of obj.getDependencies()) {
+    for (const dep of obj.getCloneDependencies()) {
       walk(dep);
     }
     // Boundary references join the set without their own dependencies —
@@ -3173,14 +3190,7 @@ function resolvePickedFace(
   ref: { shapeId: string; index: number },
   scratch: Shape[],
 ): Face | null {
-  const shape = findShapeById(scene, ref.shapeId);
-  if (!shape) {
-    return null;
-  }
-  const faces = Explorer.findFacesWrapped(shape);
-  scratch.push(...faces);
-  const face = faces[ref.index];
-  return face instanceof Face ? face : null;
+  return GhostScene.pickedFace(scene, ref, scratch);
 }
 
 /**
@@ -3269,9 +3279,8 @@ function resolveHelixGhostSource(
   if (ref.kind === 'standard') {
     return { kind: 'axis', axis: toAxis(ref.axis) };
   }
-  if (ref.kind === 'axis') {
-    const obj = findByLocation(scene, ref, o => o instanceof AxisObjectBase);
-    const axis = (obj as AxisObjectBase | null)?.getAxis();
+  if (ref.kind === 'axis' || ref.kind === 'connector') {
+    const axis = resolveGhostAxis(scene, ref);
     return axis ? { kind: 'axis', axis } : null;
   }
   if (ref.kind === 'face') {
@@ -3312,14 +3321,7 @@ function resolvePickedEdge(
   ref: { shapeId: string; index: number },
   scratch: Shape[],
 ): Edge | null {
-  const shape = findShapeById(scene, ref.shapeId);
-  if (!shape) {
-    return null;
-  }
-  const edges = Explorer.findEdgesWrapped(shape);
-  scratch.push(...edges);
-  const edge = edges[ref.index];
-  return edge instanceof Edge ? edge : null;
+  return GhostScene.pickedEdge(scene, ref, scratch);
 }
 
 /** An omitted dialog field, in the kernel's wording — null in, default out. */
@@ -3370,19 +3372,7 @@ function findWireSource(scene: Scene, ref: { filePath: string; line: number }): 
  * scenes, so nothing here may read the flat list alone.
  */
 function allObjects(scene: Scene): SceneObject[] {
-  const seen = new Set<SceneObject>();
-  const stack: SceneObject[] = [...scene.getSceneObjects()];
-  const objects: SceneObject[] = [];
-  while (stack.length > 0) {
-    const obj = stack.pop()!;
-    if (seen.has(obj)) {
-      continue;
-    }
-    seen.add(obj);
-    objects.push(obj);
-    stack.push(...obj.getChildren());
-  }
-  return objects;
+  return GhostScene.allObjects(scene);
 }
 
 /**
@@ -3391,11 +3381,7 @@ function allObjects(scene: Scene): SceneObject[] {
  * `virtual:` prefix, so both sides are normalized before comparing.
  */
 function objectsAt(scene: Scene, ref: { filePath: string; line: number }): SceneObject[] {
-  const target = normalizeSourcePath(ref.filePath);
-  return allObjects(scene).filter(obj => {
-    const loc = obj.getSourceLocation();
-    return !!loc && loc.line === ref.line && normalizeSourcePath(loc.filePath) === target;
-  });
+  return GhostScene.objectsAt(scene, ref);
 }
 
 /**
@@ -3511,14 +3497,7 @@ function findByLocation(
 
 /** The scene shape a viewport pick's `shapeId` names. */
 function findShapeById(scene: Scene, shapeId: string): Shape | null {
-  for (const obj of allObjects(scene)) {
-    for (const shape of obj.getAddedShapes()) {
-      if (shape.id === shapeId) {
-        return shape;
-      }
-    }
-  }
-  return null;
+  return GhostScene.findShapeById(scene, shapeId);
 }
 
 /**
@@ -3568,11 +3547,6 @@ function unconsumedEdges(source: SceneObject): Edge[] {
 
 function onlyEdges(shapes: Shape[]): Edge[] {
   return [...new Set(shapes)].filter((s): s is Edge => s instanceof Edge);
-}
-
-/** Paths travel with a `virtual:live-render:` prefix mid-edit; ids don't. */
-function normalizeSourcePath(filePath: string | undefined): string {
-  return (filePath ?? '').replace('virtual:live-render:', '').replace(/\\/g, '/');
 }
 
 /**

@@ -1,12 +1,11 @@
 // Code-level endpoints: new part bodies and the editor-host apply-feature ack round trip.
 
 import type { Router } from 'express';
-import { applyFeatureEdit } from '../../../apply-feature-edit/index.ts';
 import { detectKind } from '../../../file-kind.ts';
 import type { ApplyFeatureServices } from '../context.ts';
 
 export function registerCodeEndpoints(router: Router, services: ApplyFeatureServices): void {
-  const { fluidCadServer, dispatcher, globals } = services;
+  const { fluidCadServer, dispatcher, applyEdit } = services;
 
   // The Part tool: append an empty `part('Part N', () => {})` statement to
   // the current part file (the transform allocates the name past every part
@@ -51,7 +50,7 @@ export function registerCodeEndpoints(router: Router, services: ApplyFeatureServ
     }
     const { editId, ...editSpec } = spec;
     try {
-      const result = await applyFeatureEdit(code, editSpec, { globals });
+      const result = await applyEdit(code, editSpec);
       if (typeof editId === 'string') {
         // The host applies exactly this text, and re-renders only when it
         // differs from what it sent — the dispatcher's caller may be waiting

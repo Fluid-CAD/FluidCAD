@@ -38,12 +38,12 @@ exported from a sketch (`s.geometries.c.center()`, `s.geometries.p` for a
   `.scope()` solids, and the next solid the axis enters past them gets the
   matching tapped hole, at the tap-drill diameter for the size. Each placement
   taps the solid under its own axis, so mirrored or repeated fastened holes tap
-  the solid under each copy. `pitch` in mm / threads per inch, omitted or
-  `'coarse'` = coarse (write `'coarse'` when a depth follows). `depth` = blind
-  depth to the shoulder, measured from the face where the axis enters the
-  tapped solid (not from the placement); omitted = through the whole solid.
-  `tipAngle` = drill point below a blind depth (118), only with a depth. Errors
-  if no solid lies along the axis past the clearance-cut ones.
+  the solid under each copy. `pitch` in mm / threads per inch, omitted,
+  `'coarse'` or `null` = coarse (write `'coarse'` when a depth follows).
+  `depth` = blind depth to the shoulder, measured from the face where the axis
+  enters the tapped solid (not from the placement); omitted = through the whole
+  solid. `tipAngle` = drill point below a blind depth (118), only with a depth.
+  Errors if no solid lies along the axis past the clearance-cut ones.
 - `.scope(...solids)` — which solids are cut (default: all).
 
 Accessors: `faces()` (walls), `edges()` (every rim), `startEdges()` (entry

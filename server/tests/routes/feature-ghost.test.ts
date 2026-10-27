@@ -321,12 +321,17 @@ describe('feature-ghost route — repeat', () => {
     }
   });
 
-  it('refuses a connector axis — only the copy takes one', async () => {
-    const result = await postGhost(linearBody({
-      axes: [{ kind: 'connector', filePath: FILE, line: 5 }],
+  it('passes a connector axis through — a copy of one with its slot', async () => {
+    await postGhost(linearBody({
+      axes: [{ kind: 'connector', filePath: FILE, line: 5 }, { kind: 'connector', filePath: FILE, line: 5, slot: 2 }],
+      directions: [
+        { count: 3, offset: 10, length: null },
+        { count: 2, offset: 5, length: null },
+      ],
     }));
-    expect(result.status).toBe(400);
-    expect(received).toBeUndefined();
+    expect(received).toMatchObject({
+      axes: [{ kind: 'connector', filePath: FILE, line: 5 }, { kind: 'connector', filePath: FILE, line: 5, slot: 2 }],
+    });
   });
 
   it('passes a circular repeat with its count and sweep', async () => {
@@ -1050,6 +1055,9 @@ describe('feature-ghost route — rotate', () => {
     await postGhost(rotateBody({ axis: { kind: 'axis', filePath: FILE, line: 3 } }));
     expect(received).toMatchObject({ axis: { kind: 'axis', filePath: FILE, line: 3 } });
 
+    await postGhost(rotateBody({ axis: { kind: 'connector', filePath: FILE, line: 5, slot: 1 } }));
+    expect(received).toMatchObject({ axis: { kind: 'connector', filePath: FILE, line: 5, slot: 1 } });
+
     await postGhost(rotateBody({ axis: { kind: 'edge', shapeId: 's1', index: 2 }, angle: -30 }));
     expect(received).toMatchObject({
       axis: { kind: 'edge', shapeId: 's1', index: 2 },
@@ -1554,5 +1562,52 @@ describe('feature-ghost route — hole', () => {
     expect(badFrame.status).toBe(400);
     const badDiameter = await postGhost({ feature: 'hole', frames, diameter: 0, depth: null, tipAngle: null, counterbore: null, countersink: null, scope: [] });
     expect(badDiameter.status).toBe(400);
+  });
+});
+
+/**
+ * Every axis slot takes a connector — its Z axis through its origin: the
+ * revolve's axis and the helix's source pass one through by its
+ * `connector()` call site, a copy of one with its slot, and refuse one
+ * with no call site or a slot that is no whole index.
+ */
+describe('feature-ghost route — connector axes', () => {
+  useGhostRoute();
+
+  function revolveBody(axis: unknown) {
+    return {
+      feature: 'revolve', op: 'new', angle: 360, symmetric: false, thin: null,
+      profile: { filePath: FILE, line: 6 }, axis,
+    };
+  }
+
+  function helixBody(source: unknown) {
+    return { feature: 'helix', source, radius: 5, endRadius: null, pitch: 2, turns: null, height: 10, startOffset: null, endOffset: null };
+  }
+
+  it('passes a connector, and a copy of one with its slot, as the revolve axis and the helix source', async () => {
+    for (const ref of [
+      { kind: 'connector', filePath: FILE, line: 5 },
+      { kind: 'connector', filePath: FILE, line: 5, slot: 2 },
+    ]) {
+      let result = await postGhost(revolveBody(ref));
+      expect(result.status, JSON.stringify(ref)).toBe(200);
+      expect(received).toMatchObject({ feature: 'revolve', axis: ref });
+      result = await postGhost(helixBody(ref));
+      expect(result.status, JSON.stringify(ref)).toBe(200);
+      expect(received).toMatchObject({ feature: 'helix', source: ref });
+    }
+  });
+
+  it('refuses a connector with no call site or a slot that is not a whole index', async () => {
+    for (const ref of [
+      { kind: 'connector', line: 5 },
+      { kind: 'connector', filePath: FILE, line: 5, slot: -1 },
+      { kind: 'connector', filePath: FILE, line: 5, slot: 1.5 },
+    ]) {
+      expect((await postGhost(revolveBody(ref))).status, JSON.stringify(ref)).toBe(400);
+      expect((await postGhost(helixBody(ref))).status, JSON.stringify(ref)).toBe(400);
+    }
+    expect(received).toBeUndefined();
   });
 });

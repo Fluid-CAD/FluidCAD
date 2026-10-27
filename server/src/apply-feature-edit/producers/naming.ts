@@ -9,7 +9,7 @@ import {
   type TSTree,
 } from '../../code-editor/index.ts';
 import { bindingNameHint, resolveStatement, type ProducerStatement } from './bindings.ts';
-import { producerCallees, requiredChainRoots } from './callees.ts';
+import { FeatureCallees } from './callees.ts';
 
 /**
  * Build a synchronous producer→name lookup over `code` for the synthesis
@@ -19,10 +19,12 @@ import { producerCallees, requiredChainRoots } from './callees.ts';
  * transform will write keeps the previewed expression (and any
  * selectorOverride the user types against it) truthful. Producers this can't
  * resolve (stale line, non-producer callee, nested call) map to null and the
- * synthesis falls back to plain hint names.
+ * synthesis falls back to plain hint names. `callees` are the file's custom
+ * features (see {@link FeatureCallees}), the built-in lists alone by default.
  */
 export async function makeProducerNamer(
   code: string,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
 ): Promise<(producers: { line: number; nameHint: string; featureType?: string }[]) => (string | null)[]> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
@@ -40,7 +42,7 @@ export async function makeProducerNamer(
   return (producers) => {
     const used = new Set(fileIdentifiers);
     return producers.map(producer => {
-      const resolved = resolveBindableStatementAt(tree, lines, producer);
+      const resolved = resolveBindableStatementAt(tree, lines, producer, callees);
       if (resolved === null) {
         return null;
       }
@@ -71,20 +73,16 @@ function resolveBindableStatementAt(
   tree: TSTree,
   lines: string[],
   producer: { line: number; featureType?: string },
+  callees: FeatureCallees,
 ): ProducerStatement | null {
   const call = findEditableCallAt(tree, lines, producer.line);
   if (!call) {
     return null;
   }
-  const root = chainRootCallee(call);
   // Sketch/plane/wire producers must name their own call — the pick
   // features never attribute to one, so the looser callee stays scoped
   // by type.
-  const requiredRoots = requiredChainRoots(producer.featureType ?? '');
-  const valid = requiredRoots
-    ? root !== null && requiredRoots.includes(root)
-    : root !== null && producerCallees(producer.featureType ?? '').has(root);
-  if (!valid) {
+  if (!callees.produces(producer.featureType ?? '', chainRootCallee(call))) {
     return null;
   }
   const resolved = resolveStatement(call);
@@ -102,11 +100,12 @@ function resolveBindableStatementAt(
  */
 export async function makeProducerBindable(
   code: string,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
 ): Promise<(producer: { line: number; featureType?: string }) => boolean> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
   const lines = splitLines(code);
-  return producer => resolveBindableStatementAt(tree, lines, producer) !== null;
+  return producer => resolveBindableStatementAt(tree, lines, producer, callees) !== null;
 }
 
 /**
@@ -117,12 +116,13 @@ export async function makeProducerBindable(
  */
 export async function makeProducerBoundProbe(
   code: string,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
 ): Promise<(producer: { line: number; featureType?: string }) => boolean> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
   const lines = splitLines(code);
   return producer => {
-    const resolved = resolveBindableStatementAt(tree, lines, producer);
+    const resolved = resolveBindableStatementAt(tree, lines, producer, callees);
     return resolved !== null && !resolved.needsBinding && !!resolved.varName;
   };
 }

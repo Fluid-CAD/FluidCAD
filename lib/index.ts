@@ -9,6 +9,8 @@ import { Sketch } from "./features/2d/sketch.js";
 import { Extrudable } from "./helpers/types.js";
 import { parse as parseStackTrace } from "stacktrace-parser";
 import { getActiveUnit, getUnitRegistry } from "./units/registry.js";
+// After the kernel's own modules: the feature base extends SceneObject.
+import { FeatureMetas, type FeatureMeta } from "./sdk/meta.js";
 
 /**
  * The suffixes a FluidCAD script carries. A `*.params.js` file is one too —
@@ -22,13 +24,35 @@ export function isFluidScriptFile(p: string): boolean {
   return SCRIPT_SUFFIXES.some(s => p.endsWith(s));
 }
 
+/**
+ * The stack depth a capture reads. V8 keeps 10 frames by default, and a
+ * statement reached through helper modules, a part body and an insert from
+ * an assembly can sit deeper than that: its script frame would be cut off
+ * and the object would get no location — no unit, no part, no way back to
+ * its line.
+ */
+const CAPTURE_STACK_LIMIT = 50;
 /** Whether `p` is a global-parameters module — the one legal home of a top-level `param()`. */
 export function isParamsFile(p: string): boolean {
   return p.endsWith('.params.js');
 }
 
 export function captureSourceLocation(): SourceLocation | null {
-  const stack = new Error().stack;
+  // Raised for this one capture only: every other error keeps the limit the
+  // host chose. Engines without the knob (Firefox, Safari) leave it undefined.
+  const limit = Error.stackTraceLimit;
+  const raise = typeof limit === 'number' && limit < CAPTURE_STACK_LIMIT;
+  let stack: string | undefined;
+  if (raise) {
+    Error.stackTraceLimit = CAPTURE_STACK_LIMIT;
+  }
+  try {
+    stack = new Error().stack;
+  } finally {
+    if (raise) {
+      Error.stackTraceLimit = limit;
+    }
+  }
   if (!stack) {
     return null;
   }
@@ -125,12 +149,24 @@ export type RegisterBuilderOptions = {
    * rules there.
    */
   allowAssemblyTopLevel?: boolean;
+  /**
+   * The feature the builder makes, described for the editor: its toolbar
+   * button, its dialog's values and the call the dialog writes. Checked
+   * here, so a mistake fails where the module loads; the builder carries
+   * it from then on (`getFeatureMeta`), and the editor finds it by
+   * scanning the module's exports.
+   */
+  feature?: FeatureMeta;
+  /** @internal The engine's own builders: their features may take the engine's own types (`draft`) and are never keyed by a package. */
+  builtIn?: boolean;
 };
 
 export function registerBuilder<T extends Function>(
   builder: (context: SceneParserContext) => T,
   options: RegisterBuilderOptions = {},
 ): T {
+
+  const meta = options.feature === undefined ? null : FeatureMetas.forBuilder(options);
 
   const fn: Function = function() {
 
@@ -193,15 +229,44 @@ export function registerBuilder<T extends Function>(
     const originalFn = builder(context) as ReturnType<typeof builder>;
 
     // A selection handed to this call as an operand is spoken for: it must
-    // not double as the implicit last selection of a later bare call. One
-    // written inline in the arguments is internal to this call as well.
-    SelectSceneObject.claimOperands(arguments, sourceLocation);
+    // not double as the implicit last selection of a later bare call. A
+    // feature's call may hand them over in a list or its object of options,
+    // and one written inline in the arguments is internal to this call.
+    SelectSceneObject.claimOperands(meta ? FeatureMetas.operands(arguments) : arguments, sourceLocation);
 
     return originalFn(...arguments);
   };
 
+  if (meta) {
+    FeatureMetas.attach(fn, meta);
+  }
+
   return fn as ReturnType<typeof builder>;;
 }
+
+export { getFeatureMeta, listFeatureAssets, listFeatureExports, snapshotFeatureMeta } from './sdk/meta.js';
+export type {
+  FeatureMeta, ResolvedFeatureMeta, FeatureMetaSnapshot, FeatureExport, FeatureGroup, FeatureKind, FeatureContext,
+  ParamSpec, ParamSpecSnapshot, ScalarParamSpec, ScalarParamType, PickerParamSpec, PickerKind, VisibleWhen,
+  OptionWhen, OptionCase, PickCondition, PickedSurface,
+  UnionPickerSpec,
+} from './sdk/meta.js';
+export type {
+  FeatureLayout, FeatureLayoutItem, FeatureLayoutRow, FeatureLayoutSection, FeatureLayoutTabs, FeatureLayoutTab,
+  FeatureLayoutNote, FeatureLayoutImage, FeatureLayoutDivider, FeatureStaticItem, FeatureDialogWidth,
+} from './sdk/layout.js';
+export { FeatureCall, CallShapeMismatch } from './sdk/call-shape.js';
+export { FeatureDocs } from './sdk/feature-docs.js';
+export type { DocGap, DocGapReason } from './sdk/feature-docs.js';
+export type { FeatureBucketSpec, FeatureBucketSpecs } from './sdk/feature-buckets.js';
+export { FeatureKey } from './sdk/feature-key.js';
+export { FeatureNamespaces } from './sdk/feature-namespaces.js';
+export type { FeatureNamespaceSource } from './sdk/feature-namespaces.js';
+export { SceneTypes } from './common/scene-types.js';
+export type {
+  CallShape, CallShapeSlot, CallArgument, CallChain, CallLayout, CallLayoutOptions, CallOperation, CallReader, ChainReading,
+  FeatureOperation,
+} from './sdk/call-shape.js';
 
 export { createParamRegistry, getParamRegistry, setParamRegistry, pushParamScope, popParamScope, activeParamScope, coerceParamOverride } from './param-registry.js';
 export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar, ParamOverrides, ParamScope } from './param-registry.js';
@@ -217,6 +282,7 @@ export type { AssetProvider, ImportMeta, ImportFileResult } from './io/file-impo
 export type { StepFileUnits } from './oc/step-units.js';
 export type { ImportReport, AssemblyExportOutcome } from './scene-manager.js';
 export { RenderChangeTracker } from './rendering/render-changes.js';
+export type { SceneCompareOptions } from './rendering/scene-compare.js';
 export type { RenderChanges, RenderChangeEntry, RenderChangeRemoval, RenderChangeBounds } from './rendering/render-changes.js';
 export type {
   ResolveSelectionRequest, ResolveSelectionResult, ResolveSelectionErrorCode, ResolvedSelectionMatch, ResolvedSelectionScope,
@@ -225,6 +291,11 @@ export type {
 export type {
   SynthesizedSelection, SynthesizedSelectionPart, SynthesizedProducer, SynthesizedForm,
 } from './selection/synthesize-selection.js';
+export type {
+  FeatureSlotRequest, FeatureSlotPicks, FeatureSlotOptions, FeatureSlotPicker, FeatureSlotResult, FeatureSlotSynthesis,
+  FeatureSlotPoint,
+} from './selection/feature-slots.js';
+export type { FeatureSourcesResult, FeatureSources, SourceSlot } from './selection/feature-sources.js';
 export type { EntitySummary } from './oc/measure/entity-summary.js';
 export type {
   ValidateSceneRequest, SceneValidationOutcome, SceneValidationReport, SceneValidationFinding, SceneValidationRefusalCode,
@@ -238,6 +309,8 @@ export type {
 export type { AssemblyExportPose } from './io/assembly-export/index.js';
 export { getSceneManager } from './scene-manager.js';
 export { describeOcException } from './oc/errors.js';
+export { KernelTraps } from './oc/kernel-traps.js';
+export type { KernelTrapReport } from './oc/kernel-traps.js';
 export type { LengthUnit } from './units/units.js';
 export { LENGTH_UNITS, MM_PER_UNIT, parseLengthUnit, isLengthUnit, convertLength, unitFactor } from './units/units.js';
 export { getUnitRegistry, createUnitRegistry, setUnitRegistry, getActiveUnit, withUnit } from './units/registry.js';

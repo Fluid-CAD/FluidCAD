@@ -94,7 +94,7 @@ export interface ModelPackageManifest {
    * (type/default/current value/constraints per `param()` call). Unlike
    * `params` (override VALUES only), this is the complete definition set the
    * hub stores and renders forms from. Populated by `fluidcad publish` (which
-   * boots the engine to render); plain `fluidcad pack` leaves it undefined.
+   * boots the engine to render); a pack without that render leaves it undefined.
    */
   paramDefinitions?: ParamDefinition[];
   /**

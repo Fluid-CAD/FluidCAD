@@ -9,12 +9,14 @@ import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import type { ConnectorPickDetail } from '../feature-dialog-registry';
 import { SolidPickSelection } from '../solid-pick';
 import { RevolvePanel } from './revolve-panel';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
-import { KeptAxisSlot } from './kept-axis-slot';
+import { ConnectorOption } from './connector-options';
+import { ConnectorPicks } from './connector-picks';
 import { SketchUISuspender } from './sketch-suspender';
 import { RegionPicker } from './region-picker';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
@@ -24,8 +26,8 @@ import {
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 import {
-  AXIS_UNAVAILABLE_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
-  axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
+  AXIS_UNAVAILABLE_MESSAGE, AxisOption, AxisRefs, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  axisOptionsSignature, collectAxisOptions, labelWithAxisNames,
 } from './axis-options';
 import { iconUrl } from '../../ui/icon-url';
 
@@ -35,8 +37,10 @@ import { iconUrl } from '../../ui/icon-url';
  * slot takes a world axis clicked in 3D (the viewer shows the three as pick
  * targets while the slot is armed), an axis statement's dashed line clicked
  * in 3D (the first axis-picking dialog — the viewer's opt-in `pickAxes`
- * channel), an axis row in the timeline, or a single solid edge picked in
- * 3D — written as `axis(<edge selector>)`. Exactly one slot is
+ * channel), an axis row in the timeline, a single solid edge picked in 3D —
+ * written as `axis(<edge selector>)` — or a connector, its gizmo (every one
+ * revealed while the slot is armed) or its row, standing for its Z axis
+ * through its origin (`bolt`, `bolt.instance(1)`). Exactly one slot is
  * armed at a time (clicked to activate — the sweep/loft idiom) and the
  * viewer's pick channels follow it, so the slot border says where the next
  * 3D click lands. Apply writes `revolve(<axis>[, <angle>][, <profile>])`
@@ -56,6 +60,8 @@ export class RevolveFeatureService {
   private sketchUI: SketchUISuspender;
   /** The picked axis edge (the axis slot's `edge` mode), or null. */
   private axisEdgeEntity: SelectedEntity | null = null;
+  /** The scene's connectors, which the axis slot takes too. */
+  private connectors: ConnectorPicks;
   /** The `.scope(…)` targets, part-restricted whole-solid picks. */
   private scope = new ScopeTargetList();
   /** The edited statement's enclosing part — the scope picker's restriction. */
@@ -104,6 +110,7 @@ export class RevolveFeatureService {
       }
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
+    this.connectors = new ConnectorPicks(container, viewer);
     this.ghost = new FeatureGhostOverlay(viewer);
     this.solidPick = new SolidPickSelection(viewer, { multiple: true });
 
@@ -209,6 +216,11 @@ export class RevolveFeatureService {
     return this.armed;
   }
 
+  /** The axis slot is armed: connector gizmos are revealed and land in it. */
+  get isConnectorPicking(): boolean {
+    return this.armed && this.panel.armedSlot === 'axis';
+  }
+
   /** True while armed picking has suspended sketch editing. */
   get sketchUISuspended(): boolean {
     return this.sketchUI.suspended;
@@ -249,6 +261,7 @@ export class RevolveFeatureService {
     this.sceneObjects = sceneObjects;
     this.profiles = collectSketchProfiles(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
+    this.panel.setConnectorOptions(this.connectors.collect(sceneObjects));
     this.scope.setScene(sceneObjects, this.scopePartLoc(), { resolveKeeps: true });
     this.panel.setScopeChips(this.scope.chips());
     if (this.editSceneStale) {
@@ -277,6 +290,7 @@ export class RevolveFeatureService {
     this.sceneObjects = sceneObjects;
     this.profiles = collectSketchProfiles(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
+    this.connectors.collect(sceneObjects);
     this.hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     this.sceneSketchActive = this.profiles[0]?.kind === 'active';
@@ -302,12 +316,13 @@ export class RevolveFeatureService {
     }
     this.syncPickChannels();
     // Shape ids changed with the render — a picked axis edge is stale and
-    // drops back to the pick prompt. Chosen scope solids re-match by source
-    // line instead.
+    // drops back to the pick prompt. Chosen scope solids and a connector
+    // axis re-match by source line instead.
     if (this.axisEdgeEntity) {
       this.axisEdgeEntity = null;
       this.panel.setAxisEdgeChip(null);
     }
+    this.panel.setConnectorOptions(this.connectors.all);
     this.scope.setScene(sceneObjects, this.scopePartLoc());
     this.panel.setScopeChips(this.scope.chips());
     this.panel.setOptions(this.profiles, this.axes);
@@ -381,6 +396,8 @@ export class RevolveFeatureService {
     this.sourceSlots = result.ok && result.feature === 'revolve'
       ? { profile: result.profile, axis: result.axis }
       : { profile: { kind: 'opaque' }, axis: { kind: 'opaque' } };
+    // A connector axis reads as that connector's chip, still kept as written.
+    this.panel.setKeptConnector(this.connectors.forSource(this.sourceSlots.axis));
     this.refreshHighlight();
     // The ghost's keep slots read `sourceSlots`, which resolves after
     // `enterEdit` already scheduled its preview — re-kick so the ghost
@@ -443,11 +460,13 @@ export class RevolveFeatureService {
     // The overlay is a compiledMesh sibling, so no render tears it down —
     // every way out of the dialog (apply, cancel, scene-driven) lands here.
     this.ghost.clear();
+    this.connectors.close();
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
     this.viewer.pickAxes = false;
     this.viewer.hideStandardAxes();
+    this.viewer.setConnectorPicking(false);
     this.panel.hide();
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
@@ -492,13 +511,37 @@ export class RevolveFeatureService {
   }
 
   /**
+   * A connector gizmo was clicked with the axis slot armed: the connector
+   * is the axis — its Z axis through its origin. Several gizmos under the
+   * cursor ask which first.
+   */
+  handleConnectorPick(connectorId: string | null, detail?: ConnectorPickDetail): void {
+    if (!this.isConnectorPicking || !connectorId) {
+      return;
+    }
+    const refusal = this.connectors.pick(connectorId, detail, option => this.pickConnectorAxis(option));
+    if (refusal) {
+      this.panel.setMessage(refusal);
+    }
+  }
+
+  /**
    * A timeline row was clicked while the dialog is armed: a sketch row lands
-   * in the profile slot, an axis row in the axis slot. Consumed so the
-   * default rollback can't close the dialog mid-flow.
+   * in the profile slot, an axis or a connector row in the axis slot.
+   * Consumed so the default rollback can't close the dialog mid-flow.
    */
   handleTimelinePick(obj: SceneObjectRender): boolean {
     if (!this.armed) {
       return false;
+    }
+    if (obj.type === 'connector') {
+      const connector = this.connectors.forRow(obj);
+      if (connector) {
+        this.pickConnectorAxis(connector);
+      } else {
+        this.panel.setMessage(ConnectorPicks.UNREFERENCEABLE);
+      }
+      return true;
     }
     if (obj.type === 'axis' && obj.sourceLocation) {
       const option = axisOptionForLocation(this.axes, obj.sourceLocation);
@@ -535,6 +578,15 @@ export class RevolveFeatureService {
     }
     this.pickSketch(sketch);
     return true;
+  }
+
+  /** A connector landed in the axis slot (a gizmo or a row) — its Z axis. */
+  private pickConnectorAxis(option: ConnectorOption): void {
+    this.axisEdgeEntity = null;
+    this.panel.selectConnectorAxis(option);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
   }
 
   /** An offered axis landed in the axis slot (3D or timeline pick). */
@@ -633,29 +685,15 @@ export class RevolveFeatureService {
     return { filePath: option.filePath, line: option.line };
   }
 
-  /** The axis the ghost sweeps around, in the form the kernel resolves. */
+  /**
+   * The axis the ghost sweeps around, in the form the kernel resolves — a
+   * keep as the statement's own axis resolved: an `axis()` call site, the
+   * edge an inline `axis(<edge>)` was built on, a connector, or nothing the
+   * ghost can address (a standard literal reads as the standard selection,
+   * never as keep).
+   */
   private ghostAxis(): GhostAxisRef | null {
-    const selection = this.panel.axisSelection();
-    if (!selection) {
-      return null;
-    }
-    if (selection.kind === 'standard') {
-      return { kind: 'standard', axis: selection.axis };
-    }
-    if (selection.kind === 'axis') {
-      return { kind: 'axis', filePath: selection.option.filePath, line: selection.option.line };
-    }
-    if (selection.kind === 'edge') {
-      const entity = this.axisEdgeEntity;
-      return entity?.sub.type === 'edge'
-        ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index }
-        : null;
-    }
-    // Keep: the statement's own axis, which resolves to an `axis()` call site,
-    // to the edge an inline `axis(<edge>)` was built on, or to nothing the
-    // ghost can address (a standard literal reads as the standard selection
-    // above, never as keep).
-    return KeptAxisSlot.ghostRef(this.sourceSlots?.axis);
+    return AxisRefs.ghost(this.panel.axisSelection(), this.axisEdgeEntity, this.sourceSlots?.axis);
   }
 
   /** The axis slot's request field, or the message blocking it. */
@@ -664,7 +702,7 @@ export class RevolveFeatureService {
     if (!selection || selection.kind === 'keep') {
       return null;
     }
-    return pickedAxisRef(selection, this.axisEdgeEntity, 'Pick the axis edge first.');
+    return AxisRefs.request(selection, this.axisEdgeEntity, 'Pick the axis edge first.');
   }
 
   /** The request for the current form state, or the message blocking it. */
@@ -759,9 +797,10 @@ export class RevolveFeatureService {
   /**
    * The viewer's pick channels follow the panel's armed slot, so the slot
    * border says exactly where the next 3D click lands: profile armed →
-   * sketch wires only; axis armed → solid edges, axis lines and the world
-   * axes shown as pick targets; scope armed → everything, resolved to whole
-   * solids. Timeline rows are typed and always route (re-arming their slot).
+   * sketch wires only; axis armed → solid edges, axis lines, the world
+   * axes shown as pick targets and every connector gizmo, revealed; scope
+   * armed → everything, resolved to whole solids. Timeline rows are typed
+   * and always route (re-arming their slot).
    */
   private syncPickChannels(): void {
     if (!this.armed) {
@@ -772,11 +811,20 @@ export class RevolveFeatureService {
     this.viewer.pickSketchWires = !axisArmed;
     this.viewer.pickAxes = axisArmed;
     this.viewer.pickFilter = scopeArmed ? 'all' : axisArmed ? 'edge' : 'none';
+    this.viewer.setConnectorPicking(axisArmed);
     if (axisArmed) {
       this.viewer.showStandardAxes(this.onStandardAxisPick);
     } else {
       this.viewer.hideStandardAxes();
+      this.connectors.close();
     }
+    this.viewer.setPickedConnectors(this.connectorIds());
+  }
+
+  /** The axis slot's connector — picked or kept — whose gizmo the viewport enlarges. */
+  private connectorIds(): string[] {
+    const connector = this.panel.axisConnector();
+    return connector ? [connector.id] : [];
   }
 
   /**
@@ -856,6 +904,9 @@ export class RevolveFeatureService {
     } else if (axisSel?.kind === 'keep' && this.sourceSlots?.axis.kind === 'entities') {
       entities.push(...this.sourceSlots.axis.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub })));
     }
+
+    // A connector axis, picked or kept, draws its gizmo enlarged.
+    this.viewer.setPickedConnectors(this.connectorIds());
 
     // The chosen scope solids ride the same pass, highlighted whole.
     this.solidPick.set(this.scope.shapeIds());

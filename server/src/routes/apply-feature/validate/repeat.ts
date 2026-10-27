@@ -9,6 +9,7 @@ import {
 import { validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validatePick, type Pick } from '../picks.ts';
 import { validateRevolveAxis, type RevolveAxisInput } from './revolve.ts';
+import { AxisInputs } from '../axis-inputs.ts';
 import type { StatementEditRequest } from './statement-edit.ts';
 
 /** The mirror plane of a repeat request: a standard plane, an existing plane feature, or a picked face. */
@@ -138,7 +139,7 @@ export function validateRepeat(body: any): RepeatRequest | { error: string } {
       if ('error' in axis) {
         return axis;
       }
-      if (axis.kind === 'axis' && axis.loc.filePath !== filePath) {
+      if (AxisInputs.fileOf(axis) !== null && AxisInputs.fileOf(axis) !== filePath) {
         return { error: 'an axis and the targets live in different files' };
       }
       if (!validCountValue(entry?.count)) {
@@ -162,7 +163,7 @@ export function validateRepeat(body: any): RepeatRequest | { error: string } {
   if ('error' in axis) {
     return axis;
   }
-  if (axis.kind === 'axis' && axis.loc.filePath !== filePath) {
+  if (AxisInputs.fileOf(axis) !== null && AxisInputs.fileOf(axis) !== filePath) {
     return { error: 'the axis and the targets live in different files' };
   }
 

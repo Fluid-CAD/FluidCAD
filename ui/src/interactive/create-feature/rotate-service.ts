@@ -9,18 +9,20 @@ import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import type { ConnectorPickDetail } from '../feature-dialog-registry';
 import { SolidPickSelection } from '../solid-pick';
 import { RotatePanel } from './rotate-panel';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
-import { KeptAxisSlot } from './kept-axis-slot';
+import { ConnectorOption } from './connector-options';
+import { ConnectorPicks } from './connector-picks';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import {
-  AXIS_UNAVAILABLE_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
-  axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
+  AXIS_UNAVAILABLE_MESSAGE, AxisOption, AxisRefs, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  axisOptionsSignature, collectAxisOptions, labelWithAxisNames,
 } from './axis-options';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
 import { iconUrl } from '../../ui/icon-url';
@@ -58,8 +60,9 @@ function sourceStatement(slot: SourceSlotRef | undefined | null): { filePath: st
  * edge click while the Solids slot is armed selects the owning solid whole
  * (the shape-properties picker's idiom, shared via {@link SolidPickSelection})
  * — or by their timeline rows; the axis comes from a world axis clicked in
- * 3D, an axis statement (its dashed line in 3D or its timeline row), or a picked
- * straight solid edge — the revolve axis's exact picker. Arming with a
+ * 3D, an axis statement (its dashed line in 3D or its timeline row), a picked
+ * straight solid edge, or a connector (its gizmo or its row; its Z axis) —
+ * the revolve axis's exact picker. Arming with a
  * selection already highlighted seeds the dialog: the selected entities'
  * solids open as target chips. A translucent ghost draws the turned bodies as
  * the angle is dialled in — each target's own body under the apply's exact
@@ -82,6 +85,8 @@ export class RotateFeatureService {
   private solidPick: SolidPickSelection;
   /** The picked axis edge (the axis slot's `edge` mode), or null. */
   private axisEdgeEntity: SelectedEntity | null = null;
+  /** The scene's connectors, which the axis slot takes too. */
+  private connectors: ConnectorPicks;
   /** Statement being edited in place (timeline double-click), or null. */
   private editTarget: FeatureEditTarget | null = null;
   /** The parsed statement the edit dialog opened over (keep-slot texts). */
@@ -137,6 +142,7 @@ export class RotateFeatureService {
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.solidPick = new SolidPickSelection(viewer, { multiple: true });
     this.ghost = new FeatureGhostOverlay(viewer);
+    this.connectors = new ConnectorPicks(container, viewer);
 
     this.panel = new RotatePanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -218,6 +224,11 @@ export class RotateFeatureService {
     return this.armed && this.panel.armedSlot === 'axis';
   }
 
+  /** The axis slot is armed: connector gizmos are revealed and land in it. */
+  get isConnectorPicking(): boolean {
+    return this.isAxisPicking;
+  }
+
   /** True while armed picking has suspended sketch editing. */
   get sketchUISuspended(): boolean {
     return this.sketchUI.suspended;
@@ -257,6 +268,7 @@ export class RotateFeatureService {
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
+    this.panel.setConnectorOptions(this.connectors.collect(sceneObjects));
     if (this.editSceneStale) {
       this.editSceneStale = false;
       // A scene rebuild killed the re-picked shape ids; keep chips are
@@ -296,6 +308,7 @@ export class RotateFeatureService {
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
+    this.connectors.collect(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
     this.available = this.targetOptions.length > 0;
     this.navbar.setGroupVisible('transform', this.available, 'rotate');
@@ -331,6 +344,7 @@ export class RotateFeatureService {
       this.axisEdgeEntity = null;
       this.panel.setAxisEdgeChip(null);
     }
+    this.panel.setConnectorOptions(this.connectors.all);
     this.panel.setOptions(this.axes);
     this.refreshLabels();
     this.syncViewport();
@@ -453,10 +467,12 @@ export class RotateFeatureService {
     this.solidPick.set([]);
     this.runner.cancelPreview();
     this.ghost.clear();
+    this.connectors.close();
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickAxes = false;
     this.viewer.hideStandardAxes();
+    this.viewer.setConnectorPicking(false);
     this.syncButton();
     this.panel.hide();
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
@@ -506,13 +522,38 @@ export class RotateFeatureService {
   }
 
   /**
+   * A connector gizmo was clicked with the axis slot armed: the connector
+   * is the axis — its Z axis through its origin. Several gizmos under the
+   * cursor ask which first.
+   */
+  handleConnectorPick(connectorId: string | null, detail?: ConnectorPickDetail): void {
+    if (!this.isConnectorPicking || !connectorId) {
+      return;
+    }
+    const refusal = this.connectors.pick(connectorId, detail, option => this.pickConnectorAxis(option));
+    if (refusal) {
+      this.panel.setMessage(refusal);
+    }
+  }
+
+  /**
    * A timeline row was clicked while the dialog is armed: a solid row
-   * toggles it in the targets list; axis rows land in the axis slot. Every
-   * row is consumed so the default rollback can't close the dialog mid-flow.
+   * toggles it in the targets list; axis and connector rows land in the
+   * axis slot. Every row is consumed so the default rollback can't close
+   * the dialog mid-flow.
    */
   handleTimelinePick(obj: SceneObjectRender): boolean {
     if (!this.armed) {
       return false;
+    }
+    if (obj.type === 'connector') {
+      const connector = this.connectors.forRow(obj);
+      if (connector) {
+        this.pickConnectorAxis(connector);
+      } else {
+        this.panel.setMessage(ConnectorPicks.UNREFERENCEABLE);
+      }
+      return true;
     }
     if (obj.type === 'axis' && obj.sourceLocation) {
       const option = axisOptionForLocation(this.axes, obj.sourceLocation);
@@ -551,6 +592,15 @@ export class RotateFeatureService {
     this.runner.schedulePreview();
   }
 
+  /** A connector landed in the axis slot (a gizmo or a row) — its Z axis. */
+  private pickConnectorAxis(option: ConnectorOption): void {
+    this.axisEdgeEntity = null;
+    this.panel.selectConnectorAxis(option);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
+  }
+
   /** An offered axis landed in the axis slot (3D or timeline pick). */
   private pickAxis(option: AxisOption): void {
     this.axisEdgeEntity = null;
@@ -573,7 +623,7 @@ export class RotateFeatureService {
     if (selection.kind === 'keep') {
       return { kind: 'keep' };
     }
-    return pickedAxisRef(selection, this.axisEdgeEntity, 'Pick the axis edge first.');
+    return AxisRefs.request(selection, this.axisEdgeEntity, 'Pick the axis edge first.');
   }
 
   private async refreshScopeVariables(): Promise<void> {
@@ -600,6 +650,9 @@ export class RotateFeatureService {
     this.sourceSlots = result.ok && result.feature === 'rotate'
       ? { targets: result.targets, axis: result.axis }
       : { targets: [], axis: null };
+    // A connector axis reads as that connector's chip, still kept as written.
+    this.panel.setKeptConnector(this.connectors.forSource(this.sourceSlots.axis));
+    this.refreshHighlight();
     // The ghost's keep slots read `sourceSlots`, which resolves after
     // `enterEdit` already scheduled its preview — re-kick so the ghost appears
     // now that the statement's own sources are known.
@@ -683,27 +736,13 @@ export class RotateFeatureService {
     return refs;
   }
 
-  /** The axis slot, in the form the kernel resolves. */
+  /**
+   * The axis slot, in the form the kernel resolves — a keep as the sources
+   * query resolved the statement's own: an `axis()` statement, the edge an
+   * inline `axis(<edge>)` was built on, or a connector.
+   */
   private ghostAxis(): GhostAxisRef | null {
-    const selection = this.panel.axisSelection();
-    if (!selection) {
-      return null;
-    }
-    if (selection.kind === 'standard') {
-      return { kind: 'standard', axis: selection.axis };
-    }
-    if (selection.kind === 'axis') {
-      const { filePath, line } = selection.option;
-      return { kind: 'axis', filePath, line };
-    }
-    if (selection.kind === 'edge') {
-      return this.axisEdgeEntity
-        ? { kind: 'edge', shapeId: this.axisEdgeEntity.shapeId, index: this.axisEdgeEntity.sub.index }
-        : null;
-    }
-    // The kept statement axis, as the sources query resolved it — an `axis()`
-    // statement, or the edge an inline `axis(<edge>)` was built on.
-    return KeptAxisSlot.ghostRef(this.sourceSlots?.axis);
+    return AxisRefs.ghost(this.panel.axisSelection(), this.axisEdgeEntity, this.sourceSlots?.axis);
   }
 
   private buildRequest(): RotateApplyOptions | { error: string } {
@@ -783,8 +822,8 @@ export class RotateFeatureService {
    * The viewer's pick channels follow the panel's armed slot, so the slot
    * border says exactly where the next 3D click lands: the armed Solids slot
    * takes any face or edge (the pick selects the owning solid whole); the
-   * armed axis slot takes solid edges, axis lines and the world axes shown
-   * as pick targets.
+   * armed axis slot takes solid edges, axis lines, the world axes shown as
+   * pick targets and every connector gizmo, revealed.
    */
   private syncViewport(): void {
     if (!this.armed) {
@@ -795,11 +834,14 @@ export class RotateFeatureService {
     this.viewer.pickAxes = axisArmed;
     this.viewer.pickPlanes = false;
     this.viewer.pickFilter = axisArmed ? 'edge' : 'all';
+    this.viewer.setConnectorPicking(axisArmed);
     if (axisArmed) {
       this.viewer.showStandardAxes(this.onStandardAxisPick);
     } else {
       this.viewer.hideStandardAxes();
+      this.connectors.close();
     }
+    this.refreshHighlight();
   }
 
   /** A shown world axis was clicked while the axis slot is armed. */
@@ -843,6 +885,9 @@ export class RotateFeatureService {
     } else if (selection?.kind === 'edge' && this.axisEdgeEntity) {
       entities.push(this.axisEdgeEntity);
     }
+    // A connector axis, picked or kept, draws its gizmo enlarged.
+    const connector = this.panel.axisConnector();
+    this.viewer.setPickedConnectors(connector ? [connector.id] : []);
     this.solidPick.set(this.targets.flatMap(t => t.kind === 'option' ? t.option.shapeIds : []));
     this.solidPick.refreshHighlight({ entities, wireIds });
   }

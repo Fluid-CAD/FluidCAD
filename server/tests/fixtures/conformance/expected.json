@@ -1,0 +1,212 @@
+{
+  "package": {
+    "name": "@acme/kit",
+    "version": "0.1.0",
+    "scope": "acme"
+  },
+  "engineVersion": "0.0.46",
+  "archives": {
+    "valid.fluidpkg": {
+      "about": "packed by packPackage from conformance-workspace: three features (icons, option images, raw OpenCascade), a part with a parameter, a factory part, an assembly, README, CHANGELOG and LICENSE, and docs/standoff.md with its image docs/images/standoff.svg and a link to ../README.md",
+      "verdict": "ok",
+      "integrity": "sha256-FBUbWOWHkBVtBv72bgukvnkjvwXobEkl9+/j7b2nt7g=",
+      "warnings": [],
+      "hub": "ok"
+    },
+    "not-a-zip.fluidpkg": {
+      "about": "plain text",
+      "verdict": "not-a-zip",
+      "hub": "not-a-zip"
+    },
+    "unsafe-path-parent.fluidpkg": {
+      "about": "an entry ../evil.js",
+      "verdict": "unsafe-path",
+      "hub": "unsafe-path"
+    },
+    "unsafe-path-nested-parent.fluidpkg": {
+      "about": "an entry parts/../../evil.js",
+      "verdict": "unsafe-path",
+      "hub": "unsafe-path"
+    },
+    "unsafe-path-absolute.fluidpkg": {
+      "about": "an entry /abs.js",
+      "verdict": "unsafe-path",
+      "hub": "unsafe-path"
+    },
+    "unsafe-path-backslash.fluidpkg": {
+      "about": "an entry features\\evil.js",
+      "verdict": "unsafe-path",
+      "hub": "unsafe-path"
+    },
+    "unsafe-path-drive.fluidpkg": {
+      "about": "an entry C:/evil.js",
+      "verdict": "unsafe-path",
+      "hub": "unsafe-path"
+    },
+    "unsafe-path-nul.fluidpkg": {
+      "about": "an entry with a NUL in its name",
+      "verdict": "unsafe-path",
+      "hub": "unsafe-path"
+    },
+    "unsafe-path-link.fluidpkg": {
+      "about": "a symbolic link entry features/link.js",
+      "verdict": "unsafe-path",
+      "hub": "unsafe-path"
+    },
+    "too-large-entries.fluidpkg": {
+      "about": "10001 entries in all",
+      "verdict": "too-large",
+      "hub": "too-large"
+    },
+    "no-manifest.fluidpkg": {
+      "about": "the valid package without manifest.json",
+      "verdict": "no-manifest",
+      "hub": "no-manifest"
+    },
+    "model-archive.fluidpkg": {
+      "about": "an old model packer's manifest (schemaVersion, no manifestVersion)",
+      "verdict": "model-archive",
+      "hub": "model-archive"
+    },
+    "newer-manifest.fluidpkg": {
+      "about": "manifestVersion 2",
+      "verdict": "newer-manifest",
+      "hub": "newer-manifest"
+    },
+    "bad-manifest-json.fluidpkg": {
+      "about": "manifest.json is not JSON",
+      "verdict": "bad-manifest",
+      "hub": "bad-manifest"
+    },
+    "bad-manifest-bom.fluidpkg": {
+      "about": "manifest.json starts with a byte order mark, which JSON.parse refuses",
+      "verdict": "bad-manifest",
+      "hub": "bad-manifest"
+    },
+    "bad-manifest-name.fluidpkg": {
+      "about": "name \"@acme/3d-kit\" (the name part starts with a digit)",
+      "verdict": "bad-manifest",
+      "hub": "bad-manifest"
+    },
+    "bad-manifest-scope.fluidpkg": {
+      "about": "name \"@3dtools/kit\" (the scope starts with a digit, which the pre-H8c grammar accepted)",
+      "verdict": "bad-manifest",
+      "hub": "bad-manifest"
+    },
+    "bare-name.fluidpkg": {
+      "about": "name \"kit\", without a scope: packed under HD29; refused, never converted",
+      "verdict": "bad-manifest",
+      "hub": "bad-manifest"
+    },
+    "bad-manifest-version.fluidpkg": {
+      "about": "version \"1.0\"",
+      "verdict": "bad-manifest",
+      "hub": "bad-manifest"
+    },
+    "bad-manifest-sdk.fluidpkg": {
+      "about": "sdkVersion \"1\" (a string)",
+      "verdict": "bad-manifest",
+      "hub": "bad-manifest"
+    },
+    "bad-manifest-parts.fluidpkg": {
+      "about": "no \"parts\" list",
+      "verdict": "bad-manifest",
+      "hub": "bad-manifest"
+    },
+    "files-mismatch-unlisted.fluidpkg": {
+      "about": "parts/extra.js is in the archive but not in files",
+      "verdict": "files-mismatch",
+      "hub": "files-mismatch"
+    },
+    "files-mismatch-missing.fluidpkg": {
+      "about": "files lists parts/missing.js, which is not in the archive",
+      "verdict": "files-mismatch",
+      "hub": "files-mismatch"
+    },
+    "files-mismatch-no-entry.fluidpkg": {
+      "about": "no index.js, in the archive or in files",
+      "verdict": "files-mismatch",
+      "hub": "files-mismatch"
+    },
+    "blocked-import-static.fluidpkg": {
+      "about": "parts/helpers/sizes.js imports 'child_process'",
+      "verdict": "blocked-import",
+      "hub": "blocked-import"
+    },
+    "blocked-import-dynamic.fluidpkg": {
+      "about": "features/standoff.feature.js runs import('node:fs')",
+      "verdict": "blocked-import",
+      "hub": "blocked-import"
+    },
+    "scope-mismatch.fluidpkg": {
+      "about": "name \"@other/kit\": another scope than the URL's (@acme/kit)",
+      "verdict": "ok",
+      "integrity": "sha256-tICg2NfoGONUF7SY0HLEJNFwpZY9xj0fa1AxLbW+7rY=",
+      "warnings": [],
+      "hub": "scope-mismatch"
+    },
+    "no-models.fluidpkg": {
+      "about": "features only: no part and no assembly",
+      "verdict": "ok",
+      "integrity": "sha256-xyWLcj8uZ1sofCcDFKghP0oJUfFCK2ZcxYqr6xcVBBs=",
+      "warnings": [],
+      "hub": "no-models"
+    },
+    "outside-layout.fluidpkg": {
+      "about": "parts/helpers/sizes.js imports lib/units.js, a script at the root outside the three folders",
+      "verdict": "ok",
+      "integrity": "sha256-W2Mx512xeYlF5xXVfJyszxF0/tGPQIiJi0s3x3BHgMc=",
+      "warnings": [],
+      "hub": "outside-layout"
+    },
+    "wrong-folder.fluidpkg": {
+      "about": "the washer part moved into features/ (features/washer.part.js)",
+      "verdict": "ok",
+      "integrity": "sha256-azxgZ7mUfzGCJJAmmvC2Jp0IS0ThsjAeX8IpYcwf5Zk=",
+      "warnings": [],
+      "hub": "wrong-folder"
+    },
+    "bad-params.fluidpkg": {
+      "about": "the spacer part declares 101 parameters, one over the cap",
+      "verdict": "ok",
+      "integrity": "sha256-byaZT5ygsvT464CmWn3y/+BdfDRIDaAJYjTWBnksvNw=",
+      "warnings": [],
+      "hub": "bad-params"
+    },
+    "pre-layout.fluidpkg": {
+      "about": "packed before the package layout (server/tests/fixtures/pre-layout): modules at the root",
+      "verdict": "ok",
+      "integrity": "sha256-Ce9Fqz9MW8P0f2IvQUiq68k6ZnJfIkbvbv0I0QP0OXc=",
+      "warnings": [],
+      "hub": "outside-layout"
+    },
+    "no-docs.fluidpkg": {
+      "about": "the valid package without its docs/ folder: what pack writes for a workspace with no docs/, as before docs/ shipped",
+      "verdict": "ok",
+      "integrity": "sha256-glmfw3MffTyZp8v0dyB+T+wSS6U1STvzeUKcF+qGMyI=",
+      "warnings": [],
+      "hub": "ok"
+    },
+    "docs-file.fluidpkg": {
+      "about": "docs/cad/standoff.zip: a file docs/ can't hold (markdown pages and their images only)",
+      "verdict": "ok",
+      "integrity": "sha256-/bcJbWvWuqGCRc1hSI9LSfH0n3k4ItIV9IrqXI9f/3M=",
+      "warnings": [],
+      "hub": "docs-file"
+    },
+    "docs-too-large.fluidpkg": {
+      "about": "docs/huge.md: a 300 KB page, over the 256 KB cap",
+      "verdict": "ok",
+      "integrity": "sha256-1/DV0gznKF6k8XzwIwz1t4WcPOX4txR6EvFfeoufbOY=",
+      "warnings": [],
+      "hub": "docs-too-large"
+    },
+    "outside-layout-docs.fluidpkg": {
+      "about": "docs/examples/run.js: a script in docs/, which is not one of the three folders",
+      "verdict": "ok",
+      "integrity": "sha256-iNgjYqhqHbNVxoVdVOmXJlCNikyzmB0AJTZsY78hnrs=",
+      "warnings": [],
+      "hub": "outside-layout"
+    }
+  }
+}

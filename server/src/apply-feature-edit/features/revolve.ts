@@ -1,19 +1,22 @@
 // revolve(): option types, statement rendering and axis expressions.
 
 import { renderOpChains, renderRegionChain } from '../render/chains.ts';
+import { ConnectorAxisSpecs, type ConnectorAxisSpec } from './connector-axis.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 import { formatValue, type RegionName, type RegionPickSpec, type ValueExpr } from '../value-expr.ts';
 
 /**
  * One revolve axis: a standard world axis (renders as its string literal, no
- * producer involved), an existing axis statement bound to a variable, or a
- * picked edge — the single selector part wrapped in `axis(…)`.
+ * producer involved), an existing axis statement bound to a variable, a
+ * picked edge — the single selector part wrapped in `axis(…)` — or a
+ * connector ({@link ConnectorAxisSpec}).
  */
 export type RevolveAxisSpec =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; producer: number }
-  | { kind: 'selector' };
+  | { kind: 'selector' }
+  | ConnectorAxisSpec;
 
 /**
  * How a revolve statement is rendered and placed: `revolve(<axis>[, <angle>]
@@ -82,9 +85,10 @@ export function renderRevolveStatement(
 
 /**
  * Render a revolve's axis argument: `'z'` for a standard world axis, the
- * bound variable for an existing axis statement, or the picked edge's
- * selector part wrapped in `axis(…)`. Shared with the route, which passes
- * its namer's variables; the transform passes its bindings'.
+ * bound variable for an existing axis statement, the picked edge's selector
+ * part wrapped in `axis(…)`, or a connector (`bolt`, `bolt.instance(2)`).
+ * Shared with the route, which passes its namer's variables; the transform
+ * passes its bindings'.
  */
 export function renderRevolveAxisExpr(
   axis: RevolveAxisSpec,
@@ -96,6 +100,9 @@ export function renderRevolveAxisExpr(
   }
   if (axis.kind === 'axis') {
     return varFor(axis.producer) ?? 'a';
+  }
+  if (axis.kind === 'connector') {
+    return ConnectorAxisSpecs.render(axis, varFor);
   }
   const part = parts[0];
   return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor)})`;

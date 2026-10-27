@@ -7,22 +7,41 @@ import { inLastDirectory, rememberDirectory } from './dialog-directory';
  * "New project" from the start screen or the File menu: the user picks an
  * empty folder in the native dialog, and the window that opens the project
  * sets it up there first (`fluidcad init`, through the launcher's
- * `scaffoldProject`), with its progress on the opening overlay. This is only
- * the asking; `npx fluidcad`, which has no native dialog, asks in its page.
+ * `scaffoldProject`), with its progress on the opening overlay. "New package"
+ * is the same dialog worded for a package, after the start page has asked
+ * the package's name (a native dialog cannot). This is only the asking;
+ * `npx fluidcad`, which has no native dialog, asks in its page.
  */
 
 export type NewProjectChoice =
-  /** An empty folder: set a project up in it, then open it. */
-  | { path: string; create: true }
+  /** An empty folder: set a project up in it (the package named, when `package` is set), then open it. */
+  | { path: string; create: true; package?: string }
   /** The folder already holds a project and the user chose to open it. */
   | { path: string; create: false };
 
-export async function chooseNewProjectFolder(parent: BrowserWindow | null): Promise<NewProjectChoice | null> {
+export type NewProjectOptions = {
+  /** The new project is a package workspace named `@handle/name`. */
+  package?: string;
+};
+
+/** The dialog's words for a project, or for a package. */
+export function newProjectDialogCopy(options: NewProjectOptions): Pick<Electron.OpenDialogOptions, 'title' | 'message' | 'buttonLabel'> {
+  const what = options.package ? 'package' : 'project';
+  return {
+    title: `New FluidCAD ${what}`,
+    message: `Choose an empty folder. FluidCAD will set the ${what} up inside it.`,
+    buttonLabel: `Create ${what}`,
+  };
+}
+
+export async function chooseNewProjectFolder(
+  parent: BrowserWindow | null,
+  newProject: NewProjectOptions = {},
+): Promise<NewProjectChoice | null> {
+  const what = newProject.package ? 'package' : 'project';
   const options = inLastDirectory<Electron.OpenDialogOptions>({
-    title: 'New FluidCAD project',
-    message: 'Choose an empty folder. FluidCAD will set the project up inside it.',
+    ...newProjectDialogCopy(newProject),
     properties: ['openDirectory', 'createDirectory'],
-    buttonLabel: 'Create project',
   });
   const picked = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
   if (picked.canceled || !picked.filePaths[0]) {
@@ -33,7 +52,7 @@ export async function chooseNewProjectFolder(parent: BrowserWindow | null): Prom
 
   switch (inspectFolder(folder)) {
     case 'empty':
-      return { path: folder, create: true };
+      return newProject.package ? { path: folder, create: true, package: newProject.package } : { path: folder, create: true };
     case 'project': {
       // Not empty, but a project — the likely intent is to open it.
       const answer = await messageBox(parent, {
@@ -50,7 +69,7 @@ export async function chooseNewProjectFolder(parent: BrowserWindow | null): Prom
       await report(
         parent,
         'This folder is not empty.',
-        `${folder}\n\nA new project needs an empty folder — pick another one, or create one from the dialog.`,
+        `${folder}\n\nA new ${what} needs an empty folder — pick another one, or create one from the dialog.`,
       );
       return null;
     default:

@@ -30,6 +30,8 @@ website/docs/
   import-export/     import, export
   part/              introduction, part, param, connector, expose
   assembly/          introduction, grounded, fastened, slider, revolute, cylindrical, planar, tangent, replicate
+  custom-features/   index (one page: using and writing a *.feature.js feature)
+  packages/          index (one page: installing, using and making packages)
   tutorials/         (unchanged)
   api/               (generated — never edit by hand; `npm run generate-api-docs`)
 ```
@@ -202,8 +204,15 @@ Verified against `ui/src` at the time of writing. Use these names.
 rename; drag to reorder; **+** = *Open a file* — a quick-open box that opens
 an existing file or creates a new one when the name does not exist),
 **Import** (STEP), **Export** (menu of solids; in an assembly it leads with
-*Whole assembly*), the **Settings** gear (tabs **Appearance / Editor / Sketch /
-Timeline / Units / Materials / Advanced**; every tab is a draft until the
+*Whole assembly*), **Packages** (the *Packages in this project* dialog: each
+pinned package with *From your library* / *Copied into this project's packages/
+folder*, **Copy into project** / **Use from library**, the missing-package banner
+with **Install from file…**, **Install package…**; a red dot while a pin is
+missing), the **Settings** gear (tabs **Appearance / Editor / Sketch /
+Timeline / Units / Materials / Packages / Advanced**; **Packages** = **Library
+folder** (Browse… in the desktop app), **New packages go to** (*My library* /
+*This project*), **Installed in my library** with a bin and **Install
+package…**; every tab is a draft until the
 dialog's **Save**, Cancel drops it; **Materials** = the user's own materials
 kept in the preferences file: list rows name / id / density / unit with pencil
 and bin, an **Add material** form with **Name**, **Density** + **Unit**

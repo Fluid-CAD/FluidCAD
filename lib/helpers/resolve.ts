@@ -9,7 +9,9 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisLike, isAxisLike } from "../math/axis.js";
 import { AxisObject } from "../features/axis.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
-import { ISceneObject } from "../core/interfaces.js";
+import { AxisFromConnector } from "../features/axis-from-connector.js";
+import { ConnectorAxis } from "../features/connector-axis.js";
+import { IConnector, ISceneObject } from "../core/interfaces.js";
 
 /**
  * The plane a statement's argument names. A `plane()` statement passed in is
@@ -41,9 +43,26 @@ export function resolvePlane(p: PlaneLike | ISceneObject, context: SceneParserCo
   throw new Error('Invalid argument: expected a plane or a scene object');
 }
 
-export function resolveAxis(arg: AxisLike | ISceneObject, context: SceneParserContext): AxisObjectBase {
+/**
+ * The axis object a statement's axis argument names — the one place every
+ * axis-taking builder (revolve, rotate, helix, repeat, a custom feature's
+ * axis value) reads it through. An `axis()` statement passed in comes back
+ * untouched. A connector — a `connector()` variable or one of its copies,
+ * `bolt.instance(2)` — stands for its Z axis through its origin: an internal
+ * {@link AxisFromConnector} that adds no row and draws no line. Any other
+ * scene object is an edge the axis lies along, and a world axis name or an
+ * `Axis` a fixed one.
+ */
+export function resolveAxis(arg: AxisLike | IConnector | ISceneObject, context: SceneParserContext): AxisObjectBase {
   if (arg instanceof AxisObjectBase) {
     return arg;
+  }
+
+  const connector = ConnectorAxis.connectorOf(arg);
+  if (connector) {
+    const axis = AxisFromConnector.inline(connector);
+    context.addSceneObject(axis);
+    return axis;
   }
 
   if ((arg as any) instanceof SceneObject) {

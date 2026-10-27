@@ -1,0 +1,357 @@
+import { ChoiceImage, type ChoiceItem } from './choice-item';
+import { WidthWatch } from './width-watch';
+
+export type RadioDisplay = 'list' | 'inline' | 'buttons' | 'cards';
+
+export interface RadioGroupOptions<V> {
+  items: readonly ChoiceItem<V>[];
+  /** The chosen item's value; none chosen without one. */
+  value?: V;
+  /** `'list'` (default), `'inline'`, `'buttons'` or `'cards'`. */
+  display?: RadioDisplay;
+  /** Cards only, 2–6; 3 without one. */
+  columns?: number;
+  /** A small clear button once something is chosen — for a value that may stay unset. */
+  allowClear?: boolean;
+  /** The group's accessible name. */
+  label?: string;
+}
+
+/** One choice: the element that takes focus, and how it shows chosen. */
+interface RadioChoice<V> {
+  item: ChoiceItem<V>;
+  control: HTMLElement;
+  mark(chosen: boolean): void;
+}
+
+const GROUP = 'flex flex-col items-start gap-1 text-xs';
+const LIST = 'flex flex-col gap-1.5 w-full';
+const INLINE = 'flex flex-wrap gap-x-4 gap-y-1.5 w-full';
+const RADIO_ROW = 'flex items-center gap-2 min-w-0 cursor-pointer';
+const RADIO = 'radio radio-sm radio-primary shrink-0';
+const DESCRIPTION = 'block truncate text-[11px] text-base-content/50';
+// The operation tabs' look (ChoiceTabs in panel-controls.ts). A segment is
+// as wide as its label at least, so the row's narrowest is every label whole.
+const BUTTONS = 'join w-full';
+const BUTTON = 'btn btn-sm join-item flex-1 gap-1.5 text-xs px-2';
+const BUTTON_BASE = `${BUTTON} font-normal`;
+const BUTTON_ACTIVE = `${BUTTON} btn-soft btn-primary`;
+const BUTTON_WHOLE = 'min-w-min';
+const BUTTON_LABEL = 'whitespace-nowrap';
+// Where even the full width is too narrow for the labels on one line, they wrap.
+const BUTTON_WRAPPED = 'min-w-0 h-auto min-h-8 py-1';
+const BUTTON_LABEL_WRAPPED = 'whitespace-normal break-words text-center leading-tight';
+const CARDS = 'grid gap-1.5 w-full';
+const CARD_SHAPE =
+  'flex flex-col items-center gap-1 min-w-12 p-1.5 rounded-md border cursor-pointer '
+  + 'focus-visible:outline-none focus-visible:bg-base-content/[0.08] hover:bg-base-content/[0.06]';
+const CARD_BASE = `${CARD_SHAPE} border-base-content/15 text-base-content/70`;
+const CARD_ACTIVE = `${CARD_SHAPE} border-primary ring-1 ring-primary text-base-content`;
+// Whole on one line: a column is never narrower than its label (the grid drops columns first).
+const CARD_LABEL = 'block max-w-full whitespace-nowrap overflow-hidden text-[11px] leading-tight';
+const CLEAR = 'btn btn-ghost btn-xs px-1 font-normal text-base-content/50';
+
+/**
+ * One of a few choices, all on show: stacked or inline radios, a segmented
+ * row, or image cards. Whatever the display it is a radio group to the
+ * keyboard and to assistive tech — one tab stop, arrows move and choose,
+ * Space chooses.
+ */
+export class RadioGroup<V> {
+  readonly element: HTMLElement;
+  /** The user chose an item, or cleared the choice (`undefined`). Never fired by `setValue`. */
+  onChange?: (value: V | undefined) => void;
+
+  private readonly choices: RadioChoice<V>[] = [];
+  private readonly clearButton: HTMLButtonElement | null = null;
+  private readonly display: RadioDisplay;
+  private readonly body: HTMLElement;
+  /** Cards: the columns asked for; fewer show while they don't fit. */
+  private readonly columns: number = 0;
+  /** Buttons: the labels wrap, the width being too narrow for them on one line. */
+  private wrapped = false;
+  private readonly watch: WidthWatch | null = null;
+  private readonly name: string;
+  private current: V | undefined;
+
+  /** Groups made so far — each run of native radios needs a name of its own. */
+  private static made = 0;
+
+  constructor(options: RadioGroupOptions<V>) {
+    this.display = options.display ?? 'list';
+    this.current = options.value;
+
+    this.element = document.createElement('div');
+    this.element.className = GROUP;
+    this.element.setAttribute('role', 'radiogroup');
+    this.element.dataset.display = this.display;
+    if (options.label) {
+      this.element.setAttribute('aria-label', options.label);
+    }
+    const body = this.body = document.createElement('div');
+    body.setAttribute('role', 'presentation');
+    this.element.appendChild(body);
+    this.name = `radio-group-${++RadioGroup.made}`;
+    if (this.display === 'list' || this.display === 'inline') {
+      body.className = this.display === 'list' ? LIST : INLINE;
+    } else if (this.display === 'buttons') {
+      body.className = BUTTONS;
+    } else {
+      body.className = CARDS;
+      this.columns = Math.min(6, Math.max(2, Math.round(options.columns ?? 3)));
+      this.setColumns(this.columns);
+      this.element.dataset.columns = String(this.columns);
+    }
+    this.fill(options.items);
+    if (this.display === 'buttons' || this.display === 'cards') {
+      this.watch = new WidthWatch(this.element, () => this.fit());
+    }
+    if (options.allowClear) {
+      this.clearButton = document.createElement('button');
+      this.clearButton.type = 'button';
+      this.clearButton.className = CLEAR;
+      this.clearButton.textContent = 'Clear';
+      this.clearButton.title = 'Clear the choice';
+      this.clearButton.addEventListener('click', () => this.clear());
+      this.element.appendChild(this.clearButton);
+    }
+    this.element.addEventListener('keydown', this.onKeyDown);
+    this.sync();
+  }
+
+  get value(): V | undefined {
+    return this.current;
+  }
+
+  /** Programmatic choice (prefill, reset); no change event fires. `undefined` shows none chosen. */
+  setValue(value: V | undefined): void {
+    this.current = value;
+    this.sync();
+  }
+
+  /**
+   * Other choices in the same group: the value stays while one of them still
+   * carries it and is nothing otherwise, and the focus stays in the group
+   * when a choice held it. No `onChange`: the caller changed the choices.
+   */
+  setItems(items: readonly ChoiceItem<V>[]): void {
+    const focused = this.choices.some(choice => choice.control === document.activeElement);
+    this.body.replaceChildren();
+    this.choices.length = 0;
+    this.fill(items);
+    if (!items.some(item => item.value === this.current)) {
+      this.current = undefined;
+    }
+    this.sync();
+    this.watch?.refit();
+    if (focused) {
+      this.choices.find(choice => choice.control.tabIndex === 0)?.control.focus({ preventScroll: true });
+    }
+  }
+
+  private fill(items: readonly ChoiceItem<V>[]): void {
+    // Stacked labels stay in one column: every row gets a box once any item has an image.
+    const boxed = this.display === 'list' && items.some(item => item.image);
+    for (const item of items) {
+      if (this.display === 'list' || this.display === 'inline') {
+        this.addRadio(this.body, item, this.name, boxed);
+      } else if (this.display === 'buttons') {
+        this.addButton(this.body, item);
+      } else {
+        this.addCard(this.body, item);
+      }
+    }
+  }
+
+  destroy(): void {
+    this.watch?.disconnect();
+    this.element.removeEventListener('keydown', this.onKeyDown);
+    this.element.remove();
+  }
+
+  /** A native radio in its label: optional thumbnail, label, muted description. */
+  private addRadio(host: HTMLElement, item: ChoiceItem<V>, name: string, boxed: boolean): void {
+    const row = document.createElement('label');
+    row.className = RADIO_ROW;
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = name;
+    input.className = RADIO;
+    input.addEventListener('change', () => {
+      if (input.checked) {
+        this.choose(item.value);
+      }
+    });
+    row.appendChild(input);
+    if (boxed || item.image) {
+      row.appendChild(ChoiceImage.create(item.image, ChoiceImage.THUMB));
+    }
+    const text = document.createElement('span');
+    text.className = 'min-w-0';
+    const label = document.createElement('span');
+    label.className = 'block truncate';
+    label.textContent = item.label;
+    text.appendChild(label);
+    if (item.description) {
+      const description = document.createElement('span');
+      description.className = DESCRIPTION;
+      description.textContent = item.description;
+      text.appendChild(description);
+    }
+    row.appendChild(text);
+    host.appendChild(row);
+    this.choices.push({ item, control: input, mark: chosen => { input.checked = chosen; } });
+  }
+
+  /** A segment of the joined row: optional image before the label. */
+  private addButton(host: HTMLElement, item: ChoiceItem<V>): void {
+    const button = this.createRadioButton(item);
+    if (item.image) {
+      button.appendChild(ChoiceImage.create(item.image, 'w-4 h-4'));
+    }
+    const label = document.createElement('span');
+    label.dataset.role = 'choice-label';
+    label.className = this.wrapped ? BUTTON_LABEL_WRAPPED : BUTTON_LABEL;
+    label.textContent = item.label;
+    button.appendChild(label);
+    host.appendChild(button);
+    this.choices.push({
+      item,
+      control: button,
+      mark: chosen => {
+        button.className = `${chosen ? BUTTON_ACTIVE : BUTTON_BASE} ${this.wrapped ? BUTTON_WRAPPED : BUTTON_WHOLE}`;
+        button.setAttribute('aria-checked', String(chosen));
+      },
+    });
+  }
+
+  /** A tile: the image in a square over its label, outlined when chosen. */
+  private addCard(host: HTMLElement, item: ChoiceItem<V>): void {
+    const card = this.createRadioButton(item);
+    card.title = item.description ? `${item.label} — ${item.description}` : item.label;
+    card.appendChild(ChoiceImage.create(item.image, ChoiceImage.SQUARE));
+    const label = document.createElement('span');
+    label.dataset.role = 'choice-label';
+    label.className = CARD_LABEL;
+    label.textContent = item.label;
+    card.appendChild(label);
+    host.appendChild(card);
+    this.choices.push({
+      item,
+      control: card,
+      mark: chosen => {
+        card.className = chosen ? CARD_ACTIVE : CARD_BASE;
+        card.setAttribute('aria-checked', String(chosen));
+      },
+    });
+  }
+
+  private createRadioButton(item: ChoiceItem<V>): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('role', 'radio');
+    if (item.description) {
+      button.title = item.description;
+    }
+    button.addEventListener('click', () => this.choose(item.value));
+    return button;
+  }
+
+  /**
+   * Lay the choices out so no label is cut, at the width the group has now:
+   * cards drop columns until they fit — down to one; buttons wrap their
+   * labels when even the whole width can't hold them on one line.
+   */
+  private fit(): void {
+    if (this.display === 'cards') {
+      let columns = this.columns;
+      this.setColumns(columns);
+      while (columns > 1 && RadioGroup.overflows(this.body)) {
+        this.setColumns(--columns);
+      }
+      return;
+    }
+    this.setWrapped(false);
+    if (RadioGroup.overflows(this.body)) {
+      this.setWrapped(true);
+    }
+  }
+
+  /** Tracks never narrower than their widest card, sharing what is left. */
+  private setColumns(columns: number): void {
+    this.body.style.gridTemplateColumns = `repeat(${columns}, minmax(min-content, 1fr))`;
+  }
+
+  private setWrapped(wrapped: boolean): void {
+    if (this.wrapped === wrapped) {
+      return;
+    }
+    this.wrapped = wrapped;
+    this.element.toggleAttribute('data-wrapped', wrapped);
+    for (const label of this.body.querySelectorAll<HTMLElement>('[data-role="choice-label"]')) {
+      label.className = wrapped ? BUTTON_LABEL_WRAPPED : BUTTON_LABEL;
+    }
+    this.sync();
+  }
+
+  /** Content wider than the box: a label would be cut, or stick out. */
+  private static overflows(el: HTMLElement): boolean {
+    return el.scrollWidth > el.clientWidth + 1;
+  }
+
+  /** A user's choice: shown, then announced — unless it is the one already chosen. */
+  private choose(value: V): void {
+    if (value === this.current) {
+      // A native radio the user pressed is checked by now; nothing else moved.
+      return;
+    }
+    this.current = value;
+    this.sync();
+    this.onChange?.(value);
+  }
+
+  private clear(): void {
+    if (this.current === undefined) {
+      return;
+    }
+    this.current = undefined;
+    this.sync();
+    this.choices[0]?.control.focus({ preventScroll: true });
+    this.onChange?.(undefined);
+  }
+
+  /** Mark the chosen one, keep one tab stop (the chosen, else the first), show or hide Clear. */
+  private sync(): void {
+    const chosen = this.choices.findIndex(choice => choice.item.value === this.current);
+    this.choices.forEach((choice, index) => {
+      choice.mark(index === chosen);
+      choice.control.tabIndex = index === Math.max(chosen, 0) ? 0 : -1;
+    });
+    if (this.clearButton) {
+      this.clearButton.hidden = chosen < 0;
+    }
+  }
+
+  /** Arrows move and choose, wrapping at the ends; Space chooses the focused one. */
+  private readonly onKeyDown = (e: KeyboardEvent): void => {
+    const at = this.choices.findIndex(choice => choice.control === e.target);
+    if (at < 0) {
+      return;
+    }
+    let to = at;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      to = (at + 1) % this.choices.length;
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+      to = (at - 1 + this.choices.length) % this.choices.length;
+    } else if (e.key === 'Home') {
+      to = 0;
+    } else if (e.key === 'End') {
+      to = this.choices.length - 1;
+    } else if (e.key !== ' ') {
+      return;
+    }
+    e.preventDefault();
+    this.choices[to].control.focus({ preventScroll: true });
+    this.choose(this.choices[to].item.value);
+  };
+}

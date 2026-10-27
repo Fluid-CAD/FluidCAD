@@ -1,9 +1,10 @@
 import { join } from 'path';
 import { readFile } from 'fs/promises';
 import { normalizePath } from '../normalize-path.ts';
-import { collectWorkspaceFiles } from '../model-package/pack.ts';
+import { WorkspaceFiles } from '../files/workspace-files.ts';
 import { isScriptPath, readDeclaredUnit } from '../file-unit.ts';
 import type { LengthUnit } from '../project-config.ts';
+import { PackageOffers, type PackageRef } from '../packages/package-offers.ts';
 
 /** Matches any `part(` call — the cheap text prefilter before evaluating. */
 const PART_CALL = /\bpart\s*\(/;
@@ -12,7 +13,7 @@ const PART_CALL = /\bpart\s*\(/;
 const EXPORT_DECL = /\bexport\b/;
 
 export type CatalogFileEntry = {
-  /** Workspace-relative path, for display. */
+  /** Workspace-relative path, for display; a package's file reads `@scope/name/<module>`. */
   path: string;
   absPath: string;
   /**
@@ -22,6 +23,13 @@ export type CatalogFileEntry = {
    * Insert dialog badge a foreign-unit file before then.
    */
   unit: LengthUnit;
+  /**
+   * The installed package the file belongs to, and whether the project
+   * pins it (`dependency`) or it is a library offer (`library`, K7) —
+   * inserting a part from one pins the package first. Absent for the
+   * workspace's own files.
+   */
+  package?: PackageRef;
 };
 
 /**
@@ -39,7 +47,7 @@ export async function listCandidateFiles(
   readContent?: (absPath: string) => string | null,
   projectUnit: LengthUnit = 'mm',
 ): Promise<CatalogFileEntry[]> {
-  const relFiles = await collectWorkspaceFiles(workspacePath);
+  const relFiles = await WorkspaceFiles.collect(workspacePath);
   const out: CatalogFileEntry[] = [];
   for (const rel of relFiles) {
     if (!isScriptPath(rel)) {
@@ -66,4 +74,35 @@ export async function listCandidateFiles(
     }
   }
   return out;
+}
+
+/**
+ * The installed packages' part files the Insert dialog lists beside the
+ * workspace's (research §5): every module holding a part or assembly the
+ * package exports, of each package the project's catalogs offer
+ * ({@link PackageOffers}: the pinned ones, then the library's newest
+ * unpinned ones). Read from the manifests — nothing is evaluated until the
+ * dialog scans a file — and each file is in the package's unit (its own
+ * `unit()`, else the package's). A package this engine can't use is left
+ * out: its parts would not render.
+ */
+export class PackagePartFiles {
+  static list(workspacePath: string): CatalogFileEntry[] {
+    const out: CatalogFileEntry[] = [];
+    for (const offer of PackageOffers.of(workspacePath || null)) {
+      if (offer.problem !== undefined) {
+        continue;
+      }
+      const modules = [...new Set(offer.manifest.parts.map((entry) => entry.module))];
+      for (const module of modules) {
+        out.push({
+          path: `${offer.name}/${module}`,
+          absPath: normalizePath(join(offer.directory, module)),
+          unit: offer.manifest.fileUnits?.[module] ?? offer.manifest.unit ?? 'mm',
+          package: { name: offer.name, version: offer.version, availability: offer.availability },
+        });
+      }
+    }
+    return out;
+  }
 }

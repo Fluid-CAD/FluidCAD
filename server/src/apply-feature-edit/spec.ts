@@ -65,6 +65,7 @@ import type { TextStatementOptions } from './features/text.ts';
 import type { WrapEditOptions } from './features/wrap.ts';
 import type { HoleFastenSpec, HolePlacementSpec, HoleValueOptions } from './features/hole.ts';
 import type { HoleEditOptions } from './features/hole.ts';
+import type { CustomFeatureOptions } from './features/custom.ts';
 import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
 
 /**
@@ -73,7 +74,7 @@ import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'custom';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -149,6 +150,13 @@ export type ApplyFeatureEditSpec = {
   translate?: TranslateEditOptions;
   /** Boolean-only payload (fuse/subtract/common); no selector parts. */
   boolean?: BooleanEditOptions;
+  /**
+   * A custom feature's create payload: its id, where its builder is
+   * imported from, the catalog's shape of its statements, and every value
+   * the dialog writes — picked ones as elements rendered from `producers`
+   * and `parts`. An edit rides `edit.custom`.
+   */
+  custom?: CustomFeatureOptions;
   filePath: string;
   producers: {
     line: number;
@@ -864,6 +872,14 @@ export type FeatureStatementEditTarget = {
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];
   };
+  /**
+   * A custom feature's values over the statement at `line`: each value the
+   * dialog writes, `keep` for one it leaves as written, picked elements kept
+   * by position (`verbatim`) or re-picked from `producers`/`parts`. The
+   * call shape is the statement's own feature's; the operation and scope
+   * absent keep the statement's chains.
+   */
+  custom?: CustomFeatureOptions;
   /**
    * Plane options. The type and the numeric options rewrite wholesale (the
    * dialog owns every one of them); the base list mixes `verbatim` keeps

@@ -3,16 +3,19 @@
 import type {
   AssemblyExportOutcome,
   AssemblyExportPose,
+  FeatureSlotRequest,
+  FeatureSlotSynthesis,
   InterferenceRequest,
   RenderChangeTracker,
   ResolveSelectionRequest,
   ResolveSelectionResult,
+  SceneCompareOptions,
   SceneInterferenceOutcome,
   SceneValidationOutcome,
   ValidateSceneRequest,
 } from '../../../lib/dist/index.js';
 import type { SerializedAssembly } from './assembly-types.ts';
-import type { FeatureGhostRequest, SketchOffsetPlanRequest, SketchRegionsRequest } from './ghost-requests.ts';
+import type { KernelGhostRequest, SketchOffsetPlanRequest, SketchRegionsRequest } from './ghost-requests.ts';
 import type { MeasureRef, SelectionBoundary, SelectionSynthesisOptions } from './query-types.ts';
 
 export type SceneManager = {
@@ -24,7 +27,10 @@ export type SceneManager = {
   // Optional: may predate timeline-ordered renders — the stop is then the
   // last row, unscoped.
   renderStop?(scene: any): { stop: number; scopePartId: string | null };
-  compare(previousScene: any, currentScene: any, changes?: RenderChangeTracker): any;
+  // `options.rebuild`: feature ids whose code changed since `previousScene`
+  // was built — their statements rebuild though their values match. An
+  // engine that predates it ignores the argument.
+  compare(previousScene: any, currentScene: any, changes?: RenderChangeTracker, options?: SceneCompareOptions): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate scene disposal.
   disposeScene?(scene: any): void;
@@ -36,6 +42,8 @@ export type SceneManager = {
   getShapeProperties(scene: any, shapeId: string): any;
   getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
   getEdgeProperties(scene: any, shapeId: string, edgeIndex: number): any;
+  // Optional: may predate feature picks on geometry (the features whose buckets hold a face or an edge).
+  getShapeOwners?(scene: any, shapeId: string, sub: { type: 'face' | 'edge'; index: number }): { id: string; type: string; uniqueType: string; name: string }[];
   measure(scene: any, refs: MeasureRef[]): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate filter-expression resolution.
@@ -44,6 +52,10 @@ export type SceneManager = {
   validate?(scene: any, request: ValidateSceneRequest): SceneValidationOutcome;
   // Optional: may predate interference checking.
   interfere?(scene: any, request: InterferenceRequest): SceneInterferenceOutcome;
+  // Optional: may predate the per-instance solid lookup. Instance id → the
+  // rendered solids it shows (the pool validate / interfere address); null
+  // for a part scene.
+  getInstanceShapeIds?(scene: any): Map<string, string[]> | null;
   explainSelection(
     scene: any,
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
@@ -65,6 +77,13 @@ export type SceneManager = {
     },
     before?: SelectionBoundary,
   ): any;
+  // Optional: may predate custom feature pickers.
+  synthesizeFeatureSlots?(
+    scene: any,
+    request: FeatureSlotRequest,
+    options?: SelectionSynthesisOptions,
+    before?: SelectionBoundary,
+  ): FeatureSlotSynthesis | { ok: false; reason: string };
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate consumer-side exposure resolution.
   resolvePickExposure?(
@@ -168,7 +187,7 @@ export type SceneManager = {
   ): any;
   resolveFeatureSources(scene: any, boundary: SelectionBoundary): any;
   // Optional: predates the live dialog geometry preview ("ghost").
-  buildFeatureGhost?(scene: any, request: FeatureGhostRequest): any;
+  buildFeatureGhost?(scene: any, request: KernelGhostRequest): any;
   // Optional: predates the dialog region picker.
   buildSketchRegions?(scene: any, request: SketchRegionsRequest): any;
   // Optional: predates the sketcher's constrained Offset tool.

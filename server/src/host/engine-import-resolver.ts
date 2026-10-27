@@ -63,11 +63,14 @@ export class EngineImportResolver {
    * `fetchModule` internal, but it is the one seam every runner request
    * crosses; the linkless-workspace test loads a model through a real host so
    * a Vite upgrade that moves the seam fails there, not in a user's project.
+   *
+   * `steers` picks the importers this resolver answers for; the others go to
+   * Vite's own `node_modules` walk. By default it answers for every importer.
    */
-  install(environment: DevEnvironment): void {
+  install(environment: DevEnvironment, steers: (importer: string | undefined) => boolean = () => true): void {
     const viteFetch = environment.fetchModule.bind(environment);
     environment.fetchModule = async (id, importer, options) => {
-      const steered = this.fetch(id);
+      const steered = steers(importer) ? this.fetch(id) : null;
       if (steered) {
         return steered;
       }

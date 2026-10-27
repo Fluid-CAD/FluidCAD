@@ -9,6 +9,7 @@ import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import type { ConnectorPickDetail } from '../feature-dialog-registry';
 import { HelixPanel } from './helix-panel';
 import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
@@ -17,9 +18,11 @@ import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { collectSketchProfiles } from './sketch-profiles';
 import {
-  AXIS_UNAVAILABLE_MESSAGE, AxisOption, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
-  axisOptionsSignature, collectAxisOptions, labelWithAxisNames, pickedAxisRef,
+  AXIS_UNAVAILABLE_MESSAGE, AxisOption, AxisRefs, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
+  axisOptionsSignature, collectAxisOptions, labelWithAxisNames,
 } from './axis-options';
+import { ConnectorOption } from './connector-options';
+import { ConnectorPicks } from './connector-picks';
 import { iconUrl } from '../../ui/icon-url';
 
 /**
@@ -27,8 +30,9 @@ import { iconUrl } from '../../ui/icon-url';
  * on a cylindrical/conical face, chosen by the From-axis / From-face tabs. In
  * axis mode the axis slot takes a world axis clicked in 3D, an axis statement's
  * dashed line clicked in 3D (the viewer's `pickAxes` channel), an axis row in
- * the timeline, or a single solid edge — written `axis(<edge>)` (the revolve
- * axis idiom). In face mode the face slot takes a single cylindrical face
+ * the timeline, a single solid edge — written `axis(<edge>)` (the revolve
+ * axis idiom) — or a connector, its gizmo or its row, standing for its Z axis
+ * through its origin. In face mode the face slot takes a single cylindrical face
  * picked in 3D (the wrap idiom). The tab decides which channel is live. A
  * helix is a wire, not a solid, so there is no add/remove/new operation — Apply
  * writes `helix(<source>)` with the chained geometry configurators
@@ -50,6 +54,8 @@ export class HelixFeatureService {
   private sourceEdgeEntity: SelectedEntity | null = null;
   /** The picked cylindrical face (face mode's source), or null. */
   private sourceFaceEntity: SelectedEntity | null = null;
+  /** The scene's connectors, which the axis slot takes too. */
+  private connectors: ConnectorPicks;
   /** Statement being edited in place (timeline double-click), or null. */
   private editTarget: FeatureEditTarget | null = null;
   /** View-state half of edit mode: pre-statement rollback + boundary. */
@@ -91,6 +97,7 @@ export class HelixFeatureService {
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.ghost = new FeatureGhostOverlay(viewer);
+    this.connectors = new ConnectorPicks(container, viewer);
 
     this.panel = new HelixPanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -180,6 +187,11 @@ export class HelixFeatureService {
     return this.armed && this.panel.sourceMode === 'axis';
   }
 
+  /** Axis mode: connector gizmos are revealed and land in the axis slot. */
+  get isConnectorPicking(): boolean {
+    return this.isAxisPicking;
+  }
+
   /** Face mode: the viewer routes face clicks here. */
   get isFacePicking(): boolean {
     return this.armed && this.panel.sourceMode === 'face';
@@ -222,6 +234,7 @@ export class HelixFeatureService {
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.axes = collectAxisOptions(sceneObjects);
+    this.panel.setConnectorOptions(this.connectors.collect(sceneObjects));
     if (this.editSceneStale) {
       this.editSceneStale = false;
       // A scene rebuild killed the re-picked source's shape id; the keep chip
@@ -248,6 +261,7 @@ export class HelixFeatureService {
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
     this.axes = collectAxisOptions(sceneObjects);
+    this.connectors.collect(sceneObjects);
     const profiles = collectSketchProfiles(sceneObjects);
     this.hasSketch = profiles.length > 0;
     this.hasSolid = sceneObjects.some(o =>
@@ -282,6 +296,7 @@ export class HelixFeatureService {
       this.panel.setAxisEdgeChip(null);
       this.panel.setFaceChip(null);
     }
+    this.panel.setConnectorOptions(this.connectors.all);
     this.panel.setAxisOptions(this.axes);
     void this.relabeler.refresh(this.axes);
     this.refreshHighlight();
@@ -347,6 +362,8 @@ export class HelixFeatureService {
       return;
     }
     this.sourceSlot = result.ok && result.feature === 'helix' ? result.source : { kind: 'opaque' };
+    // A connector source reads as that connector's chip, still kept as written.
+    this.panel.setKeptConnector(this.connectors.forSource(this.sourceSlot));
     this.refreshHighlight();
     // The ghost's keep slot reads `sourceSlot`, which resolves after
     // `enterEdit` already scheduled its preview — re-kick so the kept-source
@@ -401,11 +418,13 @@ export class HelixFeatureService {
     this.syncButton();
     this.runner.cancelPreview();
     this.ghost.clear();
+    this.connectors.close();
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
     this.viewer.pickAxes = false;
     this.viewer.hideStandardAxes();
+    this.viewer.setConnectorPicking(false);
     this.panel.hide();
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
@@ -449,13 +468,37 @@ export class HelixFeatureService {
   }
 
   /**
-   * A timeline row was clicked while the dialog is armed: in axis mode an axis
-   * row lands in the axis slot. Consumed so the default rollback can't close
-   * the dialog mid-flow.
+   * A connector gizmo was clicked in axis mode: the connector is the axis —
+   * its Z axis through its origin. Several gizmos under the cursor ask
+   * which first.
+   */
+  handleConnectorPick(connectorId: string | null, detail?: ConnectorPickDetail): void {
+    if (!this.isConnectorPicking || !connectorId) {
+      return;
+    }
+    const refusal = this.connectors.pick(connectorId, detail, option => this.pickConnectorAxis(option));
+    if (refusal) {
+      this.panel.setMessage(refusal);
+    }
+  }
+
+  /**
+   * A timeline row was clicked while the dialog is armed: in axis mode an
+   * axis or a connector row lands in the axis slot. Consumed so the default
+   * rollback can't close the dialog mid-flow.
    */
   handleTimelinePick(obj: SceneObjectRender): boolean {
     if (!this.armed || this.panel.sourceMode !== 'axis') {
       return false;
+    }
+    if (obj.type === 'connector') {
+      const connector = this.connectors.forRow(obj);
+      if (connector) {
+        this.pickConnectorAxis(connector);
+      } else {
+        this.panel.setMessage(ConnectorPicks.UNREFERENCEABLE);
+      }
+      return true;
     }
     if (obj.type === 'axis' && obj.sourceLocation) {
       const option = axisOptionForLocation(this.axes, obj.sourceLocation);
@@ -467,6 +510,15 @@ export class HelixFeatureService {
       return true;
     }
     return false;
+  }
+
+  /** A connector landed in the axis slot (a gizmo or a row) — its Z axis. */
+  private pickConnectorAxis(option: ConnectorOption): void {
+    this.sourceEdgeEntity = null;
+    this.panel.selectConnectorAxis(option);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
   }
 
   /** An offered axis landed in the axis slot (3D or timeline pick). */
@@ -512,6 +564,10 @@ export class HelixFeatureService {
       if (selection.kind === 'axis') {
         return { kind: 'axis', filePath: selection.option.filePath, line: selection.option.line };
       }
+      if (selection.kind === 'connector') {
+        const { filePath, line, slot } = selection.option;
+        return { kind: 'connector', filePath, line, ...(slot !== undefined ? { slot } : {}) };
+      }
       if (selection.kind === 'edge') {
         // What the apply writes for a picked edge is `axis(<edge>)` — so that
         // is what the ghost coils around, not the edge's own frame.
@@ -537,7 +593,8 @@ export class HelixFeatureService {
 
   /**
    * The edited statement's own source, once `loadEditSources` has resolved it.
-   * An axis statement travels by call site; a selection travels as the single
+   * An axis statement travels by call site, a connector by its site (a
+   * copy's with its slot); a selection travels as the single
    * face or edge it names — and an edge stays an edge here, unlike a fresh
    * pick: `helix(select(edge().circle()))` coils in that circle's frame rather
    * than around it as an axis. Null while the load is still in flight (it
@@ -551,6 +608,9 @@ export class HelixFeatureService {
     }
     if (slot.kind === 'sketch') {
       return { kind: 'axis', filePath: slot.filePath, line: slot.line };
+    }
+    if (slot.kind === 'connector') {
+      return { kind: 'connector', filePath: slot.filePath, line: slot.line, ...(slot.slot !== undefined ? { slot: slot.slot } : {}) };
     }
     // One shape only — the helix source is a single face or edge, and a
     // multi-part selection is a statement the ghost can't stand in for.
@@ -571,7 +631,7 @@ export class HelixFeatureService {
       if (!selection || selection.kind === 'keep') {
         return null;
       }
-      return pickedAxisRef(selection, this.sourceEdgeEntity, 'Pick the axis edge first.');
+      return AxisRefs.request(selection, this.sourceEdgeEntity, 'Pick the axis edge first.');
     }
     const selection = this.panel.faceSelection();
     if (!selection || selection.kind === 'keep') {
@@ -634,7 +694,8 @@ export class HelixFeatureService {
   }
 
   /** The viewer's pick channels follow the source mode: axis → the world
-   * axes shown as pick targets, axis lines and solid edges; face → faces. */
+   * axes shown as pick targets, axis lines, solid edges and every connector
+   * gizmo, revealed; face → faces. */
   private syncPickChannels(): void {
     if (!this.armed) {
       return;
@@ -643,10 +704,12 @@ export class HelixFeatureService {
     this.viewer.pickSketchWires = false;
     this.viewer.pickAxes = axisMode;
     this.viewer.pickFilter = axisMode ? 'edge' : 'face';
+    this.viewer.setConnectorPicking(axisMode);
     if (axisMode) {
       this.viewer.showStandardAxes(this.onStandardAxisPick);
     } else {
       this.viewer.hideStandardAxes();
+      this.connectors.close();
     }
   }
 
@@ -698,6 +761,9 @@ export class HelixFeatureService {
     } else {
       this.viewer.clearHighlight();
     }
+    // A connector source, picked or kept, draws its gizmo enlarged.
+    const connector = this.panel.axisConnector();
+    this.viewer.setPickedConnectors(connector ? [connector.id] : []);
   }
 
   /** The edited statement's own source, resolved at the rolled-back view. */

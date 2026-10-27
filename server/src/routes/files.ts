@@ -5,6 +5,7 @@ import { listWorkspaceFiles, classifyFile } from '../files/file-tree.ts';
 import { newFileContent } from '../file-kind.ts';
 import { resolveWorkspaceFile, WorkspacePathError, type WorkspaceFile } from '../files/workspace-paths.ts';
 import { applyImportUpdates, planImportUpdates } from '../files/import-rewriter.ts';
+import { PackageRoots } from '../packages/package-roots.ts';
 
 /**
  * File I/O for the in-page editor. With Monaco in the page there is no editor
@@ -123,6 +124,24 @@ function respondToError(res: Response, err: unknown): void {
   res.status(500).json({ error: (err as any)?.message ?? String(err) });
 }
 
+/**
+ * {@link resolveWorkspaceFile} for a route that writes, renames or deletes:
+ * a project copy of an installed package (`packages/@scope/name/<version>/`)
+ * and the installer's scratch are inside the workspace but never the
+ * page's to change — installed packages are immutable (K8).
+ */
+function resolveWritableFile(workspacePath: string, requested: unknown): WorkspaceFile {
+  const file = resolveWorkspaceFile(workspacePath, requested);
+  const owner = PackageRoots.owner(file.absPath, workspacePath);
+  if (owner) {
+    throw new WorkspacePathError(PackageRoots.readOnlySentence(owner, file.absPath));
+  }
+  if (PackageRoots.isManaged(file.absPath, workspacePath)) {
+    throw new WorkspacePathError(`${file.relPath} is the package installer's scratch, which only the installer changes.`);
+  }
+  return file;
+}
+
 export function createFilesRouter(deps: FilesRouterDeps): Router {
   const router = Router();
   const { workspacePath } = deps;
@@ -165,7 +184,7 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
       return;
     }
     try {
-      const file = resolveWorkspaceFile(workspacePath, req.body?.path);
+      const file = resolveWritableFile(workspacePath, req.body?.path);
       fs.mkdirSync(path.dirname(file.absPath), { recursive: true });
       fs.writeFileSync(file.absPath, content, 'utf8');
       deps.onWrite?.(file.absPath, content);
@@ -218,7 +237,7 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
       return;
     }
     try {
-      const file = resolveWorkspaceFile(workspacePath, req.body?.path);
+      const file = resolveWritableFile(workspacePath, req.body?.path);
       if (fs.existsSync(file.absPath)) {
         res.status(409).json({ error: `${file.relPath} already exists.` });
         return;
@@ -243,7 +262,7 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
    */
   router.post('/files/mkdir', (req, res) => {
     try {
-      const folder = resolveWorkspaceFile(workspacePath, req.body?.path);
+      const folder = resolveWritableFile(workspacePath, req.body?.path);
       if (fs.existsSync(folder.absPath) && !fs.statSync(folder.absPath).isDirectory()) {
         res.status(409).json({ error: `${folder.relPath} already exists and is not a folder.` });
         return;
@@ -277,8 +296,8 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
     let from: WorkspaceFile;
     let to: WorkspaceFile;
     try {
-      from = resolveWorkspaceFile(workspacePath, req.body?.path);
-      to = resolveWorkspaceFile(workspacePath, req.body?.newPath);
+      from = resolveWritableFile(workspacePath, req.body?.path);
+      to = resolveWritableFile(workspacePath, req.body?.newPath);
     } catch (err) {
       respondToError(res, err);
       return;
@@ -405,7 +424,7 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
 
   router.post('/files/delete', (req, res) => {
     try {
-      const file = resolveWorkspaceFile(workspacePath, req.body?.path);
+      const file = resolveWritableFile(workspacePath, req.body?.path);
       const stat = fs.statSync(file.absPath);
       if (!stat.isFile()) {
         res.status(400).json({ error: `Not a file: ${file.relPath}` });

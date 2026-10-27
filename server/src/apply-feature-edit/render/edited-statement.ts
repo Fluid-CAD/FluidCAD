@@ -10,6 +10,7 @@ import {
   validConnectorRotate,
 } from '../features/connector.ts';
 import { renderEditedCopy } from '../features/copy.ts';
+import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
 import { renderExtrudeStatement, renderFaceTargetExpr, type ExtrudeTargetKind } from '../features/extrude.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
 import { renderLoftConnections, renderLoftStatement, resolveLoftSources, validEditCondition } from '../features/loft.ts';
@@ -27,6 +28,7 @@ import { renderShellJoinChain, SHELL_JOIN_KINDS } from '../features/shell.ts';
 import { renderSweepStatement } from '../features/sweep.ts';
 import { renderTextStatement, textOptionsNeedPath, validTextStatementOptions } from '../features/text.ts';
 import { renderWrapStatement } from '../features/wrap.ts';
+import { CustomFeatureStatement } from '../features/custom.ts';
 import type { ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import { isAxisProducer, isPlaneProducer, isScopeTargetProducer } from '../producers/predicates.ts';
 import { editedSelectorArgs, editSourceVar } from './edit-sources.ts';
@@ -113,6 +115,20 @@ export function renderEditedStatement(
       error: `the statement is a ${parsed.feature}, not a ${spec.feature} — `
         + 'is the file in sync with the last render?',
     };
+  }
+  if (parsed.feature === 'custom') {
+    // The statement's own callee and call shape; the values the dialog
+    // kept read from its own text.
+    const opts = spec.edit?.custom;
+    if (!opts) {
+      return { error: 'malformed custom feature edit spec' };
+    }
+    if (opts.id !== parsed.id) {
+      return {
+        error: `the statement builds '${parsed.id}', not '${opts.id}' — is the file in sync with the last render?`,
+      };
+    }
+    return CustomFeatureStatement.render(parsed.callee, opts, spec, varFor, parsed);
   }
   if (parsed.feature === 'extrude') {
     const opts = spec.edit?.extrude;
@@ -345,6 +361,8 @@ export function renderEditedStatement(
         }
       } else if (opts.axis.kind === 'axis' && !isAxisProducer(spec as ApplyFeatureEditSpec, opts.axis.producer)) {
         return { error: 'malformed revolve edit spec: the axis references a non-axis producer' };
+      } else if (opts.axis.kind === 'connector' && !ConnectorAxisSpecs.valid(spec, opts.axis)) {
+        return { error: 'malformed revolve edit spec: the axis references a non-connector producer' };
       } else if (opts.axis.kind === 'standard'
         && opts.axis.axis !== 'x' && opts.axis.axis !== 'y' && opts.axis.axis !== 'z') {
         return { error: 'malformed revolve edit spec: bad standard axis' };
@@ -396,6 +414,8 @@ export function renderEditedStatement(
       } else if (opts.source.kind === 'axis'
         && !isAxisProducer(spec as ApplyFeatureEditSpec, opts.source.producer)) {
         return { error: 'malformed helix edit spec: the source references a non-axis producer' };
+      } else if (opts.source.kind === 'connector' && !ConnectorAxisSpecs.valid(spec, opts.source)) {
+        return { error: 'malformed helix edit spec: the source references a non-connector producer' };
       } else if (opts.source.kind === 'standard'
         && opts.source.axis !== 'x' && opts.source.axis !== 'y' && opts.source.axis !== 'z') {
         return { error: 'malformed helix edit spec: bad standard axis' };

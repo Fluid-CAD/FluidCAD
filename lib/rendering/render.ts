@@ -1,6 +1,6 @@
 import { RenderedShape, Scene, SceneObjectMesh, SceneObjectRender } from "./scene.js";
 import { MeshBuilder } from "./mesh-builder.js";
-import { SceneObject } from "../common/scene-object.js";
+import { SceneObject, type BuildSceneObjectContext } from "../common/scene-object.js";
 import { callSiteKey } from "../common/call-site.js";
 import { BodyLineage } from "./lineage.js";
 import { DefaultNames } from "./default-names.js";
@@ -21,6 +21,8 @@ import { Mesh, bboxDiagonal, bucketDiagonal, meshSizeBucket, resolveMeshConfig }
 import type { MeshQuality, MeshSettings } from "../oc/mesh.js";
 import { Profiler } from "../common/profiler.js";
 import { describeError } from "../common/describe-error.js";
+import { BuildScope } from "../common/build-scope.js";
+import { KernelTraps } from "../oc/kernel-traps.js";
 import { BuildError } from "../common/build-error.js";
 import { withUnit } from "../units/registry.js";
 import type { LengthUnit } from "../units/units.js";
@@ -457,7 +459,7 @@ export class SceneRenderer {
       object.validate();
       // A deferred build runs outside its statement's call stack: re-enter
       // the unit the statement was authored in (a foreign part's features).
-      withUnit(object.getUnit(), () => object.build({
+      const context: BuildSceneObjectContext = {
         getSceneObjects: () => scene.getPartScopedObjectsUpTo(object),
         getActiveSceneObjects: () => scene.getPartScopedActiveObjectsUpTo(object),
         getSceneObjectsFromTo: (from: SceneObject, to: SceneObject) => scene.getSceneObjectsFromTo(from, to),
@@ -473,7 +475,8 @@ export class SceneRenderer {
           return null;
         },
         getProfiler: () => profiler,
-      }));
+      };
+      withUnit(object.getUnit(), () => BuildScope.run(object, context, () => object.build(context)));
 
       const appliedTransform = object.getAppliedTransform();
       if (appliedTransform && !object.isContainer()) {
@@ -483,9 +486,18 @@ export class SceneRenderer {
         }
       }
     } catch (error) {
-      const message = describeError(error);
-      console.error(`Error building object ${object.getUniqueType()}:`, message);
-      object.setError(message);
+      if (KernelTraps.isTrap(error)) {
+        // The wasm module trapped mid-operation: the row fails, the rest of
+        // the model still builds, and the host hears the heap may be corrupt.
+        const name = object.hasCustomName() ? object.getName() : object.getDisplayType();
+        KernelTraps.record(error, { type: object.getType(), name, during: 'build' });
+        console.error(`The OpenCascade kernel trapped building ${object.getUniqueType()}:`, error);
+        object.setError(KernelTraps.buildMessage(name, error), { kernelTrap: true });
+      } else {
+        const message = describeError(error);
+        console.error(`Error building object ${object.getUniqueType()}:`, message);
+        object.setError(message);
+      }
     }
 
     const totalMs = performance.now() - start;
@@ -779,6 +791,7 @@ export class SceneRenderer {
       hideChildren: obj.hidesChildren() || undefined,
       hasError,
       errorMessage,
+      kernelTrap: hasError && obj.isKernelTrap() ? true : undefined,
       sourceLocation,
       buildDurationMs: opts.buildDurationMs,
       profileCategories,

@@ -5,8 +5,8 @@ import { TimelineView } from '../helpers/timeline-view';
 import type { TimelineEntry } from '../../../lib/dist/common/timeline';
 import { findActiveObject, findActiveSketch, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated, isHiddenTimelineRow, isShowableConsumedRow } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_ALERT_TRIANGLE, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY, ICON_SCALE } from './icons';
-import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_ALERT_TRIANGLE, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH, ICON_EYE, ICON_EYE_OFF, ICON_COPY, ICON_SCALE, ICON_PACKAGE } from './icons';
+import { ObjectIcons, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 import { AccordionSection } from './accordion-section';
 import { RAIL_PANEL_CLASS } from './rail-styles';
@@ -260,6 +260,13 @@ export class TimelinePanel {
    * removed on its own through the editor client.
    */
   onRemoveFeature?: (obj: SceneObjectRender) => void;
+
+  /**
+   * An edit gesture (the double-click) on a row an installed package made:
+   * packages are read-only, so the host says so instead of opening a dialog
+   * or the file.
+   */
+  onReadOnlyRow?: (obj: SceneObjectRender) => void;
 
   private panel: HTMLDivElement;
   private timelineBody: HTMLDivElement;
@@ -560,6 +567,18 @@ export class TimelinePanel {
     const previewing = !paused && isRollbackViewTruncated(sceneObjects, rollbackStop, rollbackScopePartId);
     this.shapesPanel.update(sceneObjects, previewing ? { stop: rollbackStop, scopePartId: rollbackScopePartId } : undefined);
     this.updateHistoryTotal();
+  }
+
+  /**
+   * Re-draw the rows of the last scene: something a row reads from outside
+   * the scene changed — its icon, whether a dialog edits it (the feature
+   * catalog arriving or changing). Scroll and row state stay as they are.
+   */
+  refreshRows(): void {
+    if (!this.loaded) {
+      return;
+    }
+    this.renderTimeline();
   }
 
   /**
@@ -1069,7 +1088,7 @@ export class TimelinePanel {
         if (obj && this.onFeatureIntercept?.(obj)) {
           return;
         }
-        if (obj && obj.type === 'part' && this.setActivePart) {
+        if (obj && obj.type === 'part' && this.setActivePart && !TimelinePanel.isPackageRow(obj)) {
           // Part rows toggle the active part instead of rolling back: an
           // inactive row becomes the active part, the active one steps out to
           // the file's top level. A double-click's second click only
@@ -1109,6 +1128,11 @@ export class TimelinePanel {
         }
         const index = parseInt(el.dataset.index!, 10);
         const obj = this.sceneObjects[index];
+        if (obj && TimelinePanel.isPackageRow(obj)) {
+          // A package's rows are read-only: no breakpoint, no dialog.
+          this.onReadOnlyRow?.(obj);
+          return;
+        }
         if (obj && obj.type === 'part') {
           // Parts have no edit dialog and their clicks already activated the
           // part — a double-click must not place a breakpoint. The context
@@ -1589,9 +1613,9 @@ export class TimelinePanel {
     const isSelected = this.selectedIndices.has(index);
     const isDraggable = !unevaluated && !this.sketchActive && this.isMovableRow(obj);
     const isDropTarget = !unevaluated && this.onMoveToPart != null && !this.sketchActive && isTopLevel
-      && obj.type === 'part' && obj.sourceLocation != null;
+      && obj.type === 'part' && obj.sourceLocation != null && !TimelinePanel.isPackageRow(obj);
     const name = obj.name || 'Unknown';
-    let iconSrc = iconUrl(resolveIconName(obj.uniqueType, obj.type));
+    let iconSrc = ObjectIcons.srcFor(obj.uniqueType, obj.type);
     if (obj.type === 'part') {
       iconSrc = isActivePart ? iconUrl('box-blue') : iconUrl('box');
     }
@@ -1687,7 +1711,7 @@ export class TimelinePanel {
     // material…, Remove) so the menu is discoverable without a right-click;
     // an editor-less host has no actions to offer, so no button.
     let menuBtn = '';
-    if (!unevaluated && isTopLevel && obj.type === 'part' && obj.sourceLocation != null && this.client.editor) {
+    if (!unevaluated && isTopLevel && obj.type === 'part' && obj.sourceLocation != null && this.client.editor && !TimelinePanel.isPackageRow(obj)) {
       menuBtn = `<button class="ml-auto btn btn-ghost btn-square btn-xs h-5 min-h-0 text-base-content/40 hover:text-base-content/70 shrink-0 [&>svg]:size-4" data-row-menu="${index}" title="Part actions">${ICON_DOTS_VERTICAL}</button>`;
     }
 
@@ -1713,6 +1737,10 @@ export class TimelinePanel {
         : `<span class="${statusIconClass}">${ICON_REFRESH}</span>`;
     }
 
+    // A row an installed package made wears the package mark: read-only.
+    const packageBadge = obj.package
+      ? `<span class="shrink-0 text-base-content/45 [&>svg]:size-3.5" data-package-badge="${this.escapeHtml(obj.package.name)}" title="${this.escapeHtml(TimelinePanel.packageNote(obj.package))}">${ICON_PACKAGE}</span>`
+      : '';
     const activeDot = isActivePart
       ? '<span class="ml-0.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" title="Active part — new features land inside its body"></span>'
       : '';
@@ -1727,7 +1755,7 @@ export class TimelinePanel {
         ${errorDot}${warningMark}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
         <span class="${nameClass}">${this.escapeHtml(name)}</span>
-        ${activeDot}
+        ${packageBadge}${activeDot}
         ${eyeBtn}${menuBtn}
         ${durationSpan}
         ${statusIcon}
@@ -1888,6 +1916,13 @@ export class TimelinePanel {
     dropdown.style.left = `${position.clientX - panelRect.left}px`;
     dropdown.style.top = `${position.clientY - panelRect.top}px`;
 
+    if (obj.package) {
+      // Every action edits the row's file, which is a package's: the menu
+      // only says why there are none.
+      this.showPackageRowMenu(dropdown, obj.package);
+      return;
+    }
+
     // The edit action mirrors double-click: rows with an edit dialog offer
     // it, and those work even while sketching — the dialog suspends the
     // sketch UI itself and restores it on exit. A sketch row offers it too
@@ -2012,6 +2047,41 @@ export class TimelinePanel {
       document.removeEventListener('click', onClickOutside);
       document.removeEventListener('contextmenu', onClickOutside);
     };
+  }
+
+  /** The read-only row's menu: one line naming the package, no actions. */
+  private showPackageRowMenu(dropdown: HTMLDivElement, pkg: { name: string; version: string }): void {
+    dropdown.innerHTML = `
+      <div data-ref="package-row-note" class="flex items-start gap-2 px-3 py-2 max-w-[240px] text-xs text-base-content/70 leading-snug">
+        <span class="shrink-0 mt-0.5 [&>svg]:size-3.5">${ICON_PACKAGE}</span>
+        <span>${this.escapeHtml(TimelinePanel.packageNote(pkg))}</span>
+      </div>
+    `;
+    this.panel.appendChild(dropdown);
+    this.activeDropdown = dropdown;
+    const onClickOutside = (ev: MouseEvent) => {
+      if (!dropdown.contains(ev.target as Node)) {
+        this.closeDropdown();
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener('click', onClickOutside);
+      document.addEventListener('contextmenu', onClickOutside);
+    }, 0);
+    this.dropdownCleanup = () => {
+      document.removeEventListener('click', onClickOutside);
+      document.removeEventListener('contextmenu', onClickOutside);
+    };
+  }
+
+  /** A row an installed package made (`row.package`, stamped by the engine): read-only, like every package file (K8). */
+  static isPackageRow(obj: SceneObjectRender | undefined): boolean {
+    return obj?.package != null;
+  }
+
+  /** "From @acme/gears 1.2.0. Packages are read-only: …" — the badge's tooltip and the row menu's line. */
+  static packageNote(pkg: { name: string; version: string }): string {
+    return `From ${pkg.name} ${pkg.version}. Installed packages are read-only, so this row can't be edited, renamed or removed.`;
   }
 
   /**
@@ -2244,7 +2314,9 @@ export class TimelinePanel {
    * already visible. Opening the editor stays the user's own gesture.
    */
   private goToSource(obj: SceneObjectRender | undefined): void {
-    if (!obj || !obj.sourceLocation) {
+    // A package's file is read-only and, in the library, outside the
+    // project: no editor follows a row into it.
+    if (!obj || !obj.sourceLocation || TimelinePanel.isPackageRow(obj)) {
       return;
     }
     this.client.editor?.gotoSource(obj.sourceLocation, { revealEditor: false });
@@ -2265,6 +2337,7 @@ export class TimelinePanel {
       && obj.parentId == null
       && obj.type !== 'part'
       && obj.sourceLocation != null
+      && !TimelinePanel.isPackageRow(obj)
       && !isHiddenRow(obj);
   }
 

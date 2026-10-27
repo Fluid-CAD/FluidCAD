@@ -79,6 +79,21 @@ export class SceneDisposal {
     SceneDisposal.releaseShapes(replaced, survivors);
   }
 
+  /**
+   * Release wrappers built outside the scene — a preview's shapes, with the
+   * sub-shape wrappers they cached — sparing every wrapper the scene's
+   * objects still reach and every raw handle one of those shares (a
+   * `Solid.copy()` of a scene solid shares its handle).
+   */
+  static releaseDetached(shapes: Shape[], objects: SceneObject[]): void {
+    const candidates = new Set<Shape>();
+    const seen = new Set<object>();
+    for (const shape of shapes) {
+      SceneDisposal.walk(shape, candidates, seen);
+    }
+    SceneDisposal.releaseShapes(candidates, SceneDisposal.collectShapes(objects));
+  }
+
   /** Every Shape wrapper reachable from the objects' state maps. */
   static collectShapes(objects: SceneObject[]): Set<Shape> {
     const shapes = new Set<Shape>();

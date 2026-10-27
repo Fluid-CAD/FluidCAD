@@ -1,7 +1,11 @@
 import type { Response } from 'express';
 import type { FluidCadServer } from './fluidcad-server/index.ts';
 import { EditAckRegistry } from './edit-acks.ts';
-import { applyFeatureEdit, type ApplyFeatureEditSpec } from './apply-feature-edit/index.ts';
+import { applyFeatureEdit, type ApplyFeatureEditSpec, type FeatureCalleeSource } from './apply-feature-edit/index.ts';
+import type { PackageEditGuard } from './packages/package-edit-guard.ts';
+
+/** Why a dispatch's {@link FeatureEditDispatcher.dispatch} `beforeSend` step refused the edit. */
+export type DispatchRefusal = { status: number; reason: string; code?: string };
 
 export type EditDispatcherOptions = {
   /**
@@ -12,6 +16,13 @@ export type EditDispatcherOptions = {
   preflight?: boolean;
   /** How long to wait for the editor's transform round-trip (default 5000ms). */
   ackTimeoutMs?: number;
+  /** The workspace's custom features, for the preflight's producer gates (the feature catalog). */
+  callees?: FeatureCalleeSource;
+  /**
+   * Refuses an edit aimed at an installed package's file (K8) before
+   * anything is sent. Omitted (tests), nothing is refused.
+   */
+  packages?: PackageEditGuard;
 };
 
 /**
@@ -35,6 +46,8 @@ export class FeatureEditDispatcher {
   private readonly acks: EditAckRegistry;
   private readonly preflightEnabled: boolean;
   private readonly ackTimeoutMs: number;
+  private readonly callees: FeatureCalleeSource | undefined;
+  private readonly packages: PackageEditGuard | undefined;
 
   constructor(
     private readonly fluidCadServer: FluidCadServer,
@@ -43,19 +56,42 @@ export class FeatureEditDispatcher {
   ) {
     this.preflightEnabled = options.preflight !== false;
     this.ackTimeoutMs = options.ackTimeoutMs ?? 5000;
+    this.callees = options.callees;
+    this.packages = options.packages;
     this.acks = new EditAckRegistry(this.ackTimeoutMs);
   }
 
+  /**
+   * Answer 403 when one of `files` belongs to an installed package (K8),
+   * for a route that must refuse before its first side effect; true when
+   * it did. Every dispatch checks its own spec anyway.
+   */
+  refuseReadOnly(res: Response, ...files: (string | null | undefined)[]): boolean {
+    return this.packages?.refuse(res, ...files) ?? false;
+  }
+
+  /**
+   * Preflight `spec`, hand it to the editor, and answer `res` with the
+   * editor's outcome. `options.beforeSend` runs once the preflight has
+   * accepted the edit and before the editor writes it — a write the edit
+   * depends on, such as the pin a library package's statement needs
+   * (`PackageAdoption`), so the ack answers for both; a refusal it returns
+   * answers the request and nothing is sent.
+   */
   async dispatch(
     res: Response,
     spec: ApplyFeatureEditSpec,
     successBody: Record<string, unknown>,
+    options: { beforeSend?: () => Promise<DispatchRefusal | null> } = {},
   ): Promise<void> {
+    if (this.refuseReadOnly(res, spec.filePath)) {
+      return;
+    }
     if (this.preflightEnabled && spec.filePath === this.fluidCadServer.getCurrentFileName()) {
       const code = this.fluidCadServer.getCurrentCode();
       if (code !== null) {
         try {
-          const dryRun = await applyFeatureEdit(code, spec);
+          const dryRun = await applyFeatureEdit(code, spec, { callees: this.callees });
           if (dryRun.error) {
             res.status(422).json({ success: false, reason: dryRun.error });
             return;
@@ -63,6 +99,13 @@ export class FeatureEditDispatcher {
         } catch {
           // A preflight crash is not a verdict — the editor round-trip decides.
         }
+      }
+    }
+    if (options.beforeSend) {
+      const refusal = await options.beforeSend();
+      if (refusal) {
+        res.status(refusal.status).json({ success: false, reason: refusal.reason, ...(refusal.code ? { code: refusal.code } : {}) });
+        return;
       }
     }
     const { editId, result } = this.acks.register();
@@ -95,11 +138,15 @@ export class FeatureEditDispatcher {
    * follows) when the host says; absent otherwise.
    */
   async send(spec: ApplyFeatureEditSpec): Promise<{ error?: string; changed?: boolean }> {
+    const readOnly = this.packages?.refusal(spec.filePath);
+    if (readOnly) {
+      return { error: readOnly.message };
+    }
     if (this.preflightEnabled && spec.filePath === this.fluidCadServer.getCurrentFileName()) {
       const code = this.fluidCadServer.getCurrentCode();
       if (code !== null) {
         try {
-          const dryRun = await applyFeatureEdit(code, spec);
+          const dryRun = await applyFeatureEdit(code, spec, { callees: this.callees });
           if (dryRun.error) {
             return { error: dryRun.error };
           }
@@ -137,6 +184,9 @@ export class FeatureEditDispatcher {
     res: Response,
     buildMessage: (editId: string) => Record<string, unknown>,
   ): Promise<void> {
+    if (this.packages && this.refuseReadOnly(res, ...this.packages.targetsOf(buildMessage('')))) {
+      return;
+    }
     const { editId, result } = this.acks.register();
     const delivered = this.sendToExtension(buildMessage(editId)) === true;
     if (!delivered) {

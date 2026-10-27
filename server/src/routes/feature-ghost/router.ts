@@ -45,6 +45,7 @@ import {
   parseSplit,
   type RawSplit,
 } from './transforms.ts';
+import { CustomGhostRoute, type GhostFeatureCatalog } from './custom.ts';
 import { ValueScope } from './value-scope.ts';
 import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { isThin, isValueExprOrNull, type ValueExpr } from './values.ts';
@@ -60,8 +61,13 @@ import {
  *
  * Its own small validator on purpose: the ghost body is a fraction of an
  * apply-feature payload, and the two must not drift into each other.
+ *
+ * `catalog` is where a custom feature's ghost (`feature: 'custom'`) looks
+ * the feature up; without one, custom features draw no ghost.
  */
 export type FeatureGhostRouterOptions = {
+  /** The workspace's feature catalog: what a custom feature ghost names by id. */
+  catalog?: GhostFeatureCatalog;
   /** The global-parameters catalog, so a dialog value reading an imported global previews (§2.8). */
   globals?: GlobalParamCatalog;
 };
@@ -71,6 +77,11 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
 
   router.post('/feature-ghost', async (req, res) => {
     const body = (req.body ?? {}) as GhostBody;
+
+    if (body.feature === 'custom') {
+      await CustomGhostRoute.handle(req.body ?? {}, res, fluidCadServer, options.catalog);
+      return;
+    }
 
     if (typeof body.feature !== 'string' || !FEATURES.includes(body.feature)) {
       res.status(400).json({ success: false, reason: 'Unsupported ghost feature' });

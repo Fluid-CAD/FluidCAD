@@ -144,6 +144,14 @@ export function synthesizeApplyFeature(
       };
     }
   }
+  if (feature === 'color') {
+    // The picks are the faces to paint — a colour reads a selection's faces
+    // and nothing else, so an edge pick would paint nothing.
+    const edge = [...refs, ...chains.flatMap(c => c.members)].find(r => r.sub.type !== 'face');
+    if (edge) {
+      return { ok: false, reason: 'a colour paints faces — pick faces only', pick: edge };
+    }
+  }
   if (feature === 'helix') {
     // The helix source is a single edge — its axis, via axis() — or a single
     // cylindrical/conical face, which supplies the frame directly.
@@ -389,6 +397,7 @@ export function synthesizeApplyFeature(
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
         || feature === 'plane' || feature === 'revolve' || feature === 'wrap' || feature === 'helix'
         || feature === 'project' || feature === 'connector' || feature === 'expose' || feature === 'hole'
+        || feature === 'color'
         ? {} : { value }),
       ...(connectorPayload ? { connector: connectorPayload } : {}),
       ...(exposePayload ? { expose: exposePayload } : {}),
@@ -673,6 +682,11 @@ function renderPreview(
   if (feature === 'hole') {
     // The args are one placement's anchor expression; the route composes the statement.
     return `hole(${args})`;
+  }
+  if (feature === 'color') {
+    // The args are the face selectors; the route composes the statement
+    // around the colour it quotes.
+    return `color(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

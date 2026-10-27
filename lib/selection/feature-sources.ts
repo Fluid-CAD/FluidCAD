@@ -3,6 +3,7 @@ import { Shape } from "../common/shape.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeHasher } from "../oc/shape-hash.js";
 import { Shell } from "../features/shell.js";
+import { Color } from "../features/color.js";
 import { Fillet } from "../features/fillet.js";
 import { Chamfer } from "../features/chamfer.js";
 import { Sweep } from "../features/sweep.js";
@@ -91,6 +92,13 @@ export type FeatureSources =
   /** The single source: an axis statement (axis mode) or a face (face mode). */
   | { feature: 'helix'; source: SourceSlot }
   | { feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlot }
+  /**
+   * A colour: the faces it paints, as entities on the pre-statement solids
+   * (`opaque` when it paints whole objects or nothing pickable), plus the
+   * objects it paints whole, by call site — a bare `color(value)` reports an
+   * opaque selection and no targets.
+   */
+  | { feature: 'color'; selection: SourceSlot; targets: SourceSlot[] }
   /**
    * The projected (or, for `intersect()`, sectioned) 3D sources, as entities
    * on the pre-statement solids — the two statements share one dialog.
@@ -205,6 +213,15 @@ export function resolveFeatureSources(
     }
     if (feature instanceof Chamfer) {
       return { ok: true, feature: 'chamfer', selection: resolver.entitiesSlot(feature.selections) };
+    }
+    if (feature instanceof Color) {
+      const faces = feature.faceSelections;
+      return {
+        ok: true,
+        feature: 'color',
+        selection: faces.length > 0 ? resolver.entitiesSlot(faces) : OPAQUE,
+        targets: resolver.statementSlots(feature.objectSelections),
+      };
     }
     if (feature instanceof Projection) {
       return { ok: true, feature: 'projection', ...resolver.projectionSlots(feature.sources) };

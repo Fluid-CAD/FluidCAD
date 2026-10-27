@@ -41,7 +41,7 @@ describe('ProjectPackages.overview: the workspace as a package', () => {
 
     const overview = ProjectPackages.overview(project);
 
-    expect(overview.package).toEqual({ name: '@acme/kit', version: '0.1.0' });
+    expect(overview.package).toEqual({ name: '@acme/kit', version: '1.0.0' });
     expect(overview.packageProblem).toBeUndefined();
     expect(overview.pins).toEqual([]);
   });

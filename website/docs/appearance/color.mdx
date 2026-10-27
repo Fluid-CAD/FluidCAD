@@ -14,11 +14,21 @@ import colorFuseFirstUncolored from '!!raw-loader!./_examples/color-fuse-first-u
 
 `color()` paints faces or whole solids. Colours are part of the model: they survive later features, follow the geometry through fillets and booleans, and are written into STEP exports.
 
-Colour has no dialog — the statement is written in the editor. Select the faces first (a `select()` with a [filter](/docs/3d-operations/selection-and-filters), or a feature accessor such as `e.endFaces()`), then call `color()` with a CSS colour: a name (`"red"`, `"steelblue"`), a hex value (`"#e74c3c"`) or an `rgb(...)` string.
+Paint from the **Color** tool on the toolbar, or write the statement in the editor: select the faces (a `select()` with a [filter](/docs/3d-operations/selection-and-filters), or a feature accessor such as `e.endFaces()`), then call `color()` with a CSS colour: a name (`"red"`, `"steelblue"`), a hex value (`"#e74c3c"`) or an `rgb(...)` string.
 
 ![Colored faces](/img/docs/appearance/color-example.png)
 
 <ExplainedCode code={colorExample} fileName="painted.part.js" />
+
+## In the viewport
+
+1. Click **Color** on the toolbar. The dialog opens on the **Solid** tab; faces already selected open it on the **Face** tab with those faces picked.
+2. Choose the colour: pick one from the colour well, type a value in the field — a hex value (`#3498db`), a CSS colour name (`steelblue`) or an `rgb(…)` string — or click a swatch.
+3. On the **Solid** tab, click a face or edge of each solid to paint whole, or its feature row in the timeline. Every face of the solid takes the colour. On the **Face** tab, click the faces to paint; double-click a face to take its whole group (every end face of an extrude, say), or right-click one for the same multi-select menu the Fillet tool offers.
+4. The picks show in the chosen colour as you go, and the preview under the dialog reads the statement the tool will write. On the Face tab the expression row shows the selector the picks resolve to; edit it, or pick an alternative from its dropdown, to write that instead.
+5. Click **Apply**. FluidCAD adds a Color feature to the timeline and writes `color('steelblue', e)` for whole solids or `color('steelblue', e.endFaces())` for faces.
+
+To change an existing colour, double-click its timeline row. The dialog reopens on the tab the statement uses — whole objects as chips to keep, remove or add to, painted faces as picks to re-pick — with the colour in the field.
 
 ## Colouring a selection
 
@@ -42,6 +52,13 @@ color("steelblue", body)       // base colour for every face
 
 select(face().onPlane("xy", 30))
 color("tomato")                // repaint just the top face
+```
+
+One statement takes any number of targets — several objects, several selections, or a mix:
+
+```js
+color("silver", body, lid)              // both solids
+color("gold", body.endFaces(), lid.endFaces())
 ```
 
 ## Colour never consumes a selection

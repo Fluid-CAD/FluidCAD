@@ -101,8 +101,12 @@ function choose(container: HTMLElement, role: string, label: string): void {
 }
 
 /** Pick a parameter row of a dropdown's Parameters group. */
+/** Picks a parameter row of a dropdown: its name typed first, since the parameters come in as the box is typed. */
 function pick(container: HTMLElement, role: string, name: string): void {
   container.querySelector<HTMLButtonElement>(`[data-role="${role}"]`)!.click();
+  const box = document.body.querySelector<HTMLInputElement>('[data-mode] input[type="search"]')!;
+  box.value = name;
+  box.dispatchEvent(new Event('input', { bubbles: true }));
   document.body.querySelector<HTMLElement>(`[data-parameter="${name}"]`)!.click();
 }
 

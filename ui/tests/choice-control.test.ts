@@ -52,6 +52,11 @@ function mount<V extends string | number>(items: readonly ChoiceItem<V>[], optio
   const el = control.element;
   const popover = () => document.body.querySelector<HTMLElement>('[data-mode]');
   const parameters = () => [...document.body.querySelectorAll<HTMLElement>('[data-parameter]')];
+  const search = (text: string) => {
+    const box = popover()!.querySelector<HTMLInputElement>('input[type="search"]')!;
+    box.value = text;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  };
   return {
     control, onChange, el, popover, parameters,
     open: () => el.click(),
@@ -62,12 +67,12 @@ function mount<V extends string | number>(items: readonly ChoiceItem<V>[], optio
     },
     names: () => parameters().filter(row => !row.dataset.new).map(row => row.dataset.parameter),
     offers: () => parameters().filter(row => row.dataset.new).map(row => row.dataset.parameter),
-    pick: (name: string) => parameters().find(row => row.dataset.parameter === name)!.click(),
-    search: (text: string) => {
-      const box = popover()!.querySelector<HTMLInputElement>('input[type="search"]')!;
-      box.value = text;
-      box.dispatchEvent(new Event('input', { bubbles: true }));
+    /** Picks a parameter row: the parameters come in as the box is typed, so its name is typed first. */
+    pick: (name: string) => {
+      search(name);
+      parameters().find(row => row.dataset.parameter === name)!.click();
     },
+    search,
     binding: () => ({
       name: el.querySelector('[data-role="parameter"]')?.textContent,
       value: el.querySelector('[data-role="resolved"]')?.textContent,
@@ -119,12 +124,15 @@ describe('ChoiceControl without variables', () => {
 
 describe('ChoiceControl with variables', () => {
   it('lists the compatible parameters under the options — by the type of their value, never by numeric — and hides the rest', () => {
-    const { control, open, popover, names, parameters } = mount(SIZES, { value: 'm4' });
+    const { control, open, popover, names, parameters, search } = mount(SIZES, { value: 'm4' });
     control.setVariables(VARIABLES);
     open();
-    expect(names()).toEqual(['holeSize', 'finish', 'stock']);
+    // Nothing typed: the options stand alone; the parameters come in with the first letter.
+    expect(popover()!.querySelector('[data-role="parameters"]')).toBeNull();
+    search('s');
+    expect(names()).toEqual(['stock', 'holeSize', 'finish']);
     expect(popover()!.querySelector('[data-role="parameters"]')!.previousElementSibling!.textContent).toBe('Parameters');
-    const [hole, finish, stock] = parameters();
+    const [stock, hole, finish] = parameters();
     expect(hole.querySelector('[data-role="chip"]')!.textContent).toBe('P');
     expect(hole.querySelector('[data-role="resolved"]')!.textContent).toBe('M5');
     expect(finish.querySelector('[data-role="chip"]')!.textContent).toBe('V');
@@ -138,6 +146,7 @@ describe('ChoiceControl with variables', () => {
     const weights = mount(WEIGHTS, { value: 400, label: 'Weight', dataRole: 'weight' });
     weights.control.setVariables(VARIABLES);
     weights.open();
+    weights.search('t');
     expect(weights.names()).toEqual(['count', 'weight']);
     expect(weights.parameters()[1].querySelector('[data-role="resolved"]')!.textContent).toBe('Bold');
     expect(weights.parameters()[0].querySelector('[data-role="resolved"]')!.textContent).toBe('2');

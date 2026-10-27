@@ -54,17 +54,24 @@ export class ChoiceParameters {
   }
 
   /**
-   * The rows the popover lists for `query` (the search box's text, trimmed):
-   * every compatible variable whose name or project label matches, best
-   * match first — plus, once a name is typed, any variable of that name
-   * whose value the file does not spell (it may well fit; nothing shows what
-   * it selects) — and, when the typed text is a fresh valid name no option
-   * matched, the offer to declare a parameter of it over `seed`, the option
-   * the row shows. The offer's chip follows the session's P toggle.
+   * The rows the popover lists for `query` (the search box's text, trimmed).
+   * Until something is typed, only the variable the row is bound to
+   * (`bound`), so the options stand alone and the binding stays in sight;
+   * the parameters come in as the box is typed. For a query: every
+   * compatible variable whose name or project label matches, best match
+   * first — plus any variable of that name whose value the file does not
+   * spell (it may well fit; nothing shows what it selects) — and, when the
+   * typed text is a fresh valid name no option matched, the offer to declare
+   * a parameter of it over `seed`, the option the row shows. The offer's
+   * chip follows the session's P toggle.
    */
-  suggest(query: string, optionsMatched: number, seed: ChoiceValue | ChoiceValue[] | undefined): ParameterChoice[] {
+  suggest(query: string, optionsMatched: number, seed: ChoiceValue | ChoiceValue[] | undefined, bound: string | null = null): ParameterChoice[] {
     this.seed = seed;
     const lower = query.toLowerCase();
+    if (lower === '') {
+      const current = bound === null ? undefined : this.variables.find(variable => variable.name === bound);
+      return current ? [this.row(current)] : [];
+    }
     const listed = this.variables.filter(variable => {
       if (this.fits(variable.value)) {
         return ChoiceParameters.named(variable, lower);

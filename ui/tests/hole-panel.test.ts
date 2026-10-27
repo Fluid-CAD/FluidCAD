@@ -44,9 +44,16 @@ function openPanel() {
     el.click();
     optionRows().find(option => option.querySelector('.truncate')!.textContent === value)!.click();
   };
-  /** The option labels and the parameter names a dropdown lists, closed again. */
-  const listed = (role: string) => {
+  /** Types into an open dropdown's search box — the parameters come in as it is typed. */
+  const search = (text: string) => {
+    const box = popover()!.querySelector<HTMLInputElement>('input[type="search"]')!;
+    box.value = text;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  /** The option labels and the parameter names a dropdown lists for `query`, closed again. */
+  const listed = (role: string, query = '') => {
     open(role);
+    search(query);
     const options = optionRows().map(option => option.querySelector('.truncate')!.textContent);
     const groups = [...popover()!.querySelectorAll<HTMLElement>('[role="group"]:not([data-role="parameters"])')].map(group => group.getAttribute('aria-label'));
     const parameters = [...document.body.querySelectorAll<HTMLElement>('[data-parameter]:not([data-new])')].map(row => row.dataset.parameter);
@@ -56,6 +63,7 @@ function openPanel() {
   /** Pick a parameter row of a dropdown's Parameters group. */
   const pick = (role: string, name: string) => {
     open(role);
+    search(name);
     document.body.querySelector<HTMLElement>(`[data-parameter="${name}"]`)!.click();
   };
   /** What a bound dropdown's button shows: the parameter's name and the option it resolves to. */
@@ -181,10 +189,13 @@ describe('Hole panel', () => {
       expect(container.querySelector(`[data-role="${role}"]`)!.tagName).toBe('SELECT');
     }
     panel.setScopeVariables(VARIABLES);
-    expect(listed('size').parameters).toEqual(['holeSize', 'fit', 'finish']);
-    expect(listed('fit').parameters).toEqual(['holeSize', 'fit', 'finish']);
+    // Nothing typed lists no parameter; they come in as the box is typed.
+    expect(listed('size').parameters).toEqual([]);
+    expect(listed('size', 'i').parameters).toEqual(['holeSize', 'fit', 'finish']);
+    expect(listed('fit', 'i').parameters).toEqual(['holeSize', 'fit', 'finish']);
     select('type', 'tapped');
-    expect(listed('pitch')).toMatchObject({ groups: ['Coarse', 'Fine'], options: ['1 mm', '0.75 mm'], parameters: ['pitch', 'depth'] });
+    expect(listed('pitch', 't')).toMatchObject({ groups: [], options: [], parameters: ['pitch', 'depth'] });
+    expect(listed('pitch')).toMatchObject({ groups: ['Coarse', 'Fine'], options: ['1 mm', '0.75 mm'], parameters: [] });
   });
 
   it('a size bound to a parameter behaves as its value: pitch list, table diameter, entry seeds and the ghost follow; the request names it', () => {

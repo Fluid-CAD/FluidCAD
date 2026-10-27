@@ -1145,8 +1145,10 @@ describe("parameters in a schema dialog's selects", () => {
       box.value = text;
       box.dispatchEvent(new Event('input', { bubbles: true }));
     };
+    /** Binds a row to a parameter: its name typed first, since the parameters come in as the box is typed. */
     const bind = (name: string, parameter: string) => {
       control(name).click();
+      search(parameter);
       parameters().find(row => row.dataset.parameter === parameter)!.click();
     };
     const binding = (name: string) => ({
@@ -1163,10 +1165,13 @@ describe("parameters in a schema dialog's selects", () => {
   });
 
   it('lists the compatible parameters under the options — by the type of their value, never by numeric — and no group where none fits', () => {
-    const { control, popover, parameters, names, shownValue } = bolt();
+    const { control, popover, parameters, names, shownValue, search } = bolt();
     control('size').click();
-    expect(names()).toEqual(['holeSize', 'finish', 'stock']);
-    const [hole, finish, stock] = parameters();
+    // Nothing typed: the options stand alone; the parameters come in with the first letter.
+    expect(popover()!.querySelector('[data-role="parameters"]')).toBeNull();
+    search('s');
+    expect(names()).toEqual(['stock', 'holeSize', 'finish']);
+    const [stock, hole, finish] = parameters();
     expect(hole.querySelector('[data-role="chip"]')!.textContent).toBe('P');
     expect(shownValue(hole)).toBe('M5');
     expect(finish.querySelector('[data-role="chip"]')!.textContent).toBe('V');
@@ -1178,17 +1183,20 @@ describe("parameters in a schema dialog's selects", () => {
     expect(popover()!.querySelector('[data-role="parameters"]')!.previousElementSibling!.textContent).toBe('Parameters');
     control('size').click();
     control('turns').click();
+    search('t');
     expect(names()).toEqual(['count', 'depth']);
     expect(shownValue(parameters()[0])).toBe('Two');
     expect(shownValue(parameters()[1])).toBe('12');
     control('turns').click();
     control('steps').click();
+    search('fin');
     expect(names()).toEqual(['finishing']);
     expect(shownValue(parameters()[0])).toBe('Deburr, Polish');
     control('steps').click();
     // No variables in scope: no group at all.
     const bare = bolt(null, 'acme.bare');
     bare.control('size').click();
+    bare.search('m');
     expect(bare.popover()!.querySelector('[data-role="parameters"]')).toBeNull();
     expect(bare.names()).toEqual([]);
   });
@@ -1209,8 +1217,9 @@ describe("parameters in a schema dialog's selects", () => {
     search('bod');
     expect(names()).toEqual(['body']);
     expect(shownValue(parameters()[0])).toBeUndefined();
+    // Emptied again, the parameters go: they are listed only for what is typed.
     search('');
-    expect(names()).toEqual(['holeSize', 'finish', 'stock']);
+    expect(names()).toEqual([]);
     expect(offers()).toEqual([]);
   });
 
@@ -1392,6 +1401,9 @@ describe("parameters in a schema dialog's selects", () => {
     panels.push(panel);
     panel.setScopeVariables(VARIABLES);
     root.querySelector<HTMLElement>('[data-role="value-steps"]')!.click();
+    const box = document.querySelector<HTMLInputElement>('[data-mode] input[type="search"]')!;
+    box.value = 'finishing';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector<HTMLElement>('[data-parameter="finishing"]')!.click();
     expect(panel.fields.get('steps')!.read()).toEqual({ error: 'Steps takes at most 1.' });
   });
@@ -1413,6 +1425,9 @@ describe("parameters in a schema dialog's selects", () => {
     const control = (name: string) => root.querySelector<HTMLElement>(`[data-role="value-${name}"]`)!;
     expect(control('head').querySelectorAll('[data-parameter]')).toHaveLength(0);
     control('size').click();
+    const box = document.querySelector<HTMLInputElement>('[data-mode] input[type="search"]')!;
+    box.value = 'holeSize';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector<HTMLElement>('[data-parameter="holeSize"]')!.click();
     expect(panel.fields.get('size')!.read()).toEqual({ value: { ref: 'holeSize' } });
     chooseOption(control('standard'), 'Imperial');

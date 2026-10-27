@@ -580,7 +580,7 @@ abstract class OptionsField extends SchemaField {
   /** The popover's Parameters group, for a row that offers them. */
   protected parameterSource(): ParameterSource | undefined {
     const parameters = this.parameters;
-    return parameters ? (query, matched) => parameters.suggest(query, matched, this.seedForNew()) : undefined;
+    return parameters ? (query, matched) => parameters.suggest(query, matched, this.seedForNew(), this.ref) : undefined;
   }
 
   /** The variable named in place of an option (a seed, a parse), shown bound; not the user's. */

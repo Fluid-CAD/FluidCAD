@@ -71,7 +71,7 @@ export class ChoiceControl<V extends ChoiceValue> {
       mode: options.mode,
       columns: options.columns,
       search: options.search ?? true,
-      parameters: (query, matched) => this.parameters.suggest(query, matched, this.value),
+      parameters: (query, matched) => this.parameters.suggest(query, matched, this.value, this.ref),
     });
     this.element = this.button.element;
     this.element.dataset.role = options.dataRole;

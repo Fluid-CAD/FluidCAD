@@ -1836,6 +1836,9 @@ describe('a select naming a parameter in a custom feature dialog', () => {
     await inScope(service);
     service.handleClick('plate-solid', faceOf('plate-solid', 4).sub);
     input('size').click();
+    const typed = document.querySelector<HTMLInputElement>('[data-mode] input[type="search"]')!;
+    typed.value = 'holeSize';
+    typed.dispatchEvent(new Event('input', { bubbles: true }));
     parameter('holeSize').click();
     await vi.advanceTimersByTimeAsync(300);
     expect(lastCreate()).toMatchObject({ id: 'acme.sized', values: { size: { ref: 'holeSize' } }, preview: true });

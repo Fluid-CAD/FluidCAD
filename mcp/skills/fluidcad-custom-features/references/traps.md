@@ -44,7 +44,7 @@ Read before writing a `*.feature.js` module. Each entry: the mistake, how it sho
 
 ## Filleting a fused feature's whole derived edge bucket
 
-- **Signature.** `fillet(0.3, g.tipEdges())` fails its row with `fillet: could not fillet the selected edges — the radius may be too large for the adjacent geometry. The solid was left unfilleted.` on a gear added onto a face wider than its teeth (the plate itself), while the same fillet works on a `.new()` gear, or on one standing on a seat smaller than its root circle.
+- **Signature.** `fillet(0.3, g.tipEdges())` fails its row with `fillet: the kernel could not build a fillet of radius 0.3 on the N selected edge(s). The radius may be too large for the adjacent faces. The solid was left unfilleted.` on a gear added onto a face wider than its teeth (the plate itself), while the same fillet works on a `.new()` gear, or on one standing on a seat smaller than its root circle.
 - **Why.** Derived edges are taken after the fusion, so they include the concave edges where each tip now meets the plate, and OpenCascade can't round those together with the convex tip edges at the same corner.
 - **Fix.** Filter the bucket (`fillet(0.3, g.tipEdges(edge().convex()))`), or keep the feature apart (`.new()`).
 

@@ -104,10 +104,22 @@ export class Fillet extends SceneObject {
 
       edges = edges.filter(e => !targetEdges.includes(e));
 
+      // An edge between two faces of one surface is a seam a boolean left
+      // unmerged, not a corner: the kernel refuses it. Report such edges
+      // and fillet the rest.
+      const seams = FilletOps.seamsAmong(solid, targetEdges);
+      const breakable = targetEdges.filter(e => !seams.includes(e));
+      if (seams.length > 0) {
+        this.setError(FilletOps.seamsMessage('fillet', solid, seams, breakable.length));
+      }
+      if (breakable.length === 0) {
+        continue;
+      }
+
       const obj = sceneShapeObjectMap.get(shape);
       const colors = obj.getFaceColors(solid);
       try {
-        const { solids: newSolids, history, colors: carried } = FilletOps.makeFillet({ shape: solid, colors }, targetEdges, this.radius);
+        const { solids: newSolids, history, colors: carried } = FilletOps.makeFillet({ shape: solid, colors }, breakable, this.radius);
 
         removedShapes.push({ shape: solid, owner: obj, successors: newSolids });
         if (obj) {
@@ -120,13 +132,11 @@ export class Fillet extends SceneObject {
         }
       } catch {
         // OCCT refused the fillet (radius too large for the adjacent
-        // geometry, tangency trouble, …). Keep the original solid in the
-        // scene, but surface the failure instead of silently skipping it.
+        // geometry, a chain ending on a seam, tangency trouble, …). Keep the
+        // original solid in the scene, but surface the failure instead of
+        // silently skipping it.
         console.error("Fillet: Failed to create fillet.");
-        this.setError(
-          "fillet: could not fillet the selected edges — the radius may be " +
-          "too large for the adjacent geometry. The solid was left unfilleted."
-        );
+        this.setError(FilletOps.refusedMessage('fillet', `a fillet of radius ${this.radius}`, solid, breakable));
         continue;
       } finally {
         colors.delete();

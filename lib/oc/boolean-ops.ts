@@ -621,19 +621,25 @@ export class BooleanOps {
 
     const progress = new oc.Message_ProgressRange();
     builder.Build(progress);
-    builder.SimplifyResult(false, true, oc.Precision.Angular());
 
+    // The same face merge the feature booleans run, retried where the
+    // kernel gives up on a periodic group (see simplifyResult); its history
+    // is folded into the builder's, so the lineage queries below follow it.
     const builtShape = builder.Shape();
+    const simplifiedShape = BooleanOps.simplifyResult(builder, builtShape, oc.Precision.Confusion());
     const resultShape = BooleanOps.unifyEdgesSplitByBoolean(
       builder,
       inputs.raws,
-      builtShape,
+      simplifiedShape,
     );
 
     const rawShapes = Explorer.findAllShapes(resultShape);
     const result = rawShapes.map(s => ShapeFactory.adopt(s));
-    if (resultShape !== builtShape) {
+    if (resultShape !== simplifiedShape) {
       resultShape.delete();
+    }
+    if (simplifiedShape !== builtShape) {
+      simplifiedShape.delete();
     }
     builtShape.delete();
 

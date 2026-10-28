@@ -11,7 +11,8 @@ import { Explorer } from "../oc/explorer.js";
 import { SplitOps, type SplitCutter, type SplitSolidResult } from "../oc/split-ops.js";
 import { ColorTransfer, type CarriedColor } from "../oc/color-transfer.js";
 import { heldSolidsOf, liveOperandShapes, type HeldShape } from "../helpers/live-solids.js";
-import { recordModifierHistory } from "../helpers/scene-helpers.js";
+import { recordModifierHistory, trackReplaced } from "../helpers/scene-helpers.js";
+import { ShapeOps, type CleanShapeLineage } from "../oc/shape-ops.js";
 import { ISplit } from "../core/interfaces.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
 import { CutterFromSketchEdge } from "./cutter-from-sketch-edge.js";
@@ -105,25 +106,56 @@ export class Split extends SceneObject implements ISplit {
         .filter(piece => this.keep === 'both' || piece.side === this.keep)
         .map(piece => piece.solid);
 
-      holder.removeShape(shape, this, kept);
+      // A periodic face the cut crosses at its own seam comes out of the
+      // splitter in two pieces (a revolved sphere's band and caps, cut at
+      // the sketch plane). Merge them back, as the feature booleans
+      // simplify their results: a fillet or chamfer on a later fuse of the
+      // pieces fails on the seams such fragments leave. Colours and the
+      // history are chained through each cleanup, as the chamfer does.
+      const cleanups: CleanShapeLineage[] = [];
+      const cleaned: Solid[] = [];
+      const onCleaned: CarriedColor[] = [];
+      for (const piece of kept) {
+        const cleanup = ShapeOps.cleanShapeWithLineage(piece);
+        cleanups.push(cleanup);
+        const view = ColorTransfer.viewOf(carried, piece);
+        try {
+          onCleaned.push(...ColorTransfer.applyThroughCleanup({ shape: piece, colors: view }, cleanup));
+        } finally {
+          view.delete();
+        }
+        cleaned.push(cleanup.shape as Solid);
+      }
+
+      holder.removeShape(shape, this, cleaned);
       if (history) {
         const within = this.keep === 'both' ? history : historyWithin(history, kept);
-        recordModifierHistory(within, holder, this);
+        // The records keep the post-clean images; the pre-clean wrappers the
+        // cleanups replaced are nobody's afterwards and are freed here.
+        const replaced = new Set<Shape>();
+        recordModifierHistory(within, holder, this, cleanups.map(cleanup => trackReplaced(cleanup, replaced)));
+        for (const wrapper of replaced) {
+          wrapper.dispose();
+        }
         // The result wrappers on a thrown-away piece were recorded nowhere.
         if (within !== history) {
           const recorded = new Set(ShapeHistoryTracker.shapesOf(within));
           for (const wrapper of ShapeHistoryTracker.shapesOf(history)) {
-            if (!recorded.has(wrapper)) wrapper.dispose();
+            if (!recorded.has(wrapper) && !replaced.has(wrapper)) wrapper.dispose();
           }
         }
       }
-      this.addShapes(kept);
-      const onKept = carried.filter(c => kept.some(piece => piece === c.shape));
-      this.recordCarriedColors(onKept);
-      // Colours carried onto a piece that is thrown away go with it, as does the piece.
-      ColorTransfer.disposeCarried(carried.filter(c => !onKept.includes(c)));
+      this.addShapes(cleaned);
+      this.recordCarriedColors(onCleaned);
+      for (const cleanup of cleanups) {
+        cleanup.dispose();
+      }
+      // The scene holds the cleaned pieces only: the splitter's pieces and
+      // the colours carried onto them were read through and are done with,
+      // and a thrown-away piece goes with its colours.
+      ColorTransfer.disposeCarried(carried);
       for (const piece of pieces) {
-        if (!kept.includes(piece.solid)) piece.solid.dispose();
+        piece.solid.dispose();
       }
     }
 

@@ -628,6 +628,31 @@ function recordFusionHistory(
  * (sources become removals), a sub-shape a cleanup never saw passes through
  * unchanged.
  */
+/**
+ * `cleanup` with a memory of every pre-clean wrapper it mapped to something
+ * else — a face or edge whose record now carries the post-clean images. One
+ * handed back as itself (an edge the cleanup kept) is still in use and stays.
+ */
+export function trackReplaced(cleanup: CleanShapeLineage, replaced: Set<Shape>): CleanShapeLineage {
+  return {
+    ...cleanup,
+    remapFace: (face: Face) => {
+      const mapped = cleanup.remapFace(face);
+      if (mapped && !mapped.includes(face)) {
+        replaced.add(face);
+      }
+      return mapped;
+    },
+    remapEdge: (edge: Edge) => {
+      const mapped = cleanup.remapEdge(edge);
+      if (mapped && !mapped.includes(edge)) {
+        replaced.add(edge);
+      }
+      return mapped;
+    },
+  };
+}
+
 export function recordModifierHistory(
   history: ShapeHistory,
   owner: SceneObject,

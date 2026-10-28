@@ -8030,8 +8030,21 @@ export type HubPublishContents = {
   docs: string[];
 };
 
-/** Something pack noticed but packed anyway; never a refusal. */
-export type HubPublishWarning = { code: string; file: string; message: string; target?: string; line?: number };
+/** A field without a useful description (`FeatureDocs`' gap): the feature itself, one of its values, or a part's or assembly's parameter. */
+export type HubPublishDocGap = {
+  kind: 'feature' | 'value' | 'param';
+  /** The feature's id, or the part's or assembly's export name. */
+  owner: string;
+  name: string;
+  label: string;
+  reason: 'missing' | 'repeats-label' | 'too-long';
+};
+
+/**
+ * Something pack noticed but packed anyway; never a refusal.
+ * `undocumented-fields` carries its `fields`; `docs-link` its `target` and `line`.
+ */
+export type HubPublishWarning = { code: string; file: string; message: string; target?: string; line?: number; fields?: HubPublishDocGap[] };
 
 /** What is, or was, uploaded: what `fluidcad publish` prints before `Upload it?`. */
 export type HubPublishSummary = {

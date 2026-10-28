@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PublishDialog, RELEASE_NOTES_CHARS } from '../src/ui/publish/publish-dialog';
 import { PublishState, PublishText } from '../src/ui/publish/publish-state';
 import { FakePublishClient, HUB } from './fixtures/fake-publish-client';
+import type { HubPublishDocGap } from '../src/api';
 import { settle } from './fixtures/fake-packages-client';
 
 // The Publish dialog (ui-packages-plan N4, U6–U10): `fluidcad publish` as
@@ -415,7 +416,7 @@ describe('release notes', () => {
     h.client.advance({ status: 'awaiting-confirm', summary: FakePublishClient.summary({ version: '0.1.1', becomes: 'in_review', notes: 'Fixes the lid.' }) });
     await h.timers.fire();
     expect(words(h.$('summary-notes'))).toBe('Fixes the lid.');
-    expect(words(h.$('becomes'))).toBe('goes straight to review: an admin approves it before it is public');
+    expect(words(h.$('becomes'))).toBe('Goes straight to review: an admin approves it before it is public.');
   });
 
   it('are not asked for a first version, and Check sends none', async () => {
@@ -465,7 +466,7 @@ describe('Check: a dry run', () => {
 });
 
 describe('Publish: the summary, the upload and the result', () => {
-  it('the summary card reads as the CLI prints it, and waits for Upload', async () => {
+  it('the summary card tables where it goes and what it holds, and waits for Upload', async () => {
     const h = await mount();
     await toSummary(h, FakePublishClient.summary({
       contents: {
@@ -475,18 +476,18 @@ describe('Publish: the summary, the upload and the result', () => {
         models: 1,
         docs: ['docs/index.md'],
       },
-      warnings: [{ code: 'docs-link', file: 'docs/index.md', message: 'docs/index.md links to ./missing.md, which is not in the package.' }],
     }));
     expect(h.$('session')!.dataset.status).toBe('awaiting-confirm');
-    expect(h.$('summary-title')!.textContent).toBe('Publishing @acme/kit 0.1.0 on http://localhost:8787 as @acme:');
-    const rows = [...h.overlay.querySelectorAll<HTMLElement>('[data-ref="summary-row"]')].map((el) => [el.dataset.folder, el.textContent]);
-    expect(rows).toEqual([['features/', '2 features'], ['parts/', '1 part'], ['assemblies/', '0 assemblies'], ['docs/', '1 page']]);
-    expect(words(h.$('summary-size'))).toBe('5 files, 1.1 kB');
+    expect(words(h.$('summary-hub'))).toBe('localhost:8787');
+    expect(h.$('summary-hub')!.title).toBe(HUB);
+    expect(words(h.$('summary-handle'))).toBe('@acme');
+    // The empty folders are left out.
+    expect(words(h.$('summary-contents'))).toBe('2 features · 1 part · 1 doc page');
+    expect(words(h.$('summary-size'))).toBe('5 files · 1.1 kB');
     expect(words(h.$('summary-integrity'))).toBe('sha256-abc');
     expect(h.$('summary-notes')).toBeNull();
-    expect(words(h.$('becomes'))).toBe('first version: you finish publishing in your browser (screenshots, license, release notes)');
-    expect(words(h.$('warnings-lead'))).toBe('1 warning (nothing is refused for them):');
-    expect(words(h.$('warning'))).toBe('! docs/index.md links to ./missing.md, which is not in the package.');
+    expect(words(h.$('becomes'))).toBe('First version: after the upload, you finish publishing in your browser (screenshots, license, release notes).');
+    expect(h.$('warnings')).toBeNull();
     expect(words(h.$('confirm-by'))).toMatch(/^Nothing is sent until you upload\. This waits until \d/);
     expect(h.shown('upload')).toBe(true);
     expect(h.shown('cancel')).toBe(true);
@@ -495,12 +496,69 @@ describe('Publish: the summary, the upload and the result', () => {
     expect(h.timers.pending).toHaveLength(1);
   });
 
-  it('a docs-less package has no docs row; a replaced draft says so', async () => {
+  it('a replaced draft says so', async () => {
     const h = await mount();
     await toSummary(h, FakePublishClient.summary({ replacesDraft: true }));
-    expect([...h.overlay.querySelectorAll<HTMLElement>('[data-ref="summary-row"]')].map((el) => el.dataset.folder)).toEqual(['features/', 'parts/', 'assemblies/']);
-    expect(words(h.$('becomes'))).toBe('replaces the draft of 0.1.0 on the hub (the wizard keeps what you filled in)');
-    expect(h.$('warnings')).toBeNull();
+    expect(words(h.$('summary-contents'))).toBe('1 feature · 1 part');
+    expect(words(h.$('becomes'))).toBe('Replaces the draft of 0.1.0 on the hub. The wizard keeps what you filled in.');
+  });
+
+  it('the warnings: a row per file, the fields folded under it by owner', async () => {
+    const h = await mount();
+    const gap = (owner: string, name: string, extra: Partial<HubPublishDocGap> = {}): HubPublishDocGap => ({ kind: 'value', owner, name, label: name, reason: 'missing', ...extra });
+    await toSummary(h, FakePublishClient.summary({
+      warnings: [
+        {
+          code: 'undocumented-fields',
+          file: 'features/standoff.feature.js',
+          message: 'features/standoff.feature.js: 3 fields without a description — standoff: the feature itself, height, outer (repeats its label). Give each a `description`.',
+          fields: [gap('standoff', 'standoff', { kind: 'feature' }), gap('standoff', 'height'), gap('standoff', 'outer', { label: 'Outer diameter', reason: 'repeats-label' })],
+        },
+        {
+          code: 'undocumented-fields',
+          file: 'parts/spacer.part.js',
+          message: 'parts/spacer.part.js: 2 fields without a description — spacer: Length; washer: Bore. Give each a `description`.',
+          fields: [gap('spacer', 'Length', { kind: 'param' }), gap('washer', 'Bore', { kind: 'param' })],
+        },
+        { code: 'docs-link', file: 'docs/index.md', message: 'docs/index.md:12 links to ./missing.md, which leads to no file the package ships.', target: './missing.md', line: 12 },
+        { code: 'future-thing', file: 'docs/a.md', message: 'docs/a.md: something new.' },
+      ],
+    }));
+    expect(words(h.$('warnings-lead'))).toBe('4 warnings');
+    const rows = [...h.overlay.querySelectorAll<HTMLElement>('[data-ref="warning"]')];
+    expect(rows.map((row) => [words(row.querySelector('[data-ref="warning-file"]')), words(row.querySelector('[data-ref="warning-text"]'))])).toEqual([
+      ['features/standoff.feature.js', '3 fields without a description'],
+      ['parts/spacer.part.js', '2 fields without a description'],
+      ['docs/index.md', 'line 12 links to ./missing.md, which leads to no file the package ships.'],
+      ['docs/a.md', 'something new.'],
+    ]);
+    const chips = (row: HTMLElement) => [...row.querySelectorAll('[data-ref="warning-field"]')].map((el) => el.textContent);
+    expect(chips(rows[0])).toEqual(['the feature itself', 'height', 'outer (repeats its label)']);
+    expect(chips(rows[1])).toEqual(['Length', 'Bore']);
+    // Only the fields fold; a link has nothing under it.
+    expect(rows.map((row) => row.querySelector('details') !== null)).toEqual([true, true, false, false]);
+    expect(words(h.$('warnings-hint'))).toBe('Descriptions are optional: give each field listed a description to clear these.');
+
+  });
+
+  it('a poll that brings the same session back leaves the summary\'s nodes alone (a click across it still lands)', async () => {
+    const h = await mount();
+    await toSummary(h, FakePublishClient.summary({
+      warnings: [{ code: 'undocumented-fields', file: 'parts/spacer.part.js', message: 'parts/spacer.part.js: …', fields: [{ kind: 'param', owner: 'spacer', name: 'Length', label: 'Length', reason: 'missing' }] }],
+    }));
+    const summary = h.$('summary');
+    const details = h.overlay.querySelector('details')!;
+    details.open = true;
+    await h.timers.fire();
+    await h.timers.fire();
+    expect(h.client.current.mock.calls.length).toBeGreaterThan(1);
+    expect(h.$('summary')).toBe(summary);
+    expect(h.overlay.querySelector('details')).toBe(details);
+    expect(details.open).toBe(true);
+    // A change is drawn: the upload replaces the summary with the progress.
+    await h.click('upload');
+    expect(h.$('summary')).toBeNull();
+    expect(h.$('progress')).not.toBeNull();
   });
 
   it('Upload → progress → a first version opens the wizard once, shows its link, and the status is read again', async () => {

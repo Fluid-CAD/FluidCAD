@@ -1,5 +1,5 @@
-import type { HubAppPublishState, HubPublishStatus, HubPublishSummary, HubVersionStatus } from '../../api';
-import { ICON_ALERT_TRIANGLE, ICON_CIRCLE_CHECK, ICON_CLOSE } from '../icons';
+import type { HubAppPublishState, HubPublishDocGap, HubPublishStatus, HubPublishSummary, HubPublishWarning, HubVersionStatus } from '../../api';
+import { ICON_ALERT_TRIANGLE, ICON_CHEVRON_RIGHT, ICON_CIRCLE_CHECK, ICON_CLOSE } from '../icons';
 import { HubIcons } from '../hub/hub-icons';
 import { PublishState, PublishText, type PublishSnapshot } from './publish-state';
 
@@ -55,8 +55,8 @@ const ROW_ACTIONS = 'flex items-center gap-0.5 shrink-0 ml-auto -my-1';
  *    **Publish**: the engine's preflight refuses at once (the sentence with
  *    its action: Sign in, a version above the hub's highest,
  *    Withdraw, "Save your files first"), or packs; the **summary** (the
- *    folders, the files and size, the integrity, the warnings, what happens
- *    next) waits for **Upload** or **Cancel**; then the progress, then the
+ *    hub, the contents, the files and size, the integrity, what happens
+ *    next, and the warnings, a row per file) waits for **Upload** or **Cancel**; then the progress, then the
  *    result: a first version opens the hub's wizard in the browser, once,
  *    and shows its link (U9); a later one was submitted for review, with
  *    its status page. The status line is read again, so what the dialog
@@ -99,6 +99,8 @@ export class PublishDialog {
   private openedWizardFor: string | null = null;
   /** The author typed in the version field: the proposal stops overwriting it (reset on open). */
   private versionTouched = false;
+  /** What the session area was last drawn from (see {@link renderSession}). */
+  private sessionKey: string | null = null;
   private destroyed = false;
 
   constructor(container: HTMLElement, private readonly deps: PublishDialogDeps) {
@@ -531,6 +533,15 @@ export class PublishDialog {
   }
 
   private renderSession(s: PublishSnapshot, loading: boolean): void {
+    // A poll that brings the same session back leaves its nodes alone: drawn
+    // again every POLL_MS, a click whose press and release straddle a redraw
+    // lands on nothing (a warning that won't unfold).
+    const failed = s.publish?.status === 'failed';
+    const key = JSON.stringify([loading, s.publish, failed ? s.busy : null, failed ? s.status?.package?.openVersion ?? null : null]);
+    if (key === this.sessionKey) {
+      return;
+    }
+    this.sessionKey = key;
     this.session.replaceChildren();
     delete this.session.dataset.status;
     if (loading) {
@@ -552,7 +563,7 @@ export class PublishDialog {
         this.session.appendChild(PublishDialog.wait('Packing…'));
         return;
       case 'awaiting-confirm':
-        this.session.appendChild(PublishDialog.summaryCard(publish.summary!));
+        this.session.append(...PublishDialog.summary(publish.summary!));
         if (publish.confirmBy) {
           const until = new Date(publish.confirmBy).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           this.session.appendChild(PublishDialog.line('confirm-by', `Nothing is sent until you upload. This waits until ${until}.`, MUTED));
@@ -585,7 +596,7 @@ export class PublishDialog {
       card.appendChild(PublishDialog.lineWithIcon(ICON_CIRCLE_CHECK, 'text-success', PublishText.dryRun(publish)));
       this.session.appendChild(card);
       if (publish.summary) {
-        this.session.appendChild(PublishDialog.summaryCard(publish.summary));
+        this.session.append(...PublishDialog.summary(publish.summary));
       }
       return;
     }
@@ -681,58 +692,151 @@ export class PublishDialog {
     return button;
   }
 
-  /** What will be uploaded: the package, its folders, its hash, and what happens next (`PublishView.printSummary`). */
-  private static summaryCard(summary: HubPublishSummary): HTMLDivElement {
+  /**
+   * What will be uploaded (`PublishView.printSummary`, laid out for reading
+   * rather than printed): a table of where it goes and what it holds, what
+   * happens after the upload, then the warnings, each one row per file.
+   */
+  private static summary(summary: HubPublishSummary): HTMLElement[] {
     const card = document.createElement('div');
     card.dataset.ref = 'summary';
     card.className = CARD;
-    const title = document.createElement('div');
-    title.dataset.ref = 'summary-title';
-    title.className = `${LINE} font-medium`;
-    title.textContent = PublishText.summaryTitle(summary);
-    card.appendChild(title);
-    // One table: the folders, then the archive's size and hash, all sharing the label column.
     const rows = document.createElement('div');
     rows.className = 'grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 items-baseline';
-    for (const [folder, counted] of PublishText.summaryRows(summary)) {
-      const count = document.createElement('span');
-      count.dataset.ref = 'summary-row';
-      count.dataset.folder = folder;
-      count.className = LINE;
-      count.textContent = counted;
-      rows.append(PublishDialog.label(folder), count);
-    }
-    const size = document.createElement('span');
-    size.dataset.ref = 'summary-size';
-    size.className = LINE;
-    size.textContent = PublishText.summarySize(summary);
-    rows.append(PublishDialog.label('archive'), size);
-    const integrity = document.createElement('span');
-    integrity.dataset.ref = 'summary-integrity';
-    integrity.className = `${MUTED} font-mono break-all`;
-    integrity.textContent = summary.integrity;
-    rows.append(PublishDialog.label('integrity'), integrity);
+    const row = (ref: string, label: string, text: string, cls = LINE): HTMLSpanElement => {
+      const value = document.createElement('span');
+      value.dataset.ref = ref;
+      value.className = `${cls} min-w-0`;
+      value.textContent = text;
+      rows.append(PublishDialog.label(label), value);
+      return value;
+    };
+    row('summary-hub', 'Hub', PublishText.host(summary.hub)).title = summary.hub;
+    row('summary-handle', 'As', `@${summary.handle}`);
+    row('summary-contents', 'Contents', PublishText.summaryContents(summary));
+    row('summary-size', 'Archive', PublishText.summarySize(summary));
+    row('summary-integrity', 'Integrity', summary.integrity, `${MUTED} font-mono truncate`).title = summary.integrity;
     if (summary.notes) {
-      const notes = document.createElement('span');
-      notes.dataset.ref = 'summary-notes';
-      notes.className = LINE;
-      notes.textContent = summary.notes;
-      rows.append(PublishDialog.label('notes'), notes);
+      row('summary-notes', 'Notes', summary.notes);
     }
     card.appendChild(rows);
     // What happens next, set off from the table.
-    card.appendChild(PublishDialog.line('becomes', PublishText.becomes(summary), `${LINE} text-base-content/90 mt-1 pt-2 border-t border-base-content/10`));
-    if (summary.warnings.length > 0) {
-      const warnings = document.createElement('div');
-      warnings.dataset.ref = 'warnings';
-      warnings.className = 'flex flex-col gap-0.5';
-      warnings.appendChild(PublishDialog.line('warnings-lead', PublishText.warningsLead(summary.warnings.length), `${LINE} text-warning`));
-      for (const warning of summary.warnings) {
-        warnings.appendChild(PublishDialog.line('warning', `! ${warning.message}`, `${MUTED} pl-3`));
-      }
-      card.appendChild(warnings);
+    const becomes = PublishDialog.line('becomes', PublishText.becomes(summary), `${LINE} text-base-content/90 mt-1 pt-2 border-t border-base-content/10`);
+    card.appendChild(becomes);
+    return summary.warnings.length > 0 ? [card, PublishDialog.warnings(summary.warnings)] : [card];
+  }
+
+  /**
+   * The warnings: a heading that says they don't stop anything, then a row
+   * per warning — the file, and what is wrong in a few words. A file's
+   * fields without a description fold under its row, by owner.
+   */
+  private static warnings(warnings: HubPublishWarning[]): HTMLDivElement {
+    const box = document.createElement('div');
+    box.dataset.ref = 'warnings';
+    box.className = 'rounded-md border border-warning/30 bg-warning/5 flex flex-col';
+    const head = document.createElement('div');
+    head.className = `flex items-center gap-2 px-3 py-2 ${LINE}`;
+    const lead = document.createElement('span');
+    lead.dataset.ref = 'warnings-lead';
+    lead.className = 'font-medium text-base-content/90';
+    lead.textContent = PublishText.warningsLead(warnings.length);
+    const why = document.createElement('span');
+    why.className = MUTED;
+    why.textContent = "They don't stop the upload.";
+    head.append(PublishDialog.icon(ICON_ALERT_TRIANGLE, 'text-warning'), lead, why);
+    box.appendChild(head);
+    const list = document.createElement('ul');
+    list.className = 'flex flex-col border-t border-warning/20 divide-y divide-base-content/5';
+    for (const warning of warnings) {
+      list.appendChild(PublishDialog.warning(warning));
     }
-    return card;
+    box.appendChild(list);
+    if (warnings.some((w) => w.code === 'undocumented-fields')) {
+      const hint = document.createElement('p');
+      hint.dataset.ref = 'warnings-hint';
+      hint.className = `${MUTED} px-3 py-2 border-t border-warning/20`;
+      const code = document.createElement('code');
+      code.className = 'font-mono';
+      code.textContent = 'description';
+      hint.append('Descriptions are optional: give each field listed a ', code, ' to clear these.');
+      box.appendChild(hint);
+    }
+    return box;
+  }
+
+  /** One warning's row: the file, its sentence; the fields fold out under it. */
+  private static warning(warning: HubPublishWarning): HTMLLIElement {
+    const item = document.createElement('li');
+    item.dataset.ref = 'warning';
+    item.dataset.code = warning.code;
+    const file = document.createElement('span');
+    file.dataset.ref = 'warning-file';
+    file.className = 'font-mono text-[11px] text-base-content/85 truncate min-w-0';
+    file.textContent = warning.file;
+    file.title = warning.file;
+    const text = document.createElement('span');
+    text.dataset.ref = 'warning-text';
+    text.className = `${MUTED} min-w-0`;
+    text.textContent = PublishText.warningSummary(warning);
+    const fields = warning.code === 'undocumented-fields' ? warning.fields ?? [] : [];
+    // The file, after a chevron (a blank of its width when nothing folds out), so every file starts in one column.
+    const chevron = document.createElement('span');
+    chevron.className = 'shrink-0 self-center flex w-3 mr-1.5 text-base-content/40 transition-transform group-open:rotate-90 [&>svg]:size-2.5';
+    chevron.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.className = 'flex items-baseline min-w-0';
+    label.append(chevron, file);
+    const rowClass = 'flex items-baseline gap-x-3 gap-y-0.5 flex-wrap px-3 py-1.5';
+    if (fields.length === 0) {
+      const row = document.createElement('div');
+      row.className = rowClass;
+      row.append(label, text);
+      item.appendChild(row);
+      return item;
+    }
+    // A <details>: the file's fields stay folded until asked for.
+    chevron.innerHTML = ICON_CHEVRON_RIGHT;
+    const details = document.createElement('details');
+    details.className = 'group';
+    const head = document.createElement('summary');
+    head.className = `${rowClass} cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden hover:bg-base-content/5`;
+    head.append(label, text);
+    details.appendChild(head);
+    const body = document.createElement('div');
+    body.dataset.ref = 'warning-fields';
+    body.className = 'flex flex-col gap-1.5 pr-3 pb-2 pl-7.5';
+    const byOwner = new Map<string, HubPublishDocGap[]>();
+    for (const gap of fields) {
+      byOwner.set(gap.owner, [...(byOwner.get(gap.owner) ?? []), gap]);
+    }
+    for (const [owner, gaps] of byOwner) {
+      const group = document.createElement('div');
+      group.className = 'flex flex-col gap-1';
+      if (byOwner.size > 1) {
+        const name = document.createElement('span');
+        name.className = `${MUTED} font-mono`;
+        name.textContent = owner;
+        group.appendChild(name);
+      }
+      const chips = document.createElement('div');
+      chips.className = 'flex flex-wrap gap-1';
+      for (const gap of gaps) {
+        const chip = document.createElement('span');
+        chip.dataset.ref = 'warning-field';
+        chip.className = 'font-mono text-[10.5px] leading-4 px-1.5 rounded bg-base-content/[0.07] text-base-content/75';
+        chip.textContent = PublishText.gapName(gap);
+        if (gap.label !== gap.name) {
+          chip.title = gap.label;
+        }
+        chips.appendChild(chip);
+      }
+      group.appendChild(chips);
+      body.appendChild(group);
+    }
+    details.appendChild(body);
+    item.appendChild(details);
+    return item;
   }
 
   private static progress(progress: { sent: number; total: number }): HTMLDivElement {
@@ -778,10 +882,10 @@ export class PublishDialog {
     return box;
   }
 
-  /** The summary table's label column: `features/`, `archive`, `integrity`. */
+  /** The summary table's label column: `Hub`, `Contents`, `Integrity`. */
   private static label(text: string): HTMLSpanElement {
     const label = document.createElement('span');
-    label.className = `${MUTED} font-mono`;
+    label.className = MUTED;
     label.textContent = text;
     return label;
   }

@@ -3,8 +3,10 @@ import {
   type HubAppPublishPackage,
   type HubAppPublishRequest,
   type HubAppPublishState,
+  type HubPublishDocGap,
   type HubPublishStatus,
   type HubPublishSummary,
+  type HubPublishWarning,
   type HubVersionStatus,
   type PublishClient,
   type PublishRefusal,
@@ -384,7 +386,8 @@ export class PublishState {
 /**
  * How the dialog words publishing: `PublishView` in `bin/commands/publish.js`
  * (the CLI), sentence for sentence, with buttons where the CLI names
- * commands.
+ * commands — except the summary, which the dialog lays out as a table, and
+ * its warnings, a short line per file rather than the CLI's paragraphs.
  */
 export class PublishText {
   /** `@acme/kit@0.1.0`. */
@@ -392,44 +395,71 @@ export class PublishText {
     return `${name}@${version}`;
   }
 
-  /** The summary's first line: `Publishing @acme/kit 0.1.0 on http://… as @acme:`. */
-  static summaryTitle(summary: HubPublishSummary): string {
-    return `${summary.dryRun ? 'Checking' : 'Publishing'} ${summary.name} ${summary.version} on ${summary.hub} as @${summary.handle}:`;
+  /** `http://localhost:8787/` → `localhost:8787`: the hub as the summary names it. */
+  static host(hub: string): string {
+    return hub.replace(/^[a-z]+:\/\//i, '').replace(/\/$/, '');
   }
 
-  /** The folder rows: `features/` → `2 features`, …, `docs/` only when there are pages. */
-  static summaryRows(summary: HubPublishSummary): [string, string][] {
+  /** `2 features · 1 part · 1 page`: what the archive holds, the empty folders left out. */
+  static summaryContents(summary: HubPublishSummary): string {
     const { contents } = summary;
-    const rows: [string, string][] = [
-      ['features/', PublishText.count(contents.features.length, 'feature')],
-      ['parts/', PublishText.count(contents.parts.length, 'part')],
-      ['assemblies/', PublishText.count(contents.assemblies.length, 'assembly', 'assemblies')],
+    const counts: [number, string][] = [
+      [contents.features.length, PublishText.count(contents.features.length, 'feature')],
+      [contents.parts.length, PublishText.count(contents.parts.length, 'part')],
+      [contents.assemblies.length, PublishText.count(contents.assemblies.length, 'assembly', 'assemblies')],
+      [contents.docs?.length ?? 0, PublishText.count(contents.docs?.length ?? 0, 'doc page')],
     ];
-    if (contents.docs?.length > 0) {
-      rows.push(['docs/', PublishText.count(contents.docs.length, 'page')]);
-    }
-    return rows;
+    return counts.filter(([n]) => n > 0).map(([, text]) => text).join(' · ');
   }
 
-  /** `5 files, 1.1 kB`. */
+  /** `5 files · 1.1 kB`. */
   static summarySize(summary: HubPublishSummary): string {
-    return `${PublishText.count(summary.files, 'file')}, ${PackageText.bytes(summary.size)}`;
+    return `${PublishText.count(summary.files, 'file')} · ${PackageText.bytes(summary.size)}`;
   }
 
   /** What happens after the upload. */
   static becomes(summary: Pick<HubPublishSummary, 'becomes' | 'replacesDraft' | 'version'>): string {
     if (summary.replacesDraft) {
-      return `replaces the draft of ${summary.version} on the hub (the wizard keeps what you filled in)`;
+      return `Replaces the draft of ${summary.version} on the hub. The wizard keeps what you filled in.`;
     }
     if (summary.becomes === 'draft') {
-      return 'first version: you finish publishing in your browser (screenshots, license, release notes)';
+      return 'First version: after the upload, you finish publishing in your browser (screenshots, license, release notes).';
     }
-    return 'goes straight to review: an admin approves it before it is public';
+    return 'Goes straight to review: an admin approves it before it is public.';
   }
 
-  /** `2 warnings (nothing is refused for them):`. */
+  /** The warnings' heading: `2 warnings`. */
   static warningsLead(count: number): string {
-    return `${PublishText.count(count, 'warning')} (nothing is refused for them):`;
+    return PublishText.count(count, 'warning');
+  }
+
+  /**
+   * A warning's sentence beside its file, which the row names on its own:
+   * `3 fields without a description`, `line 12 links to ./a.md, which leads
+   * to no file the package ships.`; any other warning, its sentence without
+   * the file it starts with.
+   */
+  static warningSummary(warning: HubPublishWarning): string {
+    if (warning.code === 'undocumented-fields' && warning.fields) {
+      return `${PublishText.count(warning.fields.length, 'field')} without a description`;
+    }
+    const { file, line, message } = warning;
+    if (line !== undefined && message.startsWith(`${file}:${line} `)) {
+      return `line ${line} ${message.slice(`${file}:${line} `.length)}`;
+    }
+    return message.startsWith(`${file}: `) ? message.slice(file.length + 2) : message;
+  }
+
+  /** A field as its warning lists it: its name, `the feature itself`, with why it doesn't count when it has a description. */
+  static gapName(gap: HubPublishDocGap): string {
+    const name = gap.kind === 'feature' ? 'the feature itself' : gap.name;
+    if (gap.reason === 'repeats-label') {
+      return `${name} (repeats its label)`;
+    }
+    if (gap.reason === 'too-long') {
+      return `${name} (too long)`;
+    }
+    return name;
   }
 
   /** The dry run's line. */

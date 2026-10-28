@@ -67,6 +67,7 @@ export class Standoff extends Feature.with({
 export const standoff = defineFeature(Standoff, {
   label: 'Standoff',
   description: 'A boss with a bore through it, standing on a planar face',
+  icon: './standoff.svg',
   group: 'create',
   operations: ['add', 'new'],
   call: ['face', { height: 'height', outer: 'outer', hole: 'hole' }],

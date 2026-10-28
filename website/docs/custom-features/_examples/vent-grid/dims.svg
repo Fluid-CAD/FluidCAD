@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 140" width="200" height="140" font-family="system-ui, sans-serif" font-size="13">
+  <rect x="8" y="34" width="184" height="72" rx="6" fill="#d8d9da"/>
+  <g fill="#4faae5">
+    <circle cx="48" cy="70" r="16"/><circle cx="100" cy="70" r="16"/><circle cx="152" cy="70" r="16"/>
+  </g>
+  <g stroke="#8a94a6" stroke-width="1.5" fill="none">
+    <!-- Pitch: centre to centre, above the holes. -->
+    <path d="M48 52 V18 M100 52 V18" stroke-dasharray="3 3"/>
+    <path d="M48 22 H100"/>
+    <path d="M54 18 L48 22 L54 26 M94 18 L100 22 L94 26"/>
+    <!-- Hole diameter, across the last hole, below. -->
+    <path d="M136 88 V122 M168 88 V122" stroke-dasharray="3 3"/>
+    <path d="M136 118 H168"/>
+    <path d="M142 114 L136 118 L142 122 M162 114 L168 118 L162 122"/>
+  </g>
+  <g fill="#8a94a6">
+    <text x="74" y="14" text-anchor="middle">Pitch</text>
+    <text x="152" y="136" text-anchor="middle">Hole diameter</text>
+  </g>
+</svg>

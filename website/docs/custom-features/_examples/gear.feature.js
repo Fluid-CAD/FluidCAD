@@ -171,6 +171,7 @@ export class Gear extends Feature.with({
 export const gear = defineFeature(Gear, {
   label: 'Gear',
   description: 'A spur gear with straight flanks and a shaft bore, standing on a planar face',
+  icon: './gear.svg',
   group: 'create',
   operations: ['add', 'new'],
   call: ['face', { teeth: 'teeth', module: 'module', thickness: 'thickness', bore: 'bore' }],

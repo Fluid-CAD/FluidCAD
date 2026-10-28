@@ -1,0 +1,71 @@
+---
+sidebar_label: "Named Faces and Edges"
+title: "Named Faces and Edges"
+sidebar_position: 3
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import gearModule from '!!raw-loader!./_examples/gear.feature.js';
+import gearPair from '!!raw-loader!./_examples/gear-pair.part.js';
+
+# Named Faces and Edges
+
+Every feature can name its faces the way an extrude does: start, end, side and internal faces, and their edges ([Name its faces](/docs/custom-features#4-name-its-faces)). A feature can also give names of its own to parts of what it makes, so that the dialogs and models reach them by name. The gear below names its tooth tips, flanks, roots and bore. Rounding every tooth tip is then one choice in a right-click menu, and `pinion.tipEdges()` in code.
+
+![A gear pair on a base plate, with rounded tooth tips](/img/docs/ui/custom-feature-gear-model.png)
+
+## Declaring the names
+
+The names are declared beside the inputs, as the second argument of `Feature.with()`, and filled in `buildTool()` with `setBuckets()`:
+
+```js
+export class Gear extends Feature.with({ /* the inputs */ }, {
+  buckets: {
+    tipFaces: {},
+    tipEdges: {},
+    flankFaces: {},
+    rootFaces: {},
+    boreFaces: {},
+    boreEdges: { label: 'Bore Rims' },
+  },
+}) {
+  // … in buildTool():
+  this.setBuckets({ startFaces, endFaces, sideFaces, internalFaces, tipFaces, flankFaces, rootFaces, boreFaces });
+```
+
+- **A name ends in `Faces` or `Edges`,** which says what it holds. Each becomes a method of the feature: `pinion.tipEdges()`, or `wheel.boreEdges(0)` with an index or a filter, as `endEdges()` takes them. The editor knows the names, so `pinion.tipEdge()` is marked as an error.
+- **Declare the parts a user will fillet, chamfer or sketch on.** Name the face the feature grows from `startFaces`, not a name of your own.
+- **An edge name exists only when it is declared.** `tipEdges` is declared and left out of `setBuckets()`, so it holds every edge of the tip faces.
+- **`label` is what the menus show** after the feature's name: **Gear Bore Rims**. Without one, the menus show the name made readable: **Gear Tip Edges**.
+- **Say what each name holds, and in what order,** in the package's `docs/` page for the feature (`docs/gear.md`): the tip faces one per tooth, in tooth order. A declaration takes no description.
+- **A name misspelt in `setBuckets()` fails the statement's row,** with the name it was probably meant to be: `gear: setBuckets() 'tipFace' is not a bucket of gear — did you mean tipFaces?`
+- **The names follow the operation.** A gear added to a solid keeps what the solid still carries of each name. A feature that removes material keeps what its cut left, such as a pocket's floor. Each copy of a repeat has its own, moved with it.
+
+The gear builds its outline with raw OpenCascade, since the kernel draws no outline. It tells the faces apart by the outline edge each one was swept from:
+
+<ExplainedCode code={gearModule} fileName="gear.feature.js" title="The whole gear" />
+
+## Using the names
+
+### In a dialog
+
+1. Click **Fillet** and click the top edge of one tooth. The statement under the dialog writes the pick through the gear's own name: `pinion.tipEdges(…)`, with a filter that picks that edge.
+2. Right-click the edge. The menu leads with **Gear Tip Edges (72)**: every edge round the tips of the pinion's 18 teeth. Hovering it highlights them. The gear's other names, such as **Gear Bore Rims**, and the standard names are under **Select other**.
+
+   ![The right-click menu on a tooth's top edge, with Gear Tip Edges highlighted](/img/docs/ui/custom-feature-gear-menu.png)
+
+3. Click **Gear Tip Edges**. The selection holds all 72 edges. Set **Radius** to 0.3, and the statement under the dialog reads `fillet(0.3, pinion.tipEdges())`.
+
+   ![The Fillet dialog with the gear's 72 tip edges selected](/img/docs/ui/custom-feature-gear-fillet.png)
+
+4. Click **Apply**. Every tooth tip of the pinion is rounded. Below, the wheel's tips are rounded the same way, and its bore takes a chamfer on **Gear Bore Rims**.
+
+### In code
+
+<ExplainedCode code={gearPair} fileName="gear-pair.part.js" open />
+
+On a repeated gear, a pick on a copy is written `r.instance(1).tipEdges(…)`.
+
+:::note
+These gears are **New** bodies. A gear added to the plate (**Add**) also counts the edges where each tip meets the plate among its tip edges, and a fillet can't round those together with the outer ones. There, keep the outer edges with a filter: `fillet(0.3, pinion.tipEdges(edge().convex()))`.
+:::

@@ -1,0 +1,408 @@
+---
+sidebar_label: "Inputs"
+title: "Inputs"
+sidebar_position: 1
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import ventGridModule from '!!raw-loader!./_examples/vent-grid.feature.js';
+import ventPanel from '!!raw-loader!./_examples/vent-panel.part.js';
+import fastenerModule from '!!raw-loader!./_examples/fastener.feature.js';
+import fastenerCover from '!!raw-loader!./_examples/fastener-cover.part.js';
+
+# Inputs
+
+A custom feature's inputs are the values it declares in `Feature.with({ … })`. Each entry is one row of its dialog, in the order they are listed. A value is either **typed in** (`type`: a length, a whole number, a choice, a toggle, a text) or **picked** in the viewport (`picker`: a face, an edge, an axis, a connector, …).
+
+Two fields of an entry do different jobs:
+
+- **What the value is** (`type` or `picker`, and its limits) decides what `buildTool()` gets and what the statement writes.
+- **How its row looks** (`display`, `suffix`, `hint`, the layout) is presentation only. Two features that differ only in looks write the same statement.
+
+The page follows two features. A **vent grid** cuts rows of round holes into a panel: numbers, a checkbox, picture cards and a laid-out dialog. A **fastener hole** shows choices that depend on each other, a grid of pictures and a pick of several kinds.
+
+## The vent grid
+
+<UiFigure
+  src="/img/docs/ui/custom-feature-vent-grid-dialog.png"
+  alt="Editing a vent grid: the dialog's rows, the drawing beside it, the red preview of the holes and the statement under it"
+  markers={[
+    {n: 1, x: 64.5, y: 7, label: 'Panel face', description: <>A face picker: <code>{"{ picker: 'face', surface: 'planar' }"}</code>.</>},
+    {n: 2, x: 64.5, y: 14.1, label: 'Pattern', description: <>A choice shown as picture cards: <code>{"{ type: 'radio', display: 'cards' }"}</code>.</>},
+    {n: 3, x: 64.5, y: 33.9, label: 'Rows and Columns', description: <>Two whole numbers with − / + buttons, side by side: <code>{"display: 'stepper'"}</code> in a layout <code>row</code>.</>},
+    {n: 4, x: 64.5, y: 41.8, label: 'Pitch', description: <>A length on a slider, with a unit and a line of help: <code>display: 'slider'</code>, <code>suffix</code>, <code>hint</code>.</>},
+    {n: 5, x: 64.5, y: 54.6, label: 'Hole diameter', description: <>A plain length.</>},
+    {n: 6, x: 64.5, y: 62.3, label: 'Depth', description: <>A section holding a checkbox, and a row shown only while the checkbox is off (<code>visibleWhen</code>).</>},
+    {n: 7, x: 35.6, y: 9.5, label: 'The drawing beside the dialog', description: <>An image the dialog shows beside its rows: the feature's <code>aside</code>.</>},
+    {n: 8, x: 50, y: 97.4, label: 'The statement', description: <>What Apply writes: the pick, and only the values changed from their defaults.</>},
+  ]}
+/>
+
+Its inputs, as the feature declares them:
+
+```js
+export class VentGrid extends Feature.with({
+  face: { picker: 'face', label: 'Panel face', surface: 'planar' },
+  pattern: {
+    type: 'radio',
+    display: 'cards',
+    columns: 2,
+    options: [
+      { label: 'Grid', value: 'grid', image: './vent-grid/grid.svg' },
+      { label: 'Staggered', value: 'staggered', image: './vent-grid/staggered.svg' },
+    ],
+  },
+  rows: { type: 'integer', display: 'stepper', default: 4, min: 1, max: 40 },
+  columns: { type: 'integer', display: 'stepper', default: 6, min: 1, max: 40 },
+  pitch: { type: 'length', display: 'slider', default: 8, min: 2, max: 30, suffix: 'mm', hint: 'Centre to centre' },
+  diameter: { type: 'length', label: 'Hole diameter', default: 5, min: 0.5 },
+  through: { type: 'boolean', display: 'checkbox', label: 'Through all', default: true },
+  depth: { type: 'length', default: 2, min: 0.1, visibleWhen: { through: false } },
+}) {
+```
+
+<ExplainedCode code={ventGridModule} fileName="vent-grid.feature.js" title="The whole vent grid" />
+
+<ExplainedCode code={ventPanel} fileName="lid.part.js" title="A lid that uses it" />
+
+## Fields every input takes
+
+| Field | Meaning |
+|---|---|
+| `label` | The row's caption. Without one, the name made readable: `holeDiameter` reads **Hole diameter**. |
+| `description` | The row's tooltip. |
+| `hint` | A line of small text under the row, always on show: **Centre to centre**. |
+| `default` | What a row left alone holds, and what a call that leaves the value out gets. Pickers take none: their value is what the user picks. |
+| `optional` | The call may leave the value out. Without a `default`, the feature then gets `undefined`. |
+| `visibleWhen` | When the row shows. See [Rows that show only when they matter](#rows-that-show-only-when-they-matter). |
+| `group`, `tab` | A heading or a tab the row sits under: the short way to [lay out a dialog](#laying-out-the-dialog). |
+| `aside` | A drawing the dialog shows beside its rows while this row has the focus. See [A drawing per row](#a-drawing-per-row). |
+
+A misspelt field is refused where the file loads, naming the fields the input takes: `unknown field 'defualt' for a length value — its fields are …`. The feature is greyed in the Custom dropdown until it is fixed.
+
+## Numbers
+
+| `type` | The feature gets | Notes |
+|---|---|---|
+| `length` | a number | In the model file's unit. A default is a plain number in that unit. |
+| `angle` | a number | In degrees. The label reads **Start angle (°)**. |
+| `integer` | a whole number | A call that passes `2.5` fails to compile. |
+| `number` | a number | Anything else: a ratio, a count of turns. |
+
+`min` and `max` bound the value. A model whose call passes a value outside them fails to compile at that call, naming the value and the bound. How the row looks:
+
+| Field | Row |
+|---|---|
+| (none) | A plain input. It takes expressions and the part's variables, as the built-in dialogs do: `pitch * 2`, `wallThickness`. |
+| `display: 'slider'` | A track above the input, for a value worth exploring. Needs `min` and `max`. `step` sets the track's step: 1 for an integer, else a hundredth of the range. |
+| `display: 'stepper'` | − and + buttons beside the input, stepping by `step` (1 without one). For a `number` or an `integer`, not a length or an angle. |
+| `suffix: 'mm'` | A short unit at the end of the input, up to 8 characters. On an angle it replaces the **(°)**. |
+
+```js
+// A bolt circle's inputs: a count, a diameter and a starting angle.
+count: { type: 'integer', label: 'Holes', display: 'stepper', default: 4, min: 1, max: 36 },
+circle: { type: 'length', label: 'Circle diameter', default: 32, min: 0 },
+start: { type: 'angle', label: 'Start angle', default: 45 },
+```
+
+Give every size a sensible `default`. A number row with no default starts empty, and the dialog won't apply until it is filled: **Height is required.**
+
+## Toggles
+
+```js
+through: { type: 'boolean', display: 'checkbox', label: 'Through all', default: true },
+```
+
+A `boolean` is a switch, or a checkbox with `display: 'checkbox'`. Without a `default` it is off, and the feature gets `false`.
+
+## Choices
+
+A choice offers a list of options. Each option has a `label` the dialog shows and a `value`, a string or a number, which is what the feature gets and the statement writes. With no `default`, the choice starts at its first option.
+
+| Field of an option | Meaning |
+|---|---|
+| `label`, `value` | What the dialog shows, and what the feature gets. Required. |
+| `image` | A picture of the option, next to the feature file: `'./vent-grid/grid.svg'`. See [Pictures](#pictures). |
+| `description` | A line under the label. |
+| `group` | A heading the option is listed under. |
+| `keywords` | More words a search finds it by: `['inch']` for the imperial sizes. |
+| `when` | The other values it is offered for. See [Options that follow another value](#options-that-follow-another-value). |
+
+### A few choices, all on show: `radio`
+
+A `radio` shows every option at once. Choose it for two to five choices the user should see together:
+
+| `display` | Row |
+|---|---|
+| `'list'` | Stacked, one per line. The default. |
+| `'inline'` | On one line. |
+| `'buttons'` | A segmented row of buttons, for two or three short labels: **Metric / Imperial**. |
+| `'cards'` | Picture tiles, for choices told apart by their shape: **Grid / Staggered**. `columns` sets 2 to 6 per line. |
+
+```js
+standard: {
+  type: 'radio',
+  display: 'buttons',
+  options: [{ label: 'Metric', value: 'iso' }, { label: 'Imperial', value: 'unc' }],
+},
+```
+
+### Many choices: `select`
+
+A `select` is a dropdown. With `display: 'grid'`, the dropdown opens on a grid of the options' pictures (`columns`, 2 to 6). `search: true` adds a search box that matches labels, descriptions and keywords. Reach for it beyond a dozen options.
+
+```js
+size: {
+  type: 'select',
+  label: 'Screw',
+  default: 'm3',
+  display: 'grid',
+  columns: 3,
+  search: true,
+  options: [
+    { label: 'M3', value: 'm3', image: './fastener/m3.svg', description: '3.4 mm clearance' },
+    { label: 'M4', value: 'm4', image: './fastener/m4.svg', description: '4.5 mm clearance' },
+    { label: 'M5', value: 'm5', image: './fastener/m5.svg', description: '5.5 mm clearance' },
+  ],
+},
+```
+
+A `select` is also the choice a [parameter](/docs/custom-features#parameters-in-a-dropdown) can drive. Buttons and cards can't take one.
+
+### Options that follow another value
+
+An option's `when` names the other values it is offered for. The fastener hole's screws follow its standard: the metric sizes for **Metric**, the numbered sizes for **Imperial**.
+
+```js
+size: {
+  type: 'select',
+  label: 'Screw',
+  default: 'm3',
+  display: 'grid',
+  columns: 3,
+  search: true,
+  options: [
+    { label: 'M3', value: 'm3', image: './fastener/m3.svg', when: { standard: 'iso' } },
+    { label: 'M4', value: 'm4', image: './fastener/m4.svg', when: { standard: 'iso' } },
+    { label: 'M5', value: 'm5', image: './fastener/m5.svg', when: { standard: 'iso' } },
+    { label: '#4', value: 'n4', image: './fastener/n4.svg', when: { standard: 'unc' }, keywords: ['inch'] },
+    { label: '#6', value: 'n6', image: './fastener/n6.svg', when: { standard: 'unc' }, keywords: ['inch'] },
+  ],
+},
+```
+
+![The Screw grid offers M3, M4 and M5 under Metric, and #4 and #6 under Imperial](/img/docs/ui/custom-feature-fastener-when.png)
+
+- Switching to **Imperial** moves the screw from **M4**, no longer offered, to **#4**, the first one that is. The statement writes `standard: 'unc', size: 'n4'`.
+- `when` takes one value or a list (`{ standard: ['iso', 'din'] }`). Every value it names must match.
+- For a table of sizes, where one option comes with several combinations, `when` takes a list of such objects, and the option is offered while any one of them matches: `when: [{ shape: 'single', height: 40 }, { shape: 'double', height: [20, 80] }]`.
+- The `default` must be offered while every other value is at its own default. The declaration is refused otherwise.
+- `when` narrows the dialog only. A call written by hand may pass any declared option, so `buildTool()` must handle every one.
+
+Prefer one choice whose options follow another value over two choices swapped in and out with `visibleWhen`.
+
+### Several at once: `multiple`
+
+```js
+// The sides of an enclosure left open.
+open: {
+  type: 'select',
+  multiple: true,
+  label: 'Open sides',
+  options: [
+    { label: 'Front', value: 'front' },
+    { label: 'Back', value: 'back' },
+    { label: 'Left', value: 'left' },
+    { label: 'Right', value: 'right' },
+  ],
+  default: [],
+  max: 3,
+},
+```
+
+A `select` with `multiple: true` holds a list of options. The dropdown shows a check mark per chosen option, and the row reads the chosen labels, **N selected** past two, or **None**. The feature always gets a list, in the order the call wrote it, `[]` for none: `this.values.open.includes('front')`. `min` and `max` count the options chosen. The statement writes an array literal: `open: ['front', 'left']`.
+
+## Text
+
+```js
+// A part number kept with the feature.
+marking: { type: 'text', optional: true, placeholder: 'A2-70', maxLength: 12, pattern: '[A-Za-z0-9-]*', hint: 'Letters, digits and dashes' },
+```
+
+A `text` is a string. `placeholder` is what the empty input shows, `maxLength` the most characters, and `pattern` a regular expression the whole text must match. A text that breaks either blocks **Apply** with the reason, and a call that passes one fails to compile. `multiline: true` gives a text of several lines: <kbd>Enter</kbd> starts a new line, and <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>Enter</kbd> applies.
+
+## What a row left alone gives
+
+A row left alone always builds what it shows. A call that leaves a value out gets the same thing:
+
+| Declared | The row shows | The feature gets |
+|---|---|---|
+| any input with a `default` | the default | the default |
+| `boolean`, no default | off | `false` |
+| `select` or `radio`, no default | the first option offered | that option's value |
+| `select` or `radio`, no default, `optional: true` | nothing chosen | `undefined` |
+| `select` with `multiple: true` | the `default`, else **None** | the `default`, else `[]` |
+| a slider, no default | its `min` | `min` |
+| a number or a text, no default | an empty row | required: Apply says **Height is required.**, and a call without it fails to compile |
+| the same, `optional: true` | an empty row | `undefined` |
+
+The dialog writes only the values the user changed, so a statement stays short: `ventGrid(panel.endFaces(), { pitch: 9 })`.
+
+## Rows that show only when they matter
+
+`visibleWhen` shows a row only while other values hold what it names. The vent grid's depth only matters for a blind cut:
+
+```js
+through: { type: 'boolean', display: 'checkbox', label: 'Through all', default: true },
+depth: { type: 'length', default: 2, min: 0.1, visibleWhen: { through: false } },
+```
+
+- Every value it names must match. A value may also match one of a list: `{ size: ['m3', 'm4'] }`.
+- A hidden row writes nothing. Its value still reaches the feature: `depth` is 2 while the cut goes through, and `buildTool()` decides whether to read it.
+- It may name a picked value, with a condition on what is picked: `picked: true`, a `count` of picks, the `surface` of the picked faces (`'planar'`, `'cylinder'`, `'cone'`, `'sphere'`, `'torus'`), or `not: { … }` for the opposite.
+
+```js
+at: { picker: ['face', 'axis'], optional: true },
+// The hub's size shows unless a shaft (a cylindrical face) is picked.
+hubDiameter: { type: 'length', default: 20, visibleWhen: { at: { not: { surface: 'cylinder' } } } },
+```
+
+## Picks
+
+A picked value is clicked in the viewport, or chosen from a History row. The dialog writes what a model would write by hand: `panel.endFaces()`, `'z'`, `bolt.instance(1)`.
+
+| `picker` | The dialog takes | It writes | `buildTool()` reads it with |
+|---|---|---|---|
+| `face` | faces | `e.endFaces()`, `select(face()…)` | `facesOf()` |
+| `edge` | edges; with `facesAsEdges: true`, a face stands for its edges | `e.endEdges(0)` | `edgesOf()` |
+| `axis` | a world axis, an `axis()`, a straight edge, a connector | `'z'`, `ax`, `axis(e.sideEdges(0))`, `bolt` | `axisOf()` |
+| `plane` | an origin plane, a `plane()`, a planar face | `'xy'`, `p`, `plane(e.endFaces())` | `planeOf()` |
+| `sketch` | a sketch's outline, or its row | the sketch's variable | `shapesOf()` |
+| `solid` | a face or edge of a solid, or the row that made it | that statement's variable | `shapesOf()` |
+| `feature` | a feature's row; with `types: ['hole']`, a face or edge such a feature made | its variable | `shapesOf()`, `framesOf()`, `propertiesOf()` |
+| `connector` | a connector, or a copy of one | `bolt`, `bolt.instance(2)` | `frameOf()`, `pointOf()` |
+| `point` | a vertex: a sketch point, a solid's corner | `s.geometries.a`, `e.endEdges(0).end()` | `frameOf()`, `pointOf()` |
+| `anchor` | a face or an edge, then one of the points it suggests | `e.endFaces().center()` | `frameOf()`, `pointOf()` |
+
+More fields narrow what the dialog takes:
+
+- **A list of picks:** `multiple: true`, or `max: 3` for at most three. The feature always gets a list, `[]` for none. `ordered: true` lets the user drag the picks into order. An `axis` or a `plane` is always one pick.
+- **What kind:** `surface: 'planar' | 'cylinder' | 'cone' | 'torus'` on a face, `curve: 'line' | 'circle' | 'arc'` on an edge. The dialog refuses anything else with the reason (**On face: the picked face is not planar**). A call written by hand is not checked: check in `buildTool()` when it matters.
+- **A sketch:** `hasGeometry: true` refuses an empty one. `implicitDefault: true` lets the call leave it out.
+- **An anchor:** `anchors: ['center']` suggests the centres only (`'center'`, `'start'`, `'end'`, `'offset'`).
+
+A pick a call may leave out (`optional: true`) can come first and still be skipped: a call goes straight to its options, `gear({ teeth: 24 })`.
+
+### Several kinds in one pick
+
+`picker` takes a list of kinds. The fastener hole goes in at a connector, a sketch point or the centre of a face:
+
+```js
+at: { picker: ['connector', 'point', 'anchor'], anchors: ['center'], label: 'At' },
+```
+
+Each click goes to the one kind that takes it, so the kinds must take different clicks. `['face', 'edge']` and `['solid', 'connector']` work. `['face', 'anchor']` is refused, because both take a click on a face. `frameOf()` reads any of the three the same way, and `isLocation()` tells a connector, point or anchor from the other kinds.
+
+## Laying out the dialog
+
+A dialog with a handful of rows needs no layout: the rows follow the declaration. A value's `group` puts it under a heading, and its `tab` on a tab:
+
+```js
+count: { type: 'integer', label: 'Holes', default: 4, min: 1, tab: 'Pattern' },
+circle: { type: 'length', label: 'Circle diameter', default: 32, tab: 'Pattern' },
+through: { type: 'boolean', label: 'Through all', default: true, tab: 'Hole', group: 'Depth' },
+depth: { type: 'length', default: 3, tab: 'Hole', group: 'Depth', visibleWhen: { through: false } },
+```
+
+When rows should sit side by side, fold away, or come with notes and drawings, give `defineFeature()` a `layout`. The vent grid's:
+
+```js
+width: 'wide',
+layout: [
+  'face',
+  'pattern',
+  { row: ['rows', 'columns'] },
+  'pitch',
+  'diameter',
+  { section: 'Depth', items: ['through', 'depth'] },
+],
+aside: [{ image: './vent-grid/dims.svg', alt: 'The pitch, centre to centre, and the hole diameter' }],
+```
+
+| Item | What it places |
+|---|---|
+| `'name'` | A value's row. |
+| `{ row: ['a', 'b'] }` | Two to four typed-in values side by side. `widths: [2, 1]` shares the width. A picked value takes a full row. |
+| `{ section: 'Title', items: [...] }` | Rows under a heading. `collapsed: true` opens it folded, for rows rarely changed. |
+| `{ tabs: [{ label, items }, …] }` | Two tabs or more, at the top level, once. |
+| `{ note: 'text' }` | A line of text. `tone: 'warning'` marks it. |
+| `{ image: './x.svg' }` | A picture between the rows. `height` in pixels, 16 to 480. |
+| `{ divider: true }` | A rule between rows. |
+
+- Every value is placed exactly once. A value left out is refused (**the value 'depth' has no place in the layout**), and so is a value's own `group` or `tab`.
+- Every item takes a `visibleWhen`. The fastener hole shows a note only for a counterbore: `{ note: 'The recess is sized for the head of the screw.', visibleWhen: { head: 'counterbore' } }`.
+- `width: 'wide'` or `'wider'` opens a wider dialog. `aside` shows notes and pictures in a card beside the rows, here what the pitch and the diameter measure.
+- A row never cuts a label short: a cell that doesn't fit moves onto a line of its own. Pair narrow inputs, such as two numbers, and give buttons or a dropdown a line to themselves.
+
+### A drawing per row
+
+A value can bring its own `aside`, shown in the card in place of the feature's while its row has the focus. Use it for a value the user may not know, such as a gear's module or pressure angle:
+
+```js
+module: {
+  type: 'length',
+  default: 2,
+  aside: [
+    { image: './gear/module.svg', alt: 'The circular pitch p = π · m', height: 200 },
+    { note: 'The module is the pitch diameter over the number of teeth.' },
+  ],
+},
+```
+
+The card is 200 pixels wide inside. In a narrow window, where the dialog becomes a sheet, only the feature's own `aside` shows.
+
+## Pictures
+
+Icons, option pictures and dialog drawings are files next to the feature file, named by a relative path: `'./fastener/m4.svg'`, never `../` or a URL. SVG, PNG, JPEG and WebP all work. Only the files the description names are served.
+
+They are shown as pictures, so they follow the [icon rules](/docs/custom-features#6-give-it-an-icon). `currentColor` draws black, so use fixed colours that read in both themes: the toolbar's greys and blues, or a mid-tone grey such as `#8a94a6` for line art.
+
+| Where | Size | Draw |
+|---|---|---|
+| Cards and a `grid` dropdown | A square as wide as its cell, about 80 pixels | A square picture that fills the square: a section, a pattern, a part seen from the side. |
+| A `list` option | 24 pixels | One bold shape. |
+| A `buttons` option | 16 pixels | A glyph, or no picture. |
+| The `aside` card | 200 pixels wide | A dimension drawing, with its labels. |
+
+The pictures in the captures on this page follow these rules. The vent grid's cards are its two patterns, seen from above. The fastener's screws are drawn to one scale, so the sizes compare at a glance, and its heads are sections through the part, with the cut's walls in blue.
+
+## The fastener hole
+
+The fastener hole cuts a screw's clearance hole, with a recess for the head when asked. The built-in [Hole](/docs/3d-operations/hole) does this and more: the fastener is here for its dialog. Buttons pick the standard, a grid of pictures the screw, cards the head, and a slider the depth. A note shows for a counterbore.
+
+![Editing a fastener hole: Metric and Imperial buttons, the Screw dropdown, Plain and Counterbore cards, the note and the Depth slider, with the hole's preview](/img/docs/ui/custom-feature-fastener-dialog.png)
+
+<ExplainedCode code={fastenerModule} fileName="fastener.feature.js" title="The whole fastener hole" />
+
+<ExplainedCode code={fastenerCover} fileName="cover.part.js" title="A cover plate that uses it" />
+
+## The call
+
+`call` in `defineFeature()` maps a model's arguments to the inputs. In order:
+
+1. **Values passed by position:** `'face'`.
+2. At most one **object of options**, each key naming a value: `{ rows: 'rows', pitch: 'pitch' }`. A key may differ from the value's name: `{ dia: 'diameter' }`.
+3. At most one **rest value**, a list of picks spread over the last arguments: `'...faces'`.
+
+| `call` | A model writes |
+|---|---|
+| `['face', { height: 'height', outer: 'outer', hole: 'hole' }]` | `standoff(pad.endFaces(), { height: 12 })` |
+| `['around', { count: 'count', circle: 'circle' }]` | `boltCircle('z', { count: 6 })` |
+| `['at', { teeth: 'teeth' }]`, with `at` optional | `gear(seat.endFaces(), { teeth: 14 })`, `gear({ teeth: 24 })`, `gear()` |
+| `['angle', '...faces']` | `draft(5, e.sideFaces(), e2.sideFaces())` |
+
+- Every value appears in `call` exactly once.
+- Follow the built-ins: what is picked comes first, by position, and sizes go in the object of options.
+- A call that doesn't fit fails to compile, naming the fix: `standoff(): unknown option 'hieght' — the options are 'height', 'outer' and 'hole'`. In the editor the arguments are typed, so the misspelt option is marked as you write.
+- The dialog edits a statement whose options are written as an object literal, with choices and texts as plain literals. A statement written another way still runs, but its History row opens as not editable: options held in a variable (`{ ...size }`), or a choice given as an expression (`size: screw`).

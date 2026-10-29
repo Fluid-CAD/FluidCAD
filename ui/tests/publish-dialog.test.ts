@@ -236,32 +236,43 @@ describe('signed out', () => {
 });
 
 describe('the status line (fluidcad publish --status)', () => {
-  it('a draft: Open the wizard, Withdraw (asked first, in the CLI\'s words), the expiry', async () => {
+  it('a draft: the footer\'s Continue and Withdraw (asked first, in the CLI\'s words) for Check and Publish, the expiry', async () => {
     const h = await mount((client) => {
       client.statusValue = FakePublishClient.onHub({ openVersion: FakePublishClient.version({ draftExpiresAt: '2026-11-23T12:00:00.000Z' }) });
     });
-    expect(words(h.$('open-draft'))).toBe('@acme/kit@0.1.0 is a draft. Open the wizard Withdraw');
+    expect(words(h.$('open-draft'))).toBe('@acme/kit@0.1.0 is a draft.');
     expect(words(h.$('draft-expires'))).toBe('A draft nobody touches is deleted on 2026-11-23.');
     expect(h.$('no-version')).toBeNull();
-    await h.click('open-wizard');
+    expect(h.$('open-wizard')).toBeNull();
+    expect(h.$('withdraw')).toBeNull();
+    expect(h.shown('check')).toBe(false);
+    expect(h.shown('publish')).toBe(false);
+    expect(h.shown('bump')).toBe(false);
+    expect(h.shown('continue')).toBe(true);
+    expect(h.shown('draft-withdraw')).toBe(true);
+    await h.click('continue');
     expect(h.openExternal).toHaveBeenCalledWith(`${HUB}/publish/@acme/kit/0.1.0`);
 
-    await h.click('withdraw');
+    await h.click('draft-withdraw');
     expect(h.client.withdraw).not.toHaveBeenCalled();
     expect(words(h.$('withdraw-confirm'))).toBe(
       '@acme/kit@0.1.0 is the draft on http://localhost:8787. Withdrawing deletes it there; its number is free again. Keep it Withdraw it',
     );
     await h.click('withdraw-keep');
     expect(h.$('withdraw-confirm')).toBeNull();
-    await h.click('withdraw');
+    await h.click('draft-withdraw');
     await h.click('withdraw-go');
     expect(h.client.withdraw).toHaveBeenCalledTimes(1);
     expect(h.$('withdraw-confirm')).toBeNull();
     expect(words(h.$('notice'))).toBe('Withdrew @acme/kit@0.1.0 from http://localhost:8787.');
-    // The status was read again: the draft is gone.
+    // The status was read again: the draft is gone, Check and Publish are back.
     expect(h.client.status).toHaveBeenCalledTimes(2);
     expect(h.$('open-draft')).toBeNull();
     expect(h.$('hub-status')!.childElementCount).toBe(0);
+    expect(h.shown('continue')).toBe(false);
+    expect(h.shown('draft-withdraw')).toBe(false);
+    expect(h.shown('check')).toBe(true);
+    expect(h.shown('publish')).toBe(true);
   });
 
   it('in review: the date, its status page, Withdraw', async () => {
@@ -309,7 +320,7 @@ describe('the status line (fluidcad publish --status)', () => {
       client.statusValue = FakePublishClient.onHub({ openVersion: FakePublishClient.version() });
       client.withdrawRefusal = { ok: false, status: 409, error: '@acme/kit has nothing open to withdraw.', code: 'nothing-open' };
     });
-    await h.click('withdraw');
+    await h.click('draft-withdraw');
     await h.click('withdraw-go');
     expect(h.$('notice')!.dataset.code).toBe('nothing-open');
     expect(h.$('notice')!.classList.contains('text-error')).toBe(true);
@@ -561,7 +572,7 @@ describe('Publish: the summary, the upload and the result', () => {
     expect(h.$('progress')).not.toBeNull();
   });
 
-  it('Upload → progress → a first version opens the wizard once, shows its link, and the status is read again', async () => {
+  it('Upload → progress → a first version opens the wizard once, Continue goes back to it, and the status is read again', async () => {
     const h = await mount();
     await toSummary(h);
     await h.click('upload');
@@ -580,26 +591,27 @@ describe('Publish: the summary, the upload and the result', () => {
     h.client.advance({ status: 'done', progress: null, result: FakePublishClient.result() });
     await h.timers.fire();
     expect(h.$('session')!.dataset.status).toBe('done');
-    expect(words(h.$('result-text'))).toBe('Uploaded @acme/kit@0.1.0. Finish publishing in your browser:');
-    expect(h.$('wizard-link')!.textContent).toBe(`${HUB}/publish/@acme/kit/0.1.0`);
+    expect(words(h.$('result-text'))).toBe('Uploaded @acme/kit@0.1.0. Continue to finish publishing in your browser.');
+    expect(h.$('wizard-link')).toBeNull();
     expect(h.openExternal).toHaveBeenCalledTimes(1);
     expect(h.openExternal).toHaveBeenCalledWith(`${HUB}/publish/@acme/kit/0.1.0`);
-    // The after-state: the hub's own status, with Open the wizard and Withdraw.
+    // The after-state: the hub's own status; the footer trades Check and Publish for Continue and Withdraw.
     expect(h.client.status).toHaveBeenCalledTimes(2);
-    expect(words(h.$('open-draft'))).toBe('@acme/kit@0.1.0 is a draft. Open the wizard Withdraw');
+    expect(words(h.$('open-draft'))).toBe('@acme/kit@0.1.0 is a draft.');
+    expect(h.shown('check')).toBe(false);
+    expect(h.shown('publish')).toBe(false);
+    expect(h.shown('continue')).toBe(true);
+    expect(h.shown('draft-withdraw')).toBe(true);
     expect(h.timers.pending).toHaveLength(0);
 
     // Nothing opens it again: not a re-render, not a reopen.
-    await h.click('open-wizard');
+    await h.click('continue');
     expect(h.openExternal).toHaveBeenCalledTimes(2);
     h.dialog.hide();
     h.dialog.show();
     await settle();
     expect(h.openExternal).toHaveBeenCalledTimes(2);
     expect(h.$('session')!.dataset.status).toBe('done');
-    // The link itself leaves through the host too.
-    await h.click('wizard-link');
-    expect(h.openExternal).toHaveBeenCalledTimes(3);
   });
 
   it('a later version is submitted for review, with its status page; a replaced draft is said', async () => {

@@ -43,8 +43,8 @@ const ROW_ACTIONS = 'flex items-center gap-0.5 shrink-0 ml-auto -my-1';
  * 3. **The header**: the name and version, with the **Publish as** field,
  *    proposing the next major above the hub's latest (the author types over
  *    it); Check and Publish write it into the block first; **the status line**: where the package stands on the hub
- *    (`fluidcad publish --status`): nothing for a package not there yet, a draft with Open the
- *    wizard and Withdraw, in review with its page and Withdraw, rejected
+ *    (`fluidcad publish --status`): nothing for a package not there yet, a draft (the
+ *    footer trades Check and Publish for Continue to its wizard and Withdraw), in review with its page and Withdraw, rejected
  *    with the note (Publish again), the latest published version with
  *    Manage on the hub.
  * 4. **Release notes** (at most {@link RELEASE_NOTES_CHARS}), shown once a
@@ -58,7 +58,7 @@ const ROW_ACTIONS = 'flex items-center gap-0.5 shrink-0 ml-auto -my-1';
  *    hub, the contents, the files and size, the integrity, what happens
  *    next, and the warnings, a row per file) waits for **Upload** or **Cancel**; then the progress, then the
  *    result: a first version opens the hub's wizard in the browser, once,
- *    and shows its link (U9); a later one was submitted for review, with
+ *    and the footer offers Continue back to it (U9); a later one was submitted for review, with
  *    its status page. The status line is read again, so what the dialog
  *    shows on reopening is the hub's own state.
  *
@@ -91,6 +91,8 @@ export class PublishDialog {
   private readonly uploadBtn: HTMLButtonElement;
   private readonly cancelBtn: HTMLButtonElement;
   private readonly retryBtn: HTMLButtonElement;
+  private readonly draftWithdrawBtn: HTMLButtonElement;
+  private readonly continueBtn: HTMLButtonElement;
   private readonly unsubscribe: () => void;
   private readonly unsubscribeEnded: () => void;
   /** The version a Withdraw asks about; null when none is being asked. */
@@ -151,6 +153,8 @@ export class PublishDialog {
           <button data-ref="check" type="button" class="btn btn-sm hidden" title="A dry run: the hub checks everything and stores nothing">Check</button>
           <button data-ref="sign-in" type="button" class="btn btn-sm btn-primary gap-1.5 hidden">${HubIcons.span(HubIcons.SIGN_IN, '[&>svg]:size-3.5').outerHTML}Sign in</button>
           <button data-ref="publish" type="button" class="btn btn-sm btn-primary hidden">Publish</button>
+          <button data-ref="draft-withdraw" type="button" class="btn btn-sm hidden" title="Delete the draft on the hub; its number is free again">Withdraw</button>
+          <button data-ref="continue" type="button" class="btn btn-sm btn-primary gap-1.5 hidden" title="Finish publishing in the hub's wizard">Continue${HubIcons.span(HubIcons.EXTERNAL, '[&>svg]:size-3.5').outerHTML}</button>
           <button data-ref="upload" type="button" class="btn btn-sm btn-primary hidden">Upload</button>
         </div>
       </div>
@@ -180,6 +184,8 @@ export class PublishDialog {
     this.publishBtn = $('publish');
     this.uploadBtn = $('upload');
     this.cancelBtn = $('cancel');
+    this.draftWithdrawBtn = $('draft-withdraw');
+    this.continueBtn = $('continue');
 
     $('close').addEventListener('click', () => this.hide());
     this.closeBtn.addEventListener('click', () => this.hide());
@@ -189,6 +195,18 @@ export class PublishDialog {
     this.publishBtn.addEventListener('click', () => void this.start(false));
     this.uploadBtn.addEventListener('click', () => void this.deps.state.confirm());
     this.cancelBtn.addEventListener('click', () => void this.deps.state.cancel());
+    this.continueBtn.addEventListener('click', () => {
+      const url = this.draft(this.deps.state.current)?.wizardUrl;
+      if (url) {
+        this.deps.openExternal(url);
+      }
+    });
+    this.draftWithdrawBtn.addEventListener('click', () => {
+      const draft = this.draft(this.deps.state.current);
+      if (draft) {
+        this.askWithdraw(draft);
+      }
+    });
     // Typing takes the field over from the proposal until the dialog is opened again; Enter publishes.
     this.versionInput.addEventListener('input', () => {
       this.versionTouched = true;
@@ -276,6 +294,20 @@ export class PublishDialog {
     return this.versionInput.value.trim() || pkg.version;
   }
 
+  /**
+   * The draft a publish left on the hub, waiting for its wizard: the
+   * status's open version, else (before the status is read again) the
+   * session's own result. Null when there is none.
+   */
+  private draft(s: PublishSnapshot): { version: string; status: 'draft'; wizardUrl: string | null } | null {
+    const open = s.status?.package?.openVersion;
+    if (open) {
+      return open.status === 'draft' ? { version: open.version, status: 'draft', wizardUrl: open.wizardUrl ?? null } : null;
+    }
+    const result = s.publish?.status === 'done' && !s.publish.dryRun ? s.publish.result : null;
+    return result?.status === 'draft' ? { version: result.version, status: 'draft', wizardUrl: result.wizardUrl ?? null } : null;
+  }
+
   /** Sign in: the Hub panel takes over; the dialog is back once signed in. */
   private async signIn(): Promise<void> {
     this.hide();
@@ -330,11 +362,13 @@ export class PublishDialog {
     this.renderSession(s, loading);
     this.renderNotice(s);
 
-    // The footer: every primary action lives here (Sign in, Publish, Upload),
+    // The footer: every primary action lives here (Sign in, Publish, Upload,
+    // and once a publish left a draft, Continue to its wizard and Withdraw),
     // never inside a row, so the dialog reads top to bottom and ends on what
     // to do next. Close is the ghost at the group's left, as the Export
     // dialog's Cancel is; Cancel takes its place while a session can be stopped.
-    const canPublish = pkg !== null && problem === null && !signedOut;
+    const draft = pkg !== null && problem === null ? this.draft(s) : null;
+    const canPublish = pkg !== null && problem === null && !signedOut && draft === null;
     const idle = !running;
     const busy = s.busy !== null;
     const status = s.publish?.status;
@@ -348,6 +382,8 @@ export class PublishDialog {
     PublishDialog.toggle(this.publishBtn, canPublish && idle);
     this.publishBtn.textContent = rejected ? 'Publish again' : 'Publish';
     PublishDialog.toggle(this.uploadBtn, status === 'awaiting-confirm');
+    PublishDialog.toggle(this.draftWithdrawBtn, draft !== null && idle);
+    PublishDialog.toggle(this.continueBtn, draft?.wizardUrl != null && idle);
     PublishDialog.toggle(this.cancelBtn, cancellable);
     PublishDialog.toggle(this.closeBtn, !cancellable);
     // The version is the author's to change only when publishing is on the table.
@@ -355,7 +391,7 @@ export class PublishDialog {
     const uploading = status === 'uploading' || status === 'verifying';
     PublishDialog.toggle(this.footerNote, uploading);
     this.footerNote.textContent = uploading ? "Closing this window doesn't stop the upload." : '';
-    for (const button of [this.retryBtn, this.signInBtn, this.checkBtn, this.publishBtn, this.uploadBtn, this.cancelBtn]) {
+    for (const button of [this.retryBtn, this.signInBtn, this.checkBtn, this.publishBtn, this.uploadBtn, this.cancelBtn, this.draftWithdrawBtn]) {
       button.disabled = busy;
     }
   }
@@ -450,15 +486,8 @@ export class PublishDialog {
     if (open) {
       const at = PublishText.at(name, open.version);
       if (open.status === 'draft') {
-        // The CLI adds "finish publishing in your browser: <url>"; here the button is that sentence.
-        const actions: HTMLElement[] = [];
-        if (open.wizardUrl) {
-          const url = open.wizardUrl;
-          actions.push(PublishDialog.button('open-wizard', 'Open the wizard', LINK_BTN, () => this.deps.openExternal(url), HubIcons.EXTERNAL));
-        }
-        actions.push(this.withdrawButton(open, disabled));
-        // Short on purpose: the row keeps its two buttons beside it at the dialog's width.
-        lines.push(PublishDialog.row('open-draft', `${at} is a draft.`, actions));
+        // The CLI adds "finish publishing in your browser: <url>"; here the footer's Continue and Withdraw are that sentence.
+        lines.push(PublishDialog.line('open-draft', `${at} is a draft.`));
         if (open.draftExpiresAt) {
           lines.push(PublishDialog.line('draft-expires', `A draft nobody touches is deleted on ${PublishText.day(open.draftExpiresAt)}.`, MUTED));
         }
@@ -606,10 +635,8 @@ export class PublishDialog {
     }
     // The CLI prints the integrity here too; the dialog leaves it out (the summary already showed it).
     if (result.status === 'draft') {
-      card.appendChild(PublishDialog.lineWithIcon(ICON_CIRCLE_CHECK, 'text-success', `Uploaded ${at}. Finish publishing in your browser:`));
-      if (result.wizardUrl) {
-        card.appendChild(this.link('wizard-link', result.wizardUrl));
-      }
+      // The wizard's link is the footer's Continue.
+      card.appendChild(PublishDialog.lineWithIcon(ICON_CIRCLE_CHECK, 'text-success', `Uploaded ${at}. Continue to finish publishing in your browser.`));
     } else {
       card.appendChild(PublishDialog.lineWithIcon(ICON_CIRCLE_CHECK, 'text-success', `Submitted ${at} for review.`));
       if (result.reviewUrl) {

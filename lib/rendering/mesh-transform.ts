@@ -1,7 +1,11 @@
 import { Matrix4 } from "../math/matrix4.js";
+import { roundSide } from "../oc/edge-face-sides.js";
 
-/** What a transform touches: packed xyz vertices and normals, plus the triangle indices it may re-wind. */
-export type MeshArrays = { vertices: number[]; normals: number[]; indices: number[] };
+/**
+ * What a transform touches: packed xyz vertices and normals, the triangle
+ * indices it may re-wind, and an edge line's face sides.
+ */
+export type MeshArrays = { vertices: number[]; normals: number[]; indices: number[]; faceSides?: number[] };
 
 /** `meshes` moved by `matrix` — wire meshes and cached face pieces alike; every other field is kept. */
 export function transformMeshes<T extends MeshArrays>(meshes: T[], matrix: Matrix4): T[] {
@@ -36,7 +40,9 @@ export function transformMeshes<T extends MeshArrays>(meshes: T[], matrix: Matri
     }
 
     let newIndices = mesh.indices;
-    if (flipWinding && mesh.indices.length % 3 === 0) {
+    // Triangles only: an edge line's index pairs (which `faceSides` marks)
+    // keep their segments' directions.
+    if (flipWinding && mesh.indices.length % 3 === 0 && !mesh.faceSides) {
       newIndices = new Array<number>(mesh.indices.length);
       for (let i = 0; i < mesh.indices.length; i += 3) {
         newIndices[i]     = mesh.indices[i];
@@ -45,6 +51,28 @@ export function transformMeshes<T extends MeshArrays>(meshes: T[], matrix: Matri
       }
     }
 
-    return { ...mesh, vertices: newV, normals: newN, indices: newIndices };
+    if (!mesh.faceSides) {
+      return { ...mesh, vertices: newV, normals: newN, indices: newIndices };
+    }
+
+    // Vectors along the faces: the linear part moves them as it moves the
+    // faces (a mirror included — the face stays on the side it was), and
+    // scales their reach with them. A mirror also turns the pair's
+    // handedness, which carries the edge's convexity: swap the two back.
+    const srcS = mesh.faceSides;
+    const newS = new Array<number>(srcS.length);
+    for (let i = 0; i < srcS.length; i += 3) {
+      const sx = srcS[i], sy = srcS[i + 1], sz = srcS[i + 2];
+      const [x, y, z] = roundSide(
+        m[0] * sx + m[4] * sy + m[8]  * sz,
+        m[1] * sx + m[5] * sy + m[9]  * sz,
+        m[2] * sx + m[6] * sy + m[10] * sz,
+      );
+      const o = flipWinding ? (i % 6 === 0 ? i + 3 : i - 3) : i;
+      newS[o]     = x;
+      newS[o + 1] = y;
+      newS[o + 2] = z;
+    }
+    return { ...mesh, vertices: newV, normals: newN, indices: newIndices, faceSides: newS };
   });
 }

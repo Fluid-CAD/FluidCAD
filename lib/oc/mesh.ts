@@ -5,12 +5,26 @@ import { Shape } from "../common/shape.js";
 import { MM_PER_UNIT } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import { getActiveUnit } from "../units/registry.js";
+import { alignNodes, edgeFaceSides, FaceFacets, type EdgeOnFace } from "./edge-face-sides.js";
 
 export interface MeshData {
   vertices: number[];
   normals: number[];
   indices: number[];
   count?: number;
+  /**
+   * A solid edge's polyline only: per segment (`indices` pair), the vector
+   * into the face triangle on either side of it, as long as the face runs
+   * flat from there, the two in convexity order — six numbers, a zero
+   * vector where a side has no face. See `edge-face-sides.ts`.
+   */
+  faceSides?: number[];
+}
+
+/** A meshed face an edge bounds, with its triangulation as read for the face pieces. */
+export interface EdgeFace {
+  face: TopoDS_Face;
+  facets: FaceFacets;
 }
 
 /**
@@ -358,6 +372,84 @@ export class Mesh {
     loc.delete();
 
     return { vertices, normals: [], indices };
+  }
+
+  /**
+   * `discretizeEdgeOnFace` for an edge of a meshed solid, given the faces it
+   * bounds (two at most, the first one the polyline is read on) with their
+   * triangulations: the polyline comes from the first face's nodes, and
+   * `faceSides` carries per segment the vector into each face's triangle
+   * on it — what lets the viewer draw each half of the edge's line on its
+   * own face. Null where `discretizeEdgeOnFace` would be.
+   */
+  static discretizeSolidEdge(edge: TopoDS_Edge, faces: EdgeFace[]): MeshData | null {
+    const oc = getOC();
+    if (faces.length === 0 || oc.BRep_Tool.Degenerated(edge)) {
+      return null;
+    }
+
+    const reference = Mesh.polygonNodesOnFace(edge, faces[0].face);
+    if (!reference) {
+      return null;
+    }
+
+    const source = faces[0].facets.vertices;
+    const vertices: number[] = new Array(reference.length * 3);
+    for (let i = 0; i < reference.length; i++) {
+      const node = reference[i] * 3;
+      vertices[i * 3] = source[node];
+      vertices[i * 3 + 1] = source[node + 1];
+      vertices[i * 3 + 2] = source[node + 2];
+    }
+
+    const segments = Math.max(reference.length - 1, 0);
+    const indices: number[] = new Array(segments * 2);
+    for (let i = 0; i < segments; i++) {
+      indices[i * 2] = i;
+      indices[i * 2 + 1] = i + 1;
+    }
+
+    const onFaces: EdgeOnFace[] = [{ facets: faces[0].facets, nodes: reference }];
+    for (const other of faces.slice(1)) {
+      const nodes = Mesh.polygonNodesOnFace(edge, other.face);
+      const aligned = nodes && alignNodes(reference, source, nodes, other.facets.vertices);
+      if (aligned) {
+        onFaces.push({ facets: other.facets, nodes: aligned });
+      }
+    }
+
+    const faceSides = segments > 0 ? edgeFaceSides(segments, onFaces) : null;
+    return faceSides ? { vertices, normals: [], indices, faceSides } : { vertices, normals: [], indices };
+  }
+
+  /**
+   * The nodes of `edge`'s polygon on `face`'s triangulation, 0-based (the
+   * order `extractFaceTriangulationRaw` emits the face's vertices in); null
+   * when the face is unmeshed or holds no polygon for the edge.
+   */
+  private static polygonNodesOnFace(edge: TopoDS_Edge, face: TopoDS_Face): number[] | null {
+    const oc = getOC();
+    const loc = new oc.TopLoc_Location();
+    // Null handles come back as JS `null` — see `extractFaceTriangulationRaw`.
+    const tri = oc.BRep_Tool.Triangulation(face, loc, 0);
+    if (!tri) {
+      loc.delete();
+      return null;
+    }
+    const poly = oc.BRep_Tool.PolygonOnTriangulation(edge, tri, loc);
+    if (!poly) {
+      tri.delete();
+      loc.delete();
+      return null;
+    }
+    const nodes: number[] = new Array(poly.NbNodes());
+    for (let i = 1; i <= nodes.length; i++) {
+      nodes[i - 1] = poly.Node(i) - 1;
+    }
+    poly.delete();
+    tri.delete();
+    loc.delete();
+    return nodes;
   }
 
   /**

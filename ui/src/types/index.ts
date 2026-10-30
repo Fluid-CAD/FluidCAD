@@ -202,6 +202,12 @@ export type FaceMeshOptions = {
    * (a cut tool's ghost, an extrusion sweeping back into the model).
    */
   depthTest?: boolean;
+  /**
+   * Push the faces back by their depth slope as well as a constant — for a
+   * solid whose edge lines carry no face sides (an older engine's scene),
+   * which draw at their centerline depth. See face-depth-offset.ts.
+   */
+  slopeOffset?: boolean;
 };
 
 export type EdgeMeshOptions = {
@@ -237,6 +243,14 @@ export type SceneObjectMesh = {
   edgeIndex?: number;
   /** solid-edges only — a tangent (G1) junction between two faces (dimmed when dimTangentEdges is on). */
   smooth?: boolean;
+  /**
+   * solid-edges only — per segment (`indices` pair), the vectors into the
+   * faces either side of it, as long as each face runs flat, six numbers,
+   * zeros where a side has no face; their order gives the edge's convexity.
+   * The line is drawn on its faces (see face-edge-line.ts). Absent from an
+   * older engine's scenes.
+   */
+  faceSides?: number[];
 };
 
 export type SubSelection =

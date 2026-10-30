@@ -5,6 +5,7 @@ import { HiddenEdges } from "../oc/hidden-edges.js";
 import { TopologyIndex } from "../oc/topology-index.js";
 import { Mesh } from "../oc/mesh.js";
 import type { MeshConfig } from "../oc/mesh.js";
+import { FaceFacets } from "../oc/edge-face-sides.js";
 import { SceneObjectMesh } from "./scene.js";
 
 export function renderFace(faceObj: Shape, vertexOffset: number = 0, meshConfig?: MeshConfig) {
@@ -30,6 +31,8 @@ export function renderFacePatch(faceObj: Shape, meshConfig?: MeshConfig): SceneO
     return meshes;
   }
   meshes.push({ ...triangulation, label: 'solid-faces' });
+  // Its edges know the face beside them, as a solid's do (one side only).
+  const edgeFaces = [{ face: face as TopoDS_Face, facets: new FaceFacets(triangulation.vertices, triangulation.indices) }];
 
   const edges = Explorer.findEdgesWrapped(faceObj);
   // The face's seam and degenerated edges are not drawn; `index` still
@@ -42,7 +45,7 @@ export function renderFacePatch(faceObj: Shape, meshConfig?: MeshConfig): SceneO
       if (hidden.Contains(edge.getShape())) {
         return;
       }
-      const discretized = Mesh.discretizeEdgeOnFace(edge.getShape(), face as TopoDS_Face);
+      const discretized = Mesh.discretizeSolidEdge(edge.getShape(), edgeFaces);
       if (discretized) {
         meshes.push({ ...discretized, label: 'solid-edges', edgeIndex: index });
       }

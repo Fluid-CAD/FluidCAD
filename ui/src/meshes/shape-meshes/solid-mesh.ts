@@ -42,9 +42,16 @@ export class SolidMesh extends Group {
     // A wood appearance's grain runs along the body's longest extent, read
     // over every face group so a painted group does not skew it.
     const grainAxis = options?.appearance?.wood ? longestAxisOf(shape.meshes) : undefined;
+    // An older engine's edges carry no face sides and draw at their
+    // centerline depth: the faces keep the slope offset that kept them in
+    // front (see face-depth-offset.ts).
+    const edges = shape.meshes.filter(m => m.label === 'solid-edges');
+    const faceOptions = edges.length > 0 && !edges.some(m => m.faceSides?.length)
+      ? { ...options?.face, slopeOffset: true }
+      : options?.face;
     for (const meshData of shape.meshes) {
       if (meshData.label === 'solid-faces') {
-        const faces = new FaceMesh({ shapeType: 'face', meshes: [meshData] }, options?.face, options?.appearance, grainAxis);
+        const faces = new FaceMesh({ shapeType: 'face', meshes: [meshData] }, faceOptions, options?.appearance, grainAxis);
         faces.renderOrder = 1;
         this.add(faces);
       } else if (meshData.label === 'solid-edges') {

@@ -6,6 +6,7 @@ import {
   type WebGLProgramParametersWithUniforms,
 } from 'three';
 import type { Appearance } from '../../../../lib/common/appearances';
+import { faceDepthOffset } from '../shape-meshes/face-depth-offset';
 
 /**
  * The material a part's `.appearance(id)` shades its unpainted faces with:
@@ -33,6 +34,8 @@ export type AppearanceMaterialOptions = {
   grainAxis?: GrainAxis;
   opacity?: number;
   depthTest?: boolean;
+  /** Push the faces back by their depth slope too — see face-depth-offset.ts. */
+  slopeOffset?: boolean;
 };
 
 /**
@@ -51,8 +54,7 @@ export function createAppearanceMaterial(appearance: Appearance, options: Appear
     depthTest: options.depthTest ?? true,
     // Same slot as the Phong faces: behind the edge lines, in front of nothing.
     polygonOffset: true,
-    polygonOffsetFactor: 1,
-    polygonOffsetUnits: 1,
+    ...faceDepthOffset(false, options.slopeOffset),
     side: DoubleSide,
   });
   material.userData.appearance = appearance.id;

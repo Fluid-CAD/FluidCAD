@@ -10,6 +10,7 @@ import { FaceMeshOptions, SceneObjectPart } from '../../types';
 import type { Appearance } from '../../../../lib/common/appearances';
 import { themeColors } from '../../scene/theme-colors';
 import { createAppearanceMaterial, type GrainAxis } from '../appearance/appearance-material';
+import { faceDepthOffset } from './face-depth-offset';
 import { MM_PER_UNIT } from '../../units/units';
 import { sceneUnit } from '../../units/scene-unit';
 
@@ -17,6 +18,7 @@ const DEFAULTS: Required<FaceMeshOptions> = {
   color: '',
   opacity: 1,
   depthTest: true,
+  slopeOffset: false,
 };
 
 export class FaceMesh extends Group {
@@ -47,6 +49,7 @@ export class FaceMesh extends Group {
           grainAxis,
           opacity: opts.opacity,
           depthTest: opts.depthTest,
+          slopeOffset: opts.slopeOffset,
         })
         : new MeshPhongMaterial({
         color: faceColor,
@@ -55,11 +58,10 @@ export class FaceMesh extends Group {
         depthWrite: !isOverlay,
         depthTest: opts.depthTest,
         polygonOffset: true,
-        // Overlays slot between edge lines (offset 0) and base faces (+1/+1):
-        // in front of the face they tint, but behind the edges' depth, so
-        // edge lines stay visible when adjacent faces are both overlaid.
-        polygonOffsetFactor: isOverlay ? 0.5 : 1,
-        polygonOffsetUnits: isOverlay ? 0.5 : 1,
+        // Overlays slot between edge lines (offset 0) and base faces: in
+        // front of the face they tint, but behind the edges' depth, so edge
+        // lines stay visible when adjacent faces are both overlaid.
+        ...faceDepthOffset(isOverlay, opts.slopeOffset),
         side: DoubleSide
       });
 

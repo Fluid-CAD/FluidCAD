@@ -847,7 +847,7 @@ describe('a radio value, and choices that differ only in how they are shown', ()
     expect((await applyFeatureEdit(PLATE, clipSpec(BARE_CLIP_META, values), { callees: catalog() })).newCode).toBe(written.newCode);
   });
 
-  it('reads a radio back, edits it keeping the rest, and refuses one that is no plain literal', async () => {
+  it('reads a radio back, edits it keeping the rest, and one that is computed as its expression', async () => {
     const code = src(`import { clip } from './clip.feature.js'`, ``, `clip({ size: 'm4', head: 'counterbore', turns: 2 })`);
     const callees = await catalog().calleesFor(code, MODEL);
     const parsed = await parseFeatureStatement(code, 3, callees);
@@ -861,8 +861,8 @@ describe('a radio value, and choices that differ only in how they are shown', ()
     expect(edited.newCode).toContain(`clip({ size: 'm4', head: 'plain', turns: 2 })`);
 
     const computed = src(`import { clip } from './clip.feature.js'`, ``, `clip({ head: pick() })`);
-    const refused = await parseFeatureStatement(computed, 3, await catalog().calleesFor(computed, MODEL));
-    expect(refused.ok === false && refused.reason).toContain(`clip()'s 'head' is not a plain string or number`);
+    const read = await parseFeatureStatement(computed, 3, await catalog().calleesFor(computed, MODEL));
+    expect(read.ok && read.parsed).toMatchObject({ values: { head: { expr: 'pick()' } } });
   });
 });
 
@@ -1002,10 +1002,10 @@ describe('a multi-select: a list of option values, written as one array literal'
     expect((await edit([])).newCode).toContain(`rim(['prime'], [], 4)`);
   });
 
-  it('refuses a statement whose list is no plain list of strings and numbers, by message', async () => {
+  it('reads a list that is no plain list of strings and numbers as the expression it is', async () => {
     for (const coats of [`[...base]`, `base()`, `['prime', two]`, `'prime'`, `[['prime']]`]) {
-      const refused = await rimAt(src(`import { rim } from './rim.feature.js'`, ``, `rim(${coats}, ['deburr'], 4)`));
-      expect(refused.ok === false && refused.reason).toContain(`rim()'s 'coats' is not a plain list of strings or numbers`);
+      const computed = await rimAt(src(`import { rim } from './rim.feature.js'`, ``, `rim(${coats}, ['deburr'], 4)`));
+      expect(computed.ok && computed.parsed, coats).toMatchObject({ values: { coats: { expr: coats }, finishes: ['deburr'], depth: 4 } });
     }
     const read = await rimAt(src(`import { rim } from './rim.feature.js'`, ``, `rim(["prime", 2], [], 4)`));
     expect(read.ok && read.parsed).toMatchObject({ values: { coats: ['prime', 2], finishes: [], depth: 4 } });
@@ -1079,7 +1079,7 @@ describe('a choice bound to a variable', () => {
     expect(flag.source({ label: 'Flush', type: 'boolean' }, { ref: 'flush' })).toBe('Flush must be true or false');
   });
 
-  it('reads a bare name or a dotted path back as the reference, and nothing else', async () => {
+  it('reads a bare name or a dotted path back as the reference, and anything else as the expression it is', async () => {
     const named = await clipAt(`clip({ size: holeSize, head: 'plain' })`);
     expect(named.ok && named.parsed).toMatchObject({ feature: 'custom', values: { size: { ref: 'holeSize' }, head: 'plain' } });
     const path = await clipAt(`clip({ size: inst.properties.kind, head: 'plain' })`);
@@ -1089,8 +1089,8 @@ describe('a choice bound to a variable', () => {
     expect(radio.ok && radio.parsed).toMatchObject({ values: { size: 'm4', head: { ref: 'headKind' } } });
 
     for (const head of [`pick()`, `this.x`, `kinds[0]`, `inst?.properties.kind`, `a.b()`, `(holeSize)`, `\`m4\``, `inst.properties.kind + ''`]) {
-      const refused = await clipAt(`clip({ size: 'm4', head: ${head} })`);
-      expect(refused.ok === false && refused.reason, head).toContain(`clip()'s 'head' is not a plain string or number`);
+      const computed = await clipAt(`clip({ size: 'm4', head: ${head} })`);
+      expect(computed.ok && computed.parsed, head).toMatchObject({ values: { size: 'm4', head: { expr: head } } });
     }
   });
 
@@ -1125,4 +1125,112 @@ describe('a choice bound to a variable', () => {
     const parsed = await parseFeatureStatement(written.newCode, line, await catalog().calleesFor(written.newCode, MODEL));
     expect(parsed.ok && parsed.parsed).toMatchObject({ values: { coats: { ref: 'chosen' }, finishes: ['deburr'] } });
   });
+});
+
+// Any typed-in row may hold a source expression in place of its literal —
+// `{ expr: "left ? 'left' : 'right'" }` on the wire, written bare the way a
+// number row writes `h * 2`, and read back as the expression whatever it
+// computes: a statement that computes a value opens in the dialog like one
+// that spells it. A row left alone keeps the text as written; one the user
+// typed is checked as a number row's expression is before it is written.
+describe('an expression in place of a literal, on every typed-in kind', () => {
+  const select = TypedInKinds.of('select')!;
+  const list = TypedInKinds.of('select', true)!;
+  const flag = TypedInKinds.of('boolean')!;
+  const text = TypedInKinds.of('text')!;
+  const length = TypedInKinds.of('length')!;
+  const SCREW = (CLIP_META.params as Record<string, TypedInSpec>).size;
+  const FINISHES = { label: 'Finishes', type: 'select', multiple: true, options: [{ value: 'deburr' }, { value: 'chamfer' }] };
+  const FLUSH = { label: 'Flush', type: 'boolean' };
+  const NOTE = { label: 'Note', type: 'text', maxLength: 3 };
+  const DEPTH = { label: 'Depth', type: 'length', min: 1 };
+  const kinds: [string, typeof select, TypedInSpec][] = [['select', select, SCREW], ['list', list, FINISHES], ['boolean', flag, FLUSH], ['text', text, NOTE], ['length', length, DEPTH]];
+
+  /** A gusset statement with `profile` bound, so the options object is the one argument of interest. */
+  async function gussetAt(options: string) {
+    const code = src(
+      `import { sketch, rect } from 'fluidcad/core'`,
+      `import { gusset } from './gusset.feature.js'`,
+      `const s = sketch('xz', () => { rect(10, 10) })`,
+      `gusset(s, undefined, { ${options} })`,
+    );
+    return { code, parsed: await parseFeatureStatement(code, 4, await catalog().calleesFor(code, MODEL)) };
+  }
+
+  it('is its own shape on the wire, told apart from a reference and a literal', () => {
+    expect(TypedInKinds.isExpr({ expr: 'a ? 1 : 2' })).toBe(true);
+    expect(TypedInKinds.isExpr({ expr: 3 })).toBe(false);
+    expect(TypedInKinds.isExpr({ ref: 'a' })).toBe(false);
+    expect(TypedInKinds.isExpr('a ? 1 : 2')).toBe(false);
+    expect(TypedInKinds.exprText({ expr: '  a + b ' })).toBe('a + b');
+    expect(TypedInKinds.exprText({ expr: '  ' })).toBeNull();
+  });
+
+  it('writes the expression bare on every kind, under the checks a number row\'s expression gets', async () => {
+    // The parser is loaded by any write: this test's reads below load it, as the dialog's parse of the file does.
+    await gussetAt(`flip: true`);
+    for (const [name, kind, spec] of kinds) {
+      expect(kind.source(spec, { expr: " left ? 'left' : 'right' " }), name).toEqual({ kind: 'value', value: "left ? 'left' : 'right'" });
+      expect(kind.source(spec, { expr: 'Math.max(a, b) > 2 && !c' }), name).toEqual({ kind: 'value', value: 'Math.max(a, b) > 2 && !c' });
+      expect(kind.preview(spec, { expr: 'a ? 1 : 2' }), name).toBeNull();
+      expect(kind.preview(spec, { expr: '  ' }), name).toBe(`${spec.label} must be an expression`);
+      for (const expr of ['', 'a\nb', 'a; b', 'a // b', 'a /* b */', 'a = 1', 'a, b', '(a', 'a b', 'a +', 'const a = 1', '`a${b}`', 'x'.repeat(201)]) {
+        expect(kind.source(spec, { expr }), `${name}: ${JSON.stringify(expr)}`).toBe(`${spec.label} must be one expression on one line — no comment, no assignment`);
+      }
+    }
+    // The declaration's own checks (an option, a range, a pattern) wait for the build: an expression is not a literal to check.
+    expect(select.source(SCREW, { expr: "'m9'" })).toEqual({ kind: 'value', value: "'m9'" });
+    expect(text.source(NOTE, { expr: "'too long'" })).toEqual({ kind: 'value', value: "'too long'" });
+    expect(length.source(DEPTH, { expr: '0' })).toEqual({ kind: 'value', value: '0' });
+  });
+
+  it('reads an expression back on every kind — a literal, a reference stay what they were', async () => {
+    const { parsed } = await gussetAt(`width: w * 2, tag: \`rib-${'${n}'}\`, flip: count > 4 && !left, style: left ? 'round' : 'flat'`);
+    expect(parsed.ok && parsed.parsed).toMatchObject({
+      feature: 'custom',
+      values: { width: 'w * 2', tag: { expr: '`rib-${n}`' }, flip: { expr: 'count > 4 && !left' }, style: { expr: "left ? 'round' : 'flat'" } },
+    });
+    const plain = await gussetAt(`width: 2, tag: 'a', flip: false, style: kind`);
+    expect(plain.parsed.ok && plain.parsed.parsed).toMatchObject({ values: { width: 2, tag: 'a', flip: false, style: { ref: 'kind' } } });
+    // Whatever the expression: a call the preview will never evaluate, a path, an index, a comparison of a text.
+    const odd = await gussetAt(`tag: pick(), flip: flags[0], style: a.b.c === 'x' ? 'round' : 'flat'`);
+    expect(odd.parsed.ok && odd.parsed.parsed).toMatchObject({ values: { tag: { expr: 'pick()' }, flip: { expr: 'flags[0]' }, style: { expr: "a.b.c === 'x' ? 'round' : 'flat'" } } });
+    // A multi-select too, and a number row holds to its own reading.
+    const listed = await rimAt(src(`import { rim } from './rim.feature.js'`, ``, `rim(left ? ['prime'] : [], ['deburr'], 4)`));
+    expect(listed.ok && listed.parsed).toMatchObject({ values: { coats: { expr: "left ? ['prime'] : []" }, finishes: ['deburr'], depth: 4 } });
+  });
+
+  it('keeps an expression as written through an edit of another value, and replaces it when the dialog says so', async () => {
+    const { code } = await gussetAt(`width: 2, flip: count > 4, style: left ? 'round' : 'flat'`);
+    const edit = (values: CustomFeatureOptions['values']) => applyFeatureEdit(code, {
+      feature: 'custom', filePath: MODEL, producers: [], parts: [], imports: [],
+      edit: { line: 4, column: 0, custom: { id: 'acme.gusset', values: { profile: { kind: 'keep' }, ...values } } },
+    }, { callees: catalog() });
+    const kept = await edit({ width: { kind: 'value', value: 3 }, flip: { kind: 'keep' }, style: { kind: 'keep' } });
+    expect(kept.error).toBeUndefined();
+    // The optional axis left out ahead of the options takes the short form, as every edit writes it.
+    expect(kept.newCode).toContain(`gusset(s, { width: 3, flip: count > 4, style: left ? 'round' : 'flat' })`);
+    const replaced = await edit({ width: { kind: 'keep' }, flip: { kind: 'literal', value: true }, style: { kind: 'literal', value: 'round' } });
+    expect(replaced.newCode).toContain(`gusset(s, { width: 2, flip: true, style: 'round' })`);
+    const typed = await edit({ width: { kind: 'keep' }, flip: { kind: 'value', value: '!left' }, style: { kind: 'value', value: "sides === 2 ? 'round' : 'flat'" } });
+    expect(typed.newCode).toContain(`gusset(s, { width: 2, flip: !left, style: sides === 2 ? 'round' : 'flat' })`);
+    const back = await parseFeatureStatement(typed.newCode!, 4, await catalog().calleesFor(typed.newCode!, MODEL));
+    expect(back.ok && back.parsed).toMatchObject({ values: { flip: { expr: '!left' }, style: { expr: "sides === 2 ? 'round' : 'flat'" } } });
+  });
+
+  it('writes an expression into a new statement of every kind', async () => {
+    const written = await applyFeatureEdit(PLATE, {
+      feature: 'custom', filePath: MODEL, producers: [], parts: [], imports: [],
+      custom: {
+        id: 'acme.rim', exportName: 'rim', modulePath: '/ws/rim.feature.js', shape: CustomFeatureStatement.shapeOf(RIM_META),
+        values: { coats: { kind: 'value', value: "left ? ['prime'] : []" }, finishes: { kind: 'list', values: ['deburr'] }, depth: { kind: 'value', value: 'n > 2 ? 4 : 2' } },
+      },
+    }, { callees: catalog() });
+    expect(written.error).toBeUndefined();
+    expect(written.newCode).toContain(`rim(left ? ['prime'] : [], ['deburr'], n > 2 ? 4 : 2)`);
+  });
+
+  async function rimAt(code: string) {
+    return parseFeatureStatement(code, 3, await catalog().calleesFor(code, MODEL));
+  }
 });

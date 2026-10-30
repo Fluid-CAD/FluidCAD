@@ -31,6 +31,7 @@ describe('assembly parameter UI endpoints', () => {
       // The scope-variables route reads the last render's property-bearing objects; there is none.
       getRenderedInstances: () => [],
       getRenderedParts: () => [],
+    getParamDefinitions: () => [],
     } as any;
     const send = (message: any) => { relayed.push(message); return false; };
     const dispatcher = new FeatureEditDispatcher(backend, send);

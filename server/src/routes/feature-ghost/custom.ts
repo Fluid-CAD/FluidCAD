@@ -32,8 +32,9 @@ type Refusal = { status: number; reason: string };
 /**
  * `POST /feature-ghost` with `feature: 'custom'`: the live preview of a
  * custom feature's dialog. The body names the feature by its catalog id,
- * its typed-in values (numbers or expression text, resolved where the
- * statement sits, like every ghost's) and its picks (one ref per element of
+ * its typed-in values (literals; numbers or expression text, a choice's
+ * `{ ref }`, any kind's `{ expr }` — resolved where the statement sits,
+ * like every ghost's) and its picks (one ref per element of
  * a picked value: a statement by call site, viewport faces or edges, a world
  * axis or an origin plane, a connector, a picked vertex, an anchor, or —
  * editing — the statement's own element by position). Each is checked against the feature's metadata
@@ -97,14 +98,23 @@ export class CustomGhostRoute {
       }
       values[name] = resolved;
     }
-    // A choice bound to a variable previews as the literal the variable holds here.
-    for (const [name, reference] of Object.entries(shaped.references)) {
-      const resolved = scope.literal(reference.ref);
+    // A choice bound to a variable, and any row holding an expression,
+    // preview as the literal the text evaluates to here — checked by the
+    // kind as a typed literal would be. One the scope can't evaluate (a
+    // name with no value, a call the whitelist refuses) draws no ghost,
+    // saying so; the dialog stays open on the text as written.
+    for (const [name, source] of Object.entries(shaped.sources)) {
+      const resolved = scope.literal(source.text);
       if (resolved === null) {
-        res.json({ success: false, reason: `${reference.spec.label} names ${reference.ref}, which has no value here` });
+        res.json({
+          success: false,
+          reason: source.named
+            ? `${source.spec.label} names ${source.text}, which has no value here`
+            : `${source.spec.label} is ${source.text}, which the preview cannot work out here`,
+        });
         return;
       }
-      const refusal = reference.kind.preview(reference.spec, resolved);
+      const refusal = source.kind.preview(source.spec, resolved);
       if (refusal) {
         res.json({ success: false, reason: refusal });
         return;
@@ -158,14 +168,15 @@ export class CustomGhostRoute {
 
   /**
    * The body checked against the feature: typed-in values by kind (numbers
-   * to resolve, literals as they are, a choice's reference to resolve to
-   * its literal), picks by picker, the operation, and the edited statement.
+   * to resolve, literals as they are, a choice's reference and any kind's
+   * expression to evaluate to a literal), picks by picker, the operation,
+   * and the edited statement.
    */
   private static shape(body: CustomGhostBody, meta: FeatureMetaSnapshot): {
     numbers: Record<string, ValueExpr>;
     literals: Record<string, string | boolean | number | (string | number)[]>;
-    /** Each choice bound to a variable: the name it reads, and the kind and declaration the literal is checked by. */
-    references: Record<string, { ref: string; kind: TypedInKind; spec: TypedInSpec }>;
+    /** Each value sent as source text to evaluate — a choice's `{ ref }` (`named`), any kind's `{ expr }` — with the kind and declaration the literal is checked by. */
+    sources: Record<string, { text: string; named: boolean; kind: TypedInKind; spec: TypedInSpec }>;
     refs: Record<string, GhostCustomRef[]>;
     operation: CustomGhostRequest['operation'];
     exclude: { filePath: string; line: number } | null;
@@ -176,7 +187,7 @@ export class CustomGhostRoute {
     }
     const numbers: Record<string, ValueExpr> = {};
     const literals: Record<string, string | boolean | number | (string | number)[]> = {};
-    const references: Record<string, { ref: string; kind: TypedInKind; spec: TypedInSpec }> = {};
+    const sources: Record<string, { text: string; named: boolean; kind: TypedInKind; spec: TypedInSpec }> = {};
     for (const [name, value] of Object.entries(rawValues)) {
       const spec = meta.params[name];
       if (!spec) {
@@ -196,11 +207,18 @@ export class CustomGhostRoute {
       if (refusal) {
         return { reason: refusal };
       }
-      if (kind.expression) {
+      // The preview passed a reference or an expression, so it is well formed.
+      if (TypedInKinds.isExpr(value)) {
+        const text = TypedInKinds.exprText(value)!;
+        if (kind.expression) {
+          numbers[name] = text;
+        } else {
+          sources[name] = { text, named: false, kind, spec: spec as TypedInSpec };
+        }
+      } else if (kind.expression) {
         numbers[name] = value as ValueExpr;
       } else if (TypedInKinds.isRef(value)) {
-        // The preview passed it, so it is well formed.
-        references[name] = { ref: TypedInKinds.refText(value)!, kind, spec: spec as TypedInSpec };
+        sources[name] = { text: TypedInKinds.refText(value)!, named: true, kind, spec: spec as TypedInSpec };
       } else {
         literals[name] = value as string | boolean | number | (string | number)[];
       }
@@ -242,7 +260,7 @@ export class CustomGhostRoute {
     return {
       numbers,
       literals,
-      references,
+      sources,
       refs,
       operation: operation as CustomGhostRequest['operation'],
       exclude,

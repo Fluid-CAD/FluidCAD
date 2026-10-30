@@ -78,7 +78,7 @@ export type CustomPickSource =
  * out of the call (the builder's default applies).
  */
 export type CustomValueSource =
-  /** A typed-in number, or an expression (`h * 2`), written as it reads. */
+  /** A typed-in number, or an expression of any kind (`h * 2`, `left ? 'left' : 'right'`), written as it reads. */
   | { kind: 'value'; value: ValueExpr }
   /** A string or a boolean, written as a literal. */
   | { kind: 'literal'; value: string | boolean }
@@ -142,7 +142,7 @@ export type ParsedCustomFeature = ParsedScopeChain & {
   id: string;
   /** The callee as the statement writes it — an import alias included. */
   callee: string;
-  /** The typed-in values the statement writes — a choice bound to a variable as `{ ref }`; one it leaves out is absent. */
+  /** The typed-in values the statement writes — a choice bound to a variable as `{ ref }`, any kind's computed value as `{ expr }`; one it leaves out is absent. */
   values: Record<string, TypedInValue>;
   /** The picked values it writes, element by element; one it leaves out is absent. */
   picks: Record<string, CustomPickText[]>;

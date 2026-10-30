@@ -1,6 +1,7 @@
 // Dialog value slots: the number-or-expression type every option field uses, its validators and its renderers.
 
-import { isExpressionText } from '../code-editor/index.ts';
+import { isExpressionText, loadedJavaScriptParser } from '../code-editor/index.ts';
+import { Expressions } from '../routes/feature-ghost/expressions.ts';
 
 /**
  * A dialog numeric slot: a plain number, or verbatim expression text
@@ -74,6 +75,41 @@ export function refShaped(value: unknown): value is RefValue {
     return false;
   }
   return typeof (value as { ref?: unknown }).ref === 'string';
+}
+
+/**
+ * A dialog value slot holding a source expression in place of a literal: the
+ * text the statement writes as it is (`left ? 'left' : 'right'`,
+ * `count > 4`, `` `rib-${n}` `` read back from the source). Where a number
+ * row travels its expression as a bare string, the other typed-in rows of a
+ * custom feature — a choice, a boolean, a text — travel it in this shape,
+ * since a bare string is one of their literals.
+ */
+export type ExprValue = { expr: string };
+
+/** Whether a value is an expression's shape, `{ expr: string }` — well formed or not. */
+export function exprShaped(value: unknown): value is ExprValue {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  return typeof (value as { expr?: unknown }).expr === 'string';
+}
+
+/**
+ * Validate one expression slot for writing: the shape `{ expr: string }`
+ * holding text a statement may carry as one argument — what a number row's
+ * expression must be (`isExpressionText`: one line, no comment, balanced,
+ * no top-level comma or assignment) and, through the grammar, one single
+ * expression (`a b`, `(a`, a declaration are none). A dialog's write parses
+ * the file before it writes a value, so the parser is loaded by then; the
+ * text check alone decides should it not be.
+ */
+export function validExpr(value: unknown): value is ExprValue {
+  if (!exprShaped(value) || !isExpressionText(value.expr)) {
+    return false;
+  }
+  const parser = loadedJavaScriptParser();
+  return parser === null || Expressions.parse(value.expr.trim(), parser) !== null;
 }
 
 /** A repeat count slot: an integer of at least 2, or safe expression text. */

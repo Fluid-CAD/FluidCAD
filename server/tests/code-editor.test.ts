@@ -1447,6 +1447,22 @@ describe('extractVariablesInScope literal values', () => {
     expect(vars.find(v => v.name === 'finish')).toEqual({ name: 'finish', initializer: `'brushed'`, numeric: false, value: 'brushed' });
     expect(vars.find(v => v.name === 'sides')).toMatchObject({ numeric: true });
   });
+
+  it("carries a param()'s current value over its default when the registry has one for the call, and the default otherwise", async () => {
+    const code = [
+      "import { param } from 'fluidcad/core';",
+      "const left = param('Left panel', false, 'checkbox');",
+      "const screw = param('Screw', 'm3', 'select', { options: [] });",
+      "const sides = param('Sides', 6);",
+      "const odd = param('Odd', 1);",
+    ].join('\n');
+    const current: Record<number, unknown> = { 2: true, 3: 'm4', 5: { not: 'a literal' } };
+    const params = { definitionOf: (call: { startPosition: { row: number } }) => call.startPosition.row + 1 in current ? { currentValue: current[call.startPosition.row + 1] } : null };
+    const vars = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER, undefined, undefined, params);
+    expect(Object.fromEntries(vars.map(v => [v.name, v.value]))).toEqual({ left: true, screw: 'm4', sides: 6, odd: 1 });
+    // The initializer stays the source: what a field completes and an expression's declaration reads.
+    expect(vars.find(v => v.name === 'left')).toMatchObject({ initializer: "param('Left panel', false, 'checkbox')", numeric: true, value: true });
+  });
 });
 
 describe('extractVariablesInPart', () => {

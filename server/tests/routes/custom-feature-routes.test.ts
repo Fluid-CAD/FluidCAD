@@ -686,6 +686,42 @@ describe('a radio value through the routes', () => {
   });
 });
 
+describe('an expression in a value through the routes', () => {
+  const COMPUTED = [`import { clip } from './clip.feature.js'`, ``, `clip({ size: left ? 'm3' : 'm4', head: 'counterbore', turns: 2 })`, ``].join('\n');
+
+  function clipEntry(meta: ScannedFeature['meta']): FeatureCatalogEntry {
+    return { id: 'acme.clip', exportName: 'clip', modulePath: '/ws/clip.feature.js', builtIn: false, meta };
+  }
+
+  it('reads it back for the dialog, keeps it through an edit of another value, and writes one the dialog typed', async () => {
+    entries = [clipEntry(CLIP_META)];
+    currentCode = COMPUTED;
+    const base = await serve();
+    const read = await post(`${base}/feature/parse`, { line: 3, filePath: MODEL });
+    expect(read.status).toBe(200);
+    expect(read.body.parsed).toMatchObject({ feature: 'custom', id: 'acme.clip', values: { size: { expr: "left ? 'm3' : 'm4'" }, head: 'counterbore', turns: 2 } });
+
+    const kept = await post(`${base}/apply-feature`, {
+      feature: 'custom', preview: true, edit: { filePath: MODEL, line: 3, column: 0 }, custom: { id: 'acme.clip', values: { turns: 1 }, picks: {} },
+    });
+    expect(kept.status).toBe(200);
+    expect(kept.body.preview).toBe(`clip({ size: left ? 'm3' : 'm4', head: 'counterbore', turns: 1 })`);
+
+    const typed = await post(`${base}/apply-feature`, {
+      feature: 'custom', preview: true, edit: { filePath: MODEL, line: 3, column: 0 },
+      custom: { id: 'acme.clip', values: { size: 'm4', head: { expr: "deep ? 'counterbore' : 'plain'" }, turns: { expr: 'n > 1 ? 2 : 1' } }, picks: {} },
+    });
+    expect(typed.status).toBe(200);
+    expect(typed.body.preview).toBe(`clip({ size: 'm4', head: deep ? 'counterbore' : 'plain', turns: n > 1 ? 2 : 1 })`);
+
+    const refused = await post(`${base}/apply-feature`, {
+      feature: 'custom', preview: true, edit: { filePath: MODEL, line: 3, column: 0 }, custom: { id: 'acme.clip', values: { head: { expr: 'a; b' } }, picks: {} },
+    });
+    expect(refused.status).toBe(422);
+    expect(refused.body.reason ?? refused.body.error).toContain('Head must be one expression on one line');
+  });
+});
+
 describe('a select of several through the routes', () => {
   const FINISHED = [`import { finish } from './finish.feature.js'`, ``, `finish({ steps: ['deburr', 'polish'] })`, ``].join('\n');
 

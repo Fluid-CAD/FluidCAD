@@ -3,10 +3,13 @@
 
 export { isExpressionText } from '../code-editor/index.ts';
 export {
+  exprShaped,
   refShaped,
   validCountValue,
+  validExpr,
   validRef,
   validValueExpr,
+  type ExprValue,
   type RefValue,
   type RegionItemRefSpec,
   type RegionName,
@@ -176,7 +179,7 @@ export {
   type CustomValueSource,
   type ParsedCustomFeature,
 } from './features/custom.ts';
-export { TypedInKinds, type TypedInKind, type TypedInRef, type TypedInSource, type TypedInSpec, type TypedInValue } from './features/typed-in-kinds.ts';
+export { TypedInKinds, type TypedInExpr, type TypedInKind, type TypedInRef, type TypedInSource, type TypedInSpec, type TypedInValue } from './features/typed-in-kinds.ts';
 export {
   makeProducerBindable,
   makeProducerBoundProbe,

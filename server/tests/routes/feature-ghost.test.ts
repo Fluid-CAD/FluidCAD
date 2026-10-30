@@ -293,7 +293,8 @@ describe('feature-ghost route — repeat', () => {
       'width = 1',
       'width / 0',
       '[1][0]',
-      'width ? 1 : 2',
+      'width > 10',
+      "'40'",
     ]) {
       const { status, body } = await postGhost(linearBody({
         directions: [{ count: 3, offset: expression, length: null }],
@@ -302,6 +303,9 @@ describe('feature-ghost route — repeat', () => {
       expect(body.success, expression).toBe(false);
       expect(received, expression).toBeUndefined();
     }
+    // A conditional over the names is arithmetic, as every dialog's value scope reads it: the number it comes to.
+    await postGhost(linearBody({ directions: [{ count: 3, offset: 'width > 10 ? width / 2 : 2', length: null }] }));
+    expect(received.directions[0].offset).toBe(20);
   });
 
   it('marks the kernel refusals worth reading out loud', async () => {

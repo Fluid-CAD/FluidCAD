@@ -1,7 +1,7 @@
 // Public surface of the code-editor toolkit: tree-sitter backed edits of .fluid.js source.
 // Every consumer imports from here; the modules behind it are grouped by concern.
 
-export { getJavaScriptParser, type TSNode, type TSTree } from './parser.ts';
+export { getJavaScriptParser, loadedJavaScriptParser, type TSNode, type TSTree } from './parser.ts';
 export { CallSites } from './call-sites.ts';
 export { isExpressionText } from './expression-text.ts';
 export {
@@ -113,6 +113,7 @@ export {
   insertGeometryCallWithVariable,
   updateDimensionExpressionWithVariable,
   type NewVariableDecl,
+  type ParamValueSource,
   type ScopeGlobals,
   type VariableGlobalInfo,
   type VariableInfo,

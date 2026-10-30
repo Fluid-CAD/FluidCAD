@@ -416,9 +416,9 @@ describe('feature-ghost route — custom features', () => {
     it('draws nothing for a name with no value here, saying so by the label and the name', async () => {
       const unknown = await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'nowhere' } }, valueScope: scope });
       expect(unknown).toEqual({ status: 200, body: { success: false, reason: 'Screw names nowhere, which has no value here' } });
-      // A boolean is no option's value; a name out of scope (the top level sees no part body) has none either.
+      // A boolean resolves, and is no option's value; a name out of scope (the top level sees no part body) has none.
       const flag = await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'flat' } }, valueScope: scope });
-      expect(flag.body).toEqual({ success: false, reason: 'Screw names flat, which has no value here' });
+      expect(flag.body).toEqual({ success: false, reason: 'Screw must be one of its options' });
       const outside = await post({ feature: 'custom', id: 'acme.clip', values: { size: { ref: 'holeSize' } } });
       expect(outside.body).toEqual({ success: false, reason: 'Screw names holeSize, which has no value here' });
       expect(received).toBeUndefined();
@@ -440,6 +440,52 @@ describe('feature-ghost route — custom features', () => {
       expect(refused).toEqual({ status: 400, body: { success: false, reason: 'Height must be a number or an expression' } });
       await post({ feature: 'custom', id: 'acme.standoff', values: { height: 'count * 2' }, refs: { face: [FACE] }, valueScope: scope });
       expect(received).toMatchObject({ values: { height: 8 } });
+    });
+  });
+
+  describe('a row holding an expression', () => {
+    const PART = [
+      `import { part, param } from 'fluidcad/core';`,
+      `export const plate = part('Plate', () => {`,
+      `  const left = param('Left panel', false, 'checkbox');`,
+      `  const holeSize = 'm4';`,
+      `  const count = param('Count', 4);`,
+      `  const flat = true;`,
+      `});`,
+    ].join('\n');
+    const scope = { kind: 'append', filePath: FILE, line: 2, column: 22 };
+
+    beforeEach(() => {
+      code = PART;
+      entries!.push(entry(CLIP_META, 'clip', '/ws/clip.feature.js'));
+    });
+
+    it('evaluates it where the statement sits, on every kind, and hands the kernel the literal', async () => {
+      await post({ feature: 'custom', id: 'acme.clip', values: { size: { expr: "left ? 'm3' : holeSize" }, turns: { expr: 'count > 2 ? 2 : 1' } }, valueScope: scope });
+      expect(received).toMatchObject({ exportName: 'clip', values: { size: 'm4', turns: 2 } });
+      // The Left configuration: the registry's current value of the checkbox.
+      definitions = [{ label: 'Left panel', currentValue: true, sourceLocation: { filePath: FILE, line: 3 } }];
+      await post({ feature: 'custom', id: 'acme.clip', values: { size: { expr: "left ? 'm3' : holeSize" } }, valueScope: scope });
+      expect(received).toMatchObject({ values: { size: 'm3' } });
+      definitions = [];
+      // A boolean, a template string a text takes, a number row in the same shape.
+      await post({
+        feature: 'custom', id: 'acme.boltCircle', refs: { around: [{ kind: 'standard', name: 'z' }] }, valueScope: scope,
+        values: { through: { expr: '!flat || count > 3' }, count: { expr: 'count * 2' }, size: { expr: '`m${count}`' } },
+      });
+      expect(received).toMatchObject({ values: { through: true, count: 8, size: 'm4' } });
+    });
+
+    it('draws nothing for one it cannot work out, or one of the wrong type, and refuses a blank one', async () => {
+      const unknown = await post({ feature: 'custom', id: 'acme.clip', values: { size: { expr: 'pick()' } }, valueScope: scope });
+      expect(unknown).toEqual({ status: 200, body: { success: false, reason: 'Screw is pick(), which the preview cannot work out here' } });
+      const flag = await post({ feature: 'custom', id: 'acme.clip', values: { size: { expr: '!left' } }, valueScope: scope });
+      expect(flag.body).toEqual({ success: false, reason: 'Screw must be one of its options' });
+      const text = await post({ feature: 'custom', id: 'acme.boltCircle', refs: { around: [{ kind: 'standard', name: 'z' }] }, values: { through: { expr: 'holeSize' } }, valueScope: scope });
+      expect(text.body).toEqual({ success: false, reason: 'Through all must be true or false' });
+      const blank = await post({ feature: 'custom', id: 'acme.clip', values: { size: { expr: '  ' } }, valueScope: scope });
+      expect(blank).toEqual({ status: 400, body: { success: false, reason: 'Screw must be an expression' } });
+      expect(received).toBeUndefined();
     });
   });
 

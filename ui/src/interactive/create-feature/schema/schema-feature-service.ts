@@ -1,7 +1,7 @@
 import {
   applyCustomFeature, applyCustomFeatureEdit, featureGhostScope, fetchConnectorAnchors, fetchFeatureGhostResult, fetchFeatureSources, fetchShapeOwners,
   getFaceProperties, type CustomFeatureApplyOptions, type FaceProperties, type FeaturePickedSurface, type CustomFeatureEditOptions, type CustomGhostRequest, type CustomPickInput,
-  type FeatureEditTarget, type FeatureListValue, type FeatureRefValue, type FeatureScalarValue, type GhostCustomRef, type GhostSolid, type NewVariable,
+  type FeatureEditTarget, type FeatureExprValue, type FeatureListValue, type FeatureRefValue, type FeatureScalarValue, type GhostCustomRef, type GhostSolid, type NewVariable,
   type ParsedFeatureStatement, type ScopeTargetRef, type ValueExpr,
 } from '../../../api';
 import { SceneIndex } from '../../../helpers/scene-index';
@@ -346,7 +346,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     void this.loadEditSources();
     void this.refreshScopeVariables();
     this.panel.showEdit({
-      values: parsed.values as Record<string, FeatureScalarValue | FeatureListValue | FeatureRefValue>,
+      values: parsed.values as Record<string, FeatureScalarValue | FeatureListValue | FeatureRefValue | FeatureExprValue>,
       operation: parsed.operation,
       seedPicks: (picker) => picker.seedKeeps(parsed.picks[picker.name], target.filePath),
     });
@@ -873,13 +873,14 @@ export class SchemaFeatureService implements FeatureDialogService {
    * when the builder has something to fall back on. A select of several is
    * never empty in that sense: with none chosen it writes an empty list. A
    * choice naming a variable travels as `{ ref }`, with the declaration of a
-   * parameter it declared alongside, as a number row's does.
+   * parameter it declared alongside, as a number row's does; a row holding
+   * an expression, of any kind, as `{ expr }`.
    */
   private collectValues(editing: boolean, reveal: boolean): {
-    values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | null>;
+    values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | FeatureExprValue | null>;
     newVariables?: NewVariable[];
   } | { error: string } {
-    const values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | null> = {};
+    const values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | FeatureExprValue | null> = {};
     const newVariables: NewVariable[] = [];
     for (const [name, field] of this.panel.fields) {
       if (!field.visible) {
@@ -972,7 +973,7 @@ export class SchemaFeatureService implements FeatureDialogService {
    */
   private ghostRequest(): CustomGhostRequest | null {
     const editing = this.editTarget !== null;
-    const values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue> = {};
+    const values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | FeatureExprValue> = {};
     for (const [name, field] of this.panel.fields) {
       if ((!field.visible && !editing) || field.isDerived) {
         continue;

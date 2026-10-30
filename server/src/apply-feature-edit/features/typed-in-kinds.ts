@@ -2,7 +2,7 @@
 
 import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
 import { anyValueArg, booleanArgValue, listArgValue, numericArgValue, refArgValue, stringArgValue } from '../ast/args.ts';
-import { formatValue, refShaped, validRef, validValueExpr, type RefValue, type ValueExpr } from '../value-expr.ts';
+import { exprShaped, formatValue, refShaped, validExpr, validRef, validValueExpr, type ExprValue, type RefValue, type ValueExpr } from '../value-expr.ts';
 import type { CustomValueSource } from './custom.ts';
 
 /**
@@ -13,8 +13,18 @@ import type { CustomValueSource } from './custom.ts';
  */
 export type TypedInRef = RefValue;
 
-/** A typed-in value as a dialog holds it: a number or expression, a boolean, a string, a multi-select's list of option values, a choice's reference. */
-export type TypedInValue = ValueExpr | boolean | string | (string | number)[] | TypedInRef;
+/**
+ * A value written as a source expression rather than a literal — `left ?
+ * 'left' : 'right'`, `count > 4`, a call the dialog cannot read: the text
+ * as the statement has it. Every typed-in kind reads one back, so a
+ * statement computing a value opens in the dialog like any other; a row
+ * left alone writes it back as it was, and one the user typed is checked
+ * as a number row's expression is before it is written.
+ */
+export type TypedInExpr = ExprValue;
+
+/** A typed-in value as a dialog holds it: a number or expression, a boolean, a string, a multi-select's list of option values, a choice's reference, any kind's expression. */
+export type TypedInValue = ValueExpr | boolean | string | (string | number)[] | TypedInRef | TypedInExpr;
 
 /** A typed-in value's source: what a statement writes for it. */
 export type TypedInSource = Extract<CustomValueSource, { kind: 'value' | 'literal' | 'list' }>;
@@ -38,16 +48,17 @@ export type TypedInSpec = {
 export type TypedInKind = {
   /** What a value of the kind is, for messages ("is not a plain …"). */
   name: string;
-  /** Whether a preview resolves the value as a numeric expression; else it passes as a literal. */
+  /** Whether a preview resolves the value as a numeric expression; else it passes as a literal (an expression of its resolved to one). */
   expression: boolean;
   /** A request's value as the source a statement writes, or why it doesn't fit its declaration. */
   source(spec: TypedInSpec, raw: unknown): TypedInSource | string;
   /** Why a preview's value doesn't fit the kind, or null; options and ranges are the kernel's to check. */
   preview(spec: TypedInSpec, raw: unknown): string | null;
   /**
-   * A statement's argument as the dialog's value; null for anything else —
-   * a number's slot holding what is provably no number (a selection,
-   * `draft(sel)`'s angle) among them.
+   * A statement's argument as the dialog's value: its literal, a choice's
+   * reference, or — for every kind but a number's — the expression as
+   * written. Null for a number's slot holding what is provably no number (a
+   * selection, `draft(sel)`'s angle).
    */
   read(node: TSNode, bindings: LexicalBindings): TypedInValue | null;
 };
@@ -68,55 +79,72 @@ export class TypedInKinds {
   /** The most characters any text may have, whatever it declares. */
   private static readonly TEXT_LIMIT = 2000;
 
+  /** A flag: `true` or `false` as a literal, or an expression that evaluates to one. */
   private static readonly BOOLEAN: TypedInKind = {
     name: 'true or false',
     expression: false,
-    source: (spec, raw) => typeof raw === 'boolean' ? { kind: 'literal', value: raw } : `${spec.label} must be true or false`,
-    preview: (spec, raw) => typeof raw === 'boolean' ? null : `${spec.label} must be true or false`,
-    read: node => booleanArgValue(node),
+    source: (spec, raw) => TypedInKinds.isExpr(raw)
+      ? TypedInKinds.exprSource(spec, raw)
+      : typeof raw === 'boolean' ? { kind: 'literal', value: raw } : `${spec.label} must be true or false`,
+    preview: (spec, raw) => TypedInKinds.isExpr(raw)
+      ? TypedInKinds.exprPreview(spec, raw)
+      : typeof raw === 'boolean' ? null : `${spec.label} must be true or false`,
+    read: node => booleanArgValue(node) ?? TypedInKinds.exprRead(node),
   };
 
-  /** A text stays a literal: a reference is refused by name, never written bare. */
+  /**
+   * A text: a string literal, or an expression that evaluates to one. A
+   * reference is refused by name, never written bare — a name is an
+   * expression here, which is what the dialog sends.
+   */
   private static readonly TEXT: TypedInKind = {
     name: 'string',
     expression: false,
-    source: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.noRef(spec) : TypedInKinds.textSource(spec, raw),
-    preview: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.noRef(spec) : typeof raw === 'string' ? null : `${spec.label} must be text`,
-    read: node => stringArgValue(node),
+    source: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.noRef(spec)
+      : TypedInKinds.isExpr(raw) ? TypedInKinds.exprSource(spec, raw)
+        : TypedInKinds.textSource(spec, raw),
+    preview: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.noRef(spec)
+      : TypedInKinds.isExpr(raw) ? TypedInKinds.exprPreview(spec, raw)
+        : typeof raw === 'string' ? null : `${spec.label} must be text`,
+    read: node => stringArgValue(node) ?? TypedInKinds.exprRead(node),
   };
 
   /**
    * One of the declared options, by its value: a number written as one, a
-   * string as a literal — or a reference to a variable, written bare. A
-   * select and a radio are the one kind — how the options are shown never
-   * reaches a statement.
+   * string as a literal — or a reference to a variable, written bare, or an
+   * expression that evaluates to one of them. A select and a radio are the
+   * one kind — how the options are shown never reaches a statement.
    */
   private static readonly CHOICE: TypedInKind = {
     name: 'string or number',
     expression: false,
-    source: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.refSource(spec, raw) : TypedInKinds.choiceSource(spec, raw),
-    preview: (spec, raw) => TypedInKinds.isRef(raw)
-      ? TypedInKinds.refPreview(spec, raw)
-      : typeof raw === 'string' || typeof raw === 'number' ? null : `${spec.label} must be one of its options`,
-    read: node => TypedInKinds.refRead(node) ?? stringArgValue(node) ?? numericArgValue(node),
+    source: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.refSource(spec, raw)
+      : TypedInKinds.isExpr(raw) ? TypedInKinds.exprSource(spec, raw)
+        : TypedInKinds.choiceSource(spec, raw),
+    preview: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.refPreview(spec, raw)
+      : TypedInKinds.isExpr(raw) ? TypedInKinds.exprPreview(spec, raw)
+        : typeof raw === 'string' || typeof raw === 'number' ? null : `${spec.label} must be one of its options`,
+    read: node => TypedInKinds.refRead(node) ?? stringArgValue(node) ?? numericArgValue(node) ?? TypedInKinds.exprRead(node),
   };
 
   /**
    * A select with `multiple: true`: a list of distinct option values, as
    * many as `min` and `max` allow, written as one array literal — the empty
    * list as `[]`, never left out — or a reference to a list-valued
-   * variable, written bare.
+   * variable, written bare, or an expression that evaluates to a list.
    */
   private static readonly CHOICES: TypedInKind = {
     name: 'list of strings or numbers',
     expression: false,
-    source: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.refSource(spec, raw) : TypedInKinds.listSource(spec, raw),
-    preview: (spec, raw) => TypedInKinds.isRef(raw)
-      ? TypedInKinds.refPreview(spec, raw)
-      : Array.isArray(raw) && raw.every(entry => typeof entry === 'string' || typeof entry === 'number')
-        ? null
-        : `${spec.label} must be a list of its options`,
-    read: node => TypedInKinds.refRead(node) ?? listArgValue(node),
+    source: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.refSource(spec, raw)
+      : TypedInKinds.isExpr(raw) ? TypedInKinds.exprSource(spec, raw)
+        : TypedInKinds.listSource(spec, raw),
+    preview: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.refPreview(spec, raw)
+      : TypedInKinds.isExpr(raw) ? TypedInKinds.exprPreview(spec, raw)
+        : Array.isArray(raw) && raw.every(entry => typeof entry === 'string' || typeof entry === 'number')
+          ? null
+          : `${spec.label} must be a list of its options`,
+    read: node => TypedInKinds.refRead(node) ?? listArgValue(node) ?? TypedInKinds.exprRead(node),
   };
 
   private static readonly KINDS: Readonly<Record<string, TypedInKind>> = {
@@ -190,6 +218,17 @@ export class TypedInKinds {
     return refShaped(value);
   }
 
+  /** Whether a request's value is an expression's shape, `{ expr: string }` — well formed or not. */
+  static isExpr(value: unknown): value is TypedInExpr {
+    return exprShaped(value);
+  }
+
+  /** The text an expression holds, trimmed, or null for a blank one. */
+  static exprText(value: TypedInExpr): string | null {
+    const text = value.expr.trim();
+    return text === '' ? null : text;
+  }
+
   /**
    * The name a reference holds, when it is one a choice may name — an
    * identifier or a dotted member path (`holeSize`, `inst.properties.kind`),
@@ -240,6 +279,27 @@ export class TypedInKinds {
     return `${spec.label} is text, which takes no variable`;
   }
 
+  /**
+   * An expression as the source a row writes — the text bare, where a
+   * number row's expression goes, under the same checks — or why it is no
+   * expression a statement takes.
+   */
+  private static exprSource(spec: TypedInSpec, raw: TypedInExpr): TypedInSource | string {
+    return validExpr(raw)
+      ? { kind: 'value', value: raw.expr.trim() }
+      : `${spec.label} must be one expression on one line — no comment, no assignment`;
+  }
+
+  /** A preview's expression: fine when it holds text (the scope evaluates it, and the kind checks what comes out), refused when blank. */
+  private static exprPreview(spec: TypedInSpec, raw: TypedInExpr): string | null {
+    return TypedInKinds.exprText(raw) === null ? `${spec.label} must be an expression` : null;
+  }
+
+  /** A statement's argument as the expression it is, whatever it is: the dialog shows it, keeps it, and writes it back as it was. */
+  private static exprRead(node: TSNode): TypedInExpr {
+    return { expr: node.text };
+  }
+
   /** One of the declared options, found by its value: a number written as one, a string as a literal. */
   private static choiceSource(spec: TypedInSpec, raw: unknown): TypedInSource | string {
     const option = (spec.options ?? []).find(o => o.value === raw);
@@ -282,12 +342,15 @@ export class TypedInKinds {
     return { kind: 'literal', value: raw };
   }
 
-  /** A number, or an expression that evaluates to one; `whole` refuses a fraction typed as a number. */
+  /** A number, or an expression that evaluates to one — bare, or in the expression shape the other kinds travel; `whole` refuses a fraction typed as a number. */
   private static number(whole: boolean): TypedInKind {
     return {
       name: 'number or expression',
       expression: true,
       source: (spec, raw) => {
+        if (TypedInKinds.isExpr(raw)) {
+          return TypedInKinds.exprSource(spec, raw);
+        }
         if (!validValueExpr(raw)) {
           return `${spec.label} must be a number or an expression`;
         }
@@ -304,7 +367,9 @@ export class TypedInKinds {
         }
         return { kind: 'value', value: raw };
       },
-      preview: (spec, raw) => TypedInKinds.isPreviewNumber(raw) ? null : `${spec.label} must be a number or an expression`,
+      preview: (spec, raw) => TypedInKinds.isExpr(raw)
+        ? TypedInKinds.exprPreview(spec, raw)
+        : TypedInKinds.isPreviewNumber(raw) ? null : `${spec.label} must be a number or an expression`,
       read: (node, bindings) => TypedInKinds.NOT_NUMBERS.has(node.type) || bindings.kindOf(node) === 'other' ? null : anyValueArg(node),
     };
   }

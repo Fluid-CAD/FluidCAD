@@ -398,7 +398,7 @@ const PROPERTY_INIT_RE =
   /^property\(\s*(['"`])[^'"`]*\1\s*,\s*(['"`])[^'"`]*\2\s*,\s*([\s\S]+)\)\s*;?\s*$/;
 
 /** A `param('name', value)` or `property('Label', 'name', value)` initializer contributes its value expression. */
-function unwrapDeclaration(initializer: string): string {
+export function unwrapDeclaration(initializer: string): string {
   const trimmed = initializer.trim();
   const param = trimmed.match(PARAM_INIT_RE);
   if (param) {

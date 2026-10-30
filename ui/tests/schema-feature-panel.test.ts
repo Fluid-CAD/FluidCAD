@@ -312,11 +312,13 @@ describe('the choice rows of a schema dialog', () => {
     const { root, panel } = mount();
     const row = root.querySelector<HTMLElement>('[data-param="style"]')!;
     expect(row.className).toBe('flex flex-col gap-1.5');
-    expect([...row.children].map(c => c.tagName)).toEqual(['SPAN', 'BUTTON']);
+    // The label line — the label, the ƒ toggle for an expression at its end — then the button.
+    expect([...row.children].map(c => c.tagName)).toEqual(['DIV', 'BUTTON']);
+    expect([...row.children[0].children].map(c => `${c.tagName}:${(c as HTMLElement).dataset.role ?? c.textContent}`)).toEqual(['SPAN:Style', 'BUTTON:expression-style']);
     expect(row.querySelector('select')).toBeNull();
     expect(row.querySelector('[data-role="select-sizer"]')).toBeNull();
-    const button = row.querySelector<HTMLButtonElement>('button')!;
-    expect(button.dataset.role).toBe('value-style');
+    const button = row.querySelector<HTMLButtonElement>('[data-role="value-style"]')!;
+    expect(button.tagName).toBe('BUTTON');
     expect(button.className).toContain('select select-sm select-bordered w-full text-xs');
     expect(button.textContent).toBe('Slots');
     button.click();

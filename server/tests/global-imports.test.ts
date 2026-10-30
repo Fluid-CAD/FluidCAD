@@ -171,6 +171,7 @@ describe('the sketch-edits router', () => {
     getCurrentCode: () => current,
     getRenderedInstances: () => [],
     getRenderedParts: () => [],
+    getParamDefinitions: () => [],
   };
 
   beforeEach(async () => {

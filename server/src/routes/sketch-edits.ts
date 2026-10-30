@@ -23,6 +23,8 @@ import {
   extractVariablesInPart,
   extractVariablesInAssembly,
   extractVariablesInScope,
+  getJavaScriptParser,
+  LexicalBindings,
   RenderedProperties,
   type ScopeGlobals,
   type VariableInfo,
@@ -33,6 +35,7 @@ import { validateSketchPositionEdit } from '../sketch-position-validate.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import { GlobalImports } from '../apply-feature-edit/global-imports.ts';
+import { ParamSites } from '../apply-feature-edit/index.ts';
 import type { GlobalParamCatalog } from '../global-params/catalog.ts';
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
@@ -369,15 +372,20 @@ export function createSketchEditsRouter(
         parts: fluidCadServer.getRenderedParts(),
       });
       const offered = await scopeGlobals();
+      // A `param()`'s value is the one the last render built with — the
+      // configuration's, an override's — matched to its call site the way
+      // the ghost's value scope matches it; its default only without one.
+      const parser = await getJavaScriptParser();
+      const params = new ParamSites(new LexicalBindings(parser.parse(code)), fluidCadServer.getCurrentFileName(), fluidCadServer.getParamDefinitions());
       let variables: VariableInfo[];
       if (typeof sketchSourceLine === 'number') {
-        variables = await extractVariablesInScope(code, sketchSourceLine, rendered, offered);
+        variables = await extractVariablesInScope(code, sketchSourceLine, rendered, offered, params);
       } else if (assembly === true) {
-        variables = await extractVariablesInAssembly(code, rendered, offered);
+        variables = await extractVariablesInAssembly(code, rendered, offered, params);
       } else if (typeof partLine === 'number') {
-        variables = await extractVariablesInPart(code, partLine, rendered, offered);
+        variables = await extractVariablesInPart(code, partLine, rendered, offered, params);
       } else {
-        variables = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER, rendered, offered);
+        variables = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER, rendered, offered, params);
       }
       res.json({ variables });
     } catch (err: any) {

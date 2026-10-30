@@ -1,21 +1,23 @@
 import type {
-  FeatureBooleanSpec, FeatureChoiceOption, FeatureListValue, FeatureNumberSpec, FeatureRefValue, FeatureScalarParam, FeatureTextSpec,
-  FeatureScalarValue, NewVariable, ValueExpr,
+  FeatureBooleanSpec, FeatureChoiceOption, FeatureExprValue, FeatureListValue, FeatureNumberSpec, FeatureRefValue, FeatureScalarParam,
+  FeatureTextSpec, FeatureScalarValue, NewVariable, ValueExpr,
 } from '../../../api';
 import {
   OptionButton, OptionMultiButton, RadioGroup, RangeTrack, type ChoiceItem, type ParameterChoice, type ParameterSource,
 } from '../../../ui/controls';
 import { ExpressionField } from '../../../ui/expression-field';
-import type { VariableInfo } from '../../../ui/expression-core';
+import { choiceLiteral, type VariableInfo, type VariableLiteral } from '../../../ui/expression-core';
 import { ChoiceParameters } from '../choice-parameters';
+import { ExpressionMode, type ExpressionShown } from './expression-mode';
 import { FeatureSchema } from './feature-schema';
 
 /**
  * What a typed-in row holds: a number or an expression, a boolean, a text or
- * an option's value, a list of options' values, or a variable named in place
- * of an option (`{ ref }`).
+ * an option's value, a list of options' values, a variable named in place
+ * of an option (`{ ref }`), or — on any row — a source expression in place
+ * of its literal (`{ expr }`).
  */
-export type FieldValue = ValueExpr | boolean | string | FeatureListValue | FeatureRefValue;
+export type FieldValue = ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | FeatureExprValue;
 
 /**
  * What one typed-in row reads: a value to write (with a declaration to land
@@ -36,6 +38,24 @@ export interface SchemaFieldContext {
 
 const LABEL_CLASS = 'text-base-content/70';
 const INPUT_CLASS = 'input input-sm input-bordered w-full text-xs';
+/** A row's label line: the label, and the ƒ toggle at the far end. */
+const LABEL_LINE_CLASS = 'flex items-center justify-between gap-2';
+
+/** The label line of a row that takes an expression: its label, and the mode's ƒ toggle at the far end. */
+function labelLine(label: string, mode: ExpressionMode): HTMLElement {
+  const line = document.createElement('div');
+  line.className = LABEL_LINE_CLASS;
+  const text = document.createElement('span');
+  text.className = LABEL_CLASS;
+  text.textContent = label;
+  line.append(text, mode.toggle);
+  return line;
+}
+
+/** A literal as a row's warning says it: an option's or a text's as source, a boolean as it is. */
+function literalText(value: VariableLiteral): string {
+  return typeof value === 'boolean' ? String(value) : choiceLiteral(value);
+}
 
 /**
  * One typed-in row of a custom feature's dialog: its control, its current
@@ -377,44 +397,97 @@ class NumberField extends SchemaField {
   }
 }
 
-/** A yes/no value: the toggle the built-in dialogs use. */
+/**
+ * A yes/no value: the toggle the built-in dialogs use — or, in expression
+ * mode, an expression that evaluates to one (`count > 4`, `!left`), shown
+ * with the `true` or `false` it comes to.
+ */
 class BooleanField extends SchemaField {
   private readonly input: HTMLInputElement;
+  private readonly mode: ExpressionMode;
 
   constructor(name: string, spec: FeatureScalarParam) {
     super(name, spec);
-    this.row.className = 'flex items-center justify-between cursor-pointer';
+    this.row.className = 'flex items-center justify-between flex-wrap gap-y-1.5 cursor-pointer';
     const label = document.createElement('span');
     label.className = LABEL_CLASS;
     label.textContent = spec.label;
     this.input = document.createElement('input');
     this.input.dataset.role = `value-${name}`;
     this.input.type = 'checkbox';
+    this.mode = new ExpressionMode({
+      name,
+      label: spec.label,
+      seed: () => String(this.input.checked),
+      describe: value => typeof value === 'boolean'
+        ? { text: String(value) }
+        : { text: literalText(value), warning: `${this.mode.text} is ${literalText(value)}, which is not true or false.` },
+      onToggle: on => this.toggleMode(on),
+    });
+    this.mode.onChange = () => this.touch();
+    this.mode.onSubmit = () => this.onSubmit?.();
     const checkbox = (spec as FeatureBooleanSpec).display === 'checkbox';
     this.input.className = checkbox ? 'checkbox checkbox-sm checkbox-primary' : 'toggle toggle-sm toggle-primary';
     const wrap = document.createElement('label');
     wrap.className = checkbox ? 'flex items-center gap-2 cursor-pointer' : 'contents';
     if (checkbox) {
-      // A checkbox leads its label, as checkboxes do.
-      this.row.className = 'flex items-center cursor-pointer';
+      // A checkbox leads its label, as checkboxes do; the ƒ toggle sits at the far end.
+      this.row.className = 'flex items-center flex-wrap gap-y-1.5 cursor-pointer';
       wrap.append(this.input, label);
+      this.row.append(wrap, this.mode.toggle);
     } else {
       wrap.append(label, this.input);
+      // The ƒ toggle between the label and the switch: the switch keeps the end of the line.
+      const end = document.createElement('span');
+      end.className = 'flex items-center gap-2';
+      end.append(this.mode.toggle, this.input);
+      this.row.append(label, end);
     }
-    this.row.append(wrap);
+    this.row.append(this.mode.line);
     this.input.addEventListener('change', () => this.touch());
   }
 
-  current(): FeatureScalarValue {
+  current(): FeatureScalarValue | undefined {
+    if (this.mode.on) {
+      const value = this.mode.value();
+      return typeof value === 'boolean' ? value : undefined;
+    }
     return this.input.checked;
   }
 
   read(): FieldRead {
-    return { value: this.input.checked };
+    return this.mode.on ? this.mode.read() : { value: this.input.checked };
+  }
+
+  /** The switch gives way to the expression, and takes its place again on what the expression comes to, when it comes to true or false. */
+  private toggleMode(on: boolean): void {
+    if (!on) {
+      const resolved = this.mode.value();
+      if (typeof resolved === 'boolean') {
+        this.input.checked = resolved;
+      }
+    }
+    this.input.classList.toggle('hidden', on);
   }
 
   protected show(value: FieldValue | undefined): void {
+    if (ExpressionMode.isExpr(value)) {
+      this.mode.show(value.expr);
+      this.input.classList.add('hidden');
+      this.input.checked = this.mode.value() === true;
+      return;
+    }
+    this.mode.clear();
+    this.input.classList.remove('hidden');
     this.input.checked = value === true;
+  }
+
+  setVariables(variables: VariableInfo[]): void {
+    this.mode.setVariables(variables);
+  }
+
+  destroy(): void {
+    this.mode.destroy();
   }
 }
 
@@ -438,6 +511,8 @@ abstract class OptionsField extends SchemaField {
   protected declared: NewVariable | null = null;
   /** The parameters the row offers and resolves; null for a row that takes none. */
   protected readonly parameters: ChoiceParameters | null;
+  /** The row's expression mode: an expression in place of an option, or of the list. */
+  protected readonly mode: ExpressionMode;
   private open: readonly FeatureChoiceOption[];
   private kept: ChoiceValue[] = [];
   private fresh = false;
@@ -446,13 +521,86 @@ abstract class OptionsField extends SchemaField {
   constructor(name: string, spec: FeatureScalarParam, protected readonly context: SchemaFieldContext, parameters: 'none' | 'one' | 'list') {
     super(name, spec);
     this.row.className = 'flex flex-col gap-1.5';
-    const label = document.createElement('span');
-    label.className = LABEL_CLASS;
-    label.textContent = spec.label;
-    this.row.append(label);
+    this.mode = new ExpressionMode({
+      name,
+      label: spec.label,
+      seed: () => this.sourceOfHeld(),
+      describe: value => this.describe(value),
+      onToggle: on => this.toggleMode(on),
+    });
+    this.mode.onChange = () => this.touch();
+    this.mode.onSubmit = () => this.onSubmit?.();
+    this.row.append(labelLine(spec.label, this.mode));
     this.options = spec.type === 'select' || spec.type === 'radio' ? spec.options : [];
     this.offered = this.open = this.options;
     this.parameters = parameters === 'none' ? null : new ChoiceParameters(spec.label, () => this.options, parameters === 'list');
+  }
+
+  /** What the row holds as source, for an expression to start from: a named variable, an option, a list; empty for nothing. */
+  protected abstract sourceOfHeld(): string;
+
+  /** The user switched the mode: the control gives way to the expression, or takes its place again. */
+  protected toggleMode(on: boolean): void {
+    if (on) {
+      this.placeExpression();
+    }
+    this.control.classList.toggle('hidden', on);
+  }
+
+  /** The expression's line takes the control's place in the row — put there the first time it is needed, after the control the subclass added. */
+  private placeExpression(): void {
+    if (this.mode.line.parentElement !== this.row) {
+      this.control.after(this.mode.line);
+    }
+  }
+
+  /** The literals the row takes: an option's value, or (a select of several) a list of them. */
+  protected abstract get holdsList(): boolean;
+
+  /**
+   * How the row shows the literal its expression resolves to: the labels of
+   * the options it selects, muted — or the value under a warning when it is
+   * none of them, as a bound variable's shows.
+   */
+  protected describe(value: VariableLiteral): ExpressionShown {
+    const mismatch = { text: literalText(value), warning: `${this.mode.text} is ${literalText(value)}, which is not one of the options.` };
+    if (typeof value === 'boolean' || this.holdsList !== Array.isArray(value)) {
+      return mismatch;
+    }
+    const values = Array.isArray(value) ? value : [value];
+    const labels = values.map(each => this.options.find(option => option.value === each)?.label);
+    if (labels.some(label => label === undefined)) {
+      return mismatch;
+    }
+    return { text: labels.length === 0 ? 'None' : labels.join(', ') };
+  }
+
+  /** The option values the expression resolves to, when it resolves to ones the row offers; null otherwise. */
+  protected expressionValues(): ChoiceValue[] | null {
+    const value = this.mode.value();
+    if (value === undefined || typeof value === 'boolean' || this.holdsList !== Array.isArray(value)) {
+      return null;
+    }
+    const values = Array.isArray(value) ? value : [value];
+    return values.every(each => this.options.some(option => option.value === each)) ? values : null;
+  }
+
+  /** The row shows a statement's expression — the control put away, the option (or list) it resolves to held underneath. */
+  protected showExpression(expr: string): void {
+    this.unbind();
+    this.placeExpression();
+    this.mode.show(expr);
+    this.control.classList.add('hidden');
+  }
+
+  /** The row holds an option (or a variable) again: the expression goes. */
+  protected leaveExpression(): void {
+    this.mode.clear();
+    this.control.classList.remove('hidden');
+  }
+
+  destroy(): void {
+    this.mode.destroy();
   }
 
   /** The muted line that stands in for the choices; made the first time there are none, so a row that always has some is unchanged. */
@@ -640,8 +788,9 @@ abstract class OptionsField extends SchemaField {
     return this.declared && over !== undefined ? { value, newVariable: this.declared, ghost: over } : { value };
   }
 
-  /** The variables the popover offers; a bound row shows what its name selects by them. */
+  /** The variables the popover offers and an expression resolves over; a bound row shows what its name selects by them. */
   setVariables(variables: VariableInfo[]): void {
+    this.mode.setVariables(variables);
     if (!this.parameters) {
       return;
     }
@@ -678,12 +827,18 @@ abstract class ChoiceField extends OptionsField {
   /** Show `value` chosen (undefined: nothing), without it counting as the user's. */
   protected abstract choose(value: ChoiceValue | undefined): void;
 
-  /** The option the row stands on: the chosen one, or the one a named variable selects. */
+  /** The option the row stands on: the chosen one, the one a named variable selects, or the one its expression comes to. */
   current(): FeatureScalarValue | undefined {
+    if (this.mode.on) {
+      return this.expressionValues()?.[0];
+    }
     return this.ref !== null ? this.resolvedValues()[0] : this.chosen;
   }
 
   read(): FieldRead {
+    if (this.mode.on) {
+      return this.mode.read();
+    }
     const nothing = this.nothingOffered;
     if (nothing) {
       return nothing;
@@ -700,9 +855,44 @@ abstract class ChoiceField extends OptionsField {
     return value === undefined ? [] : [value as ChoiceValue];
   }
 
-  /** A named variable stays named through a narrowing: what it selects is the file's to say. */
+  protected get holdsList(): boolean {
+    return false;
+  }
+
+  protected sourceOfHeld(): string {
+    if (this.ref !== null) {
+      return this.ref;
+    }
+    const value = this.chosen;
+    return value === undefined ? '' : choiceLiteral(value);
+  }
+
+  /**
+   * Switching to an expression lets a named variable go — the name is the
+   * expression's start — and back lands on the option the expression comes
+   * to, when it comes to one; else on the option the row stood on.
+   */
+  protected toggleMode(on: boolean): void {
+    if (on && this.ref !== null) {
+      const before = this.current() as ChoiceValue | undefined;
+      this.unbind();
+      this.choose(before ?? (this.unset ? undefined : this.offered[0]?.value));
+    }
+    if (!on) {
+      const resolved = this.expressionValues();
+      if (resolved !== null) {
+        this.choose(resolved[0]);
+      }
+    }
+    super.toggleMode(on);
+  }
+
+  /** A named variable stays named, and an expression stays, through a narrowing: what either selects is the file's to say. */
   protected offer(before: ChoiceValue[]): void {
     this.relist();
+    if (this.mode.on) {
+      return;
+    }
     if (this.ref !== null) {
       this.showBinding();
       return;
@@ -722,9 +912,17 @@ abstract class ChoiceField extends OptionsField {
    * A value no option carries shows as a fresh row does: nothing where the row
    * may hold nothing, else the first option. A variable named in place of an
    * option shows bound on a row that takes parameters — and as a value no
-   * option carries on one that doesn't (a radio).
+   * option carries on one that doesn't (a radio). An expression shows in
+   * expression mode, on every row, the control underneath on the option it
+   * comes to (or the fresh row's) for the way back.
    */
   protected show(value: FieldValue | undefined): void {
+    if (ExpressionMode.isExpr(value)) {
+      this.showExpression(value.expr);
+      this.choose(this.expressionValues()?.[0] ?? (this.unset ? undefined : this.options[0]?.value));
+      return;
+    }
+    this.leaveExpression();
     if (ChoiceParameters.isRef(value)) {
       if (this.parameters) {
         this.bind(value.ref);
@@ -812,6 +1010,7 @@ class SelectField extends ChoiceField {
 
   destroy(): void {
     this.button.destroy();
+    super.destroy();
   }
 
   /** The popover's entries, keyed by their index in {@link values}: the empty choice first where there is one. */
@@ -861,15 +1060,46 @@ class MultiSelectField extends OptionsField {
     return this.button.element;
   }
 
-  /** The list the row holds: its own, or the one the named variable holds when known. */
+  /** The list the row holds: its own, the one the named variable holds when known, or the one its expression comes to. */
   protected held(): ChoiceValue[] {
+    if (this.mode.on) {
+      return this.expressionValues() ?? [];
+    }
     return this.ref !== null ? this.resolvedValues() : this.button.value;
   }
 
-  /** The button keeps the values its items still carry, and lets go of the rest; a named variable stays named. */
+  protected get holdsList(): boolean {
+    return true;
+  }
+
+  protected sourceOfHeld(): string {
+    return this.ref ?? choiceLiteral(this.button.value);
+  }
+
+  /**
+   * Switching to an expression lets a named variable go — the name is the
+   * expression's start — and back lands on the list the expression comes
+   * to, when it comes to one; else on the list the row stood on.
+   */
+  protected toggleMode(on: boolean): void {
+    if (on && this.ref !== null) {
+      const before = this.resolvedValues();
+      this.unbind();
+      this.button.setValue(before);
+    }
+    if (!on) {
+      const resolved = this.expressionValues();
+      if (resolved !== null) {
+        this.button.setValue(resolved);
+      }
+    }
+    super.toggleMode(on);
+  }
+
+  /** The button keeps the values its items still carry, and lets go of the rest; a named variable stays named, an expression stays. */
   protected offer(): void {
     this.button.setItems(this.items());
-    if (this.ref !== null) {
+    if (this.ref !== null && !this.mode.on) {
       this.showBinding();
     }
   }
@@ -883,6 +1113,9 @@ class MultiSelectField extends OptionsField {
   }
 
   read(): FieldRead {
+    if (this.mode.on) {
+      return this.mode.read();
+    }
     const nothing = this.nothingOffered;
     if (nothing) {
       return nothing;
@@ -908,8 +1141,14 @@ class MultiSelectField extends OptionsField {
     return null;
   }
 
-  /** The options a list names, chosen; a variable named in its place, bound; anything else — no list, a value no option carries — chooses nothing. */
+  /** The options a list names, chosen; a variable named in its place, bound; an expression, in expression mode over the list it comes to; anything else — no list, a value no option carries — chooses nothing. */
   protected show(value: FieldValue | undefined): void {
+    if (ExpressionMode.isExpr(value)) {
+      this.showExpression(value.expr);
+      this.button.setValue(this.expressionValues() ?? []);
+      return;
+    }
+    this.leaveExpression();
     if (ChoiceParameters.isRef(value)) {
       this.bind(value.ref);
       return;
@@ -930,6 +1169,7 @@ class MultiSelectField extends OptionsField {
 
   destroy(): void {
     this.button.destroy();
+    super.destroy();
   }
 }
 
@@ -937,7 +1177,8 @@ class MultiSelectField extends OptionsField {
  * A radio: every option on show, laid out as its `display` says. One that
  * may hold nothing starts with none chosen and offers a Clear once one is.
  * A radio names no variable: an author who wants a bindable value declares
- * a select, and a statement naming one on a radio shows as a fresh row.
+ * a select, and a statement naming one on a radio shows as a fresh row —
+ * though a radio takes an expression like every row, a bare name among them.
  */
 class RadioField extends ChoiceField {
   private readonly group: RadioGroup<ChoiceValue>;
@@ -973,6 +1214,7 @@ class RadioField extends ChoiceField {
 
   destroy(): void {
     this.group.destroy();
+    super.destroy();
   }
 
   private build(value: ChoiceValue | undefined): RadioGroup<ChoiceValue> {
@@ -992,24 +1234,37 @@ class RadioField extends ChoiceField {
 }
 
 /**
- * Free text, written as a string literal. Without a default an empty row
- * holds no value — a required one asks for text, an optional one writes
- * nothing; with one, emptying the row writes the empty string.
+ * Free text, written as a string literal — or, in expression mode, an
+ * expression that evaluates to one (a template string, a name), shown with
+ * the text it comes to. Without a default an empty row holds no value — a
+ * required one asks for text, an optional one writes nothing; with one,
+ * emptying the row writes the empty string.
  */
 class TextField extends SchemaField {
   private readonly input: HTMLInputElement | HTMLTextAreaElement;
   private readonly look: FeatureTextSpec;
   /** The declared pattern, matched against the whole value; null without one. */
   private readonly pattern: RegExp | null;
+  /** An expression in place of the text: a template string, a name, a concatenation. */
+  private readonly mode: ExpressionMode;
 
   constructor(name: string, spec: FeatureScalarParam) {
     super(name, spec);
     this.look = spec as FeatureTextSpec;
     this.pattern = TextField.compile(this.look.pattern);
     this.row.className = 'flex flex-col gap-1.5';
-    const label = document.createElement('span');
-    label.className = LABEL_CLASS;
-    label.textContent = spec.label;
+    this.mode = new ExpressionMode({
+      name,
+      label: spec.label,
+      seed: () => choiceLiteral(this.input.value),
+      describe: value => typeof value === 'string'
+        ? { text: choiceLiteral(value) }
+        : { text: literalText(value), warning: `${this.mode.text} is ${literalText(value)}, which is not text.` },
+      onToggle: on => this.toggleMode(on),
+    });
+    this.mode.onChange = () => this.touch();
+    this.mode.onSubmit = () => this.onSubmit?.();
+    const label = labelLine(spec.label, this.mode);
     const multiline = this.look.multiline === true;
     if (multiline) {
       this.input = document.createElement('textarea');
@@ -1024,7 +1279,7 @@ class TextField extends SchemaField {
     if (this.look.placeholder) {
       this.input.placeholder = this.look.placeholder;
     }
-    this.row.append(label, this.input);
+    this.row.append(label, this.input, this.mode.line);
     this.input.addEventListener('input', () => this.touch());
     this.input.addEventListener('keydown', (e: Event) => {
       const key = e as KeyboardEvent;
@@ -1048,10 +1303,17 @@ class TextField extends SchemaField {
   }
 
   current(): FeatureScalarValue | undefined {
+    if (this.mode.on) {
+      const value = this.mode.value();
+      return typeof value === 'string' ? value : undefined;
+    }
     return this.holdsNothing ? undefined : this.input.value;
   }
 
   read(): FieldRead {
+    if (this.mode.on) {
+      return this.mode.read();
+    }
     if (this.holdsNothing) {
       return { empty: true };
     }
@@ -1065,8 +1327,36 @@ class TextField extends SchemaField {
     return { value };
   }
 
+  /** The input gives way to the expression, and takes its place again on the text the expression comes to, when it comes to one. */
+  private toggleMode(on: boolean): void {
+    if (!on) {
+      const resolved = this.mode.value();
+      if (typeof resolved === 'string') {
+        this.input.value = resolved;
+      }
+    }
+    this.input.classList.toggle('hidden', on);
+  }
+
   protected show(value: FieldValue | undefined): void {
+    if (ExpressionMode.isExpr(value)) {
+      this.mode.show(value.expr);
+      this.input.classList.add('hidden');
+      const resolved = this.mode.value();
+      this.input.value = typeof resolved === 'string' ? resolved : '';
+      return;
+    }
+    this.mode.clear();
+    this.input.classList.remove('hidden');
     this.input.value = typeof value === 'string' ? value : value === undefined ? '' : String(value);
+  }
+
+  setVariables(variables: VariableInfo[]): void {
+    this.mode.setVariables(variables);
+  }
+
+  destroy(): void {
+    this.mode.destroy();
   }
 
   /** The row is empty and the value has no default: there is no text to write. */

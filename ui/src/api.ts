@@ -472,11 +472,18 @@ export type TextPreviewRequest = {
 };
 
 /** Sorted system font family names, or [] when the lookup fails. */
+/**
+ * One file of a share tree: its text, or a binary file (a workspace font) as
+ * `{ b64: <standard base64> }` — the form the viewer link's `#files=` map
+ * carries it in.
+ */
+export type ShareFileContent = string | { b64: string };
+
 /** The rendered model's source tree for a viewer link — see the server's share route. */
 export interface ShareFiles {
   fluidcadVersion: string;
   entry: string;
-  files: Record<string, string>;
+  files: Record<string, ShareFileContent>;
 }
 
 /**

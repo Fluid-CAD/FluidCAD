@@ -26,6 +26,20 @@ describe('share link — what the Share dialog opens', () => {
     expect(JSON.parse(await decodeFragment(treeParams.get('files')!))).toEqual(files);
   });
 
+  it('keeps a text tree byte for byte as before, and carries a binary file as { b64 } in #files=', async () => {
+    const text = { 'model.fluid.js': "import { h } from './lib/h.js';\n", 'lib/h.js': 'export const h = 1;\n' };
+    const textLink = await buildViewerLink({ fluidcadVersion: '0.0.48', entry: 'model.fluid.js', files: text }, 'https://v.test');
+    const textParams = new URLSearchParams(new URL(textLink).hash.slice(1));
+    // The same fragment the share flow has always written: the JSON of the map, nothing added.
+    expect(textParams.get('files')).toBe(await encodeText(JSON.stringify(text)));
+
+    const files = { 'label.part.js': "text('xy', 'Hi').font('./fonts/brand.ttf');\n", 'fonts/brand.ttf': { b64: 'AAEAAP/+gEE=' } };
+    const link = await buildViewerLink({ fluidcadVersion: '0.0.48', entry: 'label.part.js', files }, 'https://v.test');
+    const params = new URLSearchParams(new URL(link).hash.slice(1));
+    expect(params.has('code')).toBe(false);
+    expect(JSON.parse(await decodeFragment(params.get('files')!))).toEqual(files);
+  });
+
   it('carries the configurations() row on screen as configuration=, and leaves Default out', async () => {
     const share = { fluidcadVersion: '0.0.47', entry: 'rack.assembly.js', files: { 'rack.assembly.js': 'export const r = 1;\n' } };
     const wide = new URLSearchParams(new URL(await buildViewerLink(share, 'https://v.test', 'Extra wide')).hash.slice(1));
@@ -56,6 +70,13 @@ describe('share link — what the Share dialog opens', () => {
     expect(classifyShareFile('motor.brep')).toBe('data');
   });
 
+  it('files a font file as a workspace font wherever it sits', () => {
+    for (const path of ['fonts/brand.ttf', 'Brand.OTF', 'assets/type/serif.woff2', 'a.woff', 'b.ttc', 'c.dfont']) {
+      expect(classifyShareFile(path)).toBe('font');
+    }
+    expect(classifyShareFile('fonts/LICENSE.txt')).toBe('data');
+  });
+
   it('refuses a link past the cap with a message, and accepts one at it', async () => {
     expect(await linkSizeProblem('x'.repeat(MAX_LINK_CHARS))).toBeNull();
     expect(await linkSizeProblem('x'.repeat(MAX_LINK_CHARS + 1))).toMatch(/too large to share as a link/);
@@ -76,6 +97,23 @@ describe('share link — what the Share dialog opens', () => {
     expect(problem).toMatch(/The imported model imports\/motor\.brep is what makes it too large\./);
   });
 
+  it('names a workspace font, or a font and an imported model, as what makes a link too large', async () => {
+    const font = { b64: btoa(incompressible(2 * MAX_LINK_CHARS)) };
+    const fontOnly = {
+      fluidcadVersion: '0.0.48',
+      entry: 'label.part.js',
+      files: { 'label.part.js': "text('xy', 'Hi').font('fonts/brand.ttf');\n", 'fonts/brand.ttf': font },
+    };
+    const fontLink = await buildViewerLink(fontOnly, 'https://v.test');
+    expect(await linkSizeProblem(fontLink, fontOnly, 'https://v.test'))
+      .toMatch(/The workspace font fonts\/brand\.ttf is what makes it too large\./);
+
+    const both = { ...fontOnly, files: { ...fontOnly.files, 'imports/motor.brep': incompressible(MAX_LINK_CHARS) } };
+    const bothLink = await buildViewerLink(both, 'https://v.test');
+    expect(await linkSizeProblem(bothLink, both, 'https://v.test'))
+      .toMatch(/The imported model imports\/motor\.brep and the workspace font fonts\/brand\.ttf are what make it too large\./);
+  });
+
   it('keeps the plain refusal when the source alone is past the cap', async () => {
     const share = {
       fluidcadVersion: '0.0.48',
@@ -89,6 +127,13 @@ describe('share link — what the Share dialog opens', () => {
     expect(problem).not.toMatch(/imported/);
   });
 });
+
+// The share flow's own packing (base64url(deflate-raw(text))), to compare fragments against.
+async function encodeText(text: string): Promise<string> {
+  const stream = new Blob([new TextEncoder().encode(text)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 
 /** Text deflate barely shrinks (base36 digits): a link built from it grows about as long as it. */
 function incompressible(length: number): string {

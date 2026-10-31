@@ -12,25 +12,28 @@ export const VIEWER_URL = 'https://viewer.fluidcad.io';
 export const MAX_LINK_CHARS = 100_000;
 
 /** What a file in the link is, for the confirmation's file list. */
-export type ShareFileKind = 'model' | 'script' | 'unit' | 'geometry' | 'data';
+export type ShareFileKind = 'model' | 'script' | 'unit' | 'geometry' | 'font' | 'data';
 
 const MODEL_SUFFIXES = ['.fluid.js', '.part.js', '.assembly.js'];
 const SCRIPT_SUFFIXES = ['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts'];
 /** An imported STEP file's cache in `imports/`: the `.brep` a `load()` reads, and its colour and unit sidecars. */
 const GEOMETRY_SUFFIXES = ['.brep', '.colors.json', '.import.json'];
+/** A font file a `text().font(...)` names — the extensions the engine reads as a workspace file. */
+const FONT_SUFFIXES = ['.ttf', '.otf', '.ttc', '.woff', '.woff2', '.dfont'];
 
 /**
  * The kinds that are assets the render read rather than source: they travel
  * as the engine reads them, and are usually what makes a link too large.
  */
-const ASSET_KINDS: ReadonlySet<ShareFileKind> = new Set(['geometry']);
+const ASSET_KINDS: ReadonlySet<ShareFileKind> = new Set(['geometry', 'font']);
 
 /**
  * Model files render, scripts are their helpers, `fluidcad.json` is the
  * rebuilt project unit, `imports/` geometry is an imported STEP file a
- * `load()` read — and anything else is data the model imported (JSON,
- * text), which is the one kind the user has to look at: it travels verbatim
- * and nothing here knows whether it holds something private.
+ * `load()` read, a font file is a workspace font a `text()` used — and
+ * anything else is data the model imported (JSON, text), which is the one
+ * kind the user has to look at: it travels verbatim and nothing here knows
+ * whether it holds something private.
  */
 export function classifyShareFile(path: string): ShareFileKind {
   if (path === 'fluidcad.json') {
@@ -38,6 +41,9 @@ export function classifyShareFile(path: string): ShareFileKind {
   }
   if (path.startsWith('imports/') && GEOMETRY_SUFFIXES.some((suffix) => path.endsWith(suffix))) {
     return 'geometry';
+  }
+  if (FONT_SUFFIXES.some((suffix) => path.toLowerCase().endsWith(suffix))) {
+    return 'font';
   }
   if (MODEL_SUFFIXES.some((suffix) => path.endsWith(suffix))) {
     return 'model';
@@ -52,9 +58,10 @@ export function classifyShareFile(path: string): ShareFileKind {
  * The message for a link past {@link MAX_LINK_CHARS}, or null when it fits.
  * Given the tree the link was built from (with the `base` and
  * `configuration` it was built with), it also says why when the reason is
- * the imported assets: if the same link without them would fit, they are
- * what makes the model too large, and the message names them. A large STEP
- * import is often past the limit on its own.
+ * the assets the render read (imported geometry, workspace fonts): if the
+ * same link without them would fit, they are what makes the model too
+ * large, and the message names them. A large STEP import is often past the
+ * limit on its own.
  */
 export async function linkSizeProblem(
   url: string,
@@ -79,19 +86,32 @@ export async function linkSizeProblem(
   if (withoutAssets.length > MAX_LINK_CHARS) {
     return tooLarge;
   }
-  const breps = assets.filter((path) => path.endsWith('.brep'));
-  const named = breps.length > 0 ? breps : assets;
-  const subject = named.length === 1 ? `The imported model ${named[0]} is` : `The imported models ${named.join(', ')} are`;
-  return `${tooLarge} ${subject} what makes it too large.`;
+  const models = assets.filter((path) => path.endsWith('.brep'));
+  const fonts = assets.filter((path) => classifyShareFile(path) === 'font');
+  const subjects: string[] = [];
+  if (models.length > 0) {
+    subjects.push(`${models.length === 1 ? 'the imported model' : 'the imported models'} ${models.join(', ')}`);
+  }
+  if (fonts.length > 0) {
+    subjects.push(`${fonts.length === 1 ? 'the workspace font' : 'the workspace fonts'} ${fonts.join(', ')}`);
+  }
+  if (subjects.length === 0) {
+    subjects.push(`the imported files ${assets.join(', ')}`);
+  }
+  const subject = subjects.join(' and ');
+  const verb = models.length + fonts.length === 1 ? 'is what makes' : 'are what make';
+  return `${tooLarge} ${subject[0].toUpperCase()}${subject.slice(1)} ${verb} it too large.`;
 }
 
 /**
  * The viewer's fragment link for a source tree — the inverse of the
  * viewer's loaders.js decoders: one file travels as `#code=<source>`, a
  * tree as `#files=<JSON { path: source }>` with its file names, both
- * base64url(deflate-raw(text)). `configuration` is the `configurations()`
- * row on screen: a row other than Default rides along as
- * `configuration=<name>`, so the link opens on what was shared.
+ * base64url(deflate-raw(text)). A binary file (a workspace font) is a
+ * `{ b64 }` value in that JSON, so a tree holding one is always `#files=`.
+ * `configuration` is the `configurations()` row on screen: a row other than
+ * Default rides along as `configuration=<name>`, so the link opens on what
+ * was shared.
  */
 export async function buildViewerLink(
   share: ShareFiles,
@@ -107,8 +127,9 @@ export async function buildViewerLink(
   if (configuration && configuration !== 'Default') {
     params.set('configuration', configuration);
   }
-  if (names.length === 1 && names[0] === share.entry) {
-    params.set('code', await encodeFragment(share.files[share.entry]));
+  const single = names.length === 1 && names[0] === share.entry ? share.files[share.entry] : null;
+  if (typeof single === 'string') {
+    params.set('code', await encodeFragment(single));
   } else {
     params.set('files', await encodeFragment(JSON.stringify(share.files)));
   }
@@ -131,6 +152,7 @@ const KIND_NOTE: Record<ShareFileKind, string> = {
   script: '',
   unit: 'project unit only',
   geometry: 'imported geometry',
+  font: 'workspace font',
   data: 'Data file: check that it holds nothing private',
 };
 

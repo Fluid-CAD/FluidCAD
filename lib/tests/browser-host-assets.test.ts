@@ -48,12 +48,26 @@ const loadsBox = async () => {
   return {};
 };
 
+/**
+ * Render with Node's `Buffer` out of reach, as in the viewer's browser
+ * worker: an asset read that leans on it fails there and only there.
+ */
+async function renderWithoutBuffer(host: BrowserEngineHost) {
+  const buffer = Object.getOwnPropertyDescriptor(globalThis, "Buffer")!;
+  delete (globalThis as { Buffer?: unknown }).Buffer;
+  try {
+    return await host.render();
+  } finally {
+    Object.defineProperty(globalThis, "Buffer", buffer);
+  }
+}
+
 describe("BrowserEngineHost — a shared tree's imported geometry", () => {
   afterAll(() => {
     setAssetProvider(null);
   });
 
-  it("renders a load() from the .brep and sidecars the tree carries", async () => {
+  it("renders a load() from the .brep and sidecars the tree carries, with no Node Buffer", async () => {
     const host = new BrowserEngineHost();
     await host.init();
     host.setWorkspace({
@@ -64,7 +78,7 @@ describe("BrowserEngineHost — a shared tree's imported geometry", () => {
     }, "model.fluid.js");
     host.setModuleEvaluator(loadsBox);
 
-    const outcome = await host.render();
+    const outcome = await renderWithoutBuffer(host);
 
     expect(outcome.compileError).toBeNull();
     expect(outcome.objectErrors).toEqual([]);

@@ -48,7 +48,9 @@ function readWorkspaceAsset(relPath: string): { text: string; exists: true } | {
   if (assetProvider) {
     const bytes = assetProvider(relPath);
     if (bytes) {
-      return { text: Buffer.from(bytes).toString('utf8'), exists: true };
+      // Not Node's Buffer: a viewer's engine reads its share link's assets
+      // here, in a browser worker that has none.
+      return { text: new TextDecoder().decode(bytes), exists: true };
     }
   }
   const sceneManager = getSceneManager();

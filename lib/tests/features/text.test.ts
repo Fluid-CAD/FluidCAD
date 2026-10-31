@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import * as fs from "fs";
 import { join } from "path";
 import getSystemFonts from "get-system-fonts";
@@ -15,6 +15,9 @@ import { Shape } from "../../common/shape.js";
 import { Text } from "../../features/2d/text.js";
 import { FontRegistry } from "../../io/font-registry.js";
 import { horizontal } from "../../core/constraints/index.js";
+import { getSceneManager } from "../../scene-manager.js";
+import { setAssetProvider } from "../../io/file-import.js";
+import { twoFontFiles, type FontFile } from "../helpers/font-files.js";
 
 const normFamily = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -121,6 +124,60 @@ describe("text", () => {
     const e = extrude(5);
     render();
     expect(solidsOf(e).length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("text with a workspace font file", () => {
+  setupOC();
+
+  let fonts: [FontFile, FontFile] | null = null;
+  let root: string;
+
+  /** Put `font` at fonts/brand.ttf, its mtime moved on so a same-tick rewrite still reads as a change. */
+  function placeBrand(font: FontFile): void {
+    fs.mkdirSync(join(root, "fonts"), { recursive: true });
+    fs.copyFileSync(font.path, join(root, "fonts", "brand.ttf"));
+    const later = new Date(Date.now() + 2000 + Math.random() * 1000);
+    fs.utimesSync(join(root, "fonts", "brand.ttf"), later, later);
+  }
+
+  beforeAll(async () => {
+    fonts = await twoFontFiles();
+  });
+
+  beforeEach(() => {
+    // Fonts come from the workspace filesystem, as on the desktop.
+    setAssetProvider(null);
+    root = getSceneManager().rootPath;
+  });
+
+  it("notes the font file as a render input when .font() runs, whichever way the path is spelled", () => {
+    if (!fonts) {
+      return; // no two .ttf families on this machine to copy; skip
+    }
+    placeBrand(fonts[0]);
+    sketch("xy", () => {
+      text("A").size(20).font("./fonts//brand.ttf");
+      text("B").size(20).font("Helvetica");
+    });
+
+    // Before any build: the scene compare may reuse the text's build, and
+    // the render still has to know it read the file.
+    expect(getSceneManager().getRenderInputs()).toEqual([join(root, "fonts", "brand.ttf")]);
+  });
+
+  it("rebuilds the text and opens the new font once the file changes on disk", () => {
+    if (!fonts) {
+      return; // no two .ttf families on this machine to copy; skip
+    }
+    placeBrand(fonts[0]);
+    const before = new Text("A").font("fonts/brand.ttf");
+    expect(new Text("A").font("fonts/brand.ttf").compareTo(before)).toBe(true);
+    expect(FontRegistry.resolve({ font: "fonts/brand.ttf" }).familyName).toBe(fonts[0].family);
+
+    placeBrand(fonts[1]);
+    expect(new Text("A").font("fonts/brand.ttf").compareTo(before)).toBe(false);
+    expect(FontRegistry.resolve({ font: "fonts/brand.ttf" }).familyName).toBe(fonts[1].family);
   });
 });
 

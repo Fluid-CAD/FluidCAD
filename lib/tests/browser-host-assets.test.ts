@@ -1,14 +1,21 @@
 // A share link carries the asset files a model's render read beside its
 // source (GET /api/share-files): the viewer installs the whole tree with
-// setWorkspace, and the engine reads a load()'s imported geometry out of it
-// through the asset provider — no filesystem, as in the browser.
+// setWorkspace, and the engine reads a load()'s imported geometry and a
+// text()'s workspace font out of it through the asset provider — no
+// filesystem, as in the browser.
 
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import * as fs from "fs";
 import { BrowserEngineHost } from "../browser/index.js";
 import { setAssetProvider } from "../io/file-import.js";
+import { FontRegistry } from "../io/font-registry.js";
 import { getOC } from "../oc/init.js";
 import { OcIO } from "../oc/io.js";
 import load from "../core/load.js";
+import sketch from "../core/sketch.js";
+import extrude from "../core/extrude.js";
+import { text } from "../core/2d/index.js";
+import { twoFontFiles, type FontFile } from "./helpers/font-files.js";
 
 interface RenderedMesh { vertices: number[] }
 interface RenderedObject { sceneShapes?: { meshes?: RenderedMesh[] }[] }
@@ -98,5 +105,64 @@ describe("BrowserEngineHost — a shared tree's imported geometry", () => {
 
     expect(outcome.compileError).toBeNull();
     expect(outcome.objectErrors.map((error) => error.message)).toEqual(["Imported asset not found: imports/box.brep"]);
+  });
+});
+
+describe("BrowserEngineHost — a shared tree's workspace font", () => {
+  let fonts: [FontFile, FontFile] | null = null;
+
+  beforeAll(async () => {
+    fonts = await twoFontFiles();
+  });
+
+  afterAll(() => {
+    setAssetProvider(null);
+  });
+
+  /** The tree a link decodes to: the model's text and the font's bytes, at the path the source names it by. */
+  function tree(font: FontFile): Record<string, string | Uint8Array> {
+    return {
+      "label.part.js": "text('A').font('./fonts/brand.ttf')",
+      "fonts/brand.ttf": new Uint8Array(fs.readFileSync(font.path)),
+    };
+  }
+
+  it("renders text in the font the tree carries, the path spelled with ./, with no Node Buffer", async () => {
+    if (!fonts) {
+      return; // no two .ttf families on this machine to copy; skip
+    }
+    const host = new BrowserEngineHost();
+    await host.init();
+    host.setWorkspace(tree(fonts[0]), "label.part.js");
+    host.setModuleEvaluator(async () => {
+      sketch("xy", () => {
+        text("A").size(20).font("./fonts/brand.ttf");
+      });
+      extrude(5);
+      return {};
+    });
+
+    const outcome = await renderWithoutBuffer(host);
+
+    expect(outcome.compileError).toBeNull();
+    expect(outcome.objectErrors).toEqual([]);
+    const [x, y, z] = extents(outcome.result);
+    expect(x).toBeGreaterThan(1);
+    expect(y).toBeGreaterThan(1);
+    expect(z).toBeCloseTo(5, 3);
+    expect(FontRegistry.resolve({ font: "./fonts/brand.ttf" }).familyName).toBe(fonts[0].family);
+  });
+
+  it("opens the new font when another workspace holds a different file at the same path", async () => {
+    if (!fonts) {
+      return; // no two .ttf families on this machine to copy; skip
+    }
+    const host = new BrowserEngineHost();
+    await host.init();
+    host.setWorkspace(tree(fonts[0]), "label.part.js");
+    expect(FontRegistry.resolve({ font: "fonts/brand.ttf" }).familyName).toBe(fonts[0].family);
+
+    host.setWorkspace(tree(fonts[1]), "label.part.js");
+    expect(FontRegistry.resolve({ font: "fonts/brand.ttf" }).familyName).toBe(fonts[1].family);
   });
 });

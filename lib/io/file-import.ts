@@ -45,6 +45,7 @@ export function setAssetProvider(provider: AssetProvider | null): void {
 }
 
 function readWorkspaceAsset(relPath: string): { text: string; exists: true } | { exists: false } {
+  relPath = FileImport.workspacePath(relPath);
   if (assetProvider) {
     const bytes = assetProvider(relPath);
     if (bytes) {
@@ -64,10 +65,12 @@ function readWorkspaceAsset(relPath: string): { text: string; exists: true } | {
 /**
  * Reads a workspace asset as raw bytes (e.g. a font file). Consults the
  * AssetProvider first (hub mode), then the workspace filesystem. Paths are
- * workspace-relative and confined to the workspace root (no `..` traversal).
- * Returns null when the asset cannot be found.
+ * workspace-relative in any spelling ({@link FileImport.workspacePath}) and
+ * confined to the workspace root (no `..` traversal). Returns null when the
+ * asset cannot be found.
  */
 export function readWorkspaceAssetBytes(relPath: string): Uint8Array | null {
+  relPath = FileImport.workspacePath(relPath);
   if (assetProvider) {
     const bytes = assetProvider(relPath);
     if (bytes) {
@@ -174,22 +177,48 @@ export class FileImport {
   }
 
   /**
+   * A workspace-relative asset path as the asset provider and the render's
+   * inputs key it: forward slashes, no `.` segments or doubled slashes, so
+   * `./fonts/Brand.ttf` and `fonts\Brand.ttf` are both `fonts/Brand.ttf` —
+   * the path a share link's tree carries the file under. `..` segments are
+   * left as written.
+   */
+  static workspacePath(relPath: string): string {
+    const slashed = relPath.trim().replace(/\\/g, '/');
+    const segments = slashed.split('/').filter((segment) => segment !== '' && segment !== '.');
+    return (slashed.startsWith('/') ? '/' : '') + segments.join('/');
+  }
+
+  /**
    * The on-disk identity of an imported asset — the `.brep` cache and its
-   * sidecars, each as mtime + size — and the note to the scene manager that
-   * this render depends on them. A load() compares it, so a re-imported
-   * asset rebuilds instead of matching the previous render's geometry. Null
-   * when assets do not come from the workspace filesystem (a packed bundle,
-   * which never changes under a running scene).
+   * sidecars — as {@link workspaceStamp} takes it. A load() compares it, so
+   * a re-imported asset rebuilds instead of matching the previous render's
+   * geometry.
    */
   static assetStamp(fileName: string): string | null {
+    const baseName = fileName.replace(/\.(step|stp|brep)$/i, '');
+    return FileImport.workspaceStamp(['.brep', '.colors.json', '.import.json'].map((suffix) => join('imports', baseName + suffix)));
+  }
+
+  /**
+   * The on-disk identity of workspace files a statement reads — mtime + size
+   * each, `-` for a missing one — and the note to the scene manager that
+   * this render depends on them, missing or not. A statement takes it when
+   * it is constructed, which every render does (a build the scene compare
+   * reuses never reads its files again), and compares it, so a file changed
+   * on disk rebuilds the statement. The render's inputs are what a share
+   * link carries beside the source. Null when assets do not come from the
+   * workspace filesystem (a packed bundle or a share link's tree, which
+   * never change under a running scene).
+   */
+  static workspaceStamp(relPaths: readonly string[]): string | null {
     const sceneManager = getSceneManager();
     if (assetProvider || !sceneManager) {
       return null;
     }
-    const baseName = fileName.replace(/\.(step|stp|brep)$/i, '');
     const stamps: string[] = [];
-    for (const suffix of ['.brep', '.colors.json', '.import.json']) {
-      const filePath = join(sceneManager.rootPath, 'imports', baseName + suffix);
+    for (const relPath of relPaths) {
+      const filePath = join(sceneManager.rootPath, FileImport.workspacePath(relPath));
       sceneManager.recordRenderInput(filePath);
       try {
         const stats = fs.statSync(filePath);

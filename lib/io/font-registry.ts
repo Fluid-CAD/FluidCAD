@@ -1,7 +1,7 @@
 import getSystemFontsDefault from "get-system-fonts";
 import { openSync, create } from "fontkit";
 import type { Font, FontCollection } from "fontkit";
-import { readWorkspaceAssetBytes } from "./file-import.js";
+import { FileImport, readWorkspaceAssetBytes } from "./file-import.js";
 
 // get-system-fonts ships a CJS default export; nodenext types the default import
 // as the module namespace, so cast it to its callable signature (the runtime
@@ -147,7 +147,7 @@ export class FontRegistry {
     const name = opts.font?.trim();
 
     // 1. Local workspace file, detected by extension.
-    if (name && FONT_FILE_RE.test(name)) {
+    if (this.isLocalFile(name)) {
       return this.loadLocalFile(name);
     }
 
@@ -188,6 +188,45 @@ export class FontRegistry {
       'No fonts available on this system. Install a font package, or specify a ' +
       'local font file, e.g. text(...).font("fonts/MyFont.ttf").',
     );
+  }
+
+  /**
+   * Whether a `.font(...)` argument names a workspace font file (by its
+   * extension) rather than a system family.
+   */
+  static isLocalFile(name: string | undefined): name is string {
+    const trimmed = name?.trim();
+    return !!trimmed && FONT_FILE_RE.test(trimmed);
+  }
+
+  /**
+   * For a `.font(...)` argument naming a workspace font file, the file's
+   * on-disk identity, noting it as an input of the render being evaluated
+   * ({@link FileImport.workspaceStamp}); null for a system family name, or
+   * when fonts come from an asset provider. `text()` takes it when `.font()`
+   * runs — every render, even one whose text build the scene compare reuses
+   * — and compares it, so an edited font file rebuilds the text, and a share
+   * link carries the file.
+   */
+  static localFileStamp(name: string | undefined): string | null {
+    if (!this.isLocalFile(name)) {
+      return null;
+    }
+    return FileImport.workspaceStamp([name]);
+  }
+
+  /**
+   * Forget the workspace font files opened so far. A host that installs a
+   * new workspace through an asset provider (a viewer opening another link)
+   * calls it: the same path may now hold another font, and provider files
+   * carry no on-disk identity to tell them apart.
+   */
+  static forgetLocalFiles(): void {
+    for (const key of [...this.fontCache.keys()]) {
+      if (key.startsWith("file:")) {
+        this.fontCache.delete(key);
+      }
+    }
   }
 
   /**
@@ -309,8 +348,14 @@ export class FontRegistry {
     }
   }
 
-  private static loadLocalFile(relPath: string): Font {
-    const cacheKey = `file:${relPath}`;
+  /**
+   * Opens a workspace font file, cached by its workspace path and on-disk
+   * identity: a file edited on disk opens again. Resolving notes the file as
+   * an input of the render, like {@link localFileStamp}.
+   */
+  private static loadLocalFile(name: string): Font {
+    const relPath = FileImport.workspacePath(name);
+    const cacheKey = `file:${relPath}|${FileImport.workspaceStamp([relPath]) ?? ""}`;
     const cached = this.fontCache.get(cacheKey);
     if (cached) {
       return cached;
@@ -319,7 +364,9 @@ export class FontRegistry {
     if (!bytes) {
       throw new Error(`Font file not found in workspace: ${relPath}`);
     }
-    const font = faces(create(Buffer.from(bytes)))[0];
+    // The bytes as they are: fontkit 2 parses a plain Uint8Array (its types
+    // still say Buffer), and a viewer's browser worker has no Buffer.
+    const font = faces(create(bytes as Buffer))[0];
     this.fontCache.set(cacheKey, font);
     return font;
   }

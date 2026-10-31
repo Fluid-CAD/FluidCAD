@@ -193,6 +193,8 @@ export function buildTextEdgesAlongPath(
 export class Text extends ExtrudableGeometryBase implements IText {
   private _size = 10;
   private _font?: string;
+  /** A workspace font file's on-disk identity as of this render — see FontRegistry.localFileStamp. */
+  private _fontStamp: string | null = null;
   private _weight = 400;
   private _italic = false;
   private _align: TextAlign = "left";
@@ -335,6 +337,7 @@ export class Text extends ExtrudableGeometryBase implements IText {
 
   font(name: string): this {
     this._font = name;
+    this._fontStamp = FontRegistry.localFileStamp(name);
     return this;
   }
 
@@ -402,6 +405,7 @@ export class Text extends ExtrudableGeometryBase implements IText {
     const copy = new Text(this.text, path);
     copy._size = this._size;
     copy._font = this._font;
+    copy._fontStamp = this._fontStamp;
     copy._weight = this._weight;
     copy._italic = this._italic;
     copy._align = this._align;
@@ -434,6 +438,7 @@ export class Text extends ExtrudableGeometryBase implements IText {
     return this.text === other.text
       && this._size === other._size
       && this._font === other._font
+      && this._fontStamp === other._fontStamp
       && this._weight === other._weight
       && this._italic === other._italic
       && this._align === other._align

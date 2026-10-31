@@ -3,6 +3,7 @@ import { createParamRegistry, getParamRegistry } from "../param-registry.js";
 import { SessionParamOverrides } from "../session-param-overrides.js";
 import { createManager } from "../scene-manager.js";
 import { setAssetProvider } from "../io/file-import.js";
+import { FontRegistry } from "../io/font-registry.js";
 import { BreakpointHit } from "../common/breakpoint-hit.js";
 import { warnConfigurationRun } from "../features/param-overrides.js";
 import { PartDefinition } from "../features/part-definition.js";
@@ -197,6 +198,8 @@ export class BrowserEngineHost {
    * desktop's "use mm" fallback. The project materials follow the same
    * rule (`options.materials`, else the file's `materials` map, else none —
    * see {@link resolveWorkspaceMaterials}). Text values are encoded as UTF-8.
+   * Workspace fonts opened for an earlier workspace are forgotten: the same
+   * path may hold another font now.
    *
    * `options.fileUnits` is a package manifest's per-file `unit()`
    * declarations, by package path. The model runs as one bundled module, so
@@ -219,6 +222,7 @@ export class BrowserEngineHost {
       bytes.set(key, typeof content === "string" ? encoder.encode(content) : content);
     }
     setAssetProvider((relPath) => bytes.get(relPath) ?? null);
+    FontRegistry.forgetLocalFiles();
     if (this.manager) {
       this.manager.projectUnit = resolveWorkspaceUnit(options?.unit, bytes.get(PROJECT_CONFIG_FILENAME), this.bootUnit);
       this.manager.knownFileUnits = BrowserEngineHost.fileUnitsOf(options?.fileUnits);

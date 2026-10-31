@@ -1,9 +1,10 @@
 import { readFileSync, realpathSync, statSync } from 'fs';
 import { readFile, readdir } from 'fs/promises';
-import { dirname, join, relative, resolve, sep } from 'path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'path';
 import JSZip from 'jszip';
 import { normalizePath } from '../normalize-path.ts';
 import { isScriptPath, readDeclaredUnit } from '../file-unit.ts';
+import { RenderAssets } from '../files/render-assets.ts';
 import {
   readProjectConfig,
   type LengthUnit,
@@ -110,11 +111,20 @@ export class PackageBuildError extends Error {
   }
 }
 
-/** What one evaluated export module offers. */
+/**
+ * A file the engine read while an export module's parts built
+ * (`PartScanResult.moduleAssets`, `ScannedPart.assets`): absolute, as the
+ * engine named it, and the part or assembly whose build read it — null when
+ * the module read it as it evaluated.
+ */
+type ReadAsset = { path: string; reader: string | null };
+
+/** What one evaluated export module offers, and the files its parts read as they built. */
 type ModuleExports = {
   module: string;
   features: PackageManifestFeature[];
   parts: PackageManifestPart[];
+  assets: ReadAsset[];
 };
 
 /**
@@ -131,11 +141,13 @@ export async function packPackage(inputs: PackPackageInputs): Promise<PackPackag
  * exports are what the `features/`, `parts/` and `assemblies/` folders
  * hold ({@link PackageLayout.exportsOf}, HD20). The archive holds the
  * sources verbatim — the exports' closure, the images their features
- * declare, the README, LICENSE and CHANGELOG, and the `docs/` folder's pages
- * and images — plus three generated files at its root: `index.js` (named
- * re-exports), a reduced `fluidcad.json` (`unit`, `materials`) and
- * `manifest.json`. A workspace without `docs/` packs exactly as it did
- * before `docs/` shipped.
+ * declare, the files the exported parts and assemblies read as they build
+ * (a `load()`'s `imports/` geometry, a `text()`'s font file), the README,
+ * LICENSE and CHANGELOG, and the `docs/` folder's pages and images — plus
+ * three generated files at its root: `index.js` (named re-exports), a
+ * reduced `fluidcad.json` (`unit`, `materials`) and `manifest.json`. A
+ * workspace without `docs/` packs exactly as it did before `docs/` shipped,
+ * and one whose parts read no files exactly as it did before they shipped.
  *
  * Every check is a refusal ({@link PackageBuildError}) naming the file:
  * 1. the `package` block is valid, and its `minEngine` is no older than
@@ -152,7 +164,17 @@ export async function packPackage(inputs: PackPackageInputs): Promise<PackPackag
  * 7. `docs/` holds only markdown pages and the images they show (a script
  *    is `outside-layout`, anything else `docs-file`), none of them leading
  *    outside the workspace, a page at most 256 KB, an image at most 2 MB, and
- *    the folder at most 4 MB and 200 files (`docs-too-large`).
+ *    the folder at most 4 MB and 200 files (`docs-too-large`);
+ * 8. every file an exported part or assembly reads as it builds (check 4)
+ *    that no import shows — a `load()`'s `imports/<name>.brep` and its
+ *    `.colors.json` and `.import.json` sidecars, a `text()`'s workspace font
+ *    file — lies inside the workspace: not in `node_modules`, not outside it
+ *    through a link or a `..`, and not on a reserved root path. Each ships at
+ *    its workspace path, outside the three folders too (`imports/` sits at
+ *    the root), as the engine reads it there ({@link PackageLayout}'s
+ *    assets). They are what the builds read, not a scan of the source or of
+ *    `imports/`: an import no part loads stays home, and a sidecar the
+ *    engine looked for and did not find is no refusal.
  *
  * Nothing is refused for missing documentation (DOC4). Two things are
  * warned about instead ({@link PackWarning}), and the package still packs:
@@ -222,8 +244,9 @@ export class PackageBuilder {
 
     const features = evaluated.flatMap((m) => m.features);
     const assets = this.assets(features);
+    const read = this.readAssets(evaluated);
     const extras = await this.extras();
-    const shipped = [...new Set([...closure, ...assets, ...extras, ...docs])].sort();
+    const shipped = [...new Set([...closure, ...assets, ...read, ...extras, ...docs])].sort();
     const result = await this.archive(shipped, features, evaluated.flatMap((m) => m.parts));
     return { ...result, warnings: [...this.undocumented(evaluated), ...this.docLinks(result.files)] };
   }
@@ -392,7 +415,7 @@ export class PackageBuilder {
     const modules: ModuleExports[] = [];
     for (const rel of exports) {
       const abs = normalizePath(join(this.workspace, rel));
-      const entry: ModuleExports = { module: rel, features: [], parts: [] };
+      const entry: ModuleExports = { module: rel, features: [], parts: [], assets: [] };
       if (!rel.endsWith('.assembly.js')) {
         const scan = await engine.scanFeaturesInFile(abs);
         if (scan === null) {
@@ -409,6 +432,7 @@ export class PackageBuilder {
           throw new PackageBuildError(engine.describeMissingEngine() ?? 'The engine did not start.');
         }
         entry.parts = this.partsOf(rel, scan, new Set(entry.features.map((f) => f.exportName)));
+        entry.assets = PackageBuilder.readsOf(scan);
       }
       if (entry.features.length === 0 && entry.parts.length === 0) {
         throw new PackageBuildError(
@@ -460,6 +484,16 @@ export class PackageBuilder {
       });
     }
     return parts;
+  }
+
+  /** What a scanned module read as it evaluated, and what each of its parts and assemblies read as it built. */
+  private static readsOf(scan: PartScanResult): ReadAsset[] {
+    const reads = (paths: string[] | undefined, reader: string | null) => (paths ?? []).map((path) => ({ path, reader }));
+    return [
+      ...reads(scan.moduleAssets, null),
+      ...scan.parts.flatMap((part) => reads(part.assets, part.exportName)),
+      ...scan.assemblies.flatMap((assembly) => reads(assembly.assets, assembly.exportName)),
+    ];
   }
 
   /** The manifest's `configurations` field for a scanned definition: its rows as declared, left out when it has none. */
@@ -589,6 +623,59 @@ export class PackageBuilder {
       throw new PackageBuildError(PackageLayout.describeDocsFolderTooLarge(files.length, bytes), 'docs-too-large');
     }
     return files;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Check 8: the files the parts read as they build
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Every file the exported parts and assemblies read as they built that
+   * no import shows, workspace-relative ({@link RenderAssets.locate}): one
+   * that does not exist is skipped, one beyond the workspace or in
+   * `node_modules` refused, naming the module and the part that read it.
+   */
+  private readAssets(modules: ModuleExports[]): string[] {
+    const out = new Set<string>();
+    for (const module of modules) {
+      for (const asset of module.assets) {
+        const location = RenderAssets.locate(asset.path, this.workspace);
+        const reader = asset.reader === null ? module.module : `${module.module}: '${asset.reader}'`;
+        switch (location.kind) {
+          case 'missing':
+            break;
+          case 'outside':
+            throw new PackageBuildError(`${reader} reads ${this.describeOutside(asset.path)}: a package ships only its own files.`);
+          case 'node-modules':
+            throw new PackageBuildError(
+              `${reader} reads ${location.path}, which lies in node_modules: a package ships only its own files. ` +
+                'Copy it into the workspace and read the copy.',
+            );
+          case 'workspace':
+            this.checkNotReserved(location.path, `${reader} reads it`);
+            out.add(location.path);
+            break;
+        }
+      }
+    }
+    return [...out];
+  }
+
+  /**
+   * A file read from beyond the workspace, for a sentence: by its workspace
+   * path when the engine read it under the workspace (a link leads out),
+   * else by its absolute path. The engine's root may be the workspace as
+   * given or as the filesystem names it; either counts.
+   */
+  private describeOutside(assetAbs: string): string {
+    const named = normalizePath(assetAbs);
+    for (const root of new Set([this.workspace, normalizePath(resolve(this.inputs.workspacePath))])) {
+      const rel = normalizePath(relative(root, named));
+      if (!ModuleClosure.isOutsideWorkspace(rel) && !isAbsolute(rel)) {
+        return `${rel}, which links to a file outside the workspace`;
+      }
+    }
+    return `${named}, which lies outside the workspace`;
   }
 
   // ---------------------------------------------------------------------------

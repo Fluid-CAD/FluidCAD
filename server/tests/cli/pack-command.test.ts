@@ -25,12 +25,17 @@ let scratch: string;
 let workspace: string;
 let library: string;
 
-function cli(args: string[], cwd = workspace): { status: number | null; stdout: string; stderr: string } {
+/** Run the CLI in `cwd`, with this process's environment less the `unset` variables. */
+function cli(args: string[], cwd = workspace, unset: string[] = []): { status: number | null; stdout: string; stderr: string } {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const name of unset) {
+    delete env[name];
+  }
   const result = spawnSync(process.execPath, [CLI, ...args], {
     cwd,
     encoding: 'utf8',
     // Nothing here touches the user library; point it at a temp directory anyway.
-    env: { ...process.env, FLUIDCAD_PACKAGES: library },
+    env: { ...env, FLUIDCAD_PACKAGES: library },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
@@ -174,6 +179,32 @@ describe('fluidcad pack', () => {
     const run = cli(['pack', '-w', workspace], elsewhere);
     expect(run.status).toBe(0);
     expect(fs.existsSync(path.join(workspace, 'acme-kit-0.1.0.fluidpkg'))).toBe(true);
+  });
+
+  it('builds a part that loads an imported STEP file and ships its geometry, run from another directory with --workspace', async () => {
+    const imported = path.join(REPO, 'server', 'tests', 'fixtures', 'imported-step');
+    for (const suffix of ['.brep', '.colors.json', '.import.json']) {
+      write(`imports/motor${suffix}`, fs.readFileSync(path.join(imported, `spacer${suffix}`), 'utf8'));
+    }
+    write('imports/spare.brep', fs.readFileSync(path.join(imported, 'spacer.brep'), 'utf8'));
+    write('parts/motor.part.js', [
+      `import { part, load } from 'fluidcad/core';`,
+      ``,
+      `export const motor = part('Motor', () => {`,
+      `  load('motor.step');`,
+      `});`,
+      ``,
+    ].join('\n'));
+
+    // As a terminal runs it: no served workspace's FLUIDCAD_WORKSPACE_PATH, and the repository as the directory.
+    const run = cli(['pack', '-w', workspace, '--json'], REPO, ['FLUIDCAD_WORKSPACE_PATH']);
+
+    expect(run.stderr).toBe('');
+    expect(run.status).toBe(0);
+    const zip = await JSZip.loadAsync(fs.readFileSync(path.join(workspace, 'acme-kit-0.1.0.fluidpkg')));
+    const entries = Object.keys(zip.files).filter((name) => name.startsWith('imports/'));
+    expect(entries).toEqual(['imports/', 'imports/motor.brep', 'imports/motor.colors.json', 'imports/motor.import.json']);
+    expect(await zip.file('imports/motor.brep')!.async('string')).toBe(fs.readFileSync(path.join(workspace, 'imports/motor.brep'), 'utf8'));
   });
 
   it('packs again after `fluidcad version patch`, under the new version\'s name', async () => {

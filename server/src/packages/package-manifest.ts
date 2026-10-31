@@ -130,6 +130,15 @@ export type PackageContents = {
  * are reserved: pack refuses a workspace file that would land on one.
  * README, LICENSE and CHANGELOG ship beside them.
  *
+ * **Assets.** The files a part or assembly reads as it builds that no
+ * import shows — a `load()`'s imported geometry, `imports/<name>.brep` with
+ * its `.colors.json` and `.import.json` sidecars, and a `text()`'s font file
+ * at the path the part names it by — ship at their workspace path, which
+ * may lie outside the three folders: `imports/` sits at the root, beside
+ * the generated files. The folder rule is for scripts; an asset is never
+ * one. The manifest has no field of its own for them: they are entries of
+ * `files` like any other.
+ *
  * **`docs/` (package-docs DOC6).** An optional fourth folder that holds no
  * modules: the author's markdown pages (`.md`) and the images they show
  * (the feature image types), nested folders allowed. Pack ships all of it,

@@ -1,9 +1,10 @@
 import { readFile } from 'fs/promises';
 import { existsSync, realpathSync } from 'fs';
-import { isAbsolute, join, relative } from 'path';
+import { join, relative } from 'path';
 import { normalizePath } from '../normalize-path.ts';
 import { PROJECT_CONFIG_FILENAME, readProjectConfig } from '../project-config.ts';
 import { ModuleClosure, ModuleClosurePackageError } from '../packages/module-closure.ts';
+import { RenderAssets } from './render-assets.ts';
 
 /** The virtual entry that imports init.js and the model — never a shipped file. */
 const WRAPPER_NAME = '__share_entry__.js';
@@ -126,24 +127,24 @@ export async function collectEntryFiles(
 /** The files a render read beside its modules, as {@link collectEntryFiles} ships them. */
 class EntryAssets {
   /**
-   * The asset's workspace-relative POSIX path, read through symlinks like
-   * the module closure, or null when it does not exist (a sidecar the engine
-   * looked for and did not find). Throws for one outside the workspace or
-   * inside `node_modules`: the module closure's refusals, for the same
-   * reason — a link must not carry files from beyond the model's workspace.
+   * The asset's workspace-relative POSIX path ({@link RenderAssets.locate}),
+   * or null when it does not exist (a sidecar the engine looked for and did
+   * not find). Throws for one outside the workspace or inside
+   * `node_modules`: the module closure's refusals, for the same reason — a
+   * link must not carry files from beyond the model's workspace.
    */
   static workspacePath(assetAbs: string, workspace: string): string | null {
-    if (!existsSync(assetAbs)) {
-      return null;
+    const location = RenderAssets.locate(assetAbs, workspace);
+    switch (location.kind) {
+      case 'missing':
+        return null;
+      case 'outside':
+        throw new Error(`${normalizePath(assetAbs)} lies outside the workspace and cannot be shared by link`);
+      case 'node-modules':
+        throw new Error(`${location.path} lies in node_modules and cannot be shared by link — copy it into the workspace`);
+      case 'workspace':
+        return location.path;
     }
-    const rel = normalizePath(relative(workspace, normalizePath(realpathSync(assetAbs))));
-    if (ModuleClosure.isOutsideWorkspace(rel) || isAbsolute(rel)) {
-      throw new Error(`${normalizePath(assetAbs)} lies outside the workspace and cannot be shared by link`);
-    }
-    if (ModuleClosure.isInNodeModules(rel)) {
-      throw new Error(`${rel} lies in node_modules and cannot be shared by link — copy it into the workspace`);
-    }
-    return rel;
   }
 
   /**

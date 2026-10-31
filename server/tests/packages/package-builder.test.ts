@@ -13,7 +13,10 @@ import { PackageLayout } from '../../src/packages/package-manifest.ts';
 import { PackageName } from '../../src/packages/package-name.ts';
 import { PackageAuthoring } from '../../src/packages/package-authoring.ts';
 import { TreeHash } from '../../src/packages/tree-hash.ts';
+import { InProcessEngine } from '../../src/packages/in-process-engine.ts';
 import { SDK_SINCE } from '../../../lib/dist/sdk/version.js';
+import getSystemFonts from 'get-system-fonts';
+import * as fontkit from 'fontkit';
 
 // `fluidcad pack` (research §2) over a package workspace in the package
 // layout (HD20): a copy of fixtures/package-workspace — two feature modules
@@ -834,6 +837,180 @@ describe('what pack refuses in docs/ (layout rules, never missing docs)', () => 
     const { manifest, warnings } = await pack();
     expect(manifest.name).toBe('@acme/kit');
     expect(warnings.length).toBeGreaterThan(0);
+  });
+});
+
+describe('what the parts read: pack ships their imported geometry and font files (check 8)', () => {
+  const IMPORTED_STEP = path.join(FIXTURES, 'imported-step');
+  const MOTOR_ASSETS = ['imports/motor.brep', 'imports/motor.colors.json', 'imports/motor.import.json'];
+
+  /** `imports/<name>.*` as a STEP import writes them, from the fixture's spacer, under `dir` (the workspace by default). */
+  function importStep(name: string, dir = ws): void {
+    fs.mkdirSync(path.join(dir, 'imports'), { recursive: true });
+    for (const suffix of ['.brep', '.colors.json', '.import.json']) {
+      fs.copyFileSync(path.join(IMPORTED_STEP, `spacer${suffix}`), path.join(dir, 'imports', `${name}${suffix}`));
+    }
+  }
+
+  /** A part module whose part load()s `file`. */
+  function loadingPart(exportName: string, file: string): string {
+    return [
+      `import { part, load } from 'fluidcad/core';`,
+      ``,
+      `export const ${exportName} = part('${exportName}', () => {`,
+      `  load(${JSON.stringify(file)});`,
+      `});`,
+      ``,
+    ].join('\n');
+  }
+
+  /** A part module whose part extrudes the letter A in `font`. */
+  function letteringPart(font: string): string {
+    return [
+      `import { part, sketch, text, extrude } from 'fluidcad/core';`,
+      ``,
+      `export const badge = part('Badge', () => {`,
+      `  sketch('xy', () => {`,
+      `    text('A').size(10).font(${JSON.stringify(font)});`,
+      `  });`,
+      `  extrude(2);`,
+      `});`,
+      ``,
+    ].join('\n');
+  }
+
+  /** A small system `.ttf` with an 'A' to copy into the workspace, or null on a machine without one (the font tests skip). */
+  async function systemFont(): Promise<string | null> {
+    const files: string[] = await (getSystemFonts as unknown as () => Promise<string[]>)();
+    const candidates = files
+      .filter((file) => file.toLowerCase().endsWith('.ttf'))
+      .map((file) => ({ file, size: fs.statSync(file).size }))
+      .sort((a, b) => a.size - b.size || a.file.localeCompare(b.file));
+    for (const { file } of candidates) {
+      try {
+        const opened = fontkit.openSync(file) as any;
+        const font = opened.fonts?.[0] ?? opened;
+        if (font.hasGlyphForCodePoint(65)) {
+          return file;
+        }
+      } catch {
+        // Not a font fontkit reads; try the next.
+      }
+    }
+    return null;
+  }
+
+  it('ships the .brep and both sidecars a part\'s load() reads, at their workspace paths, and no import nothing loads', async () => {
+    importStep('motor');
+    importStep('spare');
+    write('parts/motor.part.js', loadingPart('motor', 'motor.step'));
+
+    const { manifest, zip } = await pack();
+    const archived = await unzip(zip);
+
+    expect(manifest.files).toEqual([...SHIPPED, ...MOTOR_ASSETS, 'parts/motor.part.js'].sort());
+    for (const rel of MOTOR_ASSETS) {
+      expect(archived[rel].equals(fs.readFileSync(at(rel)))).toBe(true);
+    }
+    expect(Object.keys(archived).filter((rel) => rel.includes('spare'))).toEqual([]);
+    expect(manifest.parts.map((p) => p.exportName)).toEqual(['motor', 'spacer']);
+  });
+
+  it('ships them from an assembly whose inserted part loads them, the part a helper no folder exports', async () => {
+    importStep('motor');
+    write('assemblies/parts/motor.js', loadingPart('motor', 'motor.step'));
+    write('assemblies/rig.assembly.js', [
+      `import { assembly, insert } from 'fluidcad/core';`,
+      `import { motor } from './parts/motor.js';`,
+      ``,
+      `export const rig = assembly('Rig', () => {`,
+      `  insert(motor);`,
+      `});`,
+      ``,
+    ].join('\n'));
+
+    const { manifest } = await pack();
+
+    expect(manifest.files).toEqual(expect.arrayContaining([...MOTOR_ASSETS, 'assemblies/parts/motor.js', 'assemblies/rig.assembly.js']));
+    expect(manifest.parts.map((p) => `${p.kind} ${p.exportName}`)).toEqual(['assembly rig', 'part spacer']);
+  });
+
+  it('builds and ships them whatever directory the packing process runs in, and the same tree packs to the same bytes', async () => {
+    importStep('motor');
+    write('parts/motor.part.js', loadingPart('motor', 'motor.step'));
+    // The engine would read imports/ here if the process's directory rooted it.
+    const elsewhere = path.join(scratch, 'elsewhere');
+    fs.mkdirSync(elsewhere);
+    const cwd = process.cwd();
+    process.chdir(elsewhere);
+    let first: PackPackageResult;
+    try {
+      first = await pack();
+    } finally {
+      process.chdir(cwd);
+    }
+    const second = await pack();
+
+    expect(first.manifest.files).toEqual(expect.arrayContaining(MOTOR_ASSETS));
+    expect(second.zip.equals(first.zip)).toBe(true);
+  });
+
+  it('ships them when a running engine packs (the MCP pack), as when the CLI boots one', async () => {
+    importStep('motor');
+    write('parts/motor.part.js', loadingPart('motor', 'motor.step'));
+
+    const viaEngine = await quietly(() => InProcessEngine.run(ws, (engine) => packPackage({
+      workspacePath: ws, fluidcadVersion: '0.0.46', engine: engine.server,
+    }), { linkEngine: false }));
+    const booted = await pack();
+
+    expect(viaEngine.manifest.files).toEqual(expect.arrayContaining(MOTOR_ASSETS));
+    expect(viaEngine.zip.equals(booted.zip)).toBe(true);
+  });
+
+  it('ships the font file a part\'s text() reads, by its workspace path however the part spells it, and no other font', async () => {
+    const font = await systemFont();
+    if (!font) {
+      return; // no .ttf on this machine to copy; skip
+    }
+    fs.mkdirSync(at('fonts'));
+    fs.copyFileSync(font, at('fonts/brand.ttf'));
+    fs.copyFileSync(font, at('fonts/unused.ttf'));
+    write('parts/badge.part.js', letteringPart('./fonts//brand.ttf'));
+
+    const { manifest, zip } = await pack();
+    const archived = await unzip(zip);
+
+    expect(manifest.files).toEqual([...SHIPPED, 'fonts/brand.ttf', 'parts/badge.part.js'].sort());
+    expect(archived['fonts/brand.ttf'].equals(fs.readFileSync(at('fonts/brand.ttf')))).toBe(true);
+    expect(archived['fonts/unused.ttf']).toBeUndefined();
+  });
+
+  it('refuses a file a part reads from outside the workspace through a link, naming the module and the part', async () => {
+    // (A `..` out of imports/ never builds: the kernel refuses the name, and check 4 says so first.)
+    const outside = path.join(scratch, 'shared');
+    importStep('motor', outside);
+    fs.symlinkSync(path.join(outside, 'imports'), at('imports'), 'dir');
+    write('parts/motor.part.js', loadingPart('motor', 'motor.step'));
+
+    expect(await refusal()).toBe(
+      "parts/motor.part.js: 'motor' reads imports/motor.brep, which links to a file outside the workspace: a package ships only its own files.",
+    );
+  });
+
+  it('refuses a font file a part reads from node_modules', async () => {
+    const font = await systemFont();
+    if (!font) {
+      return; // no .ttf on this machine to copy; skip
+    }
+    fs.mkdirSync(at('node_modules/acme-fonts'), { recursive: true });
+    fs.copyFileSync(font, at('node_modules/acme-fonts/brand.ttf'));
+    write('parts/badge.part.js', letteringPart('node_modules/acme-fonts/brand.ttf'));
+
+    expect(await refusal()).toBe(
+      "parts/badge.part.js: 'badge' reads node_modules/acme-fonts/brand.ttf, which lies in node_modules: " +
+        'a package ships only its own files. Copy it into the workspace and read the copy.',
+    );
   });
 });
 

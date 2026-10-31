@@ -60,6 +60,8 @@ export type ScannedPart = {
   params: CatalogParamDef[];
   /** The rows of the definition's `configurations()` table, in declaration order — empty when it has none. */
   configurations: CatalogConfiguration[];
+  /** The files its build read that no import shows ({@link PartScanResult.moduleAssets}); empty for a part the module scene built. */
+  assets: string[];
 };
 
 /**
@@ -96,6 +98,8 @@ export type ScannedSubAssembly = {
   params: CatalogParamDef[];
   /** The rows of the definition's `configurations()` table, in declaration order — empty when it has none. */
   configurations: CatalogConfiguration[];
+  /** The files its build read that no import shows, its inserted parts' included ({@link PartScanResult.moduleAssets}). */
+  assets: string[];
 };
 
 export type PartScanResult = {
@@ -122,6 +126,17 @@ export type PartScanResult = {
   errors: { exportName: string | null; message: string }[];
   /** Workspace files whose mtimes gate a cached result (self included). */
   deps: string[];
+  /**
+   * The files the module read as it evaluated and its top-level scene built
+   * that no import shows — a `load()`'s imported `.brep` and its sidecars, a
+   * `text()`'s workspace font — as the engine recorded them
+   * (`getRenderInputs`: absolute, listed whether or not they exist). Each
+   * export's own build lists its reads under its `assets`: the engine starts
+   * the record afresh with every scan scene. Empty on an engine that
+   * predates the record. What a package ships beside its modules
+   * (`PackageBuilder`).
+   */
+  moduleAssets: string[];
 };
 
 /**
@@ -135,6 +150,8 @@ export type ScanSceneManager = {
   renderScene(scene: any): any;
   setCurrentFile(filePath: string): void;
   disposeScene?(scene: any): void;
+  /** The files read since the current scene started that no import shows — optional: may predate the record. */
+  getRenderInputs?(): string[];
   startAssemblyScene?(): any;
   getAssemblyData?(scene: any): { instances: any[]; mates: any[]; connectors?: any[] } | null;
 };
@@ -167,7 +184,7 @@ export async function scanFileForParts(
   const absPath = normalizePath(filePath);
   const projectUnit = options.projectUnit ?? 'mm';
   const result: PartScanResult = {
-    file: absPath, unit: projectUnit, parts: [], assemblies: [], errors: [], deps: [],
+    file: absPath, unit: projectUnit, parts: [], assemblies: [], errors: [], deps: [], moduleAssets: [],
   };
 
   if (typeof host.loadModuleRaw !== 'function') {
@@ -228,6 +245,7 @@ export async function scanFileForParts(
     try {
       sceneManager.renderScene(moduleScene);
       moduleRendered = moduleScene.getRenderedObjects();
+      result.moduleAssets = sceneManager.getRenderInputs?.() ?? [];
     } catch (err: any) {
       result.errors.push({ exportName: null, message: err?.message ?? String(err) });
       return result;
@@ -242,7 +260,7 @@ export async function scanFileForParts(
           result.errors.push({ exportName, message: DEFAULT_EXPORT_MESSAGE });
           continue;
         }
-        recordPart(result, renderedPools, exportName, value, 'value', [], []);
+        recordPart(result, renderedPools, exportName, value, 'value', [], [], []);
         continue;
       }
       // Lazy part definition value export: materialize its default variant
@@ -275,6 +293,7 @@ export async function scanFileForParts(
         recordPart(
           result, renderedPools, exportName, built, 'value',
           collectedParams(built, exportRegistry), catalogConfigurations(exportRegistry),
+          sceneManager.getRenderInputs?.() ?? [],
         );
         continue;
       }
@@ -349,10 +368,12 @@ export async function scanFileForParts(
         result.errors.push({ exportName, message: err?.message ?? String(err) });
         continue;
       }
+      // Everything the factory's scene read, from its call through its render.
+      const assets = sceneManager.getRenderInputs?.() ?? [];
       if (isPart) {
         recordPart(
           result, renderedPools, exportName, builtPart, 'factory',
-          collectedParams(builtPart, exportRegistry), catalogConfigurations(exportRegistry),
+          collectedParams(builtPart, exportRegistry), catalogConfigurations(exportRegistry), assets,
         );
       } else {
         recordSubAssembly(result, renderedPools, exportName, assemblyData!, {
@@ -360,6 +381,7 @@ export async function scanFileForParts(
           assemblyName: typeof definition?.assemblyName === 'string' ? definition.assemblyName : undefined,
           params: catalogParams(exportRegistry.getDefinitions()),
           configurations: catalogConfigurations(exportRegistry),
+          assets,
         });
       }
     }
@@ -473,6 +495,7 @@ function recordPart(
   kind: 'value' | 'factory',
   params: CatalogParamDef[],
   configurations: CatalogConfiguration[],
+  assets: string[],
 ): void {
   const rootId: string | undefined = part.id;
   if (typeof rootId !== 'string' || rootId.length === 0) {
@@ -490,6 +513,7 @@ function recordPart(
         objects: subtree,
         params,
         configurations,
+        assets,
       });
       return;
     }
@@ -562,6 +586,7 @@ function recordSubAssembly(
     assemblyName?: string;
     params: CatalogParamDef[];
     configurations: CatalogConfiguration[];
+    assets: string[];
   },
 ): void {
   const objects: any[] = [];
@@ -599,6 +624,7 @@ function recordSubAssembly(
     objects,
     params: shape.params,
     configurations: shape.configurations,
+    assets: shape.assets,
   });
 }
 

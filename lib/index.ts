@@ -7,7 +7,7 @@ import { SceneObject, SourceLocation } from "./common/scene-object.js";
 import { SelectSceneObject } from "./features/select.js";
 import { Sketch } from "./features/2d/sketch.js";
 import { Extrudable } from "./helpers/types.js";
-import { parse as parseStackTrace } from "stacktrace-parser";
+import { StackFrames } from "./common/stack-frames.js";
 import { getActiveUnit, getUnitRegistry } from "./units/registry.js";
 // After the kernel's own modules: the feature base extends SceneObject.
 import { FeatureMetas, type FeatureMeta } from "./sdk/meta.js";
@@ -24,35 +24,13 @@ export function isFluidScriptFile(p: string): boolean {
   return SCRIPT_SUFFIXES.some(s => p.endsWith(s));
 }
 
-/**
- * The stack depth a capture reads. V8 keeps 10 frames by default, and a
- * statement reached through helper modules, a part body and an insert from
- * an assembly can sit deeper than that: its script frame would be cut off
- * and the object would get no location — no unit, no part, no way back to
- * its line.
- */
-const CAPTURE_STACK_LIMIT = 50;
 /** Whether `p` is a global-parameters module — the one legal home of a top-level `param()`. */
 export function isParamsFile(p: string): boolean {
   return p.endsWith('.params.js');
 }
 
 export function captureSourceLocation(): SourceLocation | null {
-  // Raised for this one capture only: every other error keeps the limit the
-  // host chose. Engines without the knob (Firefox, Safari) leave it undefined.
-  const limit = Error.stackTraceLimit;
-  const raise = typeof limit === 'number' && limit < CAPTURE_STACK_LIMIT;
-  let stack: string | undefined;
-  if (raise) {
-    Error.stackTraceLimit = CAPTURE_STACK_LIMIT;
-  }
-  try {
-    stack = new Error().stack;
-  } finally {
-    if (raise) {
-      Error.stackTraceLimit = limit;
-    }
-  }
+  const stack = StackFrames.capture();
   if (!stack) {
     return null;
   }
@@ -77,52 +55,12 @@ export function extractErrorSourceLocation(error: unknown): SourceLocation | nul
   return extractSourceLocation(header >= 0 ? stack.slice(header + (message as string).length) : stack);
 }
 
-/**
- * A script frame's path arrives percent-encoded: `file://` URLs always are,
- * and the server encodes the `sourceURL` it hands V8 because V8 drops one
- * holding whitespace (a workspace under `My Projects`). A path that is not
- * valid percent-encoding is kept as it came.
- */
-function decodeFramePath(filePath: string): string {
-  try {
-    return decodeURIComponent(filePath);
-  } catch {
-    return filePath;
-  }
-}
-
+/** The first frame of `stack` in a fluid script, its path read as `StackFrames.filePath` reads it. */
 export function extractSourceLocation(stack: string): SourceLocation | null {
-  const frames = parseStackTrace(stack);
-  for (const frame of frames) {
-    if (!frame.file || frame.lineNumber == null) {
-      continue;
+  for (const frame of StackFrames.parse(stack)) {
+    if (isFluidScriptFile(frame.filePath)) {
+      return { filePath: frame.filePath, line: frame.line, column: frame.column };
     }
-
-    let filePath = frame.file;
-    const virtualPrefix = 'virtual:live-render:';
-    const virtualIdx = filePath.lastIndexOf(virtualPrefix);
-    if (virtualIdx !== -1) {
-      filePath = filePath.slice(virtualIdx + virtualPrefix.length);
-    }
-
-    if (filePath.startsWith('file:///')) {
-      filePath = filePath.slice('file:///'.length);
-      if (!/^[A-Za-z]:/.test(filePath)) {
-        filePath = '/' + filePath;
-      }
-    }
-
-    if (!isFluidScriptFile(filePath)) {
-      continue;
-    }
-
-    filePath = decodeFramePath(filePath).replace(/\\/g, '/');
-
-    return {
-      filePath,
-      line: frame.lineNumber,
-      column: frame.column ?? 0,
-    };
   }
   return null;
 }
@@ -279,6 +217,8 @@ export { PartRules } from './features/part-rules.js';
 export { Assembly } from './features/assembly.js';
 export { setAssetProvider } from './io/file-import.js';
 export type { AssetProvider, ImportMeta, ImportFileResult } from './io/file-import.js';
+export { AssetRoots } from './io/asset-roots.js';
+export type { AssetRoot, AssetRootSource, AssetFrom } from './io/asset-roots.js';
 export type { StepFileUnits } from './oc/step-units.js';
 export type { ImportReport, AssemblyExportOutcome } from './scene-manager.js';
 export { RenderChangeTracker } from './rendering/render-changes.js';

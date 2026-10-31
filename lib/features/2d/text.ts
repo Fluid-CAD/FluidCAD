@@ -3,8 +3,9 @@ import { Sketch } from "./sketch.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
-import { IText } from "../../core/interfaces.js";
+import type { FontOptions, IText } from "../../core/interfaces.js";
 import { FontRegistry } from "../../io/font-registry.js";
+import { AssetRoots, type AssetRoot } from "../../io/asset-roots.js";
 import { TextOutline, type TextAlign } from "../../oc/text-outline.js";
 import { PathSampler } from "../../oc/path-sampler.js";
 import { WireOps } from "../../oc/wire-ops.js";
@@ -193,7 +194,13 @@ export function buildTextEdgesAlongPath(
 export class Text extends ExtrudableGeometryBase implements IText {
   private _size = 10;
   private _font?: string;
-  /** A workspace font file's on-disk identity as of this render — see FontRegistry.localFileStamp. */
+  /**
+   * The installed package whose directory a font file name is read under, or
+   * null for the workspace — resolved when `.font()` runs, from the file
+   * that wrote the call and its `{ from }` (see AssetRoots).
+   */
+  private _fontRoot: AssetRoot | null = null;
+  /** A font file's on-disk identity as of this render — see FontRegistry.localFileStamp. */
   private _fontStamp: string | null = null;
   private _weight = 400;
   private _italic = false;
@@ -273,7 +280,7 @@ export class Text extends ExtrudableGeometryBase implements IText {
       ? this.anchors.solvedValues(this)[0]
       : this._anchor ?? new Point2D(0, 0);
 
-    const font = FontRegistry.resolve({ font: this._font, weight: this._weight, italic: this._italic });
+    const font = FontRegistry.resolve({ font: this._font, weight: this._weight, italic: this._italic, root: this._fontRoot });
 
     const edges: Edge[] = TextOutline.buildEdges(
       font,
@@ -292,7 +299,7 @@ export class Text extends ExtrudableGeometryBase implements IText {
   }
 
   private buildAlongPath(): void {
-    const font = FontRegistry.resolve({ font: this._font, weight: this._weight, italic: this._italic });
+    const font = FontRegistry.resolve({ font: this._font, weight: this._weight, italic: this._italic, root: this._fontRoot });
     const { edges, plane } = buildTextEdgesAlongPath(this.path, this.text, font, {
       size: this._size,
       align: this._align,
@@ -335,9 +342,12 @@ export class Text extends ExtrudableGeometryBase implements IText {
     return this;
   }
 
-  font(name: string): this {
+  font(name: string, options?: FontOptions): this {
+    const from = AssetRoots.parseFrom('text().font()', options?.from);
     this._font = name;
-    this._fontStamp = FontRegistry.localFileStamp(name);
+    // Only a font file is read from a directory; a family name is the system's.
+    this._fontRoot = FontRegistry.isLocalFile(name) ? AssetRoots.forCall(from) : null;
+    this._fontStamp = FontRegistry.localFileStamp(name, this._fontRoot);
     return this;
   }
 
@@ -405,6 +415,7 @@ export class Text extends ExtrudableGeometryBase implements IText {
     const copy = new Text(this.text, path);
     copy._size = this._size;
     copy._font = this._font;
+    copy._fontRoot = this._fontRoot;
     copy._fontStamp = this._fontStamp;
     copy._weight = this._weight;
     copy._italic = this._italic;
@@ -438,6 +449,7 @@ export class Text extends ExtrudableGeometryBase implements IText {
     return this.text === other.text
       && this._size === other._size
       && this._font === other._font
+      && (this._fontRoot?.dir ?? null) === (other._fontRoot?.dir ?? null)
       && this._fontStamp === other._fontStamp
       && this._weight === other._weight
       && this._italic === other._italic

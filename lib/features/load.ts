@@ -1,5 +1,6 @@
 import { SceneObject } from "../common/scene-object.js";
 import { FileImport } from "../io/file-import.js";
+import { AssetRoots, type AssetRoot } from "../io/asset-roots.js";
 import { ScaleOps } from "../oc/scale-ops.js";
 import { parseLengthUnit, unitFactor } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
@@ -12,12 +13,19 @@ export class LoadFile extends SceneObject {
   private _exclude = new Set<number>();
   /** The caller's assertion of the asset's unit; null means "trust the sidecar". */
   private _assetUnit: LengthUnit | null = null;
+  /**
+   * The installed package whose `imports/` this load reads, or null for the
+   * workspace's — resolved once, when the statement is made, from the file
+   * that wrote the call and its `{ from }` (see AssetRoots).
+   */
+  private readonly _assetRoot: AssetRoot | null;
   /** The asset files' on-disk identity as of this render — see FileImport.assetStamp. */
   private _assetStamp: string | null;
 
   constructor(public fileName: string, options?: LoadOptions) {
     super();
-    this._assetStamp = FileImport.assetStamp(fileName);
+    this._assetRoot = AssetRoots.forCall(AssetRoots.parseFrom('load()', options?.from));
+    this._assetStamp = FileImport.assetStamp(fileName, this._assetRoot);
     if (options?.unit !== undefined) {
       try {
         this._assetUnit = parseLengthUnit(options.unit);
@@ -51,7 +59,7 @@ export class LoadFile extends SceneObject {
 
   /** The unit the asset's cached geometry is in: the assertion, else the sidecar, else mm. */
   assetUnit(): LengthUnit {
-    return this._assetUnit ?? FileImport.readAssetUnit(this.fileName);
+    return this._assetUnit ?? FileImport.readAssetUnit(this.fileName, this._assetRoot);
   }
 
   build() {
@@ -59,6 +67,7 @@ export class LoadFile extends SceneObject {
       noColors: this._noColors,
       include: this._include,
       exclude: this._exclude.size > 0 ? this._exclude : undefined,
+      root: this._assetRoot,
     });
     // The imports/ cache is canonical mm and shared by documents of every
     // unit, so the scaling belongs here, into THIS statement's unit. Factor 1
@@ -85,6 +94,12 @@ export class LoadFile extends SceneObject {
     }
 
     if (this.fileName !== other.fileName) {
+      return false;
+    }
+
+    // The same name under another root is another asset: the project's
+    // imports/motor.brep and a package's never stand in for each other.
+    if ((this._assetRoot?.dir ?? null) !== (other._assetRoot?.dir ?? null)) {
       return false;
     }
 

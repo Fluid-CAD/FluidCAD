@@ -1,7 +1,8 @@
 import getSystemFontsDefault from "get-system-fonts";
 import { openSync, create } from "fontkit";
 import type { Font, FontCollection } from "fontkit";
-import { FileImport, readWorkspaceAssetBytes } from "./file-import.js";
+import { FileImport } from "./file-import.js";
+import { AssetRoots, type AssetRoot } from "./asset-roots.js";
 
 // get-system-fonts ships a CJS default export; nodenext types the default import
 // as the module namespace, so cast it to its callable signature (the runtime
@@ -137,18 +138,21 @@ export class FontRegistry {
   }
 
   /**
-   * Resolves a font request into a ready fontkit `Font`. Never returns null:
-   * falls back through aliases -> default families -> any available font, and
-   * only throws if the machine has no usable fonts at all.
+   * Resolves a font request into a ready fontkit `Font`. A font file name is
+   * read under `root` — an installed package's directory, the workspace for
+   * null (see `AssetRoots`) — and a missing one throws, naming where it was
+   * looked for. A family name never fails: it falls back through aliases ->
+   * default families -> any available font, and only throws if the machine
+   * has no usable fonts at all.
    */
-  static resolve(opts: { font?: string; weight?: number; italic?: boolean }): Font {
+  static resolve(opts: { font?: string; weight?: number; italic?: boolean; root?: AssetRoot | null }): Font {
     const weight = opts.weight ?? 400;
     const italic = opts.italic ?? false;
     const name = opts.font?.trim();
 
-    // 1. Local workspace file, detected by extension.
+    // 1. Local font file, detected by extension.
     if (this.isLocalFile(name)) {
-      return this.loadLocalFile(name);
+      return this.loadLocalFile(name, opts.root ?? null);
     }
 
     const index = this.ensureInit();
@@ -200,19 +204,19 @@ export class FontRegistry {
   }
 
   /**
-   * For a `.font(...)` argument naming a workspace font file, the file's
-   * on-disk identity, noting it as an input of the render being evaluated
-   * ({@link FileImport.workspaceStamp}); null for a system family name, or
-   * when fonts come from an asset provider. `text()` takes it when `.font()`
-   * runs — every render, even one whose text build the scene compare reuses
-   * — and compares it, so an edited font file rebuilds the text, and a share
-   * link carries the file.
+   * For a `.font(...)` argument naming a font file, the file's on-disk
+   * identity under `root` (the workspace for null), noting it as an input of
+   * the render being evaluated ({@link FileImport.diskStamp}); null for a
+   * system family name, or when fonts come from an asset provider. `text()`
+   * takes it when `.font()` runs — every render, even one whose text build
+   * the scene compare reuses — and compares it, so an edited font file
+   * rebuilds the text, and a share link carries the file.
    */
-  static localFileStamp(name: string | undefined): string | null {
+  static localFileStamp(name: string | undefined, root: AssetRoot | null = null): string | null {
     if (!this.isLocalFile(name)) {
       return null;
     }
-    return FileImport.workspaceStamp([name]);
+    return FileImport.diskStamp([name], root);
   }
 
   /**
@@ -349,20 +353,26 @@ export class FontRegistry {
   }
 
   /**
-   * Opens a workspace font file, cached by its workspace path and on-disk
-   * identity: a file edited on disk opens again. Resolving notes the file as
-   * an input of the render, like {@link localFileStamp}.
+   * Opens a font file under `root` (the workspace for null), cached by its
+   * root, its relative path and its on-disk identity: a file edited on disk
+   * opens again, and the workspace's `fonts/Brand.ttf` and a package's never
+   * share an entry — not even behind an asset provider, which gives no
+   * on-disk identity. Resolving notes the file as an input of the render,
+   * like {@link localFileStamp}. A missing file is never looked for under
+   * another root.
    */
-  private static loadLocalFile(name: string): Font {
+  private static loadLocalFile(name: string, root: AssetRoot | null): Font {
     const relPath = FileImport.workspacePath(name);
-    const cacheKey = `file:${relPath}|${FileImport.workspaceStamp([relPath]) ?? ""}`;
+    const cacheKey = `file:${root?.dir ?? ""}|${relPath}|${FileImport.diskStamp([relPath], root) ?? ""}`;
     const cached = this.fontCache.get(cacheKey);
     if (cached) {
       return cached;
     }
-    const bytes = readWorkspaceAssetBytes(relPath);
+    const bytes = FileImport.readAssetBytes(relPath, root);
     if (!bytes) {
-      throw new Error(`Font file not found in workspace: ${relPath}`);
+      throw new Error(root
+        ? AssetRoots.describeMissing('Font file not found', relPath, root, ".font(name, { from: 'project' })")
+        : `Font file not found in workspace: ${relPath}`);
     }
     // The bytes as they are: fontkit 2 parses a plain Uint8Array (its types
     // still say Buffer), and a viewer's browser worker has no Buffer.

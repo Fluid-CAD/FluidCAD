@@ -36,6 +36,42 @@ export interface LoadOptions {
    * overrides the import sidecar. One of `mm`, `cm`, `m`, `in`, `ft`.
    */
   unit?: string;
+  /**
+   * Whose `imports/` folder the model is read from.
+   *
+   * - `'package'` (the default): the folder beside the file the call is
+   *   written in. In an installed package's file that is the package's own
+   *   `imports/`, shipped with it; in a file of your project, the project's.
+   *   A package's own model that is missing is an error: it is never looked
+   *   for in the project instead.
+   * - `'project'`: the project that uses the package, whatever file the call
+   *   is written in. A package's part or feature that loads a file name the
+   *   model using it passes in reads it this way:
+   *   `load(name, { from: 'project' })`.
+   *
+   * In your project's own files both read the project's `imports/`.
+   */
+  from?: 'package' | 'project';
+}
+
+export interface FontOptions {
+  /**
+   * Whose files a font file name (`"fonts/Brand.ttf"`) is read from.
+   *
+   * - `'package'` (the default): beside the file the call is written in. In
+   *   an installed package's file that is the package's own font file,
+   *   shipped with it; in a file of your project, the project's. A package's
+   *   own font file that is missing is an error: it is never looked for in
+   *   the project instead.
+   * - `'project'`: the project that uses the package, whatever file the call
+   *   is written in. A package's part or feature that takes a font file name
+   *   from the model using it reads it this way:
+   *   `.font(name, { from: 'project' })`.
+   *
+   * In your project's own files both read the project's file. A system
+   * family name (`"Arial"`) is the system's either way.
+   */
+  from?: 'package' | 'project';
 }
 
 export interface ILoadFile extends ISceneObject {
@@ -512,11 +548,14 @@ export interface IText extends IExtrudableGeometry {
   /**
    * Sets the font. A name without a font extension (e.g. `"Arial"`) is resolved
    * to a system font; a value ending in `.ttf`/`.otf`/`.ttc`/`.woff` (e.g.
-   * `"fonts/Brand.ttf"`) is loaded as a workspace-relative file. When omitted, a
-   * default system font is used.
-   * @param name - A system family name or a workspace-relative font file path.
+   * `"fonts/Brand.ttf"`) is loaded as a file relative to the project — or, in
+   * an installed package's file, to the package, which ships it. When
+   * omitted, a default system font is used.
+   * @param name - A system family name or a relative font file path.
+   * @param options - Optional `{ from: 'project' }`: read the font file from
+   *   the project that uses the package, for a name the model passes in.
    */
-  font(name: string): this;
+  font(name: string, options?: FontOptions): this;
 
   /**
    * Sets the font weight: a number (100–900) or a name such as `"regular"`,

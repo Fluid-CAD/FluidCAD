@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { join, resolve, sep } from "path";
+import { join } from "path";
 import { Shape } from "../common/shape.js";
 import { OcIO } from "../oc/io.js";
 import type { ColoredSolid, FaceColor } from "../common/colored-solid.js";
@@ -8,6 +8,7 @@ import { Solid } from "../common/solid.js";
 import { isLengthUnit } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import type { StepFileUnits } from "../oc/step-units.js";
+import { AssetRoots, type AssetRoot } from "./asset-roots.js";
 
 /**
  * Sidecar written next to an imported `.brep` (`<name>.import.json`). It is
@@ -34,7 +35,9 @@ export interface ImportFileResult {
 /**
  * Override hook for hub mode (and tests). When set, asset reads consult
  * the provider instead of the filesystem — paths are workspace-relative
- * (e.g. `imports/foo.brep`). Returning null falls back to disk.
+ * (e.g. `imports/foo.brep`), an installed package's under its root's key
+ * (`packages/@acme/kit/1.2.0/imports/foo.brep`). Returning null falls back
+ * to disk.
  */
 export type AssetProvider = (workspaceRelPath: string) => Uint8Array | null;
 
@@ -42,54 +45,6 @@ let assetProvider: AssetProvider | null = null;
 
 export function setAssetProvider(provider: AssetProvider | null): void {
   assetProvider = provider;
-}
-
-function readWorkspaceAsset(relPath: string): { text: string; exists: true } | { exists: false } {
-  relPath = FileImport.workspacePath(relPath);
-  if (assetProvider) {
-    const bytes = assetProvider(relPath);
-    if (bytes) {
-      // Not Node's Buffer: a viewer's engine reads its share link's assets
-      // here, in a browser worker that has none.
-      return { text: new TextDecoder().decode(bytes), exists: true };
-    }
-  }
-  const sceneManager = getSceneManager();
-  const filePath = join(sceneManager!.rootPath, relPath);
-  if (!fs.existsSync(filePath)) {
-    return { exists: false };
-  }
-  return { text: fs.readFileSync(filePath, 'utf8'), exists: true };
-}
-
-/**
- * Reads a workspace asset as raw bytes (e.g. a font file). Consults the
- * AssetProvider first (hub mode), then the workspace filesystem. Paths are
- * workspace-relative in any spelling ({@link FileImport.workspacePath}) and
- * confined to the workspace root (no `..` traversal). Returns null when the
- * asset cannot be found.
- */
-export function readWorkspaceAssetBytes(relPath: string): Uint8Array | null {
-  relPath = FileImport.workspacePath(relPath);
-  if (assetProvider) {
-    const bytes = assetProvider(relPath);
-    if (bytes) {
-      return bytes;
-    }
-  }
-  const sceneManager = getSceneManager();
-  if (!sceneManager) {
-    return null;
-  }
-  const root = resolve(sceneManager.rootPath);
-  const filePath = resolve(root, relPath);
-  if (filePath !== root && !filePath.startsWith(root + sep)) {
-    return null;
-  }
-  if (!fs.existsSync(filePath)) {
-    return null;
-  }
-  return fs.readFileSync(filePath);
 }
 
 /**
@@ -103,17 +58,24 @@ function ensureImportsDir(workspacePath: string): string {
 }
 
 export class FileImport {
-  static deserializeShapes(fileName: string): Solid[] {
+  /**
+   * The solids of an imported asset's `.brep` cache, read under `root` (the
+   * workspace for null). A missing one is an error that names where it was
+   * looked for — never a read of another root's file of the same name.
+   */
+  static deserializeShapes(fileName: string, root: AssetRoot | null = null): Solid[] {
     if (!fileName.endsWith(('.brep'))) {
       fileName += '.brep';
     }
 
-    const relPath = join('imports', fileName);
+    const relPath = FileImport.workspacePath(join('imports', fileName));
 
     console.log(`Reading file ${fileName}`);
-    const result = readWorkspaceAsset(relPath);
+    const result = FileImport.readAssetText(relPath, root);
     if (!result.exists) {
-      throw new Error(`Imported asset not found: ${relPath}`);
+      throw new Error(root
+        ? AssetRoots.describeMissing('Imported asset not found', relPath, root, "load(name, { from: 'project' })")
+        : `Imported asset not found: ${relPath}`);
     }
     console.log(`File ${relPath} read successfully, size: ${result.text.length} bytes`);
 
@@ -177,6 +139,103 @@ export class FileImport {
   }
 
   /**
+   * Reads an asset as text: from the asset provider under the root's key
+   * ({@link providerKey}), else from disk under the root's directory — the
+   * workspace for null. Paths are relative in any spelling
+   * ({@link workspacePath}) and confined to the root: one that leads out of
+   * it is refused ({@link leavesRoot}).
+   */
+  static readAssetText(relPath: string, root: AssetRoot | null = null): { text: string; exists: true } | { exists: false } {
+    relPath = FileImport.confined(relPath, root);
+    const key = FileImport.providerKey(relPath, root);
+    if (assetProvider && key !== null) {
+      const bytes = assetProvider(key);
+      if (bytes) {
+        // Not Node's Buffer: a viewer's engine reads its share link's assets
+        // here, in a browser worker that has none.
+        return { text: new TextDecoder().decode(bytes), exists: true };
+      }
+    }
+    const filePath = join(root ? root.dir : getSceneManager()!.rootPath, relPath);
+    if (!fs.existsSync(filePath)) {
+      return { exists: false };
+    }
+    return { text: fs.readFileSync(filePath, 'utf8'), exists: true };
+  }
+
+  /**
+   * Reads an asset as raw bytes (e.g. a font file), as {@link readAssetText}
+   * reads it: the asset provider first, then disk under the root (the
+   * workspace for null). A path leading out of the root is refused. Returns
+   * null when the asset cannot be found.
+   */
+  static readAssetBytes(relPath: string, root: AssetRoot | null = null): Uint8Array | null {
+    relPath = FileImport.confined(relPath, root);
+    const key = FileImport.providerKey(relPath, root);
+    if (assetProvider && key !== null) {
+      const bytes = assetProvider(key);
+      if (bytes) {
+        return bytes;
+      }
+    }
+    const base = root ? root.dir : getSceneManager()?.rootPath;
+    if (base === undefined) {
+      return null;
+    }
+    const filePath = join(base, relPath);
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    return fs.readFileSync(filePath);
+  }
+
+  /**
+   * Whether a relative asset path ({@link workspacePath}'s spelling) leads
+   * out of the root it is read under: an absolute path, a drive, or `..`
+   * segments climbing above the root. A `..` that stays inside is fine.
+   * Read off the path alone, so a provider's tree is confined as the disk is.
+   */
+  static leavesRoot(relPath: string): boolean {
+    if (relPath.startsWith('/') || /^[A-Za-z]:/.test(relPath)) {
+      return true;
+    }
+    let depth = 0;
+    for (const segment of relPath.split('/')) {
+      if (segment === '..') {
+        depth--;
+        if (depth < 0) {
+          return true;
+        }
+      } else {
+        depth++;
+      }
+    }
+    return false;
+  }
+
+  /** `relPath` in {@link workspacePath}'s spelling, refused when it leads out of the root. */
+  private static confined(relPath: string, root: AssetRoot | null): string {
+    const normalized = FileImport.workspacePath(relPath);
+    if (FileImport.leavesRoot(normalized)) {
+      throw new Error(`Asset path ${normalized} leads outside ${AssetRoots.describe(root)}`);
+    }
+    return normalized;
+  }
+
+  /**
+   * The path the asset provider is asked for: the workspace-relative path,
+   * under the root's key for an installed package — null when no provider's
+   * tree carries the package (a library package), which is then read from
+   * disk alone.
+   */
+  private static providerKey(relPath: string, root: AssetRoot | null): string | null {
+    if (!root) {
+      return relPath;
+    }
+    return root.key === null ? null : `${root.key.replace(/\/+$/, '')}/${relPath}`;
+  }
+
+  /**
    * A workspace-relative asset path as the asset provider and the render's
    * inputs key it: forward slashes, no `.` segments or doubled slashes, so
    * `./fonts/Brand.ttf` and `fonts\Brand.ttf` are both `fonts/Brand.ttf` —
@@ -191,34 +250,43 @@ export class FileImport {
 
   /**
    * The on-disk identity of an imported asset — the `.brep` cache and its
-   * sidecars — as {@link workspaceStamp} takes it. A load() compares it, so
-   * a re-imported asset rebuilds instead of matching the previous render's
-   * geometry.
+   * sidecars under `root` (the workspace for null) — as {@link diskStamp}
+   * takes it. A load() compares it, so a re-imported asset rebuilds instead
+   * of matching the previous render's geometry.
    */
-  static assetStamp(fileName: string): string | null {
+  static assetStamp(fileName: string, root: AssetRoot | null = null): string | null {
     const baseName = fileName.replace(/\.(step|stp|brep)$/i, '');
-    return FileImport.workspaceStamp(['.brep', '.colors.json', '.import.json'].map((suffix) => join('imports', baseName + suffix)));
+    return FileImport.diskStamp(['.brep', '.colors.json', '.import.json'].map((suffix) => join('imports', baseName + suffix)), root);
   }
 
   /**
-   * The on-disk identity of workspace files a statement reads — mtime + size
-   * each, `-` for a missing one — and the note to the scene manager that
-   * this render depends on them, missing or not. A statement takes it when
-   * it is constructed, which every render does (a build the scene compare
-   * reuses never reads its files again), and compares it, so a file changed
-   * on disk rebuilds the statement. The render's inputs are what a share
-   * link carries beside the source. Null when assets do not come from the
-   * workspace filesystem (a packed bundle or a share link's tree, which
-   * never change under a running scene).
+   * The on-disk identity of files a statement reads under `root` — an
+   * installed package's directory, the workspace for null — mtime + size
+   * each, `-` for a missing one, and the note to the scene manager that
+   * this render depends on them, missing or not, by absolute path. A
+   * statement takes it when it is constructed, which every render does (a
+   * build the scene compare reuses never reads its files again), and
+   * compares it, so a file changed on disk rebuilds the statement. The
+   * render's inputs are what a share link carries beside the source, and
+   * what the server's render fingerprint stats, a package's files included.
+   * A path leading out of the root is no input (its read is refused). Null
+   * when assets do not come from the filesystem (a packed bundle or a share
+   * link's tree, which never change under a running scene).
    */
-  static workspaceStamp(relPaths: readonly string[]): string | null {
+  static diskStamp(relPaths: readonly string[], root: AssetRoot | null = null): string | null {
     const sceneManager = getSceneManager();
     if (assetProvider || !sceneManager) {
       return null;
     }
+    const base = root ? root.dir : sceneManager.rootPath;
     const stamps: string[] = [];
     for (const relPath of relPaths) {
-      const filePath = join(sceneManager.rootPath, FileImport.workspacePath(relPath));
+      const normalized = FileImport.workspacePath(relPath);
+      if (FileImport.leavesRoot(normalized)) {
+        stamps.push('-');
+        continue;
+      }
+      const filePath = join(base, normalized);
       sceneManager.recordRenderInput(filePath);
       try {
         const stats = fs.statSync(filePath);
@@ -230,10 +298,10 @@ export class FileImport {
     return stamps.join('|');
   }
 
-  /** The `<name>.import.json` sidecar, or null when the asset has none (or it is unreadable). */
-  static readImportMeta(fileName: string): ImportMeta | null {
+  /** The `<name>.import.json` sidecar under `root` (the workspace for null), or null when the asset has none (or it is unreadable). */
+  static readImportMeta(fileName: string, root: AssetRoot | null = null): ImportMeta | null {
     const baseName = fileName.replace(/\.(step|stp|brep)$/i, '');
-    const result = readWorkspaceAsset(join('imports', baseName + '.import.json'));
+    const result = FileImport.readAssetText(join('imports', baseName + '.import.json'), root);
     if (!result.exists) {
       return null;
     }
@@ -253,8 +321,8 @@ export class FileImport {
    * sidecar (imported before units existed, or copied in by hand) are mm:
    * that is what the STEP reader has always produced.
    */
-  static readAssetUnit(fileName: string): LengthUnit {
-    const meta = FileImport.readImportMeta(fileName);
+  static readAssetUnit(fileName: string, root: AssetRoot | null = null): LengthUnit {
+    const meta = FileImport.readImportMeta(fileName, root);
     if (meta && isLengthUnit(meta.unit)) {
       return meta.unit;
     }
@@ -263,22 +331,24 @@ export class FileImport {
 
   /**
    * The asset's solids with the sidecar's colours resolved to their faces
-   * (none with `noColors`). The caller (`load`) holds the solids and records
-   * the colours as its own paint.
+   * (none with `noColors`), read under `options.root` (the workspace for
+   * none). The caller (`load`) holds the solids and records the colours as
+   * its own paint.
    */
   static deserializeShapesWithMetadata(
     fileName: string,
-    options?: { noColors?: boolean; include?: Set<number>; exclude?: Set<number> },
+    options?: { noColors?: boolean; include?: Set<number>; exclude?: Set<number>; root?: AssetRoot | null },
   ): ColoredSolid[] {
+    const root = options?.root ?? null;
     // Read geometry from .brep
     const brepFileName = fileName.replace(/\.(step|stp|brep)$/i, '');
-    const shapes = FileImport.deserializeShapes(brepFileName);
+    const shapes = FileImport.deserializeShapes(brepFileName, root);
 
     // Read color metadata from JSON sidecar (skipped when noColors is set)
     let colorData: SolidColorData[] = [];
     if (!options?.noColors) {
       const relPath = join('imports', brepFileName + '.colors.json');
-      const result = readWorkspaceAsset(relPath);
+      const result = FileImport.readAssetText(relPath, root);
       if (result.exists) {
         colorData = JSON.parse(result.text);
         console.log(`Loaded color metadata from ${relPath}`);

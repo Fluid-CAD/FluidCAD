@@ -51,7 +51,7 @@ mounting-hardware/
 - A feature's [icon](/docs/custom-features#6-give-it-an-icon) and the [pictures](/docs/custom-features/inputs#pictures) of its dialog sit next to its file in `features/`, by the paths its description names, and travel with it. A picture the description names but the folder lacks stops packing.
 - `docs/` holds pages for the people and coding assistants who use the package: markdown pages and the images they show, in subfolders if you like. Write one per feature, saying what it does and, for a feature with [names of its own](/docs/custom-features/named-faces-and-edges), what each name holds and in what order. It holds no code: a script there stops packing, and so does a file that is neither a page nor an image. A page may be up to 256 KB, an image 2 MB, and the whole folder 4 MB and 200 files.
 - `README.md`, `LICENSE` and `CHANGELOG.md` at the root travel with the package.
-- The files a part reads as it builds travel with it, at the same paths: the geometry of a [STEP file it loads](/docs/import-export/import) (`imports/<name>.brep` with its colour and unit files) and a [font file its text uses](/docs/sketching/compound/text) (`fonts/Brand.ttf`). Only what the parts read goes; another import in `imports/` stays in the project. A file a part reads from `node_modules`, or from outside the project through a link, stops packing.
+- The files a part reads as it builds travel with it, at the same paths: the geometry of a [STEP file it loads](/docs/import-export/import) (`imports/<name>.brep` with its colour and unit files) and a [font file its text uses](/docs/sketching/compound/text) (`fonts/Brand.ttf`). Only what the parts read goes; another import in `imports/` stays in the project. A file a part reads from `node_modules`, from an installed package, or from outside the project through a link, stops packing. Installed, the package reads these files from its own folder ([Files from the project using it](#files-from-the-project-using-it)).
 - Anything else outside the three folders stays in the project: test models, `init.js`, notes. A test model at the root imports `./features/standoff.feature.js`.
 - To be published on the hub, a package needs at least one part or assembly, so its page has a model to show. A package of features alone still packs, but can't be published.
 
@@ -71,6 +71,30 @@ mounting-hardware/
 Model as in any project: write the features in `features/` ([Custom Features](/docs/custom-features) shows how), the parts in `parts/`, the assemblies in `assemblies/`, and try them in test models at the root. Only new packages are made this way; FluidCAD doesn't turn an existing project into a package.
 
 From the terminal, [`npx fluidcad init --package @acme/mounting-hardware`](/docs/cli#fluidcad-init) writes the same folder in an empty directory. For a project that already holds the features and parts, [`npx fluidcad package init --name @acme/mounting-hardware`](/docs/cli#fluidcad-package-init) writes the block alone; move the files into the three folders yourself. Signed in to the hub (`npx fluidcad login`), both take a name without the handle and add yours; signed out, it is refused. See [Project configuration](/docs/project-configuration#package) for every key of the block.
+
+### Files from the project using it
+
+A `load()` or `.font()` written in a package's files reads the package's own file, the one that travels with it, never a file of the same name in the project that uses the package. A name that project passes in is the exception: a nameplate part that takes a font file as a parameter must read that file from the project. Say so with `{ from: 'project' }`:
+
+```js
+import { part, param, sketch, text, extrude } from 'fluidcad/core';
+
+export const nameplate = part('Nameplate', () => {
+  const font = param('Font', 'fonts/Brand.ttf', 'text', { description: 'A font file in your project' });
+  sketch('xy', () => {
+    text('ACME').size(8).font(font, { from: 'project' });   // the project's fonts/…
+  });
+  extrude(1);
+});
+```
+
+`load(name, { from: 'project' })` does the same for a STEP file the project imported. Without it, the name is read in the package, and a file the package doesn't carry stops the part with a sentence that names the package and points to `{ from: 'project' }`:
+
+```
+Font file not found: fonts/Brand.ttf in @acme/mounting-hardware@1.0.0. If the name comes from the model using the package, read it with .font(name, { from: 'project' }).
+```
+
+A missing file is never looked for in the other place. While you write the package, its own project is both places, so both read the same file; the difference shows once the package is installed.
 
 ### Describing its features
 
@@ -195,7 +219,7 @@ A package's parts are inserted into an assembly, like the parts of your own file
 
 A part file shows only the parts it declares. Using the package's Standoff in `tray.part.js` does not add the package's PCB plate or Hub flange to the tray; they appear only where an assembly inserts them.
 
-A package's part is built in the package's own unit and takes its material from the package, so its size and mass are the same in every project.
+A package's part is built in the package's own unit, takes its material from the package and reads the geometry it loads and the font files its text uses from the package, so its size and mass are the same in every project.
 
 ## The packages of a project
 

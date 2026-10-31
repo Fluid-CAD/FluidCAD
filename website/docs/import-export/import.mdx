@@ -51,6 +51,16 @@ See [Transforms](/docs/transforms/introduction).
 
 A share link carries the geometry the model loads: each `imports/<name>.brep` a `load()` reads, with its colour and unit files, travels in the link beside the source, and the viewer opens the model as the desktop renders it. Imports the model does not load stay out. Because the geometry is in the link itself, a large import can push the link past its size limit; the Share dialog then names the imported file as what makes it too large.
 
+## In a package
+
+A part of a [package](/docs/packages) loads the package's own imports: `load("motor")` written in the package's files reads `imports/motor.brep` from the package, which carries it, never from the project that uses the package. One the package lacks is an error naming the package:
+
+```
+Imported asset not found: imports/motor.brep in @acme/mounting-hardware@1.0.0. If the name comes from the model using the package, read it with load(name, { from: 'project' }).
+```
+
+A name that comes from the project using the package, such as a STEP file a part takes as a parameter, is that project's file. Read it with `load(name, { from: 'project' })`. In your project's own files, `load()` reads the project's `imports/` either way.
+
 ## Units
 
 `load()` needs no unit. STEP files carry theirs, the import is cached in millimetres, and `load()` scales it into the loading file's [unit](/docs/extra/units): a factor of 1 in a millimetre file, so existing projects are untouched. `load("bracket", { unit: 'in' })` is an assertion for assets with no trustworthy metadata (a `.brep` copied into `imports/` by hand, a STEP whose header is wrong); it overrides what the import recorded, and you should leave it out otherwise.

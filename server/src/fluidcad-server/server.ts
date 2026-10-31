@@ -321,6 +321,7 @@ export class FluidCadServer {
     const { default: _sceneManager } = await this.host.loadModule(initFilePath);
     this.sceneManager = await _sceneManager;
     this.initDiagnostic = null;
+    this.rootEngine();
 
     // Only meaningful once a workspace `init.js` has actually imported the
     // kernel — the hub path installs its manager via `setSceneManager` and
@@ -413,6 +414,39 @@ export class FluidCadServer {
   // ---------------------------------------------------------------------------
   // Render — internal core used by both desktop and hub entry points
   // ---------------------------------------------------------------------------
+
+  /**
+   * Make the engine this workspace's before it evaluates anything for this
+   * server — a render, a scratch render, a part or feature scan: rooted here
+   * ({@link rootEngine}), with the project config read again
+   * ({@link reseedProjectConfig}).
+   */
+  private seatEngine(): void {
+    this.rootEngine();
+    this.reseedProjectConfig();
+  }
+
+  /**
+   * Root the engine at this server's workspace: where a `load()` reads its
+   * `imports/` and a `text()` its font file, and where the unit lookup stops
+   * walking up. The engine is one per process — `init()` hands back the
+   * manager that exists — and roots itself once, when it is made, at
+   * `FLUIDCAD_WORKSPACE_PATH`, which only a served workspace's process sets.
+   * Without this an engine booted in process (`fluidcad pack`, `publish`)
+   * reads its assets against the process's working directory, and a second
+   * server in one process against whichever workspace made the engine. So
+   * {@link init} roots it, and every evaluation roots it again
+   * ({@link seatEngine}). The hub path has no workspace: its assets come
+   * from an asset provider, whatever the root.
+   */
+  private rootEngine(): void {
+    if (!this.workspacePath || !this.sceneManager) {
+      return;
+    }
+    if (this.sceneManager.rootPath !== this.workspacePath) {
+      this.sceneManager.rootPath = this.workspacePath;
+    }
+  }
 
   /**
    * Re-read `fluidcad.json` before every scene start: the project unit and
@@ -567,7 +601,7 @@ export class FluidCadServer {
         };
         const timelineSources = new Map([normalizedFileName, ...this.timelineHistory.sourceFiles(sessionId)]
           .map(path => [path, readTimelineSource(path)]));
-        this.reseedProjectConfig();
+        this.seatEngine();
         let scene = sceneKind === 'assembly'
           ? this.sceneManager.startAssemblyScene()
           : this.sceneManager.startScene();
@@ -1247,6 +1281,7 @@ export class FluidCadServer {
       }
       // The scan re-evaluates the workspace modules.
       this.forgetGhostBuilders();
+      this.seatEngine();
       return scanFileForParts(this.host, this.sceneManager, normalizePath(filePath), { projectUnit });
     });
   }
@@ -1264,6 +1299,7 @@ export class FluidCadServer {
       }
       // The scan re-evaluates the workspace modules.
       this.forgetGhostBuilders();
+      this.seatEngine();
       return FeatureScanner.scanFile(this.host, this.sceneManager, normalizePath(filePath));
     });
   }
@@ -2209,7 +2245,7 @@ export class FluidCadServer {
       const liveInputs = managerState.renderInputs;
       let scene: any = null;
       try {
-        this.reseedProjectConfig();
+        this.seatEngine();
         scene = sceneKind === 'assembly' ? manager.startAssemblyScene() : manager.startScene();
         manager.setCurrentFile(normalizedFileName);
         this.host.invalidateModule();

@@ -45,8 +45,6 @@ const RIG_ASSEMBLY = [
 const MOTOR_ASSETS = ['imports/motor.brep', 'imports/motor.colors.json', 'imports/motor.import.json'];
 
 let workspace: string;
-let engine: { rootPath: string };
-let previousRoot: string;
 let host: LocalSceneHost;
 let server: FluidCadServer;
 let http_: http.Server;
@@ -71,14 +69,9 @@ beforeAll(async () => {
   fs.writeFileSync(at('block.part.js'), BLOCK_PART);
   host = new LocalSceneHost();
   server = new FluidCadServer(host);
+  // The test files share one engine (init() hands back the one that
+  // exists): the server roots it here, wherever it was first made.
   await server.init(workspace);
-  // The engine reads a load()'s asset under its root path, which a desktop
-  // server's engine takes from its workspace. The test files share one
-  // engine (init() hands back the one that exists), rooted wherever it was
-  // first made: point it here for this file.
-  engine = await (await host.loadModule(at('init.js'))).default;
-  previousRoot = engine.rootPath;
-  engine.rootPath = workspace;
 
   // A STEP file to import: the block, exported, then imported as motor.step.
   const block = await server.processFile(at('block.part.js'));
@@ -104,9 +97,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => http_?.close(() => resolve()));
-  if (engine) {
-    engine.rootPath = previousRoot;
-  }
   await host?.server.close();
   fs.rmSync(workspace, { recursive: true, force: true });
 });

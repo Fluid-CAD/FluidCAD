@@ -32,6 +32,12 @@ export class InProcessEngine {
    * still boots; {@link FluidCadServer.describeMissingEngine} then says why
    * nothing renders. A failed init closes what it started and rejects.
    *
+   * The engine reads a `load()`'s imports and a `text()`'s font file under
+   * `workspacePath`, whatever the process's working directory, and so does
+   * each engine booted after it in the same process over its own workspace:
+   * the server roots the process's one kernel at its workspace whenever it
+   * evaluates.
+   *
    * `linkEngine: false` writes nothing to the workspace: the courtesy
    * `node_modules/fluidcad` link a workspace without an install of its own
    * gets is not planted, and the engine answers its imports itself.

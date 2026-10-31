@@ -19,6 +19,10 @@ import type { KernelGhostRequest, SketchOffsetPlanRequest, SketchRegionsRequest 
 import type { MeasureRef, SelectionBoundary, SelectionSynthesisOptions } from './query-types.ts';
 
 export type SceneManager = {
+  // The workspace a `load()`'s `imports/` and a `text()`'s font file are
+  // read under. Every engine has it; optional so the structural type never
+  // refuses a manager — see `FluidCadServer.rootEngine`.
+  rootPath?: string;
   startScene(): any;
   startAssemblyScene(): any;
   renderScene(scene: any): any;

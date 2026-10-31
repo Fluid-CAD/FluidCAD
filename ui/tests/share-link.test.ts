@@ -46,8 +46,57 @@ describe('share link — what the Share dialog opens', () => {
     expect(classifyShareFile('note.txt')).toBe('data');
   });
 
-  it('refuses a link past the cap with a message, and accepts one at it', () => {
-    expect(linkSizeProblem('x'.repeat(MAX_LINK_CHARS))).toBeNull();
-    expect(linkSizeProblem('x'.repeat(MAX_LINK_CHARS + 1))).toMatch(/too large to share as a link/);
+  it('files an imported STEP file\'s cache and sidecars as imported geometry, and only under imports/', () => {
+    expect(classifyShareFile('imports/motor.brep')).toBe('geometry');
+    expect(classifyShareFile('imports/motor.colors.json')).toBe('geometry');
+    expect(classifyShareFile('imports/motor.import.json')).toBe('geometry');
+    expect(classifyShareFile('imports/sub/bracket.brep')).toBe('geometry');
+    expect(classifyShareFile('imports/notes.json')).toBe('data');
+    expect(classifyShareFile('data/motor.colors.json')).toBe('data');
+    expect(classifyShareFile('motor.brep')).toBe('data');
+  });
+
+  it('refuses a link past the cap with a message, and accepts one at it', async () => {
+    expect(await linkSizeProblem('x'.repeat(MAX_LINK_CHARS))).toBeNull();
+    expect(await linkSizeProblem('x'.repeat(MAX_LINK_CHARS + 1))).toMatch(/too large to share as a link/);
+  });
+
+  it('says the imported model makes a link too large when the link would fit without it', async () => {
+    const model = "import { load } from 'fluidcad/core';\nload('motor.step');\n";
+    const share = {
+      fluidcadVersion: '0.0.48',
+      entry: 'motor.part.js',
+      files: { 'motor.part.js': model, 'imports/motor.brep': incompressible(2 * MAX_LINK_CHARS), 'imports/motor.colors.json': '[]' },
+    };
+    const url = await buildViewerLink(share, 'https://v.test');
+    expect(url.length).toBeGreaterThan(MAX_LINK_CHARS);
+
+    const problem = await linkSizeProblem(url, share, 'https://v.test');
+    expect(problem).toMatch(/too large to share as a link/);
+    expect(problem).toMatch(/The imported model imports\/motor\.brep is what makes it too large\./);
+  });
+
+  it('keeps the plain refusal when the source alone is past the cap', async () => {
+    const share = {
+      fluidcadVersion: '0.0.48',
+      entry: 'motor.part.js',
+      files: { 'motor.part.js': `// ${incompressible(2 * MAX_LINK_CHARS)}\n`, 'imports/motor.brep': 'brep' },
+    };
+    const url = await buildViewerLink(share, 'https://v.test');
+
+    const problem = await linkSizeProblem(url, share, 'https://v.test');
+    expect(problem).toMatch(/too large to share as a link/);
+    expect(problem).not.toMatch(/imported/);
   });
 });
+
+/** Text deflate barely shrinks (base36 digits): a link built from it grows about as long as it. */
+function incompressible(length: number): string {
+  let seed = 7;
+  let text = '';
+  while (text.length < length) {
+    seed = (seed * 48271) % 2147483647;
+    text += seed.toString(36);
+  }
+  return text.slice(0, length);
+}

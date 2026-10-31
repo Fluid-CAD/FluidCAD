@@ -12,20 +12,32 @@ export const VIEWER_URL = 'https://viewer.fluidcad.io';
 export const MAX_LINK_CHARS = 100_000;
 
 /** What a file in the link is, for the confirmation's file list. */
-export type ShareFileKind = 'model' | 'script' | 'unit' | 'data';
+export type ShareFileKind = 'model' | 'script' | 'unit' | 'geometry' | 'data';
 
 const MODEL_SUFFIXES = ['.fluid.js', '.part.js', '.assembly.js'];
 const SCRIPT_SUFFIXES = ['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts'];
+/** An imported STEP file's cache in `imports/`: the `.brep` a `load()` reads, and its colour and unit sidecars. */
+const GEOMETRY_SUFFIXES = ['.brep', '.colors.json', '.import.json'];
+
+/**
+ * The kinds that are assets the render read rather than source: they travel
+ * as the engine reads them, and are usually what makes a link too large.
+ */
+const ASSET_KINDS: ReadonlySet<ShareFileKind> = new Set(['geometry']);
 
 /**
  * Model files render, scripts are their helpers, `fluidcad.json` is the
- * rebuilt project unit — and anything else is data the model imported
- * (JSON, text), which is the one kind the user has to look at: it travels
- * verbatim and nothing here knows whether it holds something private.
+ * rebuilt project unit, `imports/` geometry is an imported STEP file a
+ * `load()` read — and anything else is data the model imported (JSON,
+ * text), which is the one kind the user has to look at: it travels verbatim
+ * and nothing here knows whether it holds something private.
  */
 export function classifyShareFile(path: string): ShareFileKind {
   if (path === 'fluidcad.json') {
     return 'unit';
+  }
+  if (path.startsWith('imports/') && GEOMETRY_SUFFIXES.some((suffix) => path.endsWith(suffix))) {
+    return 'geometry';
   }
   if (MODEL_SUFFIXES.some((suffix) => path.endsWith(suffix))) {
     return 'model';
@@ -36,13 +48,41 @@ export function classifyShareFile(path: string): ShareFileKind {
   return 'data';
 }
 
-/** The message for a link past {@link MAX_LINK_CHARS}, or null when it fits. */
-export function linkSizeProblem(url: string): string | null {
+/**
+ * The message for a link past {@link MAX_LINK_CHARS}, or null when it fits.
+ * Given the tree the link was built from (with the `base` and
+ * `configuration` it was built with), it also says why when the reason is
+ * the imported assets: if the same link without them would fit, they are
+ * what makes the model too large, and the message names them. A large STEP
+ * import is often past the limit on its own.
+ */
+export async function linkSizeProblem(
+  url: string,
+  share: ShareFiles | null = null,
+  base: string = VIEWER_URL,
+  configuration: string | null = null,
+): Promise<string | null> {
   if (url.length <= MAX_LINK_CHARS) {
     return null;
   }
   const kb = (n: number) => Math.round(n / 1024);
-  return `This model is too large to share as a link (${kb(url.length)} KB compressed; the limit is ${kb(MAX_LINK_CHARS)} KB).`;
+  const tooLarge = `This model is too large to share as a link (${kb(url.length)} KB compressed; the limit is ${kb(MAX_LINK_CHARS)} KB).`;
+  if (!share) {
+    return tooLarge;
+  }
+  const assets = Object.keys(share.files).filter((path) => ASSET_KINDS.has(classifyShareFile(path)));
+  if (assets.length === 0) {
+    return tooLarge;
+  }
+  const source = Object.fromEntries(Object.entries(share.files).filter(([path]) => !assets.includes(path)));
+  const withoutAssets = await buildViewerLink({ ...share, files: source }, base, configuration);
+  if (withoutAssets.length > MAX_LINK_CHARS) {
+    return tooLarge;
+  }
+  const breps = assets.filter((path) => path.endsWith('.brep'));
+  const named = breps.length > 0 ? breps : assets;
+  const subject = named.length === 1 ? `The imported model ${named[0]} is` : `The imported models ${named.join(', ')} are`;
+  return `${tooLarge} ${subject} what makes it too large.`;
 }
 
 /**
@@ -90,6 +130,7 @@ const KIND_NOTE: Record<ShareFileKind, string> = {
   model: '',
   script: '',
   unit: 'project unit only',
+  geometry: 'imported geometry',
   data: 'Data file: check that it holds nothing private',
 };
 
@@ -236,7 +277,10 @@ export class ShareDialog {
       return;
     }
     this.renderFiles(share);
-    const problem = linkSizeProblem(link);
+    const problem = await linkSizeProblem(link, share, VIEWER_URL, this.configuration);
+    if (generation !== this.generation) {
+      return;
+    }
     if (problem) {
       this.statusEl.textContent = problem;
       return;

@@ -12,9 +12,10 @@ export interface ShareFilesResponse {
 /**
  * `GET /api/share-files` — the currently rendered model's source tree, ready
  * for the viewer's `#v=&entry=&files=` link (the UI compresses and opens
- * it). Only the entry's transitive workspace imports travel, not the whole
- * workspace: a link has to stay short and must not leak files the model
- * never touches.
+ * it). Only the entry's transitive workspace imports travel, with the asset
+ * files its last render read (a `load()`'s imported geometry), not the
+ * whole workspace: a link has to stay short and must not leak files the
+ * model never touches.
  */
 export function createShareRouter(
   fluidCadServer: FluidCadServer,
@@ -30,7 +31,7 @@ export function createShareRouter(
       return;
     }
     try {
-      const files = await collectEntryFiles(currentFile, workspacePath);
+      const files = await collectEntryFiles(currentFile, workspacePath, { assets: fluidCadServer.getRenderAssets() });
       const entry = entryPath(currentFile, workspacePath);
       const body: ShareFilesResponse = { fluidcadVersion, entry, files };
       res.json(body);

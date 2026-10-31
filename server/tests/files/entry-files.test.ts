@@ -99,6 +99,53 @@ describe('collectEntryFiles — the source tree a viewer link carries', () => {
     }
   });
 
+  it('carries the asset files the render read that exist, keyed by their workspace path', async () => {
+    write('model.fluid.js', "import { load } from 'fluidcad/core';\nload('motor.step');\n");
+    write('imports/motor.brep', 'DBRep_DrawableShape\nCASCADE Topology V1\n');
+    write('imports/motor.colors.json', '[{"faces":[]}]');
+    write('imports/spare.brep', 'an import the model never loads');
+    // As the engine records them: all three sidecars, the missing .import.json included.
+    const assets = ['.brep', '.colors.json', '.import.json'].map((suffix) => join(ws, 'imports', `motor${suffix}`));
+
+    const files = await collectEntryFiles(join(ws, 'model.fluid.js'), ws, { assets });
+
+    expect(Object.keys(files).sort()).toEqual(['imports/motor.brep', 'imports/motor.colors.json', 'model.fluid.js']);
+    expect(files['imports/motor.brep']).toBe('DBRep_DrawableShape\nCASCADE Topology V1\n');
+    expect(files['imports/motor.colors.json']).toBe('[{"faces":[]}]');
+  });
+
+  it('keys an asset by its workspace path whichever spelling the engine and the workspace use', async () => {
+    write('model.fluid.js', "import { load } from 'fluidcad/core';\nload('motor');\n");
+    write('imports/motor.brep', 'brep');
+    const real = realpathSync(ws);
+    const links = mkdtempSync(join(tmpdir(), 'fluidshare-link-'));
+    try {
+      const link = join(links, 'workspace');
+      symlinkSync(real, link, 'junction');
+      const viaLink = await collectEntryFiles(join(real, 'model.fluid.js'), real, { assets: [join(link, 'imports', 'motor.brep')] });
+      expect(Object.keys(viaLink).sort()).toEqual(['imports/motor.brep', 'model.fluid.js']);
+      const viaReal = await collectEntryFiles(join(link, 'model.fluid.js'), link, { assets: [join(real, 'imports', 'motor.brep')] });
+      expect(Object.keys(viaReal).sort()).toEqual(['imports/motor.brep', 'model.fluid.js']);
+    } finally {
+      rmSync(links, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses an asset outside the workspace or in node_modules', async () => {
+    write('model.fluid.js', "import { load } from 'fluidcad/core';\nload('../outside');\n");
+    const outside = mkdtempSync(join(tmpdir(), 'fluidshare-outside-'));
+    try {
+      writeFileSync(join(outside, 'outside.brep'), 'brep');
+      await expect(collectEntryFiles(join(ws, 'model.fluid.js'), ws, { assets: [join(outside, 'outside.brep')] }))
+        .rejects.toThrow(/outside the workspace/);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+    write('node_modules/fonts/brand.ttf', 'font');
+    await expect(collectEntryFiles(join(ws, 'model.fluid.js'), ws, { assets: [join(ws, 'node_modules', 'fonts', 'brand.ttf')] }))
+      .rejects.toThrow(/node_modules/);
+  });
+
   it('refuses npm dependencies, Node built-ins, and files outside the workspace', async () => {
     mkdirSync(join(ws, 'node_modules', 'dep'), { recursive: true });
     write('node_modules/dep/index.js', 'export const dep = 1;\n');

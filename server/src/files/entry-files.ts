@@ -1,6 +1,6 @@
 import { readFile } from 'fs/promises';
 import { existsSync, realpathSync } from 'fs';
-import { join, relative } from 'path';
+import { isAbsolute, join, relative } from 'path';
 import { normalizePath } from '../normalize-path.ts';
 import { PROJECT_CONFIG_FILENAME, readProjectConfig } from '../project-config.ts';
 import { ModuleClosure, ModuleClosurePackageError } from '../packages/module-closure.ts';
@@ -42,8 +42,22 @@ export function entryPath(entryAbs: string, workspaceAbs: string): string {
  * else the user put there. The browser host reads both from that file;
  * without it a model follows mm, or its own `unit()` statement, and the
  * built-in materials alone.
+ *
+ * `options.assets` are the files the model's render read that no import
+ * shows — a `load()`'s imported `.brep` and its sidecars — as absolute paths
+ * (`FluidCadServer.getRenderAssets`). Those that exist travel too, keyed by
+ * their workspace path (`imports/motor.brep`), which is the path the viewer's
+ * engine asks its asset provider for. They are what the render read, not a
+ * scan of the source for `load("…")` (which would miss a computed name) or
+ * of the workspace (which would leak files the model never touches). One
+ * resolved outside the workspace, or into `node_modules`, is refused like a
+ * module would be.
  */
-export async function collectEntryFiles(entryAbs: string, workspaceAbs: string): Promise<EntryFiles> {
+export async function collectEntryFiles(
+  entryAbs: string,
+  workspaceAbs: string,
+  options: { assets?: readonly string[] } = {},
+): Promise<EntryFiles> {
   // The workspace is taken as its real path: esbuild resolves absWorkingDir
   // and every imported file through symlinks but names the stdin wrapper by
   // the resolveDir it was given, so a workspace reached through a link
@@ -79,6 +93,12 @@ export async function collectEntryFiles(entryAbs: string, workspaceAbs: string):
     }
     files[rel] = await readFile(join(workspace, rel), 'utf8');
   }
+  for (const asset of options.assets ?? []) {
+    const rel = EntryAssets.workspacePath(asset, workspace);
+    if (rel !== null && !(rel in files)) {
+      files[rel] = await readFile(join(workspace, rel), 'utf8');
+    }
+  }
   const { unit, materials } = config;
   if (unit !== null || materials !== null) {
     files[PROJECT_CONFIG_FILENAME] = JSON.stringify({
@@ -89,4 +109,28 @@ export async function collectEntryFiles(entryAbs: string, workspaceAbs: string):
     delete files[PROJECT_CONFIG_FILENAME];
   }
   return files;
+}
+
+/** The files a render read beside its modules, as {@link collectEntryFiles} ships them. */
+class EntryAssets {
+  /**
+   * The asset's workspace-relative POSIX path, read through symlinks like
+   * the module closure, or null when it does not exist (a sidecar the engine
+   * looked for and did not find). Throws for one outside the workspace or
+   * inside `node_modules`: the module closure's refusals, for the same
+   * reason — a link must not carry files from beyond the model's workspace.
+   */
+  static workspacePath(assetAbs: string, workspace: string): string | null {
+    if (!existsSync(assetAbs)) {
+      return null;
+    }
+    const rel = normalizePath(relative(workspace, normalizePath(realpathSync(assetAbs))));
+    if (ModuleClosure.isOutsideWorkspace(rel) || isAbsolute(rel)) {
+      throw new Error(`${normalizePath(assetAbs)} lies outside the workspace and cannot be shared by link`);
+    }
+    if (ModuleClosure.isInNodeModules(rel)) {
+      throw new Error(`${rel} lies in node_modules and cannot be shared by link — copy it into the workspace`);
+    }
+    return rel;
+  }
 }

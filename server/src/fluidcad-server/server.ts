@@ -131,6 +131,11 @@ export class FluidCadServer {
   // The fingerprint of each session's last successful render, or null when
   // its inputs could not be enumerated (such a render is never re-served).
   private renderFingerprints = new Map<string, RenderFingerprint | null>();
+  // The files the engine read during each session's last successful render
+  // that no module import shows (a load()'s asset and its sidecars), as the
+  // engine named them. The fingerprint holds them too, mixed with the module
+  // graph; kept apart here for what a share link carries (getRenderAssets).
+  private renderAssets = new Map<string, readonly string[]>();
   private renderInputs: RenderInputs;
   // Live buffers this server seeded from disk (no editor sent them), with the
   // hashes of what was seeded — a seed follows its file when the disk changes.
@@ -381,6 +386,7 @@ export class FluidCadServer {
     this.renderingCache.delete(sessionId);
     this.lastRendered.delete(sessionId);
     this.renderFingerprints.delete(sessionId);
+    this.renderAssets.delete(sessionId);
     this.paramSessions.delete(sessionId);
     this.activeConfigurations.delete(sessionId);
     this.configurationSeeded.delete(sessionId);
@@ -643,8 +649,10 @@ export class FluidCadServer {
         // After the overrides settled: a render can drop overrides the source
         // re-declared (or fall back from a configuration the file no longer
         // declares), and the fingerprint must describe what is in effect.
-        const fingerprint = this.captureFingerprint(sessionId, normalizedFileName);
+        const engineInputs = this.engineRenderInputs();
+        const fingerprint = this.captureFingerprint(sessionId, normalizedFileName, engineInputs);
         this.renderFingerprints.set(sessionId, fingerprint);
+        this.renderAssets.set(sessionId, engineInputs);
         this.packageProblems = this.host.packageProblems?.() ?? [];
         const packages = this.host.resolvedPackages?.() ?? [];
 
@@ -904,19 +912,24 @@ export class FluidCadServer {
   }
 
   /**
-   * Fingerprint the render that just ran for this session: its module graph,
-   * the project config, and whatever files the engine read while building
+   * The files the engine read while building the render that just ran
    * (optional call — the workspace's fluidcad install may predate it).
    */
-  private captureFingerprint(sessionId: string, entryFile: string): RenderFingerprint | null {
+  private engineRenderInputs(): string[] {
+    return (this.sceneManager as { getRenderInputs?: () => string[] } | null)?.getRenderInputs?.() ?? [];
+  }
+
+  /**
+   * Fingerprint the render that just ran for this session: its module graph,
+   * the project config, and the files the engine read while building
+   * ({@link engineRenderInputs}).
+   */
+  private captureFingerprint(sessionId: string, entryFile: string, engineInputs: readonly string[]): RenderFingerprint | null {
     const extraFiles: string[] = [];
     if (this.workspacePath) {
       extraFiles.push(join(this.workspacePath, PROJECT_CONFIG_FILENAME));
     }
-    const engineInputs = (this.sceneManager as { getRenderInputs?: () => string[] } | null)?.getRenderInputs?.();
-    if (engineInputs) {
-      extraFiles.push(...engineInputs);
-    }
+    extraFiles.push(...engineInputs);
     return this.renderInputs.capture({ entryFile, extraFiles, params: this.overridesKey(sessionId) });
   }
 
@@ -2447,6 +2460,19 @@ export class FluidCadServer {
 
   getCurrentFileName(): string {
     return this.currentFileName;
+  }
+
+  /**
+   * The files the current file's last successful render read that no module
+   * import shows — a `load()`'s imported `.brep` and its sidecars, in an
+   * inserted part's body as much as in the file itself — as absolute paths.
+   * Each is listed whether or not it exists: the engine notes a sidecar it
+   * looked for and did not find. Empty while nothing has rendered. A share
+   * link carries the ones that exist beside the module closure (see
+   * `collectEntryFiles`).
+   */
+  getRenderAssets(): string[] {
+    return [...(this.renderAssets.get(this.currentFileName) ?? [])];
   }
 
   /**

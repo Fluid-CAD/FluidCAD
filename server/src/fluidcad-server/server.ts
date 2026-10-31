@@ -79,6 +79,7 @@ import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import { TimelineHistory } from './timeline-history.ts';
 import { PackageRoots } from '../packages/package-roots.ts';
+import { PackageAssetRoots } from '../packages/package-asset-roots.ts';
 import { PackageManifests } from '../packages/package-manifests.ts';
 import type { PackageResolveError, ResolvedPackage } from '../packages/resolver.ts';
 import { AssemblySummary } from './scene-summary.ts';
@@ -429,15 +430,18 @@ export class FluidCadServer {
   /**
    * Root the engine at this server's workspace: where a `load()` reads its
    * `imports/` and a `text()` its font file, and where the unit lookup stops
-   * walking up. The engine is one per process — `init()` hands back the
-   * manager that exists — and roots itself once, when it is made, at
-   * `FLUIDCAD_WORKSPACE_PATH`, which only a served workspace's process sets.
-   * Without this an engine booted in process (`fluidcad pack`, `publish`)
-   * reads its assets against the process's working directory, and a second
-   * server in one process against whichever workspace made the engine. So
-   * {@link init} roots it, and every evaluation roots it again
-   * ({@link seatEngine}). The hub path has no workspace: its assets come
-   * from an asset provider, whatever the root.
+   * walking up — and where an installed package's own calls read theirs
+   * instead: its own directory, by this workspace's package roots
+   * ({@link PackageAssetRoots}). The engine is one per process — `init()`
+   * hands back the manager that exists — and roots itself once, when it is
+   * made, at `FLUIDCAD_WORKSPACE_PATH`, which only a served workspace's
+   * process sets. Without this an engine booted in process (`fluidcad
+   * pack`, `publish`) reads its assets against the process's working
+   * directory, and a second server in one process against whichever
+   * workspace made the engine (and its packages). So {@link init} roots it,
+   * and every evaluation roots it again ({@link seatEngine}). The hub path
+   * has no workspace: its assets come from an asset provider, whatever the
+   * root.
    */
   private rootEngine(): void {
     if (!this.workspacePath || !this.sceneManager) {
@@ -446,6 +450,7 @@ export class FluidCadServer {
     if (this.sceneManager.rootPath !== this.workspacePath) {
       this.sceneManager.rootPath = this.workspacePath;
     }
+    PackageAssetRoots.install(this.workspacePath);
   }
 
   /**

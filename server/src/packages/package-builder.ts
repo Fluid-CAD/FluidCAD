@@ -169,7 +169,9 @@ export async function packPackage(inputs: PackPackageInputs): Promise<PackPackag
  *    that no import shows — a `load()`'s `imports/<name>.brep` and its
  *    `.colors.json` and `.import.json` sidecars, a `text()`'s workspace font
  *    file — lies inside the workspace: not in `node_modules`, not outside it
- *    through a link or a `..`, and not on a reserved root path. Each ships at
+ *    through a link or a `..`, not in an installed package (its project copy
+ *    under `packages/` included: those files ship with that package), and
+ *    not on a reserved root path. Each ships at
  *    its workspace path, outside the three folders too (`imports/` sits at
  *    the root), as the engine reads it there ({@link PackageLayout}'s
  *    assets). They are what the builds read, not a scan of the source or of
@@ -632,8 +634,10 @@ export class PackageBuilder {
   /**
    * Every file the exported parts and assemblies read as they built that
    * no import shows, workspace-relative ({@link RenderAssets.locate}): one
-   * that does not exist is skipped, one beyond the workspace or in
-   * `node_modules` refused, naming the module and the part that read it.
+   * that does not exist is skipped, one beyond the workspace, in
+   * `node_modules` or owned by an installed package (a project copy under
+   * `packages/` included) refused, naming the module and the part that read
+   * it.
    */
   private readAssets(modules: ModuleExports[]): string[] {
     const out = new Set<string>();
@@ -644,6 +648,11 @@ export class PackageBuilder {
         switch (location.kind) {
           case 'missing':
             break;
+          case 'package':
+            throw new PackageBuildError(
+              `${reader} reads ${RenderAssets.describePackageFile(location)}, which belongs to ` +
+                `\`${location.package.name}\` ${location.package.version}: a package ships only its own files.`,
+            );
           case 'outside':
             throw new PackageBuildError(`${reader} reads ${this.describeOutside(asset.path)}: a package ships only its own files.`);
           case 'node-modules':

@@ -131,13 +131,20 @@ class EntryAssets {
    * or null when it does not exist (a sidecar the engine looked for and did
    * not find). Throws for one outside the workspace or inside
    * `node_modules`: the module closure's refusals, for the same reason — a
-   * link must not carry files from beyond the model's workspace.
+   * link must not carry files from beyond the model's workspace. Throws for
+   * a file of an installed package too, a project copy's inside the
+   * workspace included: links can't carry packages yet.
    */
   static workspacePath(assetAbs: string, workspace: string): string | null {
     const location = RenderAssets.locate(assetAbs, workspace);
     switch (location.kind) {
       case 'missing':
         return null;
+      case 'package':
+        throw new Error(
+          `Links can't carry packages yet (\`${location.package.name}\`): the model reads ` +
+            `${RenderAssets.describePackageFile(location)}, which belongs to it.`,
+        );
       case 'outside':
         throw new Error(`${normalizePath(assetAbs)} lies outside the workspace and cannot be shared by link`);
       case 'node-modules':

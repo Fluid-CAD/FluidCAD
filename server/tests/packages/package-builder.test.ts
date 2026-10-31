@@ -998,6 +998,24 @@ describe('what the parts read: pack ships their imported geometry and font files
     );
   });
 
+  it('refuses a font file a part reads from an installed package\'s project copy, though it lies inside the workspace', async () => {
+    const font = await systemFont();
+    if (!font) {
+      return; // no .ttf on this machine to copy; skip
+    }
+    // An installed package by location plus marker: `packages/@scope/name/<version>/manifest.json`.
+    const kit = at('packages/@acme/kit/1.0.0');
+    fs.mkdirSync(path.join(kit, 'fonts'), { recursive: true });
+    fs.writeFileSync(path.join(kit, 'manifest.json'), JSON.stringify({ name: '@acme/kit', version: '1.0.0' }));
+    fs.copyFileSync(font, path.join(kit, 'fonts', 'brand.ttf'));
+    write('parts/badge.part.js', letteringPart('packages/@acme/kit/1.0.0/fonts/brand.ttf'));
+
+    expect(await refusal()).toBe(
+      "parts/badge.part.js: 'badge' reads packages/@acme/kit/1.0.0/fonts/brand.ttf, which belongs to `@acme/kit` 1.0.0: " +
+        'a package ships only its own files.',
+    );
+  });
+
   it('refuses a font file a part reads from node_modules', async () => {
     const font = await systemFont();
     if (!font) {

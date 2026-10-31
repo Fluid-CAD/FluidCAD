@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, symlinkSyn
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { collectEntryFiles, entryPath } from '../../src/files/entry-files.ts';
+import { PackageRoots } from '../../src/packages/package-roots.ts';
 
 let ws: string;
 
@@ -160,6 +161,37 @@ describe('collectEntryFiles — the source tree a viewer link carries', () => {
     write('node_modules/fonts/brand.ttf', 'font');
     await expect(collectEntryFiles(join(ws, 'model.fluid.js'), ws, { assets: [join(ws, 'node_modules', 'fonts', 'brand.ttf')] }))
       .rejects.toThrow(/node_modules/);
+  });
+
+  // An installed package's own load() and .font() read its own directory;
+  // a link can't carry packages yet, so none of its files travel — not a
+  // project copy's either, though it sits inside the workspace.
+  it('refuses a file of an installed package, a project copy inside the workspace included', async () => {
+    write('label.part.js', "import { text } from 'fluidcad/core';\ntext('xy', 'Hi');\n");
+    write('packages/@acme/kit/1.0.0/manifest.json', '{"name":"@acme/kit","version":"1.0.0"}');
+    write('packages/@acme/kit/1.0.0/fonts/brand.ttf', 'font');
+    await expect(collectEntryFiles(join(ws, 'label.part.js'), ws, { assets: [join(ws, 'packages/@acme/kit/1.0.0/fonts/brand.ttf')] }))
+      .rejects.toThrow("Links can't carry packages yet (`@acme/kit`): the model reads packages/@acme/kit/1.0.0/fonts/brand.ttf, which belongs to it.");
+
+    const library = mkdtempSync(join(tmpdir(), 'fluidshare-library-'));
+    const previous = process.env.FLUIDCAD_PACKAGES;
+    process.env.FLUIDCAD_PACKAGES = library;
+    PackageRoots.forget();
+    try {
+      mkdirSync(join(library, '@acme/gears/2.0.0/imports'), { recursive: true });
+      writeFileSync(join(library, '@acme/gears/2.0.0/manifest.json'), '{}');
+      writeFileSync(join(library, '@acme/gears/2.0.0/imports/spur.brep'), 'brep');
+      await expect(collectEntryFiles(join(ws, 'label.part.js'), ws, { assets: [join(library, '@acme/gears/2.0.0/imports/spur.brep')] }))
+        .rejects.toThrow("Links can't carry packages yet (`@acme/gears`): the model reads imports/spur.brep, which belongs to it.");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.FLUIDCAD_PACKAGES;
+      } else {
+        process.env.FLUIDCAD_PACKAGES = previous;
+      }
+      PackageRoots.forget();
+      rmSync(library, { recursive: true, force: true });
+    }
   });
 
   it('refuses npm dependencies, Node built-ins, and files outside the workspace', async () => {

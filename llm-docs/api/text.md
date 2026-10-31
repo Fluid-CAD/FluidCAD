@@ -33,7 +33,12 @@ Chain methods:
 
 - `.size(height)` — cap height in mm (default 10).
 - `.font(name)` / `.weight(400 | "bold")` / `.bold()` / `.italic()` —
-  typeface selection; system fonts are resolved by family name.
+  typeface selection; system fonts are resolved by family name, and a name
+  ending in `.ttf`/`.otf`/`.ttc`/`.woff` is a font file relative to the
+  project — in an installed package's file, to the package, which ships it
+  (a missing one fails, naming the package). `.font(name, { from: 'project' })`
+  reads the file from the project using the package, for a name that
+  project passes in (see [[concepts/packages]]).
 - `.align("left" | "center" | "right" | "start" | "end" | "space-between" | "space-around")` —
   alignment relative to the cursor, or along a path; `"space-between"` and
   `"space-around"` distribute glyphs over the whole path like the CSS

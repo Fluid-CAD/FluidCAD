@@ -13,7 +13,7 @@ interface Text extends ExtrudableGeometry {
   size(value: number): this;
   at(position: [number, number]): this;
   anchor(): Vertex;
-  font(name: string): this;
+  font(name: string, options?: FontOptions): this;
   weight(value: string | number): this;
   bold(): this;
   italic(value?: boolean): this;
@@ -59,12 +59,14 @@ following a path.
 
 Sets the font. A name without a font extension (e.g. `"Arial"`) is resolved
 to a system font; a value ending in `.ttf`/`.otf`/`.ttc`/`.woff` (e.g.
-`"fonts/Brand.ttf"`) is loaded as a workspace-relative file. When omitted, a
-default system font is used.
+`"fonts/Brand.ttf"`) is loaded as a file relative to the project — or, in
+an installed package's file, to the package, which ships it. When
+omitted, a default system font is used.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `name` | `string` | A system family name or a workspace-relative font file path. |
+| `name` | `string` | A system family name or a relative font file path. |
+| `options` | `FontOptions` | Optional `{ from: 'project' }`: read the font file from the project that uses the package, for a name the model passes in. *(optional)* |
 
 ### `weight()`
 

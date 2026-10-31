@@ -1,7 +1,7 @@
 ---
 id: concepts/packages
 title: Packages — sharing custom features and parts through the hub
-summary: "A package is a workspace whose fluidcad.json has a \"package\" block (name @<handle>/<name>, the author's own hub handle as its scope; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). That one name is the archive's, the hub's, the pin's, the library folder's and every import's. A new package is made from the start screen (New Package: the name, then the folder) or with fluidcad init --package @scope/name, which lays the folders out with the block at 1.0.0; fluidcad package init adds the block to an existing project. Publishing is the top bar's Publish button (Share's seat in a package workspace: a Publish as field proposing the next major above the hub's latest, Check, Publish, the summary, Upload; a first version opens the hub's wizard in the browser, later ones go to review; Withdraw) or fluidcad publish: both check the layout and the code on the engine, build <scope>-<name>-<version>.fluidpkg (the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json) and upload it. fluidcad pack (MCP pack) runs the same checks and writes that archive to look at, without publishing; it is never a step before publishing. Packages install only from the hub, never from a .fluidpkg file: fluidcad install @scope/name downloads, verifies and installs into the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
+summary: "A package is a workspace whose fluidcad.json has a \"package\" block (name @<handle>/<name>, the author's own hub handle as its scope; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). That one name is the archive's, the hub's, the pin's, the library folder's and every import's. A new package is made from the start screen (New Package: the name, then the folder) or with fluidcad init --package @scope/name, which lays the folders out with the block at 1.0.0; fluidcad package init adds the block to an existing project. Publishing is the top bar's Publish button (Share's seat in a package workspace: a Publish as field proposing the next major above the hub's latest, Check, Publish, the summary, Upload; a first version opens the hub's wizard in the browser, later ones go to review; Withdraw) or fluidcad publish: both check the layout and the code on the engine, build <scope>-<name>-<version>.fluidpkg (the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json) and upload it. fluidcad pack (MCP pack) runs the same checks and writes that archive to look at, without publishing; it is never a step before publishing. Packages install only from the hub, never from a .fluidpkg file: fluidcad install @scope/name downloads, verifies and installs into the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. A load() or .font() written in a package's files reads the package's own imports/ and font files (pack ships what the parts read), never the consumer's; load(name, { from: 'project' }) / .font(name, { from: 'project' }) reads a name the consumer passes in from the consumer's project, and a package's missing file fails naming the package, with no fallback. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
 tags: [concept, package, custom-feature, sdk, project]
 seeAlso: [concepts/custom-features, concepts/assemblies, concepts/units, api/insert, api/part, api/define-feature]
 ---
@@ -266,6 +266,7 @@ into the installed folder:
 |---|---|
 | the exported modules and every file they import | verbatim, paths kept (`features/standoff.feature.js`): real modules, not a bundle |
 | the images the features declare (icons, option pictures) | next to their modules |
+| the files the exported parts and assemblies read as they build | at their workspace paths: a `load()`'s `imports/<name>.brep` with its `.colors.json` and `.import.json`, a `text()`'s font file (`fonts/Brand.ttf`); an import no part loads stays out |
 | `README.md`, `LICENSE*`, `CHANGELOG.md` | when present at the workspace root |
 | `index.js` | generated: `export { standoff } from "./features/standoff.feature.js";`, one named re-export per exported name |
 | `manifest.json` | generated: identity, `engine` packed on, `minEngine`, `sdkVersion`, `unit`, `fileUnits`, `contents`, each feature's metadata snapshot, each part's and assembly's name, `kind` and params, `files` |
@@ -300,6 +301,11 @@ sentence naming the file (`pack-refused` from MCP, with `details.code`):
   in error);
 - an import reaches `node_modules`, a file outside the workspace, `init.js`,
   a blocked Node built-in, or another package;
+- a file a part reads as it builds lies in `node_modules`, outside the
+  workspace (through a link), or in an installed package — a project copy
+  under `packages/` included ("parts/badge.part.js: 'badge' reads
+  packages/@acme/kit/1.0.0/fonts/brand.ttf, which belongs to `@acme/kit`
+  1.0.0: a package ships only its own files.");
 - a declared image is missing ("… declares the image ./standoff.svg (feature
   'standoff'), which doesn't exist next to the module.");
 - an authored `index.js`, `manifest.json` or `fluidcad.json` at the root sits
@@ -437,6 +443,19 @@ package that also exports parts never adds them to `tray.part.js`.
   same in every project ([[concepts/units]]).
 - A package's statements in a model are attributed to the model's call line
   (feature modules are skipped like workspace ones).
+- **A package reads its own files.** A `load("motor")` or `.font("fonts/Brand.ttf")`
+  written in a package's files — a part body, a feature, a helper — reads
+  the package's `imports/motor.brep` or `fonts/Brand.ttf` (pack ships them),
+  never the consumer's file of that name; the consumer's own calls read the
+  consumer's. A name the consumer passes in (a part's `Font` parameter, a
+  STEP name) is read from the consumer's project with `{ from: 'project' }`:
+  `text(label).font(font, { from: 'project' })`, `load(name, { from: 'project' })`.
+  `{ from: 'package' }` is the default, stated. A package's missing file
+  fails the statement, never falling back to the consumer's: "Imported asset
+  not found: imports/mine.brep in @acme/labels@1.2.0. If the name comes from
+  the model using the package, read it with load(name, { from: 'project' })."
+  (fonts: "Font file not found: … read it with .font(name, { from: 'project' }).").
+  In the package's own workspace both read the workspace.
 - Share links refuse a model that imports a package ("Links can't carry
   packages yet (`@acme/mounting-hardware`).").
 

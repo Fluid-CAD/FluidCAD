@@ -355,6 +355,10 @@ to look at without publishing; publishing never needs it first.
 - The package ships the module, the files it imports and the images it
   declares verbatim, and snapshots its metadata. Test models outside the three
   folders stay out.
+- A `load()` or `.font()` in the package's files (its parts, its helpers)
+  reads the package's own `imports/` and font files once installed, never the
+  consumer's; a name the consumer passes in is read from the consumer's
+  project with `{ from: 'project' }` ([[concepts/packages]]).
 - A package reaches other projects only through the hub: `npx fluidcad
   install @acme/mounting-hardware` there (the archive itself never
   installs). Installed, the feature appears in the Custom dropdown under the

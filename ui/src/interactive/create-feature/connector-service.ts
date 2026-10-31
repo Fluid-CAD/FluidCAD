@@ -203,7 +203,9 @@ export class ConnectorFeatureService {
 
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
-    this.available = collectSolidTargets(sceneObjects).length > 0;
+    // A connector anchors on a solid; a blank document offers the button too
+    // (see {@link Viewer.sceneIsEmpty}).
+    this.available = collectSolidTargets(sceneObjects).length > 0 || this.viewer.sceneIsEmpty;
     this.navbar.setGroupVisible('connector', this.available, 'connector');
     this.button.setVisible(this.available);
     this.syncButton();

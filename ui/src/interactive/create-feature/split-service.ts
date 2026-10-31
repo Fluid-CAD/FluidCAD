@@ -309,7 +309,8 @@ export class SplitFeatureService {
     this.targetOptions = collectSolidTargets(sceneObjects);
     this.planes = collectPlaneOptions(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
-    this.available = this.targetOptions.length > 0;
+    // A blank document offers the button too (see {@link Viewer.sceneIsEmpty}).
+    this.available = this.targetOptions.length > 0 || this.viewer.sceneIsEmpty;
     this.navbar.setGroupVisible('transform', this.available, 'split');
     this.button.setVisible(this.available);
     this.syncButton();

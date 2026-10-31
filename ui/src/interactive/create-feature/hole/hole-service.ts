@@ -241,8 +241,10 @@ export class HoleFeatureService {
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
-    // A hole needs a solid to cut — no solids, no button.
-    this.available = this.targetOptions.length > 0;
+    // A hole needs a solid to cut — no solids, no button, except on a blank
+    // document (see {@link Viewer.sceneIsEmpty}), where the dialog opens on
+    // its own empty prompt.
+    this.available = this.targetOptions.length > 0 || this.viewer.sceneIsEmpty;
     this.navbar.setGroupVisible('create', this.available, 'hole');
     this.syncButton();
     if (!this.armed) {

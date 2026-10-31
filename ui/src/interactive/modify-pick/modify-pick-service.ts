@@ -2055,10 +2055,15 @@ export class ModifyPickService {
     this.syncOffsetButton();
   }
 
-  /** Offset's group shows with the modify tools, gated on a highlighted face (or its own armed mode). */
+  /**
+   * Offset's group shows with the modify tools, gated on a highlighted face
+   * (or its own armed mode). A blank document has no face to highlight, so it
+   * shows Offset outright, like the rest of the toolbar (see
+   * {@link Viewer.sceneIsEmpty}).
+   */
   private syncOffsetButton(): void {
     this.navbar.setGroupVisible('offset', this.modifyVisible
-      && (this.neutralFaceHighlighted || this.feature === 'offset'));
+      && (this.neutralFaceHighlighted || this.feature === 'offset' || this.viewer.sceneIsEmpty));
   }
 
   private syncButtons(): void {

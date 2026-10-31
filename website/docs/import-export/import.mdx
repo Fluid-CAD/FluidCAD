@@ -47,6 +47,10 @@ translate(0, -50, 25)
 
 See [Transforms](/docs/transforms/introduction).
 
+## Sharing
+
+A share link carries the geometry the model loads: each `imports/<name>.brep` a `load()` reads, with its colour and unit files, travels in the link beside the source, and the viewer opens the model as the desktop renders it. Imports the model does not load stay out. Because the geometry is in the link itself, a large import can push the link past its size limit; the Share dialog then names the imported file as what makes it too large.
+
 ## Units
 
 `load()` needs no unit. STEP files carry theirs, the import is cached in millimetres, and `load()` scales it into the loading file's [unit](/docs/extra/units): a factor of 1 in a millimetre file, so existing projects are untouched. `load("bracket", { unit: 'in' })` is an assertion for assets with no trustworthy metadata (a `.brep` copied into `imports/` by hand, a STEP whose header is wrong); it overrides what the import recorded, and you should leave it out otherwise.

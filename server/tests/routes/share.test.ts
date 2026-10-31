@@ -45,7 +45,8 @@ const RIG_ASSEMBLY = [
 const MOTOR_ASSETS = ['imports/motor.brep', 'imports/motor.colors.json', 'imports/motor.import.json'];
 
 let workspace: string;
-let previousWorkspaceEnv: string | undefined;
+let engine: { rootPath: string };
+let previousRoot: string;
 let host: LocalSceneHost;
 let server: FluidCadServer;
 let http_: http.Server;
@@ -68,12 +69,16 @@ beforeAll(async () => {
   workspace = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'fluidcad-share-'));
   fs.writeFileSync(at('init.js'), `import { init } from 'fluidcad'\n\nexport default await init()\n`);
   fs.writeFileSync(at('block.part.js'), BLOCK_PART);
-  // init() roots the engine's asset reads here, as the desktop's server does.
-  previousWorkspaceEnv = process.env.FLUIDCAD_WORKSPACE_PATH;
-  process.env.FLUIDCAD_WORKSPACE_PATH = workspace;
   host = new LocalSceneHost();
   server = new FluidCadServer(host);
   await server.init(workspace);
+  // The engine reads a load()'s asset under its root path, which a desktop
+  // server's engine takes from its workspace. The test files share one
+  // engine (init() hands back the one that exists), rooted wherever it was
+  // first made: point it here for this file.
+  engine = await (await host.loadModule(at('init.js'))).default;
+  previousRoot = engine.rootPath;
+  engine.rootPath = workspace;
 
   // A STEP file to import: the block, exported, then imported as motor.step.
   const block = await server.processFile(at('block.part.js'));
@@ -99,12 +104,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise<void>((resolve) => http_?.close(() => resolve()));
-  await host?.server.close();
-  if (previousWorkspaceEnv === undefined) {
-    delete process.env.FLUIDCAD_WORKSPACE_PATH;
-  } else {
-    process.env.FLUIDCAD_WORKSPACE_PATH = previousWorkspaceEnv;
+  if (engine) {
+    engine.rootPath = previousRoot;
   }
+  await host?.server.close();
   fs.rmSync(workspace, { recursive: true, force: true });
 });
 

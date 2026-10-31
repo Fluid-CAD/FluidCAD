@@ -114,6 +114,22 @@ describe('collectEntryFiles — the source tree a viewer link carries', () => {
     expect(files['imports/motor.colors.json']).toBe('[{"faces":[]}]');
   });
 
+  it('carries a binary asset (a workspace font) as base64, and a UTF-8 one as its text', async () => {
+    write('label.part.js', "import { text } from 'fluidcad/core';\ntext('xy', 'Hi').font('./fonts/brand.ttf');\n");
+    const font = Uint8Array.from([0x00, 0x01, 0x00, 0x00, 0xff, 0xfe, 0x80, 0x41]);
+    mkdirSync(join(ws, 'fonts'), { recursive: true });
+    writeFileSync(join(ws, 'fonts', 'brand.ttf'), font);
+    write('imports/motor.colors.json', '﻿[{"faces":[]}] — ünïcödé');
+
+    const files = await collectEntryFiles(join(ws, 'label.part.js'), ws, {
+      assets: [join(ws, 'fonts', 'brand.ttf'), join(ws, 'imports', 'motor.colors.json')],
+    });
+
+    expect(files['fonts/brand.ttf']).toEqual({ b64: Buffer.from(font).toString('base64') });
+    expect(files['imports/motor.colors.json']).toBe('﻿[{"faces":[]}] — ünïcödé');
+    expect(typeof files['label.part.js']).toBe('string');
+  });
+
   it('keys an asset by its workspace path whichever spelling the engine and the workspace use', async () => {
     write('model.fluid.js', "import { load } from 'fluidcad/core';\nload('motor');\n");
     write('imports/motor.brep', 'brep');

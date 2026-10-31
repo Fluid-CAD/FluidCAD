@@ -132,9 +132,10 @@ export class FluidCadServer {
   // its inputs could not be enumerated (such a render is never re-served).
   private renderFingerprints = new Map<string, RenderFingerprint | null>();
   // The files the engine read during each session's last successful render
-  // that no module import shows (a load()'s asset and its sidecars), as the
-  // engine named them. The fingerprint holds them too, mixed with the module
-  // graph; kept apart here for what a share link carries (getRenderAssets).
+  // that no module import shows (a load()'s asset and its sidecars, a
+  // text()'s workspace font), as the engine named them. The fingerprint holds
+  // them too, mixed with the module graph; kept apart here for what a share
+  // link carries (getRenderAssets).
   private renderAssets = new Map<string, readonly string[]>();
   private renderInputs: RenderInputs;
   // Live buffers this server seeded from disk (no editor sent them), with the
@@ -2464,8 +2465,9 @@ export class FluidCadServer {
 
   /**
    * The files the current file's last successful render read that no module
-   * import shows — a `load()`'s imported `.brep` and its sidecars, in an
-   * inserted part's body as much as in the file itself — as absolute paths.
+   * import shows — a `load()`'s imported `.brep` and its sidecars, a
+   * `text()`'s workspace font, in an inserted part's body as much as in the
+   * file itself — as absolute paths.
    * Each is listed whether or not it exists: the engine notes a sidecar it
    * looked for and did not find. Empty while nothing has rendered. A share
    * link carries the ones that exist beside the module closure (see

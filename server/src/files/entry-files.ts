@@ -8,8 +8,17 @@ import { ModuleClosure, ModuleClosurePackageError } from '../packages/module-clo
 /** The virtual entry that imports init.js and the model — never a shipped file. */
 const WRAPPER_NAME = '__share_entry__.js';
 
-/** A model's source tree as a viewer link carries it: workspace-relative path → text. */
-export type EntryFiles = Record<string, string>;
+/**
+ * A binary file in the tree (a workspace font): its bytes as standard
+ * base64, the form a viewer link's `#files=` map carries one in.
+ */
+export type BinaryEntryFile = { b64: string };
+
+/** One file of the tree: its text, or a binary file's bytes. */
+export type EntryFile = string | BinaryEntryFile;
+
+/** A model's source tree as a viewer link carries it: workspace-relative path → content. */
+export type EntryFiles = Record<string, EntryFile>;
 
 /**
  * The model's workspace-relative path, the key it has in
@@ -44,10 +53,13 @@ export function entryPath(entryAbs: string, workspaceAbs: string): string {
  * built-in materials alone.
  *
  * `options.assets` are the files the model's render read that no import
- * shows — a `load()`'s imported `.brep` and its sidecars — as absolute paths
- * (`FluidCadServer.getRenderAssets`). Those that exist travel too, keyed by
- * their workspace path (`imports/motor.brep`), which is the path the viewer's
- * engine asks its asset provider for. They are what the render read, not a
+ * shows — a `load()`'s imported `.brep` and its sidecars, a `text()`'s
+ * workspace font — as absolute paths (`FluidCadServer.getRenderAssets`).
+ * Those that exist travel too, keyed by their workspace path
+ * (`imports/motor.brep`, `fonts/Brand.ttf`), which is the path the viewer's
+ * engine asks its asset provider for: as text when the file is UTF-8 (a
+ * `.brep` is ASCII), else as a {@link BinaryEntryFile}. Source files are
+ * always text. They are what the render read, not a
  * scan of the source for `load("…")` (which would miss a computed name) or
  * of the workspace (which would leak files the model never touches). One
  * resolved outside the workspace, or into `node_modules`, is refused like a
@@ -96,7 +108,7 @@ export async function collectEntryFiles(
   for (const asset of options.assets ?? []) {
     const rel = EntryAssets.workspacePath(asset, workspace);
     if (rel !== null && !(rel in files)) {
-      files[rel] = await readFile(join(workspace, rel), 'utf8');
+      files[rel] = EntryAssets.content(await readFile(join(workspace, rel)));
     }
   }
   const { unit, materials } = config;
@@ -133,4 +145,19 @@ class EntryAssets {
     }
     return rel;
   }
+
+  /**
+   * An asset's bytes as the tree carries them: its text when they are UTF-8
+   * — decoding and re-encoding gives the same bytes back, so the viewer
+   * reads exactly what the desktop read — else base64.
+   */
+  static content(bytes: Uint8Array): EntryFile {
+    try {
+      return EntryAssets.utf8.decode(bytes);
+    } catch {
+      return { b64: Buffer.from(bytes).toString('base64') };
+    }
+  }
+
+  private static readonly utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 }

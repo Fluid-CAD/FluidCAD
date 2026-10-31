@@ -10,7 +10,7 @@ import {
   validValueExpr,
   type ApplyFeatureEditSpec,
   type ChamferEditOptions,
-  type ShellJoinKind,
+  type ShellJoinSlot,
 } from '../../../apply-feature-edit/index.ts';
 import { validateChains, validatePicks } from '../picks.ts';
 import { validateChamferOptions, validateShellJoinType } from '../validate/options.ts';
@@ -85,7 +85,7 @@ export async function handleSelectorFeature(ctx: ApplyFeatureRequestContext, req
   // nonzero thickness (negative is the idiom — shell(-2, …) hollows inward)
   // plus its join type; the face-target offset needs a nonzero distance
   // (negative offsets inward); sketch has no numeric parameter at all.
-  let shellJoin: ShellJoinKind = 'arc';
+  let shellJoin: ShellJoinSlot = 'arc';
   let chamferOptions: ChamferEditOptions | undefined;
   if (feature === 'shell') {
     if (!validValueExpr(value, { nonzero: true })) {

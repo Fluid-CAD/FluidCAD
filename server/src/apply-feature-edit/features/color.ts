@@ -3,11 +3,12 @@
 import cssColorNames from 'color-name';
 import type { TSNode } from '../../code-editor/index.ts';
 import { quoteForSingleQuotes } from '../../code-editor/index.ts';
-import { resolveRepeatTargetRef, stringArgValue } from '../ast/args.ts';
+import { resolveRepeatTargetRef } from '../ast/args.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import { isFeatureProducer } from '../producers/predicates.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
 import { editedSelectorArgs } from '../render/edit-sources.ts';
+import { ValueSlots, type TextSlot } from '../value-slots.ts';
 import type { RepeatEditTargetSource } from './repeat.ts';
 
 /**
@@ -20,8 +21,8 @@ import type { RepeatEditTargetSource } from './repeat.ts';
  * the finished body, and a picked selector must resolve there.
  */
 export type ColorEditOptions = {
-  /** The CSS colour the statement writes — a hex value, a colour name or an `rgb(…)` string. */
-  value: string;
+  /** The CSS colour the statement writes — a hex value, a colour name or an `rgb(…)` string — or the expression computing it. */
+  value: TextSlot;
   /** The objects painted whole, in argument order — bound producers; empty when the paint takes selector parts. */
   targets: { producer: number }[];
 };
@@ -59,6 +60,20 @@ export class ColorValues {
     return ColorValues.normalize(value) !== null;
   }
 
+  /**
+   * A colour slot the dialog may write: a literal that is a colour, or an
+   * expression — the edited statement's own (`kept`) as it was, a typed one
+   * under a number row's rules; what it comes to is the build's to check.
+   */
+  static validSlot(value: unknown, kept?: ReadonlySet<string>): value is TextSlot {
+    return typeof value === 'string' ? ColorValues.valid(value) : ValueSlots.validExpr(value, kept);
+  }
+
+  /** The slot as the statement writes it: a literal normalized, an expression as it is; null when the literal is no colour. */
+  static normalizeSlot(value: TextSlot): TextSlot | null {
+    return typeof value === 'string' ? ColorValues.normalize(value) : value;
+  }
+
   /** Lowercase `#rrggbb` for a value the dialog's colour well can show, or null for an `rgb()` string. */
   static toHex(value: string): string | null {
     const normalized = ColorValues.normalize(value);
@@ -77,19 +92,21 @@ export class ColorValues {
 
 /**
  * Render a colour statement from its value and argument expressions:
- * `color('#3498db', e)` / `color('red', e.endFaces())` / `color('red')`.
+ * `color('#3498db', e)` / `color('red', e.endFaces())` / `color('red')` —
+ * an expression in the value's place written bare (`color(tint, e)`).
  * Shared with the route's preview so the previewed text is exactly what the
  * transform writes.
  */
-export function renderColorStatement(value: string, args: string): string {
-  const quoted = `'${quoteForSingleQuotes(value)}'`;
+export function renderColorStatement(value: TextSlot, args: string): string {
+  const quoted = ValueSlots.source(value, literal => `'${quoteForSingleQuotes(literal)}'`);
   return args.trim() ? `color(${quoted}, ${args})` : `color(${quoted})`;
 }
 
 /**
  * A `color(<value>, …targets)` statement's dialog-editable reading: the
- * colour must be a plain string literal (a variable or a param holds no
- * swatch the dialog can show); every later argument is a target, preserved
+ * colour is a string literal — the dialog shows its swatch — or any
+ * expression (a variable, a param, a ternary), which the dialog shows and
+ * keeps as written; every later argument is a target, preserved
  * verbatim — `targetRefs` resolves the plain identifiers among them to the
  * statements they bind, so the Solid tab can seed them as its chips, and
  * `argsText` carries the whole list for the Face tab's expression row. An
@@ -105,9 +122,9 @@ export function parseColorChain(
   if (args.length === 0) {
     return { error: 'the color() call has no arguments' };
   }
-  const value = stringArgValue(args[0]);
+  const value = ValueSlots.text(args[0]);
   if (value === null) {
-    return { error: 'the colour is not a plain string — edit it in the source' };
+    return { error: 'the colour is not one the dialog can carry — edit it in the source' };
   }
   const rest = args.slice(1);
   return {
@@ -137,10 +154,12 @@ export function renderEditedColor(
   varFor: (producer: number) => string | null,
 ): { statement: string } | { error: string } {
   const opts = spec.edit?.color;
-  if (!opts || !ColorValues.valid(opts.value)) {
+  // The expressions the statement already holds: a value row left alone
+  // sends its own back, which the write takes whatever the text.
+  if (!opts || !ColorValues.validSlot(opts.value, ValueSlots.kept(parsed))) {
     return { error: 'malformed color edit spec' };
   }
-  const value = ColorValues.normalize(opts.value)!;
+  const value = ColorValues.normalizeSlot(opts.value)!;
   if (opts.targets === undefined) {
     return { statement: renderColorStatement(value, editedSelectorArgs(spec, parsed.argsText, varFor)) };
   }

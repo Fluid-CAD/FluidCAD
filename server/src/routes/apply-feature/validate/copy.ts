@@ -3,6 +3,8 @@
 import {
   validCountValue,
   validValueExpr,
+  ValueSlots,
+  type BooleanSlot,
   type FeatureStatementEditTarget,
   type ValueExpr,
 } from '../../../apply-feature-edit/index.ts';
@@ -41,7 +43,8 @@ type CopyRequest = {
   axis?: CopyAxisInput;
   count?: ValueExpr;
   sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
-  centered?: boolean;
+  /** Linear: the centered flag, or an expression computing it. */
+  centered?: BooleanSlot;
   /** Instances to leave out, one index per direction; absent skips none. */
   skip?: number[][];
 };
@@ -146,8 +149,8 @@ export function validateCopy(body: any): CopyRequest | { error: string } {
         return { error: `a linear copy carries its ${key === 'axis' ? 'axes' : 'counts and values'} in the directions` };
       }
     }
-    if (centered !== undefined && typeof centered !== 'boolean') {
-      return { error: 'centered must be a boolean' };
+    if (centered !== undefined && centered !== null && !ValueSlots.shaped(centered, literal => typeof literal === 'boolean')) {
+      return { error: 'centered must be a boolean or an expression' };
     }
     const spacingMode = body?.spacingMode;
     if (spacingMode !== 'offset' && spacingMode !== 'length') {
@@ -179,7 +182,7 @@ export function validateCopy(body: any): CopyRequest | { error: string } {
       return skip;
     }
     return {
-      kind, targets: targetLocs, directions, spacingMode, centered: centered === true,
+      kind, targets: targetLocs, directions, spacingMode, centered: centered ?? false,
       skip: skip.length > 0 ? skip : undefined,
     };
   }
@@ -204,7 +207,7 @@ export function validateCopy(body: any): CopyRequest | { error: string } {
   if (body?.angle !== undefined && body?.angle !== null) {
     return { error: 'a circular copy carries its angle in the sweep field' };
   }
-  if (centered === true) {
+  if (centered !== undefined && centered !== null && centered !== false) {
     return { error: 'a circular copy takes no centered flag' };
   }
   const sweep = body?.sweep;
@@ -383,8 +386,8 @@ export function validateCopyEdit(
         return { error: `a linear copy carries its ${key === 'axis' ? 'axes' : 'counts and values'} in the directions` };
       }
     }
-    if (centered !== undefined && typeof centered !== 'boolean') {
-      return { error: 'centered must be a boolean' };
+    if (centered !== undefined && centered !== null && !ValueSlots.shaped(centered, literal => typeof literal === 'boolean')) {
+      return { error: 'centered must be a boolean or an expression' };
     }
     const spacingMode = body?.spacingMode;
     if (spacingMode !== 'offset' && spacingMode !== 'length') {
@@ -422,7 +425,8 @@ export function validateCopyEdit(
       return axisPicks;
     }
     cp.spacingMode = spacingMode;
-    cp.centered = centered === true ? true : undefined;
+    // An unticked flag writes no option; a ticked one or an expression does.
+    cp.centered = centered === undefined || centered === null || centered === false ? undefined : centered;
     // The dialog owns the option outright: an absent list drops the
     // statement's own, exactly as an unticked `centered` does.
     cp.skip = skip.length > 0 ? skip : undefined;
@@ -471,7 +475,7 @@ export function validateCopyEdit(
   if (body?.angle !== undefined && body?.angle !== null) {
     return { error: 'a circular copy carries its angle in the sweep field' };
   }
-  if (centered === true) {
+  if (centered !== undefined && centered !== null && centered !== false) {
     return { error: 'a circular copy takes no centered flag' };
   }
   const sweep = body?.sweep;

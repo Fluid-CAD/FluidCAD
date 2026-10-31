@@ -1,6 +1,6 @@
 // color request validation (create and edit).
 
-import { ColorValues, type FeatureStatementEditTarget } from '../../../apply-feature-edit/index.ts';
+import { ColorValues, ValueSlots, type FeatureStatementEditTarget, type TextSlot } from '../../../apply-feature-edit/index.ts';
 import { validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validateChains, validatePicks, type Pick } from '../picks.ts';
 import type { StatementEditRequest } from './statement-edit.ts';
@@ -11,7 +11,8 @@ import type { StatementEditRequest } from './statement-edit.ts';
  * into selectors (the Face tab), never both.
  */
 export type ColorRequest = {
-  value: string;
+  /** The colour as the statement writes it, or the expression computing it. */
+  value: TextSlot;
   paint:
     | { kind: 'solids'; targets: SketchLoc[] }
     | { kind: 'faces'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[]; selectorOverride?: string };
@@ -19,9 +20,15 @@ export type ColorRequest = {
 
 export const MAX_COLOR_TARGETS = 16;
 
-/** The value's refusal, or null when `value` is a colour the statement can write. */
+/**
+ * The value's refusal, or null when `value` is a colour the statement can
+ * write or an expression holding text — shape only: whether an expression
+ * may be written is the transform's to say, with the statement's own kept.
+ */
 function colorValueError(value: unknown): string | null {
-  return ColorValues.valid(value) ? null : 'value must be a CSS colour — a hex value, a colour name or an rgb() string';
+  return ValueSlots.shaped(value, ColorValues.valid)
+    ? null
+    : 'value must be a CSS colour — a hex value, a colour name or an rgb() string — or an expression';
 }
 
 function selectorOverrideError(selectorOverride: unknown): string | null {
@@ -68,7 +75,7 @@ export function validateColor(body: any): ColorRequest | { error: string } {
   if (valueError) {
     return { error: valueError };
   }
-  const normalized = ColorValues.normalize(value)!;
+  const normalized = ColorValues.normalizeSlot(value)!;
   const hasTargets = targets !== undefined && targets !== null;
   const hasEntities = entities !== undefined && entities !== null;
   if (hasTargets === hasEntities) {
@@ -130,7 +137,7 @@ export function validateColorEdit(
     ...base,
     rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
   };
-  edit.color = { value: ColorValues.normalize(value)! };
+  edit.color = { value: ColorValues.normalizeSlot(value)! };
 
   const hasTargets = targets !== undefined && targets !== null;
   const hasEntities = entities !== undefined && entities !== null;

@@ -1,13 +1,14 @@
 import {
-  applyConnector, applyConnectorEdit, ConnectorApplyOptions, ConnectorEditOptions, FeatureEditTarget,
-  ParsedFeatureStatement,
+  applyConnector, applyConnectorEdit, ConnectorApplyOptions, ConnectorEditOptions, ConnectorOffsetSpec, ConnectorRotateSpec,
+  FeatureEditTarget, getScopeVariables, ParsedFeatureStatement,
 } from '../../api';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
+import { VariableInfo } from '../../ui/expression-core';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { ConnectorFrameData } from '../../meshes/containers/connector-mesh';
-import { ConnectorPanel } from './connector-panel';
+import { ConnectorAdjustments, ConnectorPanel } from './connector-panel';
 import { ConnectorGhostOverlay, adjustConnectorFrame, unadjustConnectorFrame } from './connector-ghost';
 import { AnchorSuggestions, LockedAnchor, anchorChipLabel } from './anchor-suggestions';
 import { FeatureButton } from './feature-button';
@@ -53,9 +54,14 @@ export class ConnectorFeatureService {
    * frame with the statement's own adjustments taken back off, so the
    * dialog's live gizmo re-applies from the anchor instead of compounding
    * onto what the statement already did. Null when the row carried no frame
-   * (a connector whose build failed).
+   * (a connector whose build failed), or while an adjustment is an
+   * expression the scope's variables cannot yet resolve.
    */
   private anchorFrame: ConnectorFrameData | null = null;
+  /** Edit mode: the built connector's frame and the statement's own adjustments, the anchor frame's ingredients. */
+  private editFrame: { frame: ConnectorFrameData; adjustments: ConnectorAdjustments } | null = null;
+  /** The variables in scope at the statement (edit) or the active part (create), as last read. */
+  private variables: VariableInfo[] = [];
 
   constructor(
     container: HTMLElement,
@@ -249,13 +255,9 @@ export class ConnectorFeatureService {
     this.editTarget = target;
     this.locked = null;
     this.suggestions.setEnabled(true);
-    this.anchorFrame = frame
-      ? unadjustConnectorFrame(
-        frame,
-        parsed.rotate ?? { axis: 'z', angle: 0 },
-        parsed.offset ?? [0, 0, 0],
-      )
-      : null;
+    this.variables = [];
+    this.editFrame = frame ? { frame, adjustments: { rotate: parsed.rotate, offset: parsed.offset } } : null;
+    this.syncAnchorFrame();
     this.syncButton();
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
@@ -265,9 +267,44 @@ export class ConnectorFeatureService {
       rotate: parsed.rotate,
       offset: parsed.offset,
     });
+    void this.refreshScopeVariables();
     this.syncViewport();
     this.updatePreviewGhost();
     this.runner.schedulePreview();
+  }
+
+  /**
+   * Edit mode: recover the anchor frame from the built connector's by taking
+   * the statement's own adjustments back off — numbers as they are,
+   * expressions by the variables in scope. While one cannot be resolved there
+   * is no anchor to stand the ghost on, so none draws until a re-pick (whose
+   * anchor the kernel supplies) or the variables arrive.
+   */
+  private syncAnchorFrame(): void {
+    if (!this.editFrame) {
+      this.anchorFrame = null;
+      return;
+    }
+    const resolved = ConnectorPanel.resolveAdjustments(this.editFrame.adjustments, this.variables);
+    this.anchorFrame = resolved ? unadjustConnectorFrame(this.editFrame.frame, resolved.rotate, resolved.offset) : null;
+  }
+
+  /**
+   * The variables in scope at the statement (edit mode) or the active part
+   * (create mode), for the fields' dropdowns and the axis expression; the
+   * anchor frame and the ghost re-derive from what the expressions then come
+   * to. A read landing after the dialog closed or re-targeted is dropped.
+   */
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    const variables = await getScopeVariables(line);
+    if (!this.armed || (this.editTarget?.line ?? null) !== line) {
+      return;
+    }
+    this.variables = variables;
+    this.panel.setScopeVariables(variables);
+    this.syncAnchorFrame();
+    this.updatePreviewGhost();
   }
 
   enter(): void {
@@ -279,6 +316,7 @@ export class ConnectorFeatureService {
     this.armed = true;
     this.locked = null;
     this.suggestions.setEnabled(true);
+    this.variables = [];
     // Placing a connector means looking at the whole solid, not down the
     // active sketch plane — leave sketch editing right away.
     if (this.sceneSketchActive) {
@@ -286,6 +324,7 @@ export class ConnectorFeatureService {
     }
     this.syncButton();
     this.panel.show();
+    void this.refreshScopeVariables();
     this.syncViewport();
   }
 
@@ -307,6 +346,7 @@ export class ConnectorFeatureService {
     this.armed = false;
     this.editTarget = null;
     this.anchorFrame = null;
+    this.editFrame = null;
     this.locked = null;
     this.suggestions.setEnabled(false);
     this.runner.cancelPreview();
@@ -357,19 +397,31 @@ export class ConnectorFeatureService {
   /**
    * The dialog's current rotate/offset on its anchor frame — the locked
    * pick's, or (edit mode, source untouched) the edited connector's own. Pure
-   * client-side frame math: the kernel already supplied exact axes.
+   * client-side frame math: the kernel already supplied exact axes. The
+   * numbers are the fields' own or what their expressions come to; while one
+   * cannot be told, or there is no anchor, no frame draws — the statement
+   * preview still says what will be written.
    */
   private updatePreviewGhost(): void {
     const frame = this.locked
       ? this.locked.anchors[this.locked.anchorIndex].frame
       : this.anchorFrame;
-    if (!frame) {
+    const adjustments = this.panel.resolvedAdjustments();
+    if (!frame || !adjustments) {
+      this.ghost.clearPreview();
       return;
     }
-    const values = this.panel.values();
-    const rotate = 'error' in values ? { axis: 'z' as const, angle: 0 } : values.rotate;
-    const offset = 'error' in values ? [0, 0, 0] as [number, number, number] : values.offset;
-    this.ghost.showPreview(adjustConnectorFrame(frame, rotate, offset));
+    this.ghost.showPreview(adjustConnectorFrame(frame, adjustments.rotate, adjustments.offset));
+  }
+
+  /** Whether a rotation writes its chain: an expression always may; a literal angle must not be a full turn. */
+  private static rotateActive(rotate: ConnectorRotateSpec): boolean {
+    return typeof rotate.angle !== 'number' || rotate.angle % 360 !== 0;
+  }
+
+  /** Whether an offset writes its chain: a component that is an expression, or a literal that is not 0. */
+  private static offsetActive(offset: ConnectorOffsetSpec): boolean {
+    return offset.some(v => v !== 0);
   }
 
   private buildRequest(): ConnectorApplyOptions | { error: string } {
@@ -380,13 +432,20 @@ export class ConnectorFeatureService {
     if ('error' in values) {
       return values;
     }
+    // The create route synthesizes the statement without landing
+    // declarations, so a fresh name typed into a field would reference a
+    // variable the file lacks — the declaration is the user's to write first.
+    if (values.newVariables && values.newVariables.length > 0) {
+      const names = values.newVariables.map(variable => variable.name).join(', ');
+      return { error: `Declare ${names} in the source first — a new connector writes no declarations.` };
+    }
     const anchor = this.locked.anchors[this.locked.anchorIndex].anchor;
     return {
       name: values.name,
       entities: [this.locked.entity],
       anchor,
-      rotate: values.rotate.angle % 360 !== 0 ? values.rotate : undefined,
-      offset: values.offset.some(v => v !== 0) ? values.offset : undefined,
+      rotate: ConnectorFeatureService.rotateActive(values.rotate) ? values.rotate : undefined,
+      offset: ConnectorFeatureService.offsetActive(values.offset) ? values.offset : undefined,
     };
   }
 
@@ -404,8 +463,9 @@ export class ConnectorFeatureService {
     }
     const request: ConnectorEditOptions = {
       name: values.name,
-      rotate: values.rotate.angle % 360 !== 0 ? values.rotate : null,
-      offset: values.offset.some(v => v !== 0) ? values.offset : null,
+      rotate: ConnectorFeatureService.rotateActive(values.rotate) ? values.rotate : null,
+      offset: ConnectorFeatureService.offsetActive(values.offset) ? values.offset : null,
+      newVariables: values.newVariables,
       expectedStatement: this.session.expectedStatement,
       before: this.session.boundary ?? undefined,
     };

@@ -8,7 +8,7 @@ import {
 import { ExpressionField } from '../../../ui/expression-field';
 import { choiceLiteral, type VariableInfo, type VariableLiteral } from '../../../ui/expression-core';
 import { ChoiceParameters } from '../choice-parameters';
-import { ExpressionMode, type ExpressionShown } from './expression-mode';
+import { ExpressionMode, type ExpressionShown } from '../expression-mode';
 import { FeatureSchema } from './feature-schema';
 
 /**

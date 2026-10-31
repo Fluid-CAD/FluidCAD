@@ -1,8 +1,9 @@
 // In-place statement edit request validation: the per-feature option slots an edit dialog commits.
 
 import {
+  shapedConnectorRotate,
   validConnectorAnchor,
-  validConnectorRotate,
+  validConnectorOffset,
   validValueExpr,
   type ApplyFeatureEditSpec,
   type ConnectorAnchorSpec,
@@ -732,14 +733,16 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
     if (typeof name !== 'string' || name.length > 64 || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
       return { error: 'name must be a plain identifier (max 64 chars)' };
     }
+    // The axis is a typed-in slot, checked for shape here and against the
+    // statement's own expressions by the transform; the angle and the
+    // offsets are values like any number row's.
     const rotate = body?.rotate ?? undefined;
-    if (!validConnectorRotate(rotate)) {
-      return { error: "rotate must be { axis: 'x'|'y'|'z', angle } with a finite angle in degrees" };
+    if (!shapedConnectorRotate(rotate)) {
+      return { error: "rotate must be { axis: 'x'|'y'|'z' or an expression, angle } with a finite angle in degrees or an expression" };
     }
     const frameOffset = body?.offset ?? undefined;
-    if (frameOffset !== undefined
-      && !(Array.isArray(frameOffset) && frameOffset.length === 3 && frameOffset.every((v: unknown) => Number.isFinite(v)))) {
-      return { error: 'offset must be [x, y, z] finite numbers' };
+    if (!validConnectorOffset(frameOffset)) {
+      return { error: 'offset must be [x, y, z] finite numbers or expressions' };
     }
     if (selectorOverride !== undefined
       && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {

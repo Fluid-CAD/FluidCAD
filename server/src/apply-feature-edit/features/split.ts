@@ -2,14 +2,18 @@
 
 import type { TSNode } from '../../code-editor/index.ts';
 import type { SolvedEmissionTarget } from '../../../../lib/dist/selection/sketch-target.js';
-import { objectLiteralEntries, resolveRepeatTargetRef, stringArgValue } from '../ast/args.ts';
+import { objectLiteralEntries, resolveRepeatTargetRef } from '../ast/args.ts';
 import { renderRepeatPlaneExpr, type RepeatEditTargetSource, type RepeatPlaneSpec } from './repeat.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import { isCopyTargetProducer, isPlaneProducer, isSketchProducer } from '../producers/predicates.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
+import { ValueSlots, type ChoiceSlot } from '../value-slots.ts';
 
 export type SplitKeep = 'both' | 'front' | 'back';
 export const SPLIT_KEEPS: readonly SplitKeep[] = ['both', 'front', 'back'];
+
+/** The Keep dropdown's slot: a side, a variable named in its place, or the expression computing it. */
+export type SplitKeepSlot = ChoiceSlot<SplitKeep>;
 
 /**
  * The cut a split statement names. The three plane shapes are the repeat
@@ -39,15 +43,19 @@ export type SplitEditPlane = { kind: 'keep' } | SplitPlaneSpec;
  */
 export type SplitEditOptions = {
   plane: SplitPlaneSpec;
-  /** The pieces the split keeps. */
-  keep: SplitKeep;
+  /** The pieces the split keeps, or an expression computing the side — written bare, `{ keep: side }`. */
+  keep: SplitKeepSlot;
   /** The features being split, in argument order — bound producers; empty splits every solid. */
   targets: { producer: number }[];
 };
 
-/** The options-object argument: `{ keep: 'front' }`, or nothing for the default. */
-export function renderSplitOptionsArg(keep: SplitKeep): string {
-  return keep !== 'both' ? `{ keep: '${keep}' }` : '';
+/**
+ * The options-object argument: `{ keep: 'front' }`, or nothing for the
+ * literal default `both` — an expression always writes the object, bare
+ * (`{ keep: side }`), since it may come to anything.
+ */
+export function renderSplitOptionsArg(keep: SplitKeepSlot): string {
+  return ValueSlots.literal(keep) !== 'both' ? `{ keep: ${ValueSlots.source(keep, side => `'${side}'`)} }` : '';
 }
 
 /**
@@ -120,18 +128,25 @@ export function validSplitPlane(
   return plane.kind === 'expression' && typeof plane.expression === 'string' && plane.expression.trim() !== '';
 }
 
-export function validSplitOptions(so: unknown): so is Pick<SplitEditOptions, 'keep'> {
+/**
+ * The options a dialog may write: a keep that is a side, a reference, or an
+ * expression — the statement's own (`kept`) taken as it was, typed text
+ * checked as a number row's is.
+ */
+export function validSplitOptions(so: unknown, kept?: ReadonlySet<string>): so is Pick<SplitEditOptions, 'keep'> {
   const s = so as Pick<SplitEditOptions, 'keep'> | undefined;
-  return s !== undefined && s !== null && validSplitKeep(s.keep);
+  return s !== undefined && s !== null && ValueSlots.validChoice(s.keep, SPLIT_KEEPS, kept);
 }
 
 /**
  * A `split(<cut>[, options], …targets)` statement's dialog-editable
  * reading. The cut and target expressions are preserved verbatim; the
- * options object must be a plain literal of `keep` (a string literal) —
- * anything else is a shape the dialog would silently drop on a rewrite, so
- * it refuses. An argument-less target list is legal —
- * an implicit split cuts every solid in scope — and reads as the empty list.
+ * options object must be a plain literal of `keep` — a side, a name
+ * standing for one, or the expression computing it; a literal that is no
+ * side is refused, the dropdown having nothing to show for it — anything
+ * else is a shape the dialog would silently drop on a rewrite, so it
+ * refuses. An argument-less target list is legal — an implicit split cuts
+ * every solid in scope — and reads as the empty list.
  */
 export function parseSplitChain(
   args: TSNode[],
@@ -141,7 +156,7 @@ export function parseSplitChain(
   if (args.length < 1) {
     return { error: 'the split has fewer arguments than the dialog understands' };
   }
-  let keep: SplitKeep = 'both';
+  let keep: SplitKeepSlot = 'both';
   let rest = args.slice(1);
   if (rest.length > 0 && rest[0].type === 'object') {
     const entries = objectLiteralEntries(rest[0]);
@@ -150,8 +165,8 @@ export function parseSplitChain(
     }
     for (const [key, node] of entries) {
       if (key === 'keep') {
-        const value = stringArgValue(node);
-        if (!validSplitKeep(value)) {
+        const value = ValueSlots.choice(node, SPLIT_KEEPS);
+        if (value === null) {
           return { error: "the split keep option is not 'both', 'front' or 'back' — edit it in the source" };
         }
         keep = value;
@@ -191,7 +206,10 @@ export function renderEditedSplit(
   varFor: (producer: number) => string | null,
 ): { statement: string } | { error: string } {
   const opts = spec.edit?.split;
-  if (!opts || !validSplitOptions({ keep: opts.keep })) {
+  // The expressions the statement already holds: a Keep row left alone
+  // sends its own back, which the write takes whatever the text.
+  const kept = ValueSlots.kept(parsed);
+  if (!opts || !validSplitOptions({ keep: opts.keep }, kept)) {
     return { error: 'malformed split edit spec' };
   }
   const usedParts = new Set<number>();

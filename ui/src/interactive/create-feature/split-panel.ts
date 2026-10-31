@@ -2,17 +2,21 @@ import { FeaturePanel } from './feature-panel';
 import { PlaneOption } from './plane-bases';
 import { PlaneSelection, PlaneSlotControl } from './plane-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
-import { SplitKeepSide } from '../../api';
+import { choiceSeed, SelectControl } from './expression-rows';
+import { FeatureExprValue, FeatureRefValue, SplitKeepSide } from '../../api';
+import { VariableInfo } from '../../ui/expression-core';
 import { iconUrl } from '../../ui/icon-url';
 
 /** The slot picks land in — the one last clicked (the sweep/loft idiom). */
 export type SplitArmedSlot = 'targets' | 'plane';
 
-/** The form values — the only field is the side to keep. */
-export type SplitValues = {
-  /** The pieces the split keeps. */
-  keep: SplitKeepSide;
-};
+/** The form values — the only field is the side to keep — or the message to show when it has none. */
+export type SplitValues =
+  | {
+      /** The pieces the split keeps: a side, or the expression the Keep row holds under its ƒ. */
+      keep: SplitKeepSide | FeatureExprValue;
+    }
+  | { error: string };
 
 /**
  * The split dialog: the cut slot — an origin-plane quad, a plane feature, a
@@ -40,7 +44,7 @@ export class SplitPanel extends FeaturePanel {
 
   private targetsSlot: PickSlot;
   private planeSlot: PlaneSlotControl;
-  private keepSelect: HTMLSelectElement;
+  private keep: SelectControl<SplitKeepSide>;
 
   constructor(container: HTMLElement) {
     super(container, {
@@ -52,7 +56,7 @@ export class SplitPanel extends FeaturePanel {
         <div data-role="targets-slot"></div>
         <label class="flex flex-col gap-1.5"
           title="Which pieces stay. Front is the side the cut's normal points to — to the right of a sketched edge travelled from the sketch's front; the preview paints the dropped pieces red">
-          <span class="text-base-content/70">Keep</span>
+          <span data-role="keep-label" class="text-base-content/70">Keep</span>
           <select data-role="keep" class="select select-sm select-bordered w-full text-xs">
             <option value="both" title="Keep the pieces on both sides — split(cut, …)">Both sides</option>
             <option value="front" title="Keep the pieces on the side the normal points to — { keep: 'front' }">Front side</option>
@@ -62,8 +66,10 @@ export class SplitPanel extends FeaturePanel {
       `,
     });
 
-    this.keepSelect = this.role('keep');
-    this.keepSelect.addEventListener('change', () => this.onChange?.());
+    // The Keep dropdown takes an expression (`{ keep: flag ? 'front' : 'back' }`) under its ƒ.
+    this.keep = new SelectControl(this.role('keep'), this.role('keep-label'), { name: 'keep', label: 'Keep' });
+    this.keep.onChange = () => this.onChange?.();
+    this.keep.onSubmit = () => this.onApply?.();
 
     this.planeSlot = new PlaneSlotControl(this.role('plane-slot'), {
       label: 'Cut',
@@ -82,7 +88,7 @@ export class SplitPanel extends FeaturePanel {
     // A fresh arming starts from defaults and empty slots — the previous
     // session's choices would otherwise be revived by source-line matching.
     this.shell.setTitle(null);
-    this.keepSelect.value = 'both';
+    this.keep.setValue('both');
     this.planeSlot.reset();
     this.setTargets([]);
     // The cut is the one thing a split needs — its slot opens armed, taking
@@ -99,12 +105,13 @@ export class SplitPanel extends FeaturePanel {
    * kept expression. The targets slot is seeded by the service.
    */
   showEdit(state: {
-    keep: SplitKeepSide;
+    /** The statement's keep: a side, or the reference or expression it holds — which opens the row in expression mode. */
+    keep: SplitKeepSide | FeatureRefValue | FeatureExprValue;
     /** Keep-chip label for the statement's cut. */
     planeLabel: string;
   }): void {
     this.shell.setTitle('Edit split');
-    this.keepSelect.value = state.keep;
+    this.keep.setValue(choiceSeed(state.keep));
     this.planeSlot.seedKeep(state.planeLabel);
     this.setTargets([]);
     this.armSlot('targets');
@@ -160,7 +167,13 @@ export class SplitPanel extends FeaturePanel {
   }
 
   values(): SplitValues {
-    return { keep: this.keepSelect.value as SplitKeepSide };
+    const keep = this.keep.read();
+    return 'error' in keep ? keep : { keep: keep.value };
+  }
+
+  /** The variables the Keep row's expression completes and resolves over. */
+  setScopeVariables(variables: VariableInfo[]): void {
+    this.keep.setVariables(variables);
   }
 
   /**

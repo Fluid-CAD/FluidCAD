@@ -115,7 +115,7 @@ export async function handleRepeat(ctx: ApplyFeatureRequestContext, req: Request
       plane,
       count: request.count,
       sweep: request.sweep,
-      centered: request.centered === true ? true : undefined,
+      centered: request.centered === false ? undefined : request.centered,
       angle: request.angle,
       targets,
     };

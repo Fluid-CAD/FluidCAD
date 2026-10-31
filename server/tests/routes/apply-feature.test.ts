@@ -1847,7 +1847,7 @@ describe('apply-feature route validation', () => {
       endCondition: { type: 'smooth', magnitude: 1 },
     });
     expect(status).toBe(400);
-    expect(body.error).toContain('"normal" or "tangent"');
+    expect(body.error).toContain('"normal", "tangent" or an expression');
   });
 
   /** One per-pick plane synthesis result: a single-part selector. */
@@ -7201,11 +7201,12 @@ describe('apply-feature route validation', () => {
       const bad = [
         { anchor: { kind: 'middle' } },
         { anchor: { kind: 'offset', mode: 'sideways', value: 1 } },
-        { rotate: { axis: 'z', angle: 'ninety' } },
+        // An expression is a value, so the malformed angle and offset are text no argument may carry.
+        { rotate: { axis: 'z', angle: 'a, b' } },
         { rotate: { axis: 'w', angle: 90 } },
         { rotate: 90 },
         { offset: [1, 2] },
-        { offset: [1, 2, 'three'] },
+        { offset: [1, 2, 'a; b'] },
       ];
       for (const extra of bad) {
         const { status } = await post({

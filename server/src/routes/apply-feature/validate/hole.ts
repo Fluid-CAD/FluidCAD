@@ -6,9 +6,9 @@ import {
   validValueExpr,
   validHoleOptions,
   validHolePlacementSlot,
+  type ChoiceSlot,
   type ConnectorAnchorSpec,
   type HoleValueOptions,
-  type RefValue,
   type ValueExpr,
 } from '../../../apply-feature-edit/index.ts';
 import { validateScopeLocs, validateSketchLoc, type SketchLoc } from '../locations.ts';
@@ -27,11 +27,11 @@ export type HolePlacementInput =
 /**
  * The `.fasten(…)` chain as the dialog sends it: the tapped hole the next
  * solid along the axis takes — its pitch (null is coarse; a variable's name
- * writes bare), its blind depth (null is through all) and the drill point
- * angle below that depth (null is a flat bottom).
+ * or an expression writes bare), its blind depth (null is through all) and
+ * the drill point angle below that depth (null is a flat bottom).
  */
 export type HoleFastenInput = {
-  pitch: number | RefValue | null;
+  pitch: ChoiceSlot<number> | null;
   depth: ValueExpr | null;
   tipAngle: ValueExpr | null;
 };
@@ -60,9 +60,11 @@ export function validateHoleOptions(body: any): HoleValueOptions | { error: stri
   if (refError !== null) {
     return { error: refError };
   }
-  if (!validHoleOptions(options)) {
+  // The fit and pitch slots are checked for shape alone here: an expression
+  // the statement already holds is the transform's to keep, whatever its text.
+  if (!validHoleOptions(options, { shaped: true })) {
     return { error: "hole options must carry a size ({kind: 'diameter', value} or {kind: 'fastener', label}), "
-      + 'a fastener (clearance fit or tapped pitch, fastener sizes only), a style (counterbore or countersink), '
+      + 'a fastener (clearance fit, tapped pitch, a variable or an expression; fastener sizes only), a style (counterbore or countersink), '
       + 'a positive depth or null, and a tip angle only with a depth' };
   }
   return options;
@@ -90,8 +92,8 @@ export function validateHoleFasten(body: any, options: HoleValueOptions, edit: b
     return { error: refError };
   }
   const pitch = raw.pitch ?? null;
-  if (!HoleRefSlots.validPitch(pitch)) {
-    return { error: 'the fasten pitch must be a positive number, a variable, or null for the coarse pitch' };
+  if (!HoleRefSlots.validPitch(pitch, { shaped: true })) {
+    return { error: 'the fasten pitch must be a positive number, a variable, an expression, or null for the coarse pitch' };
   }
   const depth = raw.depth ?? null;
   if (depth !== null && !validValueExpr(depth, { positive: true })) {

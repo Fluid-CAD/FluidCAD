@@ -1,6 +1,6 @@
 import {
   applyColor, applyColorEdit, ColorApplyOptions, ColorEditOptions, ColorEditTargetRef,
-  expandBucket, fetchFeatureSources, FeatureEditTarget, ParsedFeatureStatement, SelectionGroupKind,
+  expandBucket, fetchFeatureSources, FeatureEditTarget, FeatureExprValue, ParsedFeatureStatement, SelectionGroupKind,
 } from '../../api';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
@@ -13,6 +13,7 @@ import { ColorPanel, ColorPaintMode } from './color-panel';
 import { ColorValues } from './color-values';
 import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
+import { refreshScopeVariables } from './option-relabeler';
 import { SketchUISuspender } from './sketch-suspender';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
@@ -339,6 +340,7 @@ export class ColorFeatureService {
     if (mode === 'faces') {
       this.showEditArgs();
     }
+    void this.refreshScopeVariables();
     this.syncViewport();
     this.refresh();
   }
@@ -360,11 +362,23 @@ export class ColorFeatureService {
     }
     this.syncButton();
     this.panel.show();
+    void this.refreshScopeVariables();
     if (seeded) {
       this.seedFromSelection(seeded);
     }
     this.syncViewport();
     this.refresh();
+  }
+
+  /** The variables in scope for the colour field's expression; the picks re-tint by what it then comes to. */
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    await refreshScopeVariables(line, this.panel,
+      () => this.armed && (this.editTarget?.line ?? null) === line);
+    if (this.armed && (this.editTarget?.line ?? null) === line) {
+      this.syncHighlight();
+      this.syncExpressionPrefix();
+    }
   }
 
   /**
@@ -638,9 +652,17 @@ export class ColorFeatureService {
   // Requests
   // -------------------------------------------------------------------------
 
-  /** The colour field's value as the statement writes it, or the message blocking the request. */
-  private readValue(): { value: string } | { error: string } {
-    const value = ColorValues.normalize(this.panel.colorValue);
+  /**
+   * The colour field's value as the statement writes it, or the message
+   * blocking the request: a literal must be a colour; an expression rides as
+   * it is — what it comes to is the build's to check.
+   */
+  private readValue(): { value: string | FeatureExprValue } | { error: string } {
+    const read = this.panel.readColor();
+    if ('error' in read || typeof read.value !== 'string') {
+      return read;
+    }
+    const value = ColorValues.normalize(read.value);
     return value === null
       ? { error: 'Enter a colour — a hex value like #3498db, a name like steelblue, or rgb(…).' }
       : { value };
@@ -784,11 +806,11 @@ export class ColorFeatureService {
     }
   }
 
-  /** The Face tab's expression row leads with the colour the statement will quote. */
+  /** The Face tab's expression row leads with the colour the statement will quote — or the expression it will write bare. */
   private syncExpressionPrefix(): void {
-    const value = ColorValues.normalize(this.panel.colorValue);
-    if (value !== null) {
-      this.panel.setExpressionPrefix(value);
+    const read = this.readValue();
+    if (!('error' in read)) {
+      this.panel.setExpressionPrefix(read.value);
     }
   }
 

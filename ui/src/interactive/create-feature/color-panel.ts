@@ -2,7 +2,10 @@ import { FeaturePanel } from './feature-panel';
 import { ChoiceTabs } from './panel-controls';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { ExpressionRow } from '../modify-pick/expression-row';
+import { TextControl } from './expression-rows';
 import { ColorValues } from './color-values';
+import { FeatureExprValue } from '../../api';
+import { VariableInfo } from '../../ui/expression-core';
 import { iconUrl } from '../../ui/icon-url';
 
 /** What the colour paints — the dialog's two tabs. */
@@ -37,8 +40,10 @@ const SWATCH_ACTIVE = 'ring-2 ring-primary ring-offset-1 ring-offset-base-100';
  * slot: whole solids picked in the viewport (any face or edge click selects
  * the owning solid) or timeline rows, or the faces to paint, one chip per
  * pick. The Face tab docks the expression-transparency row under the dialog
- * like the fillet dialog's. Pure DOM state — the service owns scene data,
- * the picks, and the apply call.
+ * like the fillet dialog's. The colour field takes an expression under its ƒ
+ * toggle (`tint`, `left ? 'red' : 'blue'`): the well and the swatch ring then
+ * follow what it comes to when that is a colour, and stay put otherwise. Pure
+ * DOM state — the service owns scene data, the picks, and the apply call.
  */
 export class ColorPanel extends FeaturePanel {
   /** The tab changed — the service re-aims the viewport picks. */
@@ -56,6 +61,8 @@ export class ColorPanel extends FeaturePanel {
   private readonly tabs: ChoiceTabs<ColorPaintMode>;
   private readonly well: HTMLInputElement;
   private readonly valueInput: HTMLInputElement;
+  /** The colour field with its ƒ mode: a literal, or the expression the statement computes the colour with. */
+  private readonly valueControl: TextControl;
   private readonly swatchHost: HTMLElement;
   private readonly targetsWrap: HTMLElement;
   private readonly facesWrap: HTMLElement;
@@ -72,8 +79,8 @@ export class ColorPanel extends FeaturePanel {
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div class="flex flex-col gap-1.5">
-          <span class="text-base-content/70">Colour</span>
-          <div class="flex items-center gap-2">
+          <span data-role="value-label" class="text-base-content/70">Colour</span>
+          <div class="flex items-start gap-2">
             <input data-role="well" type="color" value="${DEFAULT_COLOR}" title="Pick a colour"
               class="w-9 h-8 shrink-0 p-0.5 rounded-md border border-base-300 bg-base-100 cursor-pointer" />
             <input data-role="value" type="text" spellcheck="false" autocomplete="off" value="${DEFAULT_COLOR}"
@@ -99,6 +106,15 @@ export class ColorPanel extends FeaturePanel {
 
     this.well = this.role<HTMLInputElement>('well');
     this.valueInput = this.role<HTMLInputElement>('value');
+    // The field's ƒ mode: the expression line takes the field's place beside
+    // the well; the well and the swatch ring follow what the expression comes to.
+    this.valueControl = new TextControl(this.valueInput, this.role('value-label'), { name: 'value', label: 'Colour' });
+    this.valueControl.onChange = () => {
+      this.syncWell();
+      this.syncSwatches();
+      this.onChange?.();
+    };
+    this.valueControl.onSubmit = () => this.onApply?.();
     this.swatchHost = this.role('swatches');
     for (const swatch of COLOR_SWATCHES) {
       const button = document.createElement('button');
@@ -114,16 +130,11 @@ export class ColorPanel extends FeaturePanel {
       });
       this.swatchHost.appendChild(button);
     }
-    // The well writes hex; the field takes anything and the well follows
-    // when the text is a colour it can show.
+    // The well writes hex — a literal, which leaves an expression mode the
+    // field was in; the field takes anything and the well follows when the
+    // text is a colour it can show.
     this.well.addEventListener('input', () => {
-      this.valueInput.value = this.well.value;
-      this.syncSwatches();
-      this.onChange?.();
-    });
-    this.valueInput.addEventListener('input', () => {
-      this.syncWell();
-      this.syncSwatches();
+      this.setColorValue(this.well.value);
       this.onChange?.();
     });
     this.valueInput.addEventListener('keydown', (e) => {
@@ -156,14 +167,30 @@ export class ColorPanel extends FeaturePanel {
     return this.tabs.value;
   }
 
-  /** The colour field's text, trimmed — validated by the service through {@link ColorValues}. */
+  /**
+   * The colour the field stands on, trimmed — its text, or what its expression
+   * comes to (empty while that is unknown or no text); the tint the viewport
+   * shows, validated by the service through {@link ColorValues}.
+   */
   get colorValue(): string {
-    return this.valueInput.value.trim();
+    return (this.valueControl.text ?? '').trim();
   }
 
-  /** Set the colour field (and the well, when the value is one it can show). */
-  setColorValue(value: string): void {
-    this.valueInput.value = value;
+  /** What the field writes: its text (the service judges whether it is a colour), or the expression; the message when the mode is on with nothing in it. */
+  readColor(): { value: string | FeatureExprValue } | { error: string } {
+    return this.valueControl.read();
+  }
+
+  /** Set the colour field (and the well, when the value is one it can show). An expression opens the field's ƒ mode. */
+  setColorValue(value: string | FeatureExprValue): void {
+    this.valueControl.setValue(value);
+    this.syncWell();
+    this.syncSwatches();
+  }
+
+  /** The variables the field's expression completes and resolves over; the well follows what it then comes to. */
+  setScopeVariables(variables: VariableInfo[]): void {
+    this.valueControl.setVariables(variables);
     this.syncWell();
     this.syncSwatches();
   }
@@ -180,8 +207,8 @@ export class ColorPanel extends FeaturePanel {
     this.shell.show();
   }
 
-  /** Open prefilled from an existing statement (edit mode): its tab and colour; the chips are the service's. */
-  showEdit(mode: ColorPaintMode, value: string): void {
+  /** Open prefilled from an existing statement (edit mode): its tab and colour — an expression in its ƒ mode; the chips are the service's. */
+  showEdit(mode: ColorPaintMode, value: string | FeatureExprValue): void {
     this.shell.setTitle('Edit color');
     this.tabs.setValue(mode);
     this.setColorValue(value);
@@ -216,15 +243,17 @@ export class ColorPanel extends FeaturePanel {
     this.facesSlot.setPrompt(chips.length > 0 ? null : 'Pick faces in the viewport');
   }
 
-  /** The expression row's static prefix — the colour as the statement will quote it. */
-  setExpressionPrefix(value: string): void {
-    this.expression.setPrefix(`color('${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}', `);
+  /** The expression row's static prefix — the colour as the statement will quote it, an expression written bare. */
+  setExpressionPrefix(value: string | FeatureExprValue): void {
+    const source = typeof value === 'string' ? `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'` : value.expr.trim();
+    this.expression.setPrefix(`color(${source}, `);
     this.expression.setSuffix(')');
   }
 
-  /** Whether the colour field or the expression row owns the keyboard (Enter-to-apply). */
+  /** Whether the colour field (its expression input included) or the expression row owns the keyboard (Enter-to-apply). */
   ownsFocus(target: Element | null): boolean {
-    return target === this.valueInput || target === this.expression.inputElement;
+    return target === this.valueInput || target === this.expression.inputElement
+      || (target !== null && this.valueControl.mode.line.contains(target));
   }
 
   /** Show the shown tab's slot; the Face tab's expression row only ever shows under it. */
@@ -237,16 +266,17 @@ export class ColorPanel extends FeaturePanel {
     }
   }
 
+  /** The well shows the colour the field stands on when it can; otherwise it stays put. */
   private syncWell(): void {
-    const hex = ColorValues.toHex(this.valueInput.value);
+    const hex = ColorValues.toHex(this.colorValue);
     if (hex !== null) {
       this.well.value = hex;
     }
   }
 
-  /** Ring the swatch whose colour the field holds, by name or by hex. */
+  /** Ring the swatch whose colour the field stands on, by name or by hex. */
   private syncSwatches(): void {
-    const hex = ColorValues.toHex(this.valueInput.value);
+    const hex = ColorValues.toHex(this.colorValue);
     for (const button of this.swatchHost.querySelectorAll<HTMLButtonElement>('button[data-swatch]')) {
       const swatch = COLOR_SWATCHES.find(s => s.name === button.dataset.swatch)!;
       const active = hex !== null && swatch.hex === hex;

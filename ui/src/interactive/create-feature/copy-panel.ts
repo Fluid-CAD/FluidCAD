@@ -3,7 +3,8 @@ import { AxisOption } from './axis-options';
 import { AxisSelection, AxisSlotControl } from './axis-slot';
 import { ConnectorOption } from './connector-options';
 import { PickSlot, PickSlotChip } from '../pick-slot';
-import { NewVariable, ValueExpr } from '../../api';
+import { FlagControl } from './expression-rows';
+import { FeatureExprValue, NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { formatSkipEntries, parseSkipEntries, skipRangeError, SKIP_HELP_HTML } from './copy-skip';
@@ -37,7 +38,8 @@ export type CopyValues =
   | {
       kind: 'linear';
       spacingMode: 'offset' | 'length';
-      centered: boolean;
+      /** The copies are centered on the original: the flag, or the expression the Centered row holds under its ƒ. */
+      centered: boolean | FeatureExprValue;
       /** Count/value per active direction; the axes ride the service. */
       directions: { count: ValueExpr; value: ValueExpr }[];
       /** Instances to leave out, one index per direction; empty skips none. */
@@ -134,7 +136,7 @@ export class CopyPanel extends FeaturePanel {
   private value2Label: HTMLElement;
   private addDirectionBtn: HTMLButtonElement;
   private centeredRow: HTMLElement;
-  private centeredInput: HTMLInputElement;
+  private centered: FlagControl;
   private skipInput: HTMLInputElement;
   private skipHelp: HelpPopover;
   private countField: ExpressionField;
@@ -289,7 +291,8 @@ export class CopyPanel extends FeaturePanel {
     this.value2Label = this.role('value2-label');
     this.addDirectionBtn = this.role('add-direction');
     this.centeredRow = this.role('centered-row');
-    this.centeredInput = this.role('centered');
+    // The Centered toggle takes an expression (`centered: flag`) under its ƒ.
+    this.centered = new FlagControl(this.role('centered'), { name: 'centered', label: 'Centered' });
 
     this.addDirectionBtn.addEventListener('click', () => {
       this.dir2 = true;
@@ -319,7 +322,8 @@ export class CopyPanel extends FeaturePanel {
       this.onChange?.();
     });
     this.sweepModeSelect.addEventListener('change', () => this.onChange?.());
-    this.centeredInput.addEventListener('change', () => this.onChange?.());
+    this.centered.onChange = () => this.onChange?.();
+    this.centered.onSubmit = () => this.onApply?.();
     this.skipInput = this.role('skip');
     this.skipInput.addEventListener('input', () => this.onChange?.());
     // The examples open into the viewport beside the dialog: the panel body is
@@ -350,11 +354,12 @@ export class CopyPanel extends FeaturePanel {
     ];
   }
 
-  /** The variables the fields' dropdowns offer. */
+  /** The variables the fields' dropdowns offer, and the Centered row's expression resolves over. */
   setScopeVariables(variables: VariableInfo[]): void {
     for (const field of this.expressionFields()) {
       field.setVariables(variables);
     }
+    this.centered.setVariables(variables);
   }
 
   get copyType(): CopyType {
@@ -387,7 +392,7 @@ export class CopyPanel extends FeaturePanel {
     this.sweepField.setValue(360);
     this.count2Field.setValue(2);
     this.value2Field.setValue(20);
-    this.centeredInput.checked = false;
+    this.centered.setValue(false);
     this.skipInput.value = '';
     this.setTargets([]);
     this.setPattern(null);
@@ -427,7 +432,8 @@ export class CopyPanel extends FeaturePanel {
     kind: CopyType;
     directions: { count: ValueExpr; value: ValueExpr }[] | null;
     spacingMode: 'offset' | 'length' | null;
-    centered: boolean;
+    /** The statement's centered flag, or the expression computing it — which opens the row in expression mode. */
+    centered: boolean | FeatureExprValue;
     count: ValueExpr | null;
     sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
     /** The statement's own skip list; null when it names none. */
@@ -447,7 +453,7 @@ export class CopyPanel extends FeaturePanel {
     this.sweepField.setValue(state.sweep?.value ?? 360);
     this.count2Field.setValue(state.directions?.[1]?.count ?? 2);
     this.value2Field.setValue(state.directions?.[1]?.value ?? 20);
-    this.centeredInput.checked = state.centered;
+    this.centered.setValue(state.centered);
     this.skipInput.value = state.skip ? formatSkipEntries(state.skip) : '';
     this.axisSlots.get(1)!.seedKeep(state.axisLabels[0] ?? null);
     this.axisSlots.get(2)!.seedKeep(state.axisLabels[1] ?? null);
@@ -606,8 +612,12 @@ export class CopyPanel extends FeaturePanel {
       if ('error' in skip) {
         return skip;
       }
+      const centered = this.centered.read();
+      if ('error' in centered) {
+        return centered;
+      }
       return {
-        kind, spacingMode, centered: this.centeredInput.checked, directions, skip,
+        kind, spacingMode, centered: centered.value, directions, skip,
         newVariables: collectNewVariables(reads),
       };
     }
@@ -696,6 +706,8 @@ export class CopyPanel extends FeaturePanel {
     this.addDirectionBtn.classList.toggle('hidden', !(linear && !this.dir2));
     this.centeredRow.classList.toggle('hidden', !linear);
     this.centeredRow.classList.toggle('flex', linear);
+    // The row's expression line sits after the row; it hides with the row, and shows again only while the mode holds an expression.
+    this.centered.mode.line.classList.toggle('hidden', !linear || !this.centered.on);
     // A grid skips cells, everything else skips instances — the placeholder
     // says which the field is taking right now.
     this.skipInput.placeholder = this.directions.length > 1 ? 'e.g. [1, 0], [2, 1]' : 'e.g. 1, 3';

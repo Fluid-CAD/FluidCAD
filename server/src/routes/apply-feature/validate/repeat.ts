@@ -3,6 +3,8 @@
 import {
   validCountValue,
   validValueExpr,
+  ValueSlots,
+  type BooleanSlot,
   type FeatureStatementEditTarget,
   type ValueExpr,
 } from '../../../apply-feature-edit/index.ts';
@@ -33,7 +35,8 @@ type RepeatRequest = {
   plane?: RepeatPlaneInput;
   count?: ValueExpr;
   sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
-  centered?: boolean;
+  /** Linear: the centered flag, or an expression computing it. */
+  centered?: BooleanSlot;
   angle?: ValueExpr;
 };
 
@@ -122,8 +125,8 @@ export function validateRepeat(body: any): RepeatRequest | { error: string } {
         return { error: `a linear repeat carries its ${key === 'axis' ? 'axes' : 'counts and values'} in the directions` };
       }
     }
-    if (centered !== undefined && typeof centered !== 'boolean') {
-      return { error: 'centered must be a boolean' };
+    if (centered !== undefined && centered !== null && !ValueSlots.shaped(centered, literal => typeof literal === 'boolean')) {
+      return { error: 'centered must be a boolean or an expression' };
     }
     const spacingMode = body?.spacingMode;
     if (spacingMode !== 'offset' && spacingMode !== 'length') {
@@ -150,7 +153,7 @@ export function validateRepeat(body: any): RepeatRequest | { error: string } {
       }
       directions.push({ axis, count: entry.count, value: entry.value });
     }
-    return { kind, targets: targetLocs, directions, spacingMode, centered: centered === true };
+    return { kind, targets: targetLocs, directions, spacingMode, centered: centered ?? false };
   }
 
   if (body?.directions !== undefined && body?.directions !== null) {
@@ -185,7 +188,7 @@ export function validateRepeat(body: any): RepeatRequest | { error: string } {
   if (angle !== undefined && angle !== null) {
     return { error: 'a circular repeat carries its angle in the sweep field' };
   }
-  if (centered === true) {
+  if (centered !== undefined && centered !== null && centered !== false) {
     return { error: 'a circular repeat takes no centered flag' };
   }
   const sweep = body?.sweep;
@@ -314,8 +317,8 @@ export function validateRepeatEdit(
         return { error: `a linear repeat carries its ${key === 'axis' ? 'axes' : 'counts and values'} in the directions` };
       }
     }
-    if (centered !== undefined && typeof centered !== 'boolean') {
-      return { error: 'centered must be a boolean' };
+    if (centered !== undefined && centered !== null && !ValueSlots.shaped(centered, literal => typeof literal === 'boolean')) {
+      return { error: 'centered must be a boolean or an expression' };
     }
     const spacingMode = body?.spacingMode;
     if (spacingMode !== 'offset' && spacingMode !== 'length') {
@@ -345,7 +348,8 @@ export function validateRepeatEdit(
       directions.push({ axis, count: entry.count, value: entry.value });
     }
     rp.spacingMode = spacingMode;
-    rp.centered = centered === true ? true : undefined;
+    // An unticked flag writes no option; a ticked one or an expression does.
+    rp.centered = centered === undefined || centered === null || centered === false ? undefined : centered;
     result.repeatDirections = directions;
     return result;
   }
@@ -385,7 +389,7 @@ export function validateRepeatEdit(
   if (angle !== undefined && angle !== null) {
     return { error: 'a circular repeat carries its angle in the sweep field' };
   }
-  if (centered === true) {
+  if (centered !== undefined && centered !== null && centered !== false) {
     return { error: 'a circular repeat takes no centered flag' };
   }
   const sweep = body?.sweep;

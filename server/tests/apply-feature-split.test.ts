@@ -323,8 +323,12 @@ describe('parseFeatureStatement — split', () => {
     expect(unknown).toMatchObject({ ok: false });
     const offset = await parseFeatureStatement(`${splitEditBase}\nsplit('yz', { offset: 5 }, e)\n`, 7);
     expect(offset).toMatchObject({ ok: false });
-    const badKeep = await parseFeatureStatement(`${splitEditBase}\nsplit('yz', { keep: side }, e)\n`, 7);
+    // A literal that is no side is refused — the dropdown has nothing to show
+    // for it; a name or an expression in its place reads as the slot it is.
+    const badKeep = await parseFeatureStatement(`${splitEditBase}\nsplit('yz', { keep: 'top' }, e)\n`, 7);
     expect(badKeep).toMatchObject({ ok: false });
+    const named = await parseFeatureStatement(`${splitEditBase}\nsplit('yz', { keep: side }, e)\n`, 7);
+    expect(named).toMatchObject({ ok: true, parsed: { keep: { ref: 'side' } } });
   });
 });
 
@@ -371,5 +375,65 @@ describe('split in-place edits', () => {
     const result = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'front', targets: [] }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`split('yz', { keep: 'front' })\n`);
+  });
+});
+
+// The Keep dropdown is a typed-in slot: a statement computing the side
+// (`{ keep: flag ? 'front' : 'back' }`) opens in the dialog with the
+// expression, an edit of another row writes it back as it was (whatever its
+// text — two lines included), a typed expression replaces it bare, a side
+// writes as before (the default `both` eliding the object only as a
+// literal), and typed text is checked as a number row's expression is.
+describe('split keep as an expression', () => {
+  function editSpec(split: NonNullable<NonNullable<ApplyFeatureEditSpec['edit']>['split']>, expectedStatement: string): ApplyFeatureEditSpec {
+    return {
+      feature: 'split',
+      filePath: FILE,
+      producers: [],
+      parts: [],
+      imports: [],
+      edit: { line: 7, column: 0, expectedStatement, split },
+    };
+  }
+
+  it('reads a computed keep, keeps it through an edit, and writes a typed one bare', async () => {
+    const statement = `split('yz', { keep: flag ? 'front' : 'back' }, e)`;
+    const code = `${splitEditBase}\n${statement}\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: true, parsed: { feature: 'split', keep: { expr: "flag ? 'front' : 'back'" } } });
+
+    const kept = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: { expr: "flag ? 'front' : 'back'" }, targets: [] }, statement));
+    expect(kept.error).toBeUndefined();
+    expect(kept.newCode).toContain(`split('yz', { keep: flag ? 'front' : 'back' })\n`);
+    const typed = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: { expr: 'side' } }, statement));
+    expect(typed.newCode).toContain(`split('yz', { keep: side }, e)\n`);
+    const named = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: { ref: 'side' } }, statement));
+    expect(named.newCode).toContain(`split('yz', { keep: side }, e)\n`);
+    const literal = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'back' }, statement));
+    expect(literal.newCode).toContain(`split('yz', { keep: 'back' }, e)\n`);
+    const plain = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'both' }, statement));
+    expect(plain.newCode).toContain(`split('yz', e)\n`);
+    // Only the literal default drops the object — an expression may come to anything.
+    const defaulted = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: { expr: "'both'" } }, statement));
+    expect(defaulted.newCode).toContain(`split('yz', { keep: 'both' }, e)\n`);
+    const bad = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: { expr: 'a, b' } }, statement));
+    expect(bad.error).toBeTruthy();
+    const unknown = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: 'top' as never }, statement));
+    expect(unknown.error).toBeTruthy();
+  });
+
+  it('keeps a two-line expression as the statement had it', async () => {
+    const statement = `split('yz', { keep: flag\n  ? 'front' : 'back' }, e)`;
+    const code = `${splitEditBase}\n${statement}\n`;
+    const read = await parseFeatureStatement(code, 7);
+    expect(read).toMatchObject({ ok: true, parsed: { keep: { expr: "flag\n  ? 'front' : 'back'" } } });
+    const kept = await applyFeatureEdit(code, editSpec({ plane: { kind: 'keep' }, keep: { expr: "flag\n  ? 'front' : 'back'" }, targets: [] }, statement));
+    expect(kept.error).toBeUndefined();
+    expect(kept.newCode).toContain(`split('yz', { keep: flag\n  ? 'front' : 'back' })\n`);
+  });
+
+  it('still refuses a spread and an options object that is no literal', async () => {
+    expect(await parseFeatureStatement(`${splitEditBase}\nsplit('yz', { keep: ...sides }, e)\n`, 7)).toMatchObject({ ok: false });
+    expect(await parseFeatureStatement(`${splitEditBase}\nsplit('yz', options, e)\n`, 7)).toMatchObject({ ok: true, parsed: { keep: 'both', targetTexts: ['options', 'e'] } });
   });
 });

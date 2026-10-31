@@ -2,8 +2,9 @@
 
 import {
   validSplitKeep,
+  ValueSlots,
   type FeatureStatementEditTarget,
-  type SplitKeep,
+  type SplitKeepSlot,
 } from '../../../apply-feature-edit/index.ts';
 import { validateSketchLoc, type SketchLoc } from '../locations.ts';
 import { validatePick } from '../picks.ts';
@@ -24,7 +25,8 @@ export type SplitRequest = {
   /** The feature statements being split, in argument order; empty splits every solid in scope. */
   targets: SketchLoc[];
   plane: SplitPlaneInput;
-  keep: SplitKeep;
+  /** The pieces kept — a side, or an expression computing it. */
+  keep: SplitKeepSlot;
   /** The file the statement lands in — required for a standard plane with no targets, which pins no scope. */
   filePath: string;
 };
@@ -72,10 +74,11 @@ function validatePlaneInput(raw: any, filePath: string, label: string): SplitPla
   return { error: 'plane must be {kind: "standard"|"plane"|"face"|"sketchEdge", …}' };
 }
 
-function validateOptions(body: any): { keep: SplitKeep } | { error: string } {
+/** The keep slot's shape: a side, or an expression — whether its text may be written is the transform's to say. */
+function validateOptions(body: any): { keep: SplitKeepSlot } | { error: string } {
   const { keep } = body ?? {};
-  if (keep !== undefined && !validSplitKeep(keep)) {
-    return { error: 'keep must be "both", "front" or "back"' };
+  if (keep !== undefined && keep !== null && !ValueSlots.shaped(keep, validSplitKeep)) {
+    return { error: 'keep must be "both", "front" or "back", or an expression' };
   }
   return { keep: keep ?? 'both' };
 }

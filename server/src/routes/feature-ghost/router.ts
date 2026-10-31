@@ -1,7 +1,7 @@
 // The feature-ghost router: validates a ghost request and asks the server for the preview solids.
 
 import { Router } from 'express';
-import type { PlaneRotationAxes } from '../../apply-feature-edit/index.ts';
+import type { ChoiceSlot, PlaneRotationAxes } from '../../apply-feature-edit/index.ts';
 import type {
   FeatureGhostRequest,
   FluidCadServer,
@@ -14,7 +14,7 @@ import type {
 } from '../../fluidcad-server/index.ts';
 import { MAX_COPY_TARGETS, validateRegionPicks } from '../apply-feature/index.ts';
 import type { RegionPickSpec } from '../../apply-feature-edit/index.ts';
-import { parseCondition, parseLoftConnections } from './loft.ts';
+import { CONDITION_CHOICES, parseCondition, parseLoftConnections } from './loft.ts';
 import {
   parseAxis,
   parseEntityRefs,
@@ -46,11 +46,12 @@ import {
   type RawSplit,
 } from './transforms.ts';
 import { CustomGhostRoute, type GhostFeatureCatalog } from './custom.ts';
+import { GhostSlots } from './slots.ts';
 import { ValueScope } from './value-scope.ts';
 import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { isThin, isValueExprOrNull, type ValueExpr } from './values.ts';
 import {
-  BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, SHELL_JOINS, type GhostBody,
+  BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, SHELL_JOINS, SPLIT_KEEPS, type GhostBody,
 } from './vocabulary.ts';
 
 /**
@@ -138,6 +139,12 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
       res.status(400).json({ success: false, reason: 'Invalid dimension' });
       return;
     }
+    // The slots a dialog may hold an expression in — checked for shape here,
+    // resolved below once the scope is open (see GhostSlots).
+    if (body.drill !== undefined && body.drill !== null && !GhostSlots.shaped(body.drill, literal => typeof literal === 'boolean')) {
+      res.status(400).json({ success: false, reason: 'Invalid drill flag' });
+      return;
+    }
     const valueScope = ValueScope.parse(body.valueScope);
     if (valueScope === 'invalid') {
       res.status(400).json({ success: false, reason: 'Invalid value scope' });
@@ -152,7 +159,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
       }
     }
     let faceRefs: GhostFaceRef[] | null = null;
-    let shellJoin: 'arc' | 'intersection' | 'tangent' = 'arc';
+    // The join dropdown's slot: a kind, or an expression — checked for shape
+    // here, resolved in the shell branch below once the scope is open.
+    let shellJoin: unknown = 'arc';
     if (isShell) {
       faceRefs = parseFaceRefs(body.faces);
       if (!faceRefs || faceRefs.length === 0) {
@@ -160,11 +169,11 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         return;
       }
       if (body.joinType !== undefined && body.joinType !== null) {
-        if (typeof body.joinType !== 'string' || !SHELL_JOINS.includes(body.joinType)) {
+        if (!GhostSlots.shaped(body.joinType, literal => typeof literal === 'string' && SHELL_JOINS.includes(literal))) {
           res.status(400).json({ success: false, reason: 'Invalid join type' });
           return;
         }
-        shellJoin = body.joinType as typeof shellJoin;
+        shellJoin = body.joinType;
       }
     }
     let sketchEntities: { shapeId: string }[] | null = null;
@@ -369,19 +378,21 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     let planeType: 'offset' | 'mid' | 'edge' | null = null;
     let planeBases: GhostPlaneBaseRef[] = [];
     // The axes the plane's rotations turn around; absent reads as the
-    // plane's own.
-    let planeAxes: PlaneRotationAxes = 'local';
+    // plane's own. A typed-in slot: a literal, or an expression resolved
+    // once the scope is open (see GhostSlots).
+    let planeAxes: ChoiceSlot<PlaneRotationAxes> = 'local';
     if (isPlane) {
       if (typeof body.type !== 'string' || !PLANE_TYPES.includes(body.type)) {
         res.status(400).json({ success: false, reason: 'Invalid plane type' });
         return;
       }
       planeType = body.type as 'offset' | 'mid' | 'edge';
-      if (body.rotationAxes !== undefined && body.rotationAxes !== 'local' && body.rotationAxes !== 'world') {
+      if (body.rotationAxes !== undefined && body.rotationAxes !== null
+        && !GhostSlots.shaped(body.rotationAxes, literal => literal === 'local' || literal === 'world')) {
         res.status(400).json({ success: false, reason: 'Invalid plane rotationAxes' });
         return;
       }
-      planeAxes = (body.rotationAxes as PlaneRotationAxes | undefined) ?? 'local';
+      planeAxes = (body.rotationAxes as ChoiceSlot<PlaneRotationAxes> | undefined | null) ?? 'local';
       const parsed = parsePlaneBases(body.bases, planeType);
       if (typeof parsed === 'string') {
         res.status(400).json({ success: false, reason: parsed });
@@ -474,6 +485,14 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
       res.json({ success: false, reason: 'That value is not a number the preview can resolve.' });
       return;
     }
+    // The typed-in slots a dialog may hold an expression in — a flag, a
+    // choice, a text: each feature's branch resolves its own through here,
+    // to the literal the kernel takes, or answers why the preview draws
+    // nothing (the dialog stays open on the text as written).
+    const slots = new GhostSlots(scope);
+    const unresolved = (slot: { reason: string }): void => {
+      res.json({ success: false, reason: slot.reason });
+    };
 
     let request: FeatureGhostRequest;
     if (isBand) {
@@ -494,10 +513,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         res.status(400).json({ success: false, reason: 'Invalid thickness' });
         return;
       }
+      const join = slots.choice(shellJoin, SHELL_JOINS as readonly ('arc' | 'intersection' | 'tangent')[], 'Join type');
+      if ('reason' in join) {
+        unresolved(join);
+        return;
+      }
       request = {
         feature: 'shell',
         thickness,
-        joinType: shellJoin,
+        joinType: join.value,
         faces: faceRefs!,
       };
     } else if (isHelix) {
@@ -513,6 +537,11 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         endOffset,
       };
     } else if (isPlane) {
+      const rotationAxes = slots.choice(planeAxes, ['local', 'world'] as PlaneRotationAxes[], 'Rotation axes');
+      if ('reason' in rotationAxes) {
+        unresolved(rotationAxes);
+        return;
+      }
       request = {
         feature: 'plane',
         type: planeType!,
@@ -521,10 +550,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         rotateX,
         rotateY,
         rotateZ,
-        rotationAxes: planeAxes,
+        rotationAxes: rotationAxes.value,
         position,
       };
     } else if (isRepeat) {
+      const centered = slots.boolean(repeat!.centered, 'Centered');
+      if ('reason' in centered) {
+        unresolved(centered);
+        return;
+      }
       request = {
         feature: 'repeat',
         kind: repeat!.kind,
@@ -533,12 +567,17 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         plane: repeat!.plane,
         // Every value resolved above, or the request never reached here.
         directions: directions as GhostRepeatDirection[],
-        centered: repeat!.centered,
+        centered: centered.value,
         count,
         sweep: repeat!.sweep ? { mode: repeat!.sweep.mode, value: sweepValue! } : null,
         angle,
       };
     } else if (isCopy) {
+      const centered = slots.boolean(copy!.centered, 'Centered');
+      if ('reason' in centered) {
+        unresolved(centered);
+        return;
+      }
       request = {
         feature: 'copy',
         kind: copy!.kind,
@@ -546,7 +585,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         axes: copy!.axes,
         // Every value resolved above, or the request never reached here.
         directions: directions as GhostRepeatDirection[],
-        centered: copy!.centered,
+        centered: centered.value,
         count,
         sweep: copy!.sweep ? { mode: copy!.sweep.mode, value: sweepValue! } : null,
         skip: copy!.skip,
@@ -562,9 +601,14 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         exclude: transformExclude,
       };
     } else if (isSplit) {
+      const keep = slots.choice(split!.keep, SPLIT_KEEPS as readonly ('both' | 'front' | 'back')[], 'Keep');
+      if ('reason' in keep) {
+        unresolved(keep);
+        return;
+      }
       request = {
         feature: 'split',
-        keep: split!.keep,
+        keep: keep.value,
         targets: split!.targets,
         plane: split!.plane,
         exclude: transformExclude,
@@ -611,6 +655,24 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
       };
     } else if (isLoft) {
       const op = body.op as 'add' | 'remove' | 'new';
+      // A condition's type may be an expression: one that comes to 'none'
+      // previews as no condition, the way the literal reads in the source.
+      const conditions: ({ type: 'normal' | 'tangent'; magnitude: number } | null)[] = [];
+      for (const [raw, magnitude, label] of [
+        [startRaw, startMagnitude, 'Start condition'],
+        [endRaw, endMagnitude, 'End condition'],
+      ] as const) {
+        if (raw === null) {
+          conditions.push(null);
+          continue;
+        }
+        const type = slots.choice(raw.type, CONDITION_CHOICES, label);
+        if ('reason' in type) {
+          unresolved(type);
+          return;
+        }
+        conditions.push(type.value === 'none' ? null : { type: type.value, magnitude: magnitude! });
+      }
       request = {
         feature: 'loft',
         op,
@@ -618,8 +680,8 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         profiles: sections,
         guides,
         connections,
-        startCondition: startRaw ? { type: startRaw.type, magnitude: startMagnitude! } : null,
-        endCondition: endRaw ? { type: endRaw.type, magnitude: endMagnitude! } : null,
+        startCondition: conditions[0],
+        endCondition: conditions[1],
       };
     } else if (body.feature === 'sweep') {
       request = {
@@ -729,6 +791,11 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         regions,
       };
     } else {
+      const drill = slots.boolean(body.drill ?? true, 'Drill holes');
+      if ('reason' in drill) {
+        unresolved(drill);
+        return;
+      }
       request = {
         feature: 'extrude',
         op: body.op as 'add' | 'remove' | 'new',
@@ -737,7 +804,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         symmetric: body.symmetric === true,
         draft,
         endOffset,
-        drill: body.drill !== false,
+        drill: drill.value,
         thin,
         profile: profileRef!,
         regions,

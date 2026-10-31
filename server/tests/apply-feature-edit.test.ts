@@ -1806,7 +1806,7 @@ describe('loft statement templates', () => {
 // In-place statement editing (timeline double-click → edit dialog)
 // ---------------------------------------------------------------------------
 
-import { parseFeatureStatement, resolveEditedStatementLine, type FeatureStatementEditTarget } from '../src/apply-feature-edit/index.ts';
+import { parseFeatureStatement, resolveEditedStatementLine, type BooleanSlot, type FeatureStatementEditTarget } from '../src/apply-feature-edit/index.ts';
 
 const editBase = [
   `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
@@ -1963,13 +1963,38 @@ describe('parseFeatureStatement', () => {
     expect(result).toMatchObject({ ok: true, parsed: { feature: 'extrude', draft: '[2, 4]' } });
   });
 
-  it('refuses a non-literal .drill() argument', async () => {
+  // A `.drill()` computed rather than spelled opens like one that is: the
+  // row carries the expression, an edit of another row writes it back as it
+  // was (whatever its text — a template string, two lines), a flag or a
+  // typed expression replaces it, and a spread stays a refusal.
+  it('reads a non-literal .drill() argument as its expression, and keeps it through an edit', async () => {
     const code = `${editBase}\nextrude(10).drill(flag)\n`;
     const result = await parseFeatureStatement(code, 4);
-    expect(result).toMatchObject({ ok: false });
-    if (result.ok === false) {
-      expect(result.reason).toContain('drill');
-    }
+    expect(result).toMatchObject({ ok: true, parsed: { feature: 'extrude', drill: { expr: 'flag' } } });
+
+    const edit = (drill: BooleanSlot, source = code) => applyFeatureEdit(source, editSpec('extrude', {
+      line: 4, column: 0, extrude: extrudeEditOptions({ distance: 12, drill }),
+    }));
+    const kept = await edit({ expr: 'flag' });
+    expect(kept.error).toBeUndefined();
+    expect(kept.newCode).toContain(`extrude(12).drill(flag)`);
+    const typed = await edit({ expr: 'count > 2 && !solid' });
+    expect(typed.newCode).toContain(`extrude(12).drill(count > 2 && !solid)`);
+    const plain = await edit(false);
+    expect(plain.newCode).toContain(`extrude(12).drill(false)`);
+    const cleared = await edit(true);
+    expect(cleared.newCode).toContain(`extrude(12)\n`);
+    // Text the dialog typed is checked as a number row's expression is; the statement's own passes whatever it is.
+    const bad = await edit({ expr: 'a, b' });
+    expect(bad.error).toBeTruthy();
+    const twoLines = `${editBase}\nextrude(10).drill(flag\n  && solid)\n`;
+    const read = await parseFeatureStatement(twoLines, 4);
+    expect(read).toMatchObject({ ok: true, parsed: { drill: { expr: 'flag\n  && solid' } } });
+    const keptLines = await edit({ expr: 'flag\n  && solid' }, twoLines);
+    expect(keptLines.error).toBeUndefined();
+    expect(keptLines.newCode).toContain(`extrude(12).drill(flag\n  && solid)`);
+    const spread = await parseFeatureStatement(`${editBase}\nextrude(10).drill(...flags)\n`, 4);
+    expect(spread).toMatchObject({ ok: false });
   });
 
   it('refuses an extrude with three numeric arguments', async () => {
@@ -2124,13 +2149,16 @@ describe('parseFeatureStatement', () => {
     }
   });
 
-  it('refuses a non-literal shell join type', async () => {
-    const code = `${editBase}\nshell(-2, e.endFaces()).join(mode)\n`;
-    const result = await parseFeatureStatement(code, 4);
-    expect(result).toMatchObject({ ok: false });
-    if (result.ok === false) {
-      expect(result.reason).toContain('not a plain string');
-    }
+  // A join named by a variable or computed opens like one that is spelled:
+  // the dropdown holds the name (a `{ ref }`) or the text (an `{ expr }`),
+  // and only a chain with the wrong arity stays a refusal.
+  it('reads a non-literal shell join type as a reference or an expression', async () => {
+    const named = await parseFeatureStatement(`${editBase}\nshell(-2, e.endFaces()).join(mode)\n`, 4);
+    expect(named).toMatchObject({ ok: true, parsed: { feature: 'shell', joinType: { ref: 'mode' } } });
+    const computed = await parseFeatureStatement(`${editBase}\nshell(-2, e.endFaces()).join(sharp ? 'intersection' : 'arc')\n`, 4);
+    expect(computed).toMatchObject({ ok: true, parsed: { feature: 'shell', joinType: { expr: "sharp ? 'intersection' : 'arc'" } } });
+    const bare = await parseFeatureStatement(`${editBase}\nshell(-2, e.endFaces()).join()\n`, 4);
+    expect(bare).toMatchObject({ ok: false });
   });
 
   it('reads an equal-distance chamfer with no second value', async () => {
@@ -3993,16 +4021,20 @@ describe('parseFeatureStatement — text', () => {
     }
   });
 
-  it('refuses a non-literal text string', async () => {
+  // A text computed from a name opens in the dialog like one spelled out:
+  // the string row holds the expression and writes it back as it is.
+  it('reads a non-literal text string as its expression', async () => {
     const code = `${textEditBase}\n  text(label)\n})\n`;
     const result = await parseFeatureStatement(code, 4);
-    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('plain string') });
+    expect(result).toMatchObject({ ok: true, parsed: { text: { expr: 'label' } } });
   });
 
-  it('refuses a variable size', async () => {
+  // A size named by a variable is a number row's expression, as on every
+  // other dialog — the text as the statement has it.
+  it('reads a variable size as its expression', async () => {
     const code = `${textEditBase}\n  text("Hi").size(h)\n})\n`;
     const result = await parseFeatureStatement(code, 4);
-    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('.size()') });
+    expect(result).toMatchObject({ ok: true, parsed: { size: 'h' } });
   });
 
   it('refuses chaining both weight and bold', async () => {
@@ -6244,10 +6276,17 @@ describe('parseFeatureStatement — plane', () => {
     });
   });
 
-  it('refuses plane rotationAxes the dialog cannot show', async () => {
-    const code = `${planeEditBase}\nplane('xy', { rotateY: 30, rotationAxes: frame })\n`;
-    const result = await parseFeatureStatement(code, 7);
-    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining("'local' or 'world'") });
+  // A `rotationAxes` the statement computes is the dialog's to show: a name
+  // reads as the reference it is, anything else as its expression — the
+  // preview checks what either comes to. A literal of neither name still has
+  // nothing to show, so it refuses.
+  it('reads a computed plane rotationAxes, and still refuses a literal of neither name', async () => {
+    const named = await parseFeatureStatement(`${planeEditBase}\nplane('xy', { rotateY: 30, rotationAxes: frame })\n`, 7);
+    expect(named).toMatchObject({ ok: true, parsed: { feature: 'plane', rotationAxes: { ref: 'frame' } } });
+    const computed = await parseFeatureStatement(`${planeEditBase}\nplane('xy', { rotateY: 30, rotationAxes: tilted ? 'world' : 'local' })\n`, 7);
+    expect(computed).toMatchObject({ ok: true, parsed: { rotationAxes: { expr: "tilted ? 'world' : 'local'" } } });
+    const literal = await parseFeatureStatement(`${planeEditBase}\nplane('xy', { rotateY: 30, rotationAxes: 'sideways' })\n`, 7);
+    expect(literal).toMatchObject({ ok: false, reason: expect.stringContaining("'local' or 'world'") });
   });
 
   it('reads two bases as a mid plane', async () => {
@@ -10205,10 +10244,12 @@ describe('parseFeatureStatement — color', () => {
     });
   });
 
-  it('refuses a colour that is not a plain string', async () => {
+  // A colour named by a variable opens in the dialog as its expression — the
+  // value row shows it, with the colour it comes to when the scope says.
+  it('reads a colour that is not a plain string as its expression', async () => {
     const code = `${colorEditBase}\nconst tint = 'red'\ncolor(tint, e)\n`;
     const result = await parseFeatureStatement(code, 8);
-    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('not a plain string') });
+    expect(result).toMatchObject({ ok: true, parsed: { value: { expr: 'tint' }, targetTexts: ['e'] } });
   });
 });
 
@@ -10278,5 +10319,271 @@ describe('applyFeatureEdit (color in-place statement edit)', () => {
       parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
     }));
     expect(result.error).toContain('malformed color edit spec');
+  });
+});
+
+describe('text and colour slots — the dialogs\' typed-in rows take expressions', () => {
+  // Every typed-in row of the text dialog — the string, the font, the
+  // weight, the flags, the alignment, the numbers — reads a statement's
+  // expression as the text it has, keeps it verbatim through an edit of
+  // another row, writes a typed one bare, and writes a literal as before;
+  // what a value comes to is the build's to check, not the parse's to
+  // refuse. The structural shapes the dialog cannot carry still refuse.
+  it('reads an expression in every text slot, and a bare flag as true', async () => {
+    const code = `${textEditBase}\n  text(\`\${label}-\${n}\`, p.arc).font(family).size(h * 2).weight(w).italic(flag).align(a).lineSpacing(ls).letterSpacing(-gap).offset(off).startAt(s).flip()\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'text', text: { expr: '`${label}-${n}`' }, font: { expr: 'family' }, size: 'h * 2',
+        weight: { expr: 'w' }, italic: { expr: 'flag' }, align: { expr: 'a' }, lineSpacing: 'ls',
+        letterSpacing: '-gap', offset: 'off', startAt: 's', flip: true, pathText: 'p.arc',
+      },
+    });
+  });
+
+  it('reads a weight name and a numeric weight as literals, and leaves an alignment expression to the build on a path-less statement', async () => {
+    const code = `${textEditBase}\n  text("Hi").weight('black').align(a)\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: true, parsed: { weight: 900, align: { expr: 'a' } } });
+  });
+
+  it('keeps a template-string text verbatim through an edit of another row', async () => {
+    const code = `${textEditBase}\n  text(\`\${label}-\${n}\`).size(12)\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: textEditOptions({ text: { expr: '`${label}-${n}`' }, size: 14 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${textEditBase}\n  text(\`\${label}-\${n}\`).size(14)\n})\n`);
+  });
+
+  it('writes typed expressions bare in every slot — .weight(<expr>), never .bold(); .italic(<expr>), never bare', async () => {
+    const code = `${textEditBase}\n  text("Hi", p.arc).bold()\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: textEditOptions({
+        text: { expr: 'label' }, font: { expr: 'family' }, size: 'h * 2', weight: { expr: 'bold ? 700 : 400' },
+        italic: { expr: 'flag' }, align: { expr: 'a' }, lineSpacing: 'ls', letterSpacing: 'gap',
+        offset: 'off', startAt: 's', flip: { expr: '!outside' },
+      }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `  text(label, p.arc).font(family).size(h * 2).weight(bold ? 700 : 400).italic(flag).align(a).lineSpacing(ls).letterSpacing(gap).offset(off).startAt(s).flip(!outside)\n`,
+    );
+  });
+
+  it('still writes the literals as before: 700 as .bold(), true as .italic(), the defaults as no chain', async () => {
+    const code = `${textEditBase}\n  text(label).size(h)\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: textEditOptions({ text: 'Hi', size: 10, weight: 700, italic: true }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  text("Hi").bold().italic()\n`);
+  });
+
+  it('refuses a typed expression no argument can carry, in any slot', async () => {
+    const code = `${textEditBase}\n  text("Hi")\n})\n`;
+    for (const text of [
+      textEditOptions({ text: { expr: 'a, b' } }),
+      textEditOptions({ weight: { expr: 'a b' } }),
+      textEditOptions({ italic: { expr: '' } }),
+      textEditOptions({ size: 'x = 3' }),
+    ]) {
+      const result = await applyFeatureEdit(code, editSpec('text', { line: 4, column: 2, text }));
+      expect(result.error).toBe('malformed text edit spec');
+      expect(result.newCode).toBe(code);
+    }
+  });
+
+  it('still refuses the shapes the dialog cannot carry', async () => {
+    const refusals: [string, string][] = [
+      [`text(...parts)`, 'the dialog can carry'],
+      [`text("Hi", p, q)`, 'more arguments'],
+      [`text("Hi").size(1, 2)`, '.size()'],
+      [`text("Hi").size(0)`, '.size()'],
+      [`text("Hi").weight(350)`, '.weight()'],
+      [`text("Hi").weight(w).bold()`, '.weight() and .bold()'],
+      [`text("Hi").italic(a, b)`, '.italic()'],
+      [`text("Hi").align('space-between')`, '.align()'],
+      [`text("Hi").startAt(-1)`, '.startAt()'],
+    ];
+    for (const [statement, reason] of refusals) {
+      const result = await parseFeatureStatement(`${textEditBase}\n  ${statement}\n})\n`, 4);
+      expect(result, statement).toMatchObject({ ok: false, reason: expect.stringContaining(reason) });
+    }
+  });
+
+  // The colour's value row: an expression reads as the statement has it,
+  // stands through a target edit, writes bare when typed; a literal still
+  // normalizes and a value that is no colour still refuses.
+  it('keeps a colour expression verbatim through a target edit, and writes a typed one bare', async () => {
+    const code = `${colorEditBase}\ncolor(tint, e)\n`;
+    const kept = await applyFeatureEdit(code, editSpec('color', {
+      line: 7, column: 0,
+      color: { value: { expr: 'tint' }, targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }] },
+    }, {
+      producers: [{ line: 6, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(kept.error).toBeUndefined();
+    expect(kept.newCode).toContain(`color(tint, e, c)\n`);
+    const typed = await applyFeatureEdit(code, editSpec('color', {
+      line: 7, column: 0,
+      color: { value: { expr: "dark ? 'navy' : 'gold'" } },
+    }));
+    expect(typed.error).toBeUndefined();
+    expect(typed.newCode).toContain(`color(dark ? 'navy' : 'gold', e)\n`);
+  });
+
+  it('still normalizes a literal colour, and refuses a bad expression or a value that is no colour', async () => {
+    const code = `${colorEditBase}\ncolor(tint, e)\n`;
+    const literal = await applyFeatureEdit(code, editSpec('color', { line: 7, column: 0, color: { value: '#FF6347' } }));
+    expect(literal.error).toBeUndefined();
+    expect(literal.newCode).toContain(`color('#ff6347', e)\n`);
+    for (const value of [{ expr: 'a, b' }, { expr: '  ' }, 'notacolour']) {
+      const result = await applyFeatureEdit(code, editSpec('color', { line: 7, column: 0, color: { value } }));
+      expect(result.error).toBe('malformed color edit spec');
+    }
+  });
+
+  it('creates a colour statement with an expression for its value', async () => {
+    const code = `${colorEditBase}\n`;
+    const result = await applyFeatureEdit(code, {
+      feature: 'color',
+      color: { value: { expr: 'tint' }, targets: [{ producer: 0 }] },
+      filePath: '/ws/model.fluid.js',
+      producers: [{ line: 4, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+      parts: [],
+      imports: [],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`color(tint, e)`);
+  });
+});
+
+// The repeat's and copy's Centered box and the shell's join dropdown are
+// typed-in slots like the extrude's drill: a statement computing the value
+// opens in the dialog with the expression, an edit of another row writes it
+// back as it was (whatever its text — two lines included), a typed
+// expression replaces it bare, a literal writes as before (the default
+// eliding the option only as a literal), typed text is checked as a number
+// row's expression is, and the structural refusals stay.
+describe('centered and join slots as expressions', () => {
+  it('reads a repeat computing its centered flag, keeps it through an edit, and writes a typed one bare', async () => {
+    const code = `${repeatEditBase}\nrepeat('linear', 'x', { count: 3, offset: 40, centered: flag }, e)\n`;
+    const read = await parseFeatureStatement(code, 7);
+    expect(read).toMatchObject({ ok: true, parsed: { feature: 'repeat', kind: 'linear', centered: { expr: 'flag' } } });
+
+    const edit = (centered: BooleanSlot | undefined, source = code, count = 3) => applyFeatureEdit(source, editSpec('repeat', {
+      line: 7, column: 0,
+      repeat: {
+        kind: 'linear', spacingMode: 'offset', centered,
+        directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count, value: 40 }],
+      },
+    }));
+    const kept = await edit({ expr: 'flag' }, code, 5);
+    expect(kept.error).toBeUndefined();
+    expect(kept.newCode).toContain(`repeat('linear', 'x', { count: 5, offset: 40, centered: flag }, e)`);
+    const typed = await edit({ expr: 'count > 2 && !flag' });
+    expect(typed.newCode).toContain(`{ count: 3, offset: 40, centered: count > 2 && !flag }`);
+    const ticked = await edit(true);
+    expect(ticked.newCode).toContain(`{ count: 3, offset: 40, centered: true }`);
+    const cleared = await edit(undefined);
+    expect(cleared.newCode).toContain(`repeat('linear', 'x', { count: 3, offset: 40 }, e)`);
+    const off = await edit(false);
+    expect(off.newCode).toContain(`repeat('linear', 'x', { count: 3, offset: 40 }, e)`);
+    // Only the literal default is elided — an expression may come to anything.
+    const spelledOff = await edit({ expr: 'false' });
+    expect(spelledOff.newCode).toContain(`{ count: 3, offset: 40, centered: false }`);
+    const bad = await edit({ expr: 'a, b' });
+    expect(bad.error).toBeTruthy();
+
+    const twoLines = `${repeatEditBase}\nrepeat('linear', 'x', { count: 3, offset: 40, centered: flag\n  && wide }, e)\n`;
+    expect(await parseFeatureStatement(twoLines, 7)).toMatchObject({ ok: true, parsed: { centered: { expr: 'flag\n  && wide' } } });
+    const keptLines = await edit({ expr: 'flag\n  && wide' }, twoLines);
+    expect(keptLines.error).toBeUndefined();
+    expect(keptLines.newCode).toContain(`centered: flag\n  && wide }`);
+    const spread = await parseFeatureStatement(`${repeatEditBase}\nrepeat('linear', 'x', { count: 3, offset: 40, centered: ...flags }, e)\n`, 7);
+    expect(spread).toMatchObject({ ok: false });
+  });
+
+  it('reads a copy computing its centered flag, keeps it through an edit, and writes a typed one bare', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40, centered: flag, skip: [[1]] }, e)\n`;
+    const read = await parseFeatureStatement(code, 7);
+    expect(read).toMatchObject({ ok: true, parsed: { feature: 'copy', kind: 'linear', centered: { expr: 'flag' }, skip: [[1]] } });
+
+    const edit = (centered: BooleanSlot | undefined, source = code) => applyFeatureEdit(source, editSpec('copy', {
+      line: 7, column: 0,
+      copy: {
+        kind: 'linear', spacingMode: 'offset', centered, skip: [[1]],
+        directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 3, value: 40 }],
+      },
+    }));
+    const kept = await edit({ expr: 'flag' });
+    expect(kept.error).toBeUndefined();
+    expect(kept.newCode).toContain(`copy('linear', 'x', { count: 3, offset: 40, centered: flag, skip: [[1]] }, e)`);
+    const typed = await edit({ expr: '!flag' });
+    expect(typed.newCode).toContain(`{ count: 3, offset: 40, centered: !flag, skip: [[1]] }`);
+    const ticked = await edit(true);
+    expect(ticked.newCode).toContain(`{ count: 3, offset: 40, centered: true, skip: [[1]] }`);
+    const cleared = await edit(undefined);
+    expect(cleared.newCode).toContain(`{ count: 3, offset: 40, skip: [[1]] }`);
+    const bad = await edit({ expr: 'a, b' });
+    expect(bad.error).toBeTruthy();
+    const twoLines = `${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40, centered: flag\n  && wide }, e)\n`;
+    const keptLines = await edit({ expr: 'flag\n  && wide' }, twoLines);
+    expect(keptLines.error).toBeUndefined();
+    expect(keptLines.newCode).toContain(`centered: flag\n  && wide, skip: [[1]] }`);
+    expect(await parseFeatureStatement(`${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40, centered: ...flags }, e)\n`, 7)).toMatchObject({ ok: false });
+  });
+
+  it('reads the count, offset, length, angle and rotate angle of a repeat and a copy as expression text', async () => {
+    const linear = await parseFeatureStatement(`${repeatEditBase}\nrepeat('linear', ['x', 'y'], { count: [n, n + 1], length: span / 2 }, e)\n`, 7);
+    expect(linear).toMatchObject({
+      ok: true,
+      parsed: { directions: [{ count: 'n', value: 'span / 2' }, { count: 'n + 1', value: 'span / 2' }], spacingMode: 'length' },
+    });
+    const circular = await parseFeatureStatement(`${copyEditBase}\ncopy('circular', 'z', { count: n, offset: 360 / n }, e)\n`, 7);
+    expect(circular).toMatchObject({ ok: true, parsed: { count: 'n', sweep: { mode: 'offset', value: '360 / n' } } });
+    const copied = await parseFeatureStatement(`${copyEditBase}\ncopy('linear', 'x', { count: n * 2, offset: gap }, e)\n`, 7);
+    expect(copied).toMatchObject({ ok: true, parsed: { directions: [{ count: 'n * 2', value: 'gap' }] } });
+    // A rotate's angle is positional: an arithmetic expression reads as the
+    // angle, a bare unknown name as a target (the revolve rule).
+    const rotated = await parseFeatureStatement(`${repeatEditBase}\nrepeat('rotate', 'z', 360 / n, e)\n`, 7);
+    expect(rotated).toMatchObject({ ok: true, parsed: { angle: '360 / n', targetTexts: ['e'] } });
+  });
+
+  it('reads a shell computing its join, keeps it through an edit, and writes a typed one bare', async () => {
+    const code = `${editBase}\nshell(-2, e.endFaces()).join(sharp ? 'intersection' : 'arc')\n`;
+    const edit = (joinType: FeatureStatementEditTarget['shell'] extends infer S | undefined ? NonNullable<S>['joinType'] : never, source = code, value = -2) =>
+      applyFeatureEdit(source, editSpec('shell', { line: 4, column: 0, shell: { joinType } }, { value }));
+    const kept = await edit({ expr: "sharp ? 'intersection' : 'arc'" }, code, -3);
+    expect(kept.error).toBeUndefined();
+    expect(kept.newCode).toContain(`shell(-3, e.endFaces()).join(sharp ? 'intersection' : 'arc')`);
+    const typed = await edit({ expr: 'join' });
+    expect(typed.newCode).toContain(`shell(-2, e.endFaces()).join(join)`);
+    const named = await edit({ ref: 'mode' });
+    expect(named.newCode).toContain(`shell(-2, e.endFaces()).join(mode)`);
+    const literal = await edit('tangent');
+    expect(literal.newCode).toContain(`shell(-2, e.endFaces()).join('tangent')`);
+    const defaulted = await edit('arc');
+    expect(defaulted.newCode).toContain(`shell(-2, e.endFaces())\n`);
+    // Only the literal default drops the chain — an expression may come to anything.
+    const spelledDefault = await edit({ expr: "'arc'" });
+    expect(spelledDefault.newCode).toContain(`shell(-2, e.endFaces()).join('arc')`);
+    const bad = await edit({ expr: 'a, b' });
+    expect(bad.error).toBeTruthy();
+    const unknown = await edit('bevel' as never);
+    expect(unknown.error).toBeTruthy();
+    // An edit without shell options keeps the statement's own expression, two lines and all.
+    const twoLines = `${editBase}\nshell(-2, e.endFaces()).join(sharp\n  ? 'intersection' : 'arc')\n`;
+    expect(await parseFeatureStatement(twoLines, 4)).toMatchObject({ ok: true, parsed: { joinType: { expr: "sharp\n  ? 'intersection' : 'arc'" } } });
+    const valueOnly = await applyFeatureEdit(twoLines, editSpec('shell', { line: 4, column: 0 }, { value: -3 }));
+    expect(valueOnly.error).toBeUndefined();
+    expect(valueOnly.newCode).toContain(`shell(-3, e.endFaces()).join(sharp\n  ? 'intersection' : 'arc')`);
+    expect(await parseFeatureStatement(`${editBase}\nshell(-2, e.endFaces()).join(...modes)\n`, 4)).toMatchObject({ ok: false });
+    expect(await parseFeatureStatement(`${editBase}\nshell(-2, e.endFaces()).join('arc', 1)\n`, 4)).toMatchObject({ ok: false });
   });
 });

@@ -2,11 +2,20 @@ import { PanelShell, ChoiceTabs } from '../create-feature/panel-controls';
 import { sceneUnit } from '../../units/scene-unit';
 import { applyUnitTitles } from '../../units/apply-unit-defaults';
 import { EntitySlotControl } from '../create-feature/entity-slot';
-import { getFontFamilies, TextAlignOption, TextOptionValues } from '../../api';
+import { FlagControl, SelectControl, TabsControl, TextControl, type OptionLabel } from '../create-feature/expression-rows';
+import {
+  getFontFamilies, FeatureExprValue, FeatureRefValue, NewVariable, TextAlignOption, TextAlignValue, TextOptionValues,
+  TextPreviewOptions, ValueExpr,
+} from '../../api';
+import { ExpressionField, collectNewVariables, type ExpressionFieldResult } from '../../ui/expression-field';
+import { resolveExpressionValue, type VariableInfo } from '../../ui/expression-core';
 import { iconUrl } from '../../ui/icon-url';
 
 /** The Distribute row's choices: off = the Align tabs stand. */
 type TextDistributeOption = 'off' | 'space-between' | 'space-around';
+
+/** What the dialog reads: the statement's options, with the declarations its number fields committed. */
+export type TextPanelValues = TextOptionValues & { newVariables?: NewVariable[] };
 
 const WEIGHT_CHOICES: { value: number; label: string }[] = [
   { value: 100, label: 'Thin' },
@@ -20,6 +29,63 @@ const WEIGHT_CHOICES: { value: number; label: string }[] = [
   { value: 900, label: 'Black' },
 ];
 
+/** The alignments the align row's expression may come to, as its note names them. */
+const ALIGN_CHOICES: readonly OptionLabel<TextAlignValue>[] = [
+  { value: 'left', label: 'Left' },
+  { value: 'center', label: 'Center' },
+  { value: 'right', label: 'Right' },
+  { value: 'space-between', label: 'Between' },
+  { value: 'space-around', label: 'Around' },
+];
+
+/** A choice slot's seed for a control with one expression mode: a variable's `{ ref }` opens as the expression of its name. */
+function seedOf<T>(value: T | FeatureRefValue | FeatureExprValue): T | FeatureExprValue {
+  if (typeof value === 'object' && value !== null && 'ref' in value) {
+    return { expr: (value as FeatureRefValue).ref };
+  }
+  return value as T | FeatureExprValue;
+}
+
+/** A number field's refusal, spelled out after the row's own message — unless the field is merely empty. */
+function detail(read: ExpressionFieldResult): string {
+  return 'error' in read && read.error !== 'empty' ? ` ${read.error}.` : '';
+}
+
+/**
+ * The Align and Distribute tab rows as the one choice the align slot is: a
+ * distribution chosen in path mode overrides Align (as the statement's
+ * `.align('space-between')` does), else the Align tab stands. The align
+ * row's expression mode stands on this pair, so one expression covers both.
+ */
+class AlignmentTabs {
+  onChange?: () => void;
+
+  constructor(
+    private readonly align: ChoiceTabs<TextAlignOption>,
+    private readonly distribute: ChoiceTabs<TextDistributeOption>,
+    private readonly pathMode: () => boolean,
+  ) {
+    align.onChange = () => this.onChange?.();
+    distribute.onChange = () => this.onChange?.();
+  }
+
+  /** The alignment the rows stand on; the distribution only counts while a path is selected. */
+  get value(): TextAlignValue {
+    const distribute = this.pathMode() ? this.distribute.value : 'off';
+    return distribute === 'off' ? this.align.value : distribute;
+  }
+
+  setValue(value: TextAlignValue): void {
+    if (value === 'space-between' || value === 'space-around') {
+      this.distribute.setValue(value);
+      this.align.setValue('left');
+    } else {
+      this.distribute.setValue('off');
+      this.align.setValue(value);
+    }
+  }
+}
+
 /**
  * The Text tool's options dialog: the string, typeface (family / weight /
  * italic), size, alignment and spacing controls behind `text()`'s chain
@@ -27,6 +93,14 @@ const WEIGHT_CHOICES: { value: number; label: string }[] = [
  * form state — the tool owns the anchor point, the viewport preview, the
  * path pick and the insert. Every edit fires `onChange`, which the tool
  * answers with a fresh outline preview, so changes render live.
+ *
+ * Every typed-in row takes an expression in place of its literal: the
+ * numbers through their expression fields (a bare name, `cap * 2`), the
+ * string, the font, the weight, the flags and the alignment under their ƒ
+ * toggles (`` `rib-${n}` ``, `bold ? 700 : 400`). A statement holding one
+ * opens the row in that mode with what the expression comes to beside it;
+ * the dialog writes the expression back as it stands, and the outline
+ * preview draws from what the rows resolve to — nothing, while one cannot.
  */
 export class TextPanel {
   onChange?: () => void;
@@ -43,20 +117,24 @@ export class TextPanel {
 
   private shell: PanelShell;
   private textInput: HTMLTextAreaElement;
+  private textControl: TextControl;
   private fontSelect: HTMLSelectElement;
-  private sizeInput: HTMLInputElement;
+  private fontControl: SelectControl<string>;
+  private sizeField: ExpressionField;
   private weightSelect: HTMLSelectElement;
-  private italicToggle: HTMLInputElement;
+  private weightControl: SelectControl<string>;
+  private italicControl: FlagControl;
   private alignTabs: ChoiceTabs<TextAlignOption>;
-  private lineSpacingInput: HTMLInputElement;
-  private letterSpacingInput: HTMLInputElement;
+  private alignControl: TabsControl<TextAlignValue>;
+  private lineSpacingField: ExpressionField;
+  private letterSpacingField: ExpressionField;
   private applyBtn: HTMLButtonElement;
   /** The path-only controls (`.offset()`, `.startAt()`, `.flip()`), shown
    * under the path slot while a path is selected. */
   private pathOptions: HTMLDivElement;
-  private pathOffsetInput: HTMLInputElement;
-  private startAtInput: HTMLInputElement;
-  private flipToggle: HTMLInputElement;
+  private pathOffsetField: ExpressionField;
+  private startAtField: ExpressionField;
+  private flipControl: FlagControl;
   /** The Distribute row beside Align, path mode only; ≠ off grays Align. */
   private distributeRow: HTMLDivElement;
   private distributeTabs: ChoiceTabs<TextDistributeOption>;
@@ -65,6 +143,8 @@ export class TextPanel {
   private pathMode = false;
   /** Family chosen before the font list arrived; applied by setFonts. */
   private pendingFont: string | null = null;
+  /** The variables in scope, as last pushed — the number rows resolve their expressions by them. */
+  private variables: VariableInfo[] = [];
 
   constructor(container: HTMLElement) {
     // A sketch tool's dialog: the sketch toolbar's Escape exits the tool.
@@ -78,7 +158,7 @@ export class TextPanel {
       </label>
       <div data-role="path-slot"></div>
       <div data-role="path-options" class="hidden flex-col gap-3.5">
-        <div class="flex items-center gap-1.5">
+        <div class="flex items-start gap-1.5">
           <label class="flex flex-col gap-1.5 flex-1 min-w-0" data-unit-title="Shift off the path in {unit}; negative moves to the other side">
             <span class="text-base-content/70">Offset</span>
             <input data-role="path-offset" type="number" step="0.5" value="0"
@@ -102,7 +182,7 @@ export class TextPanel {
           <option value="">Default</option>
         </select>
       </label>
-      <div class="flex items-center gap-1.5">
+      <div class="flex items-start gap-1.5">
         <label class="flex flex-col gap-1.5 flex-1 min-w-0">
           <span class="text-base-content/70">Size</span>
           <input data-role="size" type="number" step="1" min="0.1" value="10"
@@ -119,14 +199,16 @@ export class TextPanel {
       </label>
       <div class="flex flex-col gap-1.5">
         <span class="text-base-content/70">Align</span>
-        <div data-role="align" class="join w-full"></div>
+        <div data-role="align-host" class="flex flex-col gap-3.5">
+          <div data-role="align" class="join w-full"></div>
+          <div data-role="distribute-row" class="hidden flex-col gap-1.5"
+            title="Spread the glyphs across the whole path; overrides Align">
+            <span class="text-base-content/70">Distribute</span>
+            <div data-role="distribute" class="join w-full"></div>
+          </div>
+        </div>
       </div>
-      <div data-role="distribute-row" class="hidden flex-col gap-1.5"
-        title="Spread the glyphs across the whole path; overrides Align">
-        <span class="text-base-content/70">Distribute</span>
-        <div data-role="distribute" class="join w-full"></div>
-      </div>
-      <div class="flex items-center gap-1.5">
+      <div class="flex items-start gap-1.5">
         <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="Multiplier on the font's natural line height">
           <span class="text-base-content/70">Line spacing</span>
           <input data-role="line-spacing" type="number" step="0.1" min="0.1" value="1"
@@ -150,16 +232,9 @@ export class TextPanel {
     );
     this.textInput = this.shell.body.querySelector('[data-role="text"]')!;
     this.fontSelect = this.shell.body.querySelector('[data-role="font"]')!;
-    this.sizeInput = this.shell.body.querySelector('[data-role="size"]')!;
     this.weightSelect = this.shell.body.querySelector('[data-role="weight"]')!;
-    this.italicToggle = this.shell.body.querySelector('[data-role="italic"]')!;
-    this.lineSpacingInput = this.shell.body.querySelector('[data-role="line-spacing"]')!;
-    this.letterSpacingInput = this.shell.body.querySelector('[data-role="letter-spacing"]')!;
     this.applyBtn = this.shell.footer.querySelector('[data-role="apply"]')!;
     this.pathOptions = this.shell.body.querySelector('[data-role="path-options"]')!;
-    this.pathOffsetInput = this.shell.body.querySelector('[data-role="path-offset"]')!;
-    this.startAtInput = this.shell.body.querySelector('[data-role="path-start-at"]')!;
-    this.flipToggle = this.shell.body.querySelector('[data-role="path-flip"]')!;
     this.distributeRow = this.shell.body.querySelector('[data-role="distribute-row"]')!;
     this.alignJoin = this.shell.body.querySelector('[data-role="align"]')!;
     applyUnitTitles(this.shell.body);
@@ -182,7 +257,6 @@ export class TextPanel {
       ],
       'left',
     );
-    this.alignTabs.onChange = () => this.onChange?.();
 
     this.distributeTabs = new ChoiceTabs<TextDistributeOption>(
       this.shell.body.querySelector('[data-role="distribute"]')!,
@@ -193,30 +267,44 @@ export class TextPanel {
       ],
       'off',
     );
-    this.distributeTabs.onChange = () => {
+
+    // The typed-in rows and their ƒ modes: each statement slot one control,
+    // reading a literal or `{ expr }`; the number rows are expression fields.
+    this.textControl = new TextControl(this.textInput, this.labelOf(this.textInput), { name: 'text', label: 'Text' });
+    this.fontControl = new SelectControl<string>(this.fontSelect, this.labelOf(this.fontSelect), { name: 'font', label: 'Font' });
+    this.weightControl = new SelectControl<string>(
+      this.weightSelect, this.labelOf(this.weightSelect), { name: 'weight', label: 'Weight', numeric: true },
+    );
+    this.italicControl = new FlagControl(this.shell.body.querySelector('[data-role="italic"]')!, { name: 'italic', label: 'Italic' });
+    this.flipControl = new FlagControl(this.shell.body.querySelector('[data-role="path-flip"]')!, { name: 'flip', label: 'Flip' });
+    const alignHost = this.shell.body.querySelector<HTMLElement>('[data-role="align-host"]')!;
+    this.alignControl = new TabsControl<TextAlignValue>(
+      new AlignmentTabs(this.alignTabs, this.distributeTabs, () => this.pathMode),
+      alignHost,
+      alignHost.parentElement!.querySelector('span')!,
+      ALIGN_CHOICES,
+      { name: 'align', label: 'Align' },
+    );
+    for (const control of [this.textControl, this.fontControl, this.weightControl, this.italicControl, this.flipControl]) {
+      control.onChange = () => this.onChange?.();
+      control.onSubmit = () => this.onApply?.();
+    }
+    this.alignControl.onChange = () => {
       this.syncAlignEnabled();
       this.onChange?.();
     };
-
-    this.textInput.addEventListener('input', () => this.onChange?.());
-    for (const input of [this.sizeInput, this.lineSpacingInput, this.letterSpacingInput,
-      this.pathOffsetInput, this.startAtInput]) {
-      input.addEventListener('input', () => this.onChange?.());
-    }
-    for (const select of [this.fontSelect, this.weightSelect]) {
-      select.addEventListener('change', () => this.onChange?.());
-    }
-    this.italicToggle.addEventListener('change', () => this.onChange?.());
-    this.flipToggle.addEventListener('change', () => this.onChange?.());
+    this.alignControl.onSubmit = () => this.onApply?.();
+    this.sizeField = this.enhance('size');
+    this.lineSpacingField = this.enhance('line-spacing');
+    this.letterSpacingField = this.enhance('letter-spacing');
+    this.pathOffsetField = this.enhance('path-offset');
+    this.startAtField = this.enhance('path-start-at');
 
     // Typing in the dialog must not trigger the single-letter tool shortcuts
-    // (window-level). Enter in a single-line field applies; the textarea
-    // keeps Enter for new lines. Escape passes through to the shell's handler.
-    const fields: HTMLElement[] = [
-      this.textInput, this.fontSelect, this.sizeInput, this.weightSelect,
-      this.lineSpacingInput, this.letterSpacingInput,
-      this.pathOffsetInput, this.startAtInput,
-    ];
+    // (window-level). Enter in a select applies; the textarea keeps Enter for
+    // new lines. Escape passes through to the shell's handler. The expression
+    // fields own their inputs' keys the same way.
+    const fields: HTMLElement[] = [this.textInput, this.fontSelect, this.weightSelect];
     for (const field of fields) {
       field.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
@@ -245,6 +333,11 @@ export class TextPanel {
     return TextPanel.fontFamiliesPromise;
   }
 
+  /** Whether a text slot is the one string the statement refuses: a blank literal. An expression is the build's to judge. */
+  static blankText(text: string | FeatureExprValue): boolean {
+    return typeof text === 'string' && text.trim() === '';
+  }
+
   get isVisible(): boolean {
     return this.shell.isVisible;
   }
@@ -271,6 +364,17 @@ export class TextPanel {
     this.syncAlignEnabled();
   }
 
+  /** The variables the rows' expressions complete and resolve over (the number fields' dropdowns included). */
+  setScopeVariables(variables: VariableInfo[]): void {
+    this.variables = variables;
+    for (const field of [this.sizeField, this.lineSpacingField, this.letterSpacingField, this.pathOffsetField, this.startAtField]) {
+      field.setVariables(variables);
+    }
+    for (const control of [this.textControl, this.fontControl, this.weightControl, this.italicControl, this.flipControl, this.alignControl]) {
+      control.setVariables(variables);
+    }
+  }
+
   /** A distribution overrides Align — gray the tabs while one is chosen. */
   private syncAlignEnabled(): void {
     const overridden = this.pathMode && this.distributeTabs.value !== 'off';
@@ -278,34 +382,35 @@ export class TextPanel {
     this.alignJoin.classList.toggle('pointer-events-none', overridden);
   }
 
-  /** Programmatic option values (edit-mode prefill); no change event fires. */
+  /** Programmatic option values (edit-mode prefill); no change event fires. An expression opens its row in expression mode. */
   setValues(values: TextOptionValues): void {
-    this.textInput.value = values.text;
-    this.sizeInput.value = String(values.size);
-    if (values.font && ![...this.fontSelect.options].some(o => o.value === values.font)) {
-      // Not offered (yet): add it so the choice sticks — setFonts dedupes
-      // when the real list arrives.
-      const option = document.createElement('option');
-      option.value = values.font;
-      option.textContent = values.font;
-      this.fontSelect.insertBefore(option, this.fontSelect.options[1] ?? null);
-    }
-    this.fontSelect.value = values.font ?? '';
-    this.pendingFont = values.font;
-    this.weightSelect.value = String(values.weight);
-    this.italicToggle.checked = values.italic;
-    if (values.align === 'space-between' || values.align === 'space-around') {
-      this.distributeTabs.setValue(values.align);
-      this.alignTabs.setValue('left');
+    this.textControl.setValue(values.text);
+    this.sizeField.setValue(values.size);
+    const font = values.font ?? '';
+    if (typeof font === 'string') {
+      if (font && ![...this.fontSelect.options].some(o => o.value === font)) {
+        // Not offered (yet): add it so the choice sticks — setFonts dedupes
+        // when the real list arrives.
+        const option = document.createElement('option');
+        option.value = font;
+        option.textContent = font;
+        this.fontSelect.insertBefore(option, this.fontSelect.options[1] ?? null);
+      }
+      this.fontControl.setValue(font);
+      this.pendingFont = font || null;
     } else {
-      this.distributeTabs.setValue('off');
-      this.alignTabs.setValue(values.align);
+      this.fontControl.setValue(font);
+      this.pendingFont = null;
     }
-    this.lineSpacingInput.value = String(values.lineSpacing);
-    this.letterSpacingInput.value = String(values.letterSpacing);
-    this.pathOffsetInput.value = String(values.offset);
-    this.startAtInput.value = String(values.startAt);
-    this.flipToggle.checked = values.flip;
+    const weight = seedOf<number>(values.weight);
+    this.weightControl.setValue(typeof weight === 'number' ? String(weight) : weight);
+    this.italicControl.setValue(values.italic);
+    this.alignControl.setValue(seedOf(values.align));
+    this.lineSpacingField.setValue(values.lineSpacing);
+    this.letterSpacingField.setValue(values.letterSpacing);
+    this.pathOffsetField.setValue(values.offset);
+    this.startAtField.setValue(values.startAt);
+    this.flipControl.setValue(values.flip);
     this.syncAlignEnabled();
   }
 
@@ -322,6 +427,12 @@ export class TextPanel {
   }
 
   destroy(): void {
+    for (const field of [this.sizeField, this.lineSpacingField, this.letterSpacingField, this.pathOffsetField, this.startAtField]) {
+      field.destroy();
+    }
+    for (const control of [this.textControl, this.fontControl, this.weightControl, this.italicControl, this.flipControl, this.alignControl]) {
+      control.destroy();
+    }
     this.shell.destroy();
   }
 
@@ -350,6 +461,9 @@ export class TextPanel {
       this.fontSelect.value = current;
     }
     this.pendingFont = null;
+    // An expression in the font row describes what it comes to against the
+    // list: a family the machine lacks is its warning, not a refusal.
+    this.fontControl.setVariables(this.variables);
   }
 
   setPreview(statement: string | null): void {
@@ -364,50 +478,153 @@ export class TextPanel {
     this.applyBtn.disabled = !enabled;
   }
 
-  /** Validated form values, or the message to show for an invalid field. */
-  values(): TextOptionValues | { error: string } {
-    const size = parseFloat(this.sizeInput.value);
-    if (!Number.isFinite(size) || size <= 0) {
-      return { error: 'Enter a positive text size.' };
+  /** Validated form values, or the message to show for an invalid field. A row in expression mode reads its `{ expr }`, or a bare expression for a number. */
+  values(): TextPanelValues | { error: string } {
+    const text = this.textControl.read();
+    if ('error' in text) {
+      return text;
     }
-    const lineSpacing = parseFloat(this.lineSpacingInput.value);
-    if (!Number.isFinite(lineSpacing) || lineSpacing <= 0) {
-      return { error: 'Enter a positive line spacing factor.' };
+    const size = this.sizeField.read();
+    if ('error' in size || (typeof size.value === 'number' && size.value <= 0)) {
+      return { error: `Enter a positive text size.${detail(size)}` };
     }
-    const letterSpacing = parseFloat(this.letterSpacingInput.value);
-    if (!Number.isFinite(letterSpacing)) {
-      return { error: `Enter a letter spacing in ${sceneUnit.current}.` };
+    const lineSpacing = this.lineSpacingField.read();
+    if ('error' in lineSpacing || (typeof lineSpacing.value === 'number' && lineSpacing.value <= 0)) {
+      return { error: `Enter a positive line spacing factor.${detail(lineSpacing)}` };
+    }
+    const letterSpacing = this.letterSpacingField.read();
+    if ('error' in letterSpacing) {
+      return { error: `Enter a letter spacing in ${sceneUnit.current}.${detail(letterSpacing)}` };
+    }
+    const font = this.fontControl.read();
+    if ('error' in font) {
+      return font;
+    }
+    const weight = this.weightControl.read();
+    if ('error' in weight) {
+      return weight;
+    }
+    const italic = this.italicControl.read();
+    if ('error' in italic) {
+      return italic;
+    }
+    const align = this.alignControl.read();
+    if ('error' in align) {
+      return align;
     }
     // The path-only options read as their defaults while no path is
     // selected — an anchored statement renders no path chains, whatever the
     // hidden fields still hold from an earlier pick.
-    let offset = 0;
-    let startAt = 0;
-    let flip = false;
+    let offset: ValueExpr = 0;
+    let startAt: ValueExpr = 0;
+    let flip: boolean | FeatureExprValue = false;
+    const reads: ExpressionFieldResult[] = [size, lineSpacing, letterSpacing];
     if (this.pathMode) {
-      offset = parseFloat(this.pathOffsetInput.value);
-      if (!Number.isFinite(offset)) {
-        return { error: `Enter a path offset in ${sceneUnit.current}.` };
+      const offsetRead = this.pathOffsetField.read();
+      if ('error' in offsetRead) {
+        return { error: `Enter a path offset in ${sceneUnit.current}.${detail(offsetRead)}` };
       }
-      startAt = parseFloat(this.startAtInput.value);
-      if (!Number.isFinite(startAt) || startAt < 0) {
-        return { error: `Enter a non-negative start distance in ${sceneUnit.current}.` };
+      const startAtRead = this.startAtField.read();
+      if ('error' in startAtRead || (typeof startAtRead.value === 'number' && startAtRead.value < 0)) {
+        return { error: `Enter a non-negative start distance in ${sceneUnit.current}.${detail(startAtRead)}` };
       }
-      flip = this.flipToggle.checked;
+      const flipRead = this.flipControl.read();
+      if ('error' in flipRead) {
+        return flipRead;
+      }
+      offset = offsetRead.value;
+      startAt = startAtRead.value;
+      flip = flipRead.value;
+      reads.push(offsetRead, startAtRead);
     }
-    const distribute = this.pathMode ? this.distributeTabs.value : 'off';
     return {
-      text: this.textInput.value,
-      size,
-      font: this.fontSelect.value || null,
-      weight: parseInt(this.weightSelect.value, 10) || 400,
-      italic: this.italicToggle.checked,
-      align: distribute === 'off' ? this.alignTabs.value : distribute,
-      lineSpacing,
-      letterSpacing,
+      text: text.value,
+      size: size.value,
+      font: font.value === '' ? null : font.value,
+      weight: typeof weight.value === 'string' ? parseInt(weight.value, 10) || 400 : weight.value,
+      italic: italic.value,
+      align: align.value,
+      lineSpacing: lineSpacing.value,
+      letterSpacing: letterSpacing.value,
       offset,
       startAt,
       flip,
+      newVariables: collectNewVariables(reads.map(read => 'error' in read ? null : read)),
     };
+  }
+
+  /**
+   * The text and options as the layout preview takes them: every row's
+   * literal, or what its expression comes to over the variables in scope.
+   * Null while a row cannot be resolved — there is no outline to draw for
+   * a text the dialog cannot spell, and the statement preview stands alone.
+   */
+  previewOptions(): { text: string; options: TextPreviewOptions } | null {
+    const text = this.textControl.text;
+    const size = this.resolveNumber(this.sizeField);
+    // A font expression lays out in the family it names whether or not the
+    // list offers it — the list is a warning there, the registry the judge.
+    const fontLiteral = this.fontControl.on ? this.fontControl.mode.value() : this.fontSelect.value;
+    const font = typeof fontLiteral === 'string' ? fontLiteral : undefined;
+    const weight = this.weightControl.value;
+    const italic = this.italicControl.checked;
+    const align = this.alignControl.value;
+    const lineSpacing = this.resolveNumber(this.lineSpacingField);
+    const letterSpacing = this.resolveNumber(this.letterSpacingField);
+    let offset: number | null = 0;
+    let startAt: number | null = 0;
+    let flip: boolean | undefined = false;
+    if (this.pathMode) {
+      offset = this.resolveNumber(this.pathOffsetField);
+      startAt = this.resolveNumber(this.startAtField);
+      flip = this.flipControl.checked;
+    }
+    if (text === undefined || size === null || font === undefined || weight === undefined || italic === undefined
+      || align === undefined || lineSpacing === null || letterSpacing === null || offset === null || startAt === null
+      || flip === undefined) {
+      return null;
+    }
+    return {
+      text,
+      options: {
+        size,
+        font: font === '' ? null : font,
+        weight: parseInt(weight, 10) || 400,
+        italic,
+        align,
+        lineSpacing,
+        letterSpacing,
+        offset,
+        startAt,
+        flip,
+      },
+    };
+  }
+
+  /** A number field's literal, or what its expression comes to by the variables in scope; null while it cannot be told. */
+  private resolveNumber(field: ExpressionField): number | null {
+    const read = field.read();
+    if ('error' in read) {
+      return null;
+    }
+    return typeof read.value === 'number' ? read.value : resolveExpressionValue(read.value, this.variables);
+  }
+
+  /** The label text (its `<span>`) of the row a control sits in — where the ƒ toggle goes. */
+  private labelOf(control: HTMLElement): HTMLElement {
+    return control.closest('label')!.querySelector('span')!;
+  }
+
+  /**
+   * Wrap a number input in an ExpressionField wired to the panel: Enter
+   * applies, typing fires change, and the field owns the input's keyboard
+   * handling (variable dropdown, type="text" for identifiers).
+   */
+  private enhance(role: string): ExpressionField {
+    const input = this.shell.body.querySelector<HTMLInputElement>(`[data-role="${role}"]`)!;
+    const field = new ExpressionField(input);
+    field.onSubmit = () => this.onApply?.();
+    input.addEventListener('input', () => this.onChange?.());
+    return field;
   }
 }

@@ -27,6 +27,7 @@ import {
   SelectionScene,
   SynthesizeOptions,
   nameHintFor,
+  connectorRotateActive,
   renderConnectorAdjustments,
   renderConnectorAnchorSuffix,
 } from "./types.js";
@@ -307,11 +308,9 @@ export function synthesizeApplyFeature(
       const name = value as string;
       const connectorOpts = options.connector;
       const rotate = connectorOpts?.rotate;
-      const rotateActive = rotate !== undefined
-        && Number.isFinite(rotate.angle) && rotate.angle % 360 !== 0;
       const adjustments = {
         ...(connectorOpts?.anchor ? { anchor: connectorOpts.anchor } : {}),
-        ...(rotateActive ? { rotate: { axis: rotate!.axis, angle: rotate!.angle } } : {}),
+        ...(connectorRotateActive(rotate) ? { rotate: { axis: rotate.axis, angle: rotate.angle } } : {}),
         ...(connectorOpts?.offset && connectorOpts.offset.some(v => v !== 0)
           ? { offset: connectorOpts.offset } : {}),
       };

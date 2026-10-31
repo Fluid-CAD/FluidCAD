@@ -7,6 +7,8 @@ import {
   makeProducerNamer,
   resolveParamValues,
   validValueExpr,
+  ValueSlots,
+  type LoftConditionSpec,
   type LoftConnectionSpec,
   type LoftPointSpec,
   type ValueExpr,
@@ -21,7 +23,8 @@ import { validateThinOffsets } from './common.ts';
 /** Ordered loft profile inputs: sketches and picked faces, mixed freely. */
 type LoftProfileInput = ({ kind: 'sketch' } & SketchLoc) | { kind: 'face'; pick: Pick };
 
-type LoftCondition = { type: 'normal' | 'tangent'; magnitude: ValueExpr };
+/** One takeoff condition as the dialog sends it: the type a literal or an expression, the magnitude a value. */
+type LoftCondition = LoftConditionSpec;
 
 type LoftRequest = {
   op: 'add' | 'remove' | 'new';
@@ -206,13 +209,15 @@ export function validateLoftCondition(
     return { condition: null };
   }
   const { type, magnitude } = raw as { type?: unknown; magnitude?: unknown };
-  if (type !== 'normal' && type !== 'tangent') {
-    return { error: `${which} type must be "normal" or "tangent"` };
+  // The type is a typed-in slot: a literal of the two, or an expression the
+  // transform checks against the statement's own (never `validExpr` here).
+  if (!ValueSlots.shaped(type, literal => literal === 'normal' || literal === 'tangent')) {
+    return { error: `${which} type must be "normal", "tangent" or an expression` };
   }
   if (!validValueExpr(magnitude, { nonzero: true })) {
     return { error: `${which} magnitude must be a nonzero number or expression` };
   }
-  return { condition: { type, magnitude } };
+  return { condition: { type: type as LoftCondition['type'], magnitude } };
 }
 
 /**

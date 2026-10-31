@@ -15,6 +15,7 @@ import { isPlaneProducer, isWireProducer } from '../producers/predicates.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
 import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
+import { ValueSlots, type ChoiceSlot } from '../value-slots.ts';
 
 /**
  * One base of a plane statement: a standard origin plane (renders as its
@@ -50,10 +51,11 @@ export type PlaneValueOptions = {
   rotateZ: ValueExpr | null;
   /**
    * The axes the rotations turn around: the plane's own (`local`, the
-   * default when absent) or the fixed world axes (`world`). Renders only
-   * beside a rotation — alone it changes nothing.
+   * default when absent) or the fixed world axes (`world`) — or the
+   * expression the statement computes the name with. Renders only beside a
+   * rotation — alone it changes nothing.
    */
-  rotationAxes?: PlaneRotationAxes;
+  rotationAxes?: ChoiceSlot<PlaneRotationAxes>;
   /** Normalized 0–1 position along the edge (edge type only). */
   position?: ValueExpr | null;
 };
@@ -61,9 +63,21 @@ export type PlaneValueOptions = {
 /** The axes a plane's rotations turn around — the kernel's `PlaneRotationAxes`. */
 export type PlaneRotationAxes = 'local' | 'world';
 
-/** An absent `rotationAxes` reads as `local`; anything else must be one of the two names. */
-export function validPlaneRotationAxes(value: unknown): value is PlaneRotationAxes | undefined {
-  return value === undefined || value === 'local' || value === 'world';
+/** The two names a plane's `rotationAxes` takes. */
+export const PLANE_ROTATION_AXES: readonly PlaneRotationAxes[] = ['local', 'world'];
+
+/**
+ * An absent `rotationAxes` reads as `local`; anything else must be one of
+ * the two names, or an expression under {@link ValueSlots.validChoice}
+ * (`kept` being the statement's own).
+ */
+export function validPlaneRotationAxes(value: unknown, kept?: ReadonlySet<string>): value is ChoiceSlot<PlaneRotationAxes> | undefined {
+  return value === undefined || ValueSlots.validChoice(value, PLANE_ROTATION_AXES, kept);
+}
+
+/** Whether a `rotationAxes` slot is the literal default, `local` — the one value the statement leaves unwritten. */
+export function isLocalAxes(value: ChoiceSlot<PlaneRotationAxes> | undefined): boolean {
+  return value === undefined || ValueSlots.literal(value) === 'local';
 }
 
 /**
@@ -118,9 +132,10 @@ export function renderPlaneStatement(pl: PlaneValueOptions, baseExprs: string[])
       entries.push(`${key}: ${formatValue(value)}`);
     }
   }
-  // The axes only mean something beside a rotation; `local` is the default.
-  if (hasRotation && pl.rotationAxes === 'world') {
-    entries.push(`rotationAxes: 'world'`);
+  // The axes only mean something beside a rotation; the literal `local` is
+  // the default and stays unwritten — an expression is always written.
+  if (hasRotation && !isLocalAxes(pl.rotationAxes)) {
+    entries.push(`rotationAxes: ${ValueSlots.source(pl.rotationAxes!, axes => `'${axes}'`)}`);
   }
   let optionsArg = '';
   if (entries.length > 0) {
@@ -330,15 +345,17 @@ export function parsePlaneChain(
   }
   const values: Record<(typeof PLANE_NUMERIC_MEMBERS)[number], ValueExpr | null> =
     { offset: value, rotateX: null, rotateY: null, rotateZ: null };
-  let axes: PlaneRotationAxes = 'local';
+  let axes: ChoiceSlot<PlaneRotationAxes> = 'local';
   for (const [name, node] of options) {
     const member = PLANE_OPTION_MEMBERS.find(m => m === name);
     if (!member) {
       return { error: `the plane options include ${name}, which the dialog cannot edit — edit the statement in the source` };
     }
     if (member === 'rotationAxes') {
-      const read = stringArgValue(node);
-      if (read !== 'local' && read !== 'world') {
+      // A literal must be one of the two names — the tabs have nothing to
+      // show for another; an expression is carried as it is.
+      const read = ValueSlots.choice(node, PLANE_ROTATION_AXES);
+      if (read === null) {
         return { error: "the plane rotationAxes is not 'local' or 'world' — edit the statement in the source" };
       }
       axes = read;
@@ -383,9 +400,12 @@ export function renderEditedPlane(
   varFor: (producer: number) => string | null,
 ): { statement: string } | { error: string } {
   const opts = spec.edit?.plane;
+  // The expressions the statement already holds: an axes row left alone
+  // sends its own back, which the write takes whatever the text.
+  const kept = ValueSlots.kept(parsed);
   if (!opts || (opts.type !== 'offset' && opts.type !== 'mid' && opts.type !== 'edge')
     || ![opts.offset, opts.rotateX, opts.rotateY, opts.rotateZ].every(v => v === null || validValueExpr(v))
-    || !validPlaneRotationAxes(opts.rotationAxes)) {
+    || !validPlaneRotationAxes(opts.rotationAxes, kept)) {
     return { error: 'malformed plane edit spec' };
   }
   if (opts.type === 'edge') {
@@ -393,7 +413,7 @@ export function renderEditedPlane(
       || (typeof opts.position === 'number' && (opts.position < 0 || opts.position > 1))) {
       return { error: 'an edge plane takes a position between 0 (start) and 1 (end)' };
     }
-    if ([opts.offset, opts.rotateX, opts.rotateY, opts.rotateZ].some(v => v !== null) || opts.rotationAxes === 'world') {
+    if ([opts.offset, opts.rotateX, opts.rotateY, opts.rotateZ].some(v => v !== null) || !isLocalAxes(opts.rotationAxes)) {
       return { error: 'an edge plane takes a position only — no offset or rotation' };
     }
   } else if (opts.position !== null && opts.position !== undefined) {

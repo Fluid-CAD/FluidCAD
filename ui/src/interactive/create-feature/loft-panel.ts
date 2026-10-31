@@ -1,5 +1,6 @@
 import { LoftConditionRef, NewVariable, ValueExpr } from '../../api';
 import { FeatureOp, OpTabs, ThinControl } from './panel-controls';
+import { choiceSeed, SelectControl } from './expression-rows';
 import { FeaturePanel } from './feature-panel';
 import { ScopeSlotControl } from './scope-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
@@ -18,23 +19,29 @@ export type LoftValues =
     }
   | { error: string };
 
+/** What a condition row's type select offers: the kernel's two takeoffs, or none. */
+type ConditionChoice = 'none' | 'normal' | 'tangent';
+
 /**
  * One takeoff-condition row (start or end): the type select plus a magnitude
  * field shown only while a condition is set. 'none' means "write no chain" —
- * it never reaches the statement.
+ * it never reaches the statement as a literal. The select takes an
+ * expression under its ƒ (`.startCondition(smooth ? 'tangent' : 'normal',
+ * 1)`), named `start-type`/`end-type`; one that comes to `'none'` previews
+ * as no condition, and the magnitude stays in reach while the mode is on.
  */
 class ConditionRow {
   onChange?: () => void;
   onSubmit?: () => void;
 
-  private select: HTMLSelectElement;
+  private type: SelectControl<ConditionChoice>;
   private magnitude: HTMLInputElement;
   private field: ExpressionField;
 
   constructor(host: HTMLElement, label: string, title: string, private which: string) {
     host.className = 'flex flex-col gap-1.5';
     host.innerHTML = `
-      <span class="text-base-content/70">${label}</span>
+      <span data-role="label" class="text-base-content/70">${label}</span>
       <div class="flex items-center gap-1.5">
         <select data-role="type" class="select select-sm select-bordered flex-1 text-xs" title="${title}">
           <option value="none">None</option>
@@ -46,12 +53,17 @@ class ConditionRow {
           class="input input-sm input-bordered w-16 text-xs hidden" />
       </div>
     `;
-    this.select = host.querySelector('[data-role="type"]')!;
+    this.type = new SelectControl(
+      host.querySelector('[data-role="type"]')!,
+      host.querySelector('[data-role="label"]')!,
+      { name: `${which}-type`, label },
+    );
     this.magnitude = host.querySelector('[data-role="magnitude"]')!;
-    this.select.addEventListener('change', () => {
+    this.type.onChange = () => {
       this.sync();
       this.onChange?.();
-    });
+    };
+    this.type.onSubmit = () => this.onSubmit?.();
     // The field owns the magnitude input's keyboard handling (variable
     // dropdown, Enter-to-apply) and flips it to type="text" for identifiers.
     this.field = new ExpressionField(this.magnitude);
@@ -59,39 +71,44 @@ class ConditionRow {
     this.magnitude.addEventListener('input', () => this.onChange?.());
   }
 
-  /** The variables the magnitude field's dropdown offers. */
+  /** The variables the magnitude field's dropdown offers, and the type's expression resolves over. */
   setVariables(variables: VariableInfo[]): void {
     this.field.setVariables(variables);
+    this.type.setVariables(variables);
   }
 
   reset(): void {
-    this.select.value = 'none';
+    this.type.setValue('none');
     this.field.setValue(1);
     this.sync();
   }
 
-  /** Programmatic condition (edit-mode prefill); no change event fires. */
+  /** Programmatic condition (edit-mode prefill); no change event fires. A type held as a reference or an expression opens the select in expression mode. */
   set(condition: LoftConditionRef | null): void {
-    this.select.value = condition ? condition.type : 'none';
+    this.type.setValue(condition ? choiceSeed(condition.type) : 'none');
     this.field.setValue(condition ? condition.magnitude : 1);
     this.sync();
   }
 
   /** The condition to write, null for none, or the blocking message. */
   values(): { condition: LoftConditionRef | null; newVariable?: NewVariable } | { error: string } {
-    const type = this.select.value;
-    if (type !== 'normal' && type !== 'tangent') {
+    const type = this.type.read();
+    if ('error' in type) {
+      return type;
+    }
+    if (type.value === 'none') {
       return { condition: null };
     }
     const read = this.field.read();
     if ('error' in read || (typeof read.value === 'number' && read.value === 0)) {
       return { error: `Enter a nonzero magnitude for the ${this.which} condition.` };
     }
-    return { condition: { type, magnitude: read.value }, newVariable: read.newVariable };
+    return { condition: { type: type.value, magnitude: read.value }, newVariable: read.newVariable };
   }
 
+  /** The magnitude shows while a condition is chosen — and while an expression stands in for the choice, whatever it comes to. */
   private sync(): void {
-    this.magnitude.classList.toggle('hidden', this.select.value === 'none');
+    this.magnitude.classList.toggle('hidden', !this.type.on && this.type.value === 'none');
   }
 }
 

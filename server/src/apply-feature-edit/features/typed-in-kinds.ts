@@ -1,8 +1,9 @@
 // Typed-in kinds: the one table of a custom feature's typed-in types — checked, written, read back, previewed.
 
 import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
-import { anyValueArg, booleanArgValue, listArgValue, numericArgValue, refArgValue, stringArgValue } from '../ast/args.ts';
-import { exprShaped, formatValue, refShaped, validExpr, validRef, validValueExpr, type ExprValue, type RefValue, type ValueExpr } from '../value-expr.ts';
+import { anyValueArg, listArgValue, refArgValue } from '../ast/args.ts';
+import { formatValue, validExpr, validRef, validValueExpr, type ExprValue, type RefValue, type ValueExpr } from '../value-expr.ts';
+import { ValueSlots } from '../value-slots.ts';
 import type { CustomValueSource } from './custom.ts';
 
 /**
@@ -57,8 +58,9 @@ export type TypedInKind = {
   /**
    * A statement's argument as the dialog's value: its literal, a choice's
    * reference, or — for every kind but a number's — the expression as
-   * written. Null for a number's slot holding what is provably no number (a
-   * selection, `draft(sel)`'s angle).
+   * written, each read through {@link ValueSlots} as a built-in dialog's
+   * slot is. Null for a number's slot holding what is provably no number (a
+   * selection, `draft(sel)`'s angle), and for a spread.
    */
   read(node: TSNode, bindings: LexicalBindings): TypedInValue | null;
 };
@@ -89,7 +91,7 @@ export class TypedInKinds {
     preview: (spec, raw) => TypedInKinds.isExpr(raw)
       ? TypedInKinds.exprPreview(spec, raw)
       : typeof raw === 'boolean' ? null : `${spec.label} must be true or false`,
-    read: node => booleanArgValue(node) ?? TypedInKinds.exprRead(node),
+    read: node => ValueSlots.boolean(node),
   };
 
   /**
@@ -106,7 +108,7 @@ export class TypedInKinds {
     preview: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.noRef(spec)
       : TypedInKinds.isExpr(raw) ? TypedInKinds.exprPreview(spec, raw)
         : typeof raw === 'string' ? null : `${spec.label} must be text`,
-    read: node => stringArgValue(node) ?? TypedInKinds.exprRead(node),
+    read: node => ValueSlots.text(node),
   };
 
   /**
@@ -124,7 +126,7 @@ export class TypedInKinds {
     preview: (spec, raw) => TypedInKinds.isRef(raw) ? TypedInKinds.refPreview(spec, raw)
       : TypedInKinds.isExpr(raw) ? TypedInKinds.exprPreview(spec, raw)
         : typeof raw === 'string' || typeof raw === 'number' ? null : `${spec.label} must be one of its options`,
-    read: node => TypedInKinds.refRead(node) ?? stringArgValue(node) ?? numericArgValue(node) ?? TypedInKinds.exprRead(node),
+    read: node => ValueSlots.choice(node),
   };
 
   /**
@@ -144,7 +146,7 @@ export class TypedInKinds {
         : Array.isArray(raw) && raw.every(entry => typeof entry === 'string' || typeof entry === 'number')
           ? null
           : `${spec.label} must be a list of its options`,
-    read: node => TypedInKinds.refRead(node) ?? listArgValue(node) ?? TypedInKinds.exprRead(node),
+    read: node => refArgValue(node) ?? listArgValue(node) ?? ValueSlots.expr(node),
   };
 
   private static readonly KINDS: Readonly<Record<string, TypedInKind>> = {
@@ -215,18 +217,17 @@ export class TypedInKinds {
 
   /** Whether a request's value is a reference's shape, `{ ref: string }` — well formed or not. */
   static isRef(value: unknown): value is TypedInRef {
-    return refShaped(value);
+    return ValueSlots.isRef(value);
   }
 
   /** Whether a request's value is an expression's shape, `{ expr: string }` — well formed or not. */
   static isExpr(value: unknown): value is TypedInExpr {
-    return exprShaped(value);
+    return ValueSlots.isExpr(value);
   }
 
   /** The text an expression holds, trimmed, or null for a blank one. */
   static exprText(value: TypedInExpr): string | null {
-    const text = value.expr.trim();
-    return text === '' ? null : text;
+    return ValueSlots.exprText(value);
   }
 
   /**
@@ -264,16 +265,6 @@ export class TypedInKinds {
     return TypedInKinds.refText(raw) === null ? `${spec.label} must name a variable` : null;
   }
 
-  /**
-   * A statement's argument as the reference it names — `refArgValue`'s
-   * shapes: an identifier, or a member expression of identifiers and
-   * property names. A call, an index, `this`, an optional chain: null — the
-   * kind then reads the node as a literal, and fails.
-   */
-  private static refRead(node: TSNode): TypedInRef | null {
-    return refArgValue(node);
-  }
-
   /** The refusal of a reference on a kind that takes none. */
   private static noRef(spec: TypedInSpec): string {
     return `${spec.label} is text, which takes no variable`;
@@ -293,11 +284,6 @@ export class TypedInKinds {
   /** A preview's expression: fine when it holds text (the scope evaluates it, and the kind checks what comes out), refused when blank. */
   private static exprPreview(spec: TypedInSpec, raw: TypedInExpr): string | null {
     return TypedInKinds.exprText(raw) === null ? `${spec.label} must be an expression` : null;
-  }
-
-  /** A statement's argument as the expression it is, whatever it is: the dialog shows it, keeps it, and writes it back as it was. */
-  private static exprRead(node: TSNode): TypedInExpr {
-    return { expr: node.text };
   }
 
   /** One of the declared options, found by its value: a number written as one, a string as a literal. */

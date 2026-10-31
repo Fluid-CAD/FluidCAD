@@ -1746,8 +1746,8 @@ export class FluidCadServer {
       params?: { name: string; value: number }[];
       connector?: {
         anchor?: { kind: string; mode?: string; value?: number };
-        rotate?: { axis: 'x' | 'y' | 'z'; angle: number };
-        offset?: [number, number, number];
+        rotate?: { axis: 'x' | 'y' | 'z' | { expr: string } | { ref: string }; angle: number | string };
+        offset?: [number | string, number | string, number | string];
         instance?: { instanceId: string };
       };
     },

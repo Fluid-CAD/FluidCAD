@@ -1,8 +1,8 @@
-import type { FeatureExprValue } from '../../../api';
-import { ParameterRows } from '../../../ui/controls';
-import type { VariableInfo, VariableLiteral } from '../../../ui/expression-core';
-import { ExpressionField } from '../../../ui/expression-field';
-import { LiteralExpressions } from '../../../ui/literal-expressions';
+import type { FeatureExprValue } from '../../api';
+import { ParameterRows } from '../../ui/controls';
+import type { VariableInfo, VariableLiteral } from '../../ui/expression-core';
+import { ExpressionField } from '../../ui/expression-field';
+import { LiteralExpressions } from '../../ui/literal-expressions';
 
 /** What a row says of the literal its expression resolves to: the text to show muted, or under a warning when no value of the row's takes it. */
 export type ExpressionShown = { text: string; warning?: string };

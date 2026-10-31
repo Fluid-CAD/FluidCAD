@@ -22,6 +22,7 @@ vi.mock('../src/api', async (importOriginal) => ({
   applyCopy: vi.fn(async () => ({ success: true, preview: 'copy(…)' })),
   applyCopyEdit: vi.fn(async () => ({ success: true, preview: 'copy(…)' })),
   applyRepeat: vi.fn(async () => ({ success: true, preview: 'repeat(…)' })),
+  applyRepeatEdit: vi.fn(async () => ({ success: true, preview: 'repeat(…)' })),
   rollback: vi.fn(),
   clearBreakpoints: vi.fn(),
 }));
@@ -843,5 +844,76 @@ describe('Copy dialog — Along a repeat', () => {
     expect(options).toMatchObject({
       kind: 'pattern', pattern: { kind: 'keep' }, targets: [{ kind: 'verbatim', sourceIndex: 0 }],
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The Centered row as an expression: a linear copy or repeat whose statement
+// holds `centered: flag` opens the row in expression mode, and the service
+// passes the expression through — to the ghost body and to the apply payload
+// — unchanged, for the server to resolve and to write back bare.
+
+describe('Copy and Repeat dialogs — a centered expression', () => {
+  /** A linear pattern along the world X axis, the centered slot as the statement holds it. */
+  const linearEdit = (centered: boolean | { expr: string }) => ({
+    kind: 'linear' as const, axisTexts: ["'x'"], axisRefs: [null], directions: [{ count: 3, value: 20 }],
+    spacingMode: 'offset' as const, centered, count: null, sweep: null,
+  });
+
+  it('a copy carries its centered expression to the ghost and to the edit payload as it was', async () => {
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: [], frames: [], notice: null });
+    const { service, container } = mountCopy();
+    const target = at(10, 2);
+    service.enterEdit(target, {
+      feature: 'copy', ...linearEdit({ expr: 'flag' }), center: null, skip: null,
+      targetTexts: ['bolt'], targetRefs: [{ line: 6, column: 15 }],
+    }, { index: 7, type: 'copy-linear', expectedStatement: "copy('linear', 'x', { count: 3, offset: 20, centered: flag }, bolt)" });
+    expect(container.querySelector<HTMLButtonElement>('[data-role="expression-centered"]')!.getAttribute('aria-pressed')).toBe('true');
+    const edited = {
+      id: 'edited', type: 'copy-linear', name: 'Copy', parentId: 'part', visible: true, hideChildren: true,
+      sceneShapes: [], ownShapes: [], sourceLocation: target,
+    } as SceneObjectRender;
+    service.handleSceneRendered([...flangeScene(), edited], 6, true);
+    await vi.runAllTimersAsync();
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)?.[0]).toMatchObject({
+      feature: 'copy', kind: 'linear', centered: { expr: 'flag' },
+    });
+
+    container.querySelector<HTMLButtonElement>('[data-role="apply"]')!.click();
+    await vi.runAllTimersAsync();
+    const [edit, options] = vi.mocked(api.applyCopyEdit).mock.calls.find(([, o]) => !o.preview)!;
+    expect(edit).toEqual(target);
+    expect(options).toMatchObject({ kind: 'linear', centered: { expr: 'flag' }, expectedStatement: expect.any(String) });
+    service.exit();
+  });
+
+  it('a repeat carries its centered expression to the ghost and to the edit payload as it was', async () => {
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: [], frames: [], notice: null });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const { viewer } = stubViewer();
+    const service = new RepeatFeatureService(container, viewer, new Navbar(container), {});
+    service.update(flangeScene());
+    const target = at(10, 2);
+    service.enterEdit(target, {
+      feature: 'repeat', ...linearEdit({ expr: 'count > 4' }), planeText: null, angle: null,
+      targetTexts: ['plate'], targetRefs: [{ line: 5, column: 12 }],
+    }, { index: 7, type: 'repeat-linear', expectedStatement: "repeat('linear', 'x', { count: 3, offset: 20, centered: count > 4 }, plate)" });
+    const edited = {
+      id: 'edited', type: 'repeat-linear', name: 'Repeat', parentId: 'part', visible: true, hideChildren: true,
+      sceneShapes: [], ownShapes: [], sourceLocation: target,
+    } as SceneObjectRender;
+    service.handleSceneRendered([...flangeScene(), edited], 6, true);
+    await vi.runAllTimersAsync();
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)?.[0]).toMatchObject({
+      feature: 'repeat', kind: 'linear', centered: { expr: 'count > 4' },
+    });
+
+    container.querySelector<HTMLButtonElement>('[data-role="apply"]')!.click();
+    await vi.runAllTimersAsync();
+    const [edit, options] = vi.mocked(api.applyRepeatEdit).mock.calls.find(([, o]) => !o.preview)!;
+    expect(edit).toEqual(target);
+    expect(options).toMatchObject({ kind: 'linear', centered: { expr: 'count > 4' } });
+    service.exit();
   });
 });

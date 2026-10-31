@@ -2,8 +2,6 @@
 
 import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
 import {
-  anyValueArg,
-  booleanArgValue,
   numericArrayValues,
   numericValueArg,
   objectLiteralEntries,
@@ -16,6 +14,7 @@ import { renderSelectorPartExpr } from '../render/selectors.ts';
 import { ConnectorAxisSpecs, type ConnectorAxisSpec } from './connector-axis.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
 import { formatValue, validCountValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
+import { ValueSlots, type BooleanSlot } from '../value-slots.ts';
 
 /**
  * One repeat axis: a standard world axis (renders as its string literal, no
@@ -93,8 +92,8 @@ export type RepeatEditOptions = {
   count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
   sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
-  /** Linear only: center the pattern on the original instance. */
-  centered?: boolean;
+  /** Linear only: center the pattern on the original instance — the flag, or an expression computing it (`centered: flag`). */
+  centered?: BooleanSlot;
   /** Rotate only: rotation angle in degrees; 90 renders no argument. */
   angle?: ValueExpr;
   /** The features being repeated, in argument order — bound producers. */
@@ -127,8 +126,10 @@ export function renderRepeatStatement(
       `count: ${single ? counts[0] : `[${counts.join(', ')}]`}`,
       `${rp.spacingMode}: ${single ? values[0] : `[${values.join(', ')}]`}`,
     ];
-    if (rp.centered) {
-      entries.push('centered: true');
+    // Only the literal default (off) is elided; an expression is always written.
+    const centered = rp.centered ?? false;
+    if (centered !== false) {
+      entries.push(`centered: ${ValueSlots.source(centered, String)}`);
     }
     args.push(`{ ${entries.join(', ')} }`);
   } else if (rp.kind === 'circular') {
@@ -192,9 +193,10 @@ export function renderRepeatPlaneExpr(
 /**
  * A `repeat('<kind>', …)` statement's dialog-editable reading. The kind must
  * be a plain string literal (the raw-matrix form has no dialog); axis, plane
- * and target expressions are preserved verbatim, numeric options must be
- * plain literals. A linear repeat reads its options object — count and
- * offset/length as scalars or matched-arity arrays (a scalar broadcasts
+ * and target expressions are preserved verbatim, numeric options are
+ * literals or expression text, the centered flag a literal or the
+ * expression computing it. A linear repeat reads its options object — count
+ * and offset/length as scalars or matched-arity arrays (a scalar broadcasts
  * across the directions, the kernel's own rule) — and refuses options the
  * dialog doesn't offer (`skip`). A rotate's non-numeric third argument reads
  * as a target, like revolve's variable angle.
@@ -220,7 +222,7 @@ export function parseRepeatChain(
     planeText: null as string | null,
     directions: null as { count: ValueExpr; value: ValueExpr }[] | null,
     spacingMode: null as 'offset' | 'length' | null,
-    centered: false,
+    centered: false as BooleanSlot,
     count: null as ValueExpr | null,
     sweep: null as { mode: 'angle' | 'offset'; value: ValueExpr } | null,
     angle: null as ValueExpr | null,
@@ -291,7 +293,7 @@ export function parseRepeatChain(
       }
     }
     const countNode = options.get('count');
-    const count = countNode ? anyValueArg(countNode) : null;
+    const count = countNode ? ValueSlots.number(countNode) : null;
     if (count === null) {
       return { error: 'the repeat count is not a plain number or expression — edit it in the source' };
     }
@@ -301,7 +303,7 @@ export function parseRepeatChain(
       return { error: 'a circular repeat takes exactly one of angle or offset — edit it in the source' };
     }
     const mode = angleNode !== undefined ? 'angle' as const : 'offset' as const;
-    const value = anyValueArg(angleNode ?? offsetNode!);
+    const value = ValueSlots.number(angleNode ?? offsetNode!);
     if (value === null) {
       return { error: `the repeat ${mode} is not a plain number or expression — edit it in the source` };
     }
@@ -324,7 +326,7 @@ export function parseRepeatChain(
   const countNode = options.get('count');
   const counts = countNode ? numericArrayValues(countNode) : null;
   if (counts === null) {
-    return { error: 'the repeat count is not a plain number — edit it in the source' };
+    return { error: 'the repeat count is not a plain number or expression — edit it in the source' };
   }
   const offsetNode = options.get('offset');
   const lengthNode = options.get('length');
@@ -334,7 +336,7 @@ export function parseRepeatChain(
   const spacingMode = offsetNode !== undefined ? 'offset' as const : 'length' as const;
   const values = numericArrayValues(offsetNode ?? lengthNode!);
   if (values === null) {
-    return { error: `the repeat ${spacingMode} is not a plain number — edit it in the source` };
+    return { error: `the repeat ${spacingMode} is not a plain number or expression — edit it in the source` };
   }
   // A scalar (or single-element array) broadcasts across the directions —
   // the kernel's `counts[i] ?? counts[0]` rule; other arities would leave
@@ -357,12 +359,13 @@ export function parseRepeatChain(
   if ('error' in dirValues) {
     return dirValues;
   }
-  let centered = false;
+  // `centered: flag` takes a literal or the expression computing it.
+  let centered: BooleanSlot = false;
   const centeredNode = options.get('centered');
   if (centeredNode !== undefined) {
-    const value = booleanArgValue(centeredNode);
+    const value = ValueSlots.boolean(centeredNode);
     if (value === null) {
-      return { error: 'the repeat centered flag is not a plain boolean — edit it in the source' };
+      return { error: 'the repeat centered flag is not one the dialog can carry — edit it in the source' };
     }
     centered = value;
   }
@@ -398,6 +401,9 @@ export function renderEditedRepeat(
     && opts.kind !== 'mirror' && opts.kind !== 'rotate')) {
     return { error: 'malformed repeat edit spec' };
   }
+  // The expressions the statement already holds: a Centered row left alone
+  // sends its own back, which the write takes whatever the text.
+  const kept = ValueSlots.kept(parsed);
   const usedParts = new Set<number>();
   const claimPart = (part: number): boolean => {
     if (!Number.isInteger(part) || part < 0 || part >= spec.parts.length || usedParts.has(part)) {
@@ -438,6 +444,7 @@ export function renderEditedRepeat(
   if (opts.kind === 'linear') {
     if (!Array.isArray(opts.directions) || opts.directions.length < 1
       || (opts.spacingMode !== 'offset' && opts.spacingMode !== 'length')
+      || (opts.centered !== undefined && !ValueSlots.validBoolean(opts.centered, kept))
       || !opts.directions.every(d => validCountValue(d?.count)
         && validValueExpr(d.value, { nonzero: true }))) {
       return { error: 'malformed repeat edit spec' };

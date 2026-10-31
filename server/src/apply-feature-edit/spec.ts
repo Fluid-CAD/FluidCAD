@@ -32,7 +32,7 @@ import type { AssemblyRelationEditSpec } from '../assembly-relation-edit.ts';
 import type { BooleanEditOptions, BooleanKind } from './features/boolean.ts';
 import type { ColorEditOptions } from './features/color.ts';
 import type { ChamferEditOptions } from './features/chamfer.ts';
-import type { ConnectorAnchorSpec, ConnectorEditOptions, ConnectorRotateAxis } from './features/connector.ts';
+import type { ConnectorAnchorSpec, ConnectorEditOptions, ConnectorOffsetSpec, ConnectorRotateSpec } from './features/connector.ts';
 import type { CopyEditAxis, CopyEditOptions, CopyEditPattern } from './features/copy.ts';
 import type { ExposeEditOptions, ForeignExposureRef } from './features/expose.ts';
 import type { ExtrudeEditOptions, ExtrudeTargetKind } from './features/extrude.ts';
@@ -60,7 +60,7 @@ import type { RevolveAxisSpec, RevolveEditOptions } from './features/revolve.ts'
 import type { RibEditOptions } from './features/rib.ts';
 import type { RotateEditAxis, RotateEditOptions } from './features/rotate.ts';
 import type { TranslateEditOptions, TranslationSpec } from './features/translate.ts';
-import type { ShellEditOptions, ShellJoinKind } from './features/shell.ts';
+import type { ShellEditOptions, ShellJoinSlot } from './features/shell.ts';
 import type { SweepEditOptions } from './features/sweep.ts';
 import type { TextStatementOptions } from './features/text.ts';
 import type { WrapEditOptions } from './features/wrap.ts';
@@ -68,6 +68,7 @@ import type { HoleFastenSpec, HolePlacementSpec, HoleValueOptions } from './feat
 import type { HoleEditOptions } from './features/hole.ts';
 import type { CustomFeatureOptions } from './features/custom.ts';
 import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
+import type { BooleanSlot, TextSlot } from './value-slots.ts';
 
 /**
  * Mirror of `lib/selection/types.ts` `ApplyFeatureEditSpec` — the wire
@@ -510,7 +511,8 @@ export type FeatureStatementEditTarget = {
     draft: ValueExpr | null;
     /** `.endOffset(value)` pull-back, or null for no chain. */
     endOffset: ValueExpr | null;
-    drill: boolean;
+    /** The drill flag, or an expression computing it (`drill(flag)`). */
+    drill: BooleanSlot;
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Re-sourced profile; absent keeps the statement's profile text. */
     profile?: EditSketchSource;
@@ -631,7 +633,8 @@ export type FeatureStatementEditTarget = {
     regionSketch?: { line: number; column: number };
   };
   shell?: {
-    joinType: ShellJoinKind;
+    /** The join kind, or an expression computing it (`.join(join)`). */
+    joinType: ShellJoinSlot;
   };
   /**
    * Chamfer second-value slot; absent keeps the statement's own second
@@ -647,8 +650,10 @@ export type FeatureStatementEditTarget = {
    */
   connector?: {
     name: string;
-    rotate: { axis: ConnectorRotateAxis; angle: number } | null;
-    offset: [number, number, number] | null;
+    /** The rotation: its axis a name or an expression, its angle a number or an expression; null drops the chain. */
+    rotate: ConnectorRotateSpec | null;
+    /** The offset, each component a number or an expression; null drops the chain. */
+    offset: ConnectorOffsetSpec | null;
     /**
      * The anchor a RE-PICKED source narrows to, rendered as the suffix on the
      * selector parts (the create path's contract — the parts carry the plain
@@ -745,8 +750,8 @@ export type FeatureStatementEditTarget = {
     directions?: { axis: RepeatEditAxis; count: ValueExpr; value: ValueExpr }[];
     /** Linear spacing semantics shared by every direction. */
     spacingMode?: 'offset' | 'length';
-    /** Linear only: center the pattern on the original instance. */
-    centered?: boolean;
+    /** Linear only: center the pattern on the original instance — the flag, or an expression computing it. */
+    centered?: BooleanSlot;
     /** The repeat axis (circular/rotate); linear carries axes per direction. */
     axis?: RepeatEditAxis;
     /** The mirror plane (mirror only). */
@@ -778,8 +783,8 @@ export type FeatureStatementEditTarget = {
     directions?: { axis: CopyEditAxis; count: ValueExpr; value: ValueExpr }[];
     /** Linear spacing semantics shared by every direction. */
     spacingMode?: 'offset' | 'length';
-    /** Linear only: center the pattern on the original instance. */
-    centered?: boolean;
+    /** Linear only: center the pattern on the original instance — the flag, or an expression computing it. */
+    centered?: BooleanSlot;
     /** The copy axis (circular); linear carries axes per direction. */
     axis?: CopyEditAxis;
     /**
@@ -832,6 +837,7 @@ export type FeatureStatementEditTarget = {
   split?: {
     /** The cut; `keep` re-emits the statement's own expression. */
     plane?: SplitEditPlane;
+    /** The pieces kept — a side, or an expression computing it (`{ keep: side }`). */
     keep: SplitEditOptions['keep'];
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];
@@ -889,7 +895,8 @@ export type FeatureStatementEditTarget = {
    * neither the statement's own arguments stand.
    */
   color?: {
-    value: string;
+    /** The CSS colour, or the expression computing it (`color(tint, e)`). */
+    value: TextSlot;
     targets?: RepeatEditTargetSource[];
   };
   /**

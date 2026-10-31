@@ -4,6 +4,7 @@ import type { Request, Response } from 'express';
 import {
   renderConnectorChain,
   validConnectorAnchor,
+  validConnectorOffset,
   validConnectorRotate,
   type ApplyFeatureEditSpec,
 } from '../../../apply-feature-edit/index.ts';
@@ -38,14 +39,15 @@ export async function handleConnector(ctx: ApplyFeatureRequestContext, req: Requ
     return;
   }
   const rotate = req.body?.rotate;
+  // A create has no statement to keep an expression from, so a computed
+  // axis, angle or offset is held to a number row's rules outright.
   if (!validConnectorRotate(rotate)) {
-    res.status(400).json({ error: "rotate must be { axis: 'x'|'y'|'z', angle } with a finite angle in degrees" });
+    res.status(400).json({ error: "rotate must be { axis: 'x'|'y'|'z' or an expression, angle } with a finite angle in degrees or an expression" });
     return;
   }
   const frameOffset = req.body?.offset;
-  if (frameOffset !== undefined
-    && !(Array.isArray(frameOffset) && frameOffset.length === 3 && frameOffset.every((v: unknown) => Number.isFinite(v)))) {
-    res.status(400).json({ error: 'offset must be [x, y, z] finite numbers' });
+  if (!validConnectorOffset(frameOffset)) {
+    res.status(400).json({ error: 'offset must be [x, y, z] finite numbers or expressions' });
     return;
   }
   try {

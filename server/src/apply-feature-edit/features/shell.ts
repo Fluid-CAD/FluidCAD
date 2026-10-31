@@ -1,6 +1,8 @@
 // shell(): option types and the .join() chain segment.
 
 import type { ChainSegment } from '../ast/chain.ts';
+import { numericArgValue, stringArgValue } from '../ast/args.ts';
+import { ValueSlots, type ChoiceSlot } from '../value-slots.ts';
 
 /**
  * Mirror of the kernel's `ShellJoinType` — how the inner-wall offset closes
@@ -8,45 +10,62 @@ import type { ChainSegment } from '../ast/chain.ts';
  */
 export type ShellJoinKind = 'arc' | 'intersection' | 'tangent';
 
+/** The join dropdown's slot: one of the kinds, a variable named in its place, or the expression computing it. */
+export type ShellJoinSlot = ChoiceSlot<ShellJoinKind>;
+
 /**
  * How a shell statement's join type is rendered: a `.join('<type>')` chain
  * after the selector arguments; 'arc' (the kernel default) renders none.
  */
 export type ShellEditOptions = {
-  joinType: ShellJoinKind;
+  /** The join kind, or an expression computing it — written bare, `.join(join)`. */
+  joinType: ShellJoinSlot;
 };
 
 /**
- * Render a shell's `.join('<type>')` chain; 'arc' (the kernel default) and
- * absence render nothing. Shared with the route's preview so the previewed
- * text is exactly what the transform writes.
+ * Render a shell's `.join(…)` chain; the literal 'arc' (the kernel default)
+ * and absence render nothing, an expression renders bare — only the literal
+ * default is elided, since an expression may come to anything. Shared with
+ * the route's preview so the previewed text is exactly what the transform
+ * writes.
  */
-export function renderShellJoinChain(joinType: ShellJoinKind | undefined): string {
-  if (!joinType || joinType === 'arc') {
+export function renderShellJoinChain(joinType: ShellJoinSlot | undefined): string {
+  if (!joinType || ValueSlots.literal(joinType) === 'arc') {
     return '';
   }
-  return `.join('${joinType}')`;
+  return `.join(${ValueSlots.source(joinType, type => `'${type}'`)})`;
 }
 
-export const SHELL_JOIN_KINDS = new Set<ShellJoinKind>(['arc', 'intersection', 'tangent']);
+export const SHELL_JOIN_KINDS: readonly ShellJoinKind[] = ['arc', 'intersection', 'tangent'];
+
+/** A join slot a dialog may write: one of the kinds, a reference, or an expression (the statement's own kept as it was). */
+export function validShellJoin(value: unknown, kept?: ReadonlySet<string>): value is ShellJoinSlot {
+  return ValueSlots.validChoice(value, SHELL_JOIN_KINDS, kept);
+}
 
 /**
- * A shell's `.join(…)` member: a plain 'arc' / 'intersection' / 'tangent'
- * string. Absence reads as 'arc' — the kernel default.
+ * A shell's `.join(…)` member: an 'arc' / 'intersection' / 'tangent'
+ * literal, a name standing for one, or the expression computing it.
+ * Absence reads as 'arc' — the kernel default. A literal that is none of
+ * the kinds is refused — the dropdown has nothing to show for it.
  */
 export function parseJoinSegment(
   seg: ChainSegment | undefined,
-): { joinType: ShellJoinKind } | { error: string } {
+): { joinType: ShellJoinSlot } | { error: string } {
   if (!seg) {
     return { joinType: 'arc' };
   }
   const typeNode = seg.args.length === 1 ? seg.args[0] : null;
-  if (!typeNode || typeNode.type !== 'string') {
-    return { error: 'the .join() type is not a plain string — edit it in the source' };
+  if (!typeNode) {
+    return { error: 'the .join() chain takes one argument — edit it in the source' };
   }
-  const type = typeNode.text.slice(1, -1) as ShellJoinKind;
-  if (!SHELL_JOIN_KINDS.has(type)) {
-    return { error: `the .join() type '${type}' is not one the dialog knows` };
+  const literal = stringArgValue(typeNode) ?? numericArgValue(typeNode);
+  if (literal !== null && !(SHELL_JOIN_KINDS as readonly (string | number)[]).includes(literal)) {
+    return { error: `the .join() type '${literal}' is not one the dialog knows` };
   }
-  return { joinType: type };
+  const joinType = ValueSlots.choice(typeNode, SHELL_JOIN_KINDS);
+  if (joinType === null) {
+    return { error: 'the .join() argument is not one the dialog can carry — edit it in the source' };
+  }
+  return { joinType };
 }

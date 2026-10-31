@@ -10,6 +10,7 @@ import { editSourceVar } from '../render/edit-sources.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
 import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
+import { ValueSlots, type ChoiceSlot } from '../value-slots.ts';
 
 /**
  * One profile of an edited loft, in argument order: an untouched profile by
@@ -66,13 +67,20 @@ export type LoftEditOptions = {
   scope?: number[];
 };
 
+/** The condition types a loft dialog's select offers; `'none'` is no condition and never travels as one. */
+export const LOFT_CONDITION_TYPES = ['normal', 'tangent'] as const;
+
+/** One of the loft's takeoff condition types — the kernel's names. */
+export type LoftConditionType = (typeof LOFT_CONDITION_TYPES)[number];
+
 /**
  * One rendered `.startCondition(…)`/`.endCondition(…)` chain. 'none' is
  * represented by absence — the API's 'none' merely clears a condition, so the
  * dialog never writes it. A magnitude of 1 (the API default) is omitted.
  */
 export type LoftConditionSpec = {
-  type: 'normal' | 'tangent';
+  /** The type, or the expression the statement computes it with (`.startCondition(smooth ? 'tangent' : 'normal')`). */
+  type: ChoiceSlot<LoftConditionType>;
   magnitude: ValueExpr;
 };
 
@@ -107,13 +115,15 @@ function renderConditionChain(method: string, condition: LoftConditionSpec | und
     return '';
   }
   const magnitude = condition.magnitude === 1 ? '' : `, ${formatValue(condition.magnitude)}`;
-  return `.${method}('${condition.type}'${magnitude})`;
+  return `.${method}(${ValueSlots.source(condition.type, type => `'${type}'`)}${magnitude})`;
 }
 
 /**
- * One `.startCondition(…)`/`.endCondition(…)` member: a plain 'normal' /
- * 'tangent' string plus an optional numeric magnitude (default 1). A 'none'
- * argument reads as no condition — the API's 'none' merely clears one.
+ * One `.startCondition(…)`/`.endCondition(…)` member: a 'normal' / 'tangent'
+ * string — or the expression computing one, which the dialog carries as it
+ * is — plus an optional numeric magnitude (default 1). A literal 'none'
+ * argument reads as no condition — the API's 'none' merely clears one; an
+ * expression that comes to 'none' is the preview's to read that way.
  */
 export function parseConditionSegment(
   seg: ChainSegment | undefined,
@@ -124,16 +134,12 @@ export function parseConditionSegment(
   if (seg.args.length < 1 || seg.args.length > 2) {
     return { error: `the .${seg.name}() chain has an argument shape the dialog cannot edit` };
   }
-  const typeNode = seg.args[0];
-  if (typeNode.type !== 'string') {
-    return { error: `the .${seg.name}() type is not a plain string — edit it in the source` };
+  const type = ValueSlots.choice(seg.args[0], ['none', ...LOFT_CONDITION_TYPES]);
+  if (type === null) {
+    return { error: `the .${seg.name}() type is not one the dialog knows — edit it in the source` };
   }
-  const type = typeNode.text.slice(1, -1);
   if (type === 'none') {
     return { condition: null };
-  }
-  if (type !== 'normal' && type !== 'tangent') {
-    return { error: `the .${seg.name}() type '${type}' is not one the dialog knows` };
   }
   let magnitude: ValueExpr = 1;
   if (seg.args.length === 2) {
@@ -146,9 +152,14 @@ export function parseConditionSegment(
   return { condition: { type, magnitude } };
 }
 
-export function validEditCondition(condition: LoftConditionSpec | undefined): boolean {
+/**
+ * A condition a dialog may write: absent, or one of the two types — a
+ * literal, or an expression under {@link ValueSlots.validChoice} (`kept`
+ * being the statement's own) — with a nonzero magnitude.
+ */
+export function validEditCondition(condition: LoftConditionSpec | undefined, kept?: ReadonlySet<string>): boolean {
   return condition === undefined
-    || ((condition.type === 'normal' || condition.type === 'tangent')
+    || (ValueSlots.validChoice(condition.type, LOFT_CONDITION_TYPES, kept)
       && validValueExpr(condition.magnitude, { nonzero: true }));
 }
 

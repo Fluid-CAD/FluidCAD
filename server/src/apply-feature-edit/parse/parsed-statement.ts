@@ -1,16 +1,18 @@
 // The parsed shape of an editable feature statement and the callees/chain members that make one.
 
 import type { BooleanKind } from '../features/boolean.ts';
-import type { ConnectorRotateAxis } from '../features/connector.ts';
+import type { ConnectorOffsetSpec, ConnectorRotateSpec } from '../features/connector.ts';
 import type { ExtrudeTargetKind } from '../features/extrude.ts';
 import type { LoftConditionSpec } from '../features/loft.ts';
 import type { ParsedPlaneBase, PlaneRotationAxes } from '../features/plane.ts';
 import type { ProjectionOp } from '../features/projection.ts';
-import type { ShellJoinKind } from '../features/shell.ts';
+import type { ShellJoinSlot } from '../features/shell.ts';
 import type { ParsedHole } from '../features/hole.ts';
 import type { ParsedCustomFeature } from '../features/custom.ts';
-import type { SplitKeep } from '../features/split.ts';
+import type { SplitKeepSlot } from '../features/split.ts';
+import type { TextAlignment } from '../features/text.ts';
 import type { RegionName, ValueExpr } from '../value-expr.ts';
+import type { BooleanSlot, ChoiceSlot, TextSlot } from '../value-slots.ts';
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
 export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split' | 'color';
@@ -55,7 +57,8 @@ export type ParsedFeatureStatement =
     draft: ValueExpr | null;
     /** `.endOffset(value)` pull-back, or null when the chain is absent. */
     endOffset: ValueExpr | null;
-    drill: boolean;
+    /** `.drill(flag)`: the flag, or the expression computing it; true when the chain is absent or bare. */
+    drill: BooleanSlot;
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
     profileText: string | null;
@@ -147,8 +150,8 @@ export type ParsedFeatureStatement =
     value: ValueExpr;
     /** Selector argument list after the value, verbatim (`''` when absent). */
     argsText: string;
-    /** `.join()` type; 'arc' (the kernel default) when the chain is absent. */
-    joinType: ShellJoinKind;
+    /** `.join()` type — a kind, or the expression computing it; 'arc' (the kernel default) when the chain is absent. */
+    joinType: ShellJoinSlot;
   }
   | {
     feature: 'fillet';
@@ -182,10 +185,10 @@ export type ParsedFeatureStatement =
      * dialog's source row shows and edits (`e.endFaces(0).center()`).
      */
     argsText: string;
-    /** `.rotate('<axis>', deg)`, or null when the chain is absent. */
-    rotate: { axis: ConnectorRotateAxis; angle: number } | null;
-    /** `.offset(x[, y, z])` with the omitted components read as 0; null when absent. */
-    offset: [number, number, number] | null;
+    /** `.rotate('<axis>', deg)` — the axis a name or the expression computing it, the angle a number or an expression; null when the chain is absent. */
+    rotate: ConnectorRotateSpec | null;
+    /** `.offset(x[, y, z])` with the omitted components read as 0, each a number or an expression; null when absent. */
+    offset: ConnectorOffsetSpec | null;
   }
   | {
     feature: 'chamfer';
@@ -210,19 +213,25 @@ export type ParsedFeatureStatement =
   }
   | {
     feature: 'text';
-    text: string;
-    size: number;
-    /** `.font()` family/file, or null when the chain is absent. */
-    font: string | null;
-    weight: number;
-    italic: boolean;
-    align: 'left' | 'center' | 'right' | 'space-between' | 'space-around';
-    lineSpacing: number;
-    letterSpacing: number;
-    /** The path-only chains; defaults when absent (0 / 0 / false). */
-    offset: number;
-    startAt: number;
-    flip: boolean;
+    /** The string, or the expression computing it (`` text(`rib-${n}`) ``). */
+    text: TextSlot;
+    /** `.size()` — a literal or bare expression text; 10 when the chain is absent. */
+    size: ValueExpr;
+    /** `.font()` family/file, or the expression naming it; null when the chain is absent. */
+    font: TextSlot | null;
+    /** `.weight()` in hundreds (700 for `.bold()`), or the expression computing it; 400 when absent. */
+    weight: ChoiceSlot<number>;
+    /** `.italic()` — true when bare, the flag or the expression given; false when absent. */
+    italic: BooleanSlot;
+    /** `.align()` — the alignment (start/end normalized), or the expression computing it; `left` when absent. */
+    align: ChoiceSlot<TextAlignment>;
+    /** `.lineSpacing()` / `.letterSpacing()` — literals or bare expression text; 1 / 0 when absent. */
+    lineSpacing: ValueExpr;
+    letterSpacing: ValueExpr;
+    /** The path-only chains; defaults when absent (0 / 0 / false), expressions as the statement has them. */
+    offset: ValueExpr;
+    startAt: ValueExpr;
+    flip: BooleanSlot;
     /** Second argument (a path expression), verbatim; null for plain text. */
     pathText: string | null;
   }
@@ -240,8 +249,8 @@ export type ParsedFeatureStatement =
     directions: { count: ValueExpr; value: ValueExpr }[] | null;
     /** Linear spacing semantics shared by every direction. */
     spacingMode: 'offset' | 'length' | null;
-    /** Linear only: the pattern is centered on the original instance. */
-    centered: boolean;
+    /** Linear only: the pattern is centered on the original instance — the flag, or the expression computing it. */
+    centered: BooleanSlot;
     /** Circular instance count, original included. */
     count: ValueExpr | null;
     /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
@@ -282,8 +291,8 @@ export type ParsedFeatureStatement =
     directions: { count: ValueExpr; value: ValueExpr }[] | null;
     /** Linear spacing semantics shared by every direction. */
     spacingMode: 'offset' | 'length' | null;
-    /** Linear only: the pattern is centered on the original instance. */
-    centered: boolean;
+    /** Linear only: the pattern is centered on the original instance — the flag, or the expression computing it. */
+    centered: BooleanSlot;
     /** Circular instance count, original included. */
     count: ValueExpr | null;
     /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
@@ -337,8 +346,8 @@ export type ParsedFeatureStatement =
     feature: 'split';
     /** The cut argument text — a plane or a seed edge — verbatim. */
     planeText: string;
-    /** The pieces the statement keeps; `both` when the option is absent. */
-    keep: SplitKeep;
+    /** The pieces the statement keeps — a side, or the expression computing it; `both` when the option is absent. */
+    keep: SplitKeepSlot;
     /** Trailing target texts, verbatim; empty splits every solid in scope. */
     targetTexts: string[];
     /**
@@ -403,14 +412,14 @@ export type ParsedFeatureStatement =
     rotateY: ValueExpr | null;
     rotateZ: ValueExpr | null;
     /** The axes the rotations turn around; `local` when the statement writes none. */
-    rotationAxes: PlaneRotationAxes;
+    rotationAxes: ChoiceSlot<PlaneRotationAxes>;
     /** Normalized 0–1 position along the edge; null for the other forms. */
     position: ValueExpr | null;
   }
   | {
     feature: 'color';
-    /** The CSS colour the statement writes, as the string literal spells it. */
-    value: string;
+    /** The CSS colour the statement writes, as the string literal spells it — or the expression computing it. */
+    value: TextSlot;
     /** Target argument list after the colour, verbatim (`''` when absent). */
     argsText: string;
     /**

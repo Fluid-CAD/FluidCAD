@@ -116,7 +116,7 @@ export async function handleCopy(ctx: ApplyFeatureRequestContext, req: Request, 
       axis,
       count: request.count,
       sweep: request.sweep,
-      centered: request.centered === true ? true : undefined,
+      centered: request.centered === false ? undefined : request.centered,
       skip: request.skip,
       targets,
     };

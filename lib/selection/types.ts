@@ -211,8 +211,8 @@ export type ApplyFeatureEditSpec = {
     /** The `part(...)` call site whose body receives the statement. */
     part?: { line: number; column: number };
     anchor?: ConnectorAnchor;
-    rotate?: { axis: ConnectorRotateAxis; angle: number };
-    offset?: [number, number, number];
+    rotate?: ConnectorRotateSpec;
+    offset?: [number | string, number | string, number | string];
   };
   /**
    * Expose-only payload: the name the statement registers, plus the call
@@ -361,13 +361,23 @@ export type ConnectorAnchor =
 
 export type ConnectorRotateAxis = 'x' | 'y' | 'z';
 
+/**
+ * A dialog value the statement computes rather than spells: the source text
+ * of the expression (`{ expr }`), or the name of a variable standing in for
+ * an option (`{ ref }`) — each written bare, as the dialog's server writes it.
+ */
+export type ConnectorSourceValue = { expr: string } | { ref: string };
+
+/** The `.rotate(axis, angle)` chain: the axis one of the three, or computed; the angle in degrees, or its expression text. */
+export type ConnectorRotateSpec = { axis: ConnectorRotateAxis | ConnectorSourceValue; angle: number | string };
+
 /** Dialog adjustments chained after the connector call. */
 export type ConnectorSynthesisOptions = {
   anchor?: ConnectorAnchor;
-  /** Rotation around one of the connector's local axes, in degrees; skipped when a multiple of 360. */
-  rotate?: { axis: ConnectorRotateAxis; angle: number };
-  /** Frame-local offset [x, y, z]; skipped when all zero, trailing zeros trimmed. */
-  offset?: [number, number, number];
+  /** Rotation around one of the connector's local axes, in degrees; skipped when a literal multiple of 360. */
+  rotate?: ConnectorRotateSpec;
+  /** Frame-local offset [x, y, z], each a number or expression text; skipped when all literal zero, trailing literal zeros trimmed. */
+  offset?: [number | string, number | string, number | string];
 };
 
 /** `.center()` / `.offset('relative', 0.3)` — appended to the source selector. */
@@ -381,20 +391,30 @@ export function renderConnectorAnchorSuffix(anchor: ConnectorAnchor | undefined)
   return `.${anchor.kind}()`;
 }
 
-/** `.rotate('x', 90).offset(0, 0, 5)` — chained after the connector call. */
-export function renderConnectorAdjustments(
-  options: {
-    rotate?: { axis: ConnectorRotateAxis; angle: number };
-    offset?: [number, number, number];
-  } | undefined,
-): string {
+/** Whether a rotation does anything: an expression always may; a literal angle must not be a full turn. */
+export function connectorRotateActive(rotate: ConnectorRotateSpec | undefined): rotate is ConnectorRotateSpec {
+  return rotate !== undefined
+    && (typeof rotate.angle === 'string' || (Number.isFinite(rotate.angle) && rotate.angle % 360 !== 0));
+}
+
+/** A connector slot as the statement writes it: an expression or a name bare, a literal through `literal`. */
+function connectorSource<T extends string | number>(value: T | ConnectorSourceValue, literal: (value: T) => string): string {
+  if (typeof value === 'object') {
+    return 'expr' in value ? value.expr.trim() : value.ref;
+  }
+  return literal(value);
+}
+
+/** `.rotate('x', 90).offset(0, 0, 5)` — chained after the connector call; a computed axis, angle or offset is written bare. */
+export function renderConnectorAdjustments(options: ConnectorSynthesisOptions | undefined): string {
   if (!options) {
     return '';
   }
   let out = '';
   const rotate = options.rotate;
-  if (rotate && Number.isFinite(rotate.angle) && rotate.angle % 360 !== 0) {
-    out += `.rotate('${rotate.axis}', ${rotate.angle})`;
+  if (connectorRotateActive(rotate)) {
+    const angle = typeof rotate.angle === 'string' ? rotate.angle.trim() : String(rotate.angle);
+    out += `.rotate(${connectorSource(rotate.axis, axis => `'${axis}'`)}, ${angle})`;
   }
   const offset = options.offset;
   if (offset && offset.some(v => v !== 0)) {
@@ -402,7 +422,7 @@ export function renderConnectorAdjustments(
     while (values.length > 1 && values[values.length - 1] === 0) {
       values.pop();
     }
-    out += `.offset(${values.join(', ')})`;
+    out += `.offset(${values.map(v => typeof v === 'string' ? v.trim() : String(v)).join(', ')})`;
   }
   return out;
 }

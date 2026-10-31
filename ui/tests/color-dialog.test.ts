@@ -18,11 +18,12 @@ vi.mock('../src/api', async (importOriginal) => ({
   fetchFeatureSources: vi.fn(async () => ({ ok: false, reason: 'unused' })),
   fetchSelectionGroups: vi.fn(async () => ({ groups: [] })),
   expandBucket: vi.fn(async () => ({ members: [] })),
+  getScopeVariables: vi.fn(async () => []),
   rollback: vi.fn(),
   continueBreakpoint: vi.fn(),
 }));
 
-import { applyColor, applyColorEdit, fetchFeatureSources } from '../src/api';
+import { applyColor, applyColorEdit, fetchFeatureSources, getScopeVariables } from '../src/api';
 import { ColorFeatureService } from '../src/interactive/create-feature/color-service';
 import { ColorValues } from '../src/interactive/create-feature/color-values';
 import { Navbar } from '../src/ui/navbar';
@@ -301,5 +302,36 @@ describe('ColorFeatureService', () => {
       paint: { kind: 'faces', entities: [FACE(2), FACE(5)], chains: [] },
       before: { index: 2, type: 'color', line: 7, column: 0 },
     });
+  });
+
+  // The colour slot takes an expression: it rides the preview and the apply
+  // as it stands — the build judges what it comes to — while the picks wear
+  // the colour it resolves to by the scope's variables, or the plain
+  // highlight until that is a colour.
+  it('carries an expression in the colour slot to the apply as written, tinting the picks by what it comes to', async () => {
+    vi.mocked(getScopeVariables).mockResolvedValue([{ name: 'tint', initializer: "'tomato'", numeric: false, value: 'tomato' }]);
+    const rig = mount();
+    rig.service.enter();
+    rig.service.handleClick('s1', { type: 'face', index: 0 });
+    rig.container.querySelector<HTMLButtonElement>('[data-role="expression-value"]')!.click();
+    const expression = rig.container.querySelector<HTMLInputElement>('[data-role="expr-value"]')!;
+    expression.value = 'tint';
+    expression.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    expect(rig.lastHighlight()).toEqual({ entities: [], solids: ['s1'], tint: 'tomato' });
+    expect(vi.mocked(applyColor).mock.lastCall?.[0]).toMatchObject({ value: { expr: 'tint' }, preview: true });
+    rig.apply();
+    await settle();
+    expect(vi.mocked(applyColor).mock.lastCall?.[0]).toEqual({
+      value: { expr: 'tint' }, paint: { kind: 'solids', targets: [at(4, 10)] },
+    });
+    // An edited statement holding an expression opens the field in that mode and writes it back verbatim.
+    rig.service.enterEdit(at(7, 0), {
+      feature: 'color', value: { expr: 'tint' }, argsText: 'e', targetTexts: ['e'], targetRefs: [{ line: 4, column: 10 }],
+    }, { index: 2, type: 'color', expectedStatement: 'color(tint, e)' });
+    expect(expression.value).toBe('tint');
+    rig.apply();
+    await settle();
+    expect(vi.mocked(applyColorEdit).mock.lastCall?.[1]).toMatchObject({ value: { expr: 'tint' } });
   });
 });

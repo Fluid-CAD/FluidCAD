@@ -406,11 +406,12 @@ describe('parseFeatureStatement — connector', () => {
   it('refuses statements the dialog cannot represent', async () => {
     const cases: [string, string][] = [
       // A rotate-first chain only folds into the dialog's offset-first order
-      // when the turn is a right angle — 45° would leave trig decimals.
+      // when the turn is a right angle — 45° would leave trig decimals — and
+      // every value is a literal to fold.
       [`.rotate('z', 45).offset(5, 0, 0)`, 'rotates before it offsets'],
-      [`.rotate('z', turn)`, 'not a plain'],
-      [`.offset(gap, 0, 0)`, 'not plain numbers'],
-      [`.rotate('z')`, 'not a plain'],
+      [`.rotate('z', turn).offset(5, 0, 0)`, 'rotates before it offsets'],
+      [`.rotate('z')`, 'the dialog can carry'],
+      [`.offset()`, 'one to three'],
     ];
     for (const [chain, reason] of cases) {
       const code = EDIT_CODE.replace(`.offset(0, 0, 5).rotate('z', 90)`, chain);
@@ -418,6 +419,31 @@ describe('parseFeatureStatement — connector', () => {
       expect(result.ok, chain).toBe(false);
       expect(result.ok === false && result.reason, chain).toContain(reason);
     }
+  });
+
+  // The adjustments take what the statement computes: the axis a name (a
+  // reference) or an expression, the angle and the offsets expression text —
+  // each read as written, kept through an edit of another slot, and replaced
+  // by what the dialog types, under a number row's rules.
+  it('reads computed adjustments, keeps them through an edit, and writes typed ones bare', async () => {
+    const code = EDIT_CODE.replace(`.offset(0, 0, 5).rotate('z', 90)`, `.offset(gap, 0, lift * 2).rotate(side, turn)`);
+    const result = await parseFeatureStatement(code, CONNECTOR_LINE);
+    expect(result.ok === true && result.parsed).toMatchObject({
+      rotate: { axis: { ref: 'side' }, angle: 'turn' }, offset: ['gap', 0, 'lift * 2'],
+    });
+    const computed = EDIT_CODE.replace(`.rotate('z', 90)`, `.rotate(flat ? 'x' : 'z', 90)`);
+    expect((await parseFeatureStatement(computed, CONNECTOR_LINE)).ok === true && (await parseFeatureStatement(computed, CONNECTOR_LINE)).parsed)
+      .toMatchObject({ rotate: { axis: { expr: "flat ? 'x' : 'z'" }, angle: 90 } });
+
+    const edit = (connector: NonNullable<FeatureStatementEditTarget['connector']>, source = code) =>
+      applyFeatureEdit(source, connectorEditSpec(connector));
+    const kept = await edit({ name: 'mountTop', rotate: { axis: { ref: 'side' }, angle: 'turn' }, offset: ['gap', 0, 'lift * 2'] });
+    expect(kept.error).toBeUndefined();
+    expect(kept.newCode).toContain(`connector('mountTop', e.endFaces(0).center()).offset(gap, 0, lift * 2).rotate(side, turn)`);
+    const typed = await edit({ name: 'mountTop', rotate: { axis: { expr: "flat ? 'x' : 'z'" }, angle: 'turn / 2' }, offset: [1, 'gap', 0] });
+    expect(typed.newCode).toContain(`.offset(1, gap).rotate(flat ? 'x' : 'z', turn / 2)`);
+    const bad = await edit({ name: 'mountTop', rotate: { axis: { expr: 'a, b' }, angle: 90 } });
+    expect(bad.error).toBeTruthy();
   });
 
   it('folds a legacy rotate-first chain into offset-first components', async () => {

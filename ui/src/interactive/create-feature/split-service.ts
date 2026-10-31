@@ -15,7 +15,7 @@ import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
-import { OptionRelabeler } from './option-relabeler';
+import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import {
   PLANE_UNAVAILABLE_MESSAGE, collectPlaneOptions, labelWithPlaneNames, PlaneOption,
@@ -396,6 +396,7 @@ export class SplitFeatureService {
     this.syncButton();
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
+    void this.refreshScopeVariables();
     this.panel.showEdit({
       keep: parsed.keep,
       planeLabel: parsed.planeText,
@@ -419,6 +420,7 @@ export class SplitFeatureService {
       this.sketchUI.suspend();
     }
     this.syncButton();
+    void this.refreshScopeVariables();
     this.panel.show();
     if (seeded) {
       this.seedFromSelection(seeded);
@@ -712,10 +714,13 @@ export class SplitFeatureService {
    * The live geometry for the current form state: the cut plane through the
    * bodies it reaches, plus the dropped pieces in red. A slot the ghost can't
    * address (a cut still unpicked, a keep chip over an expression) means no
-   * ghost.
+   * ghost — as does a Keep row in expression mode with nothing typed yet.
    */
   private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
     const values = this.panel.values();
+    if ('error' in values) {
+      return null;
+    }
     const targets = this.ghostTargets();
     if (!targets) {
       return null;
@@ -803,6 +808,9 @@ export class SplitFeatureService {
 
   private buildRequest(): SplitApplyOptions | { error: string } {
     const values = this.panel.values();
+    if ('error' in values) {
+      return values;
+    }
     const filePath = this.hooks.filePath();
     if (!filePath) {
       return { error: 'Open a model file first.' };
@@ -832,6 +840,9 @@ export class SplitFeatureService {
    */
   private buildEditRequest(): SplitEditOptions | { error: string } {
     const values = this.panel.values();
+    if ('error' in values) {
+      return values;
+    }
     const targets: SplitEditTargetRef[] = this.targets.map(t => t.kind === 'keep'
       ? { kind: 'verbatim' as const, sourceIndex: t.sourceIndex }
       : { kind: 'feature' as const, filePath: t.option.filePath, line: t.option.line, column: t.option.column });
@@ -911,6 +922,13 @@ export class SplitFeatureService {
 
   private refreshLabels(): void {
     void this.relabeler.refresh(this.planes);
+  }
+
+  /** The variables in scope at the statement (or the part's end), for the Keep row's expression. */
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    await refreshScopeVariables(line, this.panel,
+      () => this.armed && (this.editTarget?.line ?? null) === line);
   }
 
   private syncButton(): void {

@@ -1,7 +1,8 @@
 import { FeaturePanel } from './feature-panel';
 import { ChoiceTabs } from './panel-controls';
+import { choiceSeed, TabsControl } from './expression-rows';
 import { PickSlot, PickSlotChip } from '../pick-slot';
-import { NewVariable, PlaneRotationAxes, ValueExpr } from '../../api';
+import { FeatureExprValue, FeatureRefValue, NewVariable, PlaneRotationAxes, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { iconUrl } from '../../ui/icon-url';
@@ -16,8 +17,8 @@ export type PlaneValues =
       rotateX: ValueExpr | null;
       rotateY: ValueExpr | null;
       rotateZ: ValueExpr | null;
-      /** The axes the rotations turn around; always `local` for the edge form. */
-      rotationAxes: PlaneRotationAxes;
+      /** The axes the rotations turn around — a choice, or the expression the Axes row holds under its ƒ; always `local` for the edge form. */
+      rotationAxes: PlaneRotationAxes | FeatureExprValue;
       position: ValueExpr | null;
       newVariables?: NewVariable[];
     }
@@ -36,6 +37,13 @@ const AXIS_TITLES: Record<PlaneRotationAxes, [string, string, string]> = {
     'Rotation around the world Z axis',
   ],
 };
+
+/** The tooltips while the Axes row holds an expression the dialog cannot resolve to either choice. */
+const UNRESOLVED_AXIS_TITLES: [string, string, string] = [
+  'Rotation around the X axis of the axes the expression names',
+  'Rotation around the Y axis of the axes the expression names',
+  'Rotation around the Z axis (the normal, for local axes) of the axes the expression names',
+];
 
 /**
  * The plane dialog: the type dropdown (Offset / Mid plane / From edge), the
@@ -65,6 +73,8 @@ export class PlanePanel extends FeaturePanel {
   private rotationFields: ExpressionField[] = [];
   private rotationInputs: HTMLInputElement[] = [];
   private axesTabs: ChoiceTabs<PlaneRotationAxes>;
+  /** The Axes tab row with its ƒ mode — `axes: flag ? 'world' : 'local'` opens it on the expression. */
+  private axes: TabsControl<PlaneRotationAxes>;
 
   constructor(container: HTMLElement) {
     super(container, {
@@ -101,6 +111,7 @@ export class PlanePanel extends FeaturePanel {
             <input data-role="rotate-z" type="number" step="5" value="0" title="Rotation around the plane's normal"
               class="input input-sm input-bordered w-full min-w-0 text-xs" />
           </div>
+          <span data-role="axes-label" class="text-base-content/70">Axes</span>
           <div data-role="axes-tabs" class="join w-full"></div>
         </div>
       `,
@@ -135,10 +146,16 @@ export class PlanePanel extends FeaturePanel {
         title: 'Turn around the world X, Y and Z axes, through the world origin — an offset plane orbits it',
       },
     ], 'local');
-    this.axesTabs.onChange = () => {
+    // The control takes the tabs' change for its own; the panel listens to it instead.
+    this.axes = new TabsControl(this.axesTabs, this.role('axes-tabs'), this.role('axes-label'), [
+      { value: 'local', label: 'Local' },
+      { value: 'world', label: 'World' },
+    ], { name: 'axes', label: 'Axes' });
+    this.axes.onChange = () => {
       this.syncAxisTitles();
       this.onChange?.();
     };
+    this.axes.onSubmit = () => this.onApply?.();
   }
 
   get planeType(): PlaneType {
@@ -160,7 +177,7 @@ export class PlanePanel extends FeaturePanel {
     for (const field of this.rotationFields) {
       field.setValue(0);
     }
-    this.axesTabs.reset();
+    this.axes.setValue('local');
     this.syncAxisTitles();
     this.setBases([]);
     this.syncType();
@@ -180,7 +197,8 @@ export class PlanePanel extends FeaturePanel {
     rotateX: ValueExpr | null;
     rotateY: ValueExpr | null;
     rotateZ: ValueExpr | null;
-    rotationAxes: PlaneRotationAxes;
+    /** The statement's axes choice, or the reference or expression it holds — which opens the row in expression mode. */
+    rotationAxes: PlaneRotationAxes | FeatureRefValue | FeatureExprValue;
     position: ValueExpr | null;
   }): void {
     this.shell.setTitle('Edit plane');
@@ -189,18 +207,19 @@ export class PlanePanel extends FeaturePanel {
     this.setFieldValue(this.positionField, state.position);
     const rotations = [state.rotateX, state.rotateY, state.rotateZ];
     this.rotationFields.forEach((field, i) => this.setFieldValue(field, rotations[i]));
-    this.axesTabs.setValue(state.rotationAxes);
+    this.axes.setValue(choiceSeed(state.rotationAxes));
     this.syncAxisTitles();
     this.setBases([]);
     this.syncType();
     this.shell.show();
   }
 
-  /** The variables the fields' dropdowns offer. */
+  /** The variables the fields' dropdowns offer, and the Axes row's expression resolves over. */
   setScopeVariables(variables: VariableInfo[]): void {
     for (const field of [this.offsetField, this.positionField, ...this.rotationFields]) {
       field.setVariables(variables);
     }
+    this.axes.setVariables(variables);
   }
 
   /** Programmatic type choice (selection seeding); no change event fires. */
@@ -258,21 +277,26 @@ export class PlanePanel extends FeaturePanel {
       reads.push(read);
       numbers.push(read.value === 0 ? null : read.value);
     }
+    const axes = this.axes.read();
+    if ('error' in axes) {
+      return axes;
+    }
     return {
       type,
       offset: type === 'offset' ? numbers[0] : null,
       rotateX: numbers[1],
       rotateY: numbers[2],
       rotateZ: numbers[3],
-      rotationAxes: this.axesTabs.value,
+      rotationAxes: axes.value,
       position: null,
       newVariables: collectNewVariables(reads),
     };
   }
 
-  /** The per-axis tooltips name the axes the current choice turns around. */
+  /** The per-axis tooltips name the axes the current choice turns around — or the expression's, while it resolves to neither. */
   private syncAxisTitles(): void {
-    const titles = AXIS_TITLES[this.axesTabs.value];
+    const axes = this.axes.value;
+    const titles = axes ? AXIS_TITLES[axes] : UNRESOLVED_AXIS_TITLES;
     this.rotationInputs.forEach((input, i) => {
       input.title = titles[i];
     });

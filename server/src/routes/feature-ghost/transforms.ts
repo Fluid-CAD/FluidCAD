@@ -18,6 +18,8 @@ import {
   parseSourceRefs,
 } from './refs.ts';
 import { isValueExpr, isValueExprOrNull, type ValueExpr } from './values.ts';
+import { GhostSlots } from './slots.ts';
+import type { BooleanSlot, ChoiceSlot } from '../../apply-feature-edit/value-slots.ts';
 import {
   COPY_KINDS,
   MAX_GHOST_DIRECTIONS,
@@ -72,6 +74,14 @@ function parseSweep(value: unknown): RawSweep | null {
     : null;
 }
 
+/** The centered flag as a dialog sends it: the flag, or an expression the route resolves once the scope is open. */
+function parseCentered(value: unknown): BooleanSlot | null {
+  if (value === undefined || value === null) {
+    return false;
+  }
+  return GhostSlots.shaped(value, literal => typeof literal === 'boolean') ? value as BooleanSlot : null;
+}
+
 /** A repeat request's slots, before its numbers are resolved. */
 export type RawRepeat = {
   kind: 'linear' | 'circular' | 'mirror' | 'rotate';
@@ -79,7 +89,8 @@ export type RawRepeat = {
   axes: GhostAxisRef[];
   plane: GhostPlaneRef | null;
   directions: RawDirection[];
-  centered: boolean;
+  /** Linear: the flag, or the expression computing it — resolved by the router. */
+  centered: BooleanSlot;
   count: ValueExpr | null;
   sweep: RawSweep | null;
   angle: ValueExpr | null;
@@ -117,6 +128,10 @@ export function parseRepeat(body: GhostBody): RawRepeat | string {
   if ((body.plane != null && !plane) || (body.sweep != null && !sweep)) {
     return 'Invalid repeat source';
   }
+  const centered = parseCentered(body.centered);
+  if (centered === null) {
+    return 'Invalid repeat centered flag';
+  }
 
   if (kind === 'linear') {
     // One axis per direction — the pairing IS the request; a mismatch would
@@ -146,7 +161,7 @@ export function parseRepeat(body: GhostBody): RawRepeat | string {
     axes,
     plane,
     directions,
-    centered: body.centered === true,
+    centered,
     count: isValueExpr(body.count) ? body.count : null,
     sweep,
     angle: isValueExpr(body.angle) ? body.angle : null,
@@ -161,7 +176,8 @@ export type RawCopy = {
   pattern?: { filePath: string; line: number };
   axes: GhostAxisRef[];
   directions: RawDirection[];
-  centered: boolean;
+  /** Linear: the flag, or the expression computing it — resolved by the router. */
+  centered: BooleanSlot;
   count: ValueExpr | null;
   sweep: RawSweep | null;
   /** Already numbers — a skip list names literal positions, never expressions. */
@@ -206,6 +222,10 @@ export function parseCopy(body: GhostBody): RawCopy | string {
   if (!skip) {
     return 'Invalid copy skip';
   }
+  const centered = parseCentered(body.centered);
+  if (centered === null) {
+    return 'Invalid copy centered flag';
+  }
 
   if (kind === 'linear') {
     // One axis per direction — the pairing IS the request; a mismatch would
@@ -227,7 +247,7 @@ export function parseCopy(body: GhostBody): RawCopy | string {
     targets,
     axes,
     directions,
-    centered: body.centered === true,
+    centered,
     count: isValueExpr(body.count) ? body.count : null,
     sweep,
     skip,
@@ -250,7 +270,7 @@ function parseFollowCopy(body: GhostBody): RawCopy | string {
   }
   const stated = [body.axes, body.directions, body.count, body.sweep, body.skip]
     .some(value => value !== undefined && value !== null && !(Array.isArray(value) && value.length === 0));
-  if (stated || body.centered === true) {
+  if (stated || (body.centered !== undefined && body.centered !== null && body.centered !== false)) {
     return 'Invalid copy along a repeat';
   }
   return { kind: 'pattern', targets, pattern, axes: [], directions: [], centered: false, count: null, sweep: null, skip: [] };
@@ -283,7 +303,8 @@ export function parseMirror(body: GhostBody): RawMirror | string {
 export type RawSplit = {
   targets: { filePath: string; line: number }[];
   plane: GhostPlaneRef;
-  keep: 'both' | 'front' | 'back';
+  /** The side kept, or the expression computing it — resolved by the router. */
+  keep: ChoiceSlot<'both' | 'front' | 'back'>;
 };
 
 /**
@@ -299,8 +320,9 @@ export function parseSplit(body: GhostBody): RawSplit | string {
   if (!plane) {
     return 'Invalid split plane';
   }
-  const keep = (body as { keep?: unknown }).keep ?? 'both';
-  if (typeof keep !== 'string' || !SPLIT_KEEPS.includes(keep)) {
+  // A side, or an expression the router resolves once the scope is open.
+  const keep = body.keep ?? 'both';
+  if (!GhostSlots.shaped(keep, literal => typeof literal === 'string' && SPLIT_KEEPS.includes(literal))) {
     return 'Invalid split keep';
   }
   return { targets, plane, keep: keep as RawSplit['keep'] };

@@ -2,6 +2,7 @@
 
 import { renderRegionChain, renderScopeChain } from '../render/chains.ts';
 import { formatValue, type RegionName, type RegionPickSpec, type ValueExpr } from '../value-expr.ts';
+import { ValueSlots, type BooleanSlot } from '../value-slots.ts';
 
 /**
  * The face an up-to-face extrude ends on when it is not a picked one: the
@@ -47,8 +48,8 @@ export type ExtrudeEditOptions = {
    * renders no chain.
    */
   endOffset: ValueExpr | null;
-  /** False renders `.drill(false)` — inner closed regions extrude as solid. */
-  drill: boolean;
+  /** False renders `.drill(false)` — inner closed regions extrude as solid; an expression renders `.drill(<expr>)`. */
+  drill: BooleanSlot;
   /** `.thin(a)` / `.thin(a, b)` offsets, or null for a plain extrude. */
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: 'implicit' | 'bound';
@@ -121,9 +122,9 @@ export function renderExtrudeStatement(
   if (ext.endOffset !== null) {
     statement += `.endOffset(${formatValue(ext.endOffset)})`;
   }
-  if (!ext.drill) {
-    // True is the API default, so only the opt-out is written.
-    statement += '.drill(false)';
+  if (ext.drill !== true) {
+    // True is the API default, so only the opt-out — or an expression — is written.
+    statement += `.drill(${ValueSlots.source(ext.drill, String)})`;
   }
   if (ext.thin) {
     statement += `.thin(${ext.thin.map(formatValue).join(', ')})`;

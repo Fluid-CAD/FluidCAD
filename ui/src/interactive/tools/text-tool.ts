@@ -1,5 +1,5 @@
 import { Group, Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, PickedPoint } from '../sketch-tool';
+import { SketchTool, FetchVariablesFn, InsertGeometryFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -8,9 +8,10 @@ import { SnapType } from '../../snapping/types';
 import { pixelToSketchThreshold, projectToSketch } from '../sketch-plane-utils';
 import { buildPathTargetIndex, hitTestPathTargets, PathTargetEntry } from '../sketch-edge-utils';
 import { ICON_TEXT } from '../../ui/icons';
-import { applyTextToPath, getTextPreview, TextOptionValues } from '../../api';
+import { applyTextToPath, getTextPreview, FeatureExprValue, FeatureRefValue, TextOptionValues, ValueExpr } from '../../api';
+import { VariableInfo } from '../../ui/expression-core';
 import { PathHighlight } from './path-highlight';
-import { TextPanel } from './text-panel';
+import { TextPanel, TextPanelValues } from './text-panel';
 import { TextPreviewMesh } from './text-preview-mesh';
 import { START_POINT_COLOR, addDot, snapDotColor } from './tool-preview-utils';
 
@@ -72,13 +73,31 @@ export class TextTool extends SketchTool {
   private downX = 0;
   private downY = 0;
 
-  /** Compact numeric literal for emitted statements (no float noise). */
-  private static fmt(value: number): string {
-    return String(Math.round(value * 1000) / 1000);
+  /** Compact numeric literal for emitted statements (no float noise); an expression's text is written bare. */
+  private static fmt(value: ValueExpr): string {
+    return typeof value === 'number' ? String(Math.round(value * 1000) / 1000) : value.trim();
   }
 
   private static quoteSingle(value: string): string {
     return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  }
+
+  /** A slot as the statement writes it: an expression's text or a variable's name bare, a literal through `literal` — the server's own rendering rule. */
+  private static source<T>(value: T | FeatureRefValue | FeatureExprValue, literal: (value: T) => string): string {
+    if (typeof value === 'object' && value !== null) {
+      if ('expr' in value) {
+        return value.expr.trim();
+      }
+      if ('ref' in value) {
+        return value.ref;
+      }
+    }
+    return literal(value as T);
+  }
+
+  /** The literal a slot holds, or undefined for an expression or a name — never the default, so the chain is written. */
+  private static literal<T>(value: T | FeatureRefValue | FeatureExprValue): T | undefined {
+    return typeof value === 'object' && value !== null && ('expr' in value || 'ref' in value) ? undefined : value as T;
   }
 
   constructor(
@@ -88,8 +107,9 @@ export class TextTool extends SketchTool {
     insertGeometry: InsertGeometryFn,
     container: HTMLElement,
     onRequestExit: () => void,
+    fetchVariables?: FetchVariablesFn,
   ) {
-    super(ctx, plane, snapController, insertGeometry, container);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.onRequestExit = onRequestExit;
     this.anchor = [0, 0];
     this.panel = new TextPanel(container);
@@ -294,24 +314,31 @@ export class TextTool extends SketchTool {
   // Statement
   // ---------------------------------------------------------------------
 
+  /**
+   * The anchored statement, in the server's own rendering order and with its
+   * rule for defaults: a chain is left out for a literal equal to its default,
+   * never for an expression (`.weight(bold ? 700 : 400)` is written whatever
+   * it comes to).
+   */
   private buildStatement(values: TextOptionValues): string {
-    let statement = `text(${JSON.stringify(values.text)})`;
-    if (values.font) {
-      statement += `.font(${TextTool.quoteSingle(values.font)})`;
+    let statement = `text(${TextTool.source(values.text, text => JSON.stringify(text))})`;
+    if (values.font !== null && TextTool.literal(values.font) !== '') {
+      statement += `.font(${TextTool.source(values.font, TextTool.quoteSingle)})`;
     }
     if (values.size !== 10) {
       statement += `.size(${TextTool.fmt(values.size)})`;
     }
-    if (values.weight === 700) {
+    const weight = TextTool.literal(values.weight);
+    if (weight === 700) {
       statement += '.bold()';
-    } else if (values.weight !== 400) {
-      statement += `.weight(${values.weight})`;
+    } else if (weight !== 400) {
+      statement += `.weight(${TextTool.source(values.weight, String)})`;
     }
-    if (values.italic) {
-      statement += '.italic()';
+    if (values.italic !== false) {
+      statement += TextTool.literal(values.italic) === true ? '.italic()' : `.italic(${TextTool.source(values.italic, String)})`;
     }
-    if (values.align !== 'left') {
-      statement += `.align('${values.align}')`;
+    if (TextTool.literal(values.align) !== 'left') {
+      statement += `.align(${TextTool.source(values.align, align => `'${align}'`)})`;
     }
     if (values.lineSpacing !== 1) {
       statement += `.lineSpacing(${TextTool.fmt(values.lineSpacing)})`;
@@ -323,15 +350,22 @@ export class TextTool extends SketchTool {
   }
 
   /** The anchor is re-placeable for as long as the tool is armed — unless a
-   * path is picked, which owns placement. Numbers only: the text panel owns
-   * the tool's dialog, so there is no in-scope variable list to autocomplete
-   * against. */
+   * path is picked, which owns placement. Numbers only in the coordinate
+   * pill: the text panel owns the tool's dialog, and its own rows take the
+   * scope's variables. */
   protected override awaitingPoint(): boolean {
     return this.path === null;
   }
 
   protected override pointInputNumericOnly(): boolean {
     return true;
+  }
+
+  /** The scope read landed — the dialog's rows complete and resolve by it. */
+  protected override onVariablesLoaded(variables: VariableInfo[]): void {
+    this.panel.setScopeVariables(variables);
+    this.syncStatementPreview();
+    this.schedulePreview();
   }
 
   protected override onTypedPoint(point: PickedPoint): void {
@@ -361,7 +395,7 @@ export class TextTool extends SketchTool {
 
   private syncStatementPreview(): void {
     const values = this.panel.values();
-    if ('error' in values || values.text.trim() === '') {
+    if ('error' in values || TextPanel.blankText(values.text)) {
       this.panel.setPreview(null);
       return;
     }
@@ -379,7 +413,7 @@ export class TextTool extends SketchTool {
       this.panel.setMessage(values.error);
       return;
     }
-    if (values.text.trim() === '') {
+    if (TextPanel.blankText(values.text)) {
       this.panel.setMessage('Enter the text to render.');
       return;
     }
@@ -394,11 +428,12 @@ export class TextTool extends SketchTool {
       this.onRequestExit();
       return;
     }
+    // The declarations to land with the statement: the anchor's, and the
+    // dialog's number fields' (`cap = 12` typed as the size).
+    const newVariables = [...(this.anchorPick?.newVariables ?? []), ...(values.newVariables ?? [])];
     this.insertGeometry(
       this.fullStatement(values),
-      this.anchorPick && this.anchorPick.newVariables.length > 0
-        ? this.anchorPick.newVariables
-        : undefined,
+      newVariables.length > 0 ? newVariables : undefined,
     );
     // The editor round-trip re-renders the scene with the real feature;
     // the tool's job is done.
@@ -420,7 +455,7 @@ export class TextTool extends SketchTool {
   }
 
   private async runPreview(): Promise<void> {
-    const values = this.panel.values();
+    const values: TextPanelValues | { error: string } = this.panel.values();
     if ('error' in values || values.text === '') {
       this.renderPreview([]);
       return;
@@ -429,6 +464,11 @@ export class TextTool extends SketchTool {
     this.previewAbort?.abort();
     const abort = new AbortController();
     this.previewAbort = abort;
+
+    // The outline lays out literals: the rows' own, or what their
+    // expressions come to. One the dialog cannot resolve leaves no outline
+    // — the statement preview says what will be written.
+    const resolved = this.panel.previewOptions();
 
     if (this.path) {
       // Path mode: the statement preview comes from the server (it names the
@@ -447,9 +487,12 @@ export class TextTool extends SketchTool {
       if (!result.success && result.reason) {
         this.panel.setMessage(result.reason);
       }
-      const { text, ...options } = values;
+      if (resolved === null) {
+        this.renderPreview([]);
+        return;
+      }
       const outline = await getTextPreview(
-        { text, path: { shapeId: this.path.shapeId }, options },
+        { text: resolved.text, path: { shapeId: this.path.shapeId }, options: resolved.options },
         abort.signal,
       );
       if (seq !== this.previewSeq) {
@@ -459,16 +502,19 @@ export class TextTool extends SketchTool {
       return;
     }
 
-    const { text, ...options } = values;
+    if (resolved === null) {
+      this.renderPreview([]);
+      return;
+    }
     const result = await getTextPreview({
-      text,
+      text: resolved.text,
       position: this.anchor,
       plane: {
         origin: this.plane.origin,
         normal: this.plane.normal,
         xDirection: this.plane.xDirection,
       },
-      options,
+      options: resolved.options,
     }, abort.signal);
 
     if (seq !== this.previewSeq) {

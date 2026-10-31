@@ -404,24 +404,55 @@ export type TextAlignOption = 'left' | 'center' | 'right';
 /** With a path, the two distributed alignments join the align values. */
 export type TextAlignValue = TextAlignOption | 'space-between' | 'space-around';
 
-/** The `text()` chain options the Text tool's dialog edits. The distributed
- * alignments and the trailing three options only apply with a path — the
- * dialog sends defaults for them in anchored mode. */
+/**
+ * The `text()` chain options the Text tool's dialog edits, each a literal or
+ * the expression the statement computes it with: the numbers as bare
+ * expression text (a number row's form), the string, the font, the flags and
+ * the choices as `{ expr }` (a choice may also be a variable's `{ ref }`, as
+ * a statement names one). The distributed alignments and the trailing three
+ * options only apply with a path — the dialog sends defaults for them in
+ * anchored mode.
+ */
 export type TextOptionValues = {
-  text: string;
+  /** The string, or the expression computing it (`` `rib-${n}` ``, `label`). */
+  text: string | FeatureExprValue;
+  /** `.size()` — the cap height; 10 renders no chain. */
+  size: ValueExpr;
+  /** Font family display name, or the expression naming it; null renders no `.font()` (registry default). */
+  font: string | FeatureExprValue | null;
+  /** `.weight()` in hundreds (700 renders `.bold()`), or the expression computing it; 400 renders no chain. */
+  weight: number | FeatureRefValue | FeatureExprValue;
+  /** `.italic()` — the flag, or the expression computing it; false renders no chain. */
+  italic: boolean | FeatureExprValue;
+  /** `.align()` — the alignment, or the expression computing it; `left` renders no chain. */
+  align: TextAlignValue | FeatureRefValue | FeatureExprValue;
+  /** `.lineSpacing()` — a multiplier on the font's line height; 1 renders no chain. */
+  lineSpacing: ValueExpr;
+  /** `.letterSpacing()` — extra advance between glyphs in mm; 0 renders no chain. */
+  letterSpacing: ValueExpr;
+  /** `.offset()` — normal shift off the path in mm; 0 renders no chain. */
+  offset: ValueExpr;
+  /** `.startAt()` — arc-length start shift in mm; 0 renders no chain. */
+  startAt: ValueExpr;
+  /** `.flip()` — inside/mirrored placement; false renders no chain, an expression renders `.flip(<expr>)`. */
+  flip: boolean | FeatureExprValue;
+};
+
+/**
+ * The text options as the layout preview takes them: every value a literal —
+ * what the dialog's rows hold, or what their expressions come to. A row whose
+ * expression the dialog cannot resolve leaves no outline to draw.
+ */
+export type TextPreviewOptions = {
   size: number;
-  /** Font family display name; null renders no `.font()` (registry default). */
   font: string | null;
   weight: number;
   italic: boolean;
   align: TextAlignValue;
   lineSpacing: number;
   letterSpacing: number;
-  /** `.offset()` — normal shift off the path in mm; 0 renders no chain. */
   offset: number;
-  /** `.startAt()` — arc-length start shift in mm; 0 renders no chain. */
   startAt: number;
-  /** `.flip()` — inside/mirrored placement; false renders no chain. */
   flip: boolean;
 };
 
@@ -437,7 +468,7 @@ export type TextPreviewRequest = {
   /** Lay the glyphs along this picked sketch geometry instead of a straight
    * baseline; the server resolves it against the rendered scene. */
   path?: { shapeId: string };
-  options: Omit<TextOptionValues, 'text'>;
+  options: TextPreviewOptions;
 };
 
 /** Sorted system font family names, or [] when the lookup fails. */
@@ -551,7 +582,8 @@ export type ExtrudeGhostRequest = {
   draft: ValueExpr | null;
   /** `.endOffset()` — pulls each swept end back by this much; null for none. */
   endOffset: ValueExpr | null;
-  drill: boolean;
+  /** The drill flag, or an expression the preview evaluates to one. */
+  drill: boolean | FeatureExprValue;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { filePath: string; line: number };
   /**
@@ -735,8 +767,8 @@ export type ShellGhostRequest = {
   feature: 'shell';
   /** Wall thickness: negative hollows inward, positive builds the wall outside the solid. */
   thickness: ValueExpr;
-  /** How the offset walls meet at a corner — the join dropdown. */
-  joinType: ShellJoinType;
+  /** How the offset walls meet at a corner — the join dropdown's option, or a reference or an expression the preview resolves to one. */
+  joinType: ShellJoinType | FeatureRefValue | FeatureExprValue;
   /** The picked faces, each by the solid it was picked on and its index there. */
   faces: { shapeId: string; index: number }[];
 };
@@ -801,8 +833,8 @@ export type RepeatGhostRequest = {
   plane: GhostPlaneRef | null;
   /** Linear: count and spacing per direction, parallel to {@link axes}. */
   directions: GhostRepeatDirection[];
-  /** Linear: center the pattern on the original instead of starting there. */
-  centered: boolean;
+  /** Linear: center the pattern on the original instead of starting there — the flag, or an expression the preview evaluates to one. */
+  centered: boolean | FeatureExprValue;
   /** Circular: instances around the axis, the original included. */
   count: ValueExpr | null;
   /** Circular: the whole sweep to distribute, or the step between neighbours. */
@@ -852,8 +884,8 @@ export type CopyGhostRequest = {
   axes: GhostAxisRef[];
   /** Linear: count and spacing per direction, parallel to {@link axes}. */
   directions: GhostRepeatDirection[];
-  /** Linear: center the copies on the original instead of starting there. */
-  centered: boolean;
+  /** Linear: center the copies on the original instead of starting there — the flag, or an expression the preview evaluates to one. */
+  centered: boolean | FeatureExprValue;
   /** Circular: instances around the axis, the original included. */
   count: ValueExpr | null;
   /** Circular: the whole sweep to divide, or the step between neighbours. */
@@ -904,8 +936,8 @@ export type MirrorGhostRequest = {
  */
 export type SplitGhostRequest = {
   feature: 'split';
-  /** The pieces the split keeps. */
-  keep: 'both' | 'front' | 'back';
+  /** The pieces the split keeps — a side, or a reference or an expression the preview resolves to one. */
+  keep: SplitKeepSide | FeatureRefValue | FeatureExprValue;
   /** The solid-bearing statements being split, by call site; empty for every solid in the scene. */
   targets: { filePath: string; line: number }[];
   /** The plane to cut along, or the sketched edge seeding the cut. */
@@ -994,8 +1026,8 @@ export type PlaneGhostRequest = {
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
-  /** The axes the rotations turn around: the plane's own, or the world's. */
-  rotationAxes: PlaneRotationAxes;
+  /** The axes the rotations turn around: the plane's own, or the world's — or a reference or an expression the preview resolves to one. */
+  rotationAxes: PlaneRotationAxes | FeatureRefValue | FeatureExprValue;
   /** Edge form: the normalized 0–1 position along the curve. */
   position: ValueExpr | null;
 };
@@ -1688,8 +1720,8 @@ export type ApplyFeatureOptions = {
    * ("move the sketch"). The body callback is preserved verbatim.
    */
   retarget?: SketchSourceRef;
-  /** Shell only: writes a `.join('<type>')` chain; 'arc' writes none. */
-  joinType?: ShellJoinType;
+  /** Shell only: writes a `.join('<type>')` chain; 'arc' writes none; an expression writes `.join(<expr>)`. */
+  joinType?: ShellJoinType | FeatureRefValue | FeatureExprValue;
   /** Chamfer only: second distance (or angle) — `chamfer(d1, d2, …)`. */
   distance2?: ValueExpr | null;
   /** Chamfer only: `distance2` is an angle in degrees — `chamfer(d, a, true, …)`. */
@@ -1790,16 +1822,26 @@ export type ConnectorAnchor =
 
 export type ConnectorRotateAxis = 'x' | 'y' | 'z';
 
+/**
+ * The `.rotate(axis, angle)` chain as the dialog writes it: the axis one of
+ * the three names or the expression computing it (`flipped ? 'x' : 'y'`), the
+ * angle in degrees — a number, or bare expression text like any number row's.
+ */
+export type ConnectorRotateSpec = { axis: ConnectorRotateAxis | FeatureExprValue; angle: ValueExpr };
+
+/** The `.offset(x, y, z)` chain as the dialog writes it: each component a number or bare expression text. */
+export type ConnectorOffsetSpec = [ValueExpr, ValueExpr, ValueExpr];
+
 export type ConnectorApplyOptions = {
   /** Identifier the connector registers under — `/^[A-Za-z_$][A-Za-z0-9_$]*$/`, ≤64 chars. */
   name: string;
   /** Exactly one face or edge — the connector's source geometry. */
   entities: ApplyFeatureEntity[];
   anchor?: ConnectorAnchor;
-  /** Degrees around one of the connector's local axes — rendered as `.rotate('<axis>', n)`. */
-  rotate?: { axis: ConnectorRotateAxis; angle: number };
-  /** Frame-local offset [x, y, z] — rendered as `.offset(...)`. */
-  offset?: [number, number, number];
+  /** Degrees around one of the connector's local axes — rendered as `.rotate('<axis>', n)`, an expression bare. */
+  rotate?: ConnectorRotateSpec;
+  /** Frame-local offset [x, y, z] — rendered as `.offset(...)`, an expression bare. */
+  offset?: ConnectorOffsetSpec;
   selectorOverride?: string;
   preview?: boolean;
   signal?: AbortSignal;
@@ -1827,14 +1869,16 @@ export async function applyConnector(o: ConnectorApplyOptions): Promise<ApplyFea
  */
 export type ConnectorEditOptions = EditSessionFields & {
   name: string;
-  rotate: { axis: ConnectorRotateAxis; angle: number } | null;
-  offset: [number, number, number] | null;
+  rotate: ConnectorRotateSpec | null;
+  offset: ConnectorOffsetSpec | null;
   /** Edited source expression; omitted keeps the statement's verbatim. */
   selectorOverride?: string;
   /** Re-picked source — exactly one face or edge; omitted keeps the args. */
   entities?: ApplyFeatureEntity[];
   /** The anchor a re-picked source narrows to (`.center()`, …). */
   anchor?: ConnectorAnchor;
+  /** Declarations the angle or offset fields committed (`ang = 45`), written before the statement. */
+  newVariables?: NewVariable[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -1855,6 +1899,7 @@ export async function applyConnectorEdit(
     selectorOverride: options.selectorOverride,
     entities: options.entities,
     anchor: options.anchor,
+    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }
@@ -2649,8 +2694,8 @@ export type ExtrudeOptionValues = {
    * writes no chain.
    */
   endOffset: ValueExpr | null;
-  /** False writes `.drill(false)` — inner closed regions extrude as solid. */
-  drill: boolean;
+  /** False writes `.drill(false)` — inner closed regions extrude as solid; an expression writes `.drill(<expr>)`. */
+  drill: boolean | FeatureExprValue;
   /** `.thin()` offsets, or null for a plain extrude. */
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
@@ -2762,12 +2807,13 @@ export type HoleSizeSpec =
 
 /**
  * How a fastener size becomes a diameter: a clearance fit, or the tap drill
- * for a pitch (null = coarse). The fit and the pitch take a variable in place
- * of the literal; a referenced pitch always writes the argument.
+ * for a pitch (null = coarse). The fit and the pitch take a variable or an
+ * expression in place of the literal; a referenced or computed pitch always
+ * writes the argument.
  */
 export type HoleFastenerSpec =
-  | { type: 'clearance'; fit: 'close' | 'normal' | 'loose' | FeatureRefValue }
-  | { type: 'tapped'; pitch: number | FeatureRefValue | null };
+  | { type: 'clearance'; fit: 'close' | 'normal' | 'loose' | FeatureRefValue | FeatureExprValue }
+  | { type: 'tapped'; pitch: number | FeatureRefValue | FeatureExprValue | null };
 
 /** The entry of the hole; null values read the fastener tables. */
 export type HoleStyleSpec =
@@ -2802,11 +2848,11 @@ export type HolePlacementRef =
 /**
  * The `.fasten(…)` chain of a clearance hole: the matching tapped hole cut
  * into the next solid along each hole's axis — its pitch (null is the coarse
- * pitch; a variable's name writes bare), its blind depth from the face it
- * enters that solid through (null is through all) and the drill point angle
- * below that depth (null is a flat bottom).
+ * pitch; a variable's name or an expression writes bare), its blind depth
+ * from the face it enters that solid through (null is through all) and the
+ * drill point angle below that depth (null is a flat bottom).
  */
-export type HoleFastenRef = { pitch: number | FeatureRefValue | null; depth: ValueExpr | null; tipAngle: ValueExpr | null };
+export type HoleFastenRef = { pitch: number | FeatureRefValue | FeatureExprValue | null; depth: ValueExpr | null; tipAngle: ValueExpr | null };
 
 export type HoleApplyOptions = HoleOptionValues & {
   placements: HolePlacementRef[];
@@ -3089,8 +3135,13 @@ export type LoftProfileRef =
   | ({ kind: 'sketch' } & SketchSourceRef)
   | { kind: 'face'; entity: ApplyFeatureEntity };
 
-/** A `.startCondition()`/`.endCondition()` takeoff constraint; null = none. */
-export type LoftConditionRef = { type: 'normal' | 'tangent'; magnitude: ValueExpr };
+/**
+ * A `.startCondition()`/`.endCondition()` takeoff constraint; null = none.
+ * The type is one of the kernel's two, or a reference or an expression
+ * written bare in its place — one that comes to `'none'` previews as no
+ * condition, the way the literal reads in the dialog.
+ */
+export type LoftConditionRef = { type: 'normal' | 'tangent' | FeatureRefValue | FeatureExprValue; magnitude: ValueExpr };
 
 /** A picked vertex or one point retained from a parsed connection. */
 export type LoftConnectionPointRef =
@@ -3165,8 +3216,8 @@ export type PlaneApplyOptions = {
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
-  /** The axes the rotations turn around; `local` renders nothing. */
-  rotationAxes: PlaneRotationAxes;
+  /** The axes the rotations turn around; `local` renders nothing; an expression writes `axes: <expr>`. */
+  rotationAxes: PlaneRotationAxes | FeatureRefValue | FeatureExprValue;
   /** Normalized 0–1 position along the edge (edge type only). */
   position: ValueExpr | null;
   bases: PlaneBaseRef[];
@@ -3233,8 +3284,8 @@ export type RepeatApplyOptions = {
   count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
   sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
-  /** Linear only: center the pattern on the original instance. */
-  centered?: boolean;
+  /** Linear only: center the pattern on the original instance — the flag, or an expression written bare. */
+  centered?: boolean | FeatureExprValue;
   /** Rotate only: rotation angle in degrees. */
   angle?: ValueExpr;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
@@ -3303,8 +3354,8 @@ export type CopyApplyOptions = {
   count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
   sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
-  /** Linear only: center the copies on the original instance. */
-  centered?: boolean;
+  /** Linear only: center the copies on the original instance — the flag, or an expression written bare. */
+  centered?: boolean | FeatureExprValue;
   /**
    * Instances to leave out, one index per direction (circular carries a
    * single index each). Omitted writes no `skip` option at all.
@@ -3385,8 +3436,8 @@ export type SplitApplyOptions = {
   targets: SketchSourceRef[];
   /** The cut — a plane, or a sketched edge seeding one (a line's plane, a curve's sheet). */
   plane: SplitPlaneRef;
-  /** The pieces the split keeps. */
-  keep: SplitKeepSide;
+  /** The pieces the split keeps — a side, or an expression the statement writes bare in its place. */
+  keep: SplitKeepSide | FeatureRefValue | FeatureExprValue;
   /** The file the statement lands in. */
   filePath: string;
   /** Render the statement preview without applying. */
@@ -3522,8 +3573,8 @@ export type ColorPaint =
   };
 
 export type ColorApplyOptions = {
-  /** The CSS colour to write — a hex value, a colour name or an `rgb(…)` string. */
-  value: string;
+  /** The CSS colour to write — a hex value, a colour name or an `rgb(…)` string — or the expression computing it. */
+  value: string | FeatureExprValue;
   paint: ColorPaint;
   /** Render the statement preview (and, for faces, synthesize the selectors) without applying. */
   preview?: boolean;
@@ -3753,7 +3804,8 @@ export type ParsedFeatureStatement =
       draft: ValueExpr | null;
       /** `.endOffset(value)` pull-back, or null when the chain is absent. */
       endOffset: ValueExpr | null;
-      drill: boolean;
+      /** `.drill(flag)`: the flag, or the expression computing it; true when the chain is absent or bare. */
+      drill: boolean | FeatureExprValue;
       thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
       profileText: string | null;
       /** Up-to-face target argument text, or null for a distance extrude. */
@@ -3860,8 +3912,8 @@ export type ParsedFeatureStatement =
       feature: 'shell';
       value: ValueExpr;
       argsText: string;
-      /** `.join()` type; 'arc' (the kernel default) when the chain is absent. */
-      joinType: ShellJoinType;
+      /** `.join()` type — an option, or the reference or expression computing it; 'arc' (the kernel default) when the chain is absent. */
+      joinType: ShellJoinType | FeatureRefValue | FeatureExprValue;
     }
   | { feature: 'fillet'; value: ValueExpr; argsText: string }
   | {
@@ -3898,10 +3950,14 @@ export type ParsedFeatureStatement =
        * `.center()` is part of the expression the source row shows.
        */
       argsText: string;
-      /** `.rotate('<axis>', deg)`, or null when the chain is absent. */
-      rotate: { axis: ConnectorRotateAxis; angle: number } | null;
-      /** `.offset(x[, y, z])`, omitted components read as 0; null when absent. */
-      offset: [number, number, number] | null;
+      /**
+       * `.rotate('<axis>', deg)` — the axis a name, a variable's `{ ref }` or
+       * the expression computing it, the angle a number or bare expression
+       * text; null when the chain is absent.
+       */
+      rotate: { axis: ConnectorRotateAxis | FeatureRefValue | FeatureExprValue; angle: ValueExpr } | null;
+      /** `.offset(x[, y, z])`, omitted components read as 0, each a number or bare expression text; null when absent. */
+      offset: ConnectorOffsetSpec | null;
     }
   | {
       feature: 'chamfer';
@@ -3938,8 +3994,8 @@ export type ParsedFeatureStatement =
       directions: { count: ValueExpr; value: ValueExpr }[] | null;
       /** Linear spacing semantics shared by every direction. */
       spacingMode: 'offset' | 'length' | null;
-      /** Linear only: the pattern is centered on the original instance. */
-      centered: boolean;
+      /** Linear only: the pattern is centered on the original instance — the flag, or the expression computing it. */
+      centered: boolean | FeatureExprValue;
       /** Circular instance count, original included. */
       count: ValueExpr | null;
       /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
@@ -3975,8 +4031,8 @@ export type ParsedFeatureStatement =
       directions: { count: ValueExpr; value: ValueExpr }[] | null;
       /** Linear spacing semantics shared by every direction. */
       spacingMode: 'offset' | 'length' | null;
-      /** Linear only: the copies are centered on the original instance. */
-      centered: boolean;
+      /** Linear only: the copies are centered on the original instance — the flag, or the expression computing it. */
+      centered: boolean | FeatureExprValue;
       /** Circular instance count, original included. */
       count: ValueExpr | null;
       /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
@@ -4027,8 +4083,8 @@ export type ParsedFeatureStatement =
       feature: 'split';
       /** The cut argument text — a plane or a seed edge — verbatim. */
       planeText: string;
-      /** The pieces the statement keeps; `both` when the option is absent. */
-      keep: SplitKeepSide;
+      /** The pieces the statement keeps — a side, or the reference or expression computing it; `both` when the option is absent. */
+      keep: SplitKeepSide | FeatureRefValue | FeatureExprValue;
       /** Trailing target texts, verbatim; empty splits every solid in scope. */
       targetTexts: string[];
       /**
@@ -4089,15 +4145,15 @@ export type ParsedFeatureStatement =
       rotateX: ValueExpr | null;
       rotateY: ValueExpr | null;
       rotateZ: ValueExpr | null;
-      /** The axes the rotations turn around; `local` when the statement writes none. */
-      rotationAxes: PlaneRotationAxes;
+      /** The axes the rotations turn around — a choice, or the reference or expression computing it; `local` when the statement writes none. */
+      rotationAxes: PlaneRotationAxes | FeatureRefValue | FeatureExprValue;
       /** Normalized 0–1 position along the edge; null for the other forms. */
       position: ValueExpr | null;
     }
   | {
       feature: 'color';
-      /** The CSS colour the statement writes, as its string literal spells it. */
-      value: string;
+      /** The CSS colour the statement writes, as its string literal spells it — or the expression computing it. */
+      value: string | FeatureExprValue;
       /** Target argument list after the colour, verbatim (`''` when absent). */
       argsText: string;
       /** Target texts, verbatim, in argument order; empty paints the last selection, or every face in scope. */
@@ -4543,8 +4599,8 @@ export type RepeatEditOptions = EditSessionFields & {
   directions?: { axis: RepeatEditAxisRef; count: ValueExpr; value: ValueExpr }[];
   /** Linear spacing semantics shared by every direction. */
   spacingMode?: 'offset' | 'length';
-  /** Linear only: center the pattern on the original instance. */
-  centered?: boolean;
+  /** Linear only: center the pattern on the original instance — the flag, or an expression written bare. */
+  centered?: boolean | FeatureExprValue;
   /** The repeat axis (circular/rotate); omitted keeps the statement's own. */
   axis?: RepeatEditAxisRef;
   /** The mirror plane; omitted keeps the statement's own. */
@@ -4619,8 +4675,8 @@ export type CopyEditOptions = EditSessionFields & {
   directions?: { axis: CopyEditAxisRef; count: ValueExpr; value: ValueExpr }[];
   /** Linear spacing semantics shared by every direction. */
   spacingMode?: 'offset' | 'length';
-  /** Linear only: center the copies on the original instance. */
-  centered?: boolean;
+  /** Linear only: center the copies on the original instance — the flag, or an expression written bare. */
+  centered?: boolean | FeatureExprValue;
   /** The copy axis (circular); omitted keeps the statement's own. */
   axis?: CopyEditAxisRef;
   /** Instance count, original included (circular). */
@@ -4729,7 +4785,8 @@ export type SplitEditTargetRef =
 export type SplitEditOptions = EditSessionFields & {
   /** The cut; `keep` re-emits the statement's own expression. */
   plane: SplitEditPlaneRef;
-  keep: SplitKeepSide;
+  /** The pieces the split keeps — a side, or an expression the statement writes bare in its place. */
+  keep: SplitKeepSide | FeatureRefValue | FeatureExprValue;
   /** Full replacement target list; omitted keeps the statement's own, empty makes the split implicit. */
   targets?: SplitEditTargetRef[];
   preview?: boolean;
@@ -4869,8 +4926,8 @@ export type ColorEditTargetRef =
   | ({ kind: 'feature' } & SketchSourceRef);
 
 export type ColorEditOptions = EditSessionFields & {
-  /** The CSS colour to write; the dialog owns it outright. */
-  value: string;
+  /** The CSS colour to write, or the expression computing it; the dialog owns it outright. */
+  value: string | FeatureExprValue;
   /**
    * What replaces the statement's arguments, if anything: the Solid tab's
    * full target list (empty makes the paint implicit), or the Face tab's
@@ -4923,8 +4980,8 @@ export type PlaneEditOptions = EditSessionFields & {
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
-  /** The axes the rotations turn around; `local` renders nothing. */
-  rotationAxes: PlaneRotationAxes;
+  /** The axes the rotations turn around; `local` renders nothing; an expression writes `axes: <expr>`. */
+  rotationAxes: PlaneRotationAxes | FeatureRefValue | FeatureExprValue;
   /** Normalized 0–1 position along the edge (edge type only). */
   position: ValueExpr | null;
   /** Full replacement base list; omitted keeps the statement's own. */
@@ -4969,6 +5026,8 @@ export type TextEditPath = { kind: 'none' } | { kind: 'picked'; shapeId: string 
 export type TextEditOptions = TextOptionValues & EditSessionFields & {
   /** Path re-target; omitted keeps the statement's own path argument. */
   path?: TextEditPath;
+  /** Declarations the number fields committed (`cap = 12`), written before the statement. */
+  newVariables?: NewVariable[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -4995,6 +5054,7 @@ export async function applyTextEdit(
     flip: options.flip,
     path: options.path && { kind: options.path.kind },
     sketchEntities: options.path?.kind === 'picked' ? [{ shapeId: options.path.shapeId }] : undefined,
+    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }
@@ -5007,7 +5067,7 @@ export async function applyTextEdit(
  */
 export async function applyTextToPath(
   shapeId: string,
-  options: TextOptionValues,
+  options: TextOptionValues & { newVariables?: NewVariable[] },
   extras: { preview?: boolean; signal?: AbortSignal } = {},
 ): Promise<ApplyFeatureResponse> {
   return postApplyFeature({
@@ -5024,6 +5084,7 @@ export async function applyTextToPath(
     offset: options.offset,
     startAt: options.startAt,
     flip: options.flip,
+    newVariables: options.newVariables,
     preview: extras.preview,
   }, extras.signal);
 }
@@ -5032,8 +5093,8 @@ export type ValueFeatureEditOptions = EditSessionFields & {
   value: ValueExpr;
   /** Edited selector argument list; omitted keeps the statement's verbatim. */
   selectorOverride?: string;
-  /** Shell only: rewrites the `.join('<type>')` chain; 'arc' writes none. */
-  joinType?: ShellJoinType;
+  /** Shell only: rewrites the `.join('<type>')` chain; 'arc' writes none; an expression writes `.join(<expr>)`. */
+  joinType?: ShellJoinType | FeatureRefValue | FeatureExprValue;
   /** Chamfer only: second value slot; null returns to the equal-distance form. */
   distance2?: ValueExpr | null;
   /** Chamfer only: `distance2` is an angle in degrees. */

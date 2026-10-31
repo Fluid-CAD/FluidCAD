@@ -1,10 +1,11 @@
 import {
   applyFeature, applyValueFeatureEdit, continueBreakpoint, expandBucket, featureGhostScope, fetchFeatureGhost,
   fetchFeatureSources, parseFeatureAt, removeFeature, setSketchClosed, ApplyFeatureResponse,
-  FeatureEditTarget, FeatureGhostRequest, NewVariable, ParsedFeatureStatement, SelectionGroupKind, ShellJoinType,
-  SketchSourceRef, ValueExpr,
+  FeatureEditTarget, FeatureExprValue, FeatureGhostRequest, NewVariable, ParsedFeatureStatement, SelectionGroupKind,
+  ShellJoinType, SketchSourceRef, ValueExpr,
 } from '../../api';
 import { mergeUniqueEntities } from '../../helpers/entities';
+import { ExpressionMode } from '../create-feature/expression-mode';
 import { findActiveSketch } from '../../helpers/scene-utils';
 import { collectPlaneOptions, planeOptionForLocation, PlaneOption, resolvePlaneByShapeId } from '../create-feature/plane-bases';
 import { SketchStartPanel } from '../create-feature/sketch-panel';
@@ -600,7 +601,7 @@ export class ModifyPickService {
     }
     void this.refreshScopeVariables();
     if (parsed.feature === 'shell') {
-      this.panel.joinValue = parsed.joinType;
+      this.panel.setJoin(parsed.joinType);
       this.panel.setJoinVisible(true);
     } else {
       this.panel.setJoinVisible(false);
@@ -649,12 +650,7 @@ export class ModifyPickService {
     const line = this.editTarget?.line ?? null;
     await refreshScopeVariables(
       line,
-      {
-        setScopeVariables: (variables) => {
-          this.panel.valueField.setVariables(variables);
-          this.panel.value2Field.setVariables(variables);
-        },
-      },
+      this.panel,
       () => this.feature !== null && this.feature !== 'sketch' && (this.editTarget?.line ?? null) === line,
     );
   }
@@ -730,7 +726,7 @@ export class ModifyPickService {
     }
     void this.refreshScopeVariables();
     if (config.joinRow) {
-      this.panel.joinValue = 'arc';
+      this.panel.setJoin('arc');
       this.panel.setJoinVisible(true);
     } else {
       this.panel.setJoinVisible(false);
@@ -1539,6 +1535,14 @@ export class ModifyPickService {
         newVariables = [...(newVariables ?? []), read2.newVariable];
       }
     }
+    // A shell's join row in expression mode with nothing typed has nothing to write.
+    if (this.feature === 'shell') {
+      const join = this.panel.readJoin();
+      if ('error' in join) {
+        this.panel.setMessage(join.error);
+        return;
+      }
+    }
 
     if (this.editTarget) {
       // In-place statement edit. A re-picked (dirty) selection rides as
@@ -1773,12 +1777,18 @@ export class ModifyPickService {
     this.panel.expression.setPrefix(`${this.feature}(${value}, `);
   }
 
-  /** The join dropdown's value while a shell dialog is up, or null. */
-  private shellJoinType(): ShellJoinType | null {
+  /**
+   * The join row's value while a shell dialog is up — an option, or the
+   * expression computing one — or null: no shell dialog, or the row in
+   * expression mode with nothing typed yet (apply refuses that with its own
+   * message; the previews stand down).
+   */
+  private shellJoinType(): ShellJoinType | FeatureExprValue | null {
     if (this.feature !== 'shell') {
       return null;
     }
-    return this.panel.joinValue;
+    const join = this.panel.readJoin();
+    return 'error' in join ? null : join.value;
   }
 
   /**
@@ -1828,15 +1838,15 @@ export class ModifyPickService {
     return { distance2: read.value, isAngle, newVariable: read.newVariable };
   }
 
-  /** A non-default shell join shows as a `.join()` chain after the args. */
+  /** A non-default shell join shows as a `.join()` chain after the args — an expression bare, as the statement will carry it. */
   private syncExprSuffix(): void {
     if (!this.feature) {
       return;
     }
     const join = this.shellJoinType();
-    this.panel.expression.setSuffix(join && join !== 'arc'
-      ? `${FEATURES[this.feature].exprSuffix}.join('${join}')`
-      : FEATURES[this.feature].exprSuffix);
+    const chain = join === null || join === 'arc' ? ''
+      : `.join(${ExpressionMode.isExpr(join) ? join.expr : `'${join}'`})`;
+    this.panel.expression.setSuffix(`${FEATURES[this.feature].exprSuffix}${chain}`);
   }
 
   private cancelPreview(): void {
@@ -1934,10 +1944,15 @@ export class ModifyPickService {
       return null;
     }
     if (feature === 'shell') {
+      // A join row in expression mode with nothing typed yet has no join to preview.
+      const joinType = this.shellJoinType();
+      if (joinType === null) {
+        return null;
+      }
       return {
         feature,
         thickness: value,
-        joinType: this.shellJoinType() ?? 'arc',
+        joinType,
         faces: this.ghostFaces(),
       };
     }

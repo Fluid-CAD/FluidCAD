@@ -17,6 +17,7 @@ export {
   type ValueExpr,
 } from './value-expr.ts';
 export { refArgValue } from './ast/args.ts';
+export { ValueSlots, type BooleanSlot, type ChoiceSlot, type TextSlot } from './value-slots.ts';
 export type {
   ApplyFeatureEditResult,
   ApplyFeatureEditSpec,
@@ -29,11 +30,15 @@ export type {
 export {
   renderConnectorAnchorSuffix,
   renderConnectorChain,
+  shapedConnectorRotate,
   validConnectorAnchor,
+  validConnectorOffset,
   validConnectorRotate,
   type ConnectorAnchorSpec,
   type ConnectorEditOptions,
+  type ConnectorOffsetSpec,
   type ConnectorRotateAxis,
+  type ConnectorRotateSpec,
 } from './features/connector.ts';
 export type { ExposeEditOptions, ForeignExposureRef } from './features/expose.ts';
 export {
@@ -58,6 +63,7 @@ export {
   type HoleFit,
   type HolePlacementSpec,
   type HoleSizeSpec,
+  type HoleSlotCheck,
   type HoleStyleSpec,
   type HoleValueOptions,
   type ParsedHole,
@@ -76,6 +82,7 @@ export {
   type SplitEditOptions,
   type SplitEditPlane,
   type SplitKeep,
+  type SplitKeepSlot,
   type SplitPlaneSpec,
 } from './features/split.ts';
 export { renderSweepStatement, type SweepEditOptions } from './features/sweep.ts';
@@ -137,7 +144,7 @@ export {
 } from './features/section.ts';
 export { renderBooleanStatement, type BooleanEditOptions, type BooleanKind } from './features/boolean.ts';
 export { ColorValues, renderColorStatement, type ColorEditOptions } from './features/color.ts';
-export { renderShellJoinChain, type ShellEditOptions, type ShellJoinKind } from './features/shell.ts';
+export { renderShellJoinChain, validShellJoin, SHELL_JOIN_KINDS, type ShellEditOptions, type ShellJoinKind, type ShellJoinSlot } from './features/shell.ts';
 export { renderChamferValueArgs, type ChamferEditOptions } from './features/chamfer.ts';
 export {
   parseOffsetTargetDescriptors,
@@ -151,6 +158,7 @@ export {
   type EditLoftGuide,
   type EditLoftProfile,
   type LoftConditionSpec,
+  type LoftConditionType,
   type LoftConnectionSpec,
   type LoftEditOptions,
   type LoftPointSpec,
@@ -159,6 +167,7 @@ export {
   renderPlaneBaseExpr,
   renderPlaneBaseExprs,
   renderPlaneStatement,
+  isLocalAxes,
   validPlaneRotationAxes,
   type ParsedPlaneBase,
   type PlaneBaseSpec,
@@ -167,7 +176,15 @@ export {
   type PlaneRotationAxes,
   type PlaneValueOptions,
 } from './features/plane.ts';
-export { renderTextStatement, type TextStatementOptions } from './features/text.ts';
+export {
+  renderTextStatement,
+  TEXT_ALIGNMENTS,
+  TEXT_FONT_LIMIT,
+  TEXT_LITERAL_LIMIT,
+  TEXT_WEIGHTS,
+  type TextAlignment,
+  type TextStatementOptions,
+} from './features/text.ts';
 export {
   CustomFeatureImport,
   CustomFeatureStatement,

@@ -16,18 +16,18 @@ import { SelectHoist } from '../../select-hoist.ts';
 import { enclosingStatement, rowOfIndex } from '../ast/nodes.ts';
 import { validChamferOptions } from '../features/chamfer.ts';
 import { ColorValues } from '../features/color.ts';
-import { CONNECTOR_NAME, validConnectorAnchor, validConnectorRotate } from '../features/connector.ts';
+import { CONNECTOR_NAME, validConnectorAnchor, validConnectorOffset, validConnectorRotate } from '../features/connector.ts';
 import type { CopyAxisSpec } from '../features/copy.ts';
 import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
-import { renderLoftConnections } from '../features/loft.ts';
+import { renderLoftConnections, validEditCondition } from '../features/loft.ts';
 import type { MirrorAxisSpec } from '../features/mirror.ts';
-import { renderPlaneBaseExprs, renderPlaneStatement, validPlaneRotationAxes } from '../features/plane.ts';
+import { isLocalAxes, renderPlaneBaseExprs, renderPlaneStatement, validPlaneRotationAxes } from '../features/plane.ts';
 import { renderSectionPlaneExpr, renderSectionStatement, validSectionOptions } from '../features/section.ts';
 import { renderSplitPlaneExpr, renderSplitStatement, validSplitOptions, validSplitPlane } from '../features/split.ts';
 import { PROJECTION_OPS } from '../features/projection.ts';
 import type { RepeatAxisSpec, RepeatPlaneSpec } from '../features/repeat.ts';
-import { validTextStatementOptions } from '../features/text.ts';
+import { textLiteralBlank, validTextStatementOptions } from '../features/text.ts';
 import { validTranslation } from '../features/translate.ts';
 import { validHoleFasten, validHoleOptions, validHolePlacementSlot } from '../features/hole.ts';
 import { CustomFeatureImport, CustomFeatureStatement } from '../features/custom.ts';
@@ -50,6 +50,7 @@ import { buildStatement, statementCallee } from '../render/statement.ts';
 import { renderNewVariableDecls } from '../render/variable-decls.ts';
 import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
 import { validCountValue, validEditExtend, validValueExpr } from '../value-expr.ts';
+import { ValueSlots } from '../value-slots.ts';
 
 /**
  * The generic create path: validate the spec's shape for its feature, bind
@@ -77,6 +78,7 @@ export async function applyCreateEdit(
     // are bound feature producers trailing the list.
     const scope = spec.extrude?.scope ?? [];
     const valid = spec.extrude !== undefined && spec.producers.length >= 1
+      && ValueSlots.validBoolean(spec.extrude.drill)
       && scope.every(p => isScopeTargetProducer(spec, p))
       && (spec.extrude.toFace === 'selector'
         ? spec.parts.length === 1
@@ -219,9 +221,8 @@ export async function applyCreateEdit(
       // A guide is any wire source (a sketch or a helix).
       && guides.every(g => g?.kind === 'sketch' && isWireProducer(spec, g.producer))
       && (lo.scope ?? []).every(p => isScopeTargetProducer(spec, p))
-      && [lo.startCondition, lo.endCondition].every(c => c === undefined
-        || ((c.type === 'normal' || c.type === 'tangent')
-          && validValueExpr(c.magnitude, { nonzero: true })));
+      // A condition's type is a literal or an expression, like an edit's.
+      && [lo.startCondition, lo.endCondition].every(c => validEditCondition(c));
     if (!valid) {
       return { newCode: code, error: 'malformed loft edit spec' };
     }
@@ -274,7 +275,7 @@ export async function applyCreateEdit(
         && validValueExpr(pl.position)
         && (typeof pl.position !== 'number' || (pl.position >= 0 && pl.position <= 1))
         && [pl.offset, pl.rotateX, pl.rotateY, pl.rotateZ].every(v => v === null)
-        && pl.rotationAxes !== 'world'));
+        && isLocalAxes(pl.rotationAxes)));
     if (!valid) {
       return { newCode: code, error: 'malformed plane edit spec' };
     }
@@ -332,6 +333,7 @@ export async function applyCreateEdit(
       && new Set(targets.map(t => t.producer)).size === targets.length
       && (rp.kind === 'linear'
         ? validDirections && (rp.spacingMode === 'offset' || rp.spacingMode === 'length')
+          && (rp.centered === undefined || ValueSlots.validBoolean(rp.centered))
           && rp.axis === undefined && rp.plane === undefined
           && rp.count === undefined && rp.sweep === undefined && rp.angle === undefined
         : rp.kind === 'circular'
@@ -392,6 +394,7 @@ export async function applyCreateEdit(
       && new Set(targets.map(t => t.producer)).size === targets.length
       && (cp.kind === 'linear'
         ? validDirections && (cp.spacingMode === 'offset' || cp.spacingMode === 'length')
+          && (cp.centered === undefined || ValueSlots.validBoolean(cp.centered))
           && cp.axis === undefined && cp.center === undefined
           && cp.count === undefined && cp.sweep === undefined
         : cp.kind === 'circular'
@@ -594,7 +597,7 @@ export async function applyCreateEdit(
     const co = spec.color;
     const targets = co?.targets ?? [];
     const valid = co !== undefined
-      && ColorValues.valid(co.value)
+      && ColorValues.validSlot(co.value)
       && targets.every(t => isFeatureProducer(spec, t.producer))
       && new Set(targets.map(t => t.producer)).size === targets.length
       && (targets.length > 0
@@ -632,7 +635,7 @@ export async function applyCreateEdit(
       || !validTextStatementOptions(spec.text)) {
       return { newCode: code, error: 'malformed text edit spec' };
     }
-    if (spec.text!.text.trim() === '') {
+    if (textLiteralBlank(spec.text!.text)) {
       return { newCode: code, error: 'the text string is empty' };
     }
   } else if (spec.feature === 'connector') {
@@ -646,8 +649,7 @@ export async function applyCreateEdit(
       && spec.producers.length >= 1 && spec.parts.length === 1
       && validConnectorAnchor(co.anchor)
       && validConnectorRotate(co.rotate)
-      && (co.offset === undefined
-        || (Array.isArray(co.offset) && co.offset.length === 3 && co.offset.every(v => Number.isFinite(v))));
+      && validConnectorOffset(co.offset);
     if (!valid) {
       return { newCode: code, error: 'malformed connector edit spec' };
     }

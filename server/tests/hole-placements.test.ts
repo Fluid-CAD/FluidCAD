@@ -377,9 +377,12 @@ describe('hole statement parsing', () => {
     expect(bore.ok && bore.parsed).toMatchObject({ size: { kind: 'diameter', value: 'bore' }, fastener: null });
     const derived = await parse([`const bore = 6`], `hole(bore / 2, bolt)`);
     expect(derived.ok && derived.parsed).toMatchObject({ size: { kind: 'diameter', value: 'bore / 2' } });
-    // The kinds that contradict a slot fail as before: a number is no fit, a string no pitch.
+    // The fit reads as any choice slot does: a name is the variable whatever
+    // its kind — the dialog shows what it comes to and refuses to apply a
+    // value no fit carries, as the parse once did. A string is no pitch:
+    // the pitch slots keep their kind guard (a solid, as `.fasten()` once took).
     const numberFit = await parse([`const n = 5`], `hole('M6', bolt).clearance(n)`);
-    expect(numberFit).toMatchObject({ ok: false, reason: expect.stringContaining("'close', 'normal' or 'loose'") });
+    expect(numberFit.ok && numberFit.parsed).toMatchObject({ fastener: { type: 'clearance', fit: { ref: 'n' } } });
     const stringPitch = await parse([`const fine = 'fine'`], `hole('M6', bolt).tapped(fine)`);
     expect(stringPitch).toMatchObject({ ok: false, reason: expect.stringContaining('not a plain positive number') });
     const stringFasten = await parse([`const fine = 'fine'`], `hole('M6', bolt).fasten(fine)`);
@@ -487,5 +490,108 @@ describe('HolePlacements.needsStaging', () => {
   it('is true only for sketch and new-connector placements', () => {
     expect(HolePlacements.needsStaging(holeSpec({ placements: [{ kind: 'connector', producer: 0 }] }))).toBe(false);
     expect(HolePlacements.needsStaging(holeSpec({ placements: [{ kind: 'sketch', producer: 0, target: { line: 9 } }] }))).toBe(true);
+  });
+});
+
+describe('hole typed-in slots — the fit and the pitches take an expression', () => {
+  // The fit, the tapped pitch and the fasten pitch read as the dialog's
+  // choice slots: a literal, a variable, or the expression computing the
+  // value, which the dialog opens in expression mode and writes back bare.
+  // The size label stays a literal or a variable: an operator expression in
+  // the size slot is a drilled diameter, never a label.
+  const bound = plate.replace(`  connector('bolt'`, `  const bolt = connector('bolt'`);
+  const withHole = (statement: string) => bound.replace(`  })\n})`, `  })\n  ${statement}\n})`);
+  type FeatureEdit = NonNullable<ApplyFeatureEditSpec['edit']>;
+  const edit = (code: string, hole: NonNullable<FeatureEdit['hole']>) => applyFeatureEdit(code, {
+    feature: 'hole', filePath: FILE, producers: [], parts: [], imports: [], edit: { line: 12, column: 2, hole },
+  });
+  const M6 = { size: { kind: 'fastener' as const, label: 'M6' }, style: null, depth: null, tipAngle: null };
+
+  it('opens an expression in the fit, the tapped pitch and the fasten pitch slots', async () => {
+    const fit = await parseFeatureStatement(withHole(`hole('M6', bolt).clearance(left ? 'close' : 'loose')`), 12);
+    expect(fit).toMatchObject({ ok: true, parsed: { fastener: { type: 'clearance', fit: { expr: "left ? 'close' : 'loose'" } } } });
+    const tapped = await parseFeatureStatement(withHole(`hole('M6', bolt).tapped(fine ? 0.75 : 1)`), 12);
+    expect(tapped).toMatchObject({ ok: true, parsed: { fastener: { type: 'tapped', pitch: { expr: 'fine ? 0.75 : 1' } } } });
+    const fasten = await parseFeatureStatement(withHole(`hole('M6', bolt).fasten(pitch * 2, 12)`), 12);
+    expect(fasten).toMatchObject({ ok: true, parsed: { fasten: { pitch: { expr: 'pitch * 2' }, depth: 12, tipAngle: null } } });
+    // A template string is no string literal: the fit is its expression.
+    const template = await parseFeatureStatement(withHole('hole(\'M6\', bolt).clearance(`${fit}`)'), 12);
+    expect(template).toMatchObject({ ok: true, parsed: { fastener: { type: 'clearance', fit: { expr: '`${fit}`' } } } });
+    // An expression in the size slot is the drilled diameter it always was.
+    const diameter = await parseFeatureStatement(withHole(`hole(bore / 2, bolt)`), 12);
+    expect(diameter).toMatchObject({ ok: true, parsed: { size: { kind: 'diameter', value: 'bore / 2' }, fastener: null } });
+  });
+
+  it('keeps a statement\'s own expression through an edit of another row, two lines and all', async () => {
+    const code = withHole(`hole('M6', bolt).clearance(left\n    ? 'close' : 'loose').depth(12)`);
+    const read = await parseFeatureStatement(code, 12);
+    expect(read).toMatchObject({ ok: true, parsed: { fastener: { type: 'clearance', fit: { expr: "left\n    ? 'close' : 'loose'" } } } });
+    const kept = await edit(code, { ...M6, fastener: { type: 'clearance', fit: { expr: "left\n    ? 'close' : 'loose'" } }, depth: 8 });
+    expect(kept.error).toBeUndefined();
+    expect(kept.newCode).toContain(`  hole('M6', bolt).clearance(left\n    ? 'close' : 'loose').depth(8)\n})`);
+    const fastened = withHole(`hole('M6', bolt).fasten(fine\n    ? 0.75 : 1, 12)`);
+    const keptFasten = await edit(fastened, { ...M6, fastener: { type: 'clearance', fit: 'normal' }, fasten: { pitch: { expr: 'fine\n    ? 0.75 : 1' }, depth: 12 } });
+    expect(keptFasten.error).toBeUndefined();
+    expect(keptFasten.newCode).toContain(`  hole('M6', bolt).clearance('normal').fasten(fine\n    ? 0.75 : 1, 12)\n})`);
+  });
+
+  it('writes a typed expression bare, a literal as before, and refuses text that is no single expression', async () => {
+    const code = withHole(`hole('M6', bolt).clearance('close').depth(12)`);
+    const fit = await edit(code, { ...M6, fastener: { type: 'clearance', fit: { expr: "left ? 'close' : 'loose'" } } });
+    expect(fit.newCode).toContain(`  hole('M6', bolt).clearance(left ? 'close' : 'loose')\n})`);
+    const tapped = await edit(code, { ...M6, fastener: { type: 'tapped', pitch: { expr: 'pitch * 2' } } });
+    expect(tapped.newCode).toContain(`  hole('M6', bolt).tapped(pitch * 2)\n})`);
+    const fasten = await edit(code, { ...M6, fastener: { type: 'clearance', fit: 'close' }, fasten: { pitch: { expr: 'fine ? 0.75 : 1' }, depth: 12, tipAngle: 118 } });
+    expect(fasten.newCode).toContain(`  hole('M6', bolt).clearance('close').fasten(fine ? 0.75 : 1, 12, 118)\n})`);
+    const literal = await edit(code, { ...M6, fastener: { type: 'clearance', fit: 'loose' } });
+    expect(literal.newCode).toContain(`  hole('M6', bolt).clearance('loose')\n})`);
+    // Text the dialog typed is checked as a number row's expression is.
+    const badFit = await edit(code, { ...M6, fastener: { type: 'clearance', fit: { expr: 'a, b' } } });
+    expect(badFit.error).toContain('malformed hole edit spec');
+    const badPitch = await edit(code, { ...M6, fastener: { type: 'tapped', pitch: { expr: 'a, b' } } });
+    expect(badPitch.error).toContain('malformed hole edit spec');
+    const badFasten = await edit(code, { ...M6, fastener: { type: 'clearance', fit: 'close' }, fasten: { pitch: { expr: 'a, b' } } });
+    expect(badFasten.error).toContain('malformed hole edit spec');
+    // A create writes the expression bare too, and checks typed text the same way.
+    const producers = [BOLT];
+    const placements: HolePlacementSpec[] = [{ kind: 'connector', producer: 0 }];
+    const created = await applyFeatureEdit(plate, holeSpec({
+      fastener: { type: 'clearance', fit: { expr: "left ? 'close' : 'loose'" } }, placements, fasten: { pitch: { expr: 'pitch * 2' } },
+    }, { producers }));
+    expect(created.newCode).toContain(`  hole('M6', bolt).clearance(left ? 'close' : 'loose').fasten(pitch * 2).name('Hole 1')\n})`);
+    const badCreate = await applyFeatureEdit(plate, holeSpec({ fastener: { type: 'tapped', pitch: { expr: 'a, b' } }, placements }, { producers }));
+    expect(badCreate.error).toContain('malformed hole edit spec');
+  });
+
+  it('still refuses the shapes no slot takes: a literal no fit, a string or non-positive pitch, a spread, too many arguments', async () => {
+    const badFit = await parseFeatureStatement(withHole(`hole('M6', bolt).clearance('tight')`), 12);
+    expect(badFit).toMatchObject({ ok: false, reason: expect.stringContaining("'close', 'normal' or 'loose'") });
+    const spreadFit = await parseFeatureStatement(withHole(`hole('M6', bolt).clearance(...fits)`), 12);
+    expect(spreadFit).toMatchObject({ ok: false, reason: expect.stringContaining("'close', 'normal' or 'loose'") });
+    const stringPitch = await parseFeatureStatement(withHole(`hole('M6', bolt).tapped('fine')`), 12);
+    expect(stringPitch).toMatchObject({ ok: false, reason: expect.stringContaining('not a plain positive number') });
+    const zeroPitch = await parseFeatureStatement(withHole(`hole('M6', bolt).tapped(0)`), 12);
+    expect(zeroPitch).toMatchObject({ ok: false, reason: expect.stringContaining('not a plain positive number') });
+    const twoPitches = await parseFeatureStatement(withHole(`hole('M6', bolt).tapped(1, 2)`), 12);
+    expect(twoPitches).toMatchObject({ ok: false, reason: expect.stringContaining('at most one pitch') });
+    const zeroFasten = await parseFeatureStatement(withHole(`hole('M6', bolt).fasten(0, 12)`), 12);
+    expect(zeroFasten).toMatchObject({ ok: false, reason: expect.stringContaining("not a plain positive number or 'coarse'") });
+    const solidFasten = await parseFeatureStatement(withHole(`hole('M6', bolt).fasten(e, 12)`), 12);
+    expect(solidFasten).toMatchObject({ ok: false, reason: expect.stringContaining('takes an optional pitch, depth and tip angle') });
+  });
+
+  it('the route takes an expression for its shape alone, and refuses a blank one', () => {
+    const options = { size: { kind: 'fastener', label: 'M6' }, style: null, depth: null, tipAngle: null };
+    // The statement's own text — a template string, two lines — is not the route's to judge.
+    expect(validateHoleOptions({ ...options, fastener: { type: 'clearance', fit: { expr: '`${fit}`' } } }))
+      .toMatchObject({ fastener: { type: 'clearance', fit: { expr: '`${fit}`' } } });
+    expect(validateHoleOptions({ ...options, fastener: { type: 'tapped', pitch: { expr: 'fine\n  ? 0.75 : 1' } } }))
+      .toMatchObject({ fastener: { type: 'tapped', pitch: { expr: 'fine\n  ? 0.75 : 1' } } });
+    expect(validateHoleOptions({ ...options, fastener: { type: 'clearance', fit: { expr: '  ' } } })).toHaveProperty('error');
+    expect(validateHoleOptions({ ...options, fastener: { type: 'tapped', pitch: { expr: '' } } })).toHaveProperty('error');
+    const valid = validateHoleOptions({ ...options, fastener: { type: 'clearance', fit: 'close' } });
+    expect(validateHoleFasten({ fasten: { pitch: { expr: 'pitch * 2' } } }, valid as never, false))
+      .toEqual({ fasten: { pitch: { expr: 'pitch * 2' }, depth: null, tipAngle: null } });
+    expect(validateHoleFasten({ fasten: { pitch: { expr: ' ' } } }, valid as never, false)).toHaveProperty('error');
   });
 });

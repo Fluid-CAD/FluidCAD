@@ -701,3 +701,45 @@ describe('Hole dialog service', () => {
     ]);
   });
 });
+
+describe('Hole dialog service — expression slots', () => {
+  it('seeds an edit session from a fit and a fasten pitch expression, sends them back as read, and draws the ghost only once they resolve', async () => {
+    const { service, container } = mount();
+    const parsed: Extract<ParsedFeatureStatement, { feature: 'hole' }> = {
+      feature: 'hole',
+      size: { kind: 'fastener', label: 'M6' },
+      fastener: { type: 'clearance', fit: { expr: "left ? 'close' : 'loose'" } },
+      style: null, depth: null, tipAngle: null,
+      placementTexts: ['bolt'], placementRefs: [{ line: 6, column: 15 }],
+      fasten: { pitch: { expr: 'fine ? 0.75 : pitch' }, depth: null, tipAngle: null },
+      scopeTexts: [], scopeRefs: [],
+    };
+    const scene = [...plateScene(), {
+      id: 'hole', type: 'hole', name: 'Hole', parentId: 'part', visible: true, sceneShapes: [], ownShapes: [],
+      object: { frames: [{ origin: [20, 0, 10], normal: [0, 0, 1] }] },
+      sourceLocation: at(12, 0),
+    } as unknown as SceneObjectRender];
+    service.update(scene);
+    service.enterEdit(at(12, 0), parsed, { index: 6, type: 'hole', expectedStatement: 'hole(…)' });
+    expect(container.querySelector<HTMLInputElement>('[data-role="expr-fit"]')!.value).toBe("left ? 'close' : 'loose'");
+    expect(container.querySelector<HTMLInputElement>('[data-role="expr-fasten-pitch"]')!.value).toBe('fine ? 0.75 : pitch');
+    service.handleSceneRendered(scene, 5, true);
+    await vi.advanceTimersByTimeAsync(300);
+    // The scope's variables have not arrived: the fit comes to nothing, so the
+    // tables give no diameter and no ghost is asked for — the same path as a
+    // bound name with no value. The statement preview still carries the
+    // expressions exactly as the parse gave them.
+    expect(api.fetchFeatureGhostResult).not.toHaveBeenCalled();
+    const edit = vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1];
+    expect(edit.fastener).toEqual({ type: 'clearance', fit: { expr: "left ? 'close' : 'loose'" } });
+    expect(edit.fasten).toEqual({ pitch: { expr: 'fine ? 0.75 : pitch' }, depth: null, tipAngle: null });
+    (service as unknown as { panel: { setScopeVariables(variables: unknown[]): void } }).panel.setScopeVariables([
+      { name: 'left', initializer: 'true', numeric: true, value: true },
+      { name: 'fine', initializer: 'false', numeric: true, value: false },
+      { name: 'pitch', initializer: '1', numeric: true, value: 1 },
+    ]);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)![0]).toMatchObject({ diameter: 6.4, fasten: { diameter: 5, depth: null } });
+    expect(vi.mocked(api.applyHoleEdit).mock.calls.at(-1)![1].fastener).toEqual({ type: 'clearance', fit: { expr: "left ? 'close' : 'loose'" } });
+  });
+});

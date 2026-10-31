@@ -37,6 +37,7 @@ import {
   type ParsedScopeChain,
 } from './parsed-statement.ts';
 import type { RegionName, ValueExpr } from '../value-expr.ts';
+import { ValueSlots, type BooleanSlot } from '../value-slots.ts';
 
 /**
  * The `.region(…)` chain's arguments: the names of the sketch's `region()`
@@ -81,6 +82,11 @@ export function parseFeatureChain(
   const chain = decomposeChain(call);
   if (!chain) {
     return { error: 'the call at that line is not a plain feature call chain' };
+  }
+  // Text the grammar could not read (`{ keep: ...sides }`) has no shape a
+  // dialog can show or write back — the source editor is where it is fixed.
+  if (call.hasError) {
+    return { error: 'the statement has a syntax error — fix it in the source' };
   }
   const custom = callees.feature(chain.root.name);
   if (custom) {
@@ -429,20 +435,19 @@ export function parseFeatureChain(
       }
     }
 
-    let drill = true;
+    // `.drill(flag)` takes a literal or the expression computing it; a bare
+    // `.drill()` means true — the API default.
+    let drill: BooleanSlot = true;
     const drillSeg = recognized.get('drill');
     if (drillSeg) {
       if (drillSeg.args.length > 1) {
         return { error: 'the .drill() chain has more arguments than the dialog understands' };
       }
-      if (drillSeg.args.length === 1) {
-        const value = booleanArgValue(drillSeg.args[0]);
-        if (value === null) {
-          return { error: 'the .drill() argument is not a plain boolean — edit it in the source' };
-        }
-        drill = value;
+      const value = drillSeg.args.length === 1 ? ValueSlots.boolean(drillSeg.args[0]) : true;
+      if (value === null) {
+        return { error: 'the .drill() argument is not one the dialog can carry — edit it in the source' };
       }
-      // A bare .drill() means true — the API default.
+      drill = value;
     }
 
     const regionParse = parseRegionSegment(recognized);

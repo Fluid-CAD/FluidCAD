@@ -3969,12 +3969,30 @@ describe('parseFeatureStatement — text', () => {
     expect(result).toEqual({
       ok: true,
       parsed: {
-        feature: 'text', text: 'Hello', size: 10, font: null, weight: 400,
+        feature: 'text', text: 'Hello', size: 10, font: null, fontOptionsText: null, weight: 400,
         italic: false, align: 'left', lineSpacing: 1, letterSpacing: 0,
         offset: 0, startAt: 0, flip: false, pathText: null,
       },
       statement: 'text("Hello")',
     });
+  });
+
+  // A package part reading a font file name its user passes in writes
+  // `{ from: 'project' }` beside it: the dialog opens the name and keeps
+  // where it is read from as the statement has it.
+  it('reads a font name with its options, the options verbatim', async () => {
+    const code = `${textEditBase}\n  text("Hi").font('fonts/Brand.ttf', { from: 'project' }).size(12)\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'text', font: 'fonts/Brand.ttf', fontOptionsText: "{ from: 'project' }", size: 12 },
+    });
+  });
+
+  it('refuses font options spread into the call', async () => {
+    const code = `${textEditBase}\n  text("Hi").font('fonts/Brand.ttf', ...rest)\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('.font() options') });
   });
 
   it('reads a full option chain', async () => {
@@ -4070,6 +4088,23 @@ describe('applyFeatureEdit (text in-place statement edit)', () => {
     expect(result.newCode).toBe(
       `${textEditBase}\n  text("Hi there").font('Georgia').size(14).bold().align('center')\n})\n`,
     );
+  });
+
+  it('keeps the font\'s options while the statement keeps a font, and drops them with it', async () => {
+    const code = `${textEditBase}\n  text("Hi").font('fonts/Brand.ttf', { from: 'project' })\n})\n`;
+    const renamed = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: textEditOptions({ text: 'Hi', font: 'fonts/Other.ttf', size: 12 }),
+    }));
+    expect(renamed.error).toBeUndefined();
+    expect(renamed.newCode).toContain(`  text("Hi").font('fonts/Other.ttf', { from: 'project' }).size(12)\n`);
+
+    const cleared = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: textEditOptions({ text: 'Hi' }),
+    }));
+    expect(cleared.error).toBeUndefined();
+    expect(cleared.newCode).toContain(`  text("Hi")\n`);
   });
 
   it('drops chains back to defaults', async () => {

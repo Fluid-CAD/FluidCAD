@@ -553,7 +553,7 @@ export function renderEditedStatement(
     if (pathExpr === null && textOptionsNeedPath(opts)) {
       return { error: 'the distributed alignments, offset, start-at and flip only apply to text following a path' };
     }
-    return { statement: renderTextStatement(opts, pathExpr) };
+    return { statement: renderTextStatement(opts, pathExpr, parsed.fontOptionsText) };
   }
   if (parsed.feature === 'project') {
     // No value slot: the args are the whole statement — the edited expression

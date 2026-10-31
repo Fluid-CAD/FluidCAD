@@ -117,12 +117,15 @@ function quoteFont(font: string): string {
  * the Text tool's canonical order, defaults omitted — a default being a
  * literal equal to it, so an expression in a slot always writes its chain.
  * `pathExpr` is the path argument — the statement's own text preserved
- * verbatim, or the re-picked geometry's variable. Shared with the route's
+ * verbatim, or the re-picked geometry's variable. `fontOptionsText` is the
+ * edited statement's own `.font()` options (`{ from: 'project' }`), written
+ * back verbatim beside the font while it has one. Shared with the route's
  * preview so the previewed text is exactly what the transform writes.
  */
 export function renderTextStatement(
   opts: TextStatementOptions,
   pathExpr: string | null,
+  fontOptionsText: string | null = null,
 ): string {
   const args = [ValueSlots.source(opts.text, text => JSON.stringify(text))];
   if (pathExpr) {
@@ -130,7 +133,11 @@ export function renderTextStatement(
   }
   let statement = `text(${args.join(', ')})`;
   if (opts.font !== null && ValueSlots.literal(opts.font) !== '') {
-    statement += `.font(${ValueSlots.source(opts.font, quoteFont)})`;
+    const fontArgs = [ValueSlots.source(opts.font, quoteFont)];
+    if (fontOptionsText !== null) {
+      fontArgs.push(fontOptionsText);
+    }
+    statement += `.font(${fontArgs.join(', ')})`;
   }
   if (opts.size !== 10) {
     statement += `.size(${formatValue(opts.size)})`;
@@ -236,12 +243,21 @@ export function parseTextChain(
     size = value;
   }
 
+  // The name, and its options (`{ from: 'project' }`) kept verbatim: the
+  // dialog edits the name, never where it is read from.
   let font: TextSlot | null = null;
+  let fontOptionsText: string | null = null;
   const fontSeg = recognized.get('font');
   if (fontSeg) {
-    font = fontSeg.args.length === 1 ? ValueSlots.text(fontSeg.args[0]) : null;
+    font = fontSeg.args.length === 1 || fontSeg.args.length === 2 ? ValueSlots.text(fontSeg.args[0]) : null;
     if (font === null) {
       return { error: 'the .font() name is not one the dialog can carry — edit it in the source' };
+    }
+    if (fontSeg.args.length === 2) {
+      if (fontSeg.args[1].type === 'spread_element') {
+        return { error: 'the .font() options are not ones the dialog can carry — edit them in the source' };
+      }
+      fontOptionsText = fontSeg.args[1].text;
     }
   }
 
@@ -366,7 +382,7 @@ export function parseTextChain(
 
   return {
     parsed: {
-      feature: 'text', text, size, font, weight, italic, align, lineSpacing, letterSpacing,
+      feature: 'text', text, size, font, fontOptionsText, weight, italic, align, lineSpacing, letterSpacing,
       offset, startAt, flip, pathText,
     },
     start,

@@ -219,6 +219,12 @@ export type ParsedFeatureStatement =
     size: ValueExpr;
     /** `.font()` family/file, or the expression naming it; null when the chain is absent. */
     font: TextSlot | null;
+    /**
+     * `.font()`'s second argument (its options, `{ from: 'project' }`),
+     * verbatim — never dialog-edited, kept while the statement keeps a font;
+     * null when absent.
+     */
+    fontOptionsText: string | null;
     /** `.weight()` in hundreds (700 for `.bold()`), or the expression computing it; 400 when absent. */
     weight: ChoiceSlot<number>;
     /** `.italic()` — true when bare, the flag or the expression given; false when absent. */

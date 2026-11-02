@@ -188,6 +188,20 @@ html {
   outline: none;
 }
 
+/* A select's open list (`::picker(select)`, daisyUI 5's customizable select)
+   is daisyUI's `background-color: inherit` — whatever the field itself wears.
+   Field surfaces here are tints (param-row.ts's FIELD_SURFACE), ghosts or
+   panel-bg, all see-through, so the list came out see-through over the panel
+   and the labels under it read through its options. Every list gets the
+   popups' solid surface (menu-styles.ts's MENU_CLASS) whatever its field's
+   background. Unlayered, so it beats daisyUI's layered rule and any utility a
+   call site adds: never give a select's picker its own background. Guarded by
+   tests/select-picker-surface.test.ts. */
+::picker(select) {
+  background-color: var(--color-base-100);
+  color: var(--color-base-content);
+}
+
 @utility panel-bg {
   background: light-dark(oklch(0.95 0 0 / 0.85), oklch(0.2 0 0 / 0.85));
   backdrop-filter: blur(12px);

@@ -76,7 +76,9 @@ type PageGroup = {
  * then scanned server-side in turn (evaluation shares the OCC mutex with
  * renders, so sequential requests add no latency) and its tiles pop into the
  * grid as results land. Clicking a tile QUEUES one instance (click again for
- * more; hover reveals a − to remove); the footer button advances.
+ * more; hover reveals a − to remove); the footer button advances. Library
+ * packages the project doesn't pin yet stay unscanned and out of the grid
+ * until the Show library parts toggle is on.
  *
  * Step 2 (parameters): one carousel page per queued instance that declares
  * `param()`s — two queued extrusions can get different lengths in one pass —
@@ -109,8 +111,26 @@ export class InsertPartDialog {
   private variables: VariableInfo[] = [];
   /** Sticky across opens — reset only by the user clicking another chip. */
   private filter: CatalogFilter = 'all';
+  /**
+   * Sticky across opens like the filter: library packages' files (offered
+   * by the library, not pinned by the project) are scanned and shown only
+   * while this is on.
+   */
+  private showLibrary = false;
   /** The open assembly file — its own entries are excluded from the grid. */
   private excludeAbsPath: string | null = null;
+
+  /** Every candidate file of this load, scanned or not. */
+  private files: CatalogFileEntry[] = [];
+  /** Files waiting for their scan, in order — the pump drains it. */
+  private pending: CatalogFileEntry[] = [];
+  /** Files queued, in flight or done this load, by absolute path. */
+  private scheduled = new Set<string>();
+  /** The load whose pump is draining `pending`; null while idle. */
+  private pumpOwner: AbortController | null = null;
+  private scannedCount = 0;
+  private failures: { file: CatalogFileEntry; text: string }[] = [];
+  private skipped: { file: CatalogFileEntry; text: string }[] = [];
 
   private basket: BasketEntry[] = [];
   private tiles = new Map<string, TileState>();
@@ -142,6 +162,8 @@ export class InsertPartDialog {
     this.nextBtn.addEventListener('click', () => void this.advance());
     this.prevPageBtn.addEventListener('click', () => this.showPage(this.pageIndex - 1));
     this.nextPageBtn.addEventListener('click', () => void this.pageForward());
+    const libraryToggle = this.overlay.querySelector<HTMLInputElement>('[data-ref="show-library"]')!;
+    libraryToggle.addEventListener('change', () => this.setShowLibrary(libraryToggle.checked));
     this.overlay.querySelectorAll<HTMLInputElement>('input[name="insert-filter"]').forEach(chip => {
       chip.addEventListener('change', () => {
         this.filter = chip.dataset.filter as CatalogFilter;
@@ -203,6 +225,11 @@ export class InsertPartDialog {
               name="insert-filter" data-filter="parts" aria-label="Parts" />
             <input class="btn btn-xs rounded-full border border-base-content/15 checked:btn-primary" type="radio"
               name="insert-filter" data-filter="assemblies" aria-label="Assemblies" />
+            <label class="ml-auto flex items-center gap-2 cursor-pointer"
+              title="Also list the parts of packages in your library that this project doesn't use yet">
+              <span class="text-xs text-base-content/70">Show library parts</span>
+              <input type="checkbox" data-ref="show-library" class="toggle toggle-xs toggle-primary" />
+            </label>
           </div>
           <div data-ref="status" class="text-xs text-base-content/50 mb-2 min-h-4"></div>
           <div data-ref="tree" class="overflow-y-auto flex-1 flex flex-col gap-1 content-start"></div>
@@ -245,6 +272,12 @@ export class InsertPartDialog {
     this.basket.forEach(entry => entry.form?.destroy());
     this.basket = [];
     this.pages = [];
+    this.files = [];
+    this.pending = [];
+    this.scheduled.clear();
+    this.scannedCount = 0;
+    this.failures = [];
+    this.skipped = [];
     this.pageHostEl.replaceChildren();
     this.updateFooter();
     this.setStatus('Looking for part files…');
@@ -262,42 +295,93 @@ export class InsertPartDialog {
       return;
     }
     // The open assembly can't be inserted into itself — drop its file.
-    const files = allFiles.filter(f => f.absPath !== this.excludeAbsPath);
-    if (files.length === 0) {
+    this.files = allFiles.filter(f => f.absPath !== this.excludeAbsPath);
+    if (this.files.length === 0) {
       this.setStatus('No other part or assembly files in this workspace.');
       return;
     }
+    this.schedule(this.files.filter(file => this.showLibrary || !InsertPartDialog.isLibrary(file)));
+    await this.pump(ac);
+  }
 
-    const failures: string[] = [];
-    const skipped: string[] = [];
-    let done = 0;
-    this.setStatus(`Scanning files… 0/${files.length}`);
+  /** A file of a package the library offers but the project doesn't pin. */
+  private static isLibrary(file: CatalogFileEntry): boolean {
+    return file.package?.availability === 'library';
+  }
+
+  /** Whether a file's tiles (and its scan problems) are in view under the toggle. */
+  private visibleFile(file: CatalogFileEntry): boolean {
+    return this.showLibrary || !InsertPartDialog.isLibrary(file);
+  }
+
+  private schedule(files: CatalogFileEntry[]): void {
     for (const file of files) {
-      const result = await scanPartCatalogFile(file.absPath, ac.signal);
-      if (ac.signal.aborted) {
-        return;
+      if (!this.scheduled.has(file.absPath)) {
+        this.scheduled.add(file.absPath);
+        this.pending.push(file);
       }
-      done++;
-      this.setStatus(`Scanning files… ${done}/${files.length}`);
-      if (result === null) {
-        failures.push(file.path);
-        continue;
-      }
-      for (const err of result.errors) {
-        skipped.push(err.exportName ? `${file.path} · ${err.exportName}: ${err.message}` : `${file.path}: ${err.message}`);
-      }
-      this.appendTiles(file, result);
-      this.applyFilter();
     }
+  }
 
+  /**
+   * Scan the queued files one at a time (evaluation shares the OCC mutex
+   * with renders, so parallel requests would only queue there), each file's
+   * tiles landing as its result does. The toggle can grow or shrink the
+   * queue while this runs; a second call during a run joins it.
+   */
+  private async pump(ac: AbortController): Promise<void> {
+    if (this.pumpOwner === ac) {
+      return;
+    }
+    this.pumpOwner = ac;
+    try {
+      while (this.pending.length > 0) {
+        const file = this.pending.shift()!;
+        this.setStatus(`Scanning files… ${this.scannedCount}/${this.scannedCount + this.pending.length + 1}`);
+        const result = await scanPartCatalogFile(file.absPath, ac.signal);
+        if (ac.signal.aborted) {
+          return;
+        }
+        this.scannedCount++;
+        if (result === null) {
+          this.failures.push({ file, text: file.path });
+          continue;
+        }
+        for (const err of result.errors) {
+          const text = err.exportName ? `${file.path} · ${err.exportName}: ${err.message}` : `${file.path}: ${err.message}`;
+          this.skipped.push({ file, text });
+        }
+        this.appendTiles(file, result);
+        this.applyFilter();
+      }
+    } finally {
+      if (this.pumpOwner === ac) {
+        this.pumpOwner = null;
+      }
+    }
+    if (!ac.signal.aborted) {
+      this.showScanOutcome();
+    }
+  }
+
+  /** The status line once the queue is drained, counting only the files in view. */
+  private showScanOutcome(): void {
+    const failures = this.failures.filter(f => this.visibleFile(f.file)).map(f => f.text);
+    const skipped = this.skipped.filter(s => this.visibleFile(s.file)).map(s => s.text);
+    const shownTiles = this.tileEls().filter(el => el.dataset.library !== '1' || this.showLibrary);
     if (failures.length > 0) {
       this.setStatus(
         `${failures.length} file${failures.length === 1 ? '' : 's'} failed to scan.`,
         true,
         failures.join('\n'),
       );
-    } else if (this.tileEls().length === 0) {
-      this.setStatus('Nothing insertable found.', false, skipped.join('\n'));
+    } else if (shownTiles.length === 0) {
+      const hiddenLibrary = !this.showLibrary && this.files.some(file => InsertPartDialog.isLibrary(file));
+      this.setStatus(
+        hiddenLibrary ? 'Nothing insertable in this project. Turn on Show library parts to see your library.' : 'Nothing insertable found.',
+        false,
+        skipped.join('\n'),
+      );
     } else if (skipped.length > 0) {
       this.setStatus(
         `${skipped.length} export${skipped.length === 1 ? '' : 's'} skipped.`,
@@ -309,17 +393,70 @@ export class InsertPartDialog {
     }
   }
 
-  /** Show only the tiles matching the active chip, and a group's heading only while it shows a tile. */
+  /**
+   * The Show library parts toggle. On queues the library files not yet
+   * scanned this load (the scanned ones just reappear); off hides their
+   * tiles, drops the ones still waiting, and unqueues their instances —
+   * nothing inserts from a list the user can't see.
+   */
+  private setShowLibrary(on: boolean): void {
+    this.showLibrary = on;
+    if (on) {
+      this.schedule(this.files.filter(file => InsertPartDialog.isLibrary(file)));
+    } else {
+      for (const file of this.pending.filter(f => InsertPartDialog.isLibrary(f))) {
+        this.scheduled.delete(file.absPath);
+      }
+      this.pending = this.pending.filter(file => !InsertPartDialog.isLibrary(file));
+      this.unqueueLibrary();
+    }
+    this.applyFilter();
+    const ac = this.abort;
+    if (ac === null || ac.signal.aborted || this.pumpOwner !== null) {
+      return;
+    }
+    if (this.pending.length > 0) {
+      void this.pump(ac);
+    } else if (this.files.length > 0) {
+      this.showScanOutcome();
+    }
+  }
+
+  /** Drop every queued instance of a library package's part. */
+  private unqueueLibrary(): void {
+    const dropped = this.basket.filter(entry => InsertPartDialog.isLibrary(entry.file));
+    if (dropped.length === 0) {
+      return;
+    }
+    for (const entry of dropped) {
+      entry.form?.destroy();
+      const state = this.tiles.get(entry.key);
+      if (state) {
+        state.queued = 0;
+        this.updateTileBadge(state);
+      }
+    }
+    this.basket = this.basket.filter(entry => !InsertPartDialog.isLibrary(entry.file));
+    this.updateFooter();
+  }
+
+  /**
+   * Show only the tiles matching the active chip (and the library toggle),
+   * and a group's heading only while it shows a tile and some package group
+   * is in view beside it.
+   */
   private applyFilter(): void {
     for (const el of this.tileEls()) {
       const kind = el.dataset.kind;
-      const show = this.filter === 'all'
-        || (this.filter === 'parts' ? kind === 'part' : kind === 'assembly');
+      const show = (this.filter === 'all'
+        || (this.filter === 'parts' ? kind === 'part' : kind === 'assembly'))
+        && (this.showLibrary || el.dataset.library !== '1');
       el.classList.toggle('hidden', !show);
     }
-    const headed = [...this.groups.values()].some(group => group.pkg !== null);
+    const isShown = (grid: HTMLDivElement) => Array.from(grid.children).some(tile => !tile.classList.contains('hidden'));
+    const headed = [...this.groups.values()].some(group => group.pkg !== null && isShown(group.grid));
     for (const group of this.groups.values()) {
-      const shown = Array.from(group.grid.children).some(tile => !tile.classList.contains('hidden'));
+      const shown = isShown(group.grid);
       group.heading.classList.toggle('hidden', !headed || !shown);
       group.heading.classList.toggle('flex', headed && shown);
       group.grid.classList.toggle('hidden', !shown);
@@ -449,6 +586,9 @@ export class InsertPartDialog {
     tile.className = 'group relative flex flex-col items-center gap-1 p-2 w-full rounded-lg border border-base-content/10 '
       + 'hover:border-primary hover:bg-base-200 cursor-pointer transition-colors';
     tile.dataset.kind = opts.kind;
+    if (InsertPartDialog.isLibrary(opts.file)) {
+      tile.dataset.library = '1';
+    }
     tile.title = opts.tooltip;
 
     const key = `${opts.file.absPath}::${opts.exportName}`;

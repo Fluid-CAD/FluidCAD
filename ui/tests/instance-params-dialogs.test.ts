@@ -232,6 +232,10 @@ describe('Insert part grouped by package', () => {
       scanOf(absPath.includes('rail') ? 'Rail' : absPath.includes('spacer') ? 'Spacer' : 'Beam') as any);
     dialog = new InsertPartDialog(root);
     dialog.show('/ws/frame.assembly.js');
+    await vi.waitFor(() => expect(root.querySelectorAll('[data-kind="part"]')).toHaveLength(2));
+    const library = root.querySelector<HTMLInputElement>('[data-ref="show-library"]')!;
+    library.checked = true;
+    library.dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(root.querySelectorAll('[data-kind="part"]')).toHaveLength(3));
     const tree = root.querySelector<HTMLElement>('[data-ref="tree"]')!;
     const groups = [...tree.querySelectorAll<HTMLElement>('[data-group]')];
@@ -255,5 +259,86 @@ describe('Insert part grouped by package', () => {
     await vi.waitFor(() => expect(root.querySelector('[data-kind="part"]')).not.toBeNull());
     const heading = root.querySelector<HTMLElement>('[data-group-heading="workspace"]')!;
     expect(heading.classList.contains('hidden')).toBe(true);
+  });
+});
+
+describe('Insert part: Show library parts', () => {
+  const scanOf = (name: string) => ({
+    parts: [{ exportName: name.toLowerCase(), partName: name, kind: 'value', params: [], objects: [] }], assemblies: [], errors: [],
+  });
+  const files = [
+    { absPath: '/ws/beam.part.js', path: 'beam.part.js' },
+    { absPath: '/lib/@zeta/frames/1.0.0/rail.part.js', path: '@zeta/frames/rail.part.js', package: { name: '@zeta/frames', version: '1.0.0', availability: 'library' } },
+    { absPath: '/lib/@acme/kit/0.1.0/spacer.part.js', path: '@acme/kit/spacer.part.js', package: { name: '@acme/kit', version: '0.1.0', availability: 'dependency' } },
+  ];
+  const toggle = () => root.querySelector<HTMLInputElement>('[data-ref="show-library"]')!;
+  const setToggle = (on: boolean) => {
+    toggle().checked = on;
+    toggle().dispatchEvent(new Event('change'));
+  };
+  const shownNames = () => [...root.querySelectorAll<HTMLElement>('[data-kind]')]
+    .filter(t => !t.classList.contains('hidden'))
+    .map(t => t.querySelector('span.text-xs')!.textContent);
+  const scannedPaths = () => vi.mocked(api.scanPartCatalogFile).mock.calls.map(call => call[0]);
+
+  beforeEach(() => {
+    vi.mocked(api.getPartCatalogFiles).mockResolvedValue(files as any);
+    vi.mocked(api.scanPartCatalogFile).mockImplementation(async (absPath: string) =>
+      scanOf(absPath.includes('rail') ? 'Rail' : absPath.includes('spacer') ? 'Spacer' : 'Beam') as any);
+  });
+
+  it('is off by default: library files are never scanned, pinned packages still show', async () => {
+    dialog = new InsertPartDialog(root);
+    dialog.show('/ws/frame.assembly.js');
+    await vi.waitFor(() => expect(shownNames()).toEqual(['Beam', 'Spacer']));
+    expect(toggle().checked).toBe(false);
+    expect(scannedPaths()).not.toContain('/lib/@zeta/frames/1.0.0/rail.part.js');
+    expect(root.querySelector('[data-group="@zeta/frames"]')).toBeNull();
+  });
+
+  it('turning it on scans the library files and shows them under their heading; off hides them and unqueues their instances', async () => {
+    dialog = new InsertPartDialog(root);
+    dialog.show('/ws/frame.assembly.js');
+    await vi.waitFor(() => expect(shownNames()).toEqual(['Beam', 'Spacer']));
+    setToggle(true);
+    await vi.waitFor(() => expect(shownNames()).toEqual(['Beam', 'Spacer', 'Rail']));
+    const heading = root.querySelector<HTMLElement>('[data-group-heading="@zeta/frames"]')!;
+    expect(heading.classList.contains('hidden')).toBe(false);
+    expect(heading.querySelector('[data-ref="not-in-project"]')).not.toBeNull();
+
+    root.querySelector<HTMLElement>('[data-group="@zeta/frames"] [data-kind]')!.click();
+    root.querySelector<HTMLElement>('[data-group="workspace"] [data-kind]')!.click();
+    expect(root.querySelector('[data-ref="next-btn"]')!.textContent).toBe('Insert 2');
+
+    setToggle(false);
+    expect(shownNames()).toEqual(['Beam', 'Spacer']);
+    expect(heading.classList.contains('hidden')).toBe(true);
+    expect(root.querySelector('[data-ref="next-btn"]')!.textContent).toBe('Insert 1');
+
+    // Back on: the scanned file reappears without a second scan.
+    setToggle(true);
+    expect(shownNames()).toEqual(['Beam', 'Spacer', 'Rail']);
+    expect(scannedPaths().filter(p => p.includes('rail'))).toHaveLength(1);
+  });
+
+  it('stays on across opens', async () => {
+    dialog = new InsertPartDialog(root);
+    dialog.show('/ws/frame.assembly.js');
+    await vi.waitFor(() => expect(shownNames()).toEqual(['Beam', 'Spacer']));
+    setToggle(true);
+    await vi.waitFor(() => expect(shownNames()).toContain('Rail'));
+    dialog.hide();
+    vi.mocked(api.scanPartCatalogFile).mockClear();
+    dialog.show('/ws/frame.assembly.js');
+    await vi.waitFor(() => expect(shownNames()).toEqual(['Beam', 'Spacer', 'Rail']));
+    expect(toggle().checked).toBe(true);
+  });
+
+  it('a project with only library parts points at the toggle', async () => {
+    vi.mocked(api.getPartCatalogFiles).mockResolvedValue([files[1]] as any);
+    dialog = new InsertPartDialog(root);
+    dialog.show('/ws/frame.assembly.js');
+    await vi.waitFor(() => expect(root.querySelector('[data-ref="status"]')!.textContent).toContain('Turn on Show library parts'));
+    expect(api.scanPartCatalogFile).not.toHaveBeenCalled();
   });
 });

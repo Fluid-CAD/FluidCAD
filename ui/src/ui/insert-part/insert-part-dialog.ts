@@ -136,6 +136,8 @@ export class InsertPartDialog {
   private tiles = new Map<string, TileState>();
   /** The grids by source ('' for the workspace, `name@version` for a package), each with its heading. */
   private groups = new Map<string, { pkg: CatalogFileEntry['package'] | null; heading: HTMLDivElement; grid: HTMLDivElement }>();
+  /** The "From library" section heading above the library packages' groups. */
+  private libraryHeading = InsertPartDialog.libraryHeading();
   /** One page per DISTINCT parameterized part; its queued instances are the page's rows. */
   private pages: PageGroup[] = [];
   private pageIndex = 0;
@@ -461,6 +463,9 @@ export class InsertPartDialog {
       group.heading.classList.toggle('flex', headed && shown);
       group.grid.classList.toggle('hidden', !shown);
     }
+    const libraryShown = [...this.groups.values()]
+      .some(group => group.pkg?.availability === 'library' && isShown(group.grid));
+    this.libraryHeading.classList.toggle('hidden', !libraryShown);
   }
 
   private tileEls(): HTMLElement[] {
@@ -469,10 +474,10 @@ export class InsertPartDialog {
 
   /**
    * The grid a file's tiles go in: the workspace's own first, then one per
-   * package (by name, then version) under a heading naming it — a library
-   * package's says it isn't in this project yet (inserting one adds it).
-   * Headings show only once a package is in the dialog, so a workspace with
-   * none keeps the plain grid.
+   * package the project uses (by name, then version) under a heading naming
+   * it, then — below a "From library" heading — one per library package the
+   * project doesn't use yet (inserting one adds it). Headings show only once
+   * a package is in the dialog, so a workspace with none keeps the plain grid.
    */
   private gridFor(file: CatalogFileEntry): HTMLDivElement {
     const pkg = file.package ?? null;
@@ -489,10 +494,34 @@ export class InsertPartDialog {
     grid.className = 'grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2 content-start mb-2';
     grid.dataset.group = pkg ? pkg.name : 'workspace';
     this.groups.set(key, { pkg, heading, grid });
-    // Keep the groups in order: the workspace's, then the packages by key.
-    const ordered = [...this.groups.entries()].sort(([a], [b]) => (a === '' ? -1 : b === '' ? 1 : a.localeCompare(b)));
-    this.gridEl.replaceChildren(...ordered.flatMap(([, group]) => [group.heading, group.grid]));
+    // Keep the groups in order: the workspace's, the project's packages by
+    // key, then the library's by key under their section heading.
+    const tier = (group: { pkg: CatalogFileEntry['package'] | null }) =>
+      group.pkg === null ? 0 : group.pkg.availability === 'library' ? 2 : 1;
+    const ordered = [...this.groups.entries()]
+      .sort(([a, ga], [b, gb]) => tier(ga) - tier(gb) || a.localeCompare(b))
+      .map(([, group]) => group);
+    const children: HTMLElement[] = [];
+    for (const group of ordered) {
+      if (tier(group) === 2 && !children.includes(this.libraryHeading)) {
+        children.push(this.libraryHeading);
+      }
+      children.push(group.heading, group.grid);
+    }
+    this.gridEl.replaceChildren(...children);
     return grid;
+  }
+
+  /** Type style shared by the "This project" and "From library" section headings. */
+  private static readonly SECTION_HEADING = 'text-sm font-semibold text-base-content/85';
+
+  private static libraryHeading(): HTMLDivElement {
+    const heading = document.createElement('div');
+    heading.className = `hidden mt-2 px-0.5 ${InsertPartDialog.SECTION_HEADING}`;
+    heading.dataset.ref = 'library-heading';
+    heading.textContent = 'From library';
+    heading.title = 'In your library, not used by this project yet: inserting one of these parts adds its package to the project.';
+    return heading;
   }
 
   private static groupHeading(pkg: CatalogFileEntry['package'] | null): HTMLDivElement {
@@ -501,7 +530,9 @@ export class InsertPartDialog {
     heading.className = 'hidden items-center gap-1.5 px-0.5 pt-1 text-[11px] text-base-content/55';
     heading.dataset.groupHeading = pkg ? pkg.name : 'workspace';
     const name = document.createElement('span');
-    name.className = 'font-medium text-base-content/70 truncate';
+    // The workspace's heading is a section heading, like "From library";
+    // a package's is a smaller label inside its section.
+    name.className = pkg ? 'font-medium text-base-content/70 truncate' : `truncate ${InsertPartDialog.SECTION_HEADING}`;
     name.textContent = pkg ? pkg.name : 'This project';
     heading.appendChild(name);
     if (pkg) {
@@ -509,14 +540,6 @@ export class InsertPartDialog {
       version.className = 'tabular-nums';
       version.textContent = pkg.version;
       heading.appendChild(version);
-    }
-    if (pkg?.availability === 'library') {
-      const badge = document.createElement('span');
-      badge.dataset.ref = 'not-in-project';
-      badge.className = 'badge badge-xs badge-soft badge-warning whitespace-nowrap';
-      badge.textContent = 'not in this project';
-      badge.title = 'In your library, not used by this project yet: inserting one of its parts adds it to the project.';
-      heading.appendChild(badge);
     }
     return heading;
   }

@@ -244,8 +244,13 @@ describe('Insert part grouped by package', () => {
     const headings = [...tree.querySelectorAll<HTMLElement>('[data-group-heading]')];
     expect(headings.map(h => h.classList.contains('hidden'))).toEqual([false, false, false]);
     expect(headings[0].textContent).toBe('This project');
-    expect(headings[2].querySelector('[data-ref="not-in-project"]')!.textContent).toBe('not in this project');
-    expect(headings[1].querySelector('[data-ref="not-in-project"]')).toBeNull();
+    // The library's packages sit below a "From library" heading, after the project's own.
+    const libraryHeading = tree.querySelector<HTMLElement>('[data-ref="library-heading"]')!;
+    expect(libraryHeading.textContent).toBe('From library');
+    expect(libraryHeading.classList.contains('hidden')).toBe(false);
+    expect(libraryHeading.previousElementSibling).toBe(groups[1]);
+    expect(libraryHeading.nextElementSibling).toBe(headings[2]);
+    expect(tree.querySelector('[data-ref="not-in-project"]')).toBeNull();
     // A filter that leaves a group empty hides its heading too.
     const assemblies = root.querySelector<HTMLInputElement>('input[data-filter="assemblies"]')!;
     assemblies.checked = true;
@@ -304,7 +309,8 @@ describe('Insert part: Show library parts', () => {
     await vi.waitFor(() => expect(shownNames()).toEqual(['Beam', 'Spacer', 'Rail']));
     const heading = root.querySelector<HTMLElement>('[data-group-heading="@zeta/frames"]')!;
     expect(heading.classList.contains('hidden')).toBe(false);
-    expect(heading.querySelector('[data-ref="not-in-project"]')).not.toBeNull();
+    const libraryHeading = root.querySelector<HTMLElement>('[data-ref="library-heading"]')!;
+    expect(libraryHeading.classList.contains('hidden')).toBe(false);
 
     root.querySelector<HTMLElement>('[data-group="@zeta/frames"] [data-kind]')!.click();
     root.querySelector<HTMLElement>('[data-group="workspace"] [data-kind]')!.click();
@@ -313,6 +319,7 @@ describe('Insert part: Show library parts', () => {
     setToggle(false);
     expect(shownNames()).toEqual(['Beam', 'Spacer']);
     expect(heading.classList.contains('hidden')).toBe(true);
+    expect(libraryHeading.classList.contains('hidden')).toBe(true);
     expect(root.querySelector('[data-ref="next-btn"]')!.textContent).toBe('Insert 1');
 
     // Back on: the scanned file reappears without a second scan.

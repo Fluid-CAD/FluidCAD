@@ -44,8 +44,10 @@ export const SDK_SINCE = '0.0.45';
  *
  * - 0: the SDK as {@link SDK_SINCE} shipped it.
  * - 1: `definePart` (a part made by running a feature, inserted with its
- *   values by id) and named frames (`Feature.with(params, { frames })`,
- *   `this.setFrames()`, `feature.frame(name)`).
+ *   values by id), named frames (`Feature.with(params, { frames })`,
+ *   `this.setFrames()`, `feature.frame(name)`), and generated assemblies
+ *   (`Generator`, `defineAssembly`: a sub-assembly made by code, inserted
+ *   with its values by id).
  */
 export const SDK_MINOR = 1;
 

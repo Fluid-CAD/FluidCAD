@@ -38,7 +38,11 @@ export type GeneratedMarker = Readonly<{ kind: GeneratedKind; id: string }>;
 export type GeneratedSchema = {
   kind: GeneratedKind;
   definitionKind: 'generated';
-  /** The definition's id: for a generated part, its feature's catalog key (`gear`, `@acme/gears:gear`). */
+  /**
+   * The definition's id: for a generated part, its feature's catalog key
+   * (`gear`, `@acme/gears:gear`); for a generated assembly, its generator's
+   * (`wardrobe-unit`, `@acme/cabinets:wardrobe-unit`).
+   */
   id: string;
   label: string;
   description?: string;
@@ -49,7 +53,11 @@ export type GeneratedSchema = {
   layout: FeatureLayout;
   width?: FeatureDialogWidth;
   aside?: readonly FeatureStaticItem[];
-  /** The connectors every insert carries, by name, in declaration order (a feature's frames). */
+  /**
+   * The connectors every insert carries, by name, in declaration order (a
+   * feature's frames). Empty for a generated assembly: its connectors are
+   * its parts', reached through `occurrence.parts`.
+   */
   connectors: string[];
   /** The module `layout`'s images resolve against. */
   assetBase: { layout: GeneratedAssetBase };
@@ -99,17 +107,25 @@ export class GeneratedMetaValidator extends SchemaValidator {
 
   private static readonly FIELDS = ['label', 'description', 'icon', 'layout', 'name'];
 
-  /** Fields refused by name rather than as unknown, each with why it is left out. */
-  private static readonly LEFT_OUT: [string, string][] = [
-    ['class', 'the class is the first argument'],
-    ['params', "the values are the class's own — a generated part's are its feature's typed-in values"],
-    ['call', 'a generated definition is inserted, not called: insert(def, { … }) takes its values by id'],
-    ['operations', 'a generated part builds its feature as a new solid'],
-    ['buckets', 'declare buckets on the class: Feature.with(params, { buckets })'],
-    ['frames', 'declare frames on the class: Feature.with(params, { frames }) — each becomes a connector of its name'],
-  ];
+  /** Fields refused by name rather than as unknown, each with why it is left out, by the kind of definition. */
+  private static readonly LEFT_OUT: Record<GeneratedKind, [string, string][]> = {
+    part: [
+      ['class', 'the class is the first argument'],
+      ['params', "the values are the class's own — a generated part's are its feature's typed-in values"],
+      ['call', 'a generated definition is inserted, not called: insert(def, { … }) takes its values by id'],
+      ['operations', 'a generated part builds its feature as a new solid'],
+      ['buckets', 'declare buckets on the class: Feature.with(params, { buckets })'],
+      ['frames', 'declare frames on the class: Feature.with(params, { frames }) — each becomes a connector of its name'],
+    ],
+    assembly: [
+      ['class', 'the class is the first argument'],
+      ['params', "the values are the generator's own: declare them with Generator.with({ … })"],
+      ['call', 'a generated definition is inserted, not called: insert(def, { … }) takes its values by id'],
+      ['connectors', "a generated assembly's connectors are its parts': g.part(type, { connectors }) in layout(g)"],
+    ],
+  };
 
-  constructor(where: string, private readonly meta: unknown) {
+  constructor(where: string, private readonly meta: unknown, private readonly kind: GeneratedKind = 'part') {
     super(where);
   }
 
@@ -119,7 +135,7 @@ export class GeneratedMetaValidator extends SchemaValidator {
       this.fail(`the second argument describes it, such as { label: 'Gear', icon: './icons/gear.svg' } — got ${SchemaValidator.describe(this.meta)}`);
     }
     const meta = this.meta as Record<string, unknown>;
-    this.leftOut(meta, GeneratedMetaValidator.LEFT_OUT);
+    this.leftOut(meta, GeneratedMetaValidator.LEFT_OUT[this.kind]);
     for (const field of Object.keys(meta)) {
       if (!GeneratedMetaValidator.FIELDS.includes(field)) {
         this.fail(`unknown field '${field}' — the fields are ${GeneratedMetaValidator.FIELDS.join(', ')}`);

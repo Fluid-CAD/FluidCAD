@@ -13,8 +13,8 @@ const PACKAGE_JSON = path.resolve(import.meta.dirname, "../../../package.json");
 const HOST_ONLY_EXPORTS = ["./server", "./server/api", "./browser", "./viewer-ui", "./viewer-ui/style.css"];
 
 describe("the fluidcad/sdk entry points", () => {
-  it("export Feature, defineFeature, definePart, registerBuilder, parseCall and SDK_VERSION, never SceneObject", () => {
-    expect(Object.keys(sdk).sort()).toEqual(["Feature", "SDK_VERSION", "defineFeature", "definePart", "parseCall", "registerBuilder"]);
+  it("export Feature, defineFeature, definePart, Generator, defineAssembly, registerBuilder, parseCall and SDK_VERSION, never SceneObject", () => {
+    expect(Object.keys(sdk).sort()).toEqual(["Feature", "Generator", "SDK_VERSION", "defineAssembly", "defineFeature", "definePart", "parseCall", "registerBuilder"]);
     expect(sdk.registerBuilder).toBe(registerBuilder);
     expect(Object.keys(kernel)).not.toContain("SceneObject");
   });
@@ -43,6 +43,8 @@ describe("the fluidcad/sdk entry points", () => {
     expect(engineShimModuleSource("fluidcad/sdk")).toContain("export const Feature =");
     expect(engineShimModuleSource("fluidcad/sdk")).toContain("export const defineFeature =");
     expect(engineShimModuleSource("fluidcad/sdk")).toContain("export const definePart =");
+    expect(engineShimModuleSource("fluidcad/sdk")).toContain("export const Generator =");
+    expect(engineShimModuleSource("fluidcad/sdk")).toContain("export const defineAssembly =");
     expect(engineShimModuleSource("fluidcad/sdk")).toContain("export const SDK_VERSION =");
     expect(engineShimModuleSource("fluidcad/sdk/kernel")).toContain("export const Primitives =");
     expect(engineShimModuleSource("fluidcad/sdk/occt")).toContain("export const OccScope =");

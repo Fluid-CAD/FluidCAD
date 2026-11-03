@@ -44,6 +44,17 @@
  * export const gearPart = definePart(Gear, { label: 'Gear', icon: '../features/icons/gear.png' });
  * ```
  *
+ * `Generator` and `defineAssembly` make an insertable sub-assembly by code:
+ * a generator class declares its values with `Generator.with({ … })`, lays
+ * out its parts and joints in `layout(g)` (`g.part()`, `g.mate()`,
+ * `g.relation()`), and builds each part in `static build(type, inputs,
+ * ctx)`; the assembly takes its values by id (`insert(cabinet, { width: 900 })`).
+ *
+ * ```js
+ * // assemblies/cabinet.assembly.js
+ * export const cabinet = defineAssembly(Cabinet, { label: 'Cabinet' });
+ * ```
+ *
  * The geometry a tool is built from lives in `fluidcad/sdk/kernel`.
  */
 // The engine's root entry first: it evaluates the kernel's modules in the
@@ -61,6 +72,13 @@ export { defineFeature } from "./define-feature.js";
 export type { DefinableFeatureClass, DefineFeatureMeta } from "./define-feature.js";
 export { definePart } from "./define-part.js";
 export type { DefinablePartClass, DefinePartMeta, GeneratedPartDefinition, TypedInParams } from "./define-part.js";
+export { Generator } from "./generator.js";
+export type {
+  GeneratorWith, GeneratorParams, GeneratorLayout, GeneratedInstance, GeneratedMateBuilder, GeneratedPartSpec, GeneratedPose,
+} from "./generator.js";
+export type { GeneratorBuildContext, GeneratorDetail, GeneratedFrameSpec, JsonValue, JsonVector } from "./generated-template.js";
+export { defineAssembly } from "./define-assembly.js";
+export type { DefinableGeneratorClass, DefineAssemblyMeta, GeneratedAssemblyDefinition, LayoutResult } from "./define-assembly.js";
 export type { GeneratedSchema, GeneratedMeta, GeneratedKind, GeneratedAssetBase, GeneratedMarker } from "./generated-schema.js";
 export type { FeatureParams, ValuesOf, ValueOf, FeatureCallShape, FeatureArgs } from "./feature-params.js";
 export type { FeatureValue, FeatureValues, FeatureScalar, FeatureReferenceSummary } from "./feature-inputs.js";

@@ -21,7 +21,8 @@ export class AssemblyCompare {
     const oldTopParts = topLevelParts(oldScene);
 
     // Pair top-level parts by declared identity — part name plus the
-    // variant's resolved param values — not by scene position, so reordering
+    // variant's resolved param values, or a generated template's identity
+    // key (see pairingKey) — not by scene position, so reordering
     // insert()/definition statements between renders keeps caches alive.
     // Same-key duplicates pair in scene order (the old positional behavior).
     const oldByKey = new Map<string, Part[]>();
@@ -154,8 +155,14 @@ function owningTopLevelPart(obj: SceneObject): Part | null {
 
 // Declared identity a top-level part pairs on across renders: its name plus
 // the variant's resolved param values (label-sorted). Root-built parts carry
-// no paramValues and key on the name alone.
+// no paramValues and key on the name alone. A part a generator made pairs on
+// its template's identity key instead (definition, type, inputs, connectors,
+// appearance, material): two templates of one type differ by their inputs,
+// not by a name, and their names say nothing of their geometry.
 function pairingKey(part: Part): string {
+  if (part.generatedBy) {
+    return `\u0000generated\u0000${part.generatedBy.key}`;
+  }
   return `${part.partName}\u0000${canonicalVariantKey(toOverrideMap(part.paramValues))}`;
 }
 

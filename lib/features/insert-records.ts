@@ -13,7 +13,6 @@ import { Assembly } from "./assembly.js";
 import { Instance } from "./instance.js";
 import { Occurrence } from "./occurrence.js";
 import { Part } from "./part.js";
-import { collectedParamValues } from "./param-overrides.js";
 
 /**
  * What a record creator may override beyond the statement defaults —
@@ -44,6 +43,20 @@ export function createInstance(
   sourceLocation: SourceLocation | undefined,
   extras: InsertRecordExtras = {},
 ): Instance<unknown> {
+  return new Instance(recordInstance(scene, part, sourceLocation, extras));
+}
+
+/**
+ * The record half of {@link createInstance}: the instance recorded in
+ * `scene`, for a caller that hands out a handle of its own (a generator's
+ * `g.part()`).
+ */
+export function recordInstance(
+  scene: AssemblyScene,
+  part: Part,
+  sourceLocation: SourceLocation | undefined,
+  extras: InsertRecordExtras = {},
+): AssemblyInstance {
   const record: AssemblyInstance = {
     instanceId: scene.nextInstanceId(),
     owner: scene.currentScopePath(),
@@ -61,7 +74,7 @@ export function createInstance(
     record.configuration = extras.configuration;
   }
   scene.addInstance(record);
-  return new Instance(record);
+  return record;
 }
 
 /**
@@ -100,15 +113,7 @@ export function createOccurrence<T>(
   scene.beginOccurrence(record);
   let parts: T;
   try {
-    const run = definition.runScoped(overrides ?? {}, extras.configuration);
-    parts = run.parts;
-    if (run.scope.collected.size > 0) {
-      record.params = Array.from(run.scope.collected.values());
-      record.paramValues = collectedParamValues(run.scope);
-    }
-    if (run.scope.configurationNames) {
-      record.configurations = run.scope.configurationNames;
-    }
+    parts = definition.runOccurrence(record, overrides ?? {}, extras.configuration);
   } finally {
     scene.endOccurrence();
   }

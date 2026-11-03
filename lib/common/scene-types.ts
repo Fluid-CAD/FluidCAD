@@ -24,7 +24,7 @@ export class SceneTypes {
     'axis', 'connector', 'exposed', 'fixed-location', 'frozen-geometry', 'lazy-vertex', 'plane',
     'select', 'static',
     // Parts and assemblies
-    'assembly', 'part', 'part-definition',
+    'assembly', 'generated-part', 'part', 'part-definition',
     // Sketches, their geometry and tools
     'arc', 'bezier', 'circle', 'ellipse', 'fillet2d', 'image', 'intersect', 'line', 'offset', 'point',
     'projection', 'rect', 'region', 'sketch', 'spline', 'text',

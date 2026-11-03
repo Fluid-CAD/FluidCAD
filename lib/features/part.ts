@@ -11,6 +11,17 @@ import type { ParamDefinition, ParamVal } from "../param-registry.js";
 import { unitFactor } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 
+/**
+ * What a generated definition built something from: the definition's id and
+ * the values it was given, by id — what the editor reopens the definition's
+ * dialog with. A `definePart` variant carries it on its part; a
+ * `defineAssembly` occurrence on its record.
+ */
+export type GeneratedValues = { definition: string; values: Record<string, ParamVal> };
+
+/** Which generator made a part, and its template's identity — see {@link Part.generatedBy}. */
+export type GeneratedTemplateMark = Readonly<{ definition: string; type: string; key: string }>;
+
 export class Part extends SceneObject implements IPart {
   /**
    * The definition's parameter interface, collected while this variant
@@ -28,7 +39,17 @@ export class Part extends SceneObject implements IPart {
    * what the editor reopens the definition's dialog with. Unset for a
    * `part()` body's variants.
    */
-  generated?: { definition: string; values: Record<string, ParamVal> };
+  generated?: GeneratedValues;
+
+  /**
+   * For a part a generator made (`defineAssembly`, `g.part(type, …)`): the
+   * definition's id, the part's type, and its template's identity key —
+   * what the assembly cache pairs it by across renders (`AssemblyCompare`)
+   * instead of its name and values. Such a part is engine-owned: no
+   * `part()` declares it, so the part rules don't apply to it, and the
+   * editor offers no edit of its own on its rows. Unset for every other part.
+   */
+  generatedBy?: GeneratedTemplateMark;
 
   /**
    * The values the body published with `property('Label', 'name', value)`, in
@@ -115,6 +136,11 @@ export class Part extends SceneObject implements IPart {
     // Same rule for the appearance: an appearance-only edit must re-serve
     // the part so the viewer reshades it.
     if (this._appearance !== other._appearance) {
+      return false;
+    }
+
+    // A generator's template stands in only for the same template.
+    if (this.generatedBy?.key !== other.generatedBy?.key) {
       return false;
     }
 
@@ -360,6 +386,10 @@ export class Part extends SceneObject implements IPart {
       // stripped — that serves the panel's declaration edits, not the wire).
       params: this.params ? serializableParamDefs(this.params) : undefined,
       properties: serializedProperties(this),
+      /** A `definePart` variant's definition and values by id; absent for other parts. */
+      generated: this.generated,
+      /** The generator and part type that made an engine-owned part; absent for other parts. */
+      generatedBy: this.generatedBy ? { definition: this.generatedBy.definition, type: this.generatedBy.type } : undefined,
     };
   }
 }

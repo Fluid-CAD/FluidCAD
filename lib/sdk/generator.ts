@@ -84,7 +84,8 @@ export type GeneratedPose = {
  *       connectors: { hinge: { origin: [0, 0, 0], z: [0, 0, 1] } } }).grounded();
  *     const door = g.part('door', { name: 'Door', inputs: { width },
  *       connectors: { hinge: { origin: [0, 0, 0], z: [0, 0, 1] } } });
- *     g.mate('revolute', carcass.connectors.hinge, door.connectors.hinge).limits(0, doorAngle);
+ *     // Equal frames meet face to face: .flip() keeps the door the right way round.
+ *     g.mate('revolute', carcass.connectors.hinge, door.connectors.hinge).flip().limits(0, doorAngle);
  *     return { carcass, door };                    // occurrence.parts
  *   }
  *   static build(type, inputs, ctx) {              // OpenCascade, one part

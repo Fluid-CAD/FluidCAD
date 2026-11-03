@@ -4,6 +4,13 @@ import { connectorLabel, type SerializedAssemblyMate } from '../types';
 export type MateSideNames = { a: string; b: string };
 
 /**
+ * What a joint's row (or a relation's) leads with: `title`, its authored
+ * `.name()` when it has one, else what kind of joint it is; and `kind`, the
+ * kind again as secondary text when the title is the name — null otherwise.
+ */
+export type JointHeading = { title: string; kind: string | null };
+
+/**
  * How a mate is spoken of outside the joints panel's own rows — the
  * relation dialog's chips and the relation rows' sub-lines: the instance (or
  * assembly connector) on each side, and a one-line `revolute · base ↔ gear`
@@ -47,14 +54,37 @@ export class MateLabel {
     };
   }
 
-  /** `Revolute · base ↔ gear1` */
+  /**
+   * `Revolute · base ↔ gear1`; a named mate leads with its name, its type
+   * after it: `Left door (Revolute) · Carcass ↔ Left door`.
+   */
   static describe(
     mate: SerializedAssemblyMate,
     instanceNames: ReadonlyMap<string, string>,
     worldConnectorNames: ReadonlyMap<string, string>,
   ): string {
     const sides = MateLabel.sides(mate, instanceNames, worldConnectorNames);
-    return `${MateLabel.TYPE_LABELS[mate.type]} · ${sides.a} ↔ ${sides.b}`;
+    const type = MateLabel.TYPE_LABELS[mate.type];
+    const lead = MateLabel.nameOf(mate) !== null ? `${MateLabel.nameOf(mate)} (${type})` : type;
+    return `${lead} · ${sides.a} ↔ ${sides.b}`;
+  }
+
+  /**
+   * The rule every joint row follows, whoever wrote the statement (the
+   * user's `mate().name('Hinge')`, a generator's `g.mate(…).name('Left
+   * door')`): a named joint reads by its name, its kind beside it; an
+   * unnamed one by its kind (`kind` as the row writes it: `revolute`,
+   * `Gear × 2`).
+   */
+  static heading(name: string | undefined, kind: string): JointHeading {
+    const trimmed = name?.trim() ?? '';
+    return trimmed !== '' ? { title: trimmed, kind } : { title: kind, kind: null };
+  }
+
+  /** A mate's authored name, or null when it has none (absent or blank). */
+  static nameOf(mate: Pick<SerializedAssemblyMate, 'name'>): string | null {
+    const trimmed = mate.name?.trim() ?? '';
+    return trimmed !== '' ? trimmed : null;
   }
 
   /** Assembly connectors by scene id, labelled the way code names them (a copy as `bay.instance(2)`). */

@@ -12,7 +12,7 @@
 // alongside `mate()` in phase 06+.
 
 import { type SerializedAssemblyMate, type SerializedAssemblyRelation, type RenderedInstance } from '../types';
-import { MateLabel } from './mate-label';
+import { MateLabel, type JointHeading } from './mate-label';
 import { sceneUnit } from '../units/scene-unit';
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { ICON_PLAY } from './icons';
@@ -260,10 +260,10 @@ export class JointsPanel {
       html += `
         <div class="group flex items-start gap-2 px-3 py-1.5 cursor-pointer${pickClass} text-base-content/80${selectedClass}" data-mate-id="${mate.mateId}">
           <div class="flex-1 min-w-0 flex flex-col leading-tight">
-            <span class="flex items-center gap-2 text-sm">
+            <span class="flex items-center gap-2 text-sm min-w-0">
               <span class="shrink-0 inline-block w-2 h-2 rounded-full ${dotColor}"></span>
               <img src="${iconUrl(`joint-${mate.type}`)}" ${ICON_IMG_FALLBACK} class="shrink-0 w-5 h-5 object-contain" alt="" />
-              ${escapeHtml(mate.type)}
+              ${this.headingHtml(MateLabel.heading(mate.name, mate.type))}
               ${mate.replica ? `<span class="text-[10px] text-base-content/40" data-replica-badge="${mate.mateId}" title="Replica — its statement is the replicate() call; edit the seed mate or the replicate statement">⧉</span>` : ''}
             </span>
             <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(aName)}</span>
@@ -357,9 +357,10 @@ export class JointsPanel {
 
   /**
    * A relation's row: the type's icon, `Gear × 2` / `Rack and pinion · 62.8
-   * mm/rev` (+ `reverse`), the two coupled joints described under it, and a
-   * dot that turns red when the last solve could not hold the coupling.
-   * Inert (dimmed) while a dialog is picking joints.
+   * mm/rev` (+ `reverse`) — after its name when it has one, as a joint row
+   * reads — the two coupled joints described under it, and a dot that turns
+   * red when the last solve could not hold the coupling. Inert (dimmed)
+   * while a dialog is picking joints.
    */
   private relationRow(relation: SerializedAssemblyRelation, picking: boolean): string {
     const names = new Map([...this.instancesById].map(([id, inst]) => [id, inst.name]));
@@ -384,7 +385,7 @@ export class JointsPanel {
           <span class="flex items-center gap-2 text-sm">
             <span class="shrink-0 inline-block w-2 h-2 rounded-full ${dotColor}"></span>
             <img src="${iconUrl(relation.type === 'gear' ? 'relation-gear' : 'relation-rack-pinion')}" ${ICON_IMG_FALLBACK} class="shrink-0 w-5 h-5 object-contain" alt="" />
-            ${escapeHtml(label)}
+            ${this.headingHtml(MateLabel.heading(relation.name, label))}
           </span>
           <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(describe(relation.mateA))}</span>
           <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(describe(relation.mateB))}</span>
@@ -393,6 +394,19 @@ export class JointsPanel {
         ${dots}
       </div>
     `;
+  }
+
+  /**
+   * A row's leading text (see {@link MateLabel.heading}): the title, and the
+   * kind as quieter secondary text when the title is the joint's name. The
+   * title truncates before the kind does.
+   */
+  private headingHtml(heading: JointHeading): string {
+    const title = `<span class="truncate" data-joint-title>${escapeHtml(heading.title)}</span>`;
+    if (heading.kind === null) {
+      return title;
+    }
+    return `${title}<span class="shrink-0 text-[10px] text-base-content/45" data-joint-kind>${escapeHtml(heading.kind)}</span>`;
   }
 
   /** The ⋮ menu of a relation row: Show in source, Edit relation…, Delete (owned rows: source only). */

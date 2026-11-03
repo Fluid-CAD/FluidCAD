@@ -13,14 +13,16 @@ import { Quaternion } from "../math/quaternion.js";
 import { Vector3d } from "../math/vector3d.js";
 import { rad } from "../helpers/math-helpers.js";
 import { unitFactor } from "../units/units.js";
+import { TextDigest } from "../common/text-digest.js";
 import { FeatureCall } from "./call-shape.js";
+import { FeatureNamespaces } from "./feature-namespaces.js";
 import { SchemaValidator, ValueSchema } from "./value-schema.js";
 import type { ScalarParamSpec } from "./meta.js";
 import type { ValuesOf } from "./feature-params.js";
 import type { FeatureValues } from "./feature-inputs.js";
 import {
   GeneratedTemplate, GeneratedTemplates,
-  type GeneratedFrameSpec, type GeneratorBuildContext, type JsonValue, type TemplateBuilder, type TemplateUnits,
+  type GeneratedFrameSpec, type GeneratorBuildContext, type JsonValue, type TemplateBuild, type TemplateBuilder,
 } from "./generated-template.js";
 
 /** The values a generator declares: typed-in values only — numbers, lengths, angles, booleans, selects, radios, texts. */
@@ -102,6 +104,14 @@ export type GeneratedPose = {
  *   whatever changes a part's geometry has to be in its inputs. A throw from
  *   it is the build error of that part's row.
  *
+ * Builds are kept across renders: a template the last render held, or one
+ * an earlier render built and the engine still caches, is not built again.
+ * What a build is kept by is the template's identity (type, inputs,
+ * connectors, appearance, material), the units, `ctx.detail` — a render
+ * still being dragged asks for `'preview'`, every other for `'full'`, and
+ * each tier is built and kept apart — and the generator's code: an edit of
+ * the class, or of a module its module imports, builds everything again.
+ *
  * Every length a generator writes — values, inputs, connector frames, poses,
  * mate offsets, slider limits, rack ratios — is in its defining module's
  * unit; the engine converts them all into the unit of the assembly that
@@ -119,6 +129,16 @@ export abstract class Generator<V extends FeatureValues = FeatureValues> {
 
   /** Each class `Generator.with()` made, with its checked values. */
   private static readonly schemas = new WeakMap<Function, ValueSchema>();
+
+  /**
+   * Each class `Generator.with()` made, with where the code that called it
+   * comes from: the stamp of the installed package whose module was
+   * evaluating (`FeatureNamespaces.currentStamp`), else `workspace`.
+   */
+  private static readonly origins = new WeakMap<Function, string>();
+
+  /** Each generator class's code base, made on first ask (see {@link codeBaseOf}). */
+  private static readonly codeBases = new WeakMap<Function, string>();
 
   private static readonly ID_SEGMENT = /^[A-Za-z][A-Za-z0-9_-]*$/;
 
@@ -149,7 +169,36 @@ export abstract class Generator<V extends FeatureValues = FeatureValues> {
       static readonly params = frozen;
     }
     Generator.schemas.set(GeneratorWithValues, schema);
+    // Read while the class's module evaluates: `class X extends
+    // Generator.with({ … })` runs here, in the module that holds X's code.
+    Generator.origins.set(GeneratorWithValues, FeatureNamespaces.currentStamp() ?? 'workspace');
     return GeneratorWithValues as unknown as GeneratorWith<P>;
+  }
+
+  /**
+   * @internal The fixed part of a generator class's code version (see
+   * `GeneratedCode`): `<origin>:<digest>` — where its code comes from (an
+   * installed package's stamp, else `workspace`) and a digest of the text of
+   * every class of its chain, so an edit of its `layout` or `build` is a new
+   * version whether or not it was saved.
+   */
+  static codeBaseOf(generatorClass: Function): string {
+    const known = Generator.codeBases.get(generatorClass);
+    if (known !== undefined) {
+      return known;
+    }
+    let origin = 'workspace';
+    const texts: string[] = [];
+    for (let cls: unknown = generatorClass; typeof cls === 'function' && cls !== Function.prototype; cls = Object.getPrototypeOf(cls)) {
+      const recorded = Generator.origins.get(cls);
+      if (recorded !== undefined) {
+        origin = recorded;
+      }
+      texts.push(Function.prototype.toString.call(cls));
+    }
+    const base = `${origin}:${TextDigest.of(texts.join('\n'))}`;
+    Generator.codeBases.set(generatorClass, base);
+    return base;
   }
 
   /**
@@ -221,8 +270,12 @@ export type GeneratorLayoutRun = Readonly<{
   location: SourceLocation | null;
   /** Where its parts are located: `defineAssembly()`. */
   templateLocation: SourceLocation | null;
-  /** The unit the generator writes in, and the unit of the assembly it is inserted into. */
-  units: TemplateUnits;
+  /**
+   * What its templates' parts are built with: the unit the generator writes
+   * in and the unit of the assembly it is inserted into, the scene's detail
+   * tier, and the definition's code version.
+   */
+  build: TemplateBuild;
 }>;
 
 /**
@@ -251,6 +304,9 @@ export class GeneratorLayout {
 
   private open = true;
 
+  /** How many parts the layout added (`g.part()` calls) — what a build report counts. */
+  private instances = 0;
+
   /** @internal */
   constructor(private readonly scene: AssemblyScene, private readonly run: GeneratorLayoutRun) {}
 
@@ -272,6 +328,7 @@ export class GeneratorLayout {
     const { template, name } = GeneratedTemplate.declare(this.run.definition, this.run.builder, type, spec);
     const part = this.templateFor(template);
     const record = recordInstance(this.scene, part, this.run.location ?? undefined, { name });
+    this.instances++;
     return new GeneratedInstance(record, this.factor());
   }
 
@@ -316,25 +373,30 @@ export class GeneratorLayout {
     this.pending.clear();
   }
 
+  /** @internal How many parts the layout added. */
+  instanceCount(): number {
+    return this.instances;
+  }
+
   /**
    * The part of `template` in this scene: the one the scene holds already
    * (an earlier occurrence declared it), the one this layout made already,
    * else a new one, made detached and kept until the layout returns.
    */
   private templateFor(template: GeneratedTemplate): Part {
-    const slot = GeneratedTemplates.slotOf(template, this.run.units);
+    const slot = GeneratedTemplates.slotOf(template, this.run.build);
     const held = GeneratedTemplates.find(this.scene, slot) ?? this.pending.get(slot);
     if (held) {
       return held;
     }
-    const part = GeneratedTemplates.materialize(template, this.run.units, this.run.templateLocation);
+    const part = GeneratedTemplates.materialize(template, this.run.build, this.run.templateLocation);
     this.pending.set(slot, part);
     return part;
   }
 
   /** Multiplier taking the generator's lengths into the inserting assembly's unit. */
   private factor(): number {
-    return unitFactor(this.run.units.definition, this.run.units.target);
+    return unitFactor(this.run.build.definition, this.run.build.target);
   }
 
   private ensureOpen(call: string): void {

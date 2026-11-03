@@ -1,6 +1,6 @@
 import { SceneObject, type BuildSceneObjectContext, type SourceLocation } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
-import { Part } from "../features/part.js";
+import { Part, type GeneratedTemplateMark } from "../features/part.js";
 import { Connector } from "../features/connector.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { Plane } from "../math/plane.js";
@@ -8,7 +8,8 @@ import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { OccScope } from "../oc/occ-scope.js";
 import { KernelTraps } from "../oc/kernel-traps.js";
-import type { Scene } from "../rendering/scene.js";
+import type { RenderDetail, Scene } from "../rendering/scene.js";
+import { GeneratedBuildReports } from "../rendering/generated-build-report.js";
 import type { LengthUnit } from "../units/units.js";
 import { CONNECTOR_NAME_PATTERN } from "../selection/types.js";
 import { FeatureCall } from "./call-shape.js";
@@ -23,9 +24,12 @@ export type JsonValue = null | boolean | number | string | readonly JsonValue[] 
 /**
  * How much a generator's `build` should make: `'full'`, every detail, or
  * `'preview'`, what is quick to make while the user is still changing a
- * value (no drilling, no small hardware). Builds are `'full'` for now.
+ * value (no drilling, no small hardware). The render decides — a preview
+ * render asks for `'preview'`, every other render for `'full'` — and each
+ * tier's parts are built and cached apart, so a build may make less at
+ * `'preview'` but never something else.
  */
-export type GeneratorDetail = 'preview' | 'full';
+export type GeneratorDetail = RenderDetail;
 
 /** A point or a direction in a frame: `[x, y, z]`. */
 export type JsonVector = readonly [number, number, number];
@@ -51,7 +55,7 @@ export type GeneratedFrameSpec = {
  * part's type and inputs.
  */
 export type GeneratorBuildContext = {
-  /** How much to make — see {@link GeneratorDetail}. Always `'full'` for now. */
+  /** How much to make — see {@link GeneratorDetail}. */
   readonly detail: GeneratorDetail;
   /**
    * The unit the build's numbers are in: the generator's — its defining
@@ -177,9 +181,6 @@ type TemplateSpec = {
  *   template it does not hold built.
  */
 export class GeneratedTemplate {
-
-  /** The detail every build runs at for now (see {@link GeneratorDetail}). */
-  static readonly DETAIL: GeneratorDetail = 'full';
 
   /** What a spec may hold. */
   private static readonly FIELDS = ['name', 'inputs', 'connectors', 'appearance', 'material'];
@@ -369,16 +370,19 @@ export class GeneratedTemplate {
  */
 export class GeneratedBody extends SceneObject {
 
-  constructor(readonly template: GeneratedTemplate) {
+  /** `detail`: the tier its build runs at — the declaring scene's. */
+  constructor(readonly template: GeneratedTemplate, readonly detail: GeneratorDetail) {
     super();
     this.markInternal();
   }
 
   build(_context?: BuildSceneObjectContext): void {
     let shapes: Shape[];
+    const start = performance.now();
     try {
-      shapes = this.template.build(GeneratedTemplate.DETAIL, this.getAuthoredUnit());
+      shapes = this.template.build(this.detail, this.getAuthoredUnit());
     } catch (error) {
+      this.recordBuild(start);
       const message = `${this.template.where()}: ${error instanceof Error ? error.message : String(error)}`;
       this.getParent()?.setError(message);
       if (KernelTraps.isTrap(error)) {
@@ -388,20 +392,29 @@ export class GeneratedBody extends SceneObject {
       }
       return;
     }
+    this.recordBuild(start);
     for (const shape of shapes) {
       this.addShape(shape);
     }
   }
 
   override createCopy(_remap: Map<SceneObject, SceneObject>): SceneObject {
-    return new GeneratedBody(this.template);
+    return new GeneratedBody(this.template, this.detail);
   }
 
   override compareTo(other: SceneObject): boolean {
-    if (!(other instanceof GeneratedBody) || other.template.key !== this.template.key) {
+    if (!(other instanceof GeneratedBody) || other.template.key !== this.template.key || other.detail !== this.detail) {
       return false;
     }
     return super.compareTo(other);
+  }
+
+  /** The build that started at `start` is over: its time goes on the part's build report. */
+  private recordBuild(start: number): void {
+    const part = this.getParent();
+    if (part instanceof Part) {
+      GeneratedBuildReports.recordBuild(part, performance.now() - start);
+    }
   }
 
   getType(): string {
@@ -486,6 +499,14 @@ export class GeneratedFrame extends PlaneObjectBase {
 export type TemplateUnits = Readonly<{ definition: LengthUnit; target: LengthUnit }>;
 
 /**
+ * What a generated part is built with beyond its template: the units, the
+ * detail tier (the scene's) and the definition's code version (see
+ * `GeneratedCode`). With the template's identity key they make the part's
+ * build key (`Part.generatedBuildKey`).
+ */
+export type TemplateBuild = TemplateUnits & Readonly<{ detail: GeneratorDetail; code: string }>;
+
+/**
  * The generated parts a scene holds, by template: one part per template and
  * units, shared by every instance of it — across the occurrences of one
  * definition in the scene too.
@@ -498,9 +519,24 @@ export class GeneratedTemplates {
 
   private static readonly byScene = new WeakMap<Scene, Map<string, Part>>();
 
-  /** Where a template's part is filed: its identity key and the units it is made and read in. */
-  static slotOf(template: GeneratedTemplate, units: TemplateUnits): string {
-    return `${template.key}\u0000${units.definition}\u0000${units.target}`;
+  /**
+   * Where a template's part is filed: its build key — its identity key, the
+   * units it is made and read in, its detail tier and its code version
+   * (`Part.generatedBuildKey`).
+   */
+  static slotOf(template: GeneratedTemplate, build: TemplateBuild): string {
+    return Part.generatedBuildKey(GeneratedTemplates.markOf(template, build), build.definition, build.target);
+  }
+
+  /** What a template's part carries as `Part.generatedBy`. */
+  static markOf(template: GeneratedTemplate, build: TemplateBuild): GeneratedTemplateMark {
+    return Object.freeze({
+      definition: template.definition,
+      type: template.type,
+      key: template.key,
+      detail: build.detail,
+      code: build.code,
+    });
   }
 
   /** The part `scene` holds for the template filed at `slot`, if it holds one. */
@@ -512,18 +548,19 @@ export class GeneratedTemplates {
    * A new part for `template`, detached: named after its type, in the
    * definition's unit and read in the target unit (the render rescales it
    * when they differ), with the template's appearance and material, and its
-   * identity in {@link Part.generatedBy}. It holds the body that builds its
-   * shapes, then one frame and one connector of that name per connector the
-   * template declares. Every row is located at `location` — the
-   * `defineAssembly()` that defines it.
+   * identity, detail tier and code version in {@link Part.generatedBy}. It
+   * holds the body that builds its shapes, then one frame and one connector
+   * of that name per connector the template declares. Every row is located
+   * at `location` — the `defineAssembly()` that defines it.
    */
-  static materialize(template: GeneratedTemplate, units: TemplateUnits, location: SourceLocation | null): Part {
+  static materialize(template: GeneratedTemplate, build: TemplateBuild, location: SourceLocation | null): Part {
+    const units: TemplateUnits = build;
     const part = new Part(template.type);
-    part.generatedBy = Object.freeze({ definition: template.definition, type: template.type, key: template.key });
+    part.generatedBy = GeneratedTemplates.markOf(template, build);
     part.setMaterial(template.material);
     part.setAppearance(template.appearance);
     part.setTargetUnit(units.target);
-    const members: SceneObject[] = [new GeneratedBody(template)];
+    const members: SceneObject[] = [new GeneratedBody(template, build.detail)];
     for (const [name, spec] of Object.entries(template.connectors)) {
       const frame = new GeneratedFrame(name, spec);
       members.push(frame, new Connector(name, frame));

@@ -163,7 +163,27 @@ type SceneStructure = {
 
 const NO_OBJECTS: SceneObject[] = [];
 
+/**
+ * How much a render asks generators to make: `'full'`, every detail, or
+ * `'preview'`, what is quick to make while the user is still changing a
+ * value (no drilling, no small hardware). A generator reads it as
+ * `ctx.detail`; each tier builds and caches its parts apart.
+ */
+export type RenderDetail = 'preview' | 'full';
+
+/** What a scene is started with (`SceneManager.startScene` / `startAssemblyScene`). */
+export type SceneOptions = {
+  /** The detail its generated parts are built at (see {@link RenderDetail}); `'full'` when left out. */
+  detail?: RenderDetail;
+};
+
 export class Scene {
+
+  /** The tiers {@link RenderDetail} names. */
+  static readonly DETAILS: readonly RenderDetail[] = ['preview', 'full'];
+
+  /** The detail this scene's generated parts are built at — fixed when it starts. */
+  readonly detail: RenderDetail;
 
   private sceneObjects: SceneObject[] = [];
   /** Each object's position in `sceneObjects` — kept in step with every add and replace. */
@@ -187,7 +207,17 @@ export class Scene {
   /** Where a breakpoint() stopped this build — see markBreakpoint. */
   private breakpointStop: { part: Part | null; last: SceneObject | null } | null = null;
 
-  constructor() {
+  /**
+   * `options.detail` is the tier the scene's generated parts are built at
+   * (see {@link RenderDetail}); anything but `'preview'` or `'full'` is
+   * refused.
+   */
+  constructor(options: SceneOptions = {}) {
+    const detail = options.detail ?? 'full';
+    if (!Scene.DETAILS.includes(detail)) {
+      throw new Error(`a scene's detail is ${Scene.DETAILS.map(d => `'${d}'`).join(' or ')}, got ${JSON.stringify(detail)}`);
+    }
+    this.detail = detail;
   }
 
   private _units: { unit: LengthUnit; declaredUnit: LengthUnit | null } | null = null;

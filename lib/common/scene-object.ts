@@ -117,20 +117,25 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   protected _symmetric: boolean = false;
 
   constructor() {
-    this.state = new Map();
-    this.state.set('addedShapes', [])
-    this.state.set('removedShapes', [])
-
-    this.state.set('addedFaces', [])
-    this.state.set('modifiedFaces', [])
-    this.state.set('removedFaces', [])
-    this.state.set('addedEdges', [])
-    this.state.set('modifiedEdges', [])
-    this.state.set('removedEdges', [])
-    this.state.set('faceColors', [])
-    this.state.set('finalShapes', [])
-
+    this.state = SceneObject.emptyState();
     this._id = globalThis.crypto.randomUUID().toString();
+  }
+
+  /** The state an object starts with: every shape and record list, empty. */
+  private static emptyState(): Map<string, any> {
+    const state = new Map<string, any>();
+    state.set('addedShapes', []);
+    state.set('removedShapes', []);
+
+    state.set('addedFaces', []);
+    state.set('modifiedFaces', []);
+    state.set('removedFaces', []);
+    state.set('addedEdges', []);
+    state.set('modifiedEdges', []);
+    state.set('removedEdges', []);
+    state.set('faceColors', []);
+    state.set('finalShapes', []);
+    return state;
   }
 
   get id(): string {
@@ -998,6 +1003,20 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   restoreState(state: Map<string, any>) {
     this.state = state;
+  }
+
+  /**
+   * Hand this object's built state — its shapes and records — to a new
+   * owner and keep none of it: the object is left as it was before it
+   * built. For an object that left its scene whose build lives on
+   * elsewhere (a generated part's template going to the template cache):
+   * once detached, nothing that walks this object — a disposal pass over
+   * its old scene, a read — reaches the shapes it handed over.
+   */
+  detachState(): Map<string, any> {
+    const state = this.state;
+    this.state = SceneObject.emptyState();
+    return state;
   }
 
   setState(key: string, value: any) {

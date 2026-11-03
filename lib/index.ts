@@ -222,7 +222,12 @@ export type { AssetProvider, ImportMeta, ImportFileResult } from './io/file-impo
 export { AssetRoots } from './io/asset-roots.js';
 export type { AssetRoot, AssetRootSource, AssetFrom } from './io/asset-roots.js';
 export type { StepFileUnits } from './oc/step-units.js';
-export type { ImportReport, AssemblyExportOutcome } from './scene-manager.js';
+export type { ImportReport, AssemblyExportOutcome, GeneratedRenderReport } from './scene-manager.js';
+export type { RenderDetail, SceneOptions } from './rendering/scene.js';
+export type {
+  GeneratedBuildReport, GeneratedLayoutTiming, GeneratedTemplateTiming, GeneratedTemplateSource,
+} from './rendering/generated-build-report.js';
+export type { GeneratedCacheLimits, GeneratedCacheStats } from './rendering/generated-template-cache.js';
 export { RenderChangeTracker } from './rendering/render-changes.js';
 export type { SceneCompareOptions } from './rendering/scene-compare.js';
 export type { RenderChanges, RenderChangeEntry, RenderChangeRemoval, RenderChangeBounds } from './rendering/render-changes.js';

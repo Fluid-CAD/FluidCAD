@@ -50,10 +50,12 @@ export type CabinetVariant = {
 /**
  * The cabinet class, made anew on every call — a workspace module is
  * evaluated again on every render — with the count of its builds by part
- * type.
+ * type, and each build's part type and detail tier in build order
+ * (`'door:preview'`).
  */
-export function defineCabinet(variant: CabinetVariant = {}): { Cabinet: CabinetClass; builds: Map<string, number> } {
+export function defineCabinet(variant: CabinetVariant = {}): { Cabinet: CabinetClass; builds: Map<string, number>; details: string[] } {
   const builds = new Map<string, number>();
+  const details: string[] = [];
 
   class Cabinet extends Generator.with(CABINET_PARAMS) {
     static id = 'acme.cabinet';
@@ -106,6 +108,7 @@ export function defineCabinet(variant: CabinetVariant = {}): { Cabinet: CabinetC
 
     static build(type: string, inputs: any, ctx: GeneratorBuildContext): Shape[] {
       builds.set(type, (builds.get(type) ?? 0) + 1);
+      details.push(`${type}:${ctx.detail}`);
       if (variant.failBuild === type) {
         throw new Error(`no ${type} today`);
       }
@@ -127,5 +130,5 @@ export function defineCabinet(variant: CabinetVariant = {}): { Cabinet: CabinetC
     }
   }
 
-  return { Cabinet, builds };
+  return { Cabinet, builds, details };
 }

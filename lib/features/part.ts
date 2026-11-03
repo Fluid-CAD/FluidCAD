@@ -10,6 +10,7 @@ import type { PartProperty, PropertyValues } from "./part-property.js";
 import type { ParamDefinition, ParamVal } from "../param-registry.js";
 import { unitFactor } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
+import type { RenderDetail } from "../rendering/scene.js";
 
 /**
  * What a generated definition built something from: the definition's id and
@@ -19,8 +20,22 @@ import type { LengthUnit } from "../units/units.js";
  */
 export type GeneratedValues = { definition: string; values: Record<string, ParamVal> };
 
-/** Which generator made a part, and its template's identity — see {@link Part.generatedBy}. */
-export type GeneratedTemplateMark = Readonly<{ definition: string; type: string; key: string }>;
+/**
+ * Which generator made a part, its template's identity, and what its build
+ * was made with beyond its units — see {@link Part.generatedBy}.
+ */
+export type GeneratedTemplateMark = Readonly<{
+  /** The generated definition's id. */
+  definition: string;
+  /** The template's type, as `g.part(type, …)` named it. */
+  type: string;
+  /** The template's canonical identity key (definition, type, inputs, connectors, appearance, material). */
+  key: string;
+  /** The detail tier the part is built at (the scene's). */
+  detail: RenderDetail;
+  /** The definition's code version when the part was declared (see `GeneratedCode`). */
+  code: string;
+}>;
 
 export class Part extends SceneObject implements IPart {
   /**
@@ -139,12 +154,32 @@ export class Part extends SceneObject implements IPart {
       return false;
     }
 
-    // A generator's template stands in only for the same template.
-    if (this.generatedBy?.key !== other.generatedBy?.key) {
+    // A generator's template stands in only for the same template, built
+    // at the same detail by the same code.
+    if (this.generatedBuildKey() !== other.generatedBuildKey()) {
       return false;
     }
 
     return true;
+  }
+
+  /**
+   * The key a part a generator made is built, filed and paired under — the
+   * template's identity key, the units it is made and read in, its detail
+   * tier and its code version: two parts with one key hold the same shapes.
+   * The scene files its templates by it, the next render's compare pairs
+   * them by it, and the template cache keeps them by it.
+   */
+  static generatedBuildKey(mark: GeneratedTemplateMark, definitionUnit: LengthUnit, targetUnit: LengthUnit): string {
+    return [mark.key, definitionUnit, targetUnit, mark.detail, mark.code].join('\u0000');
+  }
+
+  /** This part's {@link Part.generatedBuildKey}, or null for a part no generator made. */
+  generatedBuildKey(): string | null {
+    if (!this.generatedBy) {
+      return null;
+    }
+    return Part.generatedBuildKey(this.generatedBy, this.getDefinitionUnit(), this.getTargetUnit());
   }
 
   getType(): string {

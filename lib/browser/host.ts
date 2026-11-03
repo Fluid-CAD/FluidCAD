@@ -413,6 +413,9 @@ export class BrowserEngineHost {
       this.manager?.disposeScene(this.previousScene);
       this.previousScene = null;
     }
+    // The next model's code is another's: nothing generated with this
+    // one's may stand in for it.
+    this.manager?.clearGeneratedTemplates();
     this.overrides = new SessionParamOverrides();
     this.activeConfiguration = null;
     this.lastBreakpointHit = false;
@@ -473,6 +476,8 @@ export class BrowserEngineHost {
       this.manager?.disposeScene(this.previousScene);
       this.previousScene = null;
     }
+    // From scratch: generated parts the template cache holds rebuild too.
+    this.manager?.clearGeneratedTemplates();
     return this.render();
   }
 
@@ -538,6 +543,7 @@ export class BrowserEngineHost {
       this.manager?.disposeScene(this.previousScene);
       this.previousScene = null;
     }
+    this.manager?.clearGeneratedTemplates();
     setAssetProvider(null);
   }
 

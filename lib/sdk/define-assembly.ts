@@ -14,7 +14,9 @@ import type { ParamSpec } from "./meta.js";
 import { FeatureLayouts, type FeatureLayout } from "./layout.js";
 import { SchemaValidator, ValueSchema } from "./value-schema.js";
 import { Generator, GeneratorLayout, type GeneratorParams } from "./generator.js";
-import type { GeneratorBuildContext, TemplateBuilder, TemplateUnits } from "./generated-template.js";
+import { GeneratedCode } from "./generated-code.js";
+import { GeneratedBuildReports } from "../rendering/generated-build-report.js";
+import type { GeneratorBuildContext, TemplateBuild, TemplateBuilder, TemplateUnits } from "./generated-template.js";
 import {
   GeneratedMetaValidator, type GeneratedMarker, type GeneratedMeta, type GeneratedSchema, type ResolvedGeneratedMeta,
 } from "./generated-schema.js";
@@ -85,6 +87,9 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
   /** The schema, made on first ask. */
   private schemaSnapshot: GeneratedSchema | null = null;
 
+  /** The fixed part of its code version: the generator's origin and class digest (`Generator.codeBaseOf`). */
+  private readonly codeBase: string;
+
   private constructor(
     private readonly generatorClass: GeneratorConstructor,
     /** The generator's values: the interface an insert takes by id. */
@@ -94,6 +99,10 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
   ) {
     super(meta.name, () => undefined as T, location);
     this.generated = Object.freeze({ kind: 'assembly', id: FeatureNamespaces.keyOf(generatorClass, Generator.plainIdOf(generatorClass)) });
+    this.codeBase = Generator.codeBaseOf(generatorClass);
+    // Which module defines it: a change to that module, or to one it
+    // imports, gives its templates a new code version (GeneratedCode).
+    GeneratedCode.noteDefinition(this.generated.id, location?.filePath);
   }
 
   /**
@@ -181,7 +190,8 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
   /**
    * Run the layout for `read` — the values by id — in the current scope of
    * the current assembly scene. Records and refusals are located at
-   * `location`.
+   * `location`. Its time, values check included, goes on the scene's build
+   * report (`GeneratedBuildReports`).
    */
   private runGenerated(
     read: Readonly<Record<string, unknown>>,
@@ -193,7 +203,18 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
     if (!(scene instanceof AssemblyScene)) {
       throw new Error(`${this.subject()}: a generated assembly is inserted into an assembly — insert(def, { … }) in an *.assembly.js file`);
     }
-    const units = this.units();
+    const start = performance.now();
+    const timed = (parts: number, refused: boolean): void => {
+      GeneratedBuildReports.recordLayout(scene, {
+        definition: this.generated.id,
+        assembly: this.assemblyName,
+        ...(location ? { sourceLocation: { ...location } } : {}),
+        ms: performance.now() - start,
+        parts,
+        refused,
+      });
+    };
+    const build = this.build(scene);
     let values: FeatureValues;
     let given: Record<string, ParamVal>;
     try {
@@ -202,7 +223,8 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
       }
       ({ values, given } = this.valuesOf(read));
     } catch (error) {
-      this.refuseInto(scene, (error as Error).message, location, units);
+      this.refuseInto(scene, (error as Error).message, location, build);
+      timed(0, true);
       return { parts: {} as T, generated: { definition: this.generated.id, values: { ...read } as Record<string, ParamVal> } };
     }
     const generated: GeneratedValues = { definition: this.generated.id, values: given };
@@ -212,7 +234,7 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
       builder: this.generatorClass,
       location,
       templateLocation: this.getSourceLocation(),
-      units,
+      build,
     });
     try {
       const generator = new this.generatorClass(values);
@@ -221,6 +243,7 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
         throw new Error('layout(g) runs synchronously — it must not be async');
       }
       layout.commit();
+      timed(layout.instanceCount(), false);
       return { parts: parts as T, generated };
     } catch (error) {
       // Nothing of a failed layout stays: its records go, and its parts —
@@ -230,7 +253,8 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
       if (error instanceof BreakpointHit) {
         throw error;
       }
-      this.refuseInto(scene, `${this.subject()}: ${error instanceof Error ? error.message : String(error)}`, location, units);
+      this.refuseInto(scene, `${this.subject()}: ${error instanceof Error ? error.message : String(error)}`, location, build);
+      timed(0, true);
       return { parts: {} as T, generated };
     }
   }
@@ -277,14 +301,18 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
   }
 
   /**
-   * The unit the generator writes in — its defining module's: that file's
-   * `unit()`, else its project's — and the unit it is read in, the active
-   * one (the inserting assembly's).
+   * What the layout's templates are built with: the unit the generator
+   * writes in — its defining module's: that file's `unit()`, else its
+   * project's — and the unit it is read in, the active one (the inserting
+   * assembly's); the scene's detail tier; and the definition's code
+   * version, read now (`GeneratedCode.versionOf`).
    */
-  private units(): TemplateUnits {
+  private build(scene: AssemblyScene): TemplateBuild {
     return Object.freeze({
       definition: getUnitRegistry().resolve(this.getSourceLocation()?.filePath),
       target: getActiveUnit(),
+      detail: scene.detail,
+      code: GeneratedCode.versionOf(this.generated.id, this.codeBase),
     });
   }
 

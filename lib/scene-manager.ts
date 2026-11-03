@@ -1,9 +1,12 @@
-import { Scene } from "./rendering/scene.js";
+import { Scene, type SceneOptions } from "./rendering/scene.js";
 import { AssemblyScene, SerializedAssemblyConnector, SerializedInstance, SerializedMate, SerializedOccurrence, SerializedRelation, SerializedReplicate } from "./rendering/assembly-scene.js";
 import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare, type SceneCompareOptions } from "./rendering/scene-compare.js";
 import { AssemblyCompare } from "./rendering/assembly-compare.js";
 import { SceneDisposal } from "./rendering/scene-disposal.js";
+import { GeneratedTemplateCache, type GeneratedCacheStats } from "./rendering/generated-template-cache.js";
+import { GeneratedBuildReports, type GeneratedBuildReport } from "./rendering/generated-build-report.js";
+import { GeneratedCode } from "./sdk/generated-code.js";
 import { RenderChangeTracker } from "./rendering/render-changes.js";
 import { buildFeatureGhost } from "./rendering/feature-ghost.js";
 import type { FeatureGhostRequest, FeatureGhostResult } from "./rendering/feature-ghost.js";
@@ -33,6 +36,12 @@ import type { StepFileUnits } from "./oc/step-units.js";
 export type AssemblyExportOutcome =
   | { ok: true; data: string | Uint8Array; fileName: string; posesSource: 'live' | 'statement' }
   | { ok: false; reason: string };
+
+/**
+ * What a render did with generated parts (see GeneratedBuildReport) and
+ * what the template cache holds after it.
+ */
+export type GeneratedRenderReport = GeneratedBuildReport & { cache: GeneratedCacheStats };
 
 export type ImportReport = {
   solidCount: number;
@@ -147,19 +156,25 @@ class SceneManager {
     return [...this.renderInputs];
   }
 
-  startScene() {
+  /**
+   * Start the next render's scene. `options.detail` is the tier its
+   * generated parts are built at — `'preview'` while the user is still
+   * changing a value, `'full'` (the default) otherwise (see RenderDetail).
+   */
+  startScene(options: SceneOptions = {}) {
     this.startUnitRegistry();
     this.renderInputs = new Set();
-    this.currentScene = new Scene();
+    this.currentScene = new Scene(options);
     console.log("Starting new scene");
     this.notifySceneStarted(this.currentScene);
     return this.currentScene;
   }
 
-  startAssemblyScene(): AssemblyScene {
+  /** Start the next render's assembly scene; `options` as {@link startScene}'s. */
+  startAssemblyScene(options: SceneOptions = {}): AssemblyScene {
     this.startUnitRegistry();
     this.renderInputs = new Set();
-    const scene = new AssemblyScene();
+    const scene = new AssemblyScene(options);
     this.currentScene = scene;
     console.log("Starting new assembly scene");
     this.notifySceneStarted(scene);
@@ -302,6 +317,39 @@ class SceneManager {
    */
   disposeScenes(scenes: Scene[]) {
     SceneDisposal.disposeScenes(scenes);
+  }
+
+  /**
+   * What `scene`'s render did with generated parts — each layout it ran
+   * with its time, each part template it holds with where its shapes came
+   * from (`built`, `kept` from the previous render, `cached` from the
+   * template cache) and its build time — and what the template cache holds
+   * now. Always on, kept beside the scene; nothing is logged.
+   */
+  getGeneratedReport(scene: Scene): GeneratedRenderReport {
+    return { ...GeneratedBuildReports.of(scene), cache: GeneratedTemplateCache.shared.getStats() };
+  }
+
+  /**
+   * Workspace modules changed on disk — `files`: a saved file and every
+   * workspace module that imports it, directly or through another. Every
+   * generated definition one of them defines takes a new code version, so
+   * nothing built with its old code is served again, and the template
+   * cache drops what it holds of it. Answers those definitions' ids — what
+   * a host notes for the sessions that render them.
+   */
+  noteCodeChanged(files: Iterable<string>): string[] {
+    const ids = GeneratedCode.modulesChanged(files);
+    GeneratedTemplateCache.shared.dropDefinitions(ids);
+    return ids;
+  }
+
+  /**
+   * Dispose every generated part the template cache holds — a recompute
+   * from scratch, a model unloaded. Parts a scene holds stay its own.
+   */
+  clearGeneratedTemplates(): void {
+    GeneratedTemplateCache.shared.clear();
   }
 
   importFile(workspacePath: string, fileName: string, data: Uint8Array): ImportReport {

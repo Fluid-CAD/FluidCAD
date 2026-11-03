@@ -5,6 +5,7 @@ import { Part } from "../features/part.js";
 import { canonicalVariantKey, toOverrideMap } from "../features/param-overrides.js";
 import type { RenderChangeTracker } from "./render-changes.js";
 import { SceneCompare, type SceneCompareOptions } from "./scene-compare.js";
+import { GeneratedTemplateCache } from "./generated-template-cache.js";
 
 type Pair = { newObj: SceneObject; oldObj: SceneObject };
 
@@ -12,10 +13,22 @@ export class AssemblyCompare {
   /**
    * `changes`: the MCP-only change summary hook — see SceneCompare.compare.
    * `options.rebuild`: feature types whose code changed — a part holding one
-   * rebuilds whole, as any part whose subtree differs does.
+   * rebuilds whole, as any part whose subtree differs does — and generated
+   * definitions whose code changed: their parts rebuild too, and the
+   * template cache drops what it holds of them.
+   *
+   * A part a generator made that the new scene doesn't take over goes to
+   * the template cache (`GeneratedTemplateCache.retire`) instead of staying
+   * with the old scene: its objects hand their build over and keep none, so
+   * a later render that declares it again — a value dragged back, an undo —
+   * finds it built.
    */
   static compare(oldScene: AssemblyScene, newScene: AssemblyScene, changes?: RenderChangeTracker, options?: SceneCompareOptions): AssemblyScene {
     const map = new Map<SceneObject, SceneObject>();
+    const cache = GeneratedTemplateCache.shared;
+    if (options?.rebuild) {
+      cache.dropDefinitions(options.rebuild);
+    }
 
     const newTopParts = topLevelParts(newScene);
     const oldTopParts = topLevelParts(oldScene);
@@ -39,6 +52,9 @@ export class AssemblyCompare {
     // Tentative matches: a part whose OWN subtree compares equal.
     const matched = new Map<Part, Pair[]>();
     for (const newPart of newTopParts) {
+      if (newPart.generatedBy && options?.rebuild?.has(newPart.generatedBy.definition)) {
+        continue;
+      }
       const oldPart = oldByKey.get(pairingKey(newPart))?.shift();
       if (!oldPart) {
         continue;
@@ -109,6 +125,17 @@ export class AssemblyCompare {
       }
     }
 
+    // The keys the new scene holds unbuilt: its render takes them from the
+    // cache, so the old scene's templates mustn't push them out first.
+    const wanted = new Set<string>();
+    for (const part of newTopParts) {
+      const key = part.generatedBuildKey();
+      if (key !== null && !matched.has(part)) {
+        wanted.add(key);
+      }
+    }
+    cache.retire(oldTopParts.filter(part => part.generatedBy && !map.has(part)), { rebuild: options?.rebuild, keep: wanted });
+
     return newScene;
   }
 }
@@ -156,12 +183,13 @@ function owningTopLevelPart(obj: SceneObject): Part | null {
 // Declared identity a top-level part pairs on across renders: its name plus
 // the variant's resolved param values (label-sorted). Root-built parts carry
 // no paramValues and key on the name alone. A part a generator made pairs on
-// its template's identity key instead (definition, type, inputs, connectors,
-// appearance, material): two templates of one type differ by their inputs,
-// not by a name, and their names say nothing of their geometry.
+// its build key instead (Part.generatedBuildKey: its template's identity —
+// definition, type, inputs, connectors, appearance, material — its units,
+// its detail tier and its code version): two templates of one type differ by
+// their inputs, not by a name, and their names say nothing of their geometry.
 function pairingKey(part: Part): string {
   if (part.generatedBy) {
-    return `\u0000generated\u0000${part.generatedBy.key}`;
+    return `\u0000generated\u0000${part.generatedBuildKey()}`;
   }
   return `${part.partName}\u0000${canonicalVariantKey(toOverrideMap(part.paramValues))}`;
 }

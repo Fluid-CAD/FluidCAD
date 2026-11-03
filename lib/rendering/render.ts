@@ -13,6 +13,7 @@ import { Exposed } from "../features/exposed.js";
 import { SelectSceneObject } from "../features/select.js";
 import { Part } from "../features/part.js";
 import { scaleForeignPart } from "../features/part-scale.js";
+import { GeneratedTemplateCache } from "./generated-template-cache.js";
 import { MeshPieces, type ShapeMeshPieces } from "./mesh-pieces.js";
 import { attachSketchSnapVertices } from "./sketch-snap.js";
 import { attachConnectorHosts } from "./connector-host.js";
@@ -136,6 +137,12 @@ export class SceneRenderer {
     const sceneObjects = scene.getAllSceneObjects();
     console.log("============ Rendering ==============", sceneObjects.length);
     this.occurrenceIndexes = computeCallSiteOccurrences(sceneObjects);
+
+    // Generated parts the compare did not carry over but the template cache
+    // holds built take their build from it — marked cached, so the loop
+    // below skips them. Here and not when the layout declared them: a scene
+    // dropped before it renders must not have taken anything.
+    GeneratedTemplateCache.shared.takeInto(scene);
 
     const skippedContainers = new Set<SceneObject>();
     // Members of a part a part rule refused (PartRules) after its body had

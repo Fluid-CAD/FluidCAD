@@ -11,6 +11,13 @@ type NamespaceState = {
   source: FeatureNamespaceSource | null;
   /** The package each claimed class came from, null for one claimed outside any package. */
   claims: WeakMap<object, string | null>;
+  /**
+   * Answers the stamp of the package whose module is evaluating — see
+   * {@link FeatureNamespaces.useStamp}. A field of its own, not a richer
+   * answer from `source`: a kernel copy that predates it keeps reading
+   * `source` as the package name.
+   */
+  stampSource?: FeatureNamespaceSource | null;
 };
 
 /**
@@ -62,6 +69,38 @@ export class FeatureNamespaces {
       owner = null;
     }
     state.claims.set(featureClass, typeof owner === 'string' && owner !== '' ? owner : null);
+  }
+
+  /**
+   * Install the host's stamp source (null removes it); answers the one it
+   * replaces. While an installed package's module evaluates, it answers
+   * that package's stamp — its name, version and tree hash
+   * (`@acme/cabinets@1.2.0#<integrity>`), which change exactly when its code
+   * can — and null for anything else.
+   */
+  static useStamp(source: FeatureNamespaceSource | null): FeatureNamespaceSource | null {
+    const state = FeatureNamespaces.state();
+    const previous = state.stampSource ?? null;
+    state.stampSource = source;
+    return previous;
+  }
+
+  /**
+   * The stamp of the installed package whose module is evaluating now (see
+   * {@link useStamp}), or null: a workspace module, no module, or no
+   * stamp source installed (the browser host, the tests).
+   */
+  static currentStamp(): string | null {
+    const source = FeatureNamespaces.state().stampSource ?? null;
+    if (source === null) {
+      return null;
+    }
+    try {
+      const stamp = source();
+      return typeof stamp === 'string' && stamp !== '' ? stamp : null;
+    } catch {
+      return null;
+    }
   }
 
   /** The public name of the package `featureClass` came from, or null. */

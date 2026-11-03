@@ -37,8 +37,12 @@ const SCENE_APPLY_TIMEOUT_MS = 60_000;
 export interface ServerCore {
   wss: WebSocketServer;
   uiClients: Set<UIClient>;
-  /** Broadcast to every connected UI client. */
-  broadcastToUI(msg: ServerToUIMessage): void;
+  /**
+   * Broadcast to every connected UI client. Answers the message's size in
+   * bytes as it went out (serialized once for every page) — what a caller
+   * that reports its payload (an assembly preview's timings) reads.
+   */
+  broadcastToUI(msg: ServerToUIMessage): number;
   /** Send to the single UI client with the matching sessionId. No-op if absent. */
   sendToSession(sessionId: string, msg: ServerToUIMessage): void;
   /**
@@ -115,7 +119,7 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
     reject: (err: Error) => void;
   }>();
 
-  function broadcastToUI(msg: ServerToUIMessage) {
+  function broadcastToUI(msg: ServerToUIMessage): number {
     // Every scene a page is handed — a render, or the scene closing — gets
     // the next version, so "is the latest scene on screen" has an answer.
     if (msg.type === 'scene-rendered' || msg.type === 'scene-closed') {
@@ -141,6 +145,7 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
         client.ws.send(data);
       }
     }
+    return Buffer.byteLength(data);
   }
 
   function sendToSession(sessionId: string, msg: ServerToUIMessage) {

@@ -101,6 +101,8 @@ export class PackageResolver {
   private readonly sdkVersion: number;
   /** The project's pins as this render read them; undefined until first asked after a {@link refresh}. */
   private pins: { map: PackageDependencies; problem: string | null } | undefined;
+  /** Pins resolved beside the project's, never written ({@link setOverlayPins}); null almost always. */
+  private overlayPins: PackageDependencies | null = null;
   /** Per name, what this render's first resolution of it answered (the `node_modules` check is per importer and runs every time). */
   private readonly outcomes = new Map<string, ResolvedPackage | PackageResolveError>();
   /** Every package this render loaded, by name. */
@@ -122,6 +124,21 @@ export class PackageResolver {
 
   getProject(): string | null {
     return this.project;
+  }
+
+  /**
+   * Resolve through `pins` beside the project's own until cleared (null):
+   * an assembly preview's in-memory pin of a library package — the very pin
+   * its Apply writes (`PackageAdoption.planForUse`) — so the preview's
+   * import of the package loads, with nothing written to `fluidcad.json`.
+   * A name the project pins keeps the project's pin. Every check a pin
+   * gets (installed, its tree hash, the engine) applies to these too.
+   * {@link refresh} keeps them; the next read of the pins re-reads the
+   * project, with or without them.
+   */
+  setOverlayPins(pins: PackageDependencies | null): void {
+    this.overlayPins = pins && Object.keys(pins).length > 0 ? pins : null;
+    this.pins = undefined;
   }
 
   /**
@@ -310,14 +327,19 @@ export class PackageResolver {
     return error;
   }
 
-  /** The project's pins, read once per render; a broken map reads as no pins, with its sentence. */
+  /**
+   * The project's pins, read once per render, under them the overlay's
+   * ({@link setOverlayPins}); a broken map reads as no project pins, with
+   * its sentence.
+   */
   private pinsNow(): { map: PackageDependencies; problem: string | null } {
     if (this.pins === undefined) {
+      const overlay = this.overlayPins ?? {};
       if (!this.project) {
-        this.pins = { map: {}, problem: null };
+        this.pins = { map: { ...overlay }, problem: null };
       } else {
         const config = readProjectConfig(this.project);
-        this.pins = { map: config.dependencies ?? {}, problem: config.problems?.dependencies ?? null };
+        this.pins = { map: { ...overlay, ...(config.dependencies ?? {}) }, problem: config.problems?.dependencies ?? null };
       }
     }
     return this.pins;

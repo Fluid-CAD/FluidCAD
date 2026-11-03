@@ -628,6 +628,36 @@ export type UISceneRenderedMessage = {
    * where the user put it while they type.
    */
   fitView?: boolean;
+  /**
+   * The scene is an assembly preview's (G4, `POST /api/assembly-preview`):
+   * the file's code with a dialog's edit applied in memory, never written —
+   * shown as the model, in its own appearance, while the dialog is open.
+   * Its rows' source lines are the previewed code's, not the editor's, and
+   * the message carries no `params`/`properties`/`configurations` (the
+   * panels keep the editor code's). Absent on every scene of the file's own
+   * code. A scene without it, or with another token, ends the preview
+   * showing ({@link UIAssemblyPreviewEndedMessage}).
+   */
+  preview?: { token: string };
+};
+
+/**
+ * An assembly preview stopped showing (G4). Sent before the scene that
+ * replaces it, when there is one. `reason`:
+ * - `end` — `POST /api/assembly-preview/end` (the dialog's Cancel): the
+ *   file's own code renders next;
+ * - `superseded` — a preview with another token took over;
+ * - `replaced` — a render that isn't a preview replaced its scene (a save,
+ *   an editor change, the dialog's Apply, a compile error, a parameter or
+ *   configuration change); the token may ask again and show again;
+ * - `closed` — the file was closed.
+ * After `end` and `superseded` the token is done: its late requests are
+ * answered `superseded`.
+ */
+export type UIAssemblyPreviewEndedMessage = {
+  type: 'assembly-preview-ended';
+  token: string;
+  reason: 'end' | 'superseded' | 'replaced' | 'closed';
 };
 
 export type UIHighlightShapeMessage = {
@@ -905,7 +935,8 @@ export type ServerToUIMessage =
   | UIFileEventMessage
   | UIFeaturesChangedMessage
   | UIEngineSuspectMessage
-  | UIHostMessage;
+  | UIHostMessage
+  | UIAssemblyPreviewEndedMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: UI → Server messages

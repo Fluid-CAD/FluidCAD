@@ -41,6 +41,16 @@ export type UseInstalledOutcome = {
   copied: PackageInstallResult | null;
 };
 
+/** The pin `ProjectPackages.useInstalled` would write, not written (see `planInstalled`). */
+export type InstalledPlan = {
+  name: string;
+  version: string;
+  location: PackageLocation;
+  integrity: string;
+  /** `pin` when the project doesn't pin the package yet; `unchanged` when it pins exactly this. */
+  pin: 'pin' | 'unchanged';
+};
+
 export type RemoveOutcome = {
   removed: PackageLocation;
   /** The open project's pin of the removed version when nothing installs it any more; null otherwise. */
@@ -135,6 +145,24 @@ export class ProjectPackages {
    * already pins, else the newest one installed.
    */
   static async useInstalled(spec: string, project: string, options: { copy?: boolean } = {}): Promise<UseInstalledOutcome> {
+    const { name, version, location, integrity } = await ProjectPackages.planInstalled(spec, project);
+    const copied = options.copy && location.target === 'library'
+      ? await PackageInstaller.copy(name, version, 'project', project)
+      : null;
+    const pin = PackagePins.pin(project, name, version, integrity);
+    return { location: copied ?? location, integrity, pin, copied };
+  }
+
+  /**
+   * The pin {@link useInstalled} writes for `spec`, decided and checked but
+   * not written: the version (the one asked for, else the one the project
+   * pins, else the newest installed), where it is installed, its tree hash,
+   * and whether the pin is new (`pin`) or already there (`unchanged`). The
+   * same refusals, thrown before anything is written. What an assembly
+   * preview resolves a library package through in memory, the very pin its
+   * Apply writes.
+   */
+  static async planInstalled(spec: string, project: string): Promise<InstalledPlan> {
     const { name, version: asked } = ProjectPackages.parseSpec(spec);
     if (!PackagePins.isProject(project)) {
       throw new PackagePinError('not-a-project', `${project} is not a FluidCAD project (no fluidcad.json or init.js), so nothing can be pinned there.`);
@@ -145,12 +173,8 @@ export class ProjectPackages {
       throw new PackageInstallError('not-installed', ProjectPackages.notInstalledSentence(name, asked));
     }
     const integrity = await TreeHash.ofDirectory(location.directory);
-    PackagePins.check(project, name, version, integrity);
-    const copied = options.copy && location.target === 'library'
-      ? await PackageInstaller.copy(name, version, 'project', project)
-      : null;
-    const pin = PackagePins.pin(project, name, version, integrity);
-    return { location: copied ?? location, integrity, pin, copied };
+    const pin = PackagePins.check(project, name, version, integrity);
+    return { name, version, location, integrity, pin };
   }
 
   /**

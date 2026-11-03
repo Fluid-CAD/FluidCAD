@@ -1,7 +1,10 @@
 // Render outcomes: object build errors, the rendered scene payload and render options.
 
 import type { FluidScriptKind } from '../file-kind.ts';
-import type { ParamDefinition, ParamVal, RenderChanges } from '../../../lib/dist/index.js';
+import type { GeneratedRenderReport, ParamDefinition, ParamVal, RenderChanges, RenderDetail } from '../../../lib/dist/index.js';
+import type { PackageDependencies } from '../project-config.ts';
+import type { PackageProblem } from '../ws-protocol.ts';
+import type { RenderClock } from './render-clock.ts';
 import type { LengthUnit } from '../project-config.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import type { ScenePropertyDefinition } from './properties.ts';
@@ -131,7 +134,37 @@ export type SceneRenderedData = {
    * — present only when the render was requested with `changes: true`.
    */
   changes?: RenderChanges;
+  /**
+   * Set when the scene is an assembly preview's (G4): the session's code
+   * with an edit applied in memory, never written — the preview whose
+   * `token` asked for it. On the preview's render, and on a rollback that
+   * re-emits its scene. Absent on every render of the session's own code.
+   */
+  preview?: { token: string };
 };
+
+/**
+ * One assembly preview to render (G4, `FluidCadServer.renderPreview`): the
+ * current file's code with the dialog's edit applied in memory, rendered
+ * as the session's scene and never written.
+ */
+export type PreviewRender = {
+  /** The preview (one dialog session) this render belongs to. */
+  token: string;
+  /** The whole edited text of the current file. */
+  code: string;
+  /** Pins the render resolves packages through beside the project's: the pins the edit's Apply writes. */
+  pins: PackageDependencies;
+  /** The tier generated parts build at: `'preview'` while a control moves, `'full'` once it settles. */
+  detail: RenderDetail;
+  /** Where the render's time goes, by phase. */
+  clock?: RenderClock;
+};
+
+/** What {@link PreviewRender} gave: the scene's payload, or the failure with the package imports it refused. */
+export type PreviewRendered =
+  | { ok: true; data: SceneRenderedData & { preview: { token: string } }; generated: GeneratedRenderReport | null }
+  | { ok: false; error: unknown; packageProblems: PackageProblem[] };
 
 /**
  * Per-render options a caller can set. `changes` asks for a

@@ -91,6 +91,16 @@ export function sceneStopFields(data: SceneStopFields): SceneStopFields {
 }
 
 /**
+ * The preview mark a `scene-rendered` message carries when its scene is an
+ * assembly preview's (`SceneRenderedData.preview`): spread by every emitter
+ * of a scene, so a rollback that re-emits a preview's scene says so too.
+ * Empty for a scene of the session's own code.
+ */
+export function scenePreviewFields(data: Pick<SceneRenderedData, 'preview'>): Pick<SceneRenderedData, 'preview'> {
+  return data.preview ? { preview: { token: data.preview.token } } : {};
+}
+
+/**
  * One instance's pose in exactly the shape an `interfere` `poses` entry
  * takes, so an agent can pass it back unchanged. What the pose is — its
  * frame and where it comes from — is `SceneSummary.instancePoses`.

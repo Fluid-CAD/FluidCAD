@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
+import { scenePreviewFields, sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
 import { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import { FeatureCallees, type ApplyFeatureEditSpec, type FeatureCalleeSource } from '../apply-feature-edit/index.ts';
@@ -117,15 +117,19 @@ export function createTimelineRouter(
       res.status(404).json({ error: 'No active scene' });
       return;
     }
-    sendToExtension({
-      type: 'scene-rendered',
-      absPath: data.absPath,
-      sceneKind: data.sceneKind,
-      ...sceneUnitFields(data),
-      result: data.result,
-      ...sceneStopFields(data),
-      ...(data.assembly ? { assembly: data.assembly } : {}),
-    });
+    // An assembly preview's scene rolled back stays the preview's: the
+    // pages are told so, and the editor, whose code it isn't, never sees it.
+    if (!data.preview) {
+      sendToExtension({
+        type: 'scene-rendered',
+        absPath: data.absPath,
+        sceneKind: data.sceneKind,
+        ...sceneUnitFields(data),
+        result: data.result,
+        ...sceneStopFields(data),
+        ...(data.assembly ? { assembly: data.assembly } : {}),
+      });
+    }
     broadcastToUI({
       type: 'scene-rendered',
       result: data.result,
@@ -138,6 +142,7 @@ export function createTimelineRouter(
       // scene message went out last, and the indicator must survive it.
       breakpointHit: data.breakpointHit,
       objectWarnings: data.objectWarnings,
+      ...scenePreviewFields(data),
     });
     // Features inside the rollback scope that failed to build are still
     // broken — a rollback re-emits them, it doesn't repair them.

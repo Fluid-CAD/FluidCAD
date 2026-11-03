@@ -11,6 +11,22 @@
  *   - HubSceneHost (Phase 2): in-memory consumer of a packed model bundle.
  */
 import type { PackageResolveError, ResolvedPackage } from '../packages/resolver.ts';
+import type { PackageDependencies } from '../project-config.ts';
+
+/**
+ * What the renders that run while it is set read in place of the
+ * workspace's own state — never written anywhere, never visible to
+ * {@link SceneHost.getBuffer}: an assembly preview's (G4), the session's
+ * code with an edit applied in memory, and the pins the edit's Apply will
+ * write.
+ */
+export type RenderOverlay = {
+  /** Module text by absolute, normalized path: evaluated for that file instead of its live buffer or its bytes on disk. */
+  code: ReadonlyMap<string, string>;
+  /** Pins packages resolve through beside the project's own; a pin the project has of the same name wins. */
+  pins: PackageDependencies;
+};
+
 /** What an entry render asks of {@link SceneHost.loadModule} beyond loading the module. */
 export type LoadModuleOptions = {
   /**
@@ -71,6 +87,13 @@ export interface SceneHost {
    * Optional: a host without a workspace on disk keeps none.
    */
   refreshEditorTypes?(): void;
+  /**
+   * Set (or, with null, clear) what the next module loads read in place of
+   * the workspace's own state ({@link RenderOverlay}). The caller holds the
+   * engine's lock from set to clear, so no other render sees it. Optional:
+   * a host without one can't preview.
+   */
+  setRenderOverlay?(overlay: RenderOverlay | null): void;
 }
 
 /**

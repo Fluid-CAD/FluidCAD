@@ -2,8 +2,9 @@ import type { Response } from 'express';
 import type { FluidCadServer } from './fluidcad-server/index.ts';
 import { EditAckRegistry } from './edit-acks.ts';
 import { applyFeatureEdit, type ApplyFeatureEditSpec, type FeatureCalleeSource } from './apply-feature-edit/index.ts';
-import type { PackageEditGuard } from './packages/package-edit-guard.ts';
+import { PackageEditGuard } from './packages/package-edit-guard.ts';
 import type { RowTarget } from './generated-rows.ts';
+import type { GlobalParamCatalog } from './global-params/catalog.ts';
 
 /** Why a dispatch's {@link FeatureEditDispatcher.dispatch} `beforeSend` step refused the edit. */
 export type DispatchRefusal = { status: number; reason: string; code?: string };
@@ -25,6 +26,13 @@ export type EditDispatcherOptions = {
    * is refused.
    */
   packages?: PackageEditGuard;
+  /**
+   * The global-parameters catalog the editor's round trip applies edits
+   * with (`/code/apply-feature` writes a params file's import for a global
+   * an expression names) — so {@link FeatureEditDispatcher.applyInMemory}
+   * computes the same text. Omitted, no such import is written.
+   */
+  globals?: GlobalParamCatalog;
 };
 
 /**
@@ -50,6 +58,7 @@ export class FeatureEditDispatcher {
   private readonly ackTimeoutMs: number;
   private readonly callees: FeatureCalleeSource | undefined;
   private readonly packages: PackageEditGuard | undefined;
+  private readonly globals: GlobalParamCatalog | undefined;
 
   constructor(
     private readonly fluidCadServer: FluidCadServer,
@@ -60,7 +69,41 @@ export class FeatureEditDispatcher {
     this.ackTimeoutMs = options.ackTimeoutMs ?? 5000;
     this.callees = options.callees;
     this.packages = options.packages;
+    this.globals = options.globals;
     this.acks = new EditAckRegistry(this.ackTimeoutMs);
+  }
+
+  /**
+   * The code `spec` makes of the current file, applied in memory to the
+   * server's copy (the editor's buffer) exactly as the editor's round trip
+   * through `/code/apply-feature` applies it — the same feature callees and
+   * global imports — with **nothing sent and nothing written**: what an
+   * assembly preview renders (G4), so Apply writes what the preview showed.
+   * Refused first as {@link dispatch} refuses (an installed package's file,
+   * K8; an engine-owned row, G8), then as the transform refuses; a spec for
+   * another file than the current one is refused too (a preview is the
+   * current file's scene).
+   */
+  async applyInMemory(spec: ApplyFeatureEditSpec): Promise<{ code: string; base: string } | DispatchRefusal> {
+    const readOnly = this.packages?.specRefusal(spec);
+    if (readOnly) {
+      return PackageEditGuard.answerOf(readOnly);
+    }
+    if (spec.filePath !== this.fluidCadServer.getCurrentFileName()) {
+      return { status: 422, reason: `${spec.filePath} is not the file on screen — open it to preview an edit of it.` };
+    }
+    const base = this.fluidCadServer.getCurrentCode();
+    if (base === null) {
+      return { status: 404, reason: 'No live code buffer for the file on screen.' };
+    }
+    const edited = await applyFeatureEdit(base, spec, {
+      ...(this.callees ? { callees: this.callees } : {}),
+      ...(this.globals ? { globals: this.globals } : {}),
+    });
+    if (edited.error) {
+      return { status: 422, reason: edited.error };
+    }
+    return { code: edited.newCode, base };
   }
 
   /**

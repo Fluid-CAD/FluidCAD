@@ -5,7 +5,7 @@ import { dirname, resolve, isAbsolute } from 'path';
 import { ENGINE_NAMESPACE_SPECIFIERS } from '../../../lib/dist/browser/linking.js';
 import { ModuleExports } from '../../../lib/dist/common/module-exports.js';
 import { normalizePath } from '../normalize-path.ts';
-import type { LoadModuleOptions, SceneHost } from './scene-host.ts';
+import type { LoadModuleOptions, RenderOverlay, SceneHost } from './scene-host.ts';
 import { isAssemblyDefinition, isPartDefinition } from './scene-host.ts';
 import { BlockedImports } from './blocked-imports.ts';
 import {
@@ -54,6 +54,8 @@ export class LocalSceneHost implements SceneHost {
    */
   private realRootPath: string = '';
   private buffers: Map<string, string> = new Map();
+  /** What the loads in progress read in place of the buffers and the pins (`setRenderOverlay`); null almost always. */
+  private overlay: RenderOverlay | null = null;
   private engineImports: EngineImportResolver | null = null;
   /** True when this engine answers the workspace's own `import 'fluidcad'` too, not only its packages'. */
   private engineAnswersWorkspace = false;
@@ -179,7 +181,11 @@ export class LocalSceneHost implements SceneHost {
                 );
               }
 
-              return that.buffers.get(id) || '';
+              return that.overlaidCode(id.replace('virtual:live-render:', '')) ?? (that.buffers.get(id) || '');
+            }
+            const overlaid = that.overlaidCode(id);
+            if (overlaid !== null) {
+              return overlaid;
             }
             else if (that.buffers.has(`virtual:live-render:${id}`)) {
               return that.buffers.get(`virtual:live-render:${id}`);
@@ -289,6 +295,22 @@ export class LocalSceneHost implements SceneHost {
 
   setBuffer(id: string, code: string) {
     this.buffers.set(id, code);
+  }
+
+  /**
+   * Set or clear the render overlay (`SceneHost.setRenderOverlay`): its
+   * code is what the module loader evaluates for its files — the live
+   * overlay id and the raw path alike — while {@link getBuffer} keeps
+   * answering the editor's buffer, and its pins reach the package resolver.
+   */
+  setRenderOverlay(overlay: RenderOverlay | null): void {
+    this.overlay = overlay;
+    this.packages.setOverlayPins(overlay?.pins ?? null);
+  }
+
+  /** The overlay's code for `file`, or null when the overlay has none for it. */
+  private overlaidCode(file: string): string | null {
+    return this.overlay?.code.get(normalizePath(file)) ?? null;
   }
 
   getBuffer(fileName: string): string | null {

@@ -11,6 +11,14 @@ export type PackageAdoptionOutcome = {
   pin: 'pinned' | 'unchanged';
 };
 
+/** What adopting a package would write, not written ({@link PackageAdoption.planForUse}). */
+export type PackageAdoptionPlan = {
+  name: string;
+  version: string;
+  integrity: string;
+  pin: 'pin' | 'unchanged';
+};
+
 /**
  * Using a library package in a project pins it first (K7): the moment a
  * feature dialog's OK or an Insert part writes a statement that imports
@@ -43,6 +51,24 @@ export class PackageAdoption {
     }
     const used = await ProjectPackages.useInstalled(version ? `${name}@${version}` : name, project);
     return { name, version: used.location.version, integrity: used.integrity, pin: used.pin };
+  }
+
+  /**
+   * The pin {@link adoptForUse} would write, decided by the same rules and
+   * refused with the same errors, but **not written**: `pin: 'pin'` with
+   * the version and tree hash it would pin, or `'unchanged'` when the
+   * project pins it already. What an assembly preview of a library
+   * package's definition resolves through in memory (`PackageResolver
+   * .setOverlayPins`) — so the preview shows exactly what the Apply that
+   * writes this pin renders.
+   */
+  static async planForUse(project: string, name: string, version?: string): Promise<PackageAdoptionPlan> {
+    const pinned = PackagePins.of(project)[name];
+    if (pinned && (version === undefined || pinned.version === version)) {
+      return { name, version: pinned.version, integrity: pinned.integrity, pin: 'unchanged' };
+    }
+    const planned = await ProjectPackages.planInstalled(version ? `${name}@${version}` : name, project);
+    return { name, version: planned.version, integrity: planned.integrity, pin: planned.pin };
   }
 
   /**

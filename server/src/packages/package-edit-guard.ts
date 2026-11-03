@@ -228,7 +228,13 @@ export class PackageEditGuard {
   }
 
   private static answer(res: Response, refusal: PackageReadOnlyError | GeneratedReadOnlyError): void {
+    const { status, reason, code } = PackageEditGuard.answerOf(refusal);
+    res.status(status).json({ success: false, reason, code });
+  }
+
+  /** A refusal as the request it refuses is answered: 403, its sentence, and `generated-read-only` or `package-read-only`. */
+  static answerOf(refusal: PackageReadOnlyError | GeneratedReadOnlyError): { status: number; reason: string; code: string } {
     const code = refusal instanceof GeneratedReadOnlyError ? GeneratedReadOnlyError.CODE : 'package-read-only';
-    res.status(403).json({ success: false, reason: refusal.message, code });
+    return { status: 403, reason: refusal.message, code };
   }
 }

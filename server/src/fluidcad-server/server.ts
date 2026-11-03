@@ -38,6 +38,7 @@ import {
   type SceneInterferenceOutcome,
   type SceneValidationOutcome,
   type ValidateSceneRequest,
+  type RenderDetail,
   FeatureKey,
 } from '../../../lib/dist/index.js';
 import { scanFileForParts, type PartScanResult, type ScanOptions } from '../part-catalog/scan.ts';
@@ -75,7 +76,19 @@ import type {
   SelectionSynthesisOptions,
   ValidateUnavailable,
 } from './query-types.ts';
-import type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneConfigurations, SceneConfigurationTable, SceneRenderedData, ScratchRender } from './render-types.ts';
+import type {
+  ObjectBuildError,
+  ObjectBuildWarning,
+  PreviewRender,
+  PreviewRendered,
+  RenderOptions,
+  SceneConfigurations,
+  SceneConfigurationTable,
+  SceneRenderedData,
+  ScratchRender,
+} from './render-types.ts';
+import { SessionWrites } from './session-writes.ts';
+import type { RenderClock } from './render-clock.ts';
 import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import { TimelineHistory } from './timeline-history.ts';
@@ -90,6 +103,39 @@ import { ShapeExportSelection, type ShapeExportRefusal, type ShapeSelection } fr
 
 /** How many synthesis answers one rendered scene keeps (see `synthesizeApplyFeatureCached`). */
 const SYNTHESIS_MEMO_LIMIT = 32;
+
+/**
+ * A session's last render as the live-update dedup serves it again: the
+ * hash of the code and overrides it ran with, its payload and fingerprint,
+ * and — when it was an assembly preview's — the writes to the session's
+ * state it deferred, made when the editor's code becomes the previewed code
+ * (Apply), which is the one way such an entry is served.
+ */
+type LastRendered = {
+  paramsHash: string;
+  data: SceneRenderedData;
+  fingerprint: RenderFingerprint;
+  /** A preview's deferred writes; with {@link scene}, the preview's scene they belong to. */
+  pending?: SessionWrites;
+  scene?: object;
+};
+
+/**
+ * What kind of render `processFileInternal` runs. Every field optional: a
+ * render of the session's own code at full detail passes none.
+ */
+type RenderRun = {
+  /** The tier the scene's generated parts build at (`'full'` when absent). */
+  detail?: RenderDetail;
+  /** An assembly preview: the code it evaluates instead of the session's, and the pins it resolves through. */
+  preview?: Pick<PreviewRender, 'token' | 'code' | 'pins'>;
+  /** Where the render's writes to the session's state go: deferred for a preview (see SessionWrites). */
+  writes?: SessionWrites;
+  /** Where its time goes, by phase. */
+  clock?: RenderClock;
+  /** Set by a preview's failed render: the package imports it refused (a preview never sets the session's). */
+  packageProblems?: PackageResolveError[];
+};
 
 /**
  * `sessionId` is the per-renderer state key. In desktop mode it equals the
@@ -129,7 +175,7 @@ export class FluidCadServer {
   // same code+params, or hub clients re-emit the same param mutation. The
   // hash covers the entry's own text; `fingerprint` covers everything else
   // the render was built from.
-  private lastRendered = new Map<string, { paramsHash: string; data: SceneRenderedData; fingerprint: RenderFingerprint }>();
+  private lastRendered = new Map<string, LastRendered>();
   // The fingerprint of each session's last successful render, or null when
   // its inputs could not be enumerated (such a render is never re-served).
   private renderFingerprints = new Map<string, RenderFingerprint | null>();
@@ -236,6 +282,12 @@ export class FluidCadServer {
   private compileError: CompileError | null = null;
   /** The last render's engine-owned rows ({@link getGeneratedRows}). */
   private generatedRows: GeneratedRows = GeneratedRows.NONE;
+  /**
+   * The scenes assembly previews rendered, each with its preview's token.
+   * A session's scene is a preview's while it shows (see
+   * {@link previewTokenOf}); weak, so a replaced scene takes its mark along.
+   */
+  private readonly previewScenes = new WeakMap<object, string>();
 
   constructor(host: SceneHost = new LocalSceneHost()) {
     this.host = host;
@@ -566,13 +618,22 @@ export class FluidCadServer {
     return this.sceneManager?.trackRenderChanges?.();
   }
 
+  /**
+   * Render `filePath` as `sessionId`'s scene. `run` says what kind of
+   * render it is (see {@link RenderRun}): the tier generated parts build at,
+   * and, for an assembly preview, the code it evaluates instead of the
+   * session's, with every write to the session's own state deferred.
+   */
   private async processFileInternal(
     sessionId: string,
     filePath: string,
     ignoreCache: boolean,
     changes?: RenderChangeTracker,
+    run: RenderRun = {},
   ): Promise<SceneRenderedData | null> {
+    const queuedAt = performance.now();
     return this.serialized(async () => {
+      run.clock?.add('wait', performance.now() - queuedAt);
       if (!this.sceneManager) {
         return null;
       }
@@ -580,6 +641,10 @@ export class FluidCadServer {
       const normalizedFileName = filePath.replace('virtual:live-render:', '');
       this.currentFileName = normalizedFileName;
       this.currentFilePath = filePath;
+      const preview = run.preview ?? null;
+      // What the render writes to the session's own state: now, or — for a
+      // preview — once its code is the session's (see SessionWrites).
+      const writes = run.writes ?? SessionWrites.immediate();
 
       const sceneKind: FluidScriptKind = detectKind(normalizedFileName) ?? 'part';
       // Before the cache check: the configuration is part of what a cached
@@ -587,8 +652,8 @@ export class FluidCadServer {
       this.seedActiveConfiguration(sessionId, normalizedFileName);
 
       // A session that owes a feature rebuild has a cached render built with
-      // the old code, whatever its inputs hash to now.
-      if (!ignoreCache && !this.featureRebuilds.owes(sessionId)) {
+      // the old code, whatever its inputs hash to.
+      if (!ignoreCache && !preview && !this.featureRebuilds.owes(sessionId)) {
         const fromCache = this.renderingCache.get(sessionId);
         if (fromCache && this.isFingerprintCurrent(sessionId, fromCache.fingerprint)) {
           // Everything a render would have left behind: the stop, the
@@ -610,6 +675,10 @@ export class FluidCadServer {
       // before the save.
       const owed = this.featureRebuilds.take(sessionId);
       let compared = false;
+      // A preview's registry describes the previewed code: the live one
+      // (the session's code's) is put back after it, and the preview's goes
+      // in with its deferred writes.
+      const liveRegistry = preview ? getParamRegistry() : null;
       try {
         const readTimelineSource = (path: string): string | null => {
           const buffer = this.host.getBuffer(path);
@@ -619,10 +688,19 @@ export class FluidCadServer {
         const timelineSources = new Map([normalizedFileName, ...this.timelineHistory.sourceFiles(sessionId)]
           .map(path => [path, readTimelineSource(path)]));
         this.seatEngine();
+        // The tier is fixed when the scene starts: the generators' layouts
+        // file their parts by it while the module evaluates.
+        const sceneOptions = { detail: run.detail ?? 'full' };
         let scene = sceneKind === 'assembly'
-          ? this.sceneManager.startAssemblyScene()
-          : this.sceneManager.startScene();
+          ? this.sceneManager.startAssemblyScene(sceneOptions)
+          : this.sceneManager.startScene(sceneOptions);
         this.sceneManager.setCurrentFile(normalizedFileName);
+        if (preview) {
+          // The previewed code and the pins its Apply writes, for this
+          // render's loads only — the editor's buffer and fluidcad.json are
+          // never touched (cleared in the finally below).
+          this.host.setRenderOverlay?.({ code: new Map([[normalizedFileName, preview.code]]), pins: preview.pins });
+        }
         this.invalidateModules();
 
         const registry = createParamRegistry();
@@ -633,6 +711,7 @@ export class FluidCadServer {
 
         let breakpointHit = false;
         let breakpointAt: BreakpointSite | null = null;
+        const evaluateStart = performance.now();
         try {
           await this.host.loadModule(filePath, FluidCadServer.entryExports(scene, normalizedFileName));
         }
@@ -663,19 +742,26 @@ export class FluidCadServer {
             }
           }
         }
-        this.lastBreakpointHit = breakpointHit;
-        this.lastBreakpointAt = breakpointAt;
+        run.clock?.add('evaluate', performance.now() - evaluateStart);
+        writes.run(() => {
+          this.lastBreakpointHit = breakpointHit;
+          this.lastBreakpointAt = breakpointAt;
+        });
         // Every stop the file holds — the paused one and the pending ones
         // after it — so the timeline can mark them all. A file the parser
         // can't read (mid-edit) keeps the previous list.
-        const mainSource = timelineSources.get(normalizedFileName);
+        const mainSource = preview ? preview.code : timelineSources.get(normalizedFileName);
+        let breakpoints = this.lastBreakpoints;
         if (typeof mainSource === 'string') {
           try {
-            this.lastBreakpoints = await listBreakpoints(mainSource);
+            breakpoints = await listBreakpoints(mainSource);
           } catch (error) {
             console.warn('Could not list the file\'s breakpoints:', error);
           }
         }
+        writes.run(() => {
+          this.lastBreakpoints = breakpoints;
+        });
 
         // A bare `assembly('name', () => {...});` statement is a LAZY
         // definition nothing runs — without this check the render is a
@@ -695,17 +781,34 @@ export class FluidCadServer {
         }
 
         const params = getParamRegistry().getDefinitions();
-        this.lastParamDefinitions.set(normalizePath(sessionId), params);
-        this.paramSession(sessionId).settle(registry);
-        const configurations = this.settleConfiguration(sessionId, normalizedFileName, registry, breakpointHit);
+        writes.run(() => {
+          this.lastParamDefinitions.set(normalizePath(sessionId), params);
+          this.paramSession(sessionId).settle(registry);
+          setParamRegistry(registry);
+        });
+        // A preview settles nothing (its writes wait): it reports the rows
+        // as they stand.
+        const configurations = writes.isDeferred
+          ? this.configurationsOf(sessionId, registry)
+          : this.settleConfiguration(sessionId, normalizedFileName, registry, breakpointHit);
+        if (writes.isDeferred) {
+          writes.run(() => {
+            this.settleConfiguration(sessionId, normalizedFileName, registry, breakpointHit);
+          });
+        }
         // After the overrides settled: a render can drop overrides the source
         // re-declared (or fall back from a configuration the file no longer
         // declares), and the fingerprint must describe what is in effect.
+        // A preview's entry is the code it evaluated, not the buffer.
         const engineInputs = this.engineRenderInputs();
-        const fingerprint = this.captureFingerprint(sessionId, normalizedFileName, engineInputs);
+        const fingerprint = this.captureFingerprint(sessionId, normalizedFileName, engineInputs,
+          preview ? new Map([[normalizedFileName, preview.code]]) : undefined);
         this.renderFingerprints.set(sessionId, fingerprint);
-        this.renderAssets.set(sessionId, engineInputs);
-        this.packageProblems = this.host.packageProblems?.() ?? [];
+        const packageProblems = this.host.packageProblems?.() ?? [];
+        writes.run(() => {
+          this.renderAssets.set(sessionId, engineInputs);
+          this.packageProblems = packageProblems;
+        });
         const packages = this.host.resolvedPackages?.() ?? [];
 
         if (this.previousScenes.has(sessionId)) {
@@ -714,16 +817,28 @@ export class FluidCadServer {
           for (const id of this.packageFeatureIdsChanged(sessionId, packages)) {
             rebuild.add(id);
           }
+          const compareStart = performance.now();
           scene = rebuild.size > 0
             ? this.sceneManager.compare(previousScene, scene, changes, { rebuild })
             : this.sceneManager.compare(previousScene, scene, changes);
+          run.clock?.add('compare', performance.now() - compareStart);
         }
         compared = true;
 
         this.previousScenes.set(sessionId, scene);
+        if (preview) {
+          this.previewScenes.set(scene, preview.token);
+        } else if (this.lastRendered.get(sessionId)?.pending) {
+          // A preview's dedup entry is served only while its scene is the
+          // session's; this render replaced it.
+          this.lastRendered.delete(sessionId);
+        }
         this.sessionPackages.set(sessionId, new Map(packages.map(pkg => [pkg.name, pkg])));
 
+        const renderStart = performance.now();
         this.sceneManager.renderScene(scene);
+        run.clock?.add('render', performance.now() - renderStart);
+        const collectStart = performance.now();
         const result = scene.getRenderedObjects();
         const renderChanges = changes ? changes.summarize(scene) : undefined;
 
@@ -767,7 +882,11 @@ export class FluidCadServer {
             }
           }
         }
-        this.generatedRows = GeneratedRows.of(result, assembly);
+        const generatedRows = GeneratedRows.of(result, assembly);
+        writes.run(() => {
+          this.generatedRows = generatedRows;
+        });
+        run.clock?.add('collect', performance.now() - collectStart);
 
         // Read after the module ran: a file's `unit()` statement declares the
         // unit during evaluation, and the scene resolves it lazily.
@@ -781,13 +900,19 @@ export class FluidCadServer {
           ?? { stop: result.length - 1, scopePartId: null };
         this.lastRollbackStop = stop;
         this.lastRollbackScopePartId = scopePartId;
-        this.compileError = null;
+        writes.run(() => {
+          this.compileError = null;
+        });
 
         // Names and structure come from real evaluations. History never
         // retains meshes and never changes the live result or rollback indices.
+        // A preview's code is not the session's: its history is left alone
+        // (the writes clear it as any assembly render does).
         let timeline: SceneRenderedData['timeline'];
-        this.timelineHistory.setCurrent(sessionId);
-        if (sceneKind === 'part' && [...timelineSources].every(([path, text]) => readTimelineSource(path) === text)) {
+        writes.run(() => {
+          this.timelineHistory.setCurrent(sessionId);
+        });
+        if (!preview && sceneKind === 'part' && [...timelineSources].every(([path, text]) => readTimelineSource(path) === text)) {
           try {
             timeline = await this.timelineHistory.update(sessionId, result, breakpointHit,
               path => timelineSources.has(path) ? timelineSources.get(path)! : readTimelineSource(path));
@@ -810,7 +935,7 @@ export class FluidCadServer {
           breakpointHit,
           ...(breakpointHit ? { breakpointStop: stop } : {}),
           ...(breakpointHit && breakpointAt ? { breakpointAt } : {}),
-          breakpoints: this.lastBreakpoints,
+          breakpoints,
           ...(timeline ? { timeline } : {}),
           params,
           configurations,
@@ -825,8 +950,9 @@ export class FluidCadServer {
         // No other session's cache is touched: a dependent's cached render
         // is validated against this file's content when it is next asked
         // for, so viewing a file costs its dependents nothing and editing
-        // one makes them miss.
-        if (!filePath.startsWith('virtual:live-render') && fingerprint) {
+        // one makes them miss. A preview's scene is not the cached render's
+        // any more, so that one may not be served again.
+        if (!preview && !filePath.startsWith('virtual:live-render') && fingerprint) {
           this.renderingCache.set(sessionId, { data, fingerprint, registry });
         } else {
           this.renderingCache.delete(sessionId);
@@ -837,7 +963,12 @@ export class FluidCadServer {
       }
       catch (error) {
         // Read before the modules are invalidated: that starts the resolver over.
-        this.packageProblems = this.host.packageProblems?.() ?? [];
+        const packageProblems = this.host.packageProblems?.() ?? [];
+        if (preview) {
+          run.packageProblems = packageProblems;
+        } else {
+          this.packageProblems = packageProblems;
+        }
         if (owed && !compared) {
           // The cached scene is still the one built with the old code.
           this.featureRebuilds.restore(sessionId, owed);
@@ -845,6 +976,12 @@ export class FluidCadServer {
         this.invalidateModules();
         console.log('Error processing file:', error);
         throw error;
+      }
+      finally {
+        if (preview) {
+          this.host.setRenderOverlay?.(null);
+          setParamRegistry(liveRegistry!);
+        }
       }
     });
   }
@@ -926,7 +1063,12 @@ export class FluidCadServer {
    * Empty after a render that loaded every package it imports.
    */
   getPackageProblems(): PackageProblem[] {
-    return this.packageProblems.map(problem => ({
+    return FluidCadServer.problemsOf(this.packageProblems);
+  }
+
+  /** Package refusals as the wire carries them (`CompileError.packageProblems`). */
+  private static problemsOf(problems: PackageResolveError[]): PackageProblem[] {
+    return problems.map(problem => ({
       code: problem.code,
       name: problem.packageName,
       version: problem.version,
@@ -977,13 +1119,18 @@ export class FluidCadServer {
    * the project config, and the files the engine read while building
    * ({@link engineRenderInputs}).
    */
-  private captureFingerprint(sessionId: string, entryFile: string, engineInputs: readonly string[]): RenderFingerprint | null {
+  private captureFingerprint(
+    sessionId: string,
+    entryFile: string,
+    engineInputs: readonly string[],
+    contents?: ReadonlyMap<string, string>,
+  ): RenderFingerprint | null {
     const extraFiles: string[] = [];
     if (this.workspacePath) {
       extraFiles.push(join(this.workspacePath, PROJECT_CONFIG_FILENAME));
     }
     extraFiles.push(...engineInputs);
-    return this.renderInputs.capture({ entryFile, extraFiles, params: this.overridesKey(sessionId) });
+    return this.renderInputs.capture({ entryFile, extraFiles, params: this.overridesKey(sessionId), ...(contents ? { contents } : {}) });
   }
 
   /**
@@ -1042,6 +1189,22 @@ export class FluidCadServer {
       tables,
       modified: this.isModified(sessionId),
       ...(notice ? { notice } : {}),
+    };
+  }
+
+  /**
+   * What a render reports of its configurations without settling anything
+   * ({@link settleConfiguration} does, for a render of the session's code):
+   * the rows it declared and the one it showed — an assembly preview's.
+   */
+  private configurationsOf(sessionId: string, registry: ParamRegistry): SceneConfigurations {
+    const summary = registry.getConfigurations();
+    return {
+      active: summary.active,
+      names: summary.names,
+      rows: summary.rows,
+      tables: FluidCadServer.configurationTables(registry),
+      modified: this.isModified(sessionId),
     };
   }
 
@@ -1215,7 +1378,10 @@ export class FluidCadServer {
     // The hash vouches for the entry's own text; the fingerprint for every
     // file it imports — an edited part or helper module makes this miss.
     if (cached && cached.paramsHash === paramsHash && this.isFingerprintCurrent(fileName, cached.fingerprint)
-      && !this.featureRebuilds.owes(fileName)) {
+      && !this.featureRebuilds.owes(fileName) && (!cached.pending || this.previousScenes.get(fileName) === cached.scene)) {
+      if (cached.pending) {
+        this.adoptPreview(fileName, code, cached);
+      }
       this.compileError = null;
       this.currentFileName = fileName;
       this.currentFilePath = `virtual:live-render:${fileName}`;
@@ -1257,6 +1423,97 @@ export class FluidCadServer {
       }
     }
     return result;
+  }
+
+  /**
+   * Render an assembly preview (G4) as the current session's scene: the
+   * current file's code with an edit applied in memory (`preview.code`),
+   * resolving packages through the pins its Apply writes (`preview.pins`),
+   * its generated parts at `preview.detail` — never touching the editor's
+   * buffer, the disk or `fluidcad.json` (`SceneHost.setRenderOverlay`).
+   *
+   * The preview is the session's scene while it shows: the next render
+   * compares against it, and the fingerprint, the stop and every inspection
+   * route describe it. What describes the session's **code** — the params
+   * panel's definitions and the overrides' settling, the configurations,
+   * the breakpoints, the engine-owned rows the write guard reads, the
+   * compile error, the package problems, the share link's assets, the
+   * timeline history — is left as it was (`SessionWrites.deferred`).
+   *
+   * A full-detail preview stays the session's dedup entry with those writes
+   * pending: when the editor's buffer comes to hold exactly the previewed
+   * code (its Apply) while the preview's scene still shows, the live update
+   * is served from it — nothing evaluates or builds — and the writes are
+   * made then ({@link adoptPreview}). Any other render replaces it. A
+   * `'preview'`-detail scene is never served as the code's own: Apply
+   * renders that code at full detail.
+   *
+   * Null without an engine or an open file; `ok: false` when the code did
+   * not evaluate, with the package imports it refused — the session's scene
+   * is then what it was.
+   */
+  async renderPreview(preview: PreviewRender): Promise<PreviewRendered | null> {
+    const sessionId = this.currentFileName;
+    if (!this.sceneManager || !sessionId || !this.currentFilePath) {
+      return null;
+    }
+    const writes = SessionWrites.deferred();
+    const run: RenderRun = { detail: preview.detail, preview, writes, ...(preview.clock ? { clock: preview.clock } : {}) };
+    let data: SceneRenderedData | null;
+    try {
+      data = await this.processFileInternal(sessionId, this.currentFilePath, true, undefined, run);
+    } catch (error) {
+      return { ok: false, error, packageProblems: FluidCadServer.problemsOf(run.packageProblems ?? []) };
+    }
+    if (!data) {
+      return null;
+    }
+    const scene = this.previousScenes.get(sessionId);
+    const fingerprint = this.renderFingerprints.get(sessionId);
+    if (preview.detail === 'full' && fingerprint && scene) {
+      this.lastRendered.set(sessionId, {
+        paramsHash: this.computeParamsHash(sessionId, preview.code),
+        data,
+        fingerprint,
+        pending: writes,
+        scene,
+      });
+    } else {
+      this.lastRendered.delete(sessionId);
+    }
+    const generated = scene && typeof this.sceneManager.getGeneratedReport === 'function'
+      ? this.sceneManager.getGeneratedReport(scene)
+      : null;
+    return { ok: true, data: { ...data, preview: { token: preview.token } }, generated };
+  }
+
+  /**
+   * The token of the assembly preview whose scene `fileName`'s session
+   * shows ({@link renderPreview}), or null while it shows its own code's.
+   */
+  previewTokenOf(fileName: string = this.currentFileName): string | null {
+    const scene = this.previousScenes.get(normalizePath(fileName));
+    return scene ? this.previewScenes.get(scene) ?? null : null;
+  }
+
+  /**
+   * The editor's buffer now holds exactly the code the session's preview
+   * rendered (the dialog's Apply wrote it): the preview's scene becomes the
+   * session's own, its deferred writes are made, and the entry is re-keyed
+   * on the overrides they settled — as a render of that code would leave it.
+   */
+  private adoptPreview(fileName: string, code: string, entry: LastRendered): void {
+    const pending = entry.pending!;
+    delete entry.pending;
+    delete entry.scene;
+    const scene = this.previousScenes.get(fileName);
+    if (scene) {
+      this.previewScenes.delete(scene);
+    }
+    pending.flush();
+    entry.paramsHash = this.computeParamsHash(fileName, code);
+    entry.fingerprint = { ...entry.fingerprint, params: this.overridesKey(fileName) };
+    this.renderFingerprints.set(fileName, entry.fingerprint);
   }
 
   /**
@@ -1433,6 +1690,7 @@ export class FluidCadServer {
       objectErrors: FluidCadServer.collectObjectErrors(result),
       objectWarnings: this.collectObjectWarnings(result),
       ...(assembly ? { assembly } : {}),
+      ...(this.previewScenes.has(scene) ? { preview: { token: this.previewScenes.get(scene)! } } : {}),
     };
   }
 

@@ -2,7 +2,10 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import express from 'express';
-import { FluidCadServer, sceneStopFields, sceneUnitFields } from './fluidcad-server/index.ts';
+import { FluidCadServer, scenePreviewFields, sceneStopFields, sceneUnitFields } from './fluidcad-server/index.ts';
+import { CompileErrors } from './fluidcad-server/compile-errors.ts';
+import { AssemblyPreviews } from './assembly-preview/assembly-previews.ts';
+import { createAssemblyPreviewRouter } from './routes/assembly-preview.ts';
 import type { SceneRenderedData } from './fluidcad-server/index.ts';
 import { createServerCore } from './server-core.ts';
 import { createHostGuard, createHostGuardVerifyClient } from './host-guard.ts';
@@ -71,12 +74,12 @@ import {
   type LengthUnit,
 } from './project-config.ts';
 import { PageWriteLedger } from './files/page-write-ledger.ts';
-import type { CompileError, SerializedAssembly } from './ws-protocol.ts';
+import type { CompileError, SerializedAssembly, ServerToUIMessage } from './ws-protocol.ts';
 import { detectKind, isParamsFile } from './file-kind.ts';
 import type { FluidScriptKind } from './file-kind.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
-import { extractErrorSourceLocation, describeOcException, KernelTraps } from '../../lib/dist/index.js';
+import { describeOcException, KernelTraps } from '../../lib/dist/index.js';
 import { EngineHealth } from './engine-health.ts';
 import { createEngineRouter } from './routes/engine.ts';
 import { setMaxWorkers } from '../../lib/dist/oc/init.js';
@@ -172,7 +175,19 @@ app.use(express.json({ limit: '50mb' }));
 
 const httpServer = http.createServer(app);
 const core = createServerCore(httpServer, { verifyClient: createHostGuardVerifyClient(HOST) });
-const broadcastToUI = core.broadcastToUI;
+
+/**
+ * Every message for the pages goes out through here: the assembly preview
+ * hears it first, so a scene that is not its own ends the preview showing
+ * — announced before that scene (`AssemblyPreviews.noteBroadcast`).
+ * Answers the message's size in bytes.
+ */
+function broadcastToUI(msg: ServerToUIMessage): number {
+  assemblyPreviews?.noteBroadcast(msg);
+  return core.broadcastToUI(msg);
+}
+/** Set once its dependencies exist (below); nothing broadcasts before then. */
+let assemblyPreviews: AssemblyPreviews | null = null;
 const requestScreenshot = core.requestScreenshot;
 const getLastCameraState = core.getLastCameraState;
 
@@ -196,11 +211,6 @@ const engineHealth = new EngineHealth({
 });
 engineHealth.watch(KernelTraps);
 
-// Every router that writes source dispatches through this one instance: the
-// ack that settles a dispatch arrives at /code/apply-feature, so a router with
-// its own registry would never hear about its own edits.
-const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToHost, { callees: featureCatalog, packages: packageEdits });
-
 // ---------------------------------------------------------------------------
 // Global parameters — the `*.params.js` catalog every consumer reads
 // ---------------------------------------------------------------------------
@@ -210,6 +220,29 @@ const globalParamCatalog = new GlobalParamCatalog({
   readBuffer: (absPath) => fluidCadServer.getLiveBuffer(absPath),
   projectUnit: projectUnitNow,
 });
+
+// Every router that writes source dispatches through this one instance: the
+// ack that settles a dispatch arrives at /code/apply-feature, so a router with
+// its own registry would never hear about its own edits. It applies edits in
+// memory (an assembly preview) with the callees and globals the apply-feature
+// router's `/code/apply-feature` applies them with.
+const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToHost, {
+  callees: featureCatalog, packages: packageEdits, globals: globalParamCatalog,
+});
+
+// The assembly dialogs' live preview (G4): the file on screen rendered with
+// a dialog's edit applied in memory. Its renders take versions from the
+// counter every render shares; `/end` renders the saved code as a live
+// update does.
+const previews = new AssemblyPreviews({
+  engine: fluidCadServer,
+  edits: editDispatcher,
+  workspacePath: WORKSPACE_PATH,
+  broadcast: (msg) => core.broadcastToUI(msg),
+  versions: { next: () => ++renderVersion, isLatest: (version) => version === renderVersion },
+  renderSaved: (file, code) => runLiveRender(file, code),
+});
+assemblyPreviews = previews;
 
 /**
  * Push the catalog to every page. Bursts coalesce: a push already in flight
@@ -348,6 +381,7 @@ app.use('/api', createSectionRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher, featureCatalog));
 app.use('/api', createAssemblyReplicateRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyConnectorRouter(fluidCadServer, editDispatcher));
+app.use('/api', createAssemblyPreviewRouter(previews));
 app.use('/api', PackageEditGuard.errorHandler());
 
 // Static files — serve UI build, with SPA fallback. index.html goes through
@@ -433,8 +467,14 @@ attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBuffer
  */
 function emitSuccess(version: number, data: SceneRenderedData, { fitView = false }: { fitView?: boolean } = {}) {
   const { absPath, sceneKind, unit, declaredUnit, result, breakpointHit, assembly, properties, objectWarnings } = data;
-  lastSceneByFile.set(absPath, { result, ...sceneStopFields(data), sceneKind, unit, declaredUnit, assembly });
-  fluidCadServer.setCompileError(null);
+  // A rollback re-emitting an assembly preview's scene: the pages see it as
+  // the preview's; the editor hosts, whose code it isn't, never do, and an
+  // error replay keeps showing the file's own last scene.
+  const preview = data.preview !== undefined;
+  if (!preview) {
+    lastSceneByFile.set(absPath, { result, ...sceneStopFields(data), sceneKind, unit, declaredUnit, assembly });
+    fluidCadServer.setCompileError(null);
+  }
   // A global registers with the render's registry like any param, but it is
   // the Parameters panel's row, not the History column's: the page gets it
   // through `global-params`, and the registry's runtime value only
@@ -444,15 +484,17 @@ function emitSuccess(version: number, data: SceneRenderedData, { fitView = false
   if (globals.length > 0) {
     globalParamCatalog.noteRendered(globals);
   }
-  sendToExtension({
-    type: 'scene-rendered',
-    absPath,
-    sceneKind,
-    ...sceneUnitFields(data),
-    result,
-    ...sceneStopFields(data),
-    ...(assembly ? { assembly } : {}),
-  });
+  if (!preview) {
+    sendToExtension({
+      type: 'scene-rendered',
+      absPath,
+      sceneKind,
+      ...sceneUnitFields(data),
+      result,
+      ...sceneStopFields(data),
+      ...(assembly ? { assembly } : {}),
+    });
+  }
   broadcastToUI({
     type: 'scene-rendered',
     result,
@@ -467,30 +509,15 @@ function emitSuccess(version: number, data: SceneRenderedData, { fitView = false
     ...(data.configurations ? { configurations: data.configurations } : {}),
     ...(assembly ? { assembly } : {}),
     ...(fitView ? { fitView: true } : {}),
+    ...scenePreviewFields(data),
   });
   broadcastToUI({ type: 'render-version', version, state: 'end', absPath });
 }
 
 function buildCompileError(filePath: string, err: any): CompileError {
-  const message = err?.message || String(err);
-  let sourceLocation = extractErrorSourceLocation(err);
-  const normalized = normalizePath(filePath).replace('virtual:live-render:', '');
-  if (sourceLocation) {
-    sourceLocation = {
-      filePath: sourceLocation.filePath.replace('virtual:live-render:', ''),
-      line: sourceLocation.line,
-      column: sourceLocation.column,
-    };
-  }
   // A render that refused a package import says which, structured: the
   // missing-package banner offers to install it by name and version.
-  const packageProblems = fluidCadServer.getPackageProblems();
-  return {
-    message,
-    filePath: normalized,
-    sourceLocation: sourceLocation ?? undefined,
-    ...(packageProblems.length > 0 ? { packageProblems } : {}),
-  };
+  return CompileErrors.describe(filePath, err, fluidCadServer.getPackageProblems());
 }
 
 function emitCompileError(version: number, filePath: string, err: any): CompileError {

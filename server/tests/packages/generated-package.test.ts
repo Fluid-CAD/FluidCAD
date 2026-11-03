@@ -148,6 +148,35 @@ describe('packing generated definitions', () => {
     });
   });
 
+  it('ships the dialog aside a generated assembly declares, read against its own module, and refuses one that climbs out', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><title>crate size</title></svg>\n';
+    fs.writeFileSync(at('features/img/crate-size.svg'), svg);
+    const withAside = (image: string) => (source: string) => source.replace(
+      `icon: '../features/icons/crate.svg',`,
+      `icon: '../features/icons/crate.svg',\n  width: 'wide',\n  aside: [{ image: '${image}', alt: 'Width, depth and height' }],`,
+    );
+    try {
+      await editing('assemblies/crate.assembly.js', withAside('../features/img/crate-size.svg'), async () => {
+        const result = await pack();
+        const crate = result.manifest.parts.find(part => part.exportName === 'crate')!;
+        expect(crate.schema).toMatchObject({
+          width: 'wide',
+          aside: [{ image: '../features/img/crate-size.svg', alt: 'Width, depth and height' }],
+          assetBase: { layout: 'definition', aside: 'definition' },
+        });
+        expect(crate.images).toEqual(['features/icons/crate.svg', 'features/img/crate-size.svg', 'features/lib/img/closed.svg', 'features/lib/img/open.svg']);
+        expect(result.manifest.files).toContain('features/img/crate-size.svg');
+        expect(result.files['features/img/crate-size.svg'].toString('utf8')).toBe(svg);
+      });
+      fs.writeFileSync(path.join(scratch, 'outside.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n');
+      await editing('assemblies/crate.assembly.js', withAside('../../outside.svg'), async () => {
+        expect(await refusal()).toBe(`assemblies/crate.assembly.js: 'crate' declares the image ../../outside.svg, which leads outside the workspace: a package ships only its own files.`);
+      });
+    } finally {
+      fs.rmSync(at('features/img/crate-size.svg'), { force: true });
+    }
+  });
+
   it('refuses an image a schema declares that is missing, or that climbs out of the workspace', async () => {
     await editing('parts/spur.part.js', source => source.replace('../features/icons/spur.svg', '../features/icons/none.svg'), async () => {
       expect(await refusal()).toBe(`parts/spur.part.js: 'spurPart' declares the image ../features/icons/none.svg, which doesn't exist next to parts/spur.part.js.`);

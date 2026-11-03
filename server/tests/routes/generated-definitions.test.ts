@@ -74,9 +74,35 @@ function generatedPart(file: string, exportName: string, modules: { definition: 
   };
 }
 
-function scanOf(file: string, parts: any[]): PartScanResult {
+/** A generated assembly entry of a scan whose dialog carries a width and an aside, written in the definition's metadata. */
+function generatedAssembly(file: string, exportName: string, modules: { definition: string; class: string }, aside: string[]) {
+  const schema = {
+    kind: 'assembly' as const,
+    definitionKind: 'generated' as const,
+    id: 'crate',
+    label: 'Crate',
+    params: { width: { type: 'length', default: 40, label: 'Width' } },
+    layout: ['width'],
+    width: 'wide' as const,
+    aside: aside.map(image => ({ image, alt: 'Width, depth and height' })),
+    connectors: [],
+    assetBase: { layout: 'definition' as const, aside: 'definition' as const },
+  };
+  return {
+    ...GeneratedCatalog.fieldsOf({
+      getType: () => 'assembly',
+      generated: { kind: 'assembly', id: 'crate' },
+      getSchema: () => schema,
+      assetModules: () => modules,
+    }, file, exportName),
+    exportName, assemblyName: 'Crate', exportKind: 'value' as const, rootId: '', objects: [], params: [], configurations: [], assets: [],
+    instances: [], mates: [], connectors: [],
+  };
+}
+
+function scanOf(file: string, parts: any[], assemblies: any[] = []): PartScanResult {
   // The module itself is its one dependency: the route's cache keeps the scan while its mtime holds.
-  return { file, unit: 'mm', parts, assemblies: [], errors: [], deps: fs.existsSync(file) ? [file] : [], moduleAssets: [] };
+  return { file, unit: 'mm', parts, assemblies, errors: [], deps: fs.existsSync(file) ? [file] : [], moduleAssets: [] };
 }
 
 async function serve(): Promise<void> {
@@ -195,6 +221,27 @@ describe('GET /part-catalog/asset', () => {
     expect((await asset(`api/part-catalog/asset?file=${encodeURIComponent(file)}&export=gearPart&base=nope&path=x`)).status).toBe(400);
     const outside = path.join(project.scratch, 'elsewhere.part.js');
     expect((await asset(GeneratedCatalog.assetUrl(outside, 'gearPart', 'definition', 'x.svg'))).status).toBe(400);
+  });
+
+  it('serves a generated assembly\'s dialog aside from its defining module, under that base only, never beyond the workspace', async () => {
+    project.write('assemblies/crate.assembly.js', 'export {};\n');
+    project.write('features/lib/crate.js', 'export {};\n');
+    project.write('features/img/crate-size.svg', SVG);
+    const crate = project.at('assemblies/crate.assembly.js');
+    const entry = generatedAssembly(crate, 'crate', { definition: crate, class: project.at('features/lib/crate.js') },
+      ['../features/img/crate-size.svg', '../../outside.svg']);
+    results.set(crate, scanOf(crate, [], [entry]));
+
+    // The scan's URLs list the aside under the definition's module.
+    expect(Object.keys(entry.assetUrls.definition)).toEqual(['../features/img/crate-size.svg', '../../outside.svg']);
+    expect(entry.assetUrls.class).toEqual({});
+    const aside = await asset(entry.assetUrls.definition['../features/img/crate-size.svg']);
+    expect(aside).toMatchObject({ status: 200, type: 'image/svg+xml', body: SVG });
+    expect(aside.csp).toContain('sandbox');
+    expect((await asset(GeneratedCatalog.assetUrl(crate, 'crate', 'class', '../features/img/crate-size.svg'))).status).toBe(404);
+    const climbed = await asset(entry.assetUrls.definition['../../outside.svg']);
+    expect(climbed.status).toBe(403);
+    expect(JSON.parse(climbed.body).error).toBe(`Crate: the image '../../outside.svg' leads outside its package or workspace (ws)`);
   });
 
   it('confines an installed package\'s definition to the package\'s own directory', async () => {

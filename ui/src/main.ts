@@ -101,7 +101,11 @@ import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
 import { applyEnginePreferences } from './ui/settings/engine-settings';
 import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials';
 import { applyPackagePreferences, packageSettings } from './ui/settings/package-settings';
-import { HttpHubClient, HttpPackagesClient, HttpPublishClient, ProjectUiStateClient, recompute } from './api';
+import { HttpHubClient, HttpPackagesClient, HttpPublishClient, ProjectUiStateClient, recompute, fetchMeshes } from './api';
+import { MeshCache, meshCache } from './scene/mesh-cache';
+import { SceneMeshes } from './scene/scene-meshes';
+import { SceneTimings } from './scene/scene-timings';
+import { ServerInbox } from './scene/server-inbox';
 import { PackagesState } from './ui/packages/packages-state';
 import { ProjectPackagesDialog } from './ui/packages/project-packages-dialog';
 import { PackageConsentDialog } from './ui/packages/package-consent-dialog';
@@ -3470,11 +3474,15 @@ function applySceneRendered(msg: any): void {
           lastPartTemplates.set(o.id, o.object);
         }
       }
+      const viewStart = performance.now();
       viewer.updateAssemblyView(msg.result, assembly);
+      SceneTimings.viewed(msg, performance.now() - viewStart, viewer.getAssemblyController()?.getLastUpdateStats());
       lastPartRender = null;
     } else {
       lastPartRender = { result: msg.result, isRollback, rollbackStop: msg.rollbackStop };
+      const viewStart = performance.now();
       viewer.updateView(msg.result, isRollback, msg.rollbackStop);
+      SceneTimings.viewed(msg, performance.now() - viewStart);
       // Snapshot every sketch's consumed state from complete builds only —
       // rollbacks (and breakpoint truncations) make a tip sketch look
       // unconsumed. The Finish Sketch edit flow reads this snapshot.
@@ -3621,6 +3629,14 @@ function applySceneRendered(msg: any): void {
     }
 }
 
+/**
+ * The scenes' meshes (S6b): payloads kept by key in the page's mesh cache,
+ * references resolved from it, the rest fetched. Off — whole scenes, no
+ * cache, geometry per object, as before — with
+ * `localStorage['fluidcad.meshCache'] = '0'` (read at each connection).
+ */
+const sceneMeshes = new SceneMeshes(meshCache, fetchMeshes);
+
 function connectWebSocket() {
   // Next to the page, like every other request: at `/` under `fluidcad serve`,
   // under `/p/<project>/` behind `npx fluidcad`'s proxy. Protocol-relative
@@ -3629,11 +3645,30 @@ function connectWebSocket() {
   wsUrl.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(wsUrl);
 
+  // One answer per connection: the hello announces it, every scene follows it.
+  const cacheOn = MeshCache.enabled();
+  // Handled in arrival order: a scene waiting for meshes holds what follows it.
+  const inbox = new ServerInbox<any>({
+    prepare: (msg) => (msg.type === 'scene-rendered' && cacheOn ? sceneMeshes.ready(msg) : 'handle'),
+    handle: (msg) => handleMessage(msg),
+    skip: (msg) => {
+      SceneTimings.skipped(msg);
+      // Not drawn, yet answered: a screenshot waits on the newest scene,
+      // which is the one that replaces it.
+      acknowledgeSceneApplied(ws, msg.sceneVersion);
+    },
+  });
+
   ws.addEventListener('open', () => {
     activeWs = ws;
     // Promise an acknowledgement for every scene this page is sent — the
-    // server holds screenshots until the scene they follow is on screen.
-    ws.send(JSON.stringify({ type: 'ui-hello', sceneAcks: true }));
+    // server holds screenshots until the scene they follow is on screen —
+    // and announce the mesh cache: payloads it holds then come by reference.
+    ws.send(JSON.stringify({
+      type: 'ui-hello',
+      sceneAcks: true,
+      ...(cacheOn ? { meshCache: { capacity: meshCache.capacity } } : {}),
+    }));
     pushCameraState();
     // The server drops its host registration when a socket closes, so the
     // hello has to be re-sent on every reconnect, not just the first.
@@ -3644,8 +3679,15 @@ function connectWebSocket() {
   });
 
   ws.addEventListener('message', (event) => {
+    const start = performance.now();
     const msg = JSON.parse(event.data);
+    if (msg?.type === 'scene-rendered') {
+      SceneTimings.received(msg, typeof event.data === 'string' ? event.data.length : 0, performance.now() - start);
+    }
+    inbox.push(msg);
+  });
 
+  const handleMessage = (msg: any): void => {
     switch (msg.type) {
       case 'init-complete':
         // The engine is up; nothing is rendering yet. A model that is about to
@@ -3691,6 +3733,7 @@ function connectWebSocket() {
         break;
       case 'scene-rendered': {
         loadingOverlay.hide();
+        const start = performance.now();
         try {
           applySceneRendered(msg);
         } finally {
@@ -3698,6 +3741,11 @@ function connectWebSocket() {
           // further with that scene, and a screenshot must not wait on it.
           acknowledgeSceneApplied(ws, msg.sceneVersion);
         }
+        // The meshes this scene names stay; past its capacity the cache lets
+        // the least recently used others go.
+        meshCache.setOnScreen(SceneMeshes.keysOf(msg));
+        meshCache.trim();
+        SceneTimings.applied(msg, performance.now() - start, meshCache.stats());
         break;
       }
       case 'scene-closed': {
@@ -3720,6 +3768,7 @@ function connectWebSocket() {
         editorSceneFile = null;
         editorSurface?.clearSceneFile();
         acknowledgeSceneApplied(ws, msg.sceneVersion);
+        meshCache.setOnScreen([]);
         break;
       }
       case 'highlight-shape':
@@ -3762,9 +3811,10 @@ function connectWebSocket() {
         globalParamsPanel.update(msg);
         break;
     }
-  });
+  };
 
   ws.addEventListener('close', () => {
+    inbox.close();
     if (activeWs === ws) {
       activeWs = null;
     }

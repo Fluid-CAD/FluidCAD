@@ -1,6 +1,7 @@
 import type { VariableInfo } from './ui/expression-input';
 import type { LengthUnit } from './units/units';
 import type { ContactEntity } from './solver/types';
+import type { MeshLookup } from './scene/scene-meshes';
 import type {
   GlobalParamsSnapshot,
   SceneObjectMesh,
@@ -498,6 +499,15 @@ export async function getShareFiles(): Promise<ShareFiles> {
     throw new Error(body?.error ?? `Share failed (${res.status})`);
   }
   return body;
+}
+
+/**
+ * The mesh payloads of `keys` the server still keeps (`POST /api/meshes`,
+ * generators S6b) — what a scene's `meshRef`s need when the page's mesh
+ * cache lacks them — and the keys it does not. Null when it does not answer.
+ */
+export function fetchMeshes(keys: string[]): Promise<MeshLookup | null> {
+  return postJson<MeshLookup>('api/meshes', { keys });
 }
 
 /** The version of the engine serving this page, or null when the server doesn't answer. */

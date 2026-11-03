@@ -208,6 +208,13 @@ export type FaceMeshOptions = {
    * which draw at their centerline depth. See face-depth-offset.ts.
    */
   slopeOffset?: boolean;
+  /**
+   * Draw a mesh the page's mesh cache holds with the geometry the cache
+   * shares (S6b, P6: every instance of a template, every render keeping the
+   * shape) — only for meshes nothing rewrites in place: a solid's faces.
+   * Off, the mesh gets geometry of its own.
+   */
+  sharedGeometry?: boolean;
 };
 
 export type EdgeMeshOptions = {
@@ -216,6 +223,11 @@ export type EdgeMeshOptions = {
   opacity?: number;
   depthWrite?: boolean;
   transparent?: boolean;
+  /**
+   * {@link FaceMeshOptions.sharedGeometry} for edge lines: a solid's edges
+   * only — a sketch's lines are rewritten in place while they are dragged.
+   */
+  sharedGeometry?: boolean;
 };
 
 export type MeshRenderOptions = {

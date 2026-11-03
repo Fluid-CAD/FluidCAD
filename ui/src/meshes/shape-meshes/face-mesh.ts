@@ -6,7 +6,8 @@ import {
   Mesh,
   MeshPhongMaterial,
 } from 'three';
-import { FaceMeshOptions, SceneObjectPart } from '../../types';
+import { FaceMeshOptions, SceneObjectMesh, SceneObjectPart } from '../../types';
+import { meshCache } from '../../scene/mesh-cache';
 import type { Appearance } from '../../../../lib/common/appearances';
 import { themeColors } from '../../scene/theme-colors';
 import { createAppearanceMaterial, type GrainAxis } from '../appearance/appearance-material';
@@ -19,6 +20,7 @@ const DEFAULTS: Required<FaceMeshOptions> = {
   opacity: 1,
   depthTest: true,
   slopeOffset: false,
+  sharedGeometry: false,
 };
 
 export class FaceMesh extends Group {
@@ -33,12 +35,9 @@ export class FaceMesh extends Group {
     const opts = { ...DEFAULTS, ...options };
 
     for (const meshData of shape.meshes) {
-      const geometry = new BufferGeometry();
-      geometry.setAttribute('position', new BufferAttribute(new Float32Array(meshData.vertices), 3));
-      geometry.setAttribute('normal', new BufferAttribute(new Float32Array(meshData.normals), 3));
-      const IndexArray = meshData.vertices.length / 3 > 65535 ? Uint32Array : Uint16Array;
-      geometry.setIndex(new BufferAttribute(new IndexArray(meshData.indices), 1));
-      geometry.computeBoundingBox();
+      const geometry = opts.sharedGeometry
+        ? meshCache.geometryOf(meshData, () => FaceMesh.buildGeometry(meshData))
+        : FaceMesh.buildGeometry(meshData);
 
       const faceColor = options?.color ?? meshData.color ?? '#' + themeColors.faceColor.getHexString();
 
@@ -72,5 +71,16 @@ export class FaceMesh extends Group {
 
       this.add(mesh);
     }
+  }
+
+  /** The triangles of one face mesh, as three.js draws them. */
+  static buildGeometry(meshData: SceneObjectMesh): BufferGeometry {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new BufferAttribute(new Float32Array(meshData.vertices), 3));
+    geometry.setAttribute('normal', new BufferAttribute(new Float32Array(meshData.normals), 3));
+    const IndexArray = meshData.vertices.length / 3 > 65535 ? Uint32Array : Uint16Array;
+    geometry.setIndex(new BufferAttribute(new IndexArray(meshData.indices), 1));
+    geometry.computeBoundingBox();
+    return geometry;
   }
 }

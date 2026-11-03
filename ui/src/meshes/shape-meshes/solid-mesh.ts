@@ -46,16 +46,19 @@ export class SolidMesh extends Group {
     // centerline depth: the faces keep the slope offset that kept them in
     // front (see face-depth-offset.ts).
     const edges = shape.meshes.filter(m => m.label === 'solid-edges');
+    // A solid's geometry is never rewritten in place: every object drawing
+    // the same mesh shares one geometry (the page's mesh cache, P6).
     const faceOptions = edges.length > 0 && !edges.some(m => m.faceSides?.length)
-      ? { ...options?.face, slopeOffset: true }
-      : options?.face;
+      ? { ...options?.face, slopeOffset: true, sharedGeometry: true }
+      : { ...options?.face, sharedGeometry: true };
+    const edgeOptions = { ...options?.edge, sharedGeometry: true };
     for (const meshData of shape.meshes) {
       if (meshData.label === 'solid-faces') {
         const faces = new FaceMesh({ shapeType: 'face', meshes: [meshData] }, faceOptions, options?.appearance, grainAxis);
         faces.renderOrder = 1;
         this.add(faces);
       } else if (meshData.label === 'solid-edges') {
-        const edges = new EdgeMesh({ shapeType: 'edge', meshes: [meshData] }, options?.edge);
+        const edges = new EdgeMesh({ shapeType: 'edge', meshes: [meshData] }, edgeOptions);
         edges.renderOrder = 2;
         this.add(edges);
       }

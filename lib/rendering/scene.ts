@@ -28,6 +28,16 @@ export type RenderedShape = {
    * is minted afresh whenever the holder rebuilds. Solids only.
    */
   lineageKey?: string;
+  /**
+   * Names this shape's mesh payload — `meshes`, `vertices`, `faceVertices`
+   * — exactly: the same key is always the same payload, and a change to any
+   * of it (geometry, triangulation, face colours, which topology arrays
+   * ride along) is another key. Stable across renders while the shape is
+   * kept (a compare's cached object, a generated template taken from the
+   * cache). A host that already holds a key's payload need not be sent it
+   * again (see `MeshKeys`). Absent when the shape has no meshes.
+   */
+  meshKey?: string;
   /** Packed world xyz per topological vertex, in Explorer order. */
   vertices?: number[];
   /** Vertex indices belonging to each face, in the viewport's topology order. */

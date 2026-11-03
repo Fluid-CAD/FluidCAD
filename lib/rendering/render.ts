@@ -15,6 +15,7 @@ import { Part } from "../features/part.js";
 import { scaleForeignPart } from "../features/part-scale.js";
 import { GeneratedTemplateCache } from "./generated-template-cache.js";
 import { MeshPieces, type ShapeMeshPieces } from "./mesh-pieces.js";
+import { MeshKeys } from "./mesh-keys.js";
 import { attachSketchSnapVertices } from "./sketch-snap.js";
 import { attachConnectorHosts } from "./connector-host.js";
 import { ShapeOps } from "../oc/shape-ops.js";
@@ -552,24 +553,26 @@ export class SceneRenderer {
    * per wrapper, scope-free) grouped by the colours `holder` resolves for it
    * under `scope` — the records whose painter the pass shows. The same
    * wrapper thus draws unpainted in a rollback before its paint and in the
-   * earlier colour between two paints, with no re-meshing.
+   * earlier colour between two paints, with no re-meshing. Answers the
+   * pieces and the colour each face resolved to as well: what the shape's
+   * mesh key names (`MeshKeys`).
    */
   private getOrBuildMeshes(
     shape: Shape,
     holder: SceneObject,
     scope: Set<SceneObject> | undefined,
     profiler?: Profiler,
-  ): SceneObjectMesh[] | null {
+  ): { meshes: SceneObjectMesh[]; pieces: ShapeMeshPieces; faceColors: (string | undefined)[] | null } | null {
     const pieces = this.getOrBuildPieces(shape, holder, profiler);
     if (!pieces) {
       return null;
     }
     if (pieces.faces.length === 0) {
-      return MeshPieces.group(pieces);
+      return { pieces, ...MeshPieces.groupResolved(pieces) };
     }
     const colors = holder.getFaceColors(shape, scope);
     try {
-      return MeshPieces.group(pieces, colors, shape);
+      return { pieces, ...MeshPieces.groupResolved(pieces, colors, shape) };
     } finally {
       colors.delete();
     }
@@ -615,17 +618,24 @@ export class SceneRenderer {
     scope: Set<SceneObject> | undefined,
     profiler?: Profiler,
   ): RenderedShape {
+    // Meta shapes carry no topology vertices — except a lone vertex (a
+    // circle's centre mark, a point entity's guide), which IS its position:
+    // the vertex pick channel offers it as a sketch point.
+    const vertices = shape.isMetaShape() && shape.getType() !== 'vertex' ? undefined : topologyVertices(shape);
+    const faceVertices = shape.isMetaShape() || shape.isEdge() || shape.isWire() ? undefined : topologyFaceVertices(shape);
+    const grouped = this.getOrBuildMeshes(shape, holder, scope, profiler);
     return {
       shapeId: shape.id,
       lineageKey: shape.getType() === 'solid' && !shape.isMetaShape() && !shape.isGuideShape()
         ? this.lineageKeys.get(shape)
         : undefined,
-      // Meta shapes carry no topology vertices — except a lone vertex (a
-      // circle's centre mark, a point entity's guide), which IS its position:
-      // the vertex pick channel offers it as a sketch point.
-      vertices: shape.isMetaShape() && shape.getType() !== 'vertex' ? undefined : topologyVertices(shape),
-      faceVertices: shape.isMetaShape() || shape.isEdge() || shape.isWire() ? undefined : topologyFaceVertices(shape),
-      meshes: this.getOrBuildMeshes(shape, holder, scope, profiler),
+      meshKey: grouped
+        ? MeshKeys.of(grouped.pieces, { vertices: vertices !== undefined, faceVertices: faceVertices !== undefined, faceColors: grouped.faceColors })
+        : undefined,
+      vertices,
+      faceVertices,
+      // A shape the mesher could not mesh sends null meshes, as it always has.
+      meshes: grouped ? grouped.meshes : null,
       shapeType: shape.getType(),
       isMetaShape: shape.isMetaShape() || undefined,
       isGuide: shape.isGuideShape() || undefined,

@@ -1,9 +1,10 @@
 // A rendered shape's mesh key (generators S6b, P5) names its mesh payload —
-// meshes, vertices, faceVertices — exactly: the same key is always the same
-// payload, so a host that holds it need not be sent it again, and anything
-// that changes the payload (geometry, triangulation, face colours, the
-// topology arrays riding along) changes the key. A shape a compare kept, or
-// a generated template taken from the cache, keeps its key across renders.
+// meshes, vertices, faceVertices — by content: the same key is always the
+// same payload, so a host that holds it need not be sent it again, and
+// anything that changes the payload (geometry, triangulation, face colours,
+// the topology arrays riding along) changes the key. A shape a compare
+// kept, a generated template taken from the cache — and a shape rebuilt
+// into the very same mesh — keeps its key across renders.
 // render() never throws: every test checks the scene's errors.
 
 import { describe, it, expect } from "vitest";
@@ -12,6 +13,7 @@ import { getSceneManager } from "../../scene-manager.js";
 import { SceneRenderer } from "../../rendering/render.js";
 import { DEFAULT_MESH_CONFIG } from "../../oc/mesh.js";
 import { MeshKeys } from "../../rendering/mesh-keys.js";
+import { MeshPieces } from "../../rendering/mesh-pieces.js";
 import { Scene, type RenderedShape } from "../../rendering/scene.js";
 import { AssemblyScene } from "../../rendering/assembly-scene.js";
 import { AssemblyCompare } from "../../rendering/assembly-compare.js";
@@ -57,7 +59,7 @@ function payloadOf(shape: RenderedShape): unknown {
   return { meshes: shape.meshes, vertices: shape.vertices, faceVertices: shape.faceVertices };
 }
 
-/** The pieces part of a key — the triangulation it names. */
+/** The geometry part of a key — the triangulation and topology it names. */
 function piecesOf(key: string): string {
   return key.split("/")[0];
 }
@@ -91,7 +93,7 @@ describe("mesh keys", () => {
   it("gives every meshed shape a key naming its payload's form", () => {
     const { scene, built } = renderPart(null, () => paintedBox(30));
     const solid = solidOf(scene, built.body);
-    expect(solid.meshKey).toMatch(/^[0-9a-f]{8}-[0-9a-z]+\/vf$/);
+    expect(solid.meshKey).toMatch(/^[0-9a-z]{21}\/vf$/);
     // Every shape with meshes has one, and no two shapes of a render share a key.
     const keyed = shapesOf(scene).filter(shape => shape.meshes);
     expect(keyed.every(shape => typeof shape.meshKey === "string")).toBe(true);
@@ -169,13 +171,31 @@ describe("mesh keys", () => {
     }
   });
 
-  it("issues ids from one process tag, one per triangulation", () => {
-    const { scene } = renderPart(null, () => paintedBox(30));
-    const tags = new Set(shapesOf(scene).map(shape => shape.meshKey!.split("-")[0]));
-    expect(tags.size).toBe(1);
-    const pieces = { faces: [], meshes: [] };
-    expect(MeshKeys.piecesId(pieces)).toBe(MeshKeys.piecesId(pieces));
-    expect(MeshKeys.piecesId({ faces: [], meshes: [] })).not.toBe(MeshKeys.piecesId(pieces));
+  it("names content: a model rebuilt from scratch gets the keys it had, another model other keys", () => {
+    const first = renderPart(null, () => paintedBox(30));
+    // No compare: every shape is built again — a new wrapper, the same mesh.
+    const again = renderPart(null, () => paintedBox(30));
+    expect(again.scene.isCached(again.built.body)).toBe(false);
+    expect(shapesOf(again.scene).map(shape => shape.meshKey)).toEqual(shapesOf(first.scene).map(shape => shape.meshKey));
+    const other = renderPart(null, () => paintedBox(31));
+    expect(solidOf(other.scene, other.built.body).meshKey).not.toBe(solidOf(first.scene, first.built.body).meshKey);
+  });
+
+  it("tells apart payloads differing in one number, one flag, or where an array ends", () => {
+    const mesh = { label: "solid-edges", vertices: [0, 0, 0, 1, 0, 0], normals: [], indices: [0, 1], edgeIndex: 0 };
+    const keyOf = (meshes: any[], vertices?: number[]) => MeshKeys.of(MeshPieces.ofMeshes(meshes), { vertices, faceColors: null });
+    const base = keyOf([mesh], [0, 0, 0]);
+    expect(keyOf([{ ...mesh }], [0, 0, 0])).toBe(base);
+    expect(keyOf([{ ...mesh, vertices: [0, 0, 0, 1, 0, 1e-12] }], [0, 0, 0])).not.toBe(base);
+    expect(keyOf([{ ...mesh, vertices: [0, 0, 0, -1, 0, 0] }], [0, 0, 0])).not.toBe(base);
+    expect(keyOf([{ ...mesh, smooth: true }], [0, 0, 0])).not.toBe(base);
+    expect(keyOf([{ ...mesh, edgeIndex: 1 }], [0, 0, 0])).not.toBe(base);
+    expect(keyOf([{ ...mesh, color: "#ff0000" }], [0, 0, 0])).not.toBe(base);
+    expect(keyOf([mesh], [0, 0, 1])).not.toBe(base);
+    expect(keyOf([mesh])).toMatch(/\/-$/);
+    // One mesh of two vertices and one of one, versus the other way round.
+    const split = (a: number[], b: number[]) => keyOf([{ ...mesh, vertices: a }, { ...mesh, vertices: b }]);
+    expect(split([1, 2, 3, 4, 5, 6], [7, 8, 9])).not.toBe(split([1, 2, 3], [4, 5, 6, 7, 8, 9]));
   });
 });
 
@@ -258,11 +278,12 @@ describe("mesh keys across assembly renders", () => {
     return out;
   }
 
-  it("keeps a generated template's keys when the cache serves it again", () => {
+  /** Renders of the cabinet as a host runs them: each compared against the one before. */
+  function cabinetSession(): (values: Record<string, unknown>, detail?: "preview" | "full") => AssemblyScene {
     GeneratedTemplateCache.shared.clear();
     let previous: AssemblyScene | null = null;
-    const renderCabinet = (values: Record<string, unknown>): AssemblyScene => {
-      const scene = getSceneManager().startAssemblyScene();
+    return (values, detail = "full") => {
+      const scene = getSceneManager().startAssemblyScene({ detail });
       insert(cabinetDef(), values as never);
       if (previous) {
         getSceneManager().compare(previous, scene);
@@ -272,17 +293,57 @@ describe("mesh keys across assembly renders", () => {
       previous = scene;
       return scene;
     };
+  }
 
+  it("keeps a generated template's keys when the cache serves it again, and changes them with its geometry", () => {
+    const renderCabinet = cabinetSession();
     const a = templateKeys(renderCabinet({}));
     expect(Object.keys(a).sort()).toEqual(["carcass", "door", "drawer"]);
-    const walnut = templateKeys(renderCabinet({ finish: "walnut" }));
-    // The finish reaches the carcass and the doors; the drawers were kept.
-    expect(walnut.drawer).toEqual(a.drawer);
-    expect(walnut.carcass.some(key => a.carcass.includes(key))).toBe(false);
+    const wide = renderCabinet({ width: 800 });
+    expect(getSceneManager().getGeneratedReport(wide).misses).toBe(3);
+    const wideKeys = templateKeys(wide);
+    // Their solids are other meshes now (a connector's centre mark may stay where it was).
+    const solids = (keys: string[]) => keys.filter(key => key.endsWith("/vf"));
+    for (const type of ["carcass", "door", "drawer"]) {
+      expect(solids(wideKeys[type])).toHaveLength(1);
+      expect(solids(a[type])).not.toEqual(solids(wideKeys[type]));
+    }
 
-    // Back to A: the carcass and doors from the cache, under the keys they had.
+    // Back to A: every template from the cache, under the keys it had.
     const again = renderCabinet({});
-    expect(getSceneManager().getGeneratedReport(again).hits).toEqual({ kept: 1, cached: 2 });
+    expect(getSceneManager().getGeneratedReport(again).hits).toEqual({ kept: 0, cached: 3 });
     expect(templateKeys(again)).toEqual(a);
+  });
+
+  it("keeps the keys of a template rebuilt into the same mesh: another finish, another detail tier", () => {
+    const renderCabinet = cabinetSession();
+    const a = templateKeys(renderCabinet({}));
+    // The finish is the carcass's and the doors' appearance — not their mesh.
+    const walnut = renderCabinet({ finish: "walnut" });
+    expect(getSceneManager().getGeneratedReport(walnut).misses).toBe(2);
+    expect(templateKeys(walnut)).toEqual(a);
+    // The fixture builds the same boxes at either tier.
+    const preview = renderCabinet({ finish: "walnut" }, "preview");
+    expect(getSceneManager().getGeneratedReport(preview).misses).toBe(3);
+    expect(templateKeys(preview)).toEqual(a);
+  });
+
+  it("gives two parts of equal geometry one key", () => {
+    getSceneManager().startAssemblyScene();
+    const left = part("Left", () => {
+      sketch("xy", () => { testRect(20, 20); });
+      extrude(15);
+    });
+    const right = part("Right", () => {
+      sketch("xy", () => { testRect(20, 20); });
+      extrude(15);
+    });
+    insert(left);
+    insert(right);
+    const scene = render() as AssemblyScene;
+    expect(errorsOf(scene)).toEqual([]);
+    const solids = (name: string) => keysUnder(scene, topPart(scene, name)).filter(key => key.endsWith("/vf"));
+    expect(solids("Left")).toHaveLength(1);
+    expect(solids("Left")).toEqual(solids("Right"));
   });
 });

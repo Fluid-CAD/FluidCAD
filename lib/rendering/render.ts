@@ -630,7 +630,7 @@ export class SceneRenderer {
         ? this.lineageKeys.get(shape)
         : undefined,
       meshKey: grouped
-        ? MeshKeys.of(grouped.pieces, { vertices: vertices !== undefined, faceVertices: faceVertices !== undefined, faceColors: grouped.faceColors })
+        ? MeshKeys.of(grouped.pieces, { vertices, faceVertices, faceColors: grouped.faceColors })
         : undefined,
       vertices,
       faceVertices,

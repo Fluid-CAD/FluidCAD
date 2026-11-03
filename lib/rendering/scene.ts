@@ -30,11 +30,12 @@ export type RenderedShape = {
   lineageKey?: string;
   /**
    * Names this shape's mesh payload — `meshes`, `vertices`, `faceVertices`
-   * — exactly: the same key is always the same payload, and a change to any
-   * of it (geometry, triangulation, face colours, which topology arrays
-   * ride along) is another key. Stable across renders while the shape is
-   * kept (a compare's cached object, a generated template taken from the
-   * cache). A host that already holds a key's payload need not be sent it
+   * — by content: the same key is always the same payload, and a change to
+   * any of it (geometry, triangulation, face colours, which topology arrays
+   * ride along) is another key. Stable across renders while the payload is
+   * (a compare's cached object, a generated template taken from the cache,
+   * a shape rebuilt into the same mesh), and shared by shapes with equal
+   * payloads. A host that already holds a key's payload need not be sent it
    * again (see `MeshKeys`). Absent when the shape has no meshes.
    */
   meshKey?: string;

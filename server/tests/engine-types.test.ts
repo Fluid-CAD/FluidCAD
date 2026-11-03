@@ -44,7 +44,12 @@ describe('the OpenCascade binding\'s declarations', () => {
   it('stay out of the engine payload, which names the binding but doesn\'t carry it', () => {
     const { files, bytes } = readEngineTypes();
     expect(files.some(file => file.uri.includes('ocjs-fluidcad'))).toBe(false);
-    expect(bytes).toBeLessThan(1_500_000);
+    // No file carries the binding's classes under another name, and the
+    // payload stays smaller than the binding alone — what a payload that
+    // inlined it could not be. Relative, not a fixed cap: the engine's own
+    // declarations grow with every API it gains.
+    expect(files.some(file => file.content.includes('declare class BRepOffsetAPI_ThruSections'))).toBe(false);
+    expect(bytes).toBeLessThan(readOcctTypes()!.bytes);
     const occt = files.find(file => file.uri === 'file:///node_modules/fluidcad/lib/dist/sdk/occt.d.ts');
     expect(occt?.content).toContain('from "ocjs-fluidcad"');
   });

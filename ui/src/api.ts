@@ -6174,8 +6174,9 @@ export type CatalogGeneratedFields = {
  * insert takes (`params`, by id — the same declarations a custom feature's
  * metadata has), its dialog (`layout`, `width`, `aside`), its toolbar entry
  * (`label`, `icon`, `description`). Image paths resolve against the
- * definition's module (`icon`, and `layout` when `assetBase.layout` says
- * `definition`) or the class's (option pictures, asides, a borrowed layout).
+ * definition's module (`icon`, and `layout` and `aside` when `assetBase`
+ * says `definition` for them) or the class's (option pictures, the values'
+ * asides, a borrowed layout or aside).
  */
 export type GeneratedSchema = {
   kind: 'part' | 'assembly';
@@ -6191,7 +6192,8 @@ export type GeneratedSchema = {
   aside?: FeatureStaticItem[];
   /** The connectors every insert of a generated part carries; empty for an assembly. */
   connectors: string[];
-  assetBase: { layout: 'definition' | 'class' };
+  /** Which module `layout`'s images, and `aside`'s when there is one, resolve against (`aside` absent: the class's). */
+  assetBase: { layout: 'definition' | 'class'; aside?: 'definition' | 'class' };
 };
 
 /** Each image a generated schema declares, by the module it resolves against: the path as declared → its URL. */

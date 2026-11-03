@@ -159,6 +159,38 @@ describe('GeneratedDialog create', () => {
     expect(role('exit').textContent).toBe('Cancel');
   });
 
+  it('opens as wide as its metadata says, with its aside beside the rows, each image served from the module that declares it', () => {
+    const base = entry();
+    const dressed = entry({
+      schema: {
+        ...base.schema,
+        width: 'wide',
+        aside: [{ image: '../features/img/crate-size.svg', alt: 'Width, depth and height', height: 200 }, { note: 'Outside dimensions.' }],
+        assetBase: { layout: 'definition', aside: 'definition' },
+      },
+      assetUrls: {
+        definition: { '../features/icons/crate.svg': 'api/part-catalog/asset?icon', '../features/img/crate-size.svg': 'api/part-catalog/asset?size' },
+        class: {},
+      },
+    });
+    dialog.openCreate(new GeneratedDefinition(dressed), FILE);
+    const box = panelEl()!.querySelector<HTMLElement>('[data-role="box"]')!;
+    expect(box.classList.contains('sm:w-68')).toBe(true);
+    expect(box.classList.contains('sm:w-60')).toBe(false);
+    const card = panelEl()!.querySelector<HTMLElement>('[data-role="side-card"]')!;
+    const image = card.querySelector<HTMLImageElement>('[data-role="image"]')!;
+    expect(image.getAttribute('src')).toBe('api/part-catalog/asset?size');
+    expect(image.alt).toBe('Width, depth and height');
+    expect(card.querySelector('[data-role="note"]')!.textContent).toBe('Outside dimensions.');
+    dialog.cancel();
+
+    // A definition that says neither opens at the default width, with no card.
+    dialog.openCreate(new GeneratedDefinition(entry({ exportName: 'plain' })), FILE);
+    const plain = document.getElementById('fluidcad-generated-dialog')!;
+    expect(plain.querySelector('[data-role="box"]')!.classList.contains('sm:w-60')).toBe(true);
+    expect(plain.querySelector('[data-role="side-card"]')).toBeNull();
+  });
+
   it('previews the values the user sets, by id — a number row\'s expression as source text', async () => {
     dialog.openCreate(new GeneratedDefinition(entry()), FILE);
     await answerAll();

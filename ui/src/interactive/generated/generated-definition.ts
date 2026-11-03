@@ -17,8 +17,9 @@ const NUMBER_TYPES = new Set(['number', 'integer', 'length', 'angle']);
  * draws no ghost; the preview is the real result, G4).
  *
  * Its images resolve against two modules (the catalog's `assetUrls`): its
- * icon and its own layout's pictures against the definition's, the values'
- * option pictures, the asides and a borrowed layout against the class's. A
+ * icon and its own layout's and aside's pictures against the definition's,
+ * the values' option pictures and asides, and a borrowed layout or aside
+ * against the class's. A
  * path the dialog asks for is looked up under the class's module first, then
  * the definition's: one path string both modules declare (each for a file
  * of its own) reads as the class's.

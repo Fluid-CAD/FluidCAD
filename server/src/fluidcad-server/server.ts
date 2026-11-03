@@ -825,6 +825,9 @@ export class FluidCadServer {
         }
         compared = true;
 
+        // The compare freed what the replaced scene held that this one
+        // doesn't take over — part and assembly scenes alike, previews too —
+        // so dropping it here is all that is left to do.
         this.previousScenes.set(sessionId, scene);
         if (preview) {
           this.previewScenes.set(scene, preview.token);

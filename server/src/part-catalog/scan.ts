@@ -166,6 +166,13 @@ export type ScanSceneManager = {
   renderScene(scene: any): any;
   setCurrentFile(filePath: string): void;
   disposeScene?(scene: any): void;
+  /**
+   * Free several scenes in one pass — optional: an engine predating it frees
+   * them scene by scene. One pass deletes a kernel handle two scenes'
+   * wrappers share once; scene by scene, the second scene's delete fails and
+   * leaves the rest of that scene unfreed.
+   */
+  disposeScenes?(scenes: any[]): void;
   /** The files read since the current scene started that no import shows — optional: may predate the record. */
   getRenderInputs?(): string[];
   startAssemblyScene?(): any;
@@ -232,9 +239,11 @@ export async function scanFileForParts(
   const liveRegistry = getParamRegistry();
   const liveScene = manager.currentScene ?? null;
   const liveFile = manager.currentFile ?? '';
-  // Scenes are disposed together at the end: factories may share module-level
-  // state (a reusable sketch, a cached solid), so freeing an earlier export's
-  // OC shapes while a later export still evaluates could read freed memory.
+  // Scenes are disposed together at the end, in one pass: factories may share
+  // module-level state (a reusable sketch, a cached solid), so freeing an
+  // earlier export's OC shapes while a later export still evaluates could
+  // read freed memory, and two scenes may hold wrappers over one kernel
+  // handle (a copy of a module-level solid), which must be deleted once.
   const scannedScenes: any[] = [];
 
   try {
@@ -428,11 +437,20 @@ export async function scanFileForParts(
     }
     return result;
   } finally {
-    for (const scene of scannedScenes) {
+    // Disposal is best-effort; a failure must not mask the scan result.
+    if (typeof sceneManager.disposeScenes === 'function') {
       try {
-        sceneManager.disposeScene?.(scene);
+        sceneManager.disposeScenes(scannedScenes);
       } catch {
-        // Disposal is best-effort; a failure must not mask the scan result.
+        // Nothing more to free.
+      }
+    } else {
+      for (const scene of scannedScenes) {
+        try {
+          sceneManager.disposeScene?.(scene);
+        } catch {
+          // The next scene is still freed.
+        }
       }
     }
     setParamRegistry(liveRegistry);

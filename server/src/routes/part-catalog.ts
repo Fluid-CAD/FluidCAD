@@ -5,7 +5,7 @@ import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 import { CatalogInsertRequest } from '../part-catalog/insert-request.ts';
-import { GeneratedAssets, GeneratedCatalog } from '../part-catalog/generated.ts';
+import { GeneratedAssets, GeneratedCatalog, GeneratedListing } from '../part-catalog/generated.ts';
 import { listCandidateFiles, PackagePartFiles } from '../part-catalog/walk.ts';
 import { PartScanCache } from '../part-catalog/cache.ts';
 import type { PartScanResult } from '../part-catalog/scan.ts';
@@ -32,7 +32,10 @@ import { PackageRoots, type PackageLocation } from '../packages/package-roots.ts
  * served by `GET /part-catalog/asset`, confined to the package or workspace
  * that owns the module each resolves against ({@link GeneratedAssets}).
  * Inserting one writes its values by id through the same planner
- * ({@link CatalogInsertRequest}) every insert uses.
+ * ({@link CatalogInsertRequest}) every insert uses. `GET
+ * /part-catalog/generated` lists every generated definition the project can
+ * insert in one answer ({@link GeneratedListing}), scanning only the files
+ * that can define one — the assembly toolbar's Custom dropdown.
  */
 export function createPartCatalogRouter(
   fluidCadServer: FluidCadServer,
@@ -93,6 +96,36 @@ export function createPartCatalogRouter(
         ...PackagePartFiles.list(workspacePath),
       ];
       res.json({ workspacePath, files });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
+    }
+  });
+
+  // Every generated definition the project can insert: `{ entries: [{ file,
+  // path, exportName, kind, schema, assetUrls, unit, package? }] }`. Only the
+  // files that call definePart( / defineAssembly( (and the packages' modules
+  // whose manifests list one) are scanned, each through the scan cache.
+  router.get('/part-catalog/generated', async (_req, res) => {
+    if (!workspacePath) {
+      res.status(404).json({ error: 'No workspace path configured' });
+      return;
+    }
+    try {
+      const files = [
+        ...await listCandidateFiles(workspacePath, p => fluidCadServer.getLiveBuffer(p), projectUnit(), { generatedOnly: true }),
+        ...PackagePartFiles.list(workspacePath, { generatedOnly: true }),
+      ];
+      let engineDown = false;
+      const entries = await GeneratedListing.collect(files, async (file) => {
+        const result = await scanned(file.absPath, packageOf(file.absPath));
+        engineDown ||= result === null;
+        return result;
+      });
+      if (engineDown && entries.length === 0 && files.length > 0) {
+        res.status(503).json({ error: 'Engine not initialized yet' });
+        return;
+      }
+      res.json({ entries });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }

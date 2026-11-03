@@ -181,3 +181,95 @@ export class GeneratedAssets {
     return `its package or workspace (${basename(root)})`;
   }
 }
+
+/** One file the generated listing reads: where it is, how the page names it, its unit and its package. */
+export type GeneratedListingFile = {
+  absPath: string;
+  /** Workspace-relative, or `@scope/name/<module>` for a package's file. */
+  path: string;
+  unit: string;
+  package?: { name: string; version: string; availability: 'dependency' | 'library' };
+};
+
+/** The scan fields the listing reads of one entry (`ScannedPart` / `ScannedSubAssembly`). */
+type ListedScanEntry = { exportName: string } & Partial<ScannedGeneratedFields>;
+
+/**
+ * One generated definition as the assembly toolbar's Custom dropdown lists
+ * it (`GET /api/part-catalog/generated`): its file and export (what an
+ * insert names), its kind, its schema and image URLs, the file's unit and
+ * the package it comes from.
+ */
+export type GeneratedListingEntry = {
+  file: string;
+  path: string;
+  exportName: string;
+  kind: 'part' | 'assembly';
+  schema: GeneratedSchema;
+  assetUrls: GeneratedAssetUrls;
+  unit: string;
+  package?: GeneratedListingFile['package'];
+};
+
+/**
+ * Every generated definition the project can insert, read off the part
+ * catalog's scans (generated definitions are listed from their schemas,
+ * never built: {@link GeneratedCatalog}).
+ *
+ * The rules:
+ * - The files are the workspace's that call `definePart(` or
+ *   `defineAssembly(`, then the packages' modules whose manifests list a
+ *   generated definition — the project's pins, then the library's offers.
+ * - A file that fails to scan is left out (its problems are the Insert
+ *   dialog's to report), so one broken module never empties the dropdown.
+ * - A library offer whose definition id the project already lists (its own
+ *   module, a pinned package) is left out, as the feature catalog leaves
+ *   out a library feature the project has: it is only an offer.
+ * - Workspace files first, in path order, then the packages' in the order
+ *   given; each file's parts before its assemblies, in export order.
+ */
+export class GeneratedListing {
+  static async collect(
+    files: readonly GeneratedListingFile[],
+    scan: (file: GeneratedListingFile) => Promise<{ parts: ListedScanEntry[]; assemblies: ListedScanEntry[] } | null>,
+  ): Promise<GeneratedListingEntry[]> {
+    const listed: GeneratedListingEntry[] = [];
+    for (const file of files) {
+      let result: Awaited<ReturnType<typeof scan>>;
+      try {
+        result = await scan(file);
+      } catch {
+        continue;
+      }
+      if (result === null) {
+        continue;
+      }
+      for (const [kind, entries] of [['part', result.parts], ['assembly', result.assemblies]] as const) {
+        for (const entry of entries) {
+          const listing = GeneratedListing.entryOf(file, kind, entry);
+          if (listing !== null) {
+            listed.push(listing);
+          }
+        }
+      }
+    }
+    const owned = new Set(listed.filter(entry => entry.package?.availability !== 'library').map(entry => entry.schema.id));
+    return listed.filter(entry => entry.package?.availability !== 'library' || !owned.has(entry.schema.id));
+  }
+
+  private static entryOf(file: GeneratedListingFile, kind: 'part' | 'assembly', entry: ListedScanEntry): GeneratedListingEntry | null {
+    if (entry.definitionKind !== 'generated' || !entry.schema || !entry.assetUrls) {
+      return null;
+    }
+    return {
+      file: file.absPath,
+      path: file.path,
+      exportName: entry.exportName,
+      kind,
+      schema: entry.schema,
+      assetUrls: entry.assetUrls,
+      unit: file.unit,
+      ...(file.package ? { package: file.package } : {}),
+    };
+  }
+}

@@ -12,6 +12,9 @@ const PART_CALL = /\b(?:part|definePart)\s*\(/;
 /** Matches any export declaration — the prefilter for `.assembly.js` files. */
 const EXPORT_DECL = /\bexport\b/;
 
+/** Matches a `definePart(` or `defineAssembly(` call — the prefilter for files that may define generated parts or assemblies. */
+const GENERATED_CALL = /\b(?:definePart|defineAssembly)\s*\(/;
+
 export type CatalogFileEntry = {
   /** Workspace-relative path, for display; a package's file reads `@scope/name/<module>`. */
   path: string;
@@ -41,12 +44,15 @@ export type CatalogFileEntry = {
  * `index.assembly.js` exports nothing and is skipped). The prefilter
  * keeps the Insert dialog from evaluating files that cannot qualify;
  * `readContent` lets the caller serve live editor buffers so an unsaved
- * edit still counts.
+ * edit still counts. `generatedOnly` narrows the list to the files that
+ * call `definePart(` or `defineAssembly(` — the only ones that can define
+ * a generated part or assembly (the assembly toolbar's Custom dropdown).
  */
 export async function listCandidateFiles(
   workspacePath: string,
   readContent?: (absPath: string) => string | null,
   projectUnit: LengthUnit = 'mm',
+  options: { generatedOnly?: boolean } = {},
 ): Promise<CatalogFileEntry[]> {
   const relFiles = await WorkspaceFiles.collect(workspacePath);
   const out: CatalogFileEntry[] = [];
@@ -69,7 +75,7 @@ export async function listCandidateFiles(
     const qualifies = rel.endsWith('.assembly.js')
       ? EXPORT_DECL.test(content)
       : PART_CALL.test(content);
-    if (qualifies) {
+    if (qualifies && (!options.generatedOnly || GENERATED_CALL.test(content))) {
       const unit = (await readDeclaredUnit(content)) ?? projectUnit;
       out.push({ path: rel, absPath, unit });
     }
@@ -88,13 +94,21 @@ export async function listCandidateFiles(
  * out: its parts would not render.
  */
 export class PackagePartFiles {
-  static list(workspacePath: string): CatalogFileEntry[] {
+  /**
+   * `generatedOnly` keeps the modules whose manifest entries include a
+   * generated definition (`definitionKind: 'generated'`) — what the
+   * assembly toolbar's Custom dropdown lists.
+   */
+  static list(workspacePath: string, options: { generatedOnly?: boolean } = {}): CatalogFileEntry[] {
     const out: CatalogFileEntry[] = [];
     for (const offer of PackageOffers.of(workspacePath || null)) {
       if (offer.problem !== undefined) {
         continue;
       }
-      const modules = [...new Set(offer.manifest.parts.map((entry) => entry.module))];
+      const entries = options.generatedOnly
+        ? offer.manifest.parts.filter((entry) => entry.definitionKind === 'generated')
+        : offer.manifest.parts;
+      const modules = [...new Set(entries.map((entry) => entry.module))];
       for (const module of modules) {
         out.push({
           path: `${offer.name}/${module}`,

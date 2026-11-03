@@ -216,6 +216,94 @@ describe('GET /part-catalog/asset', () => {
   });
 });
 
+describe('GET /part-catalog/generated', () => {
+  async function listing(): Promise<{ status: number; body: any }> {
+    const res = await fetch(`${base}/api/part-catalog/generated`);
+    return { status: res.status, body: await res.json() };
+  }
+
+  /** A generated sub-assembly's scan entry, like {@link generatedPart}'s. */
+  function generatedAssembly(file: string, exportName: string, id: string) {
+    const schema = {
+      kind: 'assembly' as const, definitionKind: 'generated' as const, id, label: 'Crate',
+      params: { width: { type: 'length', default: 40, label: 'Width' } }, layout: ['width'], connectors: [],
+      assetBase: { layout: 'definition' as const },
+    };
+    return {
+      ...GeneratedCatalog.fieldsOf({
+        getType: () => 'assembly', generated: { kind: 'assembly', id }, getSchema: () => schema,
+        assetModules: () => ({ definition: file, class: file }),
+      }, file, exportName),
+      exportName, kind: 'assembly' as const, exportKind: 'value' as const, assemblyName: 'Crate',
+      instances: [], mates: [], connectors: [], objects: [], params: [], configurations: [], assets: [],
+    };
+  }
+
+  it('lists the generated definitions of the files that call definePart( or defineAssembly(, scanning nothing else', async () => {
+    project.write('parts/gear.part.js', `import { definePart } from 'fluidcad/sdk';\nexport const gearPart = definePart(Gear, { label: 'Gear' });\n`);
+    project.write('parts/plain.part.js', `import { part } from 'fluidcad/core';\nexport const plate = part('Plate', () => {});\n`);
+    project.write('assemblies/crate.assembly.js', `import { defineAssembly } from 'fluidcad/sdk';\nexport const crate = defineAssembly(Crate, { label: 'Crate' });\n`);
+    const gear = project.at('parts/gear.part.js');
+    const crate = project.at('assemblies/crate.assembly.js');
+    results.set(gear, scanOf(gear, [generatedPart(gear, 'gearPart', { definition: gear, class: gear }, { icon: './gear.svg' })]));
+    const crateScan = scanOf(crate, []);
+    crateScan.assemblies = [generatedAssembly(crate, 'crate', 'crate') as any];
+    results.set(crate, crateScan);
+
+    const answer = await listing();
+    expect(answer.status).toBe(200);
+    expect(scans.sort()).toEqual([crate, gear].sort());
+    expect(answer.body.entries.map((entry: any) => [entry.kind, entry.exportName, entry.schema.id, entry.path])).toEqual([
+      ['assembly', 'crate', 'crate', 'assemblies/crate.assembly.js'],
+      ['part', 'gearPart', 'gear', 'parts/gear.part.js'],
+    ]);
+    const part = answer.body.entries[1];
+    expect(part.file).toBe(gear);
+    expect(part.unit).toBe('mm');
+    expect(part.assetUrls.definition['./gear.svg']).toBe(GeneratedCatalog.assetUrl(gear, 'gearPart', 'definition', './gear.svg'));
+    expect(part.package).toBeUndefined();
+
+    // A second listing answers from the scan cache.
+    await listing();
+    expect(scans).toHaveLength(2);
+  });
+
+  it('lists a library package\'s generated definitions, leaving out one whose id the project already has', async () => {
+    project.write('parts/gear.part.js', `export const gearPart = definePart(Gear, { label: 'Gear' });\n`);
+    const gear = project.at('parts/gear.part.js');
+    results.set(gear, scanOf(gear, [generatedPart(gear, 'gearPart', { definition: gear, class: gear }, {})]));
+    const { dir } = await project.install('@acme/kit', '0.1.0', {
+      edit: (at) => {
+        const manifest = JSON.parse(fs.readFileSync(path.join(at, 'manifest.json'), 'utf8'));
+        const schema = (id: string) => ({ kind: 'part', definitionKind: 'generated', id, label: id, params: {}, layout: [], connectors: [], assetBase: { layout: 'definition' } });
+        for (const [exportName, id] of [['kitGear', 'gear'], ['kitRack', 'rack']]) {
+          manifest.parts.push({
+            exportName, module: 'parts/racks.part.js', name: id, kind: 'part', exportKind: 'value', params: [],
+            definitionKind: 'generated', schema: schema(id), assetModules: { definition: null, class: null }, images: [],
+          });
+        }
+        fs.writeFileSync(path.join(at, 'manifest.json'), JSON.stringify(manifest, null, 2));
+      },
+    });
+    const pkgFile = `${dir}/parts/racks.part.js`;
+    const kitPart = (exportName: string, id: string) => ({
+      ...generatedPart(pkgFile, exportName, { definition: pkgFile, class: pkgFile }, {}),
+      schema: { ...generatedPart(pkgFile, exportName, { definition: pkgFile, class: pkgFile }, {}).schema, id },
+    });
+    results.set(pkgFile, scanOf(pkgFile, [kitPart('kitGear', 'gear'), kitPart('kitRack', 'rack')]));
+
+    const answer = await listing();
+    expect(answer.status).toBe(200);
+    // The package's plain part module (spacer) holds no generated definition: never scanned.
+    expect(scans.sort()).toEqual([gear, pkgFile].sort());
+    expect(answer.body.entries.map((entry: any) => [entry.exportName, entry.schema.id, entry.package?.availability ?? null])).toEqual([
+      ['gearPart', 'gear', null],
+      ['kitRack', 'rack', 'library'],
+    ]);
+    expect(answer.body.entries[1]).toMatchObject({ path: '@acme/kit/parts/racks.part.js', package: { name: '@acme/kit', version: '0.1.0' } });
+  });
+});
+
 describe('the writers, values by id', () => {
   it('inserts a generated definition with its values by id: the import, the statement and its name', async () => {
     currentCode = `import { insert } from 'fluidcad/core';\n`;

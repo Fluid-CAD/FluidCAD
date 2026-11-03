@@ -18,8 +18,15 @@ export type ShapeKeeper = {
  * Reclaims the OC (WASM) memory of scene objects the rendering pipeline
  * discards.
  *
+ * Every compare frees the scene it replaces — SceneCompare a part scene's,
+ * AssemblyCompare an assembly scene's — so a host only drops the old scene
+ * after a compare; a scene dropped without one (a forced rebuild, a session
+ * closed, a scratch render) goes through {@link disposeScene}. Each wrapper
+ * is released once: `release` is idempotent per wrapper.
+ *
  * SceneCompare moves the matched prefix's state maps into the new scene by
- * reference, so the old and new scene share those Shape wrappers. Anything
+ * reference (AssemblyCompare clones them, sharing the wrappers), so the old
+ * and new scene share those Shape wrappers. Anything
  * reachable only from the old scene is garbage: the walker collects the
  * wrappers reachable from each side and releases the difference. Raw-handle
  * sets guard wrappers that share one underlying TopoDS handle (`Solid.copy`
@@ -53,15 +60,22 @@ export class SceneDisposal {
    * collected before compare rewrites the transferred state maps — the
    * records pruned by that rewrite are exactly the resources that need
    * freeing here.
+   *
+   * `handedOver` names old objects another owner took from the old scene —
+   * the generated-template cache, which an assembly compare retires its
+   * unpaired templates to. They are not destroyed here (their owner destroys
+   * them when it lets go of them, once), and their shapes must be left out of
+   * `oldSceneShapes`: the owner releases those.
    */
   static disposeReplaced(
     oldScene: Scene,
     newScene: Scene,
     matched: Map<SceneObject, SceneObject>,
     oldSceneShapes: Set<Shape>,
+    handedOver?: ReadonlySet<SceneObject>,
   ): void {
     for (const obj of oldScene.getAllSceneObjects()) {
-      if (!matched.has(obj)) {
+      if (!matched.has(obj) && !handedOver?.has(obj)) {
         obj.destroy();
       }
     }

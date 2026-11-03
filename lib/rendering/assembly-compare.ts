@@ -5,6 +5,7 @@ import { Part } from "../features/part.js";
 import { canonicalVariantKey, toOverrideMap } from "../features/param-overrides.js";
 import type { RenderChangeTracker } from "./render-changes.js";
 import { SceneCompare, type SceneCompareOptions } from "./scene-compare.js";
+import { SceneDisposal } from "./scene-disposal.js";
 import { GeneratedTemplateCache } from "./generated-template-cache.js";
 
 type Pair = { newObj: SceneObject; oldObj: SceneObject };
@@ -22,8 +23,26 @@ export class AssemblyCompare {
    * with the old scene: its objects hand their build over and keep none, so
    * a later render that declares it again — a value dragged back, an undo —
    * finds it built.
+   *
+   * **The compare frees what it replaced**, as SceneCompare does for a part
+   * scene, so a host drops the old scene once this returns (and frees a scene
+   * it drops without a compare itself — `SceneDisposal.disposeScene`):
+   * - every old object the new scene doesn't take over is destroyed — a part
+   *   that rebuilt (a changed insert value, a changed part file, an unpaired
+   *   variant, a sub-assembly's part) and everything under it — except the
+   *   generated templates the cache took, which the cache destroys when it
+   *   lets go of them;
+   * - every old shape wrapper the new scene doesn't reach is released. The
+   *   paired parts' state is cloned onto the new objects with the same
+   *   wrappers, so what they carry over survives; the cache's templates are
+   *   left out (the cache releases them, and no pass releases what it holds).
+   * A failure freeing is logged and never fails the render.
    */
   static compare(oldScene: AssemblyScene, newScene: AssemblyScene, changes?: RenderChangeTracker, options?: SceneCompareOptions): AssemblyScene {
+    if (oldScene === newScene) {
+      return newScene;
+    }
+
     const map = new Map<SceneObject, SceneObject>();
     const cache = GeneratedTemplateCache.shared;
     if (options?.rebuild) {
@@ -97,6 +116,19 @@ export class AssemblyCompare {
       changes.captureBefore(oldScene, map);
     }
 
+    // The old templates the new scene doesn't take over: the cache's from the
+    // retire below, with every object under them.
+    const leaving = oldTopParts.filter(part => part.generatedBy && !map.has(part));
+    const handedOver = AssemblyCompare.subtreesOf(leaving);
+
+    // What the old scene holds, less what the cache is about to take —
+    // snapshot before the state transfer, as SceneCompare's: the transfer is
+    // where records naming a rebuilt actor drop out of the carried state, and
+    // the shapes only they held are the old scene's to free.
+    const oldSceneShapes = SceneDisposal.collectShapes(
+      oldScene.getAllSceneObjects().filter(obj => !handedOver.has(obj)),
+    );
+
     // State is cloned per new SceneObject; aliasing the old Map propagates
     // mutations (e.g. `clean()` pushing into removedShapes) across the
     // transitive sharing chains that build up over sequential renders.
@@ -134,9 +166,27 @@ export class AssemblyCompare {
         wanted.add(key);
       }
     }
-    cache.retire(oldTopParts.filter(part => part.generatedBy && !map.has(part)), { rebuild: options?.rebuild, keep: wanted });
+    cache.retire(leaving, { rebuild: options?.rebuild, keep: wanted });
+
+    try {
+      SceneDisposal.disposeReplaced(oldScene, newScene, map, oldSceneShapes, handedOver);
+    } catch (error) {
+      console.error('Scene disposal after compare failed:', error);
+    }
 
     return newScene;
+  }
+
+  /** The parts and every object under them. */
+  private static subtreesOf(parts: readonly SceneObject[]): Set<SceneObject> {
+    const out = new Set<SceneObject>();
+    const pending = [...parts];
+    while (pending.length > 0) {
+      const obj = pending.pop()!;
+      out.add(obj);
+      pending.push(...obj.getChildren());
+    }
+    return out;
   }
 }
 

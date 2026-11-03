@@ -13,6 +13,9 @@ import connector from "../core/connector.js";
 import select from "../core/select.js";
 import { face } from "../filters/index.js";
 import { testRect } from "./helpers/profiles.js";
+import { getSceneManager } from "../scene-manager.js";
+import { SceneDisposal } from "../rendering/scene-disposal.js";
+import type { Scene } from "../rendering/scene.js";
 
 interface RenderedMesh { vertices: number[] }
 interface RenderedShape { meshes: RenderedMesh[] }
@@ -223,6 +226,52 @@ describe("BrowserEngineHost", () => {
     expect(partOutcome.sceneKind).toBe("part");
     expect(partOutcome.assembly).toBeUndefined();
     host.dispose();
+  });
+
+  // The host drops the scene a render replaced right after the compare: the
+  // compare must have freed it (plans/assembly-scene-leak.md) — what the new
+  // scene doesn't carry over is released, and dispose() frees the rest once.
+  it("keeps no replaced assembly scene's shapes alive across re-renders of an edited insert", async () => {
+    host.unloadModel();
+    host.setWorkspace({ "rack.assembly.js": "unused" }, "rack.assembly.js");
+    // Each render evaluates the module as the code now stands: the first
+    // insert's length is what the last edit typed.
+    let length = 40;
+    host.setModuleEvaluator(async () => {
+      const beam = part("Beam", () => {
+        const l = param("L", 10) as number;
+        sketch("xy", () => { testRect(l, 10); });
+        extrude(5);
+      });
+      insert(beam, { L: length }).grounded();
+      insert(beam, { L: 25 });
+      return {};
+    });
+    const scenes: Scene[] = [];
+    const stop = getSceneManager().onSceneStarted((scene) => { scenes.push(scene); });
+    try {
+      const first = await host.render();
+      expect(first.objectErrors).toEqual([]);
+      for (const edited of [60, 40, 60]) {
+        length = edited;
+        const outcome = await host.render();
+        expect(outcome.compileError).toBeNull();
+        expect(outcome.objectErrors).toEqual([]);
+        expect(maxAbsX(outcome.result)).toBeCloseTo(edited, 1);
+      }
+    } finally {
+      stop();
+    }
+    expect(scenes).toHaveLength(4);
+    const live = SceneDisposal.collectShapes(scenes[3].getAllSceneObjects());
+    expect([...live].some(shape => shape.isReleased())).toBe(false);
+    const replaced = SceneDisposal.collectShapes(scenes.slice(0, 3).flatMap(scene => scene.getAllSceneObjects()));
+    expect([...replaced].filter(shape => !shape.isReleased() && !live.has(shape))).toEqual([]);
+    // The kept 25 beam's wrappers are the first render's, alive in the scene on screen.
+    expect([...replaced].some(shape => live.has(shape))).toBe(true);
+
+    host.dispose();
+    expect([...live, ...replaced].every(shape => shape.isReleased())).toBe(true);
   });
 
   it("generates shim modules that re-export live namespaces", () => {

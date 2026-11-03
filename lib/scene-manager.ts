@@ -183,10 +183,11 @@ class SceneManager {
 
   /**
    * Hear every scene startScene()/startAssemblyScene() creates. Starting a
-   * scene replaces the current one without disposing it — the host frees a
-   * replaced scene itself after the compare — so whoever else starts scenes
-   * (the test suite, per test) tracks them here to release them. Returns
-   * the unsubscribe.
+   * scene replaces the current one without disposing it — a host's compare
+   * frees what a replaced scene held ({@link compare}), and a scene dropped
+   * without one goes through {@link disposeScene} — so whoever else starts
+   * scenes (the test suite, per test) tracks them here to release them.
+   * Returns the unsubscribe.
    */
   onSceneStarted(listener: (scene: Scene) => void): () => void {
     this.sceneStartedListeners.add(listener);
@@ -279,6 +280,14 @@ class SceneManager {
   }
 
   /**
+   * Carry `previous`'s builds over to `current` where they still hold, and
+   * free the rest: every object of `previous` that `current` doesn't take
+   * over is destroyed and every shape only `previous` reached is released —
+   * a part scene's (SceneCompare) and an assembly scene's (AssemblyCompare,
+   * which hands its unpaired generated templates to the template cache
+   * instead). A host drops `previous` once this returns, and never compares
+   * it again.
+   *
    * `changes` asks the compare to record what it replaces, for a change
    * summary after the render (see RenderChangeTracker). Only a render the
    * MCP flagged passes one; without it the compare is exactly the host's.

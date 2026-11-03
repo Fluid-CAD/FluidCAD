@@ -76,6 +76,15 @@ const SHAPE_SYMBOLS = new Set<string>([
   'rect',
 ]);
 
+/**
+ * The SDK's generated definitions (fluidcad/sdk) a model file uses: a
+ * `definePart` export in a part file, a `defineAssembly` export (and the
+ * `Generator` class it takes) in an assembly file. They declare no
+ * geometry of their own — no unit-order rule reads them — but a missing
+ * import fails the module as surely as a core symbol's.
+ */
+const SDK_SYMBOLS = new Set<string>(['definePart', 'defineAssembly', 'Generator']);
+
 const MODULE_FOR_SYMBOL = new Map<string, string>();
 for (const s of CORE_SYMBOLS) {
   MODULE_FOR_SYMBOL.set(s, 'fluidcad/core');
@@ -91,6 +100,9 @@ for (const s of SHAPE_SYMBOLS) {
 }
 for (const s of UNIT_HELPER_SYMBOLS) {
   MODULE_FOR_SYMBOL.set(s, 'fluidcad/units');
+}
+for (const s of SDK_SYMBOLS) {
+  MODULE_FOR_SYMBOL.set(s, 'fluidcad/sdk');
 }
 
 /**

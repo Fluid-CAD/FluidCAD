@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { FeatureMetaSnapshot } from '../../../lib/dist/index.js';
+import type { FeatureMetaSnapshot, GeneratedSchema } from '../../../lib/dist/index.js';
 import type { CatalogParamDef } from '../part-catalog/scan.ts';
 import type { LengthUnit } from '../project-config.ts';
 import { PackageName } from './package-name.ts';
@@ -47,6 +47,30 @@ export type PackageManifestPart = {
    * offers them as the model's configurations in its viewer.
    */
   configurations?: PackageManifestConfiguration[];
+  /**
+   * `'generated'` for a generated definition — a `definePart` in `parts/`
+   * (`kind: 'part'`), a `defineAssembly` in `assemblies/` (`kind:
+   * 'assembly'`) — whose interface is {@link schema}, not `params`; absent
+   * for a `part()` or `assembly()` definition. The three fields below come
+   * with it.
+   */
+  definitionKind?: 'generated';
+  /**
+   * A generated definition's schema snapshot (lib `GeneratedSchema`): its
+   * values by id, its dialog, its label, icon and description, its
+   * connectors. Image paths in it are as the author wrote them, relative to
+   * one of {@link assetModules}; {@link images} has them resolved.
+   */
+  schema?: GeneratedSchema;
+  /**
+   * The modules the schema's images resolve against, package-relative (lib
+   * `GeneratedAssetModules`): `definition`, the module that calls
+   * `definePart()` / `defineAssembly()`, and `class`, the one that declares
+   * the class's values; null for a base its schema has no image under.
+   */
+  assetModules?: { definition: string | null; class: string | null };
+  /** Every image the schema declares, resolved, package-relative and sorted: each a file of the archive. */
+  images?: string[];
 };
 
 /**
@@ -91,6 +115,58 @@ export type PackageManifest = {
   files: string[];
 };
 
+/**
+ * The shape a manifest's generated entry must have
+ * ({@link PackageManifestPart.definitionKind}): what the installer refuses
+ * an archive for, and what the manifest reader drops. The engine reads the
+ * schema off the evaluated module at use; the manifest's copy is for
+ * readers that never evaluate (the catalogs, the hub), so it must hold
+ * together.
+ *
+ * The rules: `definitionKind` is `'generated'` or absent; a generated entry
+ * has a `schema` object whose `definitionKind` is `'generated'`, whose
+ * `kind` is the entry's own, with a string `id` and `label`, a `params`
+ * object and a `layout` list; `assetModules` names package paths (or
+ * null); and `images` lists package paths, each one of the archive's
+ * `files` when the files are known.
+ */
+export class GeneratedManifestEntry {
+  /** Why `part` is a malformed generated entry, as a sentence naming it; null when it is well formed, or no generated entry. */
+  static problemOf(part: Record<string, any>, files?: readonly string[]): string | null {
+    if (part.definitionKind === undefined) {
+      return null;
+    }
+    const name = typeof part.exportName === 'string' ? `'${part.exportName}'` : 'a part';
+    if (part.definitionKind !== 'generated') {
+      return `${name}'s definitionKind ${JSON.stringify(part.definitionKind)} isn't one FluidCAD knows`;
+    }
+    const schema = part.schema;
+    if (!GeneratedManifestEntry.isObject(schema) || schema.definitionKind !== 'generated' || schema.kind !== part.kind
+      || typeof schema.id !== 'string' || typeof schema.label !== 'string'
+      || !GeneratedManifestEntry.isObject(schema.params) || !Array.isArray(schema.layout)) {
+      return `${name} is a generated ${part.kind ?? 'definition'} without a well-formed schema`;
+    }
+    const modules = part.assetModules;
+    if (modules !== undefined && (!GeneratedManifestEntry.isObject(modules)
+      || !['definition', 'class'].every((base) => modules[base] === null || modules[base] === undefined || typeof modules[base] === 'string'))) {
+      return `${name}'s assetModules aren't package paths`;
+    }
+    const images = part.images ?? [];
+    if (!Array.isArray(images) || !images.every((image: unknown) => typeof image === 'string')) {
+      return `${name}'s images aren't a list of package paths`;
+    }
+    const missing = files ? images.find((image: string) => !files.includes(image)) : undefined;
+    if (missing !== undefined) {
+      return `${name} declares the image ${missing}, which the package doesn't ship`;
+    }
+    return null;
+  }
+
+  private static isObject(value: unknown): value is Record<string, any> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+}
+
 /** One of the three folders a package keeps its modules in (HD20). */
 export type PackageFolder = 'features' | 'parts' | 'assemblies';
 
@@ -129,6 +205,13 @@ export type PackageContents = {
  * **The root.** The three generated files sit at the root and those paths
  * are reserved: pack refuses a workspace file that would land on one.
  * README, LICENSE and CHANGELOG ship beside them.
+ *
+ * **Generated definitions.** A `definePart` export is a part and a
+ * `defineAssembly` export an assembly, by their folders as any other. Their
+ * images — a schema's icon, option pictures, asides and layout images — may
+ * climb out of their module's directory (`'../features/icons/gear.png'`)
+ * but never out of the package: each ships at its workspace path, and the
+ * manifest entry lists them ({@link PackageManifestPart.images}).
  *
  * **Assets.** The files a part or assembly reads as it builds that no
  * import shows — a `load()`'s imported geometry, `imports/<name>.brep` with

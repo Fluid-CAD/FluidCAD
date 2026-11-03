@@ -1,16 +1,6 @@
 import { Router } from 'express';
-import { readFile } from 'fs/promises';
-import { extname } from 'path';
 import type { FeatureCatalog } from '../feature-catalog/catalog.ts';
-
-/** The image types a feature's declared images may be (the metadata check admits no others); the package consent dialog's icons too. */
-export const ASSET_TYPES: Record<string, string> = {
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-};
+import { ImageAssets } from '../files/image-assets.ts';
 
 /**
  * The feature catalog's backend: the features the workspace offers (its
@@ -53,17 +43,7 @@ export function createFeatureCatalogRouter(catalog: FeatureCatalog, workspacePat
         res.status(found.status).json({ error: found.error });
         return;
       }
-      const type = ASSET_TYPES[extname(found.file).toLowerCase()];
-      if (!type) {
-        res.status(415).json({ error: `feature '${id}': '${path}' is not an image` });
-        return;
-      }
-      const content = await readFile(found.file);
-      res.setHeader('Content-Type', type);
-      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.send(content);
+      await ImageAssets.send(res, found.file, `feature '${id}': '${path}' is not an image`);
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }

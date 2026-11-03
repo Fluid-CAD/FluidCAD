@@ -6,8 +6,8 @@ import { isScriptPath, readDeclaredUnit } from '../file-unit.ts';
 import type { LengthUnit } from '../project-config.ts';
 import { PackageOffers, type PackageRef } from '../packages/package-offers.ts';
 
-/** Matches any `part(` call — the cheap text prefilter before evaluating. */
-const PART_CALL = /\bpart\s*\(/;
+/** Matches any `part(` or `definePart(` call — the cheap text prefilter before evaluating. */
+const PART_CALL = /\b(?:part|definePart)\s*\(/;
 
 /** Matches any export declaration — the prefilter for `.assembly.js` files. */
 const EXPORT_DECL = /\bexport\b/;
@@ -35,9 +35,10 @@ export type CatalogFileEntry = {
 /**
  * The workspace's candidate files: every FluidCAD script (gitignore honored,
  * node_modules/dot-dirs pruned) that can hold something insertable — a
- * part-kind file mentioning `part(`, or an `.assembly.js` file declaring
- * exports (exported factories are potential sub-assemblies; a root assembly
- * like `index.assembly.js` exports nothing and is skipped). The prefilter
+ * part-kind file mentioning `part(` or `definePart(`, or an `.assembly.js`
+ * file declaring exports (exported factories and `defineAssembly`
+ * definitions are potential sub-assemblies; a root assembly like
+ * `index.assembly.js` exports nothing and is skipped). The prefilter
  * keeps the Insert dialog from evaluating files that cannot qualify;
  * `readContent` lets the caller serve live editor buffers so an unsaved
  * edit still counts.

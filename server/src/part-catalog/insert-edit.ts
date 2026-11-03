@@ -241,8 +241,21 @@ export function renderValue(value: InsertParamValue): string {
   return String(value);
 }
 
+/**
+ * A string value as a single-quoted literal: backslashes and quotes
+ * escaped, and the line breaks a literal can't hold raw (a multiline text
+ * value's newlines, carriage returns, the Unicode line and paragraph
+ * separators) written as escapes.
+ */
 export function renderString(value: string): string {
-  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  return `'${escaped}'`;
 }
 
 /**
@@ -291,6 +304,9 @@ export function stringLiteralText(node: TSNode): string {
 }
 
 function unescapeSequence(sequence: string): string {
+  if (/^\\u[0-9a-fA-F]{4}$/.test(sequence)) {
+    return String.fromCharCode(parseInt(sequence.slice(2), 16));
+  }
   switch (sequence) {
     case '\\n': return '\n';
     case '\\t': return '\t';

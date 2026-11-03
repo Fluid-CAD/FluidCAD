@@ -472,6 +472,15 @@ export type ApplyFeatureEditSpec = {
    * skipped, keeping a re-apply idempotent.
    */
   newVariables?: { name: string; initializer: string }[];
+  /**
+   * The assembly-view row a row edit comes from (an instance's, an
+   * occurrence's, a mate's or a relation's id, `asm-0/inst-2`), when the
+   * page says: the server refuses the edit when that row is engine-owned
+   * (`GeneratedRows`, G8) — a layout's records share their occurrence's
+   * `insert()` line, so the statement alone can't tell them from it. The
+   * transforms ignore it.
+   */
+  row?: string;
 };
 
 /**

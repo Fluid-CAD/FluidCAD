@@ -14,9 +14,10 @@ import {
 import { FluidCadServer } from '../fluidcad-server/index.ts';
 import { FeatureModules } from '../feature-catalog/walk.ts';
 import type { FeatureScanResult } from '../feature-catalog/scan.ts';
-import type { CatalogConfiguration, PartScanResult } from '../part-catalog/scan.ts';
-import { FeatureDocs, listFeatureAssets, type DocGap } from '../../../lib/dist/index.js';
-import { SDK_SINCE, SDK_VERSION } from '../../../lib/dist/sdk/version.js';
+import type { CatalogConfiguration, GeneratedEntryFields, PartScanResult } from '../part-catalog/scan.ts';
+import { FeatureDocs, GeneratedSchemas, listFeatureAssets, type DocGap, type FeatureMetaSnapshot } from '../../../lib/dist/index.js';
+import { SDK_MINOR_SINCE, SDK_SINCE, SDK_VERSION } from '../../../lib/dist/sdk/version.js';
+import { GeneratedAssets } from '../part-catalog/generated.ts';
 import { DocLinks } from './doc-links.ts';
 import { EsbuildPlugins } from './esbuild-plugins.ts';
 import { InProcessEngine } from './in-process-engine.ts';
@@ -40,7 +41,8 @@ export interface PackEngine {
   /** Why nothing can be evaluated (no `init.js`), or null. */
   describeMissingEngine(): string | null;
   scanFeaturesInFile(filePath: string): Promise<FeatureScanResult | null>;
-  scanPartsInFile(filePath: string, projectUnit?: LengthUnit): Promise<PartScanResult | null>;
+  /** `options.renderGenerated`: build generated definitions too, as the pack's build check needs (`ScanOptions`). */
+  scanPartsInFile(filePath: string, projectUnit?: LengthUnit, options?: { renderGenerated?: boolean }): Promise<PartScanResult | null>;
   /** An editor buffer overlaying a file: the engine evaluates it instead of the disk, which is what ships. */
   getLiveBuffer?(filePath: string): string | null;
 }
@@ -178,6 +180,15 @@ export async function packPackage(inputs: PackPackageInputs): Promise<PackPackag
  *    `imports/`: an import no part loads stays home, and a sidecar the
  *    engine looked for and did not find is no refusal.
  *
+ * 9. every generated definition (`definePart`, `defineAssembly`) builds
+ *    with its defaults (check 4, its render asked for), each image its
+ *    schema declares exists and stays inside the workspace — it may climb
+ *    out of its module's directory, never out of the package — and ships
+ *    at its workspace path (the manifest entry lists them); and the
+ *    package's `minEngine` is no older than the first FluidCAD that speaks
+ *    the SDK revision that added them (`SDK_MINOR_SINCE`), or than the
+ *    packing engine when that one, older still, evaluated them.
+ *
  * Nothing is refused for missing documentation (DOC4). Two things are
  * warned about instead ({@link PackWarning}), and the package still packs:
  * fields without a useful description (`undocumented-fields`, the
@@ -245,11 +256,14 @@ export class PackageBuilder {
     this.checkNames(evaluated);
 
     const features = evaluated.flatMap((m) => m.features);
+    const parts = evaluated.flatMap((m) => m.parts);
+    this.checkGeneratedMinEngine(parts);
     const assets = this.assets(features);
+    const images = this.generatedImages(parts);
     const read = this.readAssets(evaluated);
     const extras = await this.extras();
-    const shipped = [...new Set([...closure, ...assets, ...read, ...extras, ...docs])].sort();
-    const result = await this.archive(shipped, features, evaluated.flatMap((m) => m.parts));
+    const shipped = [...new Set([...closure, ...assets, ...images, ...read, ...extras, ...docs])].sort();
+    const result = await this.archive(shipped, features, parts);
     return { ...result, warnings: [...this.undocumented(evaluated), ...this.docLinks(result.files)] };
   }
 
@@ -429,7 +443,9 @@ export class PackageBuilder {
         entry.features = scan.features.map((f) => ({ id: f.meta.id, exportName: f.exportName, module: rel, meta: f.meta }));
       }
       if (!FeatureModules.isModule(rel)) {
-        const scan = await engine.scanPartsInFile(abs, unit);
+        // Generated definitions are built too: the catalog reads only their
+        // schemas, but a package must build with its defaults (check 4).
+        const scan = await engine.scanPartsInFile(abs, unit, { renderGenerated: true });
         if (scan === null) {
           throw new PackageBuildError(engine.describeMissingEngine() ?? 'The engine did not start.');
         }
@@ -471,6 +487,7 @@ export class PackageBuilder {
         exportKind: part.kind,
         params: part.params,
         ...PackageBuilder.configurationsOf(part.configurations),
+        ...this.generatedOf(rel, part.exportName, part),
       });
     }
     for (const assembly of scan.assemblies) {
@@ -483,9 +500,42 @@ export class PackageBuilder {
         exportKind: assembly.exportKind,
         params: assembly.params,
         ...PackageBuilder.configurationsOf(assembly.configurations),
+        ...this.generatedOf(rel, assembly.exportName, assembly),
       });
     }
     return parts;
+  }
+
+  /**
+   * A generated definition's manifest fields (its schema, and its image
+   * modules package-relative; `images` is filled by check 9), or none for a
+   * `part()` / `assembly()` definition. A module beyond the workspace is
+   * refused: the closure check keeps every import inside it, so only a
+   * class the engine could not place gets here.
+   */
+  private generatedOf(rel: string, exportName: string, entry: GeneratedEntryFields): Partial<PackageManifestPart> {
+    if (entry.definitionKind !== 'generated' || !entry.schema) {
+      return {};
+    }
+    const packaged = (module: string | null | undefined): string | null => {
+      if (!module) {
+        return null;
+      }
+      const inside = this.packagePath(module);
+      if (inside === null) {
+        throw new PackageBuildError(`${rel}: '${exportName}' is declared in ${module}, which lies outside the workspace: a package ships only its own files.`);
+      }
+      return inside;
+    };
+    const assets = GeneratedSchemas.assetsOf(entry.schema);
+    return {
+      definitionKind: 'generated',
+      schema: entry.schema,
+      assetModules: {
+        definition: assets.definition.length > 0 ? packaged(entry.assetModules?.definition) ?? rel : null,
+        class: assets.class.length > 0 ? packaged(entry.assetModules?.class) : null,
+      },
+    };
   }
 
   /** What a scanned module read as it evaluated, and what each of its parts and assemblies read as it built. */
@@ -578,6 +628,94 @@ export class PackageBuilder {
       }
     }
     return out;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Check 9: generated definitions
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A package of generated definitions runs on no engine older than the
+   * SDK revision that added them (`SDK_MINOR_SINCE`) — or, when the packing
+   * engine is older still yet evaluated them (a pre-release build), than
+   * that engine: the oldest one known to run them. A `minEngine` below that
+   * floor is refused before anything ships.
+   */
+  private checkGeneratedMinEngine(parts: PackageManifestPart[]): void {
+    const generated = parts.find((part) => part.definitionKind === 'generated');
+    if (!generated) {
+      return;
+    }
+    const since = Semver.parse(SDK_MINOR_SINCE);
+    const packing = Semver.parse(this.inputs.fluidcadVersion);
+    const floor = since && packing && Semver.compare(packing, since) < 0 ? this.inputs.fluidcadVersion : SDK_MINOR_SINCE;
+    const { version } = this.minEngine();
+    const declared = Semver.parse(version);
+    const least = Semver.parse(floor);
+    if (!declared || !least || Semver.compare(declared, least) >= 0) {
+      return;
+    }
+    throw new PackageBuildError(
+      `${this.info.name} can't declare minEngine ${version}: ${generated.module} exports '${generated.exportName}', a generated ` +
+        `${generated.kind} (${generated.kind === 'part' ? 'definePart' : 'defineAssembly'}), which FluidCAD ${floor} is the first to run. ` +
+        `Set "minEngine" in the package block to ${floor} or later, then try again.`,
+    );
+  }
+
+  /**
+   * Every image the generated definitions' schemas declare, workspace-
+   * relative, each recorded on its manifest entry (`images`). Each resolves
+   * against its module (`assetModules`) and must exist inside the workspace
+   * once links are resolved — it may climb out of its module's directory,
+   * never out of the package ({@link GeneratedAssets.resolveIn}).
+   */
+  private generatedImages(parts: PackageManifestPart[]): string[] {
+    const out: string[] = [];
+    for (const part of parts) {
+      if (part.definitionKind !== 'generated' || !part.schema || !part.assetModules) {
+        continue;
+      }
+      const images = new Set<string>();
+      const assets = GeneratedSchemas.assetsOf(part.schema);
+      for (const base of ['definition', 'class'] as const) {
+        const module = part.assetModules[base];
+        for (const asset of assets[base]) {
+          const where = `${part.module}: '${part.exportName}' declares the image ${asset}`;
+          if (module === null) {
+            throw new PackageBuildError(`${where}, but the engine can't tell which module it is relative to.`);
+          }
+          const found = GeneratedAssets.resolveIn(join(this.workspace, module), asset, this.workspace, part.schema.label);
+          if ('error' in found) {
+            throw new PackageBuildError(found.status === 403
+              ? `${where}, which leads outside the workspace: a package ships only its own files.`
+              : `${where}, which doesn't exist next to ${module}.`);
+          }
+          const rel = normalizePath(relative(this.workspace, resolve(dirname(join(this.workspace, module)), asset)));
+          this.checkNotReserved(rel, `${part.module} declares it`);
+          images.add(rel);
+        }
+      }
+      part.images = [...images].sort();
+      out.push(...part.images);
+    }
+    return out;
+  }
+
+  /** `abs` as a workspace path, read against the workspace as given or as the filesystem names it; null outside it. */
+  private packagePath(abs: string): string | null {
+    const named = normalizePath(abs);
+    for (const root of new Set([this.workspace, normalizePath(resolve(this.inputs.workspacePath))])) {
+      const rel = normalizePath(relative(root, named));
+      if (!ModuleClosure.isOutsideWorkspace(rel) && !isAbsolute(rel)) {
+        return rel;
+      }
+    }
+    try {
+      const rel = normalizePath(relative(this.workspace, realpathSync(named)));
+      return !ModuleClosure.isOutsideWorkspace(rel) && !isAbsolute(rel) ? rel : null;
+    } catch {
+      return null;
+    }
   }
 
   /** The README, LICENSE and CHANGELOG at the workspace root, when present. */
@@ -697,13 +835,27 @@ export class PackageBuilder {
     for (const module of modules) {
       const fields = [
         ...module.features.flatMap((f) => FeatureDocs.missing(f.meta, f.exportName)),
-        ...module.parts.flatMap((p) => FeatureDocs.missingParams(p.params ?? [], p.exportName)),
+        ...module.parts.flatMap((p) => PackageBuilder.undocumentedOf(p)),
       ];
       if (fields.length > 0) {
         out.push({ code: 'undocumented-fields', file: module.module, message: FeatureDocs.describe(fields, module.module), fields });
       }
     }
     return out;
+  }
+
+  /**
+   * A part's or assembly's fields without a useful description: its
+   * `param()` interface; for a generated definition, its own description,
+   * and a generated assembly's values (a generated part's values are its
+   * feature's, warned about with the feature).
+   */
+  private static undocumentedOf(part: PackageManifestPart): DocGap[] {
+    if (part.definitionKind !== 'generated' || !part.schema) {
+      return FeatureDocs.missingParams(part.params ?? [], part.exportName);
+    }
+    const gaps = FeatureDocs.missing(part.schema as unknown as FeatureMetaSnapshot, part.exportName);
+    return part.kind === 'assembly' ? gaps : gaps.filter((gap) => gap.kind === 'feature');
   }
 
   /** Each relative link or image in a doc page that leads to no file of the archive, or out of the package. */

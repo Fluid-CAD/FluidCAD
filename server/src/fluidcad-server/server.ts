@@ -40,7 +40,8 @@ import {
   type ValidateSceneRequest,
   FeatureKey,
 } from '../../../lib/dist/index.js';
-import { scanFileForParts, type PartScanResult } from '../part-catalog/scan.ts';
+import { scanFileForParts, type PartScanResult, type ScanOptions } from '../part-catalog/scan.ts';
+import { GeneratedRows } from '../generated-rows.ts';
 import { FeatureScanner, type FeatureScanResult } from '../feature-catalog/scan.ts';
 import { FeatureModules } from '../feature-catalog/walk.ts';
 import { FeatureRebuilds, type OwedRebuilds } from './feature-rebuilds.ts';
@@ -233,6 +234,8 @@ export class FluidCadServer {
   /** Every `breakpoint();` of the rendered file as of the last full render. */
   private lastBreakpoints: BreakpointSite[] = [];
   private compileError: CompileError | null = null;
+  /** The last render's engine-owned rows ({@link getGeneratedRows}). */
+  private generatedRows: GeneratedRows = GeneratedRows.NONE;
 
   constructor(host: SceneHost = new LocalSceneHost()) {
     this.host = host;
@@ -286,6 +289,15 @@ export class FluidCadServer {
       return [];
     }
     return this.sceneManager.getAssemblyData(scene)?.instances ?? [];
+  }
+
+  /**
+   * The rows the engine owns in the last render (G8): generated parts and
+   * the records a generator's layout made, which no write may address
+   * (`PackageEditGuard`). Empty before any render.
+   */
+  getGeneratedRows(): GeneratedRows {
+    return this.generatedRows;
   }
 
   /**
@@ -755,6 +767,7 @@ export class FluidCadServer {
             }
           }
         }
+        this.generatedRows = GeneratedRows.of(result, assembly);
 
         // Read after the module ran: a file's `unit()` statement declares the
         // unit during evaluation, and the scene resolves it lazily.
@@ -1279,7 +1292,11 @@ export class FluidCadServer {
    * compare baselines, so the live session's incremental rebuilds are
    * unaffected. Returns null before init.
    */
-  async scanPartsInFile(filePath: string, projectUnit: LengthUnit = 'mm'): Promise<PartScanResult | null> {
+  async scanPartsInFile(
+    filePath: string,
+    projectUnit: LengthUnit = 'mm',
+    options: Pick<ScanOptions, 'renderGenerated'> = {},
+  ): Promise<PartScanResult | null> {
     return this.serialized(async () => {
       if (!this.sceneManager) {
         return null;
@@ -1287,7 +1304,7 @@ export class FluidCadServer {
       // The scan re-evaluates the workspace modules.
       this.forgetGhostBuilders();
       this.seatEngine();
-      return scanFileForParts(this.host, this.sceneManager, normalizePath(filePath), { projectUnit });
+      return scanFileForParts(this.host, this.sceneManager, normalizePath(filePath), { projectUnit, ...options });
     });
   }
 

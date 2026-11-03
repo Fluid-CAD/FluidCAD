@@ -33,7 +33,7 @@ import { FeatureNames } from '../feature-names.ts';
 import { SketchDeleteSweep } from '../sketch-delete-sweep.ts';
 import { validateSketchPositionEdit } from '../sketch-position-validate.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';
-import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
+import { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import { GlobalImports } from '../apply-feature-edit/global-imports.ts';
 import { ParamSites } from '../apply-feature-edit/index.ts';
 import type { GlobalParamCatalog } from '../global-params/catalog.ts';
@@ -539,6 +539,11 @@ export function createSketchEditsRouter(
       !edit || typeof edit !== 'object'
     ) {
       res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    // Grounding or renaming an engine-owned row (a generator's part) is
+    // refused (G8); the host send refuses its statement too.
+    if (dispatcher?.refuseRow(res, { location: sourceLocation, row: FeatureEditDispatcher.rowOf(req.body) })) {
       return;
     }
     sendToExtension({

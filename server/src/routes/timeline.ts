@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
-import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
+import { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import { FeatureCallees, type ApplyFeatureEditSpec, type FeatureCalleeSource } from '../apply-feature-edit/index.ts';
 import type { SketchImageEdit } from '../code-editor/index.ts';
 import { MaterialCatalog } from '../material-catalog.ts';
@@ -165,6 +165,11 @@ export function createTimelineRouter(
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
+    // An engine-owned row (a generated part, a generator's record) is never
+    // removed — whichever form asks (G8).
+    if (options.dispatcher?.refuseRow(res, { location: sourceLocation, row: FeatureEditDispatcher.rowOf(req.body) })) {
+      return;
+    }
     if (dryRun || cascade) {
       if (sourceLocation.filePath !== fluidCadServer.getCurrentFileName()) {
         res.status(422).json({ success: false, reason: 'dependants can only be analyzed for the currently rendered file' });
@@ -257,6 +262,10 @@ export function createTimelineRouter(
       return;
     }
     const { filePath, line } = sourceLocation;
+    // A generated part's row is read-only (G8): refused before any importer follows.
+    if (options.dispatcher.refuseRow(res, { location: sourceLocation, row: FeatureEditDispatcher.rowOf(req.body) })) {
+      return;
+    }
     const code = await refactor.readFile(filePath);
     // A name another part of the file has is refused before any importer
     // follows the rename (part names are unique within a file).
@@ -364,9 +373,12 @@ export function createTimelineRouter(
       res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
       return;
     }
-    // A package's part is read-only (K8): refused before the material is
-    // copied into this project's fluidcad.json for nothing.
-    if (options.dispatcher.refuseReadOnly(res, sourceLocation.filePath)) {
+    // A package's part is read-only (K8), and so is a generated part's row
+    // (G8): refused before the material is copied into this project's
+    // fluidcad.json for nothing.
+    const row = FeatureEditDispatcher.rowOf(req.body);
+    if (options.dispatcher.refuseReadOnly(res, sourceLocation.filePath)
+      || options.dispatcher.refuseRow(res, { location: sourceLocation, row })) {
       return;
     }
     // A global material is copied into fluidcad.json before the source
@@ -387,6 +399,7 @@ export function createTimelineRouter(
       parts: [],
       imports: [],
       partMaterial: { sourceLine: sourceLocation.line, material },
+      row,
     };
     await options.dispatcher.dispatch(res, spec, { success: true });
   });
@@ -417,6 +430,7 @@ export function createTimelineRouter(
       parts: [],
       imports: [],
       partAppearance: { sourceLine: sourceLocation.line, appearance },
+      row: FeatureEditDispatcher.rowOf(req.body),
     };
     await options.dispatcher.dispatch(res, spec, { success: true });
   });

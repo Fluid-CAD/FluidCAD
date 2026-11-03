@@ -3,6 +3,7 @@ import type { ModuleRunner } from 'vite/module-runner';
 import { realpathSync } from 'fs';
 import { dirname, resolve, isAbsolute } from 'path';
 import { ENGINE_NAMESPACE_SPECIFIERS } from '../../../lib/dist/browser/linking.js';
+import { ModuleExports } from '../../../lib/dist/common/module-exports.js';
 import { normalizePath } from '../normalize-path.ts';
 import type { LoadModuleOptions, SceneHost } from './scene-host.ts';
 import { isAssemblyDefinition, isPartDefinition } from './scene-host.ts';
@@ -296,12 +297,13 @@ export class LocalSceneHost implements SceneHost {
 
   async loadModule(filePath: string, options: LoadModuleOptions = {}) {
     const mod = await this.runner.import(filePath);
-    // Every export resolved first (a factory called for what it returns),
-    // so the render can refuse the parts the module does not export before
-    // any export builds.
+    // Every export resolved first (a factory called for what it returns;
+    // a class — a generator beside its defineAssembly() — is a declaration
+    // and is never called), so the render can refuse the parts the module
+    // does not export before any export builds.
     const exports: [string, unknown][] = [];
     for (const [name, value] of Object.entries(mod)) {
-      exports.push([name, typeof value === 'function' ? await value() : value]);
+      exports.push([name, await ModuleExports.resolve(value)]);
     }
     options.onExports?.(exports);
     for (const [, result] of exports) {

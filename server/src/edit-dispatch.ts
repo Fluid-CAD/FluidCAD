@@ -3,6 +3,7 @@ import type { FluidCadServer } from './fluidcad-server/index.ts';
 import { EditAckRegistry } from './edit-acks.ts';
 import { applyFeatureEdit, type ApplyFeatureEditSpec, type FeatureCalleeSource } from './apply-feature-edit/index.ts';
 import type { PackageEditGuard } from './packages/package-edit-guard.ts';
+import type { RowTarget } from './generated-rows.ts';
 
 /** Why a dispatch's {@link FeatureEditDispatcher.dispatch} `beforeSend` step refused the edit. */
 export type DispatchRefusal = { status: number; reason: string; code?: string };
@@ -19,8 +20,9 @@ export type EditDispatcherOptions = {
   /** The workspace's custom features, for the preflight's producer gates (the feature catalog). */
   callees?: FeatureCalleeSource;
   /**
-   * Refuses an edit aimed at an installed package's file (K8) before
-   * anything is sent. Omitted (tests), nothing is refused.
+   * Refuses an edit aimed at an installed package's file (K8), or at a row
+   * the engine owns (G8), before anything is sent. Omitted (tests), nothing
+   * is refused.
    */
   packages?: PackageEditGuard;
 };
@@ -71,6 +73,22 @@ export class FeatureEditDispatcher {
   }
 
   /**
+   * Answer 403 when `target` — the statement a row write addresses, and the
+   * row it comes from — is a row the engine owns (G8, `GeneratedRows`), for
+   * a route that must refuse before its first side effect; true when it
+   * did. Every dispatch checks its own spec anyway.
+   */
+  refuseRow(res: Response, target: RowTarget): boolean {
+    return this.packages?.refuseRow(res, target) ?? false;
+  }
+
+  /** A request body's `row` (the assembly-view row a write comes from), when it is a non-empty string. */
+  static rowOf(body: unknown): string | undefined {
+    const row = (body as { row?: unknown } | null | undefined)?.row;
+    return typeof row === 'string' && row !== '' ? row : undefined;
+  }
+
+  /**
    * Preflight `spec`, hand it to the editor, and answer `res` with the
    * editor's outcome. `options.beforeSend` runs once the preflight has
    * accepted the edit and before the editor writes it — a write the edit
@@ -84,7 +102,7 @@ export class FeatureEditDispatcher {
     successBody: Record<string, unknown>,
     options: { beforeSend?: () => Promise<DispatchRefusal | null> } = {},
   ): Promise<void> {
-    if (this.refuseReadOnly(res, spec.filePath)) {
+    if (this.packages?.refuseSpec(res, spec)) {
       return;
     }
     if (this.preflightEnabled && spec.filePath === this.fluidCadServer.getCurrentFileName()) {
@@ -138,7 +156,7 @@ export class FeatureEditDispatcher {
    * follows) when the host says; absent otherwise.
    */
   async send(spec: ApplyFeatureEditSpec): Promise<{ error?: string; changed?: boolean }> {
-    const readOnly = this.packages?.refusal(spec.filePath);
+    const readOnly = this.packages?.specRefusal(spec);
     if (readOnly) {
       return { error: readOnly.message };
     }

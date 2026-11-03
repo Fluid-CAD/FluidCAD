@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { PackageLayout, type PackageManifest, type PackageManifestFeature, type PackageManifestPart } from './package-manifest.ts';
+import { GeneratedManifestEntry, PackageLayout, type PackageManifest, type PackageManifestFeature, type PackageManifestPart } from './package-manifest.ts';
 
 /**
  * The `manifest.json` of an installed package, read back: what the
@@ -86,8 +86,11 @@ export class PackageManifests {
     const features = parsed.features.filter((feature: any) =>
       feature && typeof feature.id === 'string' && typeof feature.exportName === 'string'
       && typeof feature.module === 'string' && feature.meta && typeof feature.meta === 'object');
+    // A generated entry without a schema that holds together is left out:
+    // its readers (the catalogs) would have nothing to offer for it.
     const parts = parsed.parts.filter((part: any) =>
-      part && typeof part.exportName === 'string' && typeof part.module === 'string');
+      part && typeof part.exportName === 'string' && typeof part.module === 'string'
+      && GeneratedManifestEntry.problemOf(part) === null);
     return { ...parsed, features, parts } as PackageManifest;
   }
 }

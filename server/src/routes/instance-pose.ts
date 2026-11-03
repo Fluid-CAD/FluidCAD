@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { basename } from 'path';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
-import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
+import { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
 import { isExpressionText } from '../apply-feature-edit/index.ts';
 import { getInsertRotateExpressions, getInsertTranslateExpressions } from '../insert-chain-edit.ts';
-import { getInsertParamExpressions } from '../insert-params-edit.ts';
+import { getInsertParamExpressions, InsertParamsRequest } from '../insert-params-edit.ts';
 import { InstanceRename } from '../instance-rename.ts';
 import { DeclarationRefactor } from '../declaration-refactor.ts';
 import { normalizePath } from '../normalize-path.ts';
@@ -71,6 +71,10 @@ export function createInstancePoseRouter(
       res.status(422).json({ success: false, reason: 'Moving instances targets an assembly — open a *.assembly.js file first.' });
       return;
     }
+    const row = FeatureEditDispatcher.rowOf(req.body);
+    if (dispatcher.refuseRow(res, { location: { filePath, line: sourceLine }, row })) {
+      return;
+    }
     if (normalizePath(filePath) !== normalizePath(currentFile)) {
       // Sub-assembly instances: their insert() lives in the factory's file,
       // and the editor host applies edits against the current buffer only.
@@ -96,6 +100,7 @@ export function createInstancePoseRouter(
         rotateExprs: rotateExprs ?? null,
       },
       newVariables: newVariables ?? undefined,
+      row,
     };
     await dispatcher.dispatch(res, spec, { success: true });
   });
@@ -128,6 +133,11 @@ export function createInstancePoseRouter(
       });
       return;
     }
+    // Refused before any consumer file follows the rename.
+    const row = FeatureEditDispatcher.rowOf(req.body);
+    if (dispatcher.refuseRow(res, { location: { filePath, line: sourceLine }, row })) {
+      return;
+    }
     const code = await refactor.readFile(currentFile);
     const plan = code === null ? null : await InstanceRename.plan(code, currentFile, sourceLine, name);
     if (plan?.declaration) {
@@ -143,6 +153,7 @@ export function createInstancePoseRouter(
       parts: [],
       imports: [],
       instanceRename: { sourceLine, name, ...(defaultName !== undefined ? { defaultName } : {}) },
+      row,
     };
     await dispatcher.dispatch(res, spec, { success: true });
   });
@@ -180,6 +191,7 @@ export function createInstancePoseRouter(
       parts: [],
       imports: [],
       instanceTransparency: { sourceLine, transparency },
+      row: FeatureEditDispatcher.rowOf(req.body),
     };
     await dispatcher.dispatch(res, spec, { success: true });
   });
@@ -188,20 +200,11 @@ export function createInstancePoseRouter(
   // insert() statement's second argument. Same shape as /instance-pose —
   // cross-file targets 422 (a sub-assembly's insert() lives in its own file).
   router.post('/update-insert-params', async (req, res) => {
-    const { filePath, sourceLine, set, unset, newVariables, configuration } = req.body ?? {};
-    const unsetList: unknown = unset ?? [];
-    // `configuration`: a row name sets the statement's string argument, null
-    // clears it (back to the literals); absent leaves it alone.
-    const configurationGiven = configuration !== undefined;
-    if (
-      typeof filePath !== 'string' || filePath.length === 0
-      || !Number.isInteger(sourceLine) || sourceLine < 1
-      || set === null || typeof set !== 'object' || Array.isArray(set)
-      || !Array.isArray(unsetList) || !unsetList.every(l => typeof l === 'string' && l.length > 0)
-      || (configurationGiven && configuration !== null && (typeof configuration !== 'string' || configuration.trim() === ''))
-      || (Object.keys(set).length === 0 && unsetList.length === 0 && !configurationGiven)
-      || (newVariables !== undefined && newVariables !== null && !isNewVariables(newVariables))
-    ) {
+    // `set` holds the changed values — by label for a param() definition,
+    // by id for a generated one — and `unset` the reset ones (see
+    // InsertParamsRequest, which a preview shares).
+    const request = InsertParamsRequest.parse(req.body);
+    if (!request) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
@@ -210,28 +213,14 @@ export function createInstancePoseRouter(
       res.status(404).json({ error: 'No active scene' });
       return;
     }
-    if (normalizePath(filePath) !== normalizePath(currentFile)) {
+    if (normalizePath(request.filePath) !== normalizePath(currentFile)) {
       res.status(422).json({
         success: false,
-        reason: `this insert() lives in ${basename(filePath)} — open that file to edit its parameters.`,
+        reason: `this insert() lives in ${basename(request.filePath)} — open that file to edit its parameters.`,
       });
       return;
     }
-    const spec: ApplyFeatureEditSpec = {
-      feature: 'sketch',
-      filePath: currentFile,
-      producers: [],
-      parts: [],
-      imports: [],
-      insertParams: {
-        line: sourceLine,
-        set,
-        ...(unsetList.length > 0 ? { unset: unsetList as string[] } : {}),
-        ...(configurationGiven ? { configuration: configuration as string | null } : {}),
-      },
-      newVariables: newVariables ?? undefined,
-    };
-    await dispatcher.dispatch(res, spec, { success: true });
+    await dispatcher.dispatch(res, InsertParamsRequest.spec({ ...request, filePath: currentFile }), { success: true });
   });
 
   // The Edit-parameters dialog's expression seeds: the exact source text of

@@ -1,7 +1,5 @@
 import { Router, type Response } from 'express';
-import { readFile } from 'fs/promises';
-import { extname } from 'path';
-import { ASSET_TYPES } from './feature-catalog.ts';
+import { ImageAssets } from '../files/image-assets.ts';
 import { loadPreferences } from '../preferences.ts';
 import { PackageArchive, PackageArchiveError } from '../packages/package-archive.ts';
 import { PackageInstallError, PackageInstaller } from '../packages/package-installer.ts';
@@ -101,22 +99,8 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
       res.status(icon.status).json({ error: icon.error });
       return;
     }
-    const type = ASSET_TYPES[extname(icon.file).toLowerCase()];
-    if (!type) {
-      res.status(415).json({ error: `${id}'s icon is not an image.` });
-      return;
-    }
-    try {
-      const content = await readFile(icon.file);
-      // The feature asset route's headers: an SVG served alone stays inert.
-      res.setHeader('Content-Type', type);
-      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.send(content);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message ?? String(err) });
-    }
+    // The feature asset route's headers: an SVG served alone stays inert.
+    await ImageAssets.send(res, icon.file, `${id}'s icon is not an image.`);
   });
 
   router.get('/packages', async (_req, res) => {

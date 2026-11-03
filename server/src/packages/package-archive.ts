@@ -5,7 +5,7 @@ import JSZip from 'jszip';
 import { SDK_VERSION } from '../../../lib/dist/sdk/version.js';
 import { BlockedImports } from '../host/blocked-imports.ts';
 import { PackageName } from './package-name.ts';
-import { PackageLayout, type PackageManifest } from './package-manifest.ts';
+import { GeneratedManifestEntry, PackageLayout, type PackageManifest } from './package-manifest.ts';
 import { PackageScratch } from './package-scratch.ts';
 import { Semver } from './semver.ts';
 import { TreeHash } from './tree-hash.ts';
@@ -295,6 +295,12 @@ export class PackageArchive {
       }
     }
     PackageArchive.checkFiles(raw as PackageManifest, files);
+    for (const part of raw.parts) {
+      const problem = part && typeof part === 'object' ? GeneratedManifestEntry.problemOf(part, raw.files) : null;
+      if (problem !== null) {
+        throw new PackageArchiveError('bad-manifest', `${raw.name}'s ${PackageLayout.MANIFEST} is malformed: ${problem}.`);
+      }
+    }
     return raw as PackageManifest;
   }
 

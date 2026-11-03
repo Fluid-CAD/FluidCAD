@@ -154,7 +154,11 @@ const fluidCadServer = new FluidCadServer();
 // Installed packages are read-only (K8): no host message edits one of their
 // files. A refused send throws, and the error handler below answers the
 // route's request with the sentence.
-const packageEdits = new PackageEditGuard(() => WORKSPACE_PATH || null, () => fluidCadServer.getCurrentFileName() || null);
+const packageEdits = new PackageEditGuard(
+  () => WORKSPACE_PATH || null,
+  () => fluidCadServer.getCurrentFileName() || null,
+  () => fluidCadServer.getGeneratedRows(),
+);
 const sendToHost = packageEdits.guardSend((msg: any): boolean => hosts.send(msg));
 const dirtyBufferState = new DirtyBufferState();
 

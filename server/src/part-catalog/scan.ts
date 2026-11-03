@@ -5,7 +5,8 @@ import type { SceneHost } from '../host/scene-host.ts';
 import { isAssemblyDefinition, isPartDefinition } from '../host/scene-host.ts';
 import { readDeclaredUnit } from '../file-unit.ts';
 import type { LengthUnit } from '../project-config.ts';
-import { createParamRegistry, getParamRegistry, setParamRegistry } from '../../../lib/dist/index.js';
+import { createParamRegistry, getParamRegistry, ModuleExports, setParamRegistry } from '../../../lib/dist/index.js';
+import { GeneratedCatalog, type ScannedGeneratedFields } from './generated.ts';
 
 /**
  * One parameter of a scanned definition — `ParamDefinition` minus
@@ -62,7 +63,22 @@ export type ScannedPart = {
   configurations: CatalogConfiguration[];
   /** The files its build read that no import shows ({@link PartScanResult.moduleAssets}); empty for a part the module scene built. */
   assets: string[];
-};
+} & GeneratedEntryFields;
+
+/**
+ * The fields a generated definition's entry adds ({@link ScannedGeneratedFields},
+ * `part-catalog/generated.ts`): `definitionKind: 'generated'`, its `schema`,
+ * its images' `assetUrls` and `assetModules`. Absent on every other entry.
+ *
+ * A generated entry is read from its schema, never rendered (see
+ * {@link GeneratedCatalog}): its `objects`, `instances`, `mates`,
+ * `connectors`, `params`, `configurations` and `assets` are empty and its
+ * `rootId` is `''` — unless the scan was asked to render generated
+ * definitions (`ScanOptions.renderGenerated`, the packer), when they are
+ * filled as for any other definition. Its values are the schema's
+ * `params`, by id; it has no `param()` interface and no configurations.
+ */
+export type GeneratedEntryFields = Partial<ScannedGeneratedFields>;
 
 /**
  * One insertable sub-assembly from a `.assembly.js` file: an exported
@@ -100,7 +116,7 @@ export type ScannedSubAssembly = {
   configurations: CatalogConfiguration[];
   /** The files its build read that no import shows, its inserted parts' included ({@link PartScanResult.moduleAssets}). */
   assets: string[];
-};
+} & GeneratedEntryFields;
 
 export type PartScanResult = {
   /** Normalized absolute path of the scanned file. */
@@ -170,6 +186,12 @@ export type ScanSceneManager = {
  * Deliberately evaluates under a PART scene: `insert()` hard-throws outside
  * an AssemblyScene, so exported assembly factories fail fast instead of
  * executing, and land in `errors`.
+ *
+ * Two kinds of export are never called: a class (a generator or feature
+ * class shared beside its definition, lib `ModuleExports`) is skipped, and
+ * a generated definition (`definePart`, `defineAssembly`) is listed from
+ * its schema without building it unless `options.renderGenerated` asks
+ * (see {@link GeneratedCatalog}).
  *
  * MUST be called with the OCC mutex held (see FluidCadServer.scanPartsInFile)
  * — it swaps the manager's current scene and the global param registry, and
@@ -253,6 +275,19 @@ export async function scanFileForParts(
     const renderedPools: any[][] = [moduleRendered];
 
     for (const [exportName, value] of Object.entries(mod)) {
+      // A class is a declaration, never a factory: calling it throws.
+      if (ModuleExports.isClass(value)) {
+        continue;
+      }
+      // A generated definition, listed from its schema (not built), unless
+      // the caller asked for the render (the packer's build check).
+      const generated = GeneratedCatalog.isGenerated(value)
+        ? GeneratedCatalog.fieldsOf(value, absPath, exportName)
+        : null;
+      if (generated && !options.renderGenerated) {
+        recordGenerated(result, exportName, value, generated, isAssemblyFile);
+        continue;
+      }
       // OLD-engine value export: an eagerly built Part sitting in the module
       // scene. New engines export lazy definitions instead (next branch).
       if (isPartInstance(value)) {
@@ -293,7 +328,7 @@ export async function scanFileForParts(
         recordPart(
           result, renderedPools, exportName, built, 'value',
           collectedParams(built, exportRegistry), catalogConfigurations(exportRegistry),
-          sceneManager.getRenderInputs?.() ?? [],
+          sceneManager.getRenderInputs?.() ?? [], generated,
         );
         continue;
       }
@@ -382,6 +417,7 @@ export async function scanFileForParts(
           params: catalogParams(exportRegistry.getDefinitions()),
           configurations: catalogConfigurations(exportRegistry),
           assets,
+          generated,
         });
       }
     }
@@ -413,7 +449,70 @@ export type ScanOptions = {
    * an engine predating units, or a module that failed to evaluate.
    */
   projectUnit?: LengthUnit;
+  /**
+   * Build and render every generated definition with its defaults, as any
+   * other definition is, besides reading its schema — the packer's check
+   * that each builds. Off by default: the catalog reads generated
+   * definitions from their schemas (see {@link GeneratedCatalog}).
+   */
+  renderGenerated?: boolean;
 };
+
+/**
+ * A generated definition read from its schema, not built: a part entry for
+ * a `definePart`, from any file (as part definitions are listed); an
+ * assembly entry for a `defineAssembly`, from an `.assembly.js` file only
+ * (as assembly definitions are). A part rule's refusal of a generated part
+ * (a second part of a name in its file) is its error instead.
+ */
+function recordGenerated(
+  result: PartScanResult,
+  exportName: string,
+  definition: any,
+  generated: ScannedGeneratedFields,
+  isAssemblyFile: boolean,
+): void {
+  if (exportName === 'default') {
+    result.errors.push({ exportName, message: DEFAULT_EXPORT_MESSAGE });
+    return;
+  }
+  if (generated.schema.kind === 'part') {
+    const refused = refusalOf(definition);
+    if (refused !== null) {
+      result.errors.push({ exportName, message: refused });
+      return;
+    }
+    result.parts.push({
+      exportName,
+      partName: typeof definition.partName === 'string' ? definition.partName : generated.schema.label,
+      kind: 'value',
+      rootId: '',
+      objects: [],
+      params: [],
+      configurations: [],
+      assets: [],
+      ...generated,
+    });
+    return;
+  }
+  if (!isAssemblyFile) {
+    return;
+  }
+  result.assemblies.push({
+    exportName,
+    kind: 'assembly',
+    exportKind: 'value',
+    assemblyName: typeof definition.assemblyName === 'string' ? definition.assemblyName : generated.schema.label,
+    instances: [],
+    mates: [],
+    connectors: [],
+    objects: [],
+    params: [],
+    configurations: [],
+    assets: [],
+    ...generated,
+  });
+}
 
 /**
  * Why a part rule refuses a definition (lib `PartRules`: a second part of a
@@ -496,6 +595,7 @@ function recordPart(
   params: CatalogParamDef[],
   configurations: CatalogConfiguration[],
   assets: string[],
+  generated: ScannedGeneratedFields | null = null,
 ): void {
   const rootId: string | undefined = part.id;
   if (typeof rootId !== 'string' || rootId.length === 0) {
@@ -514,6 +614,7 @@ function recordPart(
         params,
         configurations,
         assets,
+        ...(generated ?? {}),
       });
       return;
     }
@@ -587,6 +688,7 @@ function recordSubAssembly(
     params: CatalogParamDef[];
     configurations: CatalogConfiguration[];
     assets: string[];
+    generated?: ScannedGeneratedFields | null;
   },
 ): void {
   const objects: any[] = [];
@@ -625,6 +727,7 @@ function recordSubAssembly(
     params: shape.params,
     configurations: shape.configurations,
     assets: shape.assets,
+    ...(shape.generated ?? {}),
   });
 }
 

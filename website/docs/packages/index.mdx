@@ -115,6 +115,22 @@ Packing lists what has none as a warning. Warnings never stop the package:
 - An option's `description` is the line under it in the dialog, and isn't checked.
 - A link or an image in a `docs/` page that leads to no file the package ships, or out of the package, is a warning too: `docs/standoff.md:6 links to ./images/standoff.svg, which leads to no file the package ships.`
 
+### Generated parts and assemblies
+
+A package can share [generated parts and assemblies](/docs/custom-features/generated-parts-and-assemblies): a gear an assembly inserts by its values, a wardrobe with its doors on hinges. They go in the same folders:
+
+- a `definePart` export in a `*.part.js` file in `parts/`;
+- a `defineAssembly` export in a `*.assembly.js` file in `assemblies/`;
+- the features and generator classes they use in `features/`, next to their pictures.
+
+Packing lists each export in the manifest as a part or an assembly, with its values and its dialog, so the assembly toolbar's **Custom** dropdown and the **Insert** dialog offer it without building it. Before it does:
+
+- It builds each one with its default values. One that fails stops packing.
+- Every image a definition names ships at its path: its icon, the pictures of its dialog and of its values' options. A path may climb out of its module's folder with `../`, never out of the package. An image outside the package, or missing, stops packing.
+- A package of generated definitions runs on FluidCAD 0.0.49 or newer, and its `minEngine` may not say less. Without one in the package block it is the project's `engine` pin ([Project configuration](/docs/project-configuration#package)). Packing refuses a lower one, naming the export and the version to set.
+
+Installed, they are imported by the package's name, like its parts: `import { wardrobeAssembly } from '@fluidcad/cabinets'`.
+
 ### Publishing
 
 In a package, the top bar's **Share** seat reads **Publish**.
@@ -220,6 +236,8 @@ A package's parts are inserted into an assembly, like the parts of your own file
 A part file shows only the parts it declares. Using the package's Standoff in `tray.part.js` does not add the package's PCB plate or Hub flange to the tray; they appear only where an assembly inserts them.
 
 A package's part is built in the package's own unit, takes its material from the package and reads the geometry it loads and the font files its text uses from the package, so its size and mass are the same in every project.
+
+A generated part or assembly has a tile of its own, marked *generated part* or *generated assembly*. Clicking it opens the definition's dialog instead of queueing it: see [Generated Parts and Assemblies](/docs/assembly/generated).
 
 ## The packages of a project
 

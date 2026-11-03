@@ -20,11 +20,12 @@ Write one when a construction of several steps keeps coming back with different 
 - **A whole part reused with other dimensions:** use a [part with parameters](/docs/part/param).
 - **Something a built-in already does:** check first. [Hole](/docs/3d-operations/hole) already cuts clearance, tapped, counterbored and countersunk holes.
 
-This page writes a standoff from the starter file, then uses it from the toolbar and in code. Three more pages go further:
+This page writes a standoff from the starter file, then uses it from the toolbar and in code. Four more pages go further:
 
 - [Inputs](/docs/custom-features/inputs): every kind of value a dialog can ask for, and how to lay the rows out.
 - [Building the Geometry](/docs/custom-features/geometry): what `buildTool()` can build, the preview, and features that follow what they are picked at.
 - [Named Faces and Edges](/docs/custom-features/named-faces-and-edges): names of a feature's own, such as a gear's tooth tips.
+- [Generated Parts and Assemblies](/docs/custom-features/generated-parts-and-assemblies): a feature an assembly inserts as a part, such as a gear on its axis, and assemblies made by code, such as a wardrobe whose doors and drawers move on joints.
 
 ## Writing a feature
 
@@ -344,11 +345,11 @@ A dropdown row of a feature's dialog takes a [parameter](/docs/part/param) the w
 
 ## Sharing a feature
 
-A feature file serves the project it lives in. To use it in other projects, or give it to someone, put it in a [package](/docs/packages). **New Package** on the start screen makes one, with a `features/` folder for the feature files and their pictures and a `parts/` folder for the parts that should travel. The top bar's **Publish** button puts it on the hub ([Publishing](/docs/packages#publishing)). For a project that already holds the files, `npx fluidcad package init --name @<your handle>/<name>` writes the package block; move the files into the folders yourself. Installed elsewhere from the hub, the package's features appear in the Custom dropdown under the package's name.
+A feature file serves the project it lives in. To use it in other projects, or give it to someone, put it in a [package](/docs/packages). **New Package** on the start screen makes one, with a `features/` folder for the feature files and their pictures and a `parts/` folder for the parts that should travel. The top bar's **Publish** button puts it on the hub ([Publishing](/docs/packages#publishing)). For a project that already holds the files, `npx fluidcad package init --name @<your handle>/<name>` writes the package block; move the files into the folders yourself. Installed elsewhere from the hub, the package's features appear in the Custom dropdown under the package's name. Its [generated parts and assemblies](/docs/custom-features/generated-parts-and-assemblies) go in `parts/` and `assemblies/`, and appear in the assembly toolbar's Custom dropdown.
 
 The package's parts read their own imported geometry and font files once installed, not the project's. A part that takes a file name from the project using it, such as a font for its lettering, reads it with `{ from: 'project' }` ([Files from the project using it](/docs/packages#files-from-the-project-using-it)).
 
 ## Limits
 
-- Custom features run in part files and part bodies, not at the top level of an assembly.
+- Custom features run in part files and part bodies, not at the top level of an assembly. To insert what a feature builds into an assembly, make it a [generated part](/docs/custom-features/generated-parts-and-assemblies#a-generated-part).
 - The dialog is built from the declared inputs. A feature can't add controls of its own.

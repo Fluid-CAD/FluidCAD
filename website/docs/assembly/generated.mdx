@@ -1,0 +1,92 @@
+---
+sidebar_position: 12
+title: "Generated Parts and Assemblies"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import asmGeneratedWardrobe from '!!raw-loader!./_examples/asm-generated-wardrobe.assembly.js';
+import asmGeneratedGear from '!!raw-loader!./_examples/asm-generated-gear.assembly.js';
+
+# Generated Parts and Assemblies
+
+Some parts and assemblies are made from values rather than drawn: a gear with any number of teeth, a wardrobe of any size with its doors and drawers. A package (or your project) defines them, and you insert them from the assembly toolbar. A dialog takes the values while the viewport shows the result, and **Edit parameters…** changes them later. A generated assembly brings its joints with it: the wardrobe's doors swing on their hinges and its drawers slide on their runners.
+
+This page uses two packages, `@fluidcad/cabinets` for the **Wardrobe** and `@fluidcad/gears` for the **Gear**. To write your own, see [Generated Parts and Assemblies](/docs/custom-features/generated-parts-and-assemblies) in the Custom Features section.
+
+## The Custom dropdown
+
+With an assembly open, the last button of the assembly toolbar, **Custom**, lists every generated part and assembly the project can insert: the project's own under **This project**, then each package under its name and version.
+
+![The assembly toolbar's Custom dropdown: Chest of drawers and Wardrobe under @fluidcad/cabinets, Gear, Internal gear and Rack under @fluidcad/gears](/img/docs/ui/assembly-custom-menu.png)
+
+- The pin beside a package's name puts its entries on the toolbar, in a group of their own before **Custom**. Right-click the group and choose **Unpin** to put them back. A pin holds for both toolbars: a pinned package's features sit on the part toolbar, and its generated parts and assemblies on the assembly toolbar.
+- A package from your library that the project doesn't use yet is listed too. The preview uses it without writing anything; **Apply** records it in the project's `fluidcad.json`, as using one of its features does ([Packages](/docs/packages#using-a-packages-features)).
+- With nothing to list, the dropdown points to the Hub panel, where packages are found and installed.
+
+The **Insert** dialog lists generated parts and assemblies as well, each a tile marked *generated part* or *generated assembly*. Clicking the tile closes the Insert dialog and opens the definition's dialog, as the dropdown does. With other parts queued, it says to insert them first.
+
+## Inserting a wardrobe
+
+1. Click **Custom**, then **Wardrobe**. Its dialog opens docked on the right. It is the dialog a [custom feature](/docs/custom-features#from-the-toolbar) has, with the values only: no pick slots, no **Add / New** tabs, no **Preview** toggle. The Wardrobe's opens wide, with a drawing of the wardrobe's size beside its rows.
+
+   ![The Wardrobe dialog: its sections of values, with the size drawing beside them](/img/docs/ui/generated-assembly-dialog.png)
+
+2. The viewport shows the wardrobe as soon as the dialog opens, at the package's defaults, and follows every value you change. This is the result itself, not a ghost: the real parts, in their own colours and finishes, on their joints. While a build takes longer than a moment, **Updating…** shows at the end of the dialog's title row. While you drag a slider, the wardrobe may leave out its small parts, such as drill holes and hinge cups. They come back a moment after you let go.
+
+   ![The window with the Wardrobe dialog open and the wardrobe it previews in the viewport](/img/docs/ui/generated-assembly-preview.png)
+
+3. Click **Apply**. The import and one `insert()` statement are written, with only the values you changed. The Parts panel shows the wardrobe as an occurrence: a header named after it, with its carcass, doors and drawers under it.
+
+**Cancel**, or <kbd>Esc</kbd>, closes the dialog and puts the model back as it was. Nothing is written.
+
+While the preview shows:
+
+- **The panels are read-only.** The rows of the **Parts**, **Connectors** and **Joints** panels show the previewed model, not the file, so their menus are gone. A joint row keeps its play button.
+- **Dragging a part writes nothing.** A door dragged open swings on its hinge, and no pose is written.
+- **The file comes first.** If the file changes under the dialog, because you saved it or edited it in the editor, the preview is built again on the new code and the dialog says **The model changed, so the preview was rebuilt.** If the assembly closes or another file takes the screen, the dialog closes and says why.
+- **A value the wardrobe can't build**, such as a drawer front too low for its runners, shows the package's reason in the dialog. **Apply** still writes it, and the wardrobe's row in the Parts panel shows the error until you change the value.
+
+<ExplainedCode code={asmGeneratedWardrobe} fileName="bedroom.assembly.js" />
+
+## Editing the values
+
+1. In the **Parts** panel, open the wardrobe's header menu (**⋮**, or right-click the header) and choose **Edit parameters…**.
+
+   ![The wardrobe's header menu in the Parts panel, with Edit parameters…](/img/docs/ui/generated-assembly-edit-parameters.png)
+
+2. The same dialog opens, titled **Edit wardrobeAssembly1**, on the values the `insert()` gives. The model stays as it is until you change a value. Then the preview follows, as when inserting.
+3. **Apply** writes the values you changed into the `insert()` statement and leaves the others as the source says them, an expression included. A row you empty goes back to its default and leaves the statement. **Cancel** puts the model back. **Apply** with nothing changed only closes the dialog.
+
+The header's menu is any sub-assembly's (**Toggle grounded**, **Rename**, **Delete**, …), with **Edit parameters…** opening the wardrobe's dialog. The rows under it belong to the wardrobe: their menus offer **Show in source** only. Their names, finishes and materials come from the package, so change them through the wardrobe's values.
+
+## Opening the doors
+
+The wardrobe's doors turn on revolute joints and its drawers slide on slider joints, inside the occurrence. The **Joints** panel lists them by name, **Left door**, **Right door**, **Drawer 1** and so on, with the joint's type beside the name in smaller text, the two parts it joins under it, and its limits.
+
+![The Joints panel listing the wardrobe's joints by name: Left door and Right door revolute, Drawer 1 to Drawer 3 slider](/img/docs/ui/generated-assembly-joints.png)
+
+- **Drag** a door or a drawer in the viewport. It moves on its joint, within its limits.
+- **Animate** a joint: right-click its row (or its **⋮**) and choose **Animate…**. The [animate bar](/docs/getting-started/animate-joint) drives it from **Start** to **End**, seeded from the joint's limits.
+- The rows' menus offer **Show in source** and **Animate…** only: the joints are the wardrobe's.
+
+![The wardrobe with its left door swung open and its top drawer pulled out](/img/docs/ui/generated-assembly-open.png)
+
+Neither writes anything: the file holds the wardrobe's values, not where its doors stand. The Wardrobe's dialog also has a **Starting pose** section, folded. Its **Doors open** and **Drawers out** are values like the others, written into the `insert()`, and set where the joints start each time the model builds.
+
+## Inserting a generated part
+
+A generated part is a single part made from values: the Gear of `@fluidcad/gears`. It is inserted the same way, from **Custom** or its tile in the **Insert** dialog. Its dialog is the gear feature's, with the same tabs and drawing, less the **At** row: the assembly places the part.
+
+The gear part carries a connector named `axis`, on the gear's axis. Mate it like any part's connector:
+
+1. Click **Revolute** on the assembly toolbar.
+2. Click the connector of the part the gear turns on, here the base plate's `bore`, then the gear's `axis` connector.
+3. Turn on **Flip** if the gear lands upside down, then click **Apply**.
+
+![A generated gear on the base plate, mated by its axis connector to the plate's bore](/img/docs/ui/generated-part-gear-mated.png)
+
+The gear has a row of its own in the Parts panel. Its menu is any inserted part's, and **Edit parameters…** opens the gear's dialog.
+
+<ExplainedCode code={asmGeneratedGear} fileName="drive.assembly.js">
+  `plate` is the base plate the rest of this section uses (see the [Introduction](/docs/assembly/introduction#assembly-connectors)); its `bore` connector sits on the top face, Z up.
+</ExplainedCode>

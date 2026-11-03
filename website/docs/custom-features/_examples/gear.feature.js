@@ -1,19 +1,22 @@
 // @screenshot skip
 // A spur gear with straight flanks: a disc of `teeth` trapezoid teeth round a
-// shaft bore, standing on a planar face, centred on it. Besides the standard
-// buckets it names its own: the tooth tips, flanks and roots and the bore,
-// and the edges of the tips and of the bore, which it leaves to be derived
-// from their faces. The outline is built with raw OpenCascade (this.occ()),
-// since the curated kernel draws no outline.
+// shaft bore, standing on a planar face, centred on it, or on the XY plane
+// when no face is picked. Besides the standard buckets it names its own: the
+// tooth tips, flanks and roots and the bore, and the edges of the tips and of
+// the bore, which it leaves to be derived from their faces. It also publishes
+// where it stands as a frame, `axis`, which the generated part in gear.part.js
+// turns into a connector. The outline is built with raw OpenCascade
+// (this.occ()), since the curated kernel draws no outline.
 import { Feature, defineFeature } from 'fluidcad/sdk';
 import { ShapeFactory, ShapeOps } from 'fluidcad/sdk/kernel';
-import { Matrix4 } from 'fluidcad/math';
+import { Matrix4, Plane } from 'fluidcad/math';
 
 /** The flanks' slant from the tooth's centre line: the old 14.5° rack, which keeps a root land down to ten teeth. */
 const FLANK_ANGLE = (14.5 * Math.PI) / 180;
 
 export class Gear extends Feature.with({
-  face: { picker: 'face', label: 'On face', surface: 'planar', description: 'The planar face the gear stands on, centred on it' },
+  // Optional, so a generated part can leave it out: the gear then stands on the XY plane.
+  face: { picker: 'face', label: 'On face', surface: 'planar', optional: true, description: 'The planar face the gear stands on, centred on it; left empty, the XY plane' },
   teeth: { type: 'integer', default: 20, min: 10, max: 120, description: 'How many teeth go round the gear' },
   module: { type: 'length', default: 2, min: 0.2, description: 'The tooth size: the pitch diameter over the number of teeth' },
   thickness: { type: 'length', default: 8, min: 0, description: 'How far the gear stands off the face' },
@@ -28,16 +31,27 @@ export class Gear extends Feature.with({
     boreFaces: {}, // the wall of the shaft hole
     boreEdges: { label: 'Bore Rims' }, // the rims of the shaft hole, top and bottom
   },
+  // Where the gear stands: origin on its axis, Z up the axis.
+  frames: {
+    axis: { label: 'Gear axis' },
+  },
 }) {
   static id = 'gear';
 
   buildTool() {
-    const faces = this.facesOf(this.values.face);
-    if (faces.length !== 1) {
-      throw new Error(`gear: pick one planar face to stand on (got ${faces.length} faces)`);
+    // The plane the gear stands on, and its centre on that plane.
+    let plane = Plane.XY();
+    let origin = plane.origin;
+    if (this.values.face !== undefined) {
+      const faces = this.facesOf(this.values.face);
+      if (faces.length !== 1) {
+        throw new Error(`gear: pick one planar face to stand on (got ${faces.length} faces)`);
+      }
+      plane = faces[0].getPlane();
+      origin = plane.projectPoint(faces[0].center());
     }
-    const plane = faces[0].getPlane();
-    const origin = plane.projectPoint(faces[0].center());
+    // The axis frame, set like the buckets: a plane at the gear's centre whose normal runs up its axis.
+    this.setFrames({ axis: new Plane(origin, plane.xDirection, plane.normal) });
     const body = this.occ(scope => Gear.#body(scope, this.values));
 
     // Placed on the face, centred on it, growing along its normal.

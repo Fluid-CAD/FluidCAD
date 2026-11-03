@@ -83,7 +83,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Custom Features',
       link: {type: 'doc', id: 'custom-features/index'},
-      items: ['custom-features/inputs', 'custom-features/geometry', 'custom-features/named-faces-and-edges'],
+      items: ['custom-features/inputs', 'custom-features/geometry', 'custom-features/named-faces-and-edges', 'custom-features/generated-parts-and-assemblies'],
     },
     'packages/index',
     'user-interface',

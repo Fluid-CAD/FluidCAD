@@ -16,6 +16,7 @@ import { unitFactor } from "../units/units.js";
 import { TextDigest } from "../common/text-digest.js";
 import { FeatureCall } from "./call-shape.js";
 import { FeatureNamespaces } from "./feature-namespaces.js";
+import { ClassModules } from "./class-modules.js";
 import { SchemaValidator, ValueSchema } from "./value-schema.js";
 import type { ScalarParamSpec } from "./meta.js";
 import type { ValuesOf } from "./feature-params.js";
@@ -172,6 +173,8 @@ export abstract class Generator<V extends FeatureValues = FeatureValues> {
     // Read while the class's module evaluates: `class X extends
     // Generator.with({ … })` runs here, in the module that holds X's code.
     Generator.origins.set(GeneratorWithValues, FeatureNamespaces.currentStamp() ?? 'workspace');
+    // The class's module: its values' pictures resolve there.
+    ClassModules.note(GeneratorWithValues);
     return GeneratorWithValues as unknown as GeneratorWith<P>;
   }
 

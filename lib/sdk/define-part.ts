@@ -18,9 +18,10 @@ import type { ParamSpec } from "./meta.js";
 import { FeatureLayouts, type FeatureLayout } from "./layout.js";
 import { SchemaValidator, ValueSchema } from "./value-schema.js";
 import {
-  GeneratedMetaValidator, type GeneratedAssetBase, type GeneratedMarker, type GeneratedMeta, type GeneratedSchema,
-  type ResolvedGeneratedMeta,
+  GeneratedMetaValidator, type GeneratedAssetBase, type GeneratedAssetModules, type GeneratedMarker, type GeneratedMeta,
+  type GeneratedSchema, type ResolvedGeneratedMeta,
 } from "./generated-schema.js";
+import { ClassModules } from "./class-modules.js";
 
 /** A feature class `definePart()` takes: a tool that declares its values through `Feature.with()`. */
 export type DefinablePartClass = (abstract new (values: any) => Feature<any, any, any>) & { readonly id: string; readonly params: FeatureParams };
@@ -159,6 +160,17 @@ export class GeneratedPartDefinition extends PartDefinition<void> {
       this.schemaSnapshot = this.snapshot();
     }
     return JSON.parse(JSON.stringify(this.schemaSnapshot)) as GeneratedSchema;
+  }
+
+  /**
+   * @internal Where the schema's images resolve (see `GeneratedAssetModules`):
+   * this definition's module — where its `definePart()` call is — and
+   * the module that declared its class's values. Read with
+   * `GeneratedSchemas.modulesOf` by a host that serves or packs the images.
+   */
+  assetModules(): GeneratedAssetModules {
+    const definition = this.getSourceLocation()?.filePath ?? null;
+    return Object.freeze({ definition, class: ClassModules.of(this.featureClass) });
   }
 
   /**

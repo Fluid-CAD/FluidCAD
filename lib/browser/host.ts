@@ -5,6 +5,7 @@ import { createManager } from "../scene-manager.js";
 import { setAssetProvider } from "../io/file-import.js";
 import { FontRegistry } from "../io/font-registry.js";
 import { BreakpointHit } from "../common/breakpoint-hit.js";
+import { ModuleExports } from "../common/module-exports.js";
 import { warnConfigurationRun } from "../features/param-overrides.js";
 import { PartDefinition } from "../features/part-definition.js";
 import { Scene } from "../rendering/scene.js";
@@ -307,12 +308,13 @@ export class BrowserEngineHost {
     try {
       const mod = await this.evaluator();
       // Every export resolved first (a factory called for the definition it
-      // returns), so the parts the module does not export are refused
+      // returns; a class, such as a generator's, is no factory and is never
+      // called), so the parts the module does not export are refused
       // (PartRules) before any export builds — the desktop's LocalSceneHost
       // does the same.
       const exports: [string, unknown][] = [];
       for (const [name, value] of Object.entries(mod)) {
-        exports.push([name, typeof value === "function" ? await (value as () => unknown)() : value]);
+        exports.push([name, await ModuleExports.resolve(value)]);
       }
       scene.refuseUnexportedParts(exports, this.entryPath);
       for (const [, result] of exports) {

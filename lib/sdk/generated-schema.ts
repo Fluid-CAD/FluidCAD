@@ -63,6 +63,18 @@ export type GeneratedSchema = {
   assetBase: { layout: GeneratedAssetBase };
 };
 
+/**
+ * Where a generated definition's two image bases are (see
+ * {@link GeneratedAssetBase}), as absolute paths a host names files by:
+ * `definition`, the module that called `definePart()` / `defineAssembly()`;
+ * `class`, the module that declared the class's values (`Feature.with()`,
+ * `Generator.with()`). Either is null when the engine could not tell (no
+ * stack to read). Never part of the schema: a host resolves and serves the
+ * images with it, and confines each to the package or workspace that owns
+ * the module.
+ */
+export type GeneratedAssetModules = Readonly<Record<GeneratedAssetBase, string | null>>;
+
 /** What `definePart` (and `defineAssembly`) is told about a generated definition, beside its class. */
 export type GeneratedMeta = {
   /** What the toolbar and the Insert dialog call it; also the part's name unless `name` is given. */
@@ -175,6 +187,28 @@ export class GeneratedSchemas {
         && typeof candidate.getSchema === 'function';
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * The modules a generated definition's images resolve against (see
+   * {@link GeneratedAssetModules}), read by duck typing; null for a value
+   * that is no generated definition, or one whose engine predates them.
+   */
+  static modulesOf(value: unknown): GeneratedAssetModules | null {
+    if (!GeneratedSchemas.isGenerated(value)) {
+      return null;
+    }
+    const reader = (value as { assetModules?: unknown }).assetModules;
+    if (typeof reader !== 'function') {
+      return null;
+    }
+    try {
+      const modules = (reader as () => Partial<GeneratedAssetModules> | null).call(value);
+      const path = (file: unknown) => (typeof file === 'string' && file !== '' ? file : null);
+      return modules ? Object.freeze({ definition: path(modules.definition), class: path(modules.class) }) : null;
+    } catch {
+      return null;
     }
   }
 

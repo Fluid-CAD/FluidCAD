@@ -18,8 +18,10 @@ import { GeneratedCode } from "./generated-code.js";
 import { GeneratedBuildReports } from "../rendering/generated-build-report.js";
 import type { GeneratorBuildContext, TemplateBuild, TemplateBuilder, TemplateUnits } from "./generated-template.js";
 import {
-  GeneratedMetaValidator, type GeneratedMarker, type GeneratedMeta, type GeneratedSchema, type ResolvedGeneratedMeta,
+  GeneratedMetaValidator, type GeneratedAssetModules, type GeneratedMarker, type GeneratedMeta, type GeneratedSchema,
+  type ResolvedGeneratedMeta,
 } from "./generated-schema.js";
+import { ClassModules } from "./class-modules.js";
 import type { Shape } from "../common/shape.js";
 
 /** A generator class `defineAssembly()` takes: one that extends `Generator.with({ … })`. */
@@ -152,6 +154,17 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
       this.schemaSnapshot = this.snapshot();
     }
     return JSON.parse(JSON.stringify(this.schemaSnapshot)) as GeneratedSchema;
+  }
+
+  /**
+   * @internal Where the schema's images resolve (see `GeneratedAssetModules`):
+   * this definition's module — where its `defineAssembly()` call is — and
+   * the module that declared its class's values. Read with
+   * `GeneratedSchemas.modulesOf` by a host that serves or packs the images.
+   */
+  assetModules(): GeneratedAssetModules {
+    const definition = this.getSourceLocation()?.filePath ?? null;
+    return Object.freeze({ definition, class: ClassModules.of(this.generatorClass) });
   }
 
   /**

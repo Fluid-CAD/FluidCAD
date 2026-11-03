@@ -1095,7 +1095,25 @@ export class AssemblyController {
     return state ? this.transparencyOf(state.data) : 0;
   }
 
+  /**
+   * Free what a group the controller drops drew with — a rebuilt or removed
+   * instance's, a replaced world connector's: its materials and its
+   * geometry. Each such group is built afresh, so its geometry is its own,
+   * except the solids' the mesh cache shares across instances and renders:
+   * their `dispose()` is a no-op, and the cache frees them on eviction.
+   */
   private disposeGroup(group: Object3D): void {
+    group.traverse(child => {
+      (child as { geometry?: { dispose?: () => void } }).geometry?.dispose?.();
+    });
+    AssemblyController.disposeMaterials(group);
+  }
+
+  /**
+   * Free a group's materials only — a replica ghost's: it draws with its
+   * seed's geometry (`buildGhostClone`), which the seed's group frees.
+   */
+  private static disposeMaterials(group: Object3D): void {
     group.traverse(child => {
       const mat = (child as any).material;
       if (mat) {
@@ -1702,8 +1720,8 @@ export class AssemblyController {
     }
     for (const ghost of replicas.ghosts.values()) {
       this.provisionalGroup.remove(ghost.group);
-      // Ghosts share the seed's geometry; disposeGroup only releases materials.
-      this.disposeGroup(ghost.group);
+      // Ghosts share the seed's geometry: only their materials are theirs.
+      AssemblyController.disposeMaterials(ghost.group);
     }
     this.provisionalReplicas = null;
   }

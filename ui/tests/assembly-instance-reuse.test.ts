@@ -234,6 +234,54 @@ describe('keeping unchanged assembly instances across renders', () => {
   });
 });
 
+describe('freeing what a dropped instance group drew', () => {
+  /** The geometries and materials under `group`, each noting its own `dispose()` in `freed`. */
+  function resourcesOf(group: Object3D, freed: Set<unknown>): { geometries: unknown[]; materials: unknown[] } {
+    const geometries = new Set<any>();
+    const materials = new Set<any>();
+    group.traverse((o: any) => {
+      if (o.geometry) {
+        geometries.add(o.geometry);
+      }
+      for (const material of [o.material].flat()) {
+        if (material) {
+          materials.add(material);
+        }
+      }
+    });
+    for (const resource of [...geometries, ...materials]) {
+      resource.addEventListener('dispose', () => freed.add(resource));
+    }
+    return { geometries: [...geometries], materials: [...materials] };
+  }
+
+  it('disposes a rebuilt or removed group\'s geometry and materials, and nothing a kept group draws with', () => {
+    const c = controller();
+    const first = render(1);
+    c.update(first.rows, first.assembly);
+    const freed = new Set<unknown>();
+    const shelf = resourcesOf(c.getInstanceGroup('i1')!, freed);
+    const post = resourcesOf(c.getInstanceGroup('i3')!, freed);
+    expect(shelf.geometries.length).toBeGreaterThan(0);
+
+    // The shelf drew another mesh: its groups are rebuilt, the post's kept.
+    const wider = render(2, { shelf: 'k-shelf-wide/vf' });
+    c.update(wider.rows, wider.assembly);
+    expect(c.getLastUpdateStats()).toEqual({ kept: 1, rebuilt: 2, removed: 0 });
+    expect(shelf.geometries.filter(g => !freed.has(g))).toEqual([]);
+    expect(shelf.materials.filter(m => !freed.has(m))).toEqual([]);
+    expect([...post.geometries, ...post.materials].some(r => freed.has(r))).toBe(false);
+
+    // The post's insert is gone: its group, and what it drew with, go too.
+    const without = render(3, { shelf: 'k-shelf-wide/vf' });
+    without.assembly.instances = without.assembly.instances.filter(inst => inst.instanceId !== 'i3');
+    c.update(without.rows, without.assembly);
+    expect(c.getLastUpdateStats()).toMatchObject({ removed: 1 });
+    expect(post.geometries.filter(g => !freed.has(g))).toEqual([]);
+    expect(post.materials.filter(m => !freed.has(m))).toEqual([]);
+  });
+});
+
 describe('instance content', () => {
   it('leaves the volatile fields and the payloads out, and names the rows in walk order', () => {
     const a = InstanceContent.of('shelf-1', render(1).rows)!;

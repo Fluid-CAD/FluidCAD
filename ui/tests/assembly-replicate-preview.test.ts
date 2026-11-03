@@ -127,7 +127,7 @@ describe('provisional replicas', () => {
   });
 
   it('clearing restores the scene; commit keeps ghosts on screen but out of the solve; a render disposes them', () => {
-    const { controller, provisional, sceneObjects, assembly } = makeRig();
+    const { controller, provisional, sceneObjects, assembly, pinMesh } = makeRig();
     const ghostId = provisionalReplicaId(0, 'i1');
     const spec = {
       rows: [{
@@ -140,7 +140,15 @@ describe('provisional replicas', () => {
       }],
     };
     controller.setProvisionalReplicas(spec);
+    // A ghost draws with its seed's geometry: clearing it frees its own
+    // materials, never the geometry the seed still draws.
+    const ghostMesh = provisional().children[0].getObjectByProperty('type', 'Mesh') as Mesh;
+    expect(ghostMesh.geometry).toBe(pinMesh.geometry);
+    const freed: string[] = [];
+    pinMesh.geometry.addEventListener('dispose', () => freed.push('seed geometry'));
+    (ghostMesh.material as MeshBasicMaterial).addEventListener('dispose', () => freed.push('ghost material'));
     controller.setProvisionalReplicas(null);
+    expect(freed).toEqual(['ghost material']);
     expect(provisional().children).toHaveLength(0);
     expect(controller.hasProvisionalReplicas()).toBe(false);
     controller.setProvisionalReplicas(spec);

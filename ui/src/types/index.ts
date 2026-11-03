@@ -601,6 +601,14 @@ export type InstanceParamDef = {
   multiControlType?: string;
 };
 
+/**
+ * What a record made from a generated definition carries (`definePart`,
+ * `defineAssembly`): the definition's id and the values it was built with,
+ * by id — defaults included, as the engine completed them. The Edit
+ * parameters dialog opens the definition's schema dialog on it.
+ */
+export type GeneratedValues = { definition: string; values: Record<string, InstanceParamValue> };
+
 export type SerializedAssemblyInstance = {
   instanceId: string;
   partId: string;
@@ -638,6 +646,14 @@ export type SerializedAssemblyInstance = {
    * it — edit the replicate statement's row instead.
    */
   replica?: ReplicaTag;
+  /** An insert of a generated part (`definePart`): its definition and values. */
+  generated?: GeneratedValues;
+  /**
+   * An engine-owned part a generator made (`defineAssembly`): its definition
+   * and template type. Read-only (G8): its statement is the generator's, and
+   * its values are the insert's that made it.
+   */
+  generatedBy?: { definition: string; type: string };
 };
 
 /**
@@ -702,6 +718,12 @@ export type SerializedAssemblyOccurrence = {
   sourceLocation?: { filePath: string; line: number; column: number };
   /** Present on a replica produced by a `replicate()` statement — see SerializedAssemblyInstance.replica. */
   replica?: ReplicaTag;
+  /**
+   * An occurrence of a generated assembly (`defineAssembly`): its definition
+   * and values. Everything under it is engine-owned (read-only); its own
+   * header keeps its actions.
+   */
+  generated?: GeneratedValues;
 };
 
 export type SerializedAssemblyMate = {

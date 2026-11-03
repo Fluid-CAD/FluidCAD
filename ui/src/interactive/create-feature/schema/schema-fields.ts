@@ -9,6 +9,7 @@ import { ExpressionField } from '../../../ui/expression-field';
 import { choiceLiteral, type VariableInfo, type VariableLiteral } from '../../../ui/expression-core';
 import { ChoiceParameters } from '../choice-parameters';
 import { ExpressionMode, type ExpressionShown } from '../expression-mode';
+import type { PanelChange } from '../feature-panel';
 import { FeatureSchema } from './feature-schema';
 
 /**
@@ -68,8 +69,8 @@ export abstract class SchemaField {
   /** A row outside any catalog: a declared file's path stands as it is. */
   private static readonly BARE: SchemaFieldContext = { assetUrl: path => path };
 
-  /** The user changed the value. */
-  onChange?: () => void;
+  /** The user changed the value; `continuous` while a drag moves it (a slider's track). */
+  onChange?: (change?: PanelChange) => void;
   /** Enter in a text-like field. */
   onSubmit?: () => void;
 
@@ -95,10 +96,10 @@ export abstract class SchemaField {
     return this.changed;
   }
 
-  /** The row's control fired — the value is the user's now. */
-  protected touch(): void {
+  /** The row's control fired — the value is the user's now. A drag says so (`continuous`). */
+  protected touch(change?: PanelChange): void {
     this.changed = true;
-    this.onChange?.();
+    this.onChange?.(change);
   }
 
   /** The value `visibleWhen` compares: the literal the row holds, or undefined — a list is never compared. */
@@ -262,7 +263,7 @@ class NumberField extends SchemaField {
     if (display === 'slider' && min !== undefined && max !== undefined) {
       this.track = new RangeTrack({ min, max, step: NumberField.trackStep(this.look) });
       this.track.element.dataset.role = `track-${name}`;
-      this.track.onInput = value => this.write(value);
+      this.track.onInput = value => this.write(value, { continuous: true });
       this.row.append(this.track.element);
     }
     const line = document.createElement('div');
@@ -325,11 +326,11 @@ class NumberField extends SchemaField {
     }
   }
 
-  /** A number from the track or the buttons: into the input, as the user's. */
-  private write(value: number): void {
+  /** A number from the track (a drag) or the buttons: into the input, as the user's. */
+  private write(value: number, change?: PanelChange): void {
     this.field.setValue(Number(value.toPrecision(12)));
     this.follow();
-    this.touch();
+    this.touch(change);
   }
 
   /** One step up or down from the number shown (an empty row starts at its default, else its min, else 0), kept inside the range. */

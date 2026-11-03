@@ -5,6 +5,13 @@ import { applyUnitDefaults } from '../../units/apply-unit-defaults';
 import { sceneUnit } from '../../units/scene-unit';
 
 /**
+ * What a change of a dialog's value says about itself: `continuous` while a
+ * control is being dragged (a slider's track), so a dialog that previews on
+ * every change can throttle a drag rather than debounce it.
+ */
+export type PanelChange = { continuous?: boolean };
+
+/**
  * The base every create/edit feature dialog panel shares: the PanelShell with
  * its Escape wiring, the Apply / Exit buttons in the shell's pinned footer,
  * the preview/message/enable delegates, and the ExpressionField wiring (Enter
@@ -13,7 +20,7 @@ import { sceneUnit } from '../../units/scene-unit';
  * `this.body`.
  */
 export abstract class FeaturePanel {
-  onChange?: () => void;
+  onChange?: (change?: PanelChange) => void;
   onApply?: () => void;
   onExit?: () => void;
 

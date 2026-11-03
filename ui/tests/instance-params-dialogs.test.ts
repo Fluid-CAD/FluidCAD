@@ -349,3 +349,51 @@ describe('Insert part: Show library parts', () => {
     expect(api.scanPartCatalogFile).not.toHaveBeenCalled();
   });
 });
+
+// A generated part or assembly (generators S6) is listed from its schema:
+// its tile shows its icon and opens its own dialog instead of queueing.
+describe('the Insert dialog\'s generated tiles', () => {
+  const schema = {
+    kind: 'assembly', definitionKind: 'generated', id: 'crate', label: 'Crate', icon: '../icons/crate.svg',
+    params: { width: { type: 'length', label: 'Width', default: 40 } }, layout: ['width'], connectors: [], assetBase: { layout: 'definition' },
+  };
+
+  async function open() {
+    vi.mocked(api.getScopeVariables).mockResolvedValue([]);
+    vi.mocked(api.getPartCatalogFiles).mockResolvedValue([{ absPath: '/ws/assemblies/crate.assembly.js', path: 'assemblies/crate.assembly.js' }] as any);
+    vi.mocked(api.scanPartCatalogFile).mockResolvedValue({
+      parts: [{ exportName: 'beam', partName: 'Beam', kind: 'value', params: [], objects: [] }],
+      assemblies: [{
+        exportName: 'crate', kind: 'assembly', exportKind: 'value', assemblyName: 'Crate', instances: [], mates: [], objects: [], params: [],
+        definitionKind: 'generated', schema, assetUrls: { definition: { '../icons/crate.svg': 'api/part-catalog/asset?crate-icon' }, class: {} },
+      }],
+      errors: [],
+    } as any);
+    const insert = new InsertPartDialog(root);
+    dialog = insert;
+    const opened = vi.fn();
+    insert.onGenerated = opened;
+    insert.show('/ws/shop.assembly.js');
+    await vi.waitFor(() => expect(root.querySelector('[data-generated="crate"]')).not.toBeNull());
+    return { opened, tile: root.querySelector<HTMLButtonElement>('[data-generated="crate"]')! };
+  }
+
+  it('shows a generated definition with its icon and opens its dialog instead of queueing it', async () => {
+    const { opened, tile } = await open();
+    expect(tile.querySelector('img')!.getAttribute('src')).toBe('api/part-catalog/asset?crate-icon');
+    expect(tile.textContent).toContain('generated assembly');
+    tile.click();
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect(opened.mock.calls[0][0].entry).toMatchObject({ file: '/ws/assemblies/crate.assembly.js', exportName: 'crate', kind: 'assembly' });
+    expect(root.firstElementChild!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('opens nothing while instances are queued, and says why', async () => {
+    const { opened, tile } = await open();
+    root.querySelector<HTMLButtonElement>('[data-kind="part"]')!.click();
+    tile.click();
+    expect(opened).not.toHaveBeenCalled();
+    expect(root.querySelector('[data-ref="status"]')!.textContent).toBe('Insert the 1 queued first, or remove them: Crate opens its own dialog.');
+    expect(root.firstElementChild!.classList.contains('hidden')).toBe(false);
+  });
+});

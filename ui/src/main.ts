@@ -65,7 +65,7 @@ import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
-import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
+import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, pauseAfterStatement, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, restartEngine, getGlobalParams, setGlobalParam, EVERY_SOLID, type PauseAfterResult, type ShapeSelection, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
@@ -73,6 +73,12 @@ import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey, f
 import { renderVersions } from './render-versions';
 import { consumedReveal } from './interactive/create-feature/consumed-reveal';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
+import { GeneratedDialog, type GeneratedEditTarget } from './interactive/generated/generated-dialog';
+import { GeneratedDefinitionsMenu } from './interactive/generated/generated-menu';
+import type { GeneratedDefinition } from './interactive/generated/generated-definition';
+import { previewScene } from './interactive/generated/preview-scene';
+import { PreviewTokens } from './interactive/generated/preview-tokens';
+import { AssemblyPoseWrites } from './scene/assembly-pose-writes';
 import { SectionViewService } from './interactive/section-view/section-view-service';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
 import { AssemblyRelationService } from './interactive/assembly-relation/relation-service';
@@ -264,6 +270,7 @@ function applyLoadedPreferences(prefs: UserPreferences): void {
   applyGlobalMaterialsPreferences(prefs);
   applyPackagePreferences(prefs);
   featureCatalog.menu.setToolbarPackages(prefs.toolbarPackages ?? []);
+  generatedMenu.menu.setToolbarPackages(prefs.toolbarPackages ?? []);
   pendingShowBuildTimings = !!prefs.showBuildTimings;
   if (currentRail?.kind === 'part') {
     currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
@@ -516,22 +523,23 @@ function buildAssemblyRail(): LeftRail {
     (id, grounded) => {
       const inst = findInstance(id);
       // Occurrence-owned instances' statements live in the sub-assembly's
-      // file — the panel hides these actions, this is the backstop.
-      if (!inst?.sourceLocation || inst.owner || inst.replica) return;
-      updateInsertChain(inst.sourceLocation, { ground: grounded });
+      // file, engine-owned ones are read-only, and a preview's rows are the
+      // previewed code's — the panel hides these actions, this is the backstop.
+      if (!ownsInsertStatement(inst)) return;
+      updateInsertChain(inst.sourceLocation, { ground: grounded }, id);
     },
     (id, newName) => {
       const inst = findInstance(id);
-      if (!inst?.sourceLocation || inst.owner || inst.replica) return;
-      void renameInsert(inst.sourceLocation, newName, inst.partName);
+      if (!ownsInsertStatement(inst)) return;
+      void renameInsert(inst.sourceLocation, newName, inst.partName, id);
     },
     (id) => {
       const inst = findInstance(id);
-      if (!inst?.sourceLocation || inst.owner || inst.replica) return;
+      if (!ownsInsertStatement(inst)) return;
       // Drops the whole `insert(...)` statement, its `const` binding included;
       // the server sweeps every mate() and replicate() that referenced the
       // binding along with it (same path as the timeline's Remove).
-      removeFeature(inst.sourceLocation);
+      removeFeature(inst.sourceLocation, id);
     },
     // Occurrence header actions — the occurrence's own `insert(subAsm())`
     // chain lives in the OPEN file, so the same statement edits instances
@@ -545,27 +553,34 @@ function buildAssemblyRail(): LeftRail {
       },
       onSetGround: (id, grounded) => {
         const occ = findOccurrence(id);
-        if (!occ?.sourceLocation || occ.replica) return;
-        updateInsertChain(occ.sourceLocation, { ground: grounded });
+        if (!occ?.sourceLocation || occ.replica || previewScene.active) return;
+        updateInsertChain(occ.sourceLocation, { ground: grounded }, id);
       },
       onRename: (id, newName) => {
         const occ = findOccurrence(id);
-        if (!occ?.sourceLocation || occ.replica) return;
-        void renameInsert(occ.sourceLocation, newName, occ.assemblyName);
+        if (!occ?.sourceLocation || occ.replica || previewScene.active) return;
+        void renameInsert(occ.sourceLocation, newName, occ.assemblyName, id);
       },
       onDelete: (id) => {
         const occ = findOccurrence(id);
-        if (!occ?.sourceLocation || occ.replica) return;
-        removeFeature(occ.sourceLocation);
+        if (!occ?.sourceLocation || occ.replica || previewScene.active) return;
+        removeFeature(occ.sourceLocation, id);
       },
     },
     // Edit parameters — instance rows read control metadata off their part
     // template, occurrence headers carry their own; both merge into the
     // insert() statement's second argument.
+    // A generated part's instance or a generated assembly's occurrence
+    // opens its definition's dialog instead, previewing as it is edited.
     (kind, id) => {
       if (kind === 'instance') {
         const inst = findInstance(id);
-        if (!inst?.sourceLocation || inst.owner || inst.replica) return;
+        if (!ownsInsertStatement(inst)) return;
+        const generated = GeneratedDialog.editTargetOf(inst);
+        if (generated) {
+          void openGeneratedEdit(generated.definition, generated.target);
+          return;
+        }
         const defs = lastPartTemplates.get(inst.partId)?.params;
         if (!Array.isArray(defs) || defs.length === 0) return;
         editParamsDialog.show({
@@ -577,10 +592,17 @@ function buildAssemblyRail(): LeftRail {
           line: inst.sourceLocation.line,
           configuration: inst.configuration,
           configurations: lastPartTemplates.get(inst.partId)?.configurations,
+          row: id,
         });
       } else {
         const occ = findOccurrence(id);
-        if (!occ?.sourceLocation || occ.replica || !occ.params?.length) return;
+        if (!occ?.sourceLocation || occ.replica || previewScene.active) return;
+        const generated = GeneratedDialog.editTargetOf(occ);
+        if (generated) {
+          void openGeneratedEdit(generated.definition, generated.target);
+          return;
+        }
+        if (!occ.params?.length) return;
         editParamsDialog.show({
           title: `${occ.name} — parameters`,
           subtitle: occ.assemblyName,
@@ -590,6 +612,7 @@ function buildAssemblyRail(): LeftRail {
           line: occ.sourceLocation.line,
           configuration: occ.configuration,
           configurations: occ.configurations,
+          row: id,
         });
       }
     },
@@ -630,9 +653,9 @@ function buildAssemblyRail(): LeftRail {
         preview: (id, transparency) => viewer.previewInstanceTransparency(id, transparency),
         commit: (id, transparency) => {
           const inst = findInstance(id);
-          // Occurrence-owned and replica rows never offer the item; backstop.
-          if (!inst?.sourceLocation || inst.owner || inst.replica) return;
-          const write = setInstanceTransparency(inst.sourceLocation, transparency > 0 ? transparency : null)
+          // Occurrence-owned, engine-owned and replica rows never offer the item; backstop.
+          if (!ownsInsertStatement(inst)) return;
+          const write = setInstanceTransparency(inst.sourceLocation, transparency > 0 ? transparency : null, id)
             .then((result) => {
               if (!result.success && currentRail?.kind === 'assembly') {
                 currentRail.dragReadout.flashError(result.reason ?? 'Could not set the transparency');
@@ -686,9 +709,9 @@ function buildAssemblyRail(): LeftRail {
       const mate = findMate(id);
       // Owned mates' statements live in the sub-assembly's file — the panel
       // hides Delete for these, this is the backstop.
-      if (!mate?.sourceLocation || mate.owner || mate.replica) return;
+      if (!mate?.sourceLocation || mate.owner || mate.replica || previewScene.active) return;
       // Drops the whole `mate(...)` statement.
-      removeFeature(mate.sourceLocation);
+      removeFeature(mate.sourceLocation, id);
     },
     {
       onAnimate: (id) => {
@@ -728,9 +751,9 @@ function buildAssemblyRail(): LeftRail {
       },
       onDeleteRelation: (id) => {
         const relation = findRelation(id);
-        if (!relation?.sourceLocation || relation.owner) return;
+        if (!relation?.sourceLocation || relation.owner || previewScene.active) return;
         // Drops the whole `relation(...)` statement; nothing references it.
-        removeFeature(relation.sourceLocation);
+        removeFeature(relation.sourceLocation, id);
       },
     },
   );
@@ -839,6 +862,18 @@ function findInstance(instanceId: string) {
   return lastAssemblyPayload?.instances.find(i => i.instanceId === instanceId);
 }
 
+/**
+ * Whether a parts-panel row may rewrite its instance's own `insert()`:
+ * the open file's own statement (not a sub-assembly body's, a replica's or
+ * an engine-owned part's — `generatedBy`, G8), with nothing but the file's
+ * own scene on screen (a preview's rows are the previewed code's).
+ */
+function ownsInsertStatement(
+  inst: SerializedAssemblyInstance | undefined,
+): inst is SerializedAssemblyInstance & { sourceLocation: NonNullable<SerializedAssemblyInstance['sourceLocation']> } {
+  return !!inst?.sourceLocation && !inst.owner && !inst.replica && !inst.generatedBy && !previewScene.active;
+}
+
 function findOccurrence(occurrenceId: string) {
   return lastAssemblyPayload?.occurrences?.find(o => o.occurrenceId === occurrenceId);
 }
@@ -895,8 +930,9 @@ async function renameInsert(
   sourceLocation: { filePath: string; line: number },
   name: string,
   defaultName: string,
+  row?: string,
 ): Promise<void> {
-  const result = await renameInstance(sourceLocation, name, defaultName);
+  const result = await renameInstance(sourceLocation, name, defaultName, row);
   if (!result.success && currentRail?.kind === 'assembly') {
     currentRail.dragReadout.flashError(result.reason ?? 'Could not rename');
   }
@@ -908,12 +944,14 @@ async function updateInsertChain(
     ground?: boolean;
     translate?: [number, number, number] | null;
   },
+  /** The record's id: the row the write comes from (G8). */
+  row?: string,
 ): Promise<void> {
   try {
     await fetch('api/update-insert-chain', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sourceLocation, edit }),
+      body: JSON.stringify({ sourceLocation, edit, ...(row ? { row } : {}) }),
     });
   } catch (err) {
     console.error('Update insert chain failed:', err);
@@ -989,6 +1027,9 @@ const hubClient = new HttpHubClient();
 function packagesChanged(options: { fromHubPanel?: boolean } = {}): void {
   void packagesState.refresh();
   void featureCatalog.refresh();
+  if (generatedMenu.isLoaded) {
+    void generatedMenu.refresh();
+  }
   recompute();
   if (!options.fromHubPanel && hubPanel.isOpen()) {
     hubPanel.packagesChanged();
@@ -1349,7 +1390,10 @@ const editParamsDialog = new EditParamsDialog(container);
 // The Insert dialog reuses `currentSceneAbsPath` (declared with the history
 // toolbar above) to exclude the open assembly from inserting into itself.
 new AssemblyToolbar(navbar, {
-  onInsert: () => insertPartDialog.show(currentSceneAbsPath),
+  onInsert: () => {
+    generatedDialog.cancel();
+    insertPartDialog.show(currentSceneAbsPath);
+  },
   onConnector: () => void assemblyConnectorService.enter(),
   // The service is constructed later (it needs the gizmo driver); toolbar
   // clicks only ever fire after startup completes.
@@ -1367,6 +1411,71 @@ new AssemblyToolbar(navbar, {
       : { kind: 'instance', id: inst.instanceId });
   },
 });
+
+// The assembly bar's Custom dropdown — generated parts and assemblies
+// (definePart, defineAssembly) grouped by package like the part bar's
+// Custom features — and the dialog each opens: the custom-feature dialog
+// over the definition's values, previewing the real result as it is
+// edited (G4). A generated tile of the Insert dialog and Edit parameters on
+// a generated occurrence or part open the same dialog.
+const generatedMenu = new GeneratedDefinitionsMenu(navbar);
+const generatedDialog = new GeneratedDialog(container, {
+  onEnter: () => {
+    // One assembly dialog at a time, and the viewport free of selection.
+    assemblyGizmo.handleSelection(null);
+    viewer.clearHighlight();
+    viewer.clearInstanceHighlight();
+    selectionInfoOverlay.hide();
+    assemblyMateService.exit();
+    assemblyReplicateService.exit();
+    assemblyConnectorCopyService.exit();
+    assemblyRelationService.exit();
+    assemblyConnectorService.exit();
+    editParamsDialog.hide();
+  },
+  onActiveChange: (definition) => generatedMenu.setActive(definition),
+  notify: (message) => showToast(message),
+});
+generatedMenu.onOpen = (definition) => {
+  if (generatedDialog.definition?.key === definition.key && !generatedDialog.isEditing) {
+    generatedDialog.cancel();
+    return;
+  }
+  openGeneratedCreate(definition);
+};
+// With nothing generated to list, the dropdown sends the user to the Hub panel.
+generatedMenu.setEmptyAction(() => hubPanel.show());
+// The toolbar pins are one preference: a package pinned on either bench's
+// dropdown rides both bars.
+generatedMenu.menu.onToolbarPackagesChange = (names) => {
+  savePreference('toolbarPackages', names);
+  featureCatalog.menu.setToolbarPackages(names);
+};
+// A generated tile of the Insert dialog opens the definition's dialog.
+insertPartDialog.onGenerated = (definition) => openGeneratedCreate(definition);
+
+/** Insert a generated definition into the assembly on screen through its dialog. */
+function openGeneratedCreate(definition: GeneratedDefinition): void {
+  const filePath = currentSceneAbsPath;
+  if (!filePath || sceneDocument.current?.kind !== 'assembly') {
+    showToast('Open an assembly to insert a generated part or assembly.');
+    return;
+  }
+  generatedDialog.openCreate(definition, filePath);
+}
+
+/** Edit the values of a generated insert through its definition's dialog. */
+async function openGeneratedEdit(definitionId: string, target: GeneratedEditTarget): Promise<void> {
+  const definition = await generatedMenu.find(definitionId);
+  if (!definition) {
+    showToast(`The generated definition '${definitionId}' isn't in this project's catalog, so its values can't be edited here.`);
+    return;
+  }
+  await generatedDialog.openEdit(definition, target);
+}
+
+// A tab reloaded (or navigated away) with a dialog's preview showing: end it.
+void PreviewTokens.endOrphan();
 
 // The Project sketch tool. It is armed from the sketch toolbar, but
 // its picks are solid edges and faces in the free 3D view, so the routing
@@ -2466,7 +2575,10 @@ const featureCatalog = new FeatureCatalogDialogs(featureDialogs, navbar, (schema
 // none are installed and opens the Hub panel.
 featureCatalog.menu.setEmptyAction(() => hubPanel.show());
 // A package pinned from the dropdown rides the toolbar in every project.
-featureCatalog.menu.onToolbarPackagesChange = (names) => savePreference('toolbarPackages', names);
+featureCatalog.menu.onToolbarPackagesChange = (names) => {
+  savePreference('toolbarPackages', names);
+  generatedMenu.menu.setToolbarPackages(names);
+};
 
 // While a sketch is active, a green "Finish Sketch" button heads the create
 // group and the create-feature buttons leave the bar. It marks the sketch
@@ -2562,34 +2674,18 @@ shapePropertiesModal.setPartSelectionHandler((part) => {
   propertiesPartPick.refreshHighlight();
 });
 
+// A free drag writes the part's new place into its insert() — when the
+// shared pose rule says it may (AssemblyPoseWrites: the file's own scene,
+// the file's own statement, grounded or unmated); every other drag is
+// live-only, the part moving along its joints with nothing written.
 viewer.setInstanceDragReleaseHandler((instanceId, position) => {
   const inst = findInstance(instanceId);
-  if (!inst?.sourceLocation) return;
-  // For mate-constrained ungrounded bodies, position is mate-derived and
-  // rotation is the meaningful drag dimension. Persisting `.translate(...)`
-  // would write the post-solve position into the source while losing the
-  // rotation entirely (`.orient()` doesn't exist yet), so on reload the
-  // body would snap back to identity orientation at the persisted
-  // position — visibly undoing the drag. Until rotation persistence
-  // exists, leave such instances at their default in source and let the
-  // mate warm-start re-derive the pose from the driver.
-  if (!inst.grounded && instanceHasMate(instanceId)) {
-    return;
-  }
-  // Occurrence-owned instances' sourceLocations point into the sub-assembly's
-  // own file, and their pose there is local to the occurrence frame — never
-  // write this view's world pose there. Live-only, like mated bodies.
-  if (inst.owner) {
-    return;
-  }
-  // A replica's statement is its replicate() call; its pose comes from the
-  // row's mates. Live-only.
-  if (inst.replica) {
+  if (!AssemblyPoseWrites.writable(inst, instanceHasMate)) {
     return;
   }
   updateInsertChain(inst.sourceLocation, {
     translate: [position.x, position.y, position.z],
-  });
+  }, instanceId);
 });
 
 viewer.setDragValueHandler((readout) => {
@@ -2652,6 +2748,7 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
     assemblyReplicateService.exit();
     assemblyConnectorCopyService.exit();
     assemblyRelationService.exit();
+    generatedDialog.cancel();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -2697,6 +2794,7 @@ const assemblyRelationService = new AssemblyRelationService(container, viewer, {
     assemblyReplicateService.exit();
     assemblyConnectorCopyService.exit();
     assemblyConnectorService.exit();
+    generatedDialog.cancel();
     if (currentRail?.kind === 'assembly') {
       currentRail.joints.setPickMode((mate) => assemblyRelationService.pickMate(mate.mateId), 'Click a joint to pick it for the relation');
     }
@@ -2721,6 +2819,7 @@ const assemblyConnectorService = new AssemblyConnectorService(container, viewer,
     selectionInfoOverlay.hide();
     assemblyConnectorCopyService.exit();
     assemblyRelationService.exit();
+    generatedDialog.cancel();
   },
 });
 
@@ -2740,6 +2839,7 @@ const assemblyConnectorCopyService = new AssemblyConnectorCopyService(container,
     assemblyReplicateService.exit();
     assemblyConnectorService.exit();
     assemblyRelationService.exit();
+    generatedDialog.cancel();
   },
   // The rail's rows pick for the armed slot: a copy's row only as the axis
   // (a copy is never copied again), so it sits inert while targets are picked.
@@ -2772,6 +2872,7 @@ const assemblyReplicateService = new AssemblyReplicateService(container, viewer,
     assemblyMateService.exit();
     assemblyConnectorCopyService.exit();
     assemblyRelationService.exit();
+    generatedDialog.cancel();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -3324,6 +3425,11 @@ function applySceneRendered(msg: any): void {
     if (import.meta.env.DEV && Array.isArray(msg.result)) {
       Object.freeze(msg.result);
     }
+    // An assembly preview (G4) — a dialog's edit applied in memory, not the
+    // file's own code: while it shows, no row of it is written and the
+    // editor's markers stay as they are (see previewScene).
+    const previewToken: string | null = typeof msg.preview?.token === 'string' ? msg.preview.token : null;
+    previewScene.set(previewToken);
     // The document's unit — every readout suffixes with it. Missing on
     // older servers, which means mm.
     sceneUnit.set((msg as { unit?: LengthUnit }).unit ?? 'mm');
@@ -3404,8 +3510,9 @@ function applySceneRendered(msg: any): void {
     }
     // Build failures become editor markers, and the breakpoint dots are
     // re-derived — the source may have been rewritten by the very
-    // transform that triggered this render.
-    if (editorSurface) {
+    // transform that triggered this render. A preview's rows are by the
+    // previewed code's lines, not the editor's: its markers are skipped.
+    if (editorSurface && previewToken === null) {
       editorSurface.onSceneRendered(msg.result as SceneObjectRender[], msg.compileError ?? null);
     }
     const renderStop = msg.rollbackStop ?? msg.result.length - 1;
@@ -3438,6 +3545,13 @@ function applySceneRendered(msg: any): void {
       const assembly = normalizeAssemblyPayload(msg.assembly);
       renderedAssembly = assembly;
       applyAssemblyToRail(rail, assembly);
+      // A preview's rows can't be written; the file's own scene's can.
+      rail.parts.setReadOnly(previewScene.active);
+      rail.joints.setReadOnly(previewScene.active);
+      rail.connectors.setReadOnly(previewScene.active);
+      // The assembly bar's Custom dropdown lists the generated definitions
+      // from the first assembly on (a part-only session never asks).
+      void generatedMenu.ensureLoaded();
       // Instance groups were just rebuilt/re-posed — re-anchor the
       // gizmo (or dismiss it if its instance is gone or now locked).
       assemblyGizmo.handleSceneRendered();
@@ -3455,6 +3569,14 @@ function applySceneRendered(msg: any): void {
     assemblyReplicateService.handleSceneRendered(sceneKind);
     assemblyConnectorCopyService.handleSceneRendered(sceneKind);
     assemblyRelationService.handleSceneRendered(sceneKind);
+    // The generated dialog follows its file and its insert through the
+    // renders, and rebuilds a preview a render replaced.
+    generatedDialog.handleSceneRendered({
+      absPath: msg.absPath ?? null,
+      sceneKind,
+      previewToken,
+      assembly: renderedAssembly ?? null,
+    });
     if (msg.params !== undefined) {
       (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? [], msg.configurations);
       renderedConfigurations = msg.configurations ?? null;
@@ -3543,9 +3665,17 @@ function connectWebSocket() {
         break;
       case 'features-changed':
         // A feature module (or a file one imports) changed: its dialog follows.
-        // So does fluidcad.json — the pins — which the packages read too.
+        // So does fluidcad.json — the pins — which the packages read too —
+        // and the generated definitions a feature or a pin may change.
         void featureCatalog.refresh({ changed: true });
         void packagesState.refresh();
+        if (generatedMenu.isLoaded) {
+          void generatedMenu.refresh();
+        }
+        break;
+      case 'assembly-preview-ended':
+        // A preview stopped showing (G4): its dialog closes or rebuilds it.
+        generatedDialog.handlePreviewEnded(msg.token, msg.reason);
         break;
       case 'engine-suspect':
         // The kernel trapped (raw OpenCascade, most likely): offer a restart.

@@ -90,7 +90,9 @@ export interface PartsPanelOptions {
   /**
    * A host that cannot edit source (the browser viewer): rows keep select /
    * visibility, and lose the ⋮ menu, the context menu and inline rename —
-   * every action there rewrites an insert() statement.
+   * every action there rewrites an insert() statement. The page makes an
+   * editing host read-only for a while with {@link PartsPanel.setReadOnly}
+   * (an assembly preview on screen).
    */
   readOnly?: boolean;
   /** Replicate entry points; absent on hosts without the replicate dialog. */
@@ -131,7 +133,7 @@ export class PartsPanel {
   private onDeleteInstance: (instanceId: string) => void;
   private occurrenceHandlers: OccurrenceHandlers | null;
   private onEditParams: ((kind: 'instance' | 'occurrence', id: string) => void) | null;
-  private readonly readOnly: boolean;
+  private readOnly: boolean;
   private readonly replicate: ReplicateHandlers | null;
   private readonly transparency: TransparencyHandlers | null;
 
@@ -272,6 +274,39 @@ export class PartsPanel {
     }
     this.selectedId = instanceId;
     this.renderRows();
+  }
+
+  /**
+   * Take the rows' source actions away (`true`) or give them back: while an
+   * assembly preview is on screen, its rows are the previewed code's, and no
+   * write may address them. An open menu, rename or Transparency… closes.
+   */
+  setReadOnly(readOnly: boolean): void {
+    if (this.readOnly === readOnly) {
+      return;
+    }
+    this.readOnly = readOnly;
+    if (readOnly) {
+      this.closeDropdown();
+      this.closeTransparencyPopover();
+      this.inlineRename = null;
+    }
+    this.renderRows();
+  }
+
+  get isReadOnly(): boolean {
+    return this.readOnly;
+  }
+
+  /**
+   * Whether an instance's row may edit a statement of its own: not one a
+   * sub-assembly's body inserted (its statement is in that file, `owner`),
+   * nor one a generator made (`generatedBy`: engine-owned, read-only, G8 —
+   * its values are the insert's that made it). Those rows offer Show in
+   * source only.
+   */
+  private static ownsStatement(inst: RenderedInstance): boolean {
+    return (inst.owner ?? '') === '' && inst.generatedBy === undefined;
   }
 
   dispose(): void {
@@ -593,14 +628,15 @@ export class PartsPanel {
     if (!inst) {
       return;
     }
-    const owned = (inst.owner ?? '') !== '';
+    const owned = !PartsPanel.ownsStatement(inst);
     // A replica's statement is the replicate() call: its row edits or trims
     // that statement instead of an insert() of its own.
     const replica = inst.replica !== undefined;
-    // Presence of resolved values ⇔ the definition declared param()s —
-    // parameterless parts keep the item visible but disabled (discoverability
-    // over hiding).
-    const hasParams = !!inst.paramValues && Object.keys(inst.paramValues).length > 0;
+    // Presence of resolved values ⇔ the definition declared param()s (or is
+    // a generated part, whose dialog edits its values) — parameterless parts
+    // keep the item visible but disabled (discoverability over hiding).
+    const hasParams = inst.generated !== undefined
+      || (!!inst.paramValues && Object.keys(inst.paramValues).length > 0);
 
     const dropdown = this.openDropdownShell(position, anchor);
     dropdown.innerHTML = `
@@ -755,7 +791,8 @@ export class PartsPanel {
     }
 
     const replica = occ.replica !== undefined;
-    const hasParams = (occ.params?.length ?? 0) > 0;
+    // A generated assembly's values are its interface, edited in its dialog.
+    const hasParams = occ.generated !== undefined || (occ.params?.length ?? 0) > 0;
     const dropdown = this.openDropdownShell(position, anchor);
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">

@@ -3,6 +3,7 @@ import { ICON_CHEVRON_DOWN, ICON_PIN, ICON_PINNED_OFF } from '../../../ui/icons'
 import { HubIcons } from '../../../ui/hub/hub-icons';
 import { iconUrl } from '../../../ui/icon-url';
 import type { Navbar } from '../../../ui/navbar';
+import type { NavbarMode } from '../../../ui/navbar/navbar';
 import { ICON_IMG_FALLBACK } from '../../../ui/object-icons';
 import { showPopupMenu } from '../../../ui/popup-menu';
 import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from '../../../ui/toolbar-styles';
@@ -14,6 +15,8 @@ import type { SketchHideable } from '../finish-sketch-button';
 export type CustomFeatureCellSpec = {
   /** The feature's id — the cell's `data-tool="feature:<id>"`; null for an entry that has none (a module that failed to load). */
   id: string | null;
+  /** The cell's `data-tool` in place of `feature:<id>` (a generated definition's `generated:<id>`). */
+  tool?: string;
   label: string;
   iconSrc: string;
   /** The cell's aria label: the full label (with the description), or why the entry can't be offered. */
@@ -50,8 +53,6 @@ const CELL_ACTIVE = `${CELL_SHAPE} btn-soft btn-primary`;
 const CELL_LABEL = 'block max-w-full truncate text-[11px] leading-tight';
 /** A cell pinned to the toolbar wears a toolbar button's look, in its tooltip wrapper. */
 const PINNED_WRAP = 'tooltip tooltip-bottom shrink-0';
-/** A pinned package's toolbar group key: `custom-package:<name>@<version>`. */
-const PINNED_GROUP_PREFIX = 'custom-package:';
 
 /** Clearance from the window's edges, in pixels. */
 const EDGE = 8;
@@ -85,7 +86,9 @@ export class CustomFeatureCell implements FeatureLauncher {
     },
   ) {
     this.el = document.createElement('div');
-    if (spec.id !== null) {
+    if (spec.tool !== undefined) {
+      this.el.dataset.tool = spec.tool;
+    } else if (spec.id !== null) {
       this.el.dataset.tool = `feature:${spec.id}`;
     }
     this.button = document.createElement('button');
@@ -177,6 +180,30 @@ export class CustomFeatureCell implements FeatureLauncher {
 }
 
 /**
+ * Where a {@link CustomFeaturesMenu} sits and what it says. Every field has
+ * the part bar's Custom button as its default; the assembly bar's dropdown
+ * of generated parts and assemblies gives its own.
+ */
+export type CustomFeaturesMenuOptions = {
+  /** The navbar group the button sits in (default {@link CustomFeaturesMenu.GROUP}). */
+  group?: string;
+  /** The bench the button, the dropdown and the pinned groups show on (default `'part'`). */
+  mode?: NavbarMode;
+  /** The button's tooltip and aria label (default "Custom features"). */
+  tip?: string;
+  /** The button wrapper's `data-tool` (default `custom-features`). */
+  tool?: string;
+  /** The dropdown's `data-role` (default `custom-features-menu`). */
+  role?: string;
+  /** How a pinned package's toolbar group key starts: `<prefix><name>@<version>` (default `custom-package:`). */
+  pinnedPrefix?: string;
+  /** What the empty dropdown says, nothing listed (default: no custom features installed). */
+  emptyText?: string;
+  /** What it says with every entry pinned to the toolbar. */
+  allPinnedText?: string;
+};
+
+/**
  * The workspace's own features (its `*.feature.js` builders) under one
  * toolbar button: "Custom", the last group on the part bar (the page builds
  * it after every tool group), opening a dropdown with a three-column grid
@@ -203,13 +230,20 @@ export class CustomFeatureCell implements FeatureLauncher {
  * (a preference, by package name), so they follow the package into every
  * project that offers it: the page hands them in ({@link setToolbarPackages})
  * and hears every change ({@link onToolbarPackagesChange}).
+ *
+ * The same dropdown serves the assembly bar ({@link CustomFeaturesMenuOptions}):
+ * a group of its own in `'assembly'` mode, listing generated parts and
+ * assemblies — never shown in part mode, as the part bar's never shows in
+ * assembly mode.
  */
 export class CustomFeaturesMenu implements SketchHideable {
-  /** The navbar group the button sits in. */
+  /** The navbar group the part bar's button sits in. */
   static readonly GROUP = 'custom';
 
   /** The user pinned or unpinned a package: every pinned package's name, sorted. */
   onToolbarPackagesChange?: (names: string[]) => void;
+  /** The dropdown just opened (its owner may refresh what it lists). */
+  onOpen?: () => void;
 
   private readonly wrap: HTMLSpanElement;
   private readonly button: HTMLButtonElement;
@@ -225,14 +259,28 @@ export class CustomFeaturesMenu implements SketchHideable {
   private emptyAction: (() => void) | null = null;
   /** The dialogs open when the dropdown opened — one more closes it. */
   private dialogsAtOpen: ReadonlySet<string> = new Set();
+  /** The navbar group the button sits in. */
+  private readonly groupKey: string;
+  private readonly mode: NavbarMode;
+  private readonly pinnedPrefix: string;
+  private readonly emptyText: string;
+  private readonly allPinnedText: string;
 
-  constructor(private readonly navbar: Navbar) {
-    const group = navbar.getGroup(CustomFeaturesMenu.GROUP)
-      ?? navbar.addGroup(CustomFeaturesMenu.GROUP, { visible: false });
+  constructor(private readonly navbar: Navbar, options: CustomFeaturesMenuOptions = {}) {
+    this.groupKey = options.group ?? CustomFeaturesMenu.GROUP;
+    this.mode = options.mode ?? 'part';
+    this.pinnedPrefix = options.pinnedPrefix ?? 'custom-package:';
+    this.emptyText = options.emptyText
+      ?? 'No custom features installed. Check FluidCAD Hub for packages of features and parts.';
+    this.allPinnedText = options.allPinnedText
+      ?? 'Every custom feature is pinned to the toolbar. Right-click a pinned group to unpin it.';
+    const tip = options.tip ?? 'Custom features';
+    const group = navbar.getGroup(this.groupKey)
+      ?? navbar.addGroup(this.groupKey, { visible: false, mode: this.mode });
 
     this.button = document.createElement('button');
     this.button.className = TOOLBAR_BTN_BASE;
-    this.button.setAttribute('aria-label', 'Custom features');
+    this.button.setAttribute('aria-label', tip);
     this.button.setAttribute('aria-haspopup', 'true');
     this.button.setAttribute('aria-expanded', 'false');
     this.button.innerHTML =
@@ -242,14 +290,14 @@ export class CustomFeaturesMenu implements SketchHideable {
     this.button.addEventListener('click', () => this.toggle());
     this.wrap = document.createElement('span');
     this.wrap.className = 'tooltip tooltip-bottom shrink-0';
-    this.wrap.dataset.tip = 'Custom features';
-    this.wrap.dataset.tool = 'custom-features';
+    this.wrap.dataset.tip = tip;
+    this.wrap.dataset.tool = options.tool ?? 'custom-features';
     this.wrap.appendChild(this.button);
     group.appendChild(this.wrap);
 
     this.panel = document.createElement('div');
     this.panel.className = PANEL;
-    this.panel.dataset.role = 'custom-features-menu';
+    this.panel.dataset.role = options.role ?? 'custom-features-menu';
     // A click on a cell must not pull focus off the editor or the viewport.
     this.panel.addEventListener('mousedown', (e) => e.preventDefault());
 
@@ -358,6 +406,7 @@ export class CustomFeaturesMenu implements SketchHideable {
     document.addEventListener('keydown', this.onKeyDown, true);
     document.addEventListener('wheel', this.onWheel, { capture: true, passive: true });
     window.addEventListener('resize', this.onResize);
+    this.onOpen?.();
   }
 
   close(): void {
@@ -445,7 +494,7 @@ export class CustomFeaturesMenu implements SketchHideable {
    * leave the bar, new ones go in ahead of the next one kept.
    */
   private layoutBar(groups: readonly { pkg: PackageRef | null; cells: CustomFeatureCell[] }[]): void {
-    const keyOf = (pkg: PackageRef) => `${PINNED_GROUP_PREFIX}${pkg.name}@${pkg.version}`;
+    const keyOf = (pkg: PackageRef) => `${this.pinnedPrefix}${pkg.name}@${pkg.version}`;
     const keep = new Set(groups.map(group => keyOf(group.pkg!)));
     for (const key of [...this.pinnedGroups.keys()]) {
       if (!keep.has(key)) {
@@ -453,13 +502,13 @@ export class CustomFeaturesMenu implements SketchHideable {
         this.pinnedGroups.delete(key);
       }
     }
-    let next = CustomFeaturesMenu.GROUP;
+    let next = this.groupKey;
     for (const group of [...groups].reverse()) {
       const pkg = group.pkg!;
       const key = keyOf(pkg);
       let host = this.pinnedGroups.get(key);
       if (!host) {
-        host = this.navbar.addGroup(key, { visible: false, before: next });
+        host = this.navbar.addGroup(key, { visible: false, before: next, mode: this.mode });
         host.dataset.package = pkg.name;
         host.addEventListener('contextmenu', (e) => {
           e.preventDefault();
@@ -491,9 +540,7 @@ export class CustomFeaturesMenu implements SketchHideable {
     box.className = 'w-64 p-1.5 flex flex-col gap-2.5';
     const text = document.createElement('p');
     text.className = 'text-xs text-base-content/75 leading-snug';
-    text.textContent = allPinned
-      ? 'Every custom feature is pinned to the toolbar. Right-click a pinned group to unpin it.'
-      : 'No custom features installed. Check FluidCAD Hub for packages of features and parts.';
+    text.textContent = allPinned ? this.allPinnedText : this.emptyText;
     const open = document.createElement('button');
     open.type = 'button';
     open.dataset.ref = 'open-hub';
@@ -565,7 +612,7 @@ export class CustomFeaturesMenu implements SketchHideable {
 
   private syncVisible(): void {
     // One vote, so a sketch hides the group whole — no empty group behind a divider.
-    this.navbar.setGroupVisible(CustomFeaturesMenu.GROUP, this.isVisible);
+    this.navbar.setGroupVisible(this.groupKey, this.isVisible);
     for (const key of this.pinnedGroups.keys()) {
       this.navbar.setGroupVisible(key, !this.sketchHidden);
     }

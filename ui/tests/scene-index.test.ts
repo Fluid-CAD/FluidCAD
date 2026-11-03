@@ -201,6 +201,8 @@ describe('no id/parentId scans over scene lists', () => {
     'interactive/create-feature/connector-options.ts',
     // The Hub panel's screenshots and a version's manifest features, not scene objects.
     'ui/hub/hub-package-view.ts',
+    // The generated definitions the assembly bar's Custom dropdown lists, by definition id.
+    'interactive/generated/generated-menu.ts',
   ]);
 
   function tsFiles(dir: string): string[] {

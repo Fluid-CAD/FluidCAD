@@ -6,6 +6,7 @@ import type {
 import { FoldingSection } from '../../../ui/controls';
 import type { VariableInfo } from '../../../ui/expression-core';
 import { FeaturePanel } from '../feature-panel';
+import type { PanelChange } from '../feature-panel';
 import { ChoiceTabs } from '../panel-controls';
 import { ScopeSlotControl } from '../scope-slot';
 import { FeatureSchema, type DialogValues } from './feature-schema';
@@ -97,13 +98,24 @@ export class SchemaFeaturePanel extends FeaturePanel {
   private readonly previewToggle: HTMLInputElement | null = null;
   private armed: ArmedSlot = null;
 
-  constructor(container: HTMLElement, readonly schema: FeatureSchema, iconSrc: string) {
+  /**
+   * `options.id`: the dialog's element id (default: the feature's,
+   * `fluidcad-feature-<id>`) — a dialog of another kind over the same
+   * schema id needs its own; `options.exitLabel`: the dismiss button's label.
+   */
+  constructor(
+    container: HTMLElement,
+    readonly schema: FeatureSchema,
+    iconSrc: string,
+    options: { id?: string; exitLabel?: string } = {},
+  ) {
     super(container, {
-      id: `fluidcad-feature-${schema.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
+      id: options.id ?? `fluidcad-feature-${schema.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
       title: schema.label,
       icon: iconSrc,
       bodyHtml: '',
       width: schema.meta.width,
+      ...(options.exitLabel ? { exitLabel: options.exitLabel } : {}),
     });
 
     const aside = schema.meta.aside;
@@ -808,9 +820,9 @@ export class SchemaFeaturePanel extends FeaturePanel {
       return picker.row;
     }
     const field = SchemaField.create(name, spec as FeatureScalarParam, { assetUrl: path => this.schema.assetUrl(path) });
-    field.onChange = () => {
+    field.onChange = (change?: PanelChange) => {
       this.syncVisibility();
-      this.onChange?.();
+      this.onChange?.(change);
     };
     field.onSubmit = () => this.onApply?.();
     this.fields.set(name, field);

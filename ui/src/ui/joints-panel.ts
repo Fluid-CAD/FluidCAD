@@ -32,7 +32,8 @@ export interface JointsPanelOptions {
    * A host that cannot edit source: rows select/highlight only, no ⋮ or
    * context menu. With `onAnimate` wired, slider/revolute rows still carry
    * a play button (and an Animate-only context menu): driving a mate never
-   * touches the source.
+   * touches the source. The page makes an editing host read-only for a
+   * while with {@link JointsPanel.setReadOnly} (an assembly preview on screen).
    */
   readOnly?: boolean;
   /**
@@ -81,7 +82,7 @@ export class JointsPanel {
   private onEditMate: (mateId: string) => void;
   private onSuppress: (mateId: string) => void;
   private onDelete: (mateId: string) => void;
-  private readonly readOnly: boolean;
+  private readOnly: boolean;
   private readonly onAnimate: ((mateId: string) => void) | undefined;
   private readonly relationActions: Pick<JointsPanelOptions, 'onSelectRelation' | 'onShowRelationInSource' | 'onEditRelation' | 'onDeleteRelation'>;
 
@@ -141,6 +142,24 @@ export class JointsPanel {
     const count = mates.length + relations.length;
     countLabel.textContent = count > 0 ? String(count) : '';
     this.renderRows();
+  }
+
+  /**
+   * Take the rows' source actions away (`true`) or give them back — while an
+   * assembly preview is on screen nothing may write its rows. Animate stays
+   * (driving a joint writes nothing); an open menu closes.
+   */
+  setReadOnly(readOnly: boolean): void {
+    if (this.readOnly === readOnly) {
+      return;
+    }
+    this.readOnly = readOnly;
+    this.closeDropdown();
+    this.renderRows();
+  }
+
+  get isReadOnly(): boolean {
+    return this.readOnly;
   }
 
   /**

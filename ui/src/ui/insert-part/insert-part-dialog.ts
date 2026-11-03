@@ -18,6 +18,7 @@ import { ParamForm } from '../param-controls';
 import { PartThumbnailRenderer } from './part-thumbnails';
 import { sceneUnit } from '../../units/scene-unit';
 import type { LengthUnit } from '../../units/units';
+import { GeneratedDefinition } from '../../interactive/generated/generated-definition';
 
 type CatalogFilter = 'all' | 'parts' | 'assemblies';
 
@@ -93,8 +94,17 @@ type PageGroup = {
  * Everything reloads on every open: unchanged files answer from the server's
  * mtime-keyed scan cache, so freshness costs one round-trip per file, not a
  * re-evaluation.
+ *
+ * A generated part or assembly (`definePart`, `defineAssembly`) is listed
+ * from its schema, never built: its tile shows its icon, and a click opens
+ * its own dialog ({@link onGenerated}: values with a live preview) instead
+ * of queueing it — the dialog closes for it, so a click with instances
+ * queued says so and opens nothing.
  */
 export class InsertPartDialog {
+  /** A generated tile was clicked with nothing queued: open the definition's dialog. */
+  onGenerated?: (definition: GeneratedDefinition) => void;
+
   private overlay: HTMLDivElement;
   private gridEl: HTMLDivElement;
   private statusEl: HTMLDivElement;
@@ -549,6 +559,11 @@ export class InsertPartDialog {
     // predating units give neither, and an unknown unit draws no badge.
     const unit = result.unit ?? file.unit;
     for (const part of result.parts) {
+      const generated = GeneratedDefinition.fromScan(file, part, unit ?? sceneUnit.current);
+      if (generated) {
+        this.gridFor(file).appendChild(this.buildGeneratedTile(generated, file, unit));
+        continue;
+      }
       const params = part.params ?? [];
       const paramNote = params.length > 0
         ? ` · ${params.length} parameter${params.length === 1 ? '' : 's'}`
@@ -568,6 +583,11 @@ export class InsertPartDialog {
       }));
     }
     for (const sub of result.assemblies ?? []) {
+      const generated = GeneratedDefinition.fromScan(file, sub, unit ?? sceneUnit.current);
+      if (generated) {
+        this.gridFor(file).appendChild(this.buildGeneratedTile(generated, file, unit));
+        continue;
+      }
       const count = sub.instances.length;
       // 'value' exports insert as `insert(name)`, 'factory' as `insert(name())`
       // — the same shapes parts use, since insert() accepts assembly()
@@ -698,6 +718,60 @@ export class InsertPartDialog {
       state.queued++;
       this.updateTileBadge(state);
       this.updateFooter();
+    });
+    return tile;
+  }
+
+  /**
+   * A generated definition's tile: its icon over its label, "generated part"
+   * or "generated assembly", the defining file. A click opens its dialog
+   * and closes this one — refused, with the reason in the status line,
+   * while instances are queued (they would be dropped).
+   */
+  private buildGeneratedTile(definition: GeneratedDefinition, file: CatalogFileEntry, unit: LengthUnit | undefined): HTMLButtonElement {
+    const tile = document.createElement('button');
+    tile.className = 'group relative flex flex-col items-center gap-1 p-2 w-full rounded-lg border border-base-content/10 '
+      + 'hover:border-primary hover:bg-base-200 cursor-pointer transition-colors';
+    tile.dataset.kind = definition.kind;
+    tile.dataset.generated = definition.id;
+    if (InsertPartDialog.isLibrary(file)) {
+      tile.dataset.library = '1';
+    }
+    tile.title = `${definition.tip} — opens its dialog with a live preview`;
+    const img = document.createElement('img');
+    img.className = 'w-24 h-24 object-contain p-4 pointer-events-none';
+    img.src = definition.iconSrc;
+    img.alt = definition.label;
+    const name = document.createElement('span');
+    name.className = 'text-xs text-base-content/90 truncate w-full text-center';
+    name.textContent = definition.label;
+    const subtitle = document.createElement('span');
+    subtitle.className = 'text-[10px] text-base-content/50 truncate w-full text-center';
+    subtitle.textContent = `generated ${definition.kind}`;
+    const fileCaption = document.createElement('span');
+    fileCaption.className = 'text-[9px] text-base-content/35 truncate w-full text-center';
+    fileCaption.textContent = file.path;
+    fileCaption.title = file.absPath;
+    tile.append(img, name, subtitle, fileCaption);
+    if (unit !== undefined && unit !== sceneUnit.current) {
+      const unitBadge = document.createElement('span');
+      unitBadge.className = 'absolute top-1 left-1 px-1 rounded text-[9px] leading-4 '
+        + 'bg-warning/20 text-warning-content/80 border border-warning/40 pointer-events-none';
+      unitBadge.textContent = unit;
+      unitBadge.title = `${definition.kind === 'assembly' ? 'Sub-assembly' : 'Part'} is in ${UNIT_NAMES[unit]}; `
+        + `it is scaled into this assembly's unit (${sceneUnit.current}).`;
+      tile.appendChild(unitBadge);
+    }
+    tile.addEventListener('click', () => {
+      if (this.basket.length > 0) {
+        this.setStatus(
+          `Insert the ${this.basket.length} queued first, or remove them: ${definition.label} opens its own dialog.`,
+          true,
+        );
+        return;
+      }
+      this.hide();
+      this.onGenerated?.(definition);
     });
     return tile;
   }

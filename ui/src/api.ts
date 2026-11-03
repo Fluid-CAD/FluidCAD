@@ -5379,8 +5379,13 @@ export function continueBreakpoint(): void {
   });
 }
 
-export function removeFeature(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('api/remove-feature', { sourceLocation });
+/**
+ * Remove the statement at `sourceLocation`. `row`: the assembly-view row
+ * the delete comes from (an instance's, occurrence's, mate's or relation's
+ * id) — the server refuses an engine-owned one (G8).
+ */
+export function removeFeature(sourceLocation: SourceLocationParam, row?: string): void {
+  postFireAndForget('api/remove-feature', { sourceLocation, ...(row ? { row } : {}) });
 }
 
 export type RemoveFeatureDependent = { name: string; line: number };
@@ -6138,7 +6143,77 @@ export type CatalogPart = {
   params?: CatalogParamDef[];
   /** The definition's `configurations()` rows, in table order — empty or absent without a table. */
   configurations?: CatalogConfiguration[];
+} & CatalogGeneratedFields;
+
+/**
+ * What a generated definition's catalog entry (`definePart`,
+ * `defineAssembly`) carries beside the usual fields: it is listed from its
+ * schema, never built — its `objects` and `params` are empty, and its tile
+ * shows its icon. Absent on every other entry.
+ */
+export type CatalogGeneratedFields = {
+  definitionKind?: 'generated';
+  /** The definition's values by id, its dialog, label, icon and description. */
+  schema?: GeneratedSchema;
+  /** Where each image the schema declares is served, by the module it resolves against. */
+  assetUrls?: GeneratedAssetUrls;
 };
+
+/**
+ * A generated definition's schema (lib `GeneratedSchema`): the interface an
+ * insert takes (`params`, by id — the same declarations a custom feature's
+ * metadata has), its dialog (`layout`, `width`, `aside`), its toolbar entry
+ * (`label`, `icon`, `description`). Image paths resolve against the
+ * definition's module (`icon`, and `layout` when `assetBase.layout` says
+ * `definition`) or the class's (option pictures, asides, a borrowed layout).
+ */
+export type GeneratedSchema = {
+  kind: 'part' | 'assembly';
+  definitionKind: 'generated';
+  /** The definition's id — what `generated.definition` names on its instances and occurrences. */
+  id: string;
+  label: string;
+  description?: string;
+  icon?: string;
+  params: Record<string, FeatureScalarParam>;
+  layout: FeatureLayoutItem[];
+  width?: 'wide' | 'wider';
+  aside?: FeatureStaticItem[];
+  /** The connectors every insert of a generated part carries; empty for an assembly. */
+  connectors: string[];
+  assetBase: { layout: 'definition' | 'class' };
+};
+
+/** Each image a generated schema declares, by the module it resolves against: the path as declared → its URL. */
+export type GeneratedAssetUrls = Record<'definition' | 'class', Record<string, string>>;
+
+/**
+ * One generated definition the project can insert, as the assembly
+ * toolbar's Custom dropdown lists it (`GET /api/part-catalog/generated`).
+ */
+export type GeneratedCatalogEntry = {
+  /** The defining module, absolute — what an insert names. */
+  file: string;
+  /** Workspace-relative, or `@scope/name/<module>` for a package's file. */
+  path: string;
+  exportName: string;
+  kind: 'part' | 'assembly';
+  schema: GeneratedSchema;
+  assetUrls: GeneratedAssetUrls;
+  unit: LengthUnit;
+  /** The installed package it comes from (a library offer pins on Apply); absent for the workspace's own. */
+  package?: PackageRef;
+};
+
+/**
+ * Every generated definition the project can insert — its own, its pinned
+ * packages', the library's offers — read from their schemas, never built.
+ * Null when the server can't answer.
+ */
+export async function getGeneratedCatalog(signal?: AbortSignal): Promise<GeneratedCatalogEntry[] | null> {
+  const data = await getJson<{ entries: GeneratedCatalogEntry[] }>('api/part-catalog/generated', undefined, signal);
+  return data?.entries ?? null;
+}
 
 /**
  * A sub-assembly from a `.assembly.js` file: an exported `assembly()`
@@ -6167,7 +6242,7 @@ export type CatalogAssembly = {
   params?: CatalogParamDef[];
   /** The definition's `configurations()` rows, in table order — empty or absent without a table. */
   configurations?: CatalogConfiguration[];
-};
+} & CatalogGeneratedFields;
 
 export type CatalogEntryKind = 'value' | 'factory' | 'assembly';
 
@@ -6255,12 +6330,14 @@ export async function renameInstance(
   sourceLocation: { filePath: string; line: number },
   name: string,
   defaultName: string,
+  /** The assembly-view row the rename comes from (an instance's or occurrence's id): the server refuses an engine-owned one (G8). */
+  row?: string,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('api/rename-instance', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line, name, defaultName }),
+      body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line, name, defaultName, ...(row ? { row } : {}) }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
@@ -6281,11 +6358,14 @@ export async function renameInstance(
 export async function setInstanceTransparency(
   sourceLocation: { filePath: string; line: number },
   transparency: number | null,
+  /** The instance's id — see {@link renameInstance}'s `row`. */
+  row?: string,
 ): Promise<{ success: boolean; reason?: string }> {
   return postAcked('api/set-instance-transparency', {
     filePath: sourceLocation.filePath,
     sourceLine: sourceLocation.line,
     transparency,
+    ...(row ? { row } : {}),
   });
 }
 
@@ -6305,6 +6385,8 @@ export async function updateInsertParams(
   unset: string[] = [],
   newVariables?: NewVariable[],
   configuration?: string | null,
+  /** The instance's or occurrence's id — see {@link renameInstance}'s `row`. */
+  row?: string,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('api/update-insert-params', {
@@ -6313,6 +6395,7 @@ export async function updateInsertParams(
       body: JSON.stringify({
         filePath, sourceLine, set, unset, newVariables,
         ...(configuration !== undefined ? { configuration } : {}),
+        ...(row ? { row } : {}),
       }),
     });
     const body = await res.json().catch(() => null);
@@ -6320,6 +6403,130 @@ export async function updateInsertParams(
       return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
     }
     return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Assembly previews (generated parts and assemblies, G4)
+// ---------------------------------------------------------------------------
+
+/** A value an insert of a generated definition takes, by id: a literal, or source text written as it is. */
+export type InsertValue = CatalogParamValue | CatalogParamExpr;
+
+/** The tier a preview's generated parts build at: `'preview'` while a control moves, `'full'` once it settles. */
+export type PreviewDetail = 'preview' | 'full';
+
+/**
+ * `POST /api/assembly-preview`: render the assembly on screen with a
+ * dialog's insert (`create`) or values edit (`edit`) applied in memory —
+ * nothing is written. `token` is the dialog's; `values` by id (for an edit,
+ * the changed ones), `unset` the ids an edit resets.
+ */
+export type AssemblyPreviewBody = {
+  token: string;
+  filePath: string;
+  detail: PreviewDetail;
+  values: Record<string, InsertValue>;
+  newVariables?: NewVariable[];
+} & (
+  | { mode: 'create'; definition: { file: string; exportName: string } }
+  | { mode: 'edit'; line: number; unset?: string[]; row?: string }
+);
+
+/** The phases of one preview answer, in ms (a tenth): what S8 measures. */
+export type AssemblyPreviewTimings = {
+  totalMs: number;
+  queueMs?: number;
+  editMs?: number;
+  waitMs?: number;
+  evaluateMs?: number;
+  compareMs?: number;
+  renderMs?: number;
+  collectMs?: number;
+  sendMs?: number;
+  payloadBytes?: number;
+};
+
+/** The generated-part report a preview answers with (lib `GeneratedRenderReport`), as far as the page reads it. */
+export type AssemblyPreviewReport = {
+  detail?: PreviewDetail;
+  hits?: { kept: number; cached: number };
+  misses?: number;
+  layoutMs?: number;
+  buildMs?: number;
+};
+
+/**
+ * What a preview request answers. `rendered` / `build-error`: its scene went
+ * out (`scene-rendered` with `preview: { token }`); `compile-error`: the
+ * previewed code doesn't compile and no scene went out; `superseded`: a
+ * newer request or render will speak instead (`ended`: the preview is
+ * over); `refused`: the writer would refuse the edit (`status`, `reason`,
+ * `code`), or the server could not be reached (`status` 0).
+ */
+export type AssemblyPreviewAnswer =
+  | {
+    state: 'rendered' | 'build-error';
+    token: string;
+    version?: number;
+    objectErrors?: { name?: string; message: string }[];
+    timings?: AssemblyPreviewTimings;
+    generated?: AssemblyPreviewReport | null;
+  }
+  | { state: 'compile-error'; token: string; compileError?: { message?: string }; timings?: AssemblyPreviewTimings }
+  | { state: 'superseded'; token: string; reason: 'newer-request' | 'newer-render' | 'ended' }
+  | { state: 'refused'; token: string; status: number; reason: string; code?: string };
+
+/** Ask for a preview render; every failure is an answer (`refused`), never a throw — unless `signal` aborts it. */
+export async function postAssemblyPreview(body: AssemblyPreviewBody, signal?: AbortSignal): Promise<AssemblyPreviewAnswer> {
+  let res: Response;
+  try {
+    res = await fetch('api/assembly-preview', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body), signal });
+  } catch (err) {
+    if (signal?.aborted) {
+      throw err;
+    }
+    return { state: 'refused', token: body.token, status: 0, reason: 'Could not reach the FluidCAD server' };
+  }
+  const answer = await res.json().catch(() => null);
+  if (res.ok && answer && typeof answer.state === 'string') {
+    return answer as AssemblyPreviewAnswer;
+  }
+  return {
+    state: 'refused',
+    token: body.token,
+    status: res.status,
+    reason: answer?.reason ?? answer?.error ?? `Request failed (${res.status})`,
+    ...(typeof answer?.code === 'string' ? { code: answer.code } : {}),
+  };
+}
+
+/**
+ * End the preview `token` shows: the file's own code renders again. Answers
+ * the server's state (`inactive` when its scene was no longer showing), or
+ * null when the server can't be reached.
+ */
+export async function endAssemblyPreview(token: string): Promise<{ state: string } | null> {
+  return postJson<{ state: string }>('api/assembly-preview/end', { token });
+}
+
+/** The writer request a preview's Apply posts — the route and body the preview rendered. */
+export type PreviewWriterRequest = {
+  route: 'part-catalog/insert' | 'update-insert-params';
+  body: Record<string, unknown>;
+};
+
+/** Post a preview's writer request (its Apply); a refusal carries the server's sentence. */
+export async function postPreviewWriter(writer: PreviewWriterRequest): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch(`api/${writer.route}`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(writer.body) });
+    const answer = await res.json().catch(() => null);
+    if (!res.ok || answer?.success === false) {
+      return { success: false, reason: answer?.reason ?? answer?.error ?? `Request failed (${res.status})` };
+    }
+    return { success: true };
   } catch {
     return { success: false, reason: 'Could not reach the FluidCAD server' };
   }
@@ -6632,6 +6839,8 @@ export async function applyInstancePose(
     translateExprs?: InstanceAxisExprs;
     rotateExprs?: InstanceAxisExprs;
     newVariables?: NewVariable[];
+    /** The instance's id — see {@link renameInstance}'s `row`. */
+    row?: string;
   },
 ): Promise<{ success: boolean; reason?: string }> {
   try {
@@ -6646,6 +6855,7 @@ export async function applyInstancePose(
         translateExprs: options?.translateExprs ?? null,
         rotateExprs: options?.rotateExprs ?? null,
         newVariables: options?.newVariables ?? null,
+        ...(options?.row ? { row: options.row } : {}),
       }),
     });
     const body = await res.json().catch(() => null);

@@ -30,10 +30,10 @@ export type GeneratedMarker = Readonly<{ kind: GeneratedKind; id: string }>;
  *
  * Image paths resolve against two modules (see {@link GeneratedAssetBase}):
  * `icon` against the definition's, the values' own pictures (options and
- * asides) and the dialog's `aside` against the class's, and `layout`
- * against the one `assetBase.layout` names — the definition's when its
- * author wrote the layout, the class's when it is the feature dialog's,
- * borrowed. {@link GeneratedSchemas.assetsOf} lists both.
+ * asides) against the class's, and `layout` and the dialog's `aside` each
+ * against the one `assetBase` names for it — the definition's when its
+ * author wrote it in the definition's metadata, the class's when it is the
+ * feature dialog's, borrowed. {@link GeneratedSchemas.assetsOf} lists both.
  */
 export type GeneratedSchema = {
   kind: GeneratedKind;
@@ -59,8 +59,12 @@ export type GeneratedSchema = {
    * its parts', reached through `occurrence.parts`.
    */
   connectors: string[];
-  /** The module `layout`'s images resolve against. */
-  assetBase: { layout: GeneratedAssetBase };
+  /**
+   * The module `layout`'s images resolve against, and `aside`'s when there
+   * is one. A schema an engine wrote before `aside` had a base of its own
+   * leaves `aside` out here: its aside was always the class's.
+   */
+  assetBase: { layout: GeneratedAssetBase; aside?: GeneratedAssetBase };
 };
 
 /**
@@ -94,6 +98,20 @@ export type GeneratedMeta = {
    * are derived from the values' `group` and `tab`.
    */
   layout?: FeatureLayout;
+  /**
+   * How wide the dialog opens (`'wide'`, `'wider'`), as a feature's
+   * metadata says it. Left out, a generated part opens as wide as its
+   * feature's dialog; a generated assembly at the default width.
+   */
+  width?: FeatureDialogWidth;
+  /**
+   * Notes, images and dividers shown beside the dialog's rows, as a
+   * feature's metadata declares them, images relative to the defining
+   * module (`[{ image: '../features/img/size.svg', alt: 'width, height and
+   * depth' }]`). Left out, a generated part shows its feature dialog's aside;
+   * a generated assembly none.
+   */
+  aside?: readonly FeatureStaticItem[];
   /** The name each inserted part (or sub-assembly) is built with; `label` when left out. */
   name?: string;
 };
@@ -106,6 +124,10 @@ export type ResolvedGeneratedMeta = Readonly<{
   icon?: string;
   /** The author's layout, checked; undefined when left out (the definition then borrows or derives one). */
   layout?: FeatureLayout;
+  /** The author's dialog width; undefined when left out (a generated part then borrows its feature's). */
+  width?: FeatureDialogWidth;
+  /** The author's aside, checked; undefined when left out (a generated part then borrows its feature's). */
+  aside?: readonly FeatureStaticItem[];
 }>;
 
 /**
@@ -117,7 +139,7 @@ export type ResolvedGeneratedMeta = Readonly<{
  */
 export class GeneratedMetaValidator extends SchemaValidator {
 
-  private static readonly FIELDS = ['label', 'description', 'icon', 'layout', 'name'];
+  private static readonly FIELDS = ['label', 'description', 'icon', 'layout', 'width', 'aside', 'name'];
 
   /** Fields refused by name rather than as unknown, each with why it is left out, by the kind of definition. */
   private static readonly LEFT_OUT: Record<GeneratedKind, [string, string][]> = {
@@ -159,7 +181,9 @@ export class GeneratedMetaValidator extends SchemaValidator {
     const icon = meta.icon === undefined ? undefined : this.relativeImage(meta.icon, 'icon');
     const checks = this.layoutChecks(params, (value, where) => this.relativeImage(value, 'image', where));
     const layout = meta.layout === undefined ? undefined : FeatureLayouts.check(meta.layout, checks);
-    return Object.freeze(SchemaValidator.defined({ label, name, description, icon, layout })) as ResolvedGeneratedMeta;
+    const width = meta.width === undefined ? undefined : this.oneOf(meta.width, "'width'", FeatureLayouts.WIDTHS) as FeatureDialogWidth;
+    const aside = meta.aside === undefined ? undefined : FeatureLayouts.checkAside(meta.aside, checks);
+    return Object.freeze(SchemaValidator.defined({ label, name, description, icon, layout, width, aside })) as ResolvedGeneratedMeta;
   }
 }
 
@@ -215,10 +239,10 @@ export class GeneratedSchemas {
   /**
    * Every image a schema declares, each once, by the module it resolves
    * against (see {@link GeneratedSchema}): the definition's — its icon, and
-   * its layout's images when its author wrote the layout — and the class's
-   * — the values' option pictures and asides, the dialog's aside, and the
-   * layout's images when it is borrowed. It is the whole list of what may be
-   * served for the definition.
+   * its layout's and its aside's images when its author wrote them — and the
+   * class's — the values' option pictures and asides, and the layout's and
+   * the aside's images when they are borrowed. It is the whole list of what
+   * may be served for the definition.
    */
   static assetsOf(schema: GeneratedSchema): Record<GeneratedAssetBase, string[]> {
     const definition: unknown[] = [schema.icon];
@@ -228,7 +252,8 @@ export class GeneratedSchemas {
       owned.push(...options.map(option => option.image));
     }
     (schema.assetBase.layout === 'definition' ? definition : owned).push(...FeatureLayouts.images(schema.layout));
-    owned.push(...FeatureLayouts.images(schema.aside));
+    // A schema without an aside base predates it: its aside was the class's.
+    (schema.assetBase.aside === 'definition' ? definition : owned).push(...FeatureLayouts.images(schema.aside));
     for (const spec of Object.values(schema.params)) {
       owned.push(...FeatureLayouts.images(spec.aside));
     }

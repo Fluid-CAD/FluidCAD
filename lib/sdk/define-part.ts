@@ -31,7 +31,8 @@ export type TypedInParams<P> = { [K in keyof P as P[K] extends { type: unknown }
 
 /**
  * What `definePart()` is told about a generated part beside its feature
- * class: its label, description and icon, and a layout over the part's
+ * class: its label, description and icon, its dialog's `width` and `aside`
+ * when they differ from the feature dialog's, and a layout over the part's
  * values — the feature's typed-in ones — so a misspelled or picked value is
  * an error in the editor.
  */
@@ -151,9 +152,9 @@ export class GeneratedPartDefinition extends PartDefinition<void> {
    * The definition's schema as plain JSON (see {@link GeneratedSchema}): the
    * values an insert takes, by id; the dialog's rows — the author's
    * `layout`, else the feature dialog's less its picked values, else
-   * derived from the values' `group` and `tab`; the feature dialog's width
-   * and aside; the label, description and icon; the connectors. A fresh
-   * copy on each call.
+   * derived from the values' `group` and `tab`; the dialog's width and
+   * aside — the author's, else the feature dialog's; the label, description
+   * and icon; the connectors. A fresh copy on each call.
    */
   getSchema(): GeneratedSchema {
     if (this.schemaSnapshot === null) {
@@ -298,6 +299,10 @@ export class GeneratedPartDefinition extends PartDefinition<void> {
       layout = FeatureLayouts.derive(this.values.params);
       base = 'definition';
     }
+    // The author's aside, else the feature dialog's — each read against the
+    // module that wrote it.
+    const aside = this.meta.aside ?? dialog?.aside;
+    const asideBase: GeneratedAssetBase = this.meta.aside !== undefined ? 'definition' : 'class';
     const json = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
     return SchemaValidator.defined({
       kind: 'part',
@@ -308,10 +313,10 @@ export class GeneratedPartDefinition extends PartDefinition<void> {
       icon: this.meta.icon,
       params: this.values.snapshot(),
       layout: json(layout),
-      width: dialog?.width,
-      aside: dialog?.aside === undefined ? undefined : json(dialog.aside),
+      width: this.meta.width ?? dialog?.width,
+      aside: aside === undefined ? undefined : json(aside),
       connectors: [...this.frames],
-      assetBase: { layout: base },
+      assetBase: aside === undefined ? { layout: base } : { layout: base, aside: asideBase },
     }) as GeneratedSchema;
   }
 
@@ -433,9 +438,10 @@ export class GeneratedPartDefinition extends PartDefinition<void> {
  *   {} } })`) and its build sets (`this.setFrames({ axis: plane })`) is a
  *   connector of the part, of the frame's name.
  * - `meta.label` names the part (and its toolbar entry) unless `meta.name`
- *   does; `icon` and `layout` images are relative to this module and may
- *   climb into the package (`'../features/icons/gear.png'`). Left out, the
- *   dialog borrows the feature's rows, less its picked values.
+ *   does; `icon`, `layout` and `aside` images are relative to this module
+ *   and may climb into the package (`'../features/icons/gear.png'`). Left
+ *   out, the dialog borrows the feature's rows, less its picked values, and
+ *   the feature dialog's `width` and `aside`.
  * - Equal values, defaults filled, share one template per scene. A name
  *   the part doesn't take or a value its declaration refuses is a build
  *   error on the insert's row; the render goes on.

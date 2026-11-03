@@ -593,6 +593,14 @@ describe("Generator and defineAssembly refuse", () => {
       .toThrow("defineAssembly(Cabinet): leave 'connectors' out — a generated assembly's connectors are its parts': g.part(type, { connectors }) in layout(g)");
     expect(() => defineAssembly(Cabinet, { label: "C", layout: ["width"] as never }))
       .toThrow(/^defineAssembly\(Cabinet\): the value 'height' has no place in the layout/);
+    expect(() => defineAssembly(Cabinet, { label: "C", width: "full" as never }))
+      .toThrow(/^defineAssembly\(Cabinet\): 'width' must be one of wide, wider, got '(huge|full)'$/);
+    expect(() => defineAssembly(Cabinet, { label: "C", aside: { image: "./size.svg" } as never }))
+      .toThrow(/^defineAssembly\(Cabinet\): /);
+    expect(() => defineAssembly(Cabinet, { label: "C", aside: [{ image: "https://example.com/size.svg" }] }))
+      .toThrow(/^defineAssembly\(Cabinet\): .*'https:\/\/example.com\/size.svg'/);
+    expect(() => defineAssembly(Cabinet, { label: "C", aside: [{ row: ["width", "height"] }] as never }))
+      .toThrow(/^defineAssembly\(Cabinet\): aside: /);
   });
 });
 
@@ -618,5 +626,37 @@ describe("a generated assembly's schema", () => {
     expect(schema.params.drawerHeight).toMatchObject({ type: "length", default: 150, label: "Drawer height" });
     expect(JSON.parse(JSON.stringify(schema))).toEqual(schema);
     expect(GeneratedSchemas.assetsOf(schema)).toEqual({ definition: ["../features/icons/cabinet.svg"], class: [] });
+    expect(schema.width).toBeUndefined();
+    expect(schema.aside).toBeUndefined();
+  });
+
+  it("carries the dialog's width and aside, the aside's images read against the defining module", () => {
+    const { Cabinet } = defineCabinet();
+    const schema = defineAssembly(Cabinet, {
+      label: "Cabinet",
+      icon: "../features/icons/cabinet.svg",
+      width: "wide",
+      aside: [{ image: "../features/img/cabinet-size.svg", alt: "Width, height and depth", height: 200 }, { divider: true }, { note: "Doors swing on the hinge side" }],
+    }).getSchema();
+
+    expect(schema.width).toBe("wide");
+    expect(schema.aside).toEqual([
+      { image: "../features/img/cabinet-size.svg", alt: "Width, height and depth", height: 200 },
+      { divider: true },
+      { note: "Doors swing on the hinge side" },
+    ]);
+    expect(schema.assetBase).toEqual({ layout: "definition", aside: "definition" });
+    expect(GeneratedSchemas.assetsOf(schema)).toEqual({
+      definition: ["../features/icons/cabinet.svg", "../features/img/cabinet-size.svg"],
+      class: [],
+    });
+    expect(JSON.parse(JSON.stringify(schema))).toEqual(schema);
+  });
+
+  it("reads an aside with no base of its own as the class's (a schema an older engine wrote)", () => {
+    const { Cabinet } = defineCabinet();
+    const schema = defineAssembly(Cabinet, { label: "Cabinet", aside: [{ image: "./size.svg" }] }).getSchema();
+    delete schema.assetBase.aside;
+    expect(GeneratedSchemas.assetsOf(schema)).toEqual({ definition: [], class: ["./size.svg"] });
   });
 });

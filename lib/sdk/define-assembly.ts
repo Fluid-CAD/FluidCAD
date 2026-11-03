@@ -11,7 +11,7 @@ import { getActiveUnit, getUnitRegistry } from "../units/registry.js";
 import { FeatureNamespaces } from "./feature-namespaces.js";
 import type { FeatureValues } from "./feature-inputs.js";
 import type { ParamSpec } from "./meta.js";
-import { FeatureLayouts, type FeatureLayout } from "./layout.js";
+import { FeatureLayouts, type FeatureLayout, type FeatureStaticItem } from "./layout.js";
 import { SchemaValidator, ValueSchema } from "./value-schema.js";
 import { Generator, GeneratorLayout, type GeneratorParams } from "./generator.js";
 import { GeneratedCode } from "./generated-code.js";
@@ -38,8 +38,9 @@ export type LayoutResult<C> = C extends abstract new (values: any) => infer G
 
 /**
  * What `defineAssembly()` is told about a generated assembly beside its
- * generator class: its label, description and icon, and a layout over the
- * generator's values, so a misspelled value is an error in the editor.
+ * generator class: its label, description and icon, its dialog's `width`
+ * and `aside`, and a layout over the generator's values, so a misspelled
+ * value is an error in the editor.
  */
 export type DefineAssemblyMeta<P extends GeneratorParams = GeneratorParams> = Omit<GeneratedMeta, 'layout'> & {
   /**
@@ -145,9 +146,10 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
   /**
    * The definition's schema as plain JSON (see {@link GeneratedSchema}): the
    * values an insert takes, by id; the dialog's rows — the author's
-   * `layout`, else derived from the values' `group` and `tab`; the label,
-   * description and icon. A generated assembly carries no connectors of its
-   * own. A fresh copy on each call.
+   * `layout`, else derived from the values' `group` and `tab` — and its
+   * width and aside, as the metadata gives them; the label, description and
+   * icon. A generated assembly carries no connectors of its own. A fresh
+   * copy on each call.
    */
   getSchema(): GeneratedSchema {
     if (this.schemaSnapshot === null) {
@@ -336,6 +338,7 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
 
   private snapshot(): GeneratedSchema {
     const layout = this.meta.layout ?? FeatureLayouts.derive(this.values.params);
+    const aside = this.meta.aside;
     return SchemaValidator.defined({
       kind: 'assembly',
       definitionKind: 'generated',
@@ -345,8 +348,10 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
       icon: this.meta.icon,
       params: this.values.snapshot(),
       layout: JSON.parse(JSON.stringify(layout)) as FeatureLayout,
+      width: this.meta.width,
+      aside: aside === undefined ? undefined : JSON.parse(JSON.stringify(aside)) as FeatureStaticItem[],
       connectors: [],
-      assetBase: { layout: 'definition' },
+      assetBase: aside === undefined ? { layout: 'definition' } : { layout: 'definition', aside: 'definition' },
     }) as GeneratedSchema;
   }
 }
@@ -376,9 +381,11 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
  *   declares a `static id`, and implements `layout(g)` and `static
  *   build(type, inputs, ctx)` (see {@link Generator}).
  * - `meta.label` names the assembly (and its toolbar entry) unless
- *   `meta.name` does; `icon` and `layout` images are relative to this
- *   module and may climb into the package (`'../features/icons/x.png'`).
- *   Left out, the dialog's rows are derived from the values.
+ *   `meta.name` does; `icon`, `layout` and `aside` images are relative to
+ *   this module and may climb into the package (`'../features/icons/x.png'`).
+ *   Left out, the dialog's rows are derived from the values; `width:
+ *   'wide'` and an `aside` (a size diagram beside the rows) dress the dialog
+ *   as a feature's metadata does.
  * - A name the generator doesn't take, a value its declaration refuses, and
  *   a throw from its layout are a build error on the insert's row; a throw
  *   from its build is one on that part's row. The render goes on.

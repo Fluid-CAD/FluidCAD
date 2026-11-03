@@ -249,7 +249,13 @@ describe("definePart refuses", () => {
     expect(() => definePart(Spur, { label: "Spur", call: [] } as never))
       .toThrow("definePart(Spur): leave 'call' out — a generated definition is inserted, not called: insert(def, { … }) takes its values by id");
     expect(() => definePart(Spur, { label: "Spur", group: "create" } as never))
-      .toThrow("definePart(Spur): unknown field 'group' — the fields are label, description, icon, layout, name");
+      .toThrow("definePart(Spur): unknown field 'group' — the fields are label, description, icon, layout, width, aside, name");
+    expect(() => definePart(Spur, { label: "Spur", width: "huge" as never }))
+      .toThrow(/^definePart\(Spur\): 'width' must be one of wide, wider, got '(huge|full)'$/);
+    expect(() => definePart(Spur, { label: "Spur", aside: [{ image: "/abs/dims.svg" }] }))
+      .toThrow(/^definePart\(Spur\): .*'\/abs\/dims.svg'/);
+    expect(() => definePart(Spur, { label: "Spur", aside: ["teeth"] as never }))
+      .toThrow(/^definePart\(Spur\): aside: 'teeth' is a value's row — 'aside' holds notes, images and dividers/);
     expect(() => definePart(Spur, { label: "Spur", icon: "/abs/spur.svg" }))
       .toThrow("definePart(Spur): 'icon' must be a relative path from the module, such as './icon.svg' or '../features/icons/icon.svg', got '/abs/spur.svg'");
     expect(() => definePart(Spur, { label: "Spur", layout: ["at", "teeth", "module", "width", "style"] as never }))
@@ -294,7 +300,7 @@ describe("a generated part's schema", () => {
       width: "wide",
       aside: [{ image: "./img/spur-dims.svg", alt: "The spur gear" }],
       connectors: ["axis"],
-      assetBase: { layout: "class" },
+      assetBase: { layout: "class", aside: "class" },
     });
     // Plain JSON, a fresh copy each time.
     expect(JSON.parse(JSON.stringify(schema))).toEqual(schema);
@@ -311,8 +317,27 @@ describe("a generated part's schema", () => {
     }).getSchema();
 
     expect(schema.layout).toEqual([{ section: "Gear", items: ["teeth", "module", "width"] }, { image: "./spur.svg" }, "style"]);
-    expect(schema.assetBase).toEqual({ layout: "definition" });
+    // The aside is still the feature dialog's, read against its module.
+    expect(schema.assetBase).toEqual({ layout: "definition", aside: "class" });
     expect(GeneratedSchemas.assetsOf(schema).definition).toEqual(["./spur.svg"]);
+  });
+
+  it("takes the author's width and aside over the feature dialog's, the aside's images from the defining module", () => {
+    const schema = spurPart({
+      label: "Spur",
+      icon: "../features/icons/spur.svg",
+      width: "wider",
+      aside: [{ image: "../features/img/spur-size.svg", alt: "Tip and root circles" }, { note: "Module × teeth = pitch diameter" }],
+    }).getSchema();
+
+    expect(schema.width).toBe("wider");
+    expect(schema.aside).toEqual([{ image: "../features/img/spur-size.svg", alt: "Tip and root circles" }, { note: "Module × teeth = pitch diameter" }]);
+    // The rows are still the feature dialog's, read against its module.
+    expect(schema.assetBase).toEqual({ layout: "class", aside: "definition" });
+    expect(GeneratedSchemas.assetsOf(schema)).toEqual({
+      definition: ["../features/icons/spur.svg", "../features/img/spur-size.svg"],
+      class: ["./img/spur.png", "./img/helical.png"],
+    });
   });
 
   it("derives the layout from the values when the feature registered no dialog", () => {

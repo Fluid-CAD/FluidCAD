@@ -8,6 +8,7 @@ import { AssemblyPreviews } from './assembly-preview/assembly-previews.ts';
 import { createAssemblyPreviewRouter } from './routes/assembly-preview.ts';
 import type { SceneRenderedData } from './fluidcad-server/index.ts';
 import { createServerCore } from './server-core.ts';
+import { MeshesRoute } from './routes/meshes.ts';
 import { createHostGuard, createHostGuardVerifyClient } from './host-guard.ts';
 import { createParamsRouter } from './routes/params.ts';
 import { createConfigurationsRouter, sceneRenderedBroadcaster } from './routes/configurations.ts';
@@ -174,7 +175,9 @@ app.use(express.json({ limit: '50mb' }));
 // ---------------------------------------------------------------------------
 
 const httpServer = http.createServer(app);
-const core = createServerCore(httpServer, { verifyClient: createHostGuardVerifyClient(HOST) });
+// Pages that keep a mesh cache are sent `meshRef`s for meshes they hold;
+// `POST /api/meshes` (mounted below) answers the ones they no longer do.
+const core = createServerCore(httpServer, { verifyClient: createHostGuardVerifyClient(HOST), meshRefs: true });
 
 /**
  * Every message for the pages goes out through here: the assembly preview
@@ -382,6 +385,7 @@ app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher, feature
 app.use('/api', createAssemblyReplicateRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyConnectorRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyPreviewRouter(previews));
+app.use('/api', MeshesRoute.router(core.meshes));
 app.use('/api', PackageEditGuard.errorHandler());
 
 // Static files — serve UI build, with SPA fallback. index.html goes through

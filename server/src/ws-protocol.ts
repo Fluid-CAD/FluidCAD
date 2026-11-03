@@ -591,6 +591,15 @@ export type UISceneRenderedMessage = {
    * with `scene-applied` once that scene is on screen.
    */
   sceneVersion?: number;
+  /**
+   * The rows. Every shape with meshes names its payload — `meshes`,
+   * `vertices`, `faceVertices` — by `meshKey` (lib `MeshKeys`: the same key
+   * is always the same payload). To a page that announced a mesh cache
+   * (`ui-hello.meshCache`), a shape whose payload that page was sent
+   * recently — or earlier in the same message — comes as `meshRef: <key>`
+   * without those three fields and without `meshKey`; every other field is
+   * there as always. Every other receiver gets whole shapes.
+   */
   result: any[];
   absPath: string;
   sceneKind: 'part' | 'assembly';
@@ -958,6 +967,17 @@ export type CameraStateMessage = {
 export type UIHelloMessage = {
   type: 'ui-hello';
   sceneAcks: boolean;
+  /**
+   * The page keeps the mesh payloads it is sent, by `meshKey`, at least the
+   * most recently used `capacity` numbers' worth of them (`SceneMeshes.
+   * weightOf`) and every one on screen, and resolves a shape's `meshRef`
+   * from them — asking `POST /api/meshes` for one it lacks — before it
+   * draws a scene (S6b). A host that serves that route (`meshRefs`) then
+   * sends it, in place of a payload it sent this connection recently, the
+   * shape's `meshRef` (see {@link UISceneRenderedMessage.result}). Absent:
+   * whole scenes, as before.
+   */
+  meshCache?: { capacity: number };
 };
 
 /**

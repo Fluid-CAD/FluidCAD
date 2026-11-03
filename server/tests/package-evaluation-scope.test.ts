@@ -48,6 +48,7 @@ function scoped(base: FakeEvaluator): ModuleEvaluator {
 
 afterEach(() => {
   FeatureNamespaces.use(null);
+  FeatureNamespaces.useStamp(null);
 });
 
 describe('PackageEvaluationScope', () => {
@@ -141,5 +142,26 @@ describe('PackageEvaluationScope', () => {
     const Plain = class {};
     FeatureNamespaces.claim(Plain);
     expect(FeatureNamespaces.keyOf(Plain, 'standoff')).toBe('standoff');
+  });
+
+  it('carries a package\'s stamp beside its name, the stamp source FeatureNamespaces reads once installed', async () => {
+    PackageEvaluationScope.install();
+    const stamp = '@acme/kit@0.1.0#sha256-abc';
+    expect(PackageEvaluationScope.run({ name: '@acme/kit', stamp }, () => [PackageEvaluationScope.current(), FeatureNamespaces.currentStamp()]))
+      .toEqual(['@acme/kit', stamp]);
+    // A bare name has no stamp; no package has neither.
+    expect(PackageEvaluationScope.run('@acme/kit', () => FeatureNamespaces.currentStamp())).toBeNull();
+    expect(FeatureNamespaces.currentStamp()).toBeNull();
+
+    // An owner lookup that answers the stamp reaches every module of the package.
+    const base = new FakeEvaluator();
+    const seen: (string | null)[] = [];
+    base.modules.set('/library/@acme/kit/0.1.0/features/standoff.feature.js', () => {
+      seen.push(FeatureNamespaces.currentStamp());
+    });
+    const evaluator = PackageEvaluationScope.evaluator((file) => (OWNERS[file] ? { name: OWNERS[file], stamp } : null), base);
+    await evaluator.runInlinedModule({} as ModuleRunnerContext, '/library/@acme/kit/0.1.0/features/standoff.feature.js',
+      FakeEvaluator.node('/library/@acme/kit/0.1.0/features/standoff.feature.js'));
+    expect(seen).toEqual([stamp]);
   });
 });

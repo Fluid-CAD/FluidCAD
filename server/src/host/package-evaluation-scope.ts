@@ -2,8 +2,15 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { ESModulesEvaluator, type EvaluatedModuleNode, type ModuleEvaluator, type ModuleRunnerContext } from 'vite/module-runner';
 import { FeatureNamespaces } from '../../../lib/dist/sdk/feature-namespaces.js';
 
-/** The installed package that owns a module file, by its public name, or null. */
-export type ModuleOwner = (file: string) => string | null;
+/**
+ * An installed package that owns a module file: its public name, and its
+ * stamp — `<name>@<version>#<tree hash>`, what changes exactly when the
+ * package's code can — when the host knows it.
+ */
+export type ModuleOwnerInfo = { name: string; stamp: string | null };
+
+/** The installed package that owns a module file — by its public name, or with its stamp — or null. */
+export type ModuleOwner = (file: string) => string | ModuleOwnerInfo | null;
 
 /**
  * Which installed package's module the engine is evaluating right now — how
@@ -30,28 +37,51 @@ export type ModuleOwner = (file: string) => string | null;
  * The context is one per process: every host's evaluator writes the owner
  * by its own project's package roots, and the one source installed in
  * `FeatureNamespaces` reads whichever evaluation is running.
+ *
+ * The owner carries the package's stamp beside its name when the host knows
+ * it: a generator class defined in a package takes it into its code
+ * version (`FeatureNamespaces.currentStamp`), so a package's generated
+ * parts are rebuilt exactly when another version or tree of it loads, with
+ * no module graph walk.
  */
 export class PackageEvaluationScope {
-  private static readonly evaluating = new AsyncLocalStorage<string | null>();
+  private static readonly evaluating = new AsyncLocalStorage<ModuleOwnerInfo | null>();
 
   /** The public name of the package whose module is evaluating now, or null. */
   static current(): string | null {
-    return PackageEvaluationScope.evaluating.getStore() ?? null;
+    return PackageEvaluationScope.evaluating.getStore()?.name ?? null;
   }
 
-  /** Make {@link current} the engine's `FeatureNamespaces` source. Idempotent. */
+  /** The stamp of the package whose module is evaluating now, or null (none, or not known). */
+  static currentStamp(): string | null {
+    return PackageEvaluationScope.evaluating.getStore()?.stamp ?? null;
+  }
+
+  /**
+   * Make {@link current} the engine's `FeatureNamespaces` source and
+   * {@link currentStamp} its stamp source. Idempotent.
+   */
   static install(): void {
     FeatureNamespaces.use(PackageEvaluationScope.current);
+    FeatureNamespaces.useStamp(PackageEvaluationScope.currentStamp);
   }
 
   /** Run `body` as the evaluation of a module `owner` owns (null: no package). */
-  static run<T>(owner: string | null, body: () => T): T {
-    return PackageEvaluationScope.evaluating.run(owner, body);
+  static run<T>(owner: string | ModuleOwnerInfo | null, body: () => T): T {
+    return PackageEvaluationScope.evaluating.run(PackageEvaluationScope.infoOf(owner), body);
   }
 
   /** The module evaluator a host's runner uses: Vite's own, inside each module's owner. */
   static evaluator(ownerOf: ModuleOwner, base: ModuleEvaluator = new ESModulesEvaluator()): ModuleEvaluator {
     return new ScopedModuleEvaluator(ownerOf, base);
+  }
+
+  /** An owner as the context holds it: a bare name has no stamp. */
+  static infoOf(owner: string | ModuleOwnerInfo | null): ModuleOwnerInfo | null {
+    if (owner === null) {
+      return null;
+    }
+    return typeof owner === 'string' ? { name: owner, stamp: null } : owner;
   }
 }
 
@@ -76,7 +106,7 @@ class ScopedModuleEvaluator implements ModuleEvaluator {
     return PackageEvaluationScope.run(null, () => this.base.runExternalModule(file));
   }
 
-  private static ownerOrNull(ownerOf: ModuleOwner, file: string | null | undefined): string | null {
+  private static ownerOrNull(ownerOf: ModuleOwner, file: string | null | undefined): string | ModuleOwnerInfo | null {
     if (!file) {
       return null;
     }

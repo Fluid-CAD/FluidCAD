@@ -5,12 +5,14 @@ import type {
   AssemblyExportPose,
   FeatureSlotRequest,
   FeatureSlotSynthesis,
+  GeneratedRenderReport,
   InterferenceRequest,
   RenderChangeTracker,
   ResolveSelectionRequest,
   ResolveSelectionResult,
   SceneCompareOptions,
   SceneInterferenceOutcome,
+  SceneOptions,
   SceneValidationOutcome,
   ValidateSceneRequest,
 } from '../../../lib/dist/index.js';
@@ -23,9 +25,23 @@ export type SceneManager = {
   // read under. Every engine has it; optional so the structural type never
   // refuses a manager — see `FluidCadServer.rootEngine`.
   rootPath?: string;
-  startScene(): any;
-  startAssemblyScene(): any;
+  // `options.detail`: the tier the scene's generated parts are built at
+  // (`'preview' | 'full'`, default `'full'`). An engine that predates it
+  // ignores the argument.
+  startScene(options?: SceneOptions): any;
+  startAssemblyScene(options?: SceneOptions): any;
   renderScene(scene: any): any;
+  // Optional: may predate generated parts. What a render did with them
+  // (layouts, templates built / kept / cached, times) and the template
+  // cache's state.
+  getGeneratedReport?(scene: any): GeneratedRenderReport;
+  // Optional: may predate generated parts. Workspace modules changed (a
+  // saved file and its importers): the generated definitions they define
+  // take a new code version; answers their ids.
+  noteCodeChanged?(files: Iterable<string>): string[];
+  // Optional: may predate generated parts. Dispose what the generated-part
+  // cache holds — a recompute from scratch.
+  clearGeneratedTemplates?(): void;
   getAssemblyData(scene: any): SerializedAssembly | null;
   rollbackScene(scene: any, rollbackIndex: number, opts?: { partScoped?: boolean }): any;
   // Optional: may predate timeline-ordered renders — the stop is then the

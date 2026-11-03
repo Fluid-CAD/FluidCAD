@@ -227,6 +227,22 @@ export class PackageResolver {
     return PackageRoots.owner(target, this.project);
   }
 
+  /**
+   * The installed package that owns `file` (see {@link rootOf}) with its
+   * stamp — `<name>@<version>#<tree hash>`, the tree hash the project pins
+   * and the directory was checked against when this render loaded it — or
+   * null. What a module of it evaluates in (`PackageEvaluationScope`): the
+   * stamp changes exactly when the package's code can.
+   */
+  ownerOf(file: string): { name: string; stamp: string } | null {
+    const root = this.rootOf(file);
+    if (!root) {
+      return null;
+    }
+    const integrity = this.loaded.get(root.name)?.integrity ?? this.pinsNow().map[root.name]?.integrity ?? '';
+    return { name: root.name, stamp: `${root.name}@${root.version}#${integrity}` };
+  }
+
   /** The pinned package `name` loads from, or why it can't (every check but the per-importer ones). */
   private load(name: string): ResolvedPackage | PackageResolveError {
     const pins = this.pinsNow();

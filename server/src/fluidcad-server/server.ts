@@ -1359,6 +1359,9 @@ export class FluidCadServer {
         this.sceneManager?.disposeScene?.(staleScene);
       }
       this.previousScenes.delete(sessionId);
+      // From scratch means generated parts too: the cache would hand them
+      // back built.
+      this.sceneManager?.clearGeneratedTemplates?.();
     }
     return this.processFileInternal(sessionId, this.currentFilePath, true, changes);
   }
@@ -2563,9 +2566,13 @@ export class FluidCadServer {
    * built with the old code rebuild: every session whose last render read
    * that module rebuilds the statements of the features it defines on its
    * next render (see {@link FeatureRebuilds}), though their values are
-   * unchanged, and the next ghost loads the saved code. Answers whether it
-   * was feature code. Any other file changes nothing here, so a render costs
-   * nothing more until feature code is saved.
+   * unchanged, and the next ghost loads the saved code. So does generator
+   * code: a module that defines a generated assembly (`defineAssembly`), or
+   * a workspace module one imports — the definitions it reaches take a new
+   * code version (see {@link generatedDefinitionsChangedBy}), and every
+   * session whose last render read the file rebuilds their parts. Answers
+   * whether it was feature or generator code. Any other file changes
+   * nothing here, so a render costs nothing more until such code is saved.
    *
    * The workspace watcher calls this for every change, whichever host saved
    * the file (the in-page editor, VS Code, Neovim, any other program); an
@@ -2573,11 +2580,15 @@ export class FluidCadServer {
    */
   noteFileChange(absPath: string): boolean {
     const modules = this.featureModulesChangedBy(absPath);
-    if (modules.size === 0) {
+    const generated = this.generatedDefinitionsChangedBy(absPath);
+    if (modules.size === 0 && generated.length === 0) {
       return false;
     }
-    this.ghostBuilders.clear();
-    this.ghostCodeStale = true;
+    if (modules.size > 0) {
+      this.ghostBuilders.clear();
+      this.ghostCodeStale = true;
+    }
+    const forms = FluidCadServer.pathForms(absPath);
     for (const [sessionId, fingerprint] of this.renderFingerprints) {
       if (!fingerprint || !this.previousScenes.has(sessionId)) {
         continue;
@@ -2587,8 +2598,42 @@ export class FluidCadServer {
           this.featureRebuilds.noteModule(sessionId, modulePath);
         }
       }
+      // A render that read the changed file built the generated parts of
+      // the definitions it reaches with the old code.
+      if (generated.length > 0 && forms.some(file => fingerprint.files.has(file))) {
+        for (const id of generated) {
+          this.featureRebuilds.noteId(sessionId, id);
+        }
+      }
     }
     return true;
+  }
+
+  /**
+   * The generated definitions (`defineAssembly`) a change to `absPath`
+   * reaches: those defined in the file itself or in a workspace module that
+   * imports it, directly or through another, as the module graph knows
+   * them — the engine knows which module defined which. The engine gives
+   * each a new code version as it answers, so neither the next render's
+   * compare nor the generated-part cache serves what the old code built,
+   * whichever session renders it next. An installed package's code never
+   * changes in place (another version is another directory and stamp), so
+   * its modules are never walked. Empty for an engine that predates
+   * generated parts.
+   */
+  private generatedDefinitionsChangedBy(absPath: string): string[] {
+    const manager = this.sceneManager;
+    if (!manager || typeof manager.noteCodeChanged !== 'function') {
+      return [];
+    }
+    const files = new Set<string>();
+    for (const file of FluidCadServer.pathForms(absPath)) {
+      files.add(file);
+      for (const importer of this.host.getModuleImporters?.(file) ?? []) {
+        files.add(importer);
+      }
+    }
+    return manager.noteCodeChanged(files);
   }
 
   /**

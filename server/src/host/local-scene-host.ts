@@ -193,7 +193,7 @@ export class LocalSceneHost implements SceneHost {
     this.runner = createServerModuleRunner(this.server.environments.ssr, {
       hmr: false,
       sourcemapInterceptor: false,
-      evaluator: PackageEvaluationScope.evaluator(file => this.packages.rootOf(file)?.name ?? null),
+      evaluator: PackageEvaluationScope.evaluator(file => this.packages.ownerOf(file)),
     });
     PackageEvaluationScope.install();
   }

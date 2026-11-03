@@ -21,6 +21,7 @@ import { Feature } from "../sdk/feature.js";
 import type { FeatureOperation } from "../sdk/call-shape.js";
 import type { FeatureScalar } from "../sdk/feature-inputs.js";
 import { FeatureMetas, type PickerKind, type PickerParamSpec, type ResolvedFeatureMeta } from "../sdk/meta.js";
+import { ValueSchema } from "../sdk/value-schema.js";
 import { VertexPointSynthesizer } from "../selection/vertex-synthesis.js";
 import type { FeatureGhostResult, GhostEntityRef, GhostSolid } from "./feature-ghost.js";
 import { GhostScene } from "./ghost-scene.js";
@@ -267,14 +268,14 @@ export class CustomFeatureGhost {
       for (const ref of refs) {
         const object = this.reference(name, spec, ref);
         if (!object) {
-          return { reason: `${FeatureMetas.labelOf(name, spec)}: that pick is not in the rendered scene.` };
+          return { reason: `${ValueSchema.labelOf(name, spec)}: that pick is not in the rendered scene.` };
         }
         objects.push(object);
       }
-      if (FeatureMetas.isList(spec)) {
+      if (ValueSchema.isList(spec)) {
         values[name] = objects;
       } else if (objects.length > 1) {
-        return { reason: `${FeatureMetas.labelOf(name, spec)} takes one pick, got ${objects.length}.` };
+        return { reason: `${ValueSchema.labelOf(name, spec)} takes one pick, got ${objects.length}.` };
       } else {
         values[name] = objects[0];
       }
@@ -284,7 +285,7 @@ export class CustomFeatureGhost {
 
   /** The stand-in for one element of a picked value, or null when the scene no longer holds it. */
   private reference(name: string, spec: PickerParamSpec, ref: GhostCustomRef): SceneObject | null {
-    const kinds = FeatureMetas.kindsOf(spec);
+    const kinds = ValueSchema.kindsOf(spec);
     switch (ref.kind) {
       case 'standard':
         if (kinds.includes('axis') && ref.name.length === 1) {

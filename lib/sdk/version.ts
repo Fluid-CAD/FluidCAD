@@ -32,3 +32,26 @@ export const SDK_VERSION = 1;
  * 2026-10-09, and every package packed since declares 0.0.45 or later.
  */
 export const SDK_SINCE = '0.0.45';
+
+/**
+ * The minor revision of SDK {@link SDK_VERSION}: bumped when the SDK gains
+ * something an older engine of the same SDK lacks — a new export, a new
+ * option — without breaking what was there. A package and an engine of one
+ * `SDK_VERSION` stay compatible whatever their minor revisions; a package
+ * that uses an addition runs only on an engine that has it, so it declares
+ * a `minEngine` no older than the FluidCAD that shipped the revision
+ * ({@link SDK_MINOR_SINCE}).
+ *
+ * - 0: the SDK as {@link SDK_SINCE} shipped it.
+ * - 1: `definePart` (a part made by running a feature, inserted with its
+ *   values by id) and named frames (`Feature.with(params, { frames })`,
+ *   `this.setFrames()`, `feature.frame(name)`).
+ */
+export const SDK_MINOR = 1;
+
+/**
+ * The first FluidCAD version whose engine speaks {@link SDK_MINOR}: the
+ * lowest `minEngine` a package using what that revision added may declare.
+ * Set it to the new engine's version whenever `SDK_MINOR` is bumped.
+ */
+export const SDK_MINOR_SINCE = '0.0.49';

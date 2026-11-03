@@ -22,6 +22,13 @@ export class Part extends SceneObject implements IPart {
   paramValues?: Record<string, ParamVal>;
   /** The row names the definition's `configurations()` declares, collected like `params` under a scope. */
   configurations?: string[];
+  /**
+   * For a variant a generated definition built (`definePart`): the
+   * definition's id and the values the variant was built from, by id —
+   * what the editor reopens the definition's dialog with. Unset for a
+   * `part()` body's variants.
+   */
+  generated?: { definition: string; values: Record<string, ParamVal> };
 
   /**
    * The values the body published with `property('Label', 'name', value)`, in

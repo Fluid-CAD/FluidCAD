@@ -197,6 +197,8 @@ export { FeatureCall, CallShapeMismatch } from './sdk/call-shape.js';
 export { FeatureDocs } from './sdk/feature-docs.js';
 export type { DocGap, DocGapReason } from './sdk/feature-docs.js';
 export type { FeatureBucketSpec, FeatureBucketSpecs } from './sdk/feature-buckets.js';
+export { GeneratedSchemas } from './sdk/generated-schema.js';
+export type { GeneratedSchema, GeneratedKind, GeneratedAssetBase, GeneratedMarker } from './sdk/generated-schema.js';
 export { FeatureKey } from './sdk/feature-key.js';
 export { FeatureNamespaces } from './sdk/feature-namespaces.js';
 export type { FeatureNamespaceSource } from './sdk/feature-namespaces.js';

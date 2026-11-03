@@ -33,6 +33,17 @@
  * params, call, … } }`) and `parseCall` to read the arguments by it build
  * the same feature from a plain `Feature` subclass.
  *
+ * `definePart` turns a feature into an insertable part: its typed-in values
+ * become the part's interface, passed by id (`insert(gearPart, { teeth: 18 })`),
+ * and the frames its class declares (`Feature.with(params, { frames: { axis:
+ * {} } })`, set in the build with `this.setFrames({ axis: plane })`) become
+ * the part's connectors.
+ *
+ * ```js
+ * // parts/gear.part.js
+ * export const gearPart = definePart(Gear, { label: 'Gear', icon: '../features/icons/gear.png' });
+ * ```
+ *
  * The geometry a tool is built from lives in `fluidcad/sdk/kernel`.
  */
 // The engine's root entry first: it evaluates the kernel's modules in the
@@ -42,11 +53,15 @@ export { registerBuilder } from "../index.js";
 export type { RegisterBuilderOptions, SceneParserContext } from "../index.js";
 export { Feature } from "./feature.js";
 export type { FeatureBuckets, FeatureBuildContext, FeatureClass, FeatureWith, FeatureWithOptions } from "./feature.js";
+export type { FeatureFrameSpec, FeatureFrameSpecs, NamedFrames } from "./feature-frames.js";
 export type {
   FeatureBucketSpec, FeatureBucketSpecs, BucketAccessors, NamedBuckets, FeatureBucketBrand, BucketSpecsOf,
 } from "./feature-buckets.js";
 export { defineFeature } from "./define-feature.js";
 export type { DefinableFeatureClass, DefineFeatureMeta } from "./define-feature.js";
+export { definePart } from "./define-part.js";
+export type { DefinablePartClass, DefinePartMeta, GeneratedPartDefinition, TypedInParams } from "./define-part.js";
+export type { GeneratedSchema, GeneratedMeta, GeneratedKind, GeneratedAssetBase, GeneratedMarker } from "./generated-schema.js";
 export type { FeatureParams, ValuesOf, ValueOf, FeatureCallShape, FeatureArgs } from "./feature-params.js";
 export type { FeatureValue, FeatureValues, FeatureScalar, FeatureReferenceSummary } from "./feature-inputs.js";
 export { parseCall } from "./meta.js";

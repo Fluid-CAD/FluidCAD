@@ -133,7 +133,7 @@ describe("declaring buckets", () => {
     expect(() => Feature.with(P, { buckets: many })).toThrow("Feature.with(): declares 33 buckets — a feature declares at most 32");
     expect(() => Feature.with(P, { buckets: Object.fromEntries(Object.entries(many).slice(0, 32)) })).not.toThrow();
     expect(() => Feature.with(P, { buckets: [] as never })).toThrow("Feature.with(): 'buckets' must be an object of the feature's buckets by name");
-    expect(() => Feature.with(P, { bucket: {} } as never)).toThrow("Feature.with(): unknown option 'bucket' — the options are: buckets");
+    expect(() => Feature.with(P, { bucket: {} } as never)).toThrow("Feature.with(): unknown option 'bucket' — the options are: buckets, frames");
     expect(() => Feature.with(P, 'buckets' as never)).toThrow("Feature.with(): the second argument holds the feature's options");
   });
 

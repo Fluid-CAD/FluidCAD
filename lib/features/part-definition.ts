@@ -256,7 +256,17 @@ export class PartDefinition<T = unknown> {
     return this.materializeInto(scene);
   }
 
-  private buildVariant(scene: Scene, overrides: Map<string, ParamVal>, scoped: boolean, configuration?: string): Part {
+  /**
+   * The variant `overrides` names in `scene`: the one cached under its key
+   * (its unit, configuration and canonical overrides), else a new template
+   * whose body ({@link runBody}) runs once now. `scoped` builds under a
+   * parameter scope of `overrides` — the insert path, which keeps the
+   * body's `param()` calls out of the consumer's registry; unscoped, they
+   * register globally (the entry-file path). A subclass that reads its
+   * values another way (`definePart`) passes the canonical values it keys
+   * the variant by, unscoped.
+   */
+  protected buildVariant(scene: Scene, overrides: Map<string, ParamVal>, scoped: boolean, configuration?: string): Part {
     const variants = this.variantsIn(scene);
     // The body's numbers are in the DEFINING file's unit, whatever the
     // consumer runs in. The consumer is the ACTIVE unit at this call: the
@@ -274,14 +284,7 @@ export class PartDefinition<T = unknown> {
     if (this.refusal !== null) {
       // A refused definition never runs its body: the variant is the empty
       // part its row shows the refusal on.
-      const refused = this.newVariant(definitionUnit, targetUnit);
-      refused.refuse(this.refusal);
-      scene.runTopLevel(() => {
-        scene.startProgressiveContainer(refused);
-        scene.endProgressiveContainer();
-      });
-      variants.set(key, refused);
-      return refused;
+      return this.refusedVariant(scene, this.refusal, this.sourceLocation, key);
     }
     // A read that lands here while THIS definition's body is still running
     // is a dependency loop — refused with the loop named, never recursed.
@@ -302,7 +305,7 @@ export class PartDefinition<T = unknown> {
         scene.startProgressiveContainer(partObj);
         registry.beginBody(this.partName, "part", this.sourceLocation?.filePath ?? null);
         try {
-          return this.callback();
+          return this.runBody(scene, partObj, overrides);
         } finally {
           registry.endBody();
           scene.endProgressiveContainer();
@@ -355,6 +358,48 @@ export class PartDefinition<T = unknown> {
     // are scaled, never the instance pose.
     variants.set(key, partObj);
     return partObj;
+  }
+
+  /**
+   * Run one variant's body, inside the variant's part (the active
+   * container), in the definition's unit: a `part()` body is its callback,
+   * whose `param()` calls read `overrides` through the parameter scope. A
+   * subclass whose body is engine code (`definePart`) builds the variant's
+   * statements from `overrides` itself.
+   */
+  protected runBody(_scene: Scene, _part: Part, _overrides: ReadonlyMap<string, ParamVal>): T {
+    return this.callback();
+  }
+
+  /**
+   * A variant refused on the spot: an empty part whose body never runs and
+   * whose build error is `message`, reported on its row at `location` — the
+   * statement that asked for it. It is in `scene`, top-level; with a `key`
+   * it is cached under it, so a second request for the same variant shares
+   * it (and the definition counts as built in `scene`), else every request
+   * gets one of its own, at its own statement.
+   */
+  protected refusedVariant(scene: Scene, message: string, location: SourceLocation | null, key?: string): Part {
+    const cached = key === undefined ? undefined : this.variantsIn(scene).get(key);
+    if (cached) {
+      return cached;
+    }
+    const refused = this.newVariant(
+      getUnitRegistry().resolve(this.sourceLocation?.filePath),
+      getActiveUnit(),
+    );
+    if (location) {
+      refused.setSourceLocation(location);
+    }
+    refused.refuse(message);
+    scene.runTopLevel(() => {
+      scene.startProgressiveContainer(refused);
+      scene.endProgressiveContainer();
+    });
+    if (key !== undefined) {
+      this.variantsIn(scene).set(key, refused);
+    }
+    return refused;
   }
 
   /** A new, empty variant: the definition's name, location, material and appearance, in its unit, consumed in `targetUnit`. */

@@ -1,5 +1,6 @@
 import type { ParamDefinition } from "../param-registry.js";
-import { FeatureMetas, type FeatureMeta, type FeatureMetaSnapshot, type ResolvedFeatureMeta } from "./meta.js";
+import { type FeatureMeta, type FeatureMetaSnapshot, type ResolvedFeatureMeta } from "./meta.js";
+import { ValueSchema } from "./value-schema.js";
 
 /**
  * Why a field counts as undocumented:
@@ -76,7 +77,7 @@ export class FeatureDocs {
       gaps.push({ kind: 'feature', owner: of, name: id, label: meta.label, reason: own });
     }
     for (const [name, spec] of Object.entries(meta.params)) {
-      const label = FeatureMetas.labelOf(name, spec);
+      const label = ValueSchema.labelOf(name, spec);
       const reason = FeatureDocs.reasonOf(spec.description, label, name);
       if (reason !== null) {
         gaps.push({ kind: 'value', owner: of, name, label, reason });

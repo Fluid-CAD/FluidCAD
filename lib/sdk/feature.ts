@@ -23,7 +23,7 @@ import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { applyBucketFilters } from "../filters/bucket-scope.js";
-import type { ISceneObject, ISelection } from "../core/interfaces.js";
+import type { IPlane, ISceneObject, ISelection } from "../core/interfaces.js";
 import type { SceneParserContext } from "../index.js";
 import { FeatureInputs, type FeatureScalar, type FeatureValues } from "./feature-inputs.js";
 import { FeatureCall, type FeatureOperation } from "./call-shape.js";
@@ -36,6 +36,8 @@ import {
   type FeatureBucketSpecs, type NamedBuckets,
 } from "./feature-buckets.js";
 import type { BucketDef, SubShapeKind } from "../common/bucket-defs.js";
+import { FeatureFrame, FeatureFrameSet, type FeatureFrameSpecs, type NamedFrames } from "./feature-frames.js";
+import type { FeatureDialogWidth, FeatureLayout, FeatureStaticItem } from "./layout.js";
 import { getOC } from "../oc/init.js";
 import type { TopAbs_ShapeEnum } from "ocjs-fluidcad";
 
@@ -73,18 +75,19 @@ export type FeatureBuckets = {
 export type FeatureClass<V extends FeatureValues = FeatureValues> = (new (values: V) => Feature<V>) & { id: string };
 
 /**
- * What `Feature.with(params, { buckets })` returns: an abstract `Feature`
- * whose values are typed by `params`, which it carries as `static params`,
- * with one accessor method per custom bucket it declares (`tipFaces()`),
- * and `setBuckets()` taking those names too. It carries the declarations as
- * `static buckets`.
+ * What `Feature.with(params, { buckets, frames })` returns: an abstract
+ * `Feature` whose values are typed by `params`, which it carries as `static
+ * params`, with one accessor method per custom bucket it declares
+ * (`tipFaces()`), `setBuckets()` taking those names too, and `setFrames()`
+ * and `frame()` taking the names of the frames it declares. It carries the
+ * declarations as `static buckets` and `static frames`.
  */
-export type FeatureWith<P extends FeatureParams, B extends FeatureBucketSpecs = {}> =
-  (abstract new (values: ValuesOf<P>) => Feature<ValuesOf<P>, keyof B & string> & BucketAccessors<B> & FeatureBucketBrand<B>)
-  & { readonly params: P; readonly buckets: B };
+export type FeatureWith<P extends FeatureParams, B extends FeatureBucketSpecs = {}, F extends FeatureFrameSpecs = {}> =
+  (abstract new (values: ValuesOf<P>) => Feature<ValuesOf<P>, keyof B & string, keyof F & string> & BucketAccessors<B> & FeatureBucketBrand<B>)
+  & { readonly params: P; readonly buckets: B; readonly frames: F };
 
 /** What `Feature.with(params, options)` takes after the values. */
-export type FeatureWithOptions<B extends FeatureBucketSpecs = FeatureBucketSpecs> = {
+export type FeatureWithOptions<B extends FeatureBucketSpecs = FeatureBucketSpecs, F extends FeatureFrameSpecs = FeatureFrameSpecs> = {
   /**
    * The feature's named buckets, by accessor name — each ends in `Faces` or
    * `Edges`, which says what it holds: `{ tipFaces: {}, boreEdges: { label:
@@ -96,6 +99,15 @@ export type FeatureWithOptions<B extends FeatureBucketSpecs = FeatureBucketSpecs
    * declared only to relabel it, and makes no method.
    */
   buckets?: B;
+  /**
+   * The feature's named frames, by name — each an identifier and a
+   * declaration that holds only an optional `label`: `{ axis: {} }`. The
+   * build sets each with `setFrames({ axis: plane })`; a model reads one
+   * back as a plane with `feature.frame('axis')` — a `connector()` source —
+   * and a generated part (`definePart`) makes one connector per frame, of
+   * the frame's name.
+   */
+  frames?: F;
 };
 
 /** What `setBuckets()` keeps while a build collects them: the standard buckets and the custom ones, by name. */
@@ -104,12 +116,22 @@ type DeclaredBuckets = FeatureBuckets & { [name: string]: Shape[] | Plane | unde
 /**
  * @internal What a feature class's metadata tells the class itself, once a
  * builder registered it: the label its timeline rows read, and the
- * operations its statements may choose, with the default one.
+ * operations its statements may choose, with the default one — and its
+ * dialog's rows, which a generated part of the class (`definePart`) borrows
+ * when it lays out none of its own.
  */
 export type FeatureRegistration = {
   label: string;
   operations: readonly FeatureOperation[];
   defaultOperation: FeatureOperation | null;
+  dialog?: FeatureDialog;
+};
+
+/** @internal A feature dialog's layout: its rows, its width and its aside, as the metadata resolved them. */
+export type FeatureDialog = {
+  layout: FeatureLayout;
+  width?: FeatureDialogWidth;
+  aside?: readonly FeatureStaticItem[];
 };
 
 type FaceArgs = (number | FaceFilterBuilder)[];
@@ -147,7 +169,7 @@ type EdgeArgs = (number | EdgeFilterBuilder)[];
  * values by extending {@link Feature.with}, which types `this.values` from
  * them, and `defineFeature()` turns it into the builder a model calls.
  */
-export abstract class Feature<V extends FeatureValues = FeatureValues, N extends string = never> extends SceneObject {
+export abstract class Feature<V extends FeatureValues = FeatureValues, N extends string = never, F extends string = never> extends SceneObject {
 
   /** The feature's plain id (`'standoff'`); never one of the engine's own types (`SceneTypes`). */
   static id: string;
@@ -189,37 +211,55 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
    * }) { … }
    * ```
    *
+   * The options declare its named frames too (`frames: { axis: {} }`): the
+   * build sets them with {@link setFrames}, and a model reads one back as a
+   * plane with {@link frame}.
+   *
    * Every evaluation of the module makes a new base and a new class; the
    * cache compares features by id, never by class, so that costs nothing.
    */
-  static with<const P extends FeatureParams, const B extends FeatureBucketSpecs = {}>(params: P, options?: FeatureWithOptions<B>): FeatureWith<P, B> {
+  static with<const P extends FeatureParams, const B extends FeatureBucketSpecs = {}, const F extends FeatureFrameSpecs = {}>(
+    params: P,
+    options?: FeatureWithOptions<B, F>,
+  ): FeatureWith<P, B, F> {
     if (!FeatureCall.isPlainObject(params)) {
       throw new Error("Feature.with() takes the feature's values by name, such as { height: { type: 'length', default: 10 } }");
     }
-    const buckets = Feature.bucketsOption(options);
+    const declared = Feature.withOptions(options);
     const frozen = Feature.frozenCopy(params);
     abstract class FeatureWithParams extends Feature {
       static readonly params = frozen;
-      static readonly buckets = buckets;
+      static readonly buckets = declared.buckets;
+      static readonly frames = declared.frames;
     }
     FeatureBucketSet.of(FeatureWithParams, 'Feature.with()');
-    return FeatureWithParams as unknown as FeatureWith<P, B>;
+    FeatureFrameSet.of(FeatureWithParams, 'Feature.with()');
+    return FeatureWithParams as unknown as FeatureWith<P, B, F>;
   }
 
-  /** The buckets `Feature.with()`'s options declare, frozen — none when left out — refusing any other option. */
-  private static bucketsOption(options: unknown): FeatureBucketSpecs {
+  /** The options `Feature.with()` takes after the values. */
+  private static readonly WITH_OPTIONS = ['buckets', 'frames'];
+
+  /**
+   * The buckets and frames `Feature.with()`'s options declare, each frozen —
+   * none when left out — refusing any other option.
+   */
+  private static withOptions(options: unknown): { buckets: FeatureBucketSpecs; frames: FeatureFrameSpecs } {
     if (options === undefined) {
-      return Object.freeze({});
+      return { buckets: Object.freeze({}), frames: Object.freeze({}) };
     }
     if (!FeatureCall.isPlainObject(options)) {
       throw new Error("Feature.with(): the second argument holds the feature's options, such as { buckets: { tipFaces: {} } }");
     }
     for (const option of Object.keys(options)) {
-      if (option !== 'buckets') {
-        throw new Error(`Feature.with(): unknown option '${option}' — the options are: buckets`);
+      if (!Feature.WITH_OPTIONS.includes(option)) {
+        throw new Error(`Feature.with(): unknown option '${option}' — the options are: ${Feature.WITH_OPTIONS.join(', ')}`);
       }
     }
-    return options.buckets === undefined ? Object.freeze({}) : Feature.frozenCopy(options.buckets) as FeatureBucketSpecs;
+    return {
+      buckets: options.buckets === undefined ? Object.freeze({}) : Feature.frozenCopy(options.buckets) as FeatureBucketSpecs,
+      frames: options.frames === undefined ? Object.freeze({}) : Feature.frozenCopy(options.frames) as FeatureFrameSpecs,
+    };
   }
 
   /**
@@ -227,12 +267,19 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
    * `registerBuilder` gives the class its label, which its timeline rows
    * read, and its operations — a statement without an operation chain
    * applies the default one, and one that chooses an operation the feature
-   * doesn't offer fails to build. The class's bucket declarations are
-   * checked here too — a plain subclass declares them as `static buckets`.
+   * doesn't offer fails to build. The class's bucket and frame declarations
+   * are checked here too — a plain subclass declares them as `static
+   * buckets` and `static frames`.
    */
   static register(featureClass: Function, registration: FeatureRegistration): void {
     FeatureBucketSet.of(featureClass);
+    FeatureFrameSet.of(featureClass);
     Feature.registrations.set(featureClass, Object.freeze({ ...registration, operations: Object.freeze([...registration.operations]) }));
+  }
+
+  /** @internal What a builder's metadata told `featureClass` (see {@link register}); null for a class no builder registered. */
+  static registrationOf(featureClass: Function): FeatureRegistration | null {
+    return Feature.registrations.get(featureClass) ?? null;
   }
 
   private static readonly FACE_KEYS: readonly (readonly [FaceBucketName, string])[] = FeatureBucketSet.STANDARD_FACES;
@@ -243,6 +290,9 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
 
   /** The buckets declared so far in this build — see {@link setBuckets}. */
   private declared: DeclaredBuckets = {};
+
+  /** The frames set so far in this build — see {@link setFrames}. */
+  private declaredFrames: Record<string, Plane> = {};
 
   /** True while `buildTool()` runs: declared buckets wait for the base to place them. */
   private collectingTool = false;
@@ -260,6 +310,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
     // A class constructed without a builder (the plain-subclass style, a
     // test) gets its bucket accessors here, its declarations checked.
     FeatureBucketSet.of(this.constructor);
+    FeatureFrameSet.of(this.constructor);
     // A statement without an operation chain applies the feature's default,
     // as hole() cuts without a .remove(). A class no builder registered adds.
     const operation = Feature.registrations.get(this.constructor)?.defaultOperation ?? null;
@@ -304,9 +355,10 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
    */
   static scalarCheck: ((callee: string, name: string, spec: ParamSpec, value: unknown) => unknown) | null = null;
 
-  /** Ahead of the build: the references are built, so {@link derive} can read them. */
+  /** Ahead of the build: the references are built, so {@link derive} can read them. A build sets its frames afresh. */
   override validate(): void {
     super.validate();
+    this.declaredFrames = {};
     this.resolveDerived();
   }
 
@@ -361,6 +413,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
    */
   buildPreview(ctx: FeatureBuildContext): { shapes: Shape[]; scratch: Shape[] } | null {
     this.declared = {};
+    this.declaredFrames = {};
     try {
       const shapes = BuildScope.run(this, ctx, () => {
         this.resolveDerived();
@@ -375,6 +428,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
       return { shapes, scratch: this.declaredMembers() };
     } finally {
       this.declared = {};
+      this.declaredFrames = {};
     }
   }
 
@@ -661,6 +715,58 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
     }
   }
 
+  /**
+   * Set the feature's named frames: the ones its class declares
+   * (`Feature.with(params, { frames })`), each a plane — origin, X direction
+   * and normal — where the feature stands: `this.setFrames({ axis: plane })`.
+   * A tool sets them for the solids `buildTool()` returns; the base moves
+   * them with a repeat's copy, as it moves the solids. A modifier sets them
+   * where its build leaves them. Calls accumulate; a frame the build never
+   * sets has no plane, and {@link frame} reports it.
+   *
+   * A name the class doesn't declare and a value that is not a plane are
+   * refused as the feature's build error.
+   */
+  protected setFrames(frames: NamedFrames<F>): void {
+    FeatureFrameSet.of(this.constructor).checkFilled(frames, this.getType());
+    const set = Object.fromEntries(Object.entries(frames as Record<string, Plane | undefined>).filter(([, plane]) => plane !== undefined));
+    this.declaredFrames = { ...this.declaredFrames, ...set } as Record<string, Plane>;
+    if (!this.collectingTool) {
+      this.writeFrames(this.declaredFrames);
+    }
+  }
+
+  /**
+   * One of the feature's named frames, read as a plane once the feature has
+   * built: a `connector()` source (`connector('axis', g.frame('axis'))`) and
+   * a `plane()` input. It is a reference — nothing is built until the
+   * feature is — so it reads the frame where the build set it, a repeat's
+   * copy's frame where the copy stands. A name the class doesn't declare
+   * is refused here.
+   */
+  frame(name: F): IPlane {
+    FeatureFrameSet.of(this.constructor).checkName(name, this.getType());
+    return new FeatureFrame(this, name);
+  }
+
+  /**
+   * @internal The plane the last build set for frame `name` — what a
+   * {@link frame} reference reads. Refuses a frame the build left unset.
+   */
+  builtFrame(name: string): Plane {
+    const frames = this.getState(FeatureFrameSet.STATE_KEY) as Readonly<Record<string, Plane>> | undefined;
+    const plane = frames?.[name];
+    if (!plane) {
+      throw new Error(`${this.getType()}: its build set no frame '${name}' — set it with this.setFrames({ ${name}: plane })`);
+    }
+    return plane;
+  }
+
+  /** Keep `frames` as the built frames, where {@link builtFrame} reads them. */
+  private writeFrames(frames: Readonly<Record<string, Plane>>): void {
+    this.setState(FeatureFrameSet.STATE_KEY, Object.freeze({ ...frames }));
+  }
+
   build(context: FeatureBuildContext): void {
     const refusal = this.operationRefusal();
     if (refusal) {
@@ -668,6 +774,7 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
     }
     const p = context.getProfiler();
     this.declared = {};
+    this.declaredFrames = {};
     this.collectingTool = true;
     let tools: Shape[];
     try {
@@ -681,10 +788,13 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
     this.refuseStrayMembers(tools);
 
     let buckets = this.declared;
+    let frames = this.declaredFrames;
     const transform = context.getTransform();
     if (transform) {
       ({ tools, buckets } = p.record('Move tool', () => Feature.moveTool(tools, buckets, transform, this.bucketNames())));
+      frames = FeatureFrameSet.moved(frames, transform);
     }
+    this.writeFrames(frames);
 
     this.consumeReferences();
 

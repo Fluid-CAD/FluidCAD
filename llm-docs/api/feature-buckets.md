@@ -4,7 +4,7 @@ title: "Named buckets — Feature.with(params, { buckets }): a custom feature's 
 summary: "A custom feature declares buckets of its own in Feature.with()'s second argument, { buckets: { tipFaces: {}, tipEdges: {}, boreEdges: { label: 'Bore Rims' } } }, and fills them in setBuckets(). Each name ends in Faces or Edges, which says what it holds, and becomes a typed method read like endFaces() (g.tipEdges(), r.instance(k).tipEdges()). A declaration holds only a label (a description is refused: the package's docs/ pages say what a bucket holds); a standard name is declared only to relabel it; edge buckets are opt-in, and a declared xEdges left unfilled is the edges of xFaces. Every refusal (where the module loads, and in setBuckets()), what a fusion, a remove and a repeat's copy do to the buckets, why a fused gear's tip fillet fails, the editor's picks and menus, and static buckets on a plain subclass."
 tags: [api, sdk, custom-feature, buckets, type]
 symbols: [FeatureWithOptions, FeatureBucketSpecs, FeatureBucketSpec]
-seeAlso: [api/feature, concepts/custom-features, api/feature-example-gear, api/feature-example-bearing-seat, api/register-builder, api/repeat]
+seeAlso: [api/feature, concepts/custom-features, api/feature-example-gear, api/feature-example-bearing-seat, api/register-builder, api/repeat, api/feature-frames]
 ---
 
 # Named buckets
@@ -14,7 +14,7 @@ class, the standard buckets and `setBuckets()`: [[api/feature]]).
 
 ```ts
 // Feature.with(params, options)'s second argument:
-type FeatureWithOptions = { buckets?: FeatureBucketSpecs };
+type FeatureWithOptions = { buckets?: FeatureBucketSpecs; frames?: FeatureFrameSpecs };   // frames: api/feature-frames
 type FeatureBucketSpecs = { [name: string]: FeatureBucketSpec };   // name: /^[a-z][A-Za-z0-9]*(Faces|Edges)$/
 type FeatureBucketSpec = { label?: string };                        // the menus' words; nothing else
 

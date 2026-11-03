@@ -1,10 +1,10 @@
 ---
 id: api/feature
 title: "Feature / Feature.with(params) — the base class of a custom feature"
-summary: "The class a custom feature extends, from fluidcad/sdk. Feature.with({ … }, { buckets }) declares its values, typing this.values, and its own named buckets (api/feature-buckets); static id names it. A tool's buildTool(ctx) returns solids the base adds, keeps apart or cuts and moves for a repeat (getOperationMode() reads which); a modifier overrides build(ctx). setBuckets() names startFaces…capFaces (edges derived), startPlane and the declared buckets; shapesOf/facesOf/edgesOf/axisOf/planeOf/frameOf/framesOf/pointOf/isLocation/propertiesOf read the picks — framesOf every placement of a picked hole, propertiesOf a reference's plain data; derive() fixes values from the picks (the dialog locks their rows); ghost(ctx) is the dialog's preview; occ() runs raw OpenCascade."
+summary: "The class a custom feature extends, from fluidcad/sdk. Feature.with({ … }, { buckets, frames }) declares its values, typing this.values, its own named buckets (api/feature-buckets) and its named frames (api/feature-frames: set with setFrames(), read with g.frame(name), a generated part's connectors); static id names it. A tool's buildTool(ctx) returns solids the base adds, keeps apart or cuts and moves for a repeat (getOperationMode() reads which); a modifier overrides build(ctx). setBuckets() names startFaces…capFaces (edges derived), startPlane and the declared buckets; shapesOf/facesOf/edgesOf/axisOf/planeOf/frameOf/framesOf/pointOf/isLocation/propertiesOf read the picks — framesOf every placement of a picked hole, propertiesOf a reference's plain data; derive() fixes values from the picks (the dialog locks their rows); ghost(ctx) is the dialog's preview; occ() runs raw OpenCascade."
 tags: [api, sdk, custom-feature, type]
 symbols: [Feature, FeatureBuckets, FeatureBuildContext]
-seeAlso: [concepts/custom-features, api/feature-buckets, api/define-feature, api/feature-params, api/sdk-kernel, api/sdk-occt, api/register-builder, api/connector, api/repeat]
+seeAlso: [concepts/custom-features, api/feature-buckets, api/feature-frames, api/define-feature, api/define-part, api/feature-params, api/sdk-kernel, api/sdk-occt, api/register-builder, api/connector, api/repeat]
 ---
 
 # Feature
@@ -12,7 +12,7 @@ seeAlso: [concepts/custom-features, api/feature-buckets, api/define-feature, api
 Imported from `fluidcad/sdk`.
 
 ```ts
-class MyFeature extends Feature.with(params, { buckets }) {   // params: { [name]: ParamSpec }; the options are optional
+class MyFeature extends Feature.with(params, { buckets, frames }) {   // params: { [name]: ParamSpec }; the options are optional
   static id = 'myFeature';             // plain: the timeline type and the cache's
 
   readonly values: ValuesOf<params>;   // frozen; a length is a number, a face pick an ISelection
@@ -31,6 +31,7 @@ class MyFeature extends Feature.with(params, { buckets }) {   // params: { [name
 
   // Protected helpers:
   setBuckets(buckets: FeatureBuckets & { [declared: string]: Face[] | Edge[] }): void;
+  setFrames(frames: { [declared: string]: Plane }): void;   // the frames it declares (api/feature-frames)
   shapesOf(ref: ISceneObject | ISceneObject[]): Shape[];
   facesOf(ref: ISceneObject | ISceneObject[]): Face[];
   edgesOf(ref: ISceneObject | ISceneObject[]): Edge[];
@@ -54,7 +55,8 @@ type FeatureBuckets = {
   startPlane?: Plane;
 };
 
-// Feature.with()'s optional second argument, FeatureWithOptions: { buckets: { tipFaces: {}, … } } (api/feature-buckets)
+// Feature.with()'s optional second argument, FeatureWithOptions:
+//   { buckets: { tipFaces: {}, … } } (api/feature-buckets), { frames: { axis: {} } } (api/feature-frames)
 
 // What a model gets from every feature, as from a built-in:
 f.startFaces(...)  f.endFaces(...)  f.sideFaces(...)  f.internalFaces(...)  f.capFaces(...)
@@ -63,6 +65,8 @@ f.edges(...)                      // every edge a remove created
 f.add()  f.new()  f.remove()  f.scope(...solids)  f.name(label)
 // And one method per bucket its class declares:
 g.tipFaces(...)  g.tipEdges(...)  // r.instance(k).tipEdges(...) on a repeat's copy
+// And each frame it declares, as a plane reference:
+g.frame('axis')                   // a connector() source, a plane() input; r.instance(k).frame('axis')
 ```
 
 `Shape`, `Face`, `Edge` come from `fluidcad/sdk/kernel` ([[api/sdk-kernel]]);
@@ -191,6 +195,24 @@ A name ends in `Faces` or `Edges`; a declaration holds only an optional
 fusion drops a face that merges into the stock (`startFaces` and `endFaces`
 are re-homed onto it instead), a remove keeps what its cut left. Every rule,
 refusal and carry rule: [[api/feature-buckets]].
+
+## Named frames: `Feature.with(params, { frames })`
+
+A frame says where the feature stands: a gear's axis, a rack's pitch line.
+Declare it beside the buckets and set it in the build with a `Plane`
+(origin, X direction, normal):
+
+```js
+class Gear extends Feature.with({ /* … values … */ }, {
+  frames: { axis: { label: 'Gear axis' } },
+}) { /* buildTool(): … this.setFrames({ axis: new Plane(origin, x, z) }); */ }
+
+connector('axis', g.frame('axis'));   // in a part body
+```
+
+The base moves a tool's frames with a repeat's copy, as it moves the solids.
+A generated part (`definePart`, [[api/define-part]]) makes each frame a
+connector of its name. Every rule and refusal: [[api/feature-frames]].
 
 ## Reading the references
 

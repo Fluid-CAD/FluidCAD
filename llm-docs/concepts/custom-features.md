@@ -1,9 +1,9 @@
 ---
 id: concepts/custom-features
 title: Custom features — your own feature types in *.feature.js modules
-summary: "A custom feature is a feature type a project writes in JavaScript: a Feature.with() class whose buildTool() returns its solids, exported through defineFeature() from a *.feature.js module. The editor finds it by scanning the module's exports (no init.js), lists it under the toolbar's Custom dropdown with a dialog built from its declared values, a live preview (behind a toggle, or always on, as the feature chooses), Apply that writes the import and the call, and timeline edits; models call it like a built-in, and repeat, copy and fillet its buckets — the standard ones and the named buckets its class declares (Feature.with(params, { buckets: { tipEdges: {} } }) → g.tipEdges(), which the editor's picks and right-click menu use too; each bucket is described in the package's docs/ pages). The module re-evaluates on every render, so never instanceof your own class; saving its code rebuilds its statements with no restart."
-tags: [concept, sdk, custom-feature, feature]
-seeAlso: [api/feature, api/feature-buckets, api/define-feature, api/feature-params, api/feature-layout, api/register-builder, api/sdk-kernel, api/sdk-occt, api/draft, api/repeat, concepts/scene-graph, concepts/packages]
+summary: "A custom feature is a feature type a project writes in JavaScript: a Feature.with() class whose buildTool() returns its solids, exported through defineFeature() from a *.feature.js module. The editor finds it by scanning the module's exports (no init.js), lists it under the toolbar's Custom dropdown with a dialog built from its declared values, a live preview (behind a toggle, or always on, as the feature chooses), Apply that writes the import and the call, and timeline edits; models call it like a built-in, and repeat, copy and fillet its buckets — the standard ones and the named buckets its class declares (Feature.with(params, { buckets: { tipEdges: {} } }) → g.tipEdges(), which the editor's picks and right-click menu use too; each bucket is described in the package's docs/ pages). The module re-evaluates on every render, so never instanceof your own class; saving its code rebuilds its statements with no restart. One schema, three hosts: the values a feature declares are also the interface of a generated part (definePart: the feature as an insertable part, its frames its connectors) and the same declarations, in Generator.with(), are the interface of a generated assembly (defineAssembly: parts and joints made by code); both are inserted by id into assemblies, from the assembly toolbar's Custom dropdown with the same dialog."
+tags: [concept, sdk, custom-feature, feature, generated]
+seeAlso: [api/feature, api/feature-buckets, api/feature-frames, api/define-feature, api/define-part, api/define-assembly, api/generator, api/feature-params, api/feature-layout, api/register-builder, api/sdk-kernel, api/sdk-occt, api/draft, api/repeat, concepts/scene-graph, concepts/packages, concepts/assemblies]
 ---
 
 # Custom features
@@ -39,7 +39,55 @@ Don't write one for:
 - **the same geometry again in one model**: `repeat()` re-applies a feature at
   new positions, `copy()` duplicates a finished shape (see [[api/repeat]]);
 - **a whole part reused with other dimensions**: a `part()` with `param()`
-  values, inserted where it is needed (see [[concepts/assemblies]]).
+  values, inserted where it is needed (see [[concepts/assemblies]]) — or,
+  when the part is what one feature builds, that feature made a generated
+  part (below).
+
+## One schema, three hosts
+
+The values a feature declares with `Feature.with({ … })` — types, defaults,
+ranges, options with pictures, `visibleWhen`, the dialog's layout — are the
+interface of three things:
+
+| Host | Written as | Used as | Its dialog |
+|---|---|---|---|
+| a **feature** | `defineFeature(Standoff, meta)` in a `*.feature.js` | `standoff(face, { height: 10 })` in a part body | the part toolbar's Custom dropdown |
+| a **generated part** | `definePart(Gear, meta)` in a `*.part.js` | `insert(gearPart, { teeth: 18 })` in an assembly | the assembly toolbar's Custom dropdown, Insert, Edit parameters |
+| a **generated assembly** | `defineAssembly(WardrobeUnit, meta)` in an `*.assembly.js`, over a class that extends `Generator.with({ … })` | `insert(wardrobe, { drawers: 3 })` in an assembly | the same |
+
+- **A generated part** is a feature run as a part: the body builds the
+  feature as a new solid at the part's own origin with the insert's values,
+  and each frame the feature declares (`Feature.with(params, { frames: {
+  axis: {} } })`) becomes a connector of its name. Its interface is the
+  feature's typed-in values; every picked value must be optional and is
+  left out — the assembly places the part. See [[api/define-part]] and
+  [[api/feature-frames]].
+- **A generated assembly** is a sub-assembly made by code: a `Generator`
+  class declares its values with `Generator.with({ … })` (the same
+  declarations, typed-in only), lays out its parts, connectors, poses and
+  joints in `layout(g)`, and builds each part in `static build(type,
+  inputs, ctx)`. See [[api/generator]] and [[api/define-assembly]].
+- **Values by id.** An insert names the values by id (`drawerHeight`, never
+  the label "Drawer height"), checked by the same code that checks a
+  feature's call. An unknown id or a refused value is a build error on the
+  insert's row.
+- **Values only.** Neither takes a pick: the assembly that inserts them
+  places and mates them.
+
+Which to write:
+
+- **The construction is an operation on a part** (a boss on a face, holes
+  round an axis, a fillet-like change): a feature.
+- **The construction is a part you insert and mate** (a gear, a bushing, a
+  screw, a profile) and one feature builds it: the feature, plus
+  `definePart`. The feature keeps working in part bodies.
+- **Several parts that move against each other** (a wardrobe's carcass,
+  doors and drawers; a gear train), sized from one set of values: a
+  generator and `defineAssembly`. Share the geometry code with a feature
+  when one exists: the cabinets package's `wardrobe()` feature and its
+  generated wardrobe build from one plan.
+- **A fixed set of parts with a few dimensions**: an `assembly()` with
+  `param()` values is enough ([[concepts/assemblies]]).
 
 ## Anatomy of a feature module
 
@@ -230,6 +278,11 @@ Tip Edges**, with the gear's other buckets under *Select other*.
   swapped for the stock face as `startFaces` is), a remove keeps what its cut
   left (a pocket's floor), and a repeat's copy moves them.
 
+A frame is the other thing a feature can name: a coordinate frame where it
+stands (a gear's axis), declared with `Feature.with(params, { frames: {
+axis: {} } })`, set with `this.setFrames({ axis: plane })` and read in a
+model as `g.frame('axis')`, a `connector()` source ([[api/feature-frames]]).
+
 A misspelt or wrong-kind bucket fails the feature's row (see *Errors, and
 where they show*). The naming rule, every refusal and the carry rules:
 [[api/feature-buckets]]; complete examples: a gear pair
@@ -348,7 +401,10 @@ to look at without publishing; publishing never needs it first.
 - A package keeps its feature modules (with their images) in `features/`,
   its parts in `parts/` and its assemblies in `assemblies/`; the folders
   decide what it exports. Its models import the features relatively
-  (`../features/standoff.feature.js`).
+  (`../features/standoff.feature.js`). A `definePart` export lives in
+  `parts/`, a `defineAssembly` export in `assemblies/`, a generator class
+  beside its images in `features/`; the manifest carries their schemas
+  ([[concepts/packages]]).
 - The package's name carries the author's hub handle as its scope
   (`@acme/mounting-hardware`); a name without it is refused. Feature ids
   stay plain (`standoff`); packing only refuses two features sharing one.
@@ -372,13 +428,16 @@ to look at without publishing; publishing never needs it first.
 
 - **Parts only.** A custom feature runs in a part body or a part file, not at
   the top level of an `*.assembly.js` file (`contexts` takes only `'part'`).
+  What an assembly inserts by code is a generated part or assembly (*One
+  schema, three hosts*).
 - **Node built-ins are blocked** in feature modules as in models (`fs`,
   `child_process`, `net`, `http`, `os`, `worker_threads`, `vm`, …).
 - **No custom dialog controls or illustrations:** the dialog is built from
   the declared values (see [[api/feature-params]]).
 
 See [[api/feature]] for the class, [[api/define-feature]] for the metadata
-and call shapes, [[api/feature-params]] for the values and pickers,
+and call shapes, [[api/define-part]], [[api/generator]] and
+[[api/define-assembly]] for generated parts and assemblies, [[api/feature-params]] for the values and pickers,
 [[api/register-builder]] for the explicit path, [[api/sdk-kernel]] for the
 geometry `buildTool()` builds with, and [[api/sdk-occt]] for raw
 OpenCascade. `draft()` is the engine's own feature written on the same base

@@ -4,7 +4,7 @@ title: "defineFeature(FeatureClass, meta) — a custom feature's builder, metada
 summary: "Turns a Feature.with() class into the builder a model calls, from fluidcad/sdk: the metadata gives it its Custom dropdown cell and dialog (label, description, icon, group), its operations (the default is add when offered, else the first listed, and needs no chain), its call shape (positional values, one object of options, one trailing ...rest list) that both the builder and the dialog read and write, ghost and contexts. The kind is read from the class. Refused by name: id, defaultOperation, illustration, onChange, class, params, kind."
 tags: [api, sdk, custom-feature, metadata, call-shape, type]
 symbols: [defineFeature, DefineFeatureMeta, CallShape, FeatureOperation]
-seeAlso: [concepts/custom-features, api/feature, api/feature-params, api/feature-layout, api/register-builder, api/draft]
+seeAlso: [concepts/custom-features, api/feature, api/feature-params, api/feature-layout, api/register-builder, api/draft, api/define-part]
 ---
 
 # defineFeature
@@ -185,6 +185,7 @@ of options, a list of picks as one array argument (`boss([a, b])`) or a rest
 | `illustration` | `leave 'illustration' out — illustrations aren't supported (custom controls are planned)` |
 | `onChange` | `leave 'onChange' out — onChange hooks aren't supported (custom controls are planned)` |
 | `class`, `params`, `kind` | `defineFeature(Standoff): leave 'kind' out — it is read from the class: …` (the class is the first argument; its values are declared with `Feature.with()`) |
+| `frames` | `defineFeature(Gear): leave 'frames' out — declare frames on the class: Feature.with(params, { frames })` ([[api/feature-frames]]) |
 
 Any other unknown field is refused as a typo: `feature metadata: unknown
 field 'lable' — the fields are …`. Picker fields refused by name
@@ -195,3 +196,8 @@ A class without `Feature.with()` values is refused ("Bare declares no
 values — declare them with Feature.with({ … })"), as is one that implements
 neither `buildTool()` nor `build()`. The explicit path, `registerBuilder`
 with the whole metadata, is in [[api/register-builder]].
+
+The same class can also be an insertable part: `definePart(Gear, { label:
+'Gear' })` in a `*.part.js` module takes the feature's typed-in values by id
+and borrows this dialog (its layout less the picked values, its width and
+aside). See [[api/define-part]].

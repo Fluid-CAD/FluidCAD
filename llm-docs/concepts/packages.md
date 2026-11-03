@@ -1,9 +1,9 @@
 ---
 id: concepts/packages
 title: Packages — sharing custom features and parts through the hub
-summary: "A package is a workspace whose fluidcad.json has a \"package\" block (name @<handle>/<name>, the author's own hub handle as its scope; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). That one name is the archive's, the hub's, the pin's, the library folder's and every import's. A new package is made from the start screen (New Package: the name, then the folder) or with fluidcad init --package @scope/name, which lays the folders out with the block at 1.0.0; fluidcad package init adds the block to an existing project. Publishing is the top bar's Publish button (Share's seat in a package workspace: a Publish as field proposing the next major above the hub's latest, Check, Publish, the summary, Upload; a first version opens the hub's wizard in the browser, later ones go to review; Withdraw) or fluidcad publish: both check the layout and the code on the engine, build <scope>-<name>-<version>.fluidpkg (the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json) and upload it. fluidcad pack (MCP pack) runs the same checks and writes that archive to look at, without publishing; it is never a step before publishing. Packages install only from the hub, never from a .fluidpkg file: fluidcad install @scope/name downloads, verifies and installs into the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. A load() or .font() written in a package's files reads the package's own imports/ and font files (pack ships what the parts read), never the consumer's; load(name, { from: 'project' }) / .font(name, { from: 'project' }) reads a name the consumer passes in from the consumer's project, and a package's missing file fails naming the package, with no fallback. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence."
-tags: [concept, package, custom-feature, sdk, project]
-seeAlso: [concepts/custom-features, concepts/assemblies, concepts/units, api/insert, api/part, api/define-feature]
+summary: "A package is a workspace whose fluidcad.json has a \"package\" block (name @<handle>/<name>, the author's own hub handle as its scope; semver version) and whose features/, parts/ and assemblies/ folders hold what it exports (*.feature.js, *.part.js or *.fluid.js, *.assembly.js; no exports list). That one name is the archive's, the hub's, the pin's, the library folder's and every import's. A new package is made from the start screen (New Package: the name, then the folder) or with fluidcad init --package @scope/name, which lays the folders out with the block at 1.0.0; fluidcad package init adds the block to an existing project. Publishing is the top bar's Publish button (Share's seat in a package workspace: a Publish as field proposing the next major above the hub's latest, Check, Publish, the summary, Upload; a first version opens the hub's wizard in the browser, later ones go to review; Withdraw) or fluidcad publish: both check the layout and the code on the engine, build <scope>-<name>-<version>.fluidpkg (the exported modules and what they import, verbatim, plus a generated index.js, manifest.json and a reduced fluidcad.json) and upload it. fluidcad pack (MCP pack) runs the same checks and writes that archive to look at, without publishing; it is never a step before publishing. Packages install only from the hub, never from a .fluidpkg file: fluidcad install @scope/name downloads, verifies and installs into the user library (the home directory's ~/.fluidcad/packages by default) or a project's packages/ folder; a project pins each package it uses in fluidcad.json \"dependencies\" as { version, integrity } and imports it by name. Features from a package are imported into any model; its parts reach a scene only through insert() in an assembly. A load() or .font() written in a package's files reads the package's own imports/ and font files (pack ships what the parts read), never the consumer's; load(name, { from: 'project' }) / .font(name, { from: 'project' }) reads a name the consumer passes in from the consumer's project, and a package's missing file fails naming the package, with no fallback. Installed packages are read-only; a missing, changed, unpinned or too-new package fails the render with a sentence. Generated definitions ship like parts and assemblies: definePart exports in parts/*.part.js, defineAssembly exports in assemblies/*.assembly.js, the generator class beside its images in features/; each manifest entry carries definitionKind 'generated', the schema, assetModules and images (pack check 9: every declared image exists inside the workspace), and a package with one needs minEngine 0.0.49 or later."
+tags: [concept, package, custom-feature, sdk, project, generated]
+seeAlso: [concepts/custom-features, concepts/assemblies, concepts/units, api/insert, api/part, api/define-feature, api/define-part, api/define-assembly, api/generator]
 ---
 
 # Packages
@@ -111,8 +111,8 @@ sync:
 | folder | holds | exported |
 |---|---|---|
 | `features/` | `*.feature.js` modules, their images, helpers | every feature builder each module exports |
-| `parts/` | `*.part.js` and `*.fluid.js` models, helpers | every `part()` definition or factory each module exports |
-| `assemblies/` | `*.assembly.js` models, helpers | every `assembly()` definition or factory each module exports |
+| `parts/` | `*.part.js` and `*.fluid.js` models, helpers | every `part()` or `definePart()` definition, or factory, each module exports |
+| `assemblies/` | `*.assembly.js` models, helpers | every `assembly()` or `defineAssembly()` definition, or factory, each module exports |
 
 - Nested folders are fine (`parts/brackets/l-bracket.part.js`), and plain
   `.js` helpers may sit in any of the three. A helper ships only when a
@@ -269,7 +269,7 @@ into the installed folder:
 | the files the exported parts and assemblies read as they build | at their workspace paths: a `load()`'s `imports/<name>.brep` with its `.colors.json` and `.import.json`, a `text()`'s font file (`fonts/Brand.ttf`); an import no part loads stays out |
 | `README.md`, `LICENSE*`, `CHANGELOG.md` | when present at the workspace root |
 | `index.js` | generated: `export { standoff } from "./features/standoff.feature.js";`, one named re-export per exported name |
-| `manifest.json` | generated: identity, `engine` packed on, `minEngine`, `sdkVersion`, `unit`, `fileUnits`, `contents`, each feature's metadata snapshot, each part's and assembly's name, `kind` and params, `files` |
+| `manifest.json` | generated: identity, `engine` packed on, `minEngine`, `sdkVersion`, `unit`, `fileUnits`, `contents`, each feature's metadata snapshot, each part's and assembly's name, `kind` and params (a generated one's schema too, below), `files` |
 | `fluidcad.json` | generated: only `unit` (always explicit) and `materials` |
 
 Test models outside the folders, `init.js`, `jsconfig.json` and anything
@@ -307,7 +307,9 @@ sentence naming the file (`pack-refused` from MCP, with `details.code`):
   packages/@acme/kit/1.0.0/fonts/brand.ttf, which belongs to `@acme/kit`
   1.0.0: a package ships only its own files.");
 - a declared image is missing ("… declares the image ./standoff.svg (feature
-  'standoff'), which doesn't exist next to the module.");
+  'standoff'), which doesn't exist next to the module."), a generated
+  definition's included (below);
+- a generated definition with a `minEngine` below 0.0.49 (below);
 - an authored `index.js`, `manifest.json` or `fluidcad.json` at the root sits
   in the closure (those three are generated);
 - a shipped file has unsaved editor changes (the route and MCP; save first).
@@ -318,6 +320,78 @@ To release a new version: edit, accept or type the version in **Publish as** (or
 Archives packed before the folders existed (modules at the archive root)
 still install and load: the layout is checked when packing (and by the hub
 on upload), not when installing.
+
+## Generated parts and assemblies
+
+A package ships generated definitions — a feature as an insertable part
+(`definePart`, [[api/define-part]]) and sub-assemblies made by code
+(`defineAssembly` over a `Generator`, [[api/define-assembly]],
+[[api/generator]]) — through the same folders:
+
+```
+cabinets/
+  features/
+    wardrobe.feature.js            # the wardrobe() feature
+    wardrobe-unit.js               # export class WardrobeUnit extends Generator.with({ … })
+    img/  icons/                   # the values' option pictures, the icons
+    lib/                           # the plan and build code the feature and the generator share
+  assemblies/
+    wardrobe.assembly.js           # export const wardrobeAssembly = defineAssembly(WardrobeUnit, { … })
+gears/
+  features/gear.feature.js         # Feature.with(params, { frames: { axis: {} } })
+  parts/generated/gear.part.js     # export const gearPart = definePart(Gear, { … })
+```
+
+- **Where each lives.** A `definePart` export sits in `parts/` (a
+  `*.part.js`), a `defineAssembly` export in `assemblies/` (an
+  `*.assembly.js`); pack refuses either in the wrong folder (`wrong-folder`).
+  The generator class is a plain module beside the images its values
+  declare, in `features/`: option pictures resolve against the module that
+  calls `Generator.with()`, so a class in `features/lib/` would look for
+  `features/lib/img/`. Shared layout and build code goes in `features/lib/`.
+- **Images.** A definition's `icon`, `layout` and `aside` resolve against its
+  own module and may climb out of its folder (`'../features/icons/gear.png'`),
+  never out of the package.
+- **Classes are not exported.** `index.js` re-exports the definitions only;
+  an `*.assembly.js` that also exports its class is fine (nothing calls an
+  exported class).
+- **Built when packed.** Pack builds every generated definition with its
+  defaults, as it builds every part and assembly; one that fails is refused.
+- **The manifest entry** of each is a `parts[]` or `assemblies[]` entry (its
+  `params` empty) plus:
+  - `definitionKind: 'generated'`;
+  - `schema`: the definition's `getSchema()` — its values by id with resolved
+    defaults, `layout`, `width`, `aside`, `label`, `icon`, `description`,
+    `connectors` (a part's frames) and `assetBase`;
+  - `assetModules: { definition, class }`: the package-relative modules its
+    images resolve against (null for a base with no image);
+  - `images`: every image the schema declares, package-relative, sorted;
+    each ships at its workspace path.
+- **Check 9: every declared image exists inside the workspace.** Refused:
+  "`parts/generated/gear.part.js: 'gearPart' declares the image
+  ../../features/icons/gear.png, which doesn't exist next to
+  parts/generated/gear.part.js.`", or "`…, which leads outside the
+  workspace: a package ships only its own files.`"
+- **`minEngine` 0.0.49 or later.** FluidCAD 0.0.49 is the first engine that
+  runs `definePart`, frames and `defineAssembly`. A package that exports a
+  generated definition and declares (or defaults to) an older `minEngine` is
+  refused: "`@fluidcad/cabinets can't declare minEngine 0.0.48:
+  assemblies/wardrobe.assembly.js exports 'wardrobeAssembly', a generated
+  assembly (defineAssembly), which FluidCAD 0.0.49 is the first to run. Set
+  "minEngine" in the package block to 0.0.49 or later, then try again.`"
+  Set `"minEngine": "0.0.49"` in the `package` block.
+- **Documentation warnings.** `undocumented-fields` lists a generated
+  definition without a `description`, and a generated assembly's values
+  without one (a generated part's values are its feature's, listed there).
+- **Ids.** A generated part's id is its feature's; a generated assembly's
+  is its generator's `static id`. Installed, both are keyed by the package
+  (`@fluidcad/cabinets:wardrobe-unit`); a model never writes that key, it
+  imports the definition by name: `import { wardrobeAssembly } from
+  '@fluidcad/cabinets'`.
+- **In a consumer's project** the assembly toolbar's **Custom** dropdown
+  lists them under the package's name; inserting one from a library package
+  pins it, as using a feature does. The Insert dialog shows them as tiles
+  that open the same dialog.
 
 ## Installing
 
@@ -419,8 +493,9 @@ export const tray = part('Electronics tray', () => {
 });
 ```
 
-**Parts** reach a scene only through `insert()` in an assembly, as for
-another part file of the workspace ([[concepts/assemblies]]):
+**Parts** (generated ones included) reach a scene only through `insert()`
+in an assembly, as for another part file of the workspace
+([[concepts/assemblies]]):
 
 ```js
 // controller.assembly.js

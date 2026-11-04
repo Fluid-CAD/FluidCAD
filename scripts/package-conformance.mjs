@@ -15,9 +15,13 @@ import JSZip from 'jszip';
  *   `server/tests/fixtures/conformance-workspace` (the H3b layout, with a
  *   `docs/` page and image), one archive per `PackageArchive` refusal, and
  *   hand-made archives FluidCAD's check passes but the hub refuses (its
- *   layout, `docs/` and identity rules). The
- *   package is `@acme/kit` (HD30: the manifest holds the scoped name), with
- *   plain feature ids; the hub's tests upload it at `@acme/kit`;
+ *   layout, `docs/` and identity rules); then a generated package packed
+ *   from `server/tests/fixtures/generated-workspace` (a `definePart` and a
+ *   `defineAssembly`, their schemas' images resolved package-relative) and
+ *   the hand-made archive the hub refuses for a schema image it lacks. Every
+ *   package is `@acme/kit` (HD30: the manifest holds the scoped name; the
+ *   generated workspace is renamed as it is copied), with plain feature
+ *   ids; the hub's tests upload them at `@acme/kit`;
  * - `expected.json`: each archive's verdict from `PackageArchive.inspect`
  *   (`ok` with its integrity and warnings, or the refusal code), and the
  *   verdict the hub must give (`hub`);
@@ -35,6 +39,8 @@ import JSZip from 'jszip';
 class PackageConformance {
   static REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   static WORKSPACE = path.join(PackageConformance.REPO, 'server', 'tests', 'fixtures', 'conformance-workspace');
+  /** The generated definitions' workspace (`definePart` / `defineAssembly`), packed as `@acme/kit` too. */
+  static GENERATED_WORKSPACE = path.join(PackageConformance.REPO, 'server', 'tests', 'fixtures', 'generated-workspace');
   static PRE_LAYOUT = path.join(PackageConformance.REPO, 'server', 'tests', 'fixtures', 'pre-layout', 'acme-kit-0.1.0.fluidpkg');
   static DIST = path.join(PackageConformance.REPO, 'server', 'dist', 'packages');
 
@@ -103,9 +109,10 @@ class PackageConformance {
     this.TreeHash = TreeHash;
 
     const valid = await this.packValid();
+    const generated = await this.packGenerated();
     const archives = {};
     const bytesByFile = {};
-    for (const fixture of this.fixtures(valid)) {
+    for (const fixture of [...this.fixtures(valid), ...this.generatedFixtures(generated)]) {
       const bytes = await fixture.build();
       const verdict = await this.inspect(bytes);
       if (verdict.verdict !== fixture.fluidcad) {
@@ -145,9 +152,32 @@ class PackageConformance {
 
   /** `packPackage` over a copy of the conformance workspace: `{ zip, files }`, `files` with `manifest.json`. */
   async packValid() {
+    return this.pack(PackageConformance.WORKSPACE, 'kit');
+  }
+
+  /**
+   * `packPackage` over a copy of the generated workspace, renamed to the
+   * conformance package's name and version in the copy's `fluidcad.json`
+   * (the hub's tests upload every archive at `@acme/kit`).
+   */
+  async packGenerated() {
+    return this.pack(PackageConformance.GENERATED_WORKSPACE, 'generated', (config) => {
+      config.package.name = PackageConformance.NAME;
+      config.package.version = PackageConformance.VERSION;
+    });
+  }
+
+  /** A workspace copied into the scratch dir (its `fluidcad.json` edited when asked) and packed at the fixed engine version. */
+  async pack(source, name, editConfig) {
     const { packPackage } = await import(pathToFileURL(path.join(PackageConformance.DIST, 'package-builder.js')).href);
-    const workspace = path.join(this.scratch, 'kit');
-    fs.cpSync(PackageConformance.WORKSPACE, workspace, { recursive: true });
+    const workspace = path.join(this.scratch, name);
+    fs.cpSync(source, workspace, { recursive: true });
+    if (editConfig) {
+      const configPath = path.join(workspace, 'fluidcad.json');
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      editConfig(config);
+      fs.writeFileSync(configPath, PackageConformance.json(config));
+    }
     // The engine logs its scene work to stdout; the fixtures' output is the files.
     const log = console.log;
     console.log = () => {};
@@ -343,6 +373,45 @@ class PackageConformance {
       {
         file: 'outside-layout-docs.fluidpkg', about: 'docs/examples/run.js: a script in docs/, which is not one of the three folders', fluidcad: 'ok', hub: 'outside-layout',
         build: withFile('docs/examples/run.js', text('export const run = () => 1;\n')),
+      },
+    ];
+  }
+
+  /**
+   * The generated package's archives: as packed (both sides accept it), and
+   * without a schema's image. `PackageArchive.inspect` reads a generated
+   * entry's `images` against `files` only, so an image dropped from all
+   * three installs; the hub resolves the schema's own paths
+   * (`GeneratedAssets`), so it is `bad-icon` there. The crate's icon is the
+   * one dropped: the spur's is its feature's icon too, which the hub checks
+   * first, with the feature's sentence.
+   */
+  generatedFixtures(generated) {
+    const derived = (edit) => () => this.zip(edit(PackageConformance.copy(generated.files)));
+    const withManifest = (edit) => derived((files) => {
+      const manifest = JSON.parse(new TextDecoder().decode(files['manifest.json']));
+      edit(manifest, files);
+      files['manifest.json'] = PackageConformance.encode(PackageConformance.json(manifest));
+      return files;
+    });
+    return [
+      {
+        file: 'generated.fluidpkg',
+        about: 'packed by packPackage from generated-workspace, renamed @acme/kit: a definePart (parts/spur.part.js: its feature\'s dialog, the icon and option images under features/) and a defineAssembly (assemblies/crate.assembly.js: the generator\'s option images under features/lib/img), each entry with its schema, assetModules and resolved images',
+        fluidcad: 'ok', hub: 'ok',
+        build: async () => generated.zip,
+      },
+      {
+        file: 'bad-generated-image.fluidpkg',
+        about: 'the generated package without the crate\'s icon features/icons/crate.svg: dropped from the archive, from files and from the entry\'s images, so the manifest holds together for install; the schema still declares ../features/icons/crate.svg',
+        fluidcad: 'ok', hub: 'bad-icon',
+        build: withManifest((m, files) => {
+          const icon = 'features/icons/crate.svg';
+          delete files[icon];
+          m.files = m.files.filter((f) => f !== icon);
+          const crate = m.parts.find((p) => p.exportName === 'crate');
+          crate.images = crate.images.filter((f) => f !== icon);
+        }),
       },
     ];
   }

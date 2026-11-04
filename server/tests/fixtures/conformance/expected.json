@@ -207,6 +207,20 @@
       "integrity": "sha256-iNgjYqhqHbNVxoVdVOmXJlCNikyzmB0AJTZsY78hnrs=",
       "warnings": [],
       "hub": "outside-layout"
+    },
+    "generated.fluidpkg": {
+      "about": "packed by packPackage from generated-workspace, renamed @acme/kit: a definePart (parts/spur.part.js: its feature's dialog, the icon and option images under features/) and a defineAssembly (assemblies/crate.assembly.js: the generator's option images under features/lib/img), each entry with its schema, assetModules and resolved images",
+      "verdict": "ok",
+      "integrity": "sha256-TEt1Uwa/apEsbCh3niSNABDu7Xc2JNs/aBmw8Ngm0mE=",
+      "warnings": [],
+      "hub": "ok"
+    },
+    "bad-generated-image.fluidpkg": {
+      "about": "the generated package without the crate's icon features/icons/crate.svg: dropped from the archive, from files and from the entry's images, so the manifest holds together for install; the schema still declares ../features/icons/crate.svg",
+      "verdict": "ok",
+      "integrity": "sha256-GxpPgjHEGcMLCWyEsS+vLntNVmMlDlGtx/iKlY3FGQM=",
+      "warnings": [],
+      "hub": "bad-icon"
     }
   }
 }

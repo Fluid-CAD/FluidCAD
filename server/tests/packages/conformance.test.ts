@@ -88,7 +88,7 @@ describe('package conformance fixtures', () => {
     ]);
     const hubOnly = Object.values(archives).filter((a) => a.verdict === 'ok' && a.hub !== 'ok').map((a) => a.hub);
     expect([...new Set(hubOnly)].sort()).toEqual([
-      'bad-params', 'docs-file', 'docs-too-large', 'no-models', 'outside-layout', 'scope-mismatch', 'wrong-folder',
+      'bad-icon', 'bad-params', 'docs-file', 'docs-too-large', 'no-models', 'outside-layout', 'scope-mismatch', 'wrong-folder',
     ]);
     for (const verdict of Object.values(archives)) {
       if (verdict.verdict !== 'ok') {
@@ -163,6 +163,27 @@ describe('package conformance fixtures', () => {
     const valid = await filesOf('valid.fluidpkg');
     expect(valid.filter((f) => f.startsWith('docs/'))).toEqual(['docs/images/standoff.svg', 'docs/standoff.md']);
     expect(await filesOf('no-docs.fluidpkg')).toEqual(valid.filter((f) => !f.startsWith('docs/')));
+  });
+
+  it('carry the generated package (definePart and defineAssembly, hub-generators HG-S3), and the one whose schema declares an image it lacks', async () => {
+    const { archives } = readJson<Expected>(path.join(KEPT, 'expected.json'));
+    expect(archives['generated.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'ok' });
+    expect(archives['bad-generated-image.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'bad-icon' });
+    const root = path.join(scratch, 'generated-root');
+    fs.mkdirSync(root, { recursive: true });
+    const inspection = await PackageArchive.inspect(fs.readFileSync(path.join(out, 'archives', 'generated.fluidpkg')), { root, engineVersion: '0.0.46' });
+    PackageArchive.discard(inspection.token);
+    const { manifest } = inspection;
+    expect(manifest.name).toBe('@acme/kit');
+    const generated = manifest.parts.filter((p) => p.definitionKind === 'generated');
+    expect(generated.map((p) => [p.module, p.exportName, p.kind, p.exportKind, p.params.length, p.schema?.id, p.images])).toEqual([
+      ['assemblies/crate.assembly.js', 'crate', 'assembly', 'value', 0, 'crate', ['features/icons/crate.svg', 'features/lib/img/closed.svg', 'features/lib/img/open.svg']],
+      ['parts/spur.part.js', 'spurPart', 'part', 'value', 0, 'spur', ['features/icons/spur.svg', 'features/img/helical.svg', 'features/img/spur.svg']],
+    ]);
+    expect(generated.map((p) => p.assetModules)).toEqual([
+      { definition: 'assemblies/crate.assembly.js', class: 'features/lib/crate.js' },
+      { definition: 'parts/spur.part.js', class: 'features/spur.feature.js' },
+    ]);
   });
 
   it('name the FluidCAD commit they came from', () => {

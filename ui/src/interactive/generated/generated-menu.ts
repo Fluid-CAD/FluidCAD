@@ -41,6 +41,7 @@ export class GeneratedDefinitionsMenu {
       group: GeneratedDefinitionsMenu.GROUP,
       mode: 'assembly',
       label: 'Generate Parts',
+      icon: 'generate-parts',
       tip: 'Generate parts and assemblies from installed packages',
       tool: 'assembly-custom',
       role: 'assembly-custom-menu',

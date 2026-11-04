@@ -63,15 +63,17 @@ function mount(entries: GeneratedCatalogEntry[] = []) {
 const hidden = (el: HTMLElement) => el.classList.contains('hidden');
 
 describe('the assembly bar\'s Generate Parts dropdown', () => {
-  it('reads "Generate Parts" on the assembly bar while the part bar\'s button keeps "Custom"', async () => {
+  it('reads "Generate Parts" with its own icon on the assembly bar while the part bar\'s button keeps "Custom"', async () => {
     const { generated, wrap } = mount([entry('crate', 'crate', 'Crate')]);
     await generated.refresh();
     const button = wrap.querySelector('button')!;
     expect(button.textContent!.trim()).toBe('Generate Parts');
     expect(button.getAttribute('aria-label')).toBe('Generate parts and assemblies from installed packages');
     expect(wrap.dataset.tip).toBe('Generate parts and assemblies from installed packages');
+    expect(button.querySelector('img')!.getAttribute('src')).toMatch(/generate-parts\.png$/);
     const partButton = document.querySelector<HTMLElement>('[data-tool="custom-features"] button')!;
     expect(partButton.textContent!.trim()).toBe('Custom');
+    expect(partButton.querySelector('img')!.getAttribute('src')).toMatch(/custom-features\.png$/);
   });
 
   it('shows in assembly mode only, beside the assembly tools, and never on the part bar', async () => {

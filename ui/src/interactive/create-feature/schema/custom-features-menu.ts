@@ -191,6 +191,8 @@ export type CustomFeaturesMenuOptions = {
   mode?: NavbarMode;
   /** The button's label on the toolbar (default "Custom"). */
   label?: string;
+  /** The button's icon, a toolbar icon name for `iconUrl` (default `custom-features`). */
+  icon?: string;
   /** The button's tooltip and aria label (default "Custom features"). */
   tip?: string;
   /** The button wrapper's `data-tool` (default `custom-features`). */
@@ -278,6 +280,7 @@ export class CustomFeaturesMenu implements SketchHideable {
       ?? 'Every custom feature is pinned to the toolbar. Right-click a pinned group to unpin it.';
     const tip = options.tip ?? 'Custom features';
     const label = options.label ?? 'Custom';
+    const icon = options.icon ?? 'custom-features';
     const group = navbar.getGroup(this.groupKey)
       ?? navbar.addGroup(this.groupKey, { visible: false, mode: this.mode });
 
@@ -287,7 +290,7 @@ export class CustomFeaturesMenu implements SketchHideable {
     this.button.setAttribute('aria-haspopup', 'true');
     this.button.setAttribute('aria-expanded', 'false');
     this.button.innerHTML =
-      `<img src="${iconUrl('custom-features')}" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
+      `<img src="${iconUrl(icon)}" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
       + `<span class="${TOOLBAR_BTN_LABEL} flex items-center gap-0.5"><span data-role="menu-label"></span>`
       + `<span class="[&>svg]:size-2.5" aria-hidden="true">${ICON_CHEVRON_DOWN}</span></span>`;
     this.button.querySelector<HTMLSpanElement>('[data-role="menu-label"]')!.textContent = label;

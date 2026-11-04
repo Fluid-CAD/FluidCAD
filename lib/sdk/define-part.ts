@@ -22,6 +22,8 @@ import {
   type GeneratedSchema, type ResolvedGeneratedMeta,
 } from "./generated-schema.js";
 import { ClassModules } from "./class-modules.js";
+import { GeneratedCode } from "./generated-code.js";
+import { canonicalVariantKey } from "../features/param-overrides.js";
 
 /** A feature class `definePart()` takes: a tool that declares its values through `Feature.with()`. */
 export type DefinablePartClass = (abstract new (values: any) => Feature<any, any, any>) & { readonly id: string; readonly params: FeatureParams };
@@ -74,6 +76,12 @@ type FeatureConstructor = (new (values: FeatureValues) => Feature<any, any, any>
  *   (`Feature.with(params, { frames })`) becomes a connector of its name,
  *   so `insert(gearPart).connectors.axis` exists without a part body.
  * - Lengths are in the defining module's unit, as a `part()` body's are.
+ * - **Built once across renders too.** A variant a render's compare leaves
+ *   unpaired goes to the template cache, keyed by its definition, values,
+ *   units and code version (`Part.cacheKey`); a later render declaring it
+ *   again takes it built. A save of this module, of the feature's, or of a
+ *   module either imports, and any edit of the feature class's text, is new
+ *   code: nothing the old code built is served again.
  */
 export class GeneratedPartDefinition extends PartDefinition<void> {
 
@@ -82,6 +90,9 @@ export class GeneratedPartDefinition extends PartDefinition<void> {
 
   /** The schema, made on first ask: the feature's dialog may register after the definition. */
   private schemaSnapshot: GeneratedSchema | null = null;
+
+  /** The fixed part of its variants' code version: the feature class's origin and text digest (`GeneratedCode.baseOf`). */
+  private readonly codeBase: string;
 
   private constructor(
     private readonly featureClass: FeatureConstructor,
@@ -96,6 +107,14 @@ export class GeneratedPartDefinition extends PartDefinition<void> {
   ) {
     super(meta.name, () => undefined, location);
     this.generated = Object.freeze({ kind: 'part', id: Feature.idOf(featureClass) });
+    // The stamp where the definition is made stands in for a class whose
+    // origin `Feature.with()` did not record (a plain subclass).
+    this.codeBase = GeneratedCode.baseOf(featureClass, FeatureNamespaces.currentStamp());
+    // Which modules hold its code: a change to this module, to its feature
+    // class's, or to one either imports gives its variants a new code
+    // version (GeneratedCode), so the template cache never serves them.
+    GeneratedCode.noteDefinition(this.generated.id, location?.filePath);
+    GeneratedCode.noteDefinition(this.generated.id, ClassModules.of(featureClass));
   }
 
   /**
@@ -215,6 +234,12 @@ export class GeneratedPartDefinition extends PartDefinition<void> {
    * The body: the feature, constructed from the variant's values and built
    * as a new solid, then one connector per frame, on the frame. Every
    * statement is located at `definePart()`, in the definition's unit.
+   *
+   * The variant is marked for the template cache (`Part.generatedVariant`):
+   * its values, how the feature is built, and the definition's code version
+   * read now. A later render that declares the same variant again — a value
+   * dragged back, an undo, a preview cancelled — takes its build from the
+   * cache instead of building the feature (`GeneratedTemplateCache`).
    */
   protected override runBody(scene: Scene, part: Part, overrides: ReadonlyMap<string, ParamVal>): void {
     const values = Object.fromEntries(overrides) as Record<string, ParamVal>;
@@ -237,6 +262,13 @@ export class GeneratedPartDefinition extends PartDefinition<void> {
     }
     if (operation === null) {
       feature.refuse(`${this.subject()}: ${GeneratedPartDefinition.operationRefusal(this.featureClass)}`);
+    } else {
+      part.generatedVariant = Object.freeze({
+        definition: this.generated.id,
+        values: canonicalVariantKey(overrides),
+        operation,
+        code: GeneratedCode.versionOf(this.generated.id, this.codeBase),
+      });
     }
     this.place(scene, feature);
     for (const name of this.frames) {

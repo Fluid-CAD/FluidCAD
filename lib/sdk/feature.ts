@@ -28,6 +28,7 @@ import type { SceneParserContext } from "../index.js";
 import { FeatureInputs, type FeatureScalar, type FeatureValues } from "./feature-inputs.js";
 import { FeatureCall, type FeatureOperation } from "./call-shape.js";
 import { ClassModules } from "./class-modules.js";
+import { GeneratedCode } from "./generated-code.js";
 import type { FeatureParams, ValuesOf } from "./feature-params.js";
 import { FeatureKey } from "./feature-key.js";
 import { FeatureNamespaces } from "./feature-namespaces.js";
@@ -237,6 +238,10 @@ export abstract class Feature<V extends FeatureValues = FeatureValues, N extends
     FeatureFrameSet.of(FeatureWithParams, 'Feature.with()');
     // The class's module: a generated part resolves its values' pictures there.
     ClassModules.note(FeatureWithParams);
+    // And where its code comes from — an installed package's stamp, read while
+    // the class's module evaluates: a generated part's variants are cached
+    // under the code version it gives (`GeneratedCode`).
+    GeneratedCode.noteOrigin(FeatureWithParams);
     return FeatureWithParams as unknown as FeatureWith<P, B, F>;
   }
 

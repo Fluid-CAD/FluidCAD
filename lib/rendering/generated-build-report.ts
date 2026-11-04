@@ -1,5 +1,6 @@
 import { Part } from "../features/part.js";
-import type { SourceLocation } from "../common/scene-object.js";
+import type { SceneObject, SourceLocation } from "../common/scene-object.js";
+import type { ParamVal } from "../param-registry.js";
 import { TextDigest } from "../common/text-digest.js";
 import type { RenderDetail, Scene } from "./scene.js";
 
@@ -42,31 +43,50 @@ export type GeneratedTemplateTiming = {
   error?: string;
 };
 
+/** One variant of a generated part (`definePart`) a render holds. */
+export type GeneratedVariantTiming = {
+  /** The generated definition's id (its feature's catalog key). */
+  definition: string;
+  /** The part's name. */
+  part: string;
+  /** The values it was built from, by id, defaults filled. */
+  values: Record<string, ParamVal>;
+  source: GeneratedTemplateSource;
+  /** How long its members' builds took (the feature's, its frames', its connectors') — `built` only. */
+  buildMs?: number;
+  /** Its build error, if it has one. */
+  error?: string;
+};
+
 /**
- * What a render did with generated parts: each layout it ran, and each
- * part template it holds with where its shapes came from — what the
- * server reports with a preview's timings.
+ * What a render did with generated parts: each layout it ran, each part
+ * template it holds and each generated part's variant it holds, with where
+ * their shapes came from — what the server reports with a preview's
+ * timings. The counts and the build time cover both kinds of part.
  */
 export type GeneratedBuildReport = {
   /** The scene's detail tier. */
   detail: RenderDetail;
   layouts: GeneratedLayoutTiming[];
   templates: GeneratedTemplateTiming[];
-  /** Templates the render did not build: `kept` from the previous render, `cached` from the template cache. */
+  /** The variants of generated parts (`definePart`), in scene order. */
+  variants: GeneratedVariantTiming[];
+  /** Parts the render did not build, templates and variants: `kept` from the previous render, `cached` from the template cache. */
   hits: { kept: number; cached: number };
-  /** Templates the render built. */
+  /** Parts the render built, templates and variants. */
   misses: number;
   /** Every layout's time, summed. */
   layoutMs: number;
-  /** Every build's time, summed. */
+  /** Every build's time, summed: templates' and variants'. */
   buildMs: number;
 };
 
 /**
  * Build instrumentation for generated parts, always on and cheap: a clock
- * read around each layout and each template build, kept beside the scene
- * and its parts — nothing is logged. {@link of} assembles a scene's report
- * on demand.
+ * read around each layout and each template build, and each build of a
+ * variant's members (the renderer's own clock), kept beside the scene and
+ * its parts — nothing is logged. {@link of} assembles a scene's report on
+ * demand.
  */
 export class GeneratedBuildReports {
 
@@ -93,6 +113,18 @@ export class GeneratedBuildReports {
     GeneratedBuildReports.builds.set(part, ms);
   }
 
+  /**
+   * The renderer built `member` in `ms`: a member of a generated part's
+   * variant adds it to the variant's build time; any other object is not
+   * reported here (a template's body reports its build itself).
+   */
+  static recordMemberBuild(member: SceneObject, ms: number): void {
+    const part = member.getParent();
+    if (part instanceof Part && part.generatedVariant) {
+      GeneratedBuildReports.builds.set(part, (GeneratedBuildReports.builds.get(part) ?? 0) + ms);
+    }
+  }
+
   /** `part`'s shapes came from the template cache. */
   static recordTaken(part: Part): void {
     GeneratedBuildReports.taken.add(part);
@@ -102,41 +134,57 @@ export class GeneratedBuildReports {
   static of(scene: Scene): GeneratedBuildReport {
     const layouts = (GeneratedBuildReports.layouts.get(scene) ?? []).map(timing => ({ ...timing }));
     const templates: GeneratedTemplateTiming[] = [];
+    const variants: GeneratedVariantTiming[] = [];
     const hits = { kept: 0, cached: 0 };
     let misses = 0;
     let buildMs = 0;
+    /** Count one part's source and build time onto the totals; its `buildMs` when it was built. */
+    const count = (part: Part, source: GeneratedTemplateSource): number | undefined => {
+      if (source !== 'built') {
+        hits[source]++;
+        return undefined;
+      }
+      misses++;
+      const ms = GeneratedBuildReports.builds.get(part);
+      if (ms !== undefined) {
+        buildMs += ms;
+      }
+      return ms;
+    };
     for (const obj of scene.getAllSceneObjects()) {
-      if (!(obj instanceof Part) || !obj.generatedBy || obj.getParent() !== null) {
+      if (!(obj instanceof Part) || obj.getParent() !== null || obj.cacheKey() === null) {
         continue;
       }
-      const mark = obj.generatedBy;
-      const timing: GeneratedTemplateTiming = {
-        definition: mark.definition,
-        type: mark.type,
-        key: TextDigest.of(mark.key),
-        detail: mark.detail,
-        source: GeneratedBuildReports.sourceOf(scene, obj),
-      };
-      if (timing.source === 'built') {
-        misses++;
-        const ms = GeneratedBuildReports.builds.get(obj);
-        if (ms !== undefined) {
-          timing.buildMs = ms;
-          buildMs += ms;
-        }
-      } else {
-        hits[timing.source]++;
-      }
+      const source = GeneratedBuildReports.sourceOf(scene, obj);
+      const ms = count(obj, source);
       const error = obj.getError();
-      if (error) {
-        timing.error = error;
+      const mark = obj.generatedBy;
+      if (mark) {
+        templates.push({
+          definition: mark.definition,
+          type: mark.type,
+          key: TextDigest.of(mark.key),
+          detail: mark.detail,
+          source,
+          ...(ms !== undefined ? { buildMs: ms } : {}),
+          ...(error ? { error } : {}),
+        });
+        continue;
       }
-      templates.push(timing);
+      variants.push({
+        definition: obj.generatedVariant!.definition,
+        part: obj.partName,
+        values: { ...(obj.generated?.values ?? {}) },
+        source,
+        ...(ms !== undefined ? { buildMs: ms } : {}),
+        ...(error ? { error } : {}),
+      });
     }
     return {
       detail: scene.detail,
       layouts,
       templates,
+      variants,
       hits,
       misses,
       layoutMs: layouts.reduce((sum, timing) => sum + timing.ms, 0),

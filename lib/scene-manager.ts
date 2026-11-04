@@ -330,10 +330,11 @@ class SceneManager {
 
   /**
    * What `scene`'s render did with generated parts — each layout it ran
-   * with its time, each part template it holds with where its shapes came
-   * from (`built`, `kept` from the previous render, `cached` from the
-   * template cache) and its build time — and what the template cache holds
-   * now. Always on, kept beside the scene; nothing is logged.
+   * with its time, each part template and each generated part's variant it
+   * holds with where its shapes came from (`built`, `kept` from the previous
+   * render, `cached` from the template cache) and its build time — and what
+   * the template cache holds now. Always on, kept beside the scene; nothing
+   * is logged.
    */
   getGeneratedReport(scene: Scene): GeneratedRenderReport {
     return { ...GeneratedBuildReports.of(scene), cache: GeneratedTemplateCache.shared.getStats() };
@@ -342,10 +343,13 @@ class SceneManager {
   /**
    * Workspace modules changed on disk — `files`: a saved file and every
    * workspace module that imports it, directly or through another. Every
-   * generated definition one of them defines takes a new code version, so
-   * nothing built with its old code is served again, and the template
-   * cache drops what it holds of it. Answers those definitions' ids — what
-   * a host notes for the sessions that render them.
+   * generated definition one of them defines — a generated assembly
+   * (`defineAssembly`'s module) or a generated part (`definePart`'s module,
+   * or its feature class's) — takes a new code version, so nothing built
+   * with its old code is served again, and the template cache drops what it
+   * holds of it. Answers those definitions' ids — what a host notes for the
+   * sessions that render them (a generated part's id is its feature's, which
+   * the compare's `rebuild` reads too).
    */
   noteCodeChanged(files: Iterable<string>): string[] {
     const ids = GeneratedCode.modulesChanged(files);

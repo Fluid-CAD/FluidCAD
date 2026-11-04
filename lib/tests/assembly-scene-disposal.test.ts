@@ -1,11 +1,12 @@
 // An assembly render frees the scene it replaces (plans/assembly-scene-leak.md):
 // AssemblyCompare destroys every old object the new scene doesn't take over
 // and releases every old shape wrapper the new scene doesn't reach — the part
-// that rebuilt (a changed insert value, a sub-assembly's part, a definePart
-// variant), never the parts it carried over, and never what the generated-
-// template cache took (the cache disposes that, once, when it lets go). The
-// new scene keeps building clean on top of what survived, render after
-// render. render() never throws: every test asserts getError().
+// that rebuilt (a changed insert value, a sub-assembly's part), never the
+// parts it carried over, and never what the generated-template cache took
+// (a generator's template, a definePart variant: the cache disposes that,
+// once, when it lets go). The new scene keeps building clean on top of what
+// survived, render after render. render() never throws: every test asserts
+// getError().
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { setupOC } from "./setup.js";
@@ -349,7 +350,11 @@ describe("an assembly render frees the scene it replaces", () => {
     expect(solidVolume(subtree(partWith(scene2, { Length: 120 })))).toBeCloseTo(beamVolume(120), 3);
   });
 
-  it("frees a definePart variant whose values changed — every preview tick of a gear's teeth", () => {
+  // A definePart variant whose values changed is kept by the template cache
+  // (F2), as a generator's template is: handed over, never freed by the
+  // scene pass, taken back built when its values come back, and freed once
+  // by the cache when it lets go.
+  it("hands a definePart variant whose values changed to the template cache — every preview tick of a gear's teeth — which frees it once", () => {
     const renders = new Renders();
     const gears = (teeth: number) => () => {
       const { Spur } = defineSpur();
@@ -367,11 +372,15 @@ describe("an assembly render frees the scene it replaces", () => {
     const otherShapes = shapesOf(other);
 
     watch = new DisposalWatch();
+    const release = vi.spyOn(SceneDisposal, "releaseOwned");
     let scene = renders.render(gears(30));
     expect(watch.failures()).toEqual([]);
     expect(errorsOf(scene)).toEqual([]);
-    expect(variant.map(obj => watch!.destroys(obj))).toEqual(variant.map(() => 1));
-    expect(variantShapes.every(shape => shape.isReleased())).toBe(true);
+    // Handed over: the scene pass neither destroys nor releases it; the cache holds its shapes.
+    expect(variant.map(obj => watch!.destroys(obj))).toEqual(variant.map(() => 0));
+    expect(variantShapes.some(shape => shape.isReleased())).toBe(false);
+    expect(variantShapes.every(shape => cache.heldShapes().has(shape))).toBe(true);
+    expect(release).not.toHaveBeenCalled();
     expect(other.map(obj => watch!.destroys(obj))).toEqual(other.map(() => 0));
     expect(otherShapes.some(shape => shape.isReleased())).toBe(false);
 
@@ -384,6 +393,20 @@ describe("an assembly render frees the scene it replaces", () => {
       expect(solidVolume(subtree(partWith(scene, { teeth })))).toBeCloseTo(discVolume(teeth), 1);
       expect(solidVolume(subtree(partWith(scene, { teeth: 40 })))).toBeCloseTo(discVolume(40), 1);
     }
+    // Back at 24: the first render's build, taken from the cache — the scene's own again.
+    expect(shapesOf(subtree(partWith(scene, { teeth: 24 })))).toEqual(expect.arrayContaining(variantShapes));
+    expect(variantShapes.some(shape => cache.heldShapes().has(shape))).toBe(false);
+    expect(release).not.toHaveBeenCalled();
+
+    // Evicted: the 30-tooth variant the cache holds is released once; the scene's are untouched.
+    const held = [...cache.heldShapes()];
+    expect(held.length).toBeGreaterThan(0);
+    cache.setLimits({ maxEntries: 0 });
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(held.every(shape => shape.isReleased())).toBe(true);
+    expect(releasedIn(scene)).toBe(0);
+    expect(watch.failures()).toEqual([]);
+    release.mockRestore();
   });
 
   it("frees the parts a cross-part consumer rebuilds with, and keeps the consumer's donor geometry alive when both carry over", () => {
@@ -563,6 +586,7 @@ describe("an assembly render frees the scene it replaces", () => {
     const outside = shapesOf(scenes.flatMap(scene => scene.getAllSceneObjects()))
       .filter(shape => !shape.isReleased() && !live.has(shape) && !cache.heldShapes().has(shape));
     expect(outside).toEqual([]);
-    expect(cache.getStats().entries).toBe(9);
+    // Nine after the last retire, less the gear variant the last render took back.
+    expect(cache.getStats().entries).toBe(8);
   });
 });

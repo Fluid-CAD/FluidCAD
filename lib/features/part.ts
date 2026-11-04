@@ -37,6 +37,27 @@ export type GeneratedTemplateMark = Readonly<{
   code: string;
 }>;
 
+/**
+ * What a `definePart` variant was built from beyond its part's own name,
+ * material, appearance and units — see {@link Part.generatedVariant}.
+ */
+export type GeneratedVariantMark = Readonly<{
+  /** The generated definition's id: its feature class's catalog key. */
+  definition: string;
+  /** The canonical text of the variant's values, by id, defaults filled. */
+  values: string;
+  /** How its body builds the feature: `'new'` or `'add'`. */
+  operation: string;
+  /** The definition's code version when the variant was declared (see `GeneratedCode`). */
+  code: string;
+}>;
+
+/**
+ * Whose code built a part the template cache keeps, and which version of
+ * it: what decides that a kept build has gone stale ({@link Part.cachedBuildMark}).
+ */
+export type CachedBuildMark = Readonly<{ definition: string; code: string }>;
+
 export class Part extends SceneObject implements IPart {
   /**
    * The definition's parameter interface, collected while this variant
@@ -65,6 +86,15 @@ export class Part extends SceneObject implements IPart {
    * editor offers no edit of its own on its rows. Unset for every other part.
    */
   generatedBy?: GeneratedTemplateMark;
+
+  /**
+   * For a variant a `definePart` definition built: its definition, its
+   * values, how its body builds the feature and the code version — with the
+   * part's own name, material, appearance and units, what the template cache
+   * keeps its build under ({@link cacheKey}). Unset for every other part
+   * (a refused insert's part included); not on the wire — `generated` is.
+   */
+  generatedVariant?: GeneratedVariantMark;
 
   /**
    * The values the body published with `property('Label', 'name', value)`, in
@@ -155,8 +185,9 @@ export class Part extends SceneObject implements IPart {
     }
 
     // A generator's template stands in only for the same template, built
-    // at the same detail by the same code.
-    if (this.generatedBuildKey() !== other.generatedBuildKey()) {
+    // at the same detail by the same code; a generated part's variant only
+    // for the same values built by the same code.
+    if (this.cacheKey() !== other.cacheKey()) {
       return false;
     }
 
@@ -180,6 +211,50 @@ export class Part extends SceneObject implements IPart {
       return null;
     }
     return Part.generatedBuildKey(this.generatedBy, this.getDefinitionUnit(), this.getTargetUnit());
+  }
+
+  /**
+   * The key the template cache keeps this part's build under across
+   * renders (`GeneratedTemplateCache`), or null for a part it never keeps.
+   * Two parts of one key hold the same shapes, so either may take the
+   * other's build. It keeps two kinds of part:
+   * - a part a generator made: its {@link generatedBuildKey} — the
+   *   template's identity, its units, its detail tier, its code version;
+   * - a `definePart` variant: its definition, its name, material and
+   *   appearance, how its body builds the feature, its values (defaults
+   *   filled), the units it is made and read in, and its code version. No
+   *   detail tier: a feature's build reads none, so a preview render and a
+   *   full one build a variant alike and share one build.
+   *
+   * Null for any other part, and for a refused one: it holds no build.
+   */
+  cacheKey(): string | null {
+    if (this.getRefusal() !== null) {
+      return null;
+    }
+    if (this.generatedBy) {
+      return this.generatedBuildKey();
+    }
+    const variant = this.generatedVariant;
+    if (!variant) {
+      return null;
+    }
+    return [
+      'variant', variant.definition, this.partName, this._material ?? '', this._appearance ?? '',
+      variant.operation, variant.values, this.getDefinitionUnit(), this.getTargetUnit(), variant.code,
+    ].join('\u0000');
+  }
+
+  /**
+   * Whose code built a part the template cache keeps (see {@link cacheKey}),
+   * and its version: the generated definition's id and code version. Null
+   * for a part the cache never keeps.
+   */
+  cachedBuildMark(): CachedBuildMark | null {
+    if (this.cacheKey() === null) {
+      return null;
+    }
+    return this.generatedBy ?? this.generatedVariant ?? null;
   }
 
   getType(): string {

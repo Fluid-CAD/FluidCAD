@@ -1,16 +1,22 @@
+import { TextDigest } from "../common/text-digest.js";
+import { FeatureNamespaces } from "./feature-namespaces.js";
+
 /**
- * The code versions of generated definitions: what keeps a part template
- * built by a generator's old code from standing in for one its new code
- * builds — in the next render's compare and in the template cache, whose
- * keys hold the version.
+ * The code versions of generated definitions: what keeps a part built by a
+ * definition's old code from standing in for one its new code builds — in
+ * the next render's compare and in the template cache, whose keys hold the
+ * version. Two kinds of definition have one: a generated assembly
+ * (`defineAssembly`, whose templates its generator class builds) and a
+ * generated part (`definePart`, whose variants its feature class builds).
  *
  * A definition's code version is `<epoch>:<base>`, where the base is fixed
- * by the generator class (`Generator.codeBaseOf`):
+ * by the class that builds its parts ({@link baseOf}):
  * - **its origin** — an installed package's stamp, its name, version and
  *   tree hash, which change exactly when its code can (so package code
- *   needs no other signal), else `workspace`;
+ *   needs no other signal), else `workspace`; read where the class's
+ *   values were declared (`Generator.with()`, `Feature.with()`);
  * - **a digest of the class's own text**, every class of its chain — an
- *   edit of `layout` or `build` changes it, saved or not;
+ *   edit of `layout`, `build` or `buildTool` changes it, saved or not;
  * - and the **epoch**, a counter per definition id kept here, which the host
  *   bumps when a workspace module the definition's module imports changes
  *   ({@link modulesChanged}): helper code outside the class reaches no
@@ -25,12 +31,64 @@ export class GeneratedCode {
   /** Each definition id's epoch; absent is 0. */
   private static readonly epochs = new Map<string, number>();
 
-  /** The definition ids each module defined (`defineAssembly()`'s file), as evaluated so far. */
+  /** The definition ids each module defined (`defineAssembly()`'s or `definePart()`'s file, or its class's), as evaluated so far. */
   private static readonly definedIn = new Map<string, Set<string>>();
 
   /**
+   * Each class `Generator.with()` or `Feature.with()` made, with where the
+   * code that called it comes from: the stamp of the installed package
+   * whose module was evaluating (`FeatureNamespaces.currentStamp`), else
+   * `workspace`.
+   */
+  private static readonly origins = new WeakMap<Function, string>();
+
+  /** Each class's own text digest, made on first ask: an engine base is one object for the whole process. */
+  private static readonly digests = new WeakMap<Function, string>();
+
+  /** Each class's recorded origin (null: none in its chain) and chain digest, made on first ask (see {@link baseOf}). */
+  private static readonly bases = new WeakMap<Function, { origin: string | null; digest: string }>();
+
+  /**
+   * Record where the class `.with()` just made comes from — called by
+   * `Generator.with()` and `Feature.with()` on the base they return, while
+   * the module that declares the class evaluates (`class X extends
+   * Feature.with({ … })` runs there).
+   */
+  static noteOrigin(base: Function): void {
+    GeneratedCode.origins.set(base, FeatureNamespaces.currentStamp() ?? 'workspace');
+  }
+
+  /**
+   * The fixed part of a code version for parts `cls` builds:
+   * `<origin>:<digest>` — where its code comes from (the origin {@link
+   * noteOrigin} recorded for the nearest class of its chain that has one;
+   * else `fallbackOrigin`, the stamp where the definition was made; else
+   * `workspace`) and a digest of the text of every class of its chain, the
+   * engine's bases included (an engine upgrade is new code too). Evaluating
+   * the same code again gives the same base.
+   */
+  static baseOf(cls: Function, fallbackOrigin: string | null = null): string {
+    let known = GeneratedCode.bases.get(cls);
+    if (known === undefined) {
+      let origin: string | null = null;
+      const digests: string[] = [];
+      for (let current: unknown = cls; typeof current === 'function' && current !== Function.prototype; current = Object.getPrototypeOf(current)) {
+        const recorded = GeneratedCode.origins.get(current as Function);
+        if (origin === null && recorded !== undefined) {
+          origin = recorded;
+        }
+        digests.push(GeneratedCode.digestOf(current as Function));
+      }
+      known = { origin, digest: TextDigest.of(digests.join(':')) };
+      GeneratedCode.bases.set(cls, known);
+    }
+    return `${known.origin ?? fallbackOrigin ?? 'workspace'}:${known.digest}`;
+  }
+
+  /**
    * Note that the module at `file` defines `id` — where `defineAssembly()`
-   * ran. {@link modulesChanged} reads it.
+   * or `definePart()` ran, or where the class its parts are built by
+   * declared its values. {@link modulesChanged} reads it.
    */
   static noteDefinition(id: string, file: string | null | undefined): void {
     if (!file) {
@@ -81,6 +139,16 @@ export class GeneratedCode {
     for (const id of ids) {
       GeneratedCode.epochs.set(id, GeneratedCode.epochOf(id) + 1);
     }
+  }
+
+  /** The digest of one class's own source text. */
+  private static digestOf(cls: Function): string {
+    let digest = GeneratedCode.digests.get(cls);
+    if (digest === undefined) {
+      digest = TextDigest.of(Function.prototype.toString.call(cls));
+      GeneratedCode.digests.set(cls, digest);
+    }
+    return digest;
   }
 
   private static epochOf(id: string): number {

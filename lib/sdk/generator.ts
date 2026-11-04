@@ -13,10 +13,9 @@ import { Quaternion } from "../math/quaternion.js";
 import { Vector3d } from "../math/vector3d.js";
 import { rad } from "../helpers/math-helpers.js";
 import { unitFactor } from "../units/units.js";
-import { TextDigest } from "../common/text-digest.js";
 import { FeatureCall } from "./call-shape.js";
-import { FeatureNamespaces } from "./feature-namespaces.js";
 import { ClassModules } from "./class-modules.js";
+import { GeneratedCode } from "./generated-code.js";
 import { SchemaValidator, ValueSchema } from "./value-schema.js";
 import type { ScalarParamSpec } from "./meta.js";
 import type { ValuesOf } from "./feature-params.js";
@@ -132,16 +131,6 @@ export abstract class Generator<V extends FeatureValues = FeatureValues> {
   /** Each class `Generator.with()` made, with its checked values. */
   private static readonly schemas = new WeakMap<Function, ValueSchema>();
 
-  /**
-   * Each class `Generator.with()` made, with where the code that called it
-   * comes from: the stamp of the installed package whose module was
-   * evaluating (`FeatureNamespaces.currentStamp`), else `workspace`.
-   */
-  private static readonly origins = new WeakMap<Function, string>();
-
-  /** Each generator class's code base, made on first ask (see {@link codeBaseOf}). */
-  private static readonly codeBases = new WeakMap<Function, string>();
-
   private static readonly ID_SEGMENT = /^[A-Za-z][A-Za-z0-9_-]*$/;
 
   /**
@@ -173,7 +162,7 @@ export abstract class Generator<V extends FeatureValues = FeatureValues> {
     Generator.schemas.set(GeneratorWithValues, schema);
     // Read while the class's module evaluates: `class X extends
     // Generator.with({ … })` runs here, in the module that holds X's code.
-    Generator.origins.set(GeneratorWithValues, FeatureNamespaces.currentStamp() ?? 'workspace');
+    GeneratedCode.noteOrigin(GeneratorWithValues);
     // The class's module: its values' pictures resolve there.
     ClassModules.note(GeneratorWithValues);
     return GeneratorWithValues as unknown as GeneratorWith<P>;
@@ -187,22 +176,7 @@ export abstract class Generator<V extends FeatureValues = FeatureValues> {
    * version whether or not it was saved.
    */
   static codeBaseOf(generatorClass: Function): string {
-    const known = Generator.codeBases.get(generatorClass);
-    if (known !== undefined) {
-      return known;
-    }
-    let origin = 'workspace';
-    const texts: string[] = [];
-    for (let cls: unknown = generatorClass; typeof cls === 'function' && cls !== Function.prototype; cls = Object.getPrototypeOf(cls)) {
-      const recorded = Generator.origins.get(cls);
-      if (recorded !== undefined) {
-        origin = recorded;
-      }
-      texts.push(Function.prototype.toString.call(cls));
-    }
-    const base = `${origin}:${TextDigest.of(texts.join('\n'))}`;
-    Generator.codeBases.set(generatorClass, base);
-    return base;
+    return GeneratedCode.baseOf(generatorClass);
   }
 
   /**

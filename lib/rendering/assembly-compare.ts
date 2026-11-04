@@ -18,11 +18,13 @@ export class AssemblyCompare {
    * definitions whose code changed: their parts rebuild too, and the
    * template cache drops what it holds of them.
    *
-   * A part a generator made that the new scene doesn't take over goes to
-   * the template cache (`GeneratedTemplateCache.retire`) instead of staying
-   * with the old scene: its objects hand their build over and keep none, so
-   * a later render that declares it again — a value dragged back, an undo —
-   * finds it built.
+   * A part the template cache keeps (`Part.cacheKey`: a generator's
+   * template, a generated part's variant) that the new scene doesn't take
+   * over goes to the cache (`GeneratedTemplateCache.retire`) instead of
+   * staying with the old scene: its objects hand their build over and keep
+   * none, so a later render that declares it again — a value dragged back,
+   * an undo, a preview cancelled — finds it built. Only a part the old scene
+   * rendered goes: one it never built holds nothing to keep.
    *
    * **The compare frees what it replaced**, as SceneCompare does for a part
    * scene, so a host drops the old scene once this returns (and frees a scene
@@ -30,11 +32,11 @@ export class AssemblyCompare {
    * - every old object the new scene doesn't take over is destroyed — a part
    *   that rebuilt (a changed insert value, a changed part file, an unpaired
    *   variant, a sub-assembly's part) and everything under it — except the
-   *   generated templates the cache took, which the cache destroys when it
-   *   lets go of them;
+   *   parts the cache took, which the cache destroys when it lets go of
+   *   them;
    * - every old shape wrapper the new scene doesn't reach is released. The
    *   paired parts' state is cloned onto the new objects with the same
-   *   wrappers, so what they carry over survives; the cache's templates are
+   *   wrappers, so what they carry over survives; the cache's parts are
    *   left out (the cache releases them, and no pass releases what it holds).
    * A failure freeing is logged and never fails the render.
    */
@@ -116,9 +118,11 @@ export class AssemblyCompare {
       changes.captureBefore(oldScene, map);
     }
 
-    // The old templates the new scene doesn't take over: the cache's from the
-    // retire below, with every object under them.
-    const leaving = oldTopParts.filter(part => part.generatedBy && !map.has(part));
+    // The old parts the cache keeps that the new scene doesn't take over —
+    // built ones: the cache's from the retire below, with every object under
+    // them.
+    const leaving = oldTopParts.filter(part => part.cacheKey() !== null && !map.has(part)
+      && oldScene.getRenderedObject(part) !== null);
     const handedOver = AssemblyCompare.subtreesOf(leaving);
 
     // What the old scene holds, less what the cache is about to take —
@@ -161,7 +165,7 @@ export class AssemblyCompare {
     // cache, so the old scene's templates mustn't push them out first.
     const wanted = new Set<string>();
     for (const part of newTopParts) {
-      const key = part.generatedBuildKey();
+      const key = part.cacheKey();
       if (key !== null && !matched.has(part)) {
         wanted.add(key);
       }

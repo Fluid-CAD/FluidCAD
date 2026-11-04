@@ -226,7 +226,7 @@ export type { StepFileUnits } from './oc/step-units.js';
 export type { ImportReport, AssemblyExportOutcome, GeneratedRenderReport } from './scene-manager.js';
 export type { RenderDetail, SceneOptions } from './rendering/scene.js';
 export type {
-  GeneratedBuildReport, GeneratedLayoutTiming, GeneratedTemplateTiming, GeneratedTemplateSource,
+  GeneratedBuildReport, GeneratedLayoutTiming, GeneratedTemplateTiming, GeneratedTemplateSource, GeneratedVariantTiming,
 } from './rendering/generated-build-report.js';
 export type { GeneratedCacheLimits, GeneratedCacheStats } from './rendering/generated-template-cache.js';
 export { RenderChangeTracker } from './rendering/render-changes.js';

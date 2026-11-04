@@ -14,6 +14,7 @@ import { SelectSceneObject } from "../features/select.js";
 import { Part } from "../features/part.js";
 import { scaleForeignPart } from "../features/part-scale.js";
 import { GeneratedTemplateCache } from "./generated-template-cache.js";
+import { GeneratedBuildReports } from "./generated-build-report.js";
 import { MeshPieces, type ShapeMeshPieces } from "./mesh-pieces.js";
 import { MeshKeys } from "./mesh-keys.js";
 import { attachSketchSnapVertices } from "./sketch-snap.js";
@@ -139,10 +140,11 @@ export class SceneRenderer {
     console.log("============ Rendering ==============", sceneObjects.length);
     this.occurrenceIndexes = computeCallSiteOccurrences(sceneObjects);
 
-    // Generated parts the compare did not carry over but the template cache
-    // holds built take their build from it — marked cached, so the loop
-    // below skips them. Here and not when the layout declared them: a scene
-    // dropped before it renders must not have taken anything.
+    // Generated parts (generator templates, generated parts' variants) the
+    // compare did not carry over but the template cache holds built take
+    // their build from it — marked cached, so the loop below skips them.
+    // Here and not when the module declared them: a scene dropped before it
+    // renders must not have taken anything.
     GeneratedTemplateCache.shared.takeInto(scene);
 
     const skippedContainers = new Set<SceneObject>();
@@ -170,6 +172,7 @@ export class SceneRenderer {
           const result = this.buildObject(object, scene);
           buildDurations.set(object, result.totalMs);
           profilers.set(object, result.profiler);
+          GeneratedBuildReports.recordMemberBuild(object, result.totalMs);
         }
 
         // After building, mark cloned sketches so their children are skipped —

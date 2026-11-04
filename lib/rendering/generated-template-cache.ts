@@ -7,10 +7,11 @@ import { GeneratedBuildReports } from "./generated-build-report.js";
 import { SceneCompare } from "./scene-compare.js";
 import { SceneDisposal, type ShapeKeeper } from "./scene-disposal.js";
 import type { Scene } from "./scene.js";
+import { AssemblyScene } from "./assembly-scene.js";
 
 /** How much the template cache holds at most. */
 export type GeneratedCacheLimits = {
-  /** The most templates it holds. */
+  /** The most parts it holds. */
   maxEntries: number;
   /** The most it holds by its size estimate, in bytes (see {@link GeneratedTemplateCache}). */
   maxSize: number;
@@ -18,17 +19,17 @@ export type GeneratedCacheLimits = {
 
 /** What the template cache holds now, its limits, and what it did since the process started. */
 export type GeneratedCacheStats = GeneratedCacheLimits & {
-  /** Templates it holds. */
+  /** Parts it holds. */
   entries: number;
   /** Their size estimate, in bytes. */
   size: number;
-  /** Templates renders took from it. */
+  /** Parts renders took from it. */
   taken: number;
-  /** Templates it disposed: evicted for room, for a code change, cleared, or retired stale. */
+  /** Parts it disposed: evicted for room, for a code change, cleared, or retired stale. */
   disposed: number;
 };
 
-/** One retired template: its subtree's objects (old, kept only to pair with) and the build state they handed over. */
+/** One retired part: its subtree's objects (old, kept only to pair with) and the build state they handed over. */
 type CacheEntry = {
   key: string;
   definition: string;
@@ -45,32 +46,47 @@ type CacheEntry = {
 };
 
 /**
- * The parts generators made, kept across renders once no scene holds them:
- * least recently used goes first, bounded by a count and a size estimate.
- * With it a value dragged back, an undo, or a preview cancelled finds its
- * parts built (P2).
+ * The parts generated definitions made, kept across renders once no scene
+ * holds them: least recently used goes first, bounded by a count and a size
+ * estimate. With it a value dragged back, an undo, or a preview cancelled
+ * finds its parts built (P2). It keeps two kinds of part, by one mechanism:
+ * the templates a generator declares (`defineAssembly`, `g.part()`) and the
+ * variants a generated part builds (`definePart`, one per values).
  *
- * **What it keeps.** A template part's *built state* — the shapes and
- * records of the part and its members (its body, its frames, its
- * connectors) — never the scene objects themselves. A scene object belongs
- * to its scene: its id, its place in the scene's structure, its source
- * location (the `defineAssembly()` line may have moved), its units and
- * names are the declaring render's. The next render declares the template
- * afresh (`GeneratedTemplates.materialize`), and a hit hands that fresh
- * part the cached state, as the assembly compare hands a paired part its
- * predecessor's: actor-stamped records (face colours, removals) remapped
- * onto the new objects, errors carried, everything marked cached — so the
- * part renders `fromCache` and the UI takes its pose-only path.
+ * **What it keeps.** A part's *built state* — the shapes and records of the
+ * part and its members (a template's body, frames and connectors; a
+ * variant's feature, frames and connectors) — never the scene objects
+ * themselves. A scene object belongs to its scene: its id, its place in the
+ * scene's structure, its source location (the `defineAssembly()` or
+ * `definePart()` line may have moved), its units and names are the
+ * declaring render's. The next render declares the part afresh
+ * (`GeneratedTemplates.materialize`, `PartDefinition.buildVariant`), and a
+ * hit hands that fresh part the cached state, as the assembly compare hands
+ * a paired part its predecessor's: actor-stamped records (face colours,
+ * removals) remapped onto the new objects, errors carried, everything
+ * marked cached — so the part renders `fromCache`, with the same shapes
+ * (and so the same mesh keys and lineage) as the render that built it, and
+ * the UI takes its pose-only path. What a render derives afresh (lineage
+ * keys, default labels, the wire's values) needs nothing kept.
  *
- * **Keys.** `Part.generatedBuildKey`: the template's identity key, the
- * units it is made and read in, the detail tier and the definition's code
- * version (see `GeneratedCode`). Equal keys hold the same shapes.
+ * **Keys.** `Part.cacheKey`: for a template, its identity key, the units it
+ * is made and read in, the detail tier and the definition's code version;
+ * for a variant, its definition, name, material, appearance, values, units
+ * and code version (see `GeneratedCode`). Equal keys hold the same shapes.
  *
- * **Ownership — a template's build is in one place.** In the scene holding
- * its part, or here; never both.
- * - A compare that leaves an old template unpaired retires it here
- *   ({@link retire}): its objects hand their state over and keep none.
- * - A render takes an entry for a template it holds unbuilt ({@link
+ * **Assembly scenes only.** Only an assembly compare retires parts here, and
+ * only an assembly scene takes them: a part file renders a generated part's
+ * defaults alone, and its own compare (`SceneCompare`) keeps that variant
+ * from render to render while its code stands — it never meets another
+ * variant to come back to.
+ *
+ * **Ownership — a part's build is in one place.** In the scene holding
+ * the part, or here; never both.
+ * - A compare that leaves an old part unpaired retires it here
+ *   ({@link retire}): its objects hand their state over and keep none; the
+ *   compare's disposal pass neither destroys them nor releases their shapes.
+ *   A part the old scene never rendered holds no build: the compare frees it.
+ * - A render takes an entry for a part it holds unbuilt ({@link
  *   takeInto}): the state goes to the new part and the entry is gone — the
  *   scene owns it now, and it comes back only when a later compare leaves
  *   it unpaired again.
@@ -78,10 +94,10 @@ type CacheEntry = {
  *   for room, on a code change, on {@link clear}, or at once when it is
  *   retired stale (its code changed, or the kernel trapped building it).
  *   The cache is a {@link ShapeKeeper}: no scene's disposal pass frees a
- *   shape it holds — an older scene the template was carried over from
- *   still names it.
+ *   shape it holds — an older scene the part was carried over from still
+ *   names it.
  * - A scene disposed whole (a recompute, a session closed, a scratch
- *   render) frees the templates it holds with it: they never came here.
+ *   render) frees the parts it holds with it: they never came here.
  *
  * **Size estimate.** The kernel's memory can't be read per shape, so the
  * estimate is what an entry's shapes hold in triangulation — 16 bytes per
@@ -92,7 +108,7 @@ type CacheEntry = {
  */
 export class GeneratedTemplateCache implements ShapeKeeper {
 
-  /** 256 templates, 256 MB by estimate. */
+  /** 256 parts, 256 MB by estimate. */
   static readonly DEFAULT_LIMITS: Readonly<GeneratedCacheLimits> = Object.freeze({ maxEntries: 256, maxSize: 256 * 1024 * 1024 });
 
   private static readonly BYTES_PER_MESH_NUMBER = 16;
@@ -125,29 +141,32 @@ export class GeneratedTemplateCache implements ShapeKeeper {
   }
 
   /**
-   * Take in the templates an old scene's compare left unpaired — `parts`,
-   * top-level parts a generator made. Each part's objects hand their build
-   * state over (they keep none). A template whose definition is in
-   * `options.rebuild` (its code changed, as the host says), whose code
-   * version is no longer current (`GeneratedCode.isCurrent`), or whose
-   * build trapped the kernel is disposed at once instead; one whose key the
-   * cache holds already is too (the held one stays).
+   * Take in the parts an old scene's compare left unpaired — `parts`,
+   * top-level parts the cache keeps (`Part.cacheKey`: generator templates
+   * and generated parts' variants), built by the old scene's render. Each
+   * part's objects hand their build state over (they keep none). A part
+   * whose definition is in `options.rebuild` (its code changed, as the host
+   * says), whose code version is no longer current
+   * (`GeneratedCode.isCurrent`), or whose build trapped the kernel is
+   * disposed at once instead; one whose key the cache holds already is too
+   * (the held one stays).
    *
    * Then the cache trims to its limits — never evicting `options.keep`, the
    * keys the new scene holds unbuilt: the render about to start takes them
-   * ({@link takeInto}), and the old scene's templates must not push them
+   * ({@link takeInto}), and the old scene's parts must not push them
    * out first.
    */
   retire(parts: readonly Part[], options: { rebuild?: ReadonlySet<string>; keep?: ReadonlySet<string> } = {}): void {
     const rebuild = options.rebuild;
     for (const part of parts) {
-      if (!part.generatedBy || part.getParent() !== null || this.retired.has(part)) {
+      const mark = part.cachedBuildMark();
+      if (mark === null || part.getParent() !== null || this.retired.has(part)) {
         continue;
       }
       this.retired.add(part);
       const entry = GeneratedTemplateCache.entryOf(part);
-      const stale = rebuild?.has(part.generatedBy.definition) === true
-        || !GeneratedCode.isCurrent(part.generatedBy.definition, part.generatedBy.code)
+      const stale = rebuild?.has(mark.definition) === true
+        || !GeneratedCode.isCurrent(mark.definition, mark.code)
         || entry.errors.some(error => error?.kernelTrap === true);
       if (stale) {
         this.dispose(entry);
@@ -166,25 +185,26 @@ export class GeneratedTemplateCache implements ShapeKeeper {
   }
 
   /**
-   * Hand every template `scene` holds unbuilt — a top-level generated part
-   * the compare did not carry over — the state the cache holds for its key,
-   * if it holds one: the part and its members take the state, are marked
-   * cached, and the entry is gone. Runs as a render starts, so a scene
-   * dropped before it renders never took anything.
+   * Hand every part an assembly `scene` holds unbuilt — a top-level part the
+   * cache keeps that the compare did not carry over — the state the cache
+   * holds for its key, if it holds one: the part and its members take the
+   * state, are marked cached, and the entry is gone. Runs as a render
+   * starts, so a scene dropped before it renders never took anything. A
+   * part scene takes nothing (see the class comment).
    */
   takeInto(scene: Scene): void {
-    if (this.entries.size === 0) {
+    if (this.entries.size === 0 || !(scene instanceof AssemblyScene)) {
       return;
     }
     for (const obj of scene.getAllSceneObjects()) {
-      if (obj instanceof Part && obj.generatedBy && obj.getParent() === null && !scene.isCached(obj)) {
+      if (obj instanceof Part && obj.getParent() === null && !scene.isCached(obj) && obj.cacheKey() !== null) {
         this.take(obj, scene);
       }
     }
     this.trim();
   }
 
-  /** The code of these definitions changed: every template of theirs the cache holds is disposed. */
+  /** The code of these definitions changed: every part of theirs the cache holds is disposed. */
   dropDefinitions(ids: Iterable<string>): void {
     const dropped = new Set(ids);
     if (dropped.size === 0) {
@@ -237,7 +257,7 @@ export class GeneratedTemplateCache implements ShapeKeeper {
   }
 
   private take(part: Part, scene: Scene): void {
-    const key = part.generatedBuildKey();
+    const key = part.cacheKey();
     const entry = key === null ? undefined : this.entries.get(key);
     if (!entry) {
       return;
@@ -344,7 +364,7 @@ export class GeneratedTemplateCache implements ShapeKeeper {
       shape.collectRawHandles(raw);
       size += GeneratedTemplateCache.sizeOf(shape);
     }
-    return { key: part.generatedBuildKey()!, definition: part.generatedBy!.definition, objects, states, errors, shapes, raw, size };
+    return { key: part.cacheKey()!, definition: part.cachedBuildMark()!.definition, objects, states, errors, shapes, raw, size };
   }
 
   /** The size estimate of one wrapper (see the class comment). */

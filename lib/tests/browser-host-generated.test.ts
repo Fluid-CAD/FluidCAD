@@ -14,7 +14,7 @@ import { describe, it, expect } from "vitest";
 import { BrowserEngineHost, VIEWER_PROTOCOL_VERSION, type BrowserRenderResult } from "../browser/index.js";
 import { definePart, defineAssembly } from "../sdk/index.js";
 import part from "../core/part.js";
-import { param } from "../core/index.js";
+import { param, configurations } from "../core/index.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import { testRect } from "./helpers/profiles.js";
@@ -180,6 +180,35 @@ describe("BrowserEngineHost generated values", () => {
       expect(widened.objectErrors).toEqual([]);
       expect(widened.params?.find(p => p.label === "Width")?.currentValue).toBe(160);
       expect(widened.generated?.[0].values.teeth).toBe(30);
+    });
+
+    it("opens on a configurations() row with generated values in one pass (setConfiguration takes the render's options)", async () => {
+      host.unloadModel();
+      host.setWorkspace({ "parts/spur.part.js": "unused" }, "parts/spur.part.js");
+      host.setModuleEvaluator(async () => new Function(
+        "definePart", "Spur", "part", "param", "configurations", "sketch", "extrude", "testRect",
+        `return {
+          plate: part('Plate', () => {
+            configurations({ Wide: { Width: 200 } });
+            const width = param('Width', 100);
+            sketch('xy', () => { testRect(width, 50); });
+            extrude(10);
+          }),
+          spurPart: definePart(Spur, { label: 'Spur gear' }),
+        };\n//# sourceURL=${SPUR_FILE}`,
+      )(definePart, Spur, part, param, configurations, sketch, extrude, testRect) as Record<string, unknown>);
+      const before = builds.length;
+      const outcome = await host.setConfiguration("Wide", { generated: { spurPart: { teeth: 30 } }, detail: "full" });
+      expect(outcome.compileError).toBeNull();
+      expect(outcome.objectErrors).toEqual([]);
+      expect(outcome.configurations?.active).toBe("Wide");
+      expect(outcome.params?.find(p => p.label === "Width")?.currentValue).toBe(200);
+      expect(outcome.generated?.[0].values).toEqual({ ...SPUR_SCHEMA_DEFAULTS, teeth: 30 });
+      expect(builds.slice(before)).toEqual([30]);
+      // The values stay for the next pass, as setGeneratedValues' do.
+      const again = await host.render();
+      expect(again.generated?.[0].values.teeth).toBe(30);
+      expect(again.configurations?.active).toBe("Wide");
     });
 
     it("forgets the values on unloadModel()", async () => {

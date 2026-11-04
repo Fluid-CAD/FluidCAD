@@ -562,14 +562,19 @@ export class BrowserEngineHost {
    * overrides go with the switch, as in the desktop panel (the row's cells
    * are what shows); `keepOverrides` leaves them installed on top of the
    * row instead. A name no table declares renders the literals, with a
-   * console warning.
+   * console warning. The pass takes {@link render}'s options too
+   * (`detail`, `generated`): a load that opens on a row with a generated
+   * export's values renders both in one pass.
    */
-  async setConfiguration(name: string | null, options: { keepOverrides?: boolean } = {}): Promise<BrowserRenderResult> {
+  async setConfiguration(name: string | null, options: { keepOverrides?: boolean } & BrowserRenderOptions = {}): Promise<BrowserRenderResult> {
     this.activeConfiguration = name === null || name === "Default" ? null : name;
     if (!options.keepOverrides) {
       this.overrides.clear();
     }
-    return this.render();
+    return this.render({
+      ...(options.detail === undefined ? {} : { detail: options.detail }),
+      ...(options.generated === undefined ? {} : { generated: options.generated }),
+    });
   }
 
   /** The configuration the next pass renders, or null for the literals. */

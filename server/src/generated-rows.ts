@@ -130,27 +130,51 @@ export class GeneratedRows {
 
   /** The refusal of a write aimed at `target`, or null when it addresses no engine-owned row. */
   refusal(target: RowTarget): GeneratedReadOnlyError | null {
+    const reason = this.reasonFor(target);
+    return reason !== null ? new GeneratedReadOnlyError(reason) : null;
+  }
+
+  /**
+   * Whether `target` is an engine-owned row — exactly what {@link refusal}
+   * refuses, by its statement or by its row: an assembly record (instance,
+   * mate, relation: `asm-0/inst-2`, `asm-0/mate-1`) a generated occurrence
+   * owns or a generator made, and a record standing at a generated
+   * definition's call (a generator's layout rendered in its defining file).
+   * A generated occurrence itself is not (its `insert()` is the user's).
+   * The scene summary marks these `engineOwned`.
+   */
+  owns(target: RowTarget): boolean {
+    return this.reasonFor(target) !== null;
+  }
+
+  /** The sentence a write aimed at `target` is refused with, or null when it addresses no engine-owned row. */
+  private reasonFor(target: RowTarget): string | null {
     if (target.location && typeof target.location.filePath === 'string' && Number.isInteger(target.location.line)) {
       const site = this.sites.get(GeneratedRows.key(target.location));
       if (site) {
-        return new GeneratedReadOnlyError(site);
+        return site;
       }
     }
     if (typeof target.row === 'string' && target.row !== '') {
-      const instance = this.instances.get(target.row);
-      if (instance) {
-        return GeneratedRows.refuse(instance);
-      }
-      const occurrence = this.occurrences.find(occ => target.row !== occ.id && (target.row as string).startsWith(`${occ.id}/`));
-      if (occurrence) {
-        return GeneratedRows.refuse({ name: GeneratedRows.leafOf(target.row), owner: `the generated assembly '${occurrence.name}'` });
+      const owned = this.ownedRow(target.row);
+      if (owned) {
+        return GeneratedRows.sentence(owned);
       }
     }
     return null;
   }
 
-  private static refuse(row: OwnedRow): GeneratedReadOnlyError {
-    return new GeneratedReadOnlyError(GeneratedRows.sentence(row));
+  /** The engine-owned record `row` names, as a refusal names it, or null. */
+  private ownedRow(row: string): OwnedRow | null {
+    const instance = this.instances.get(row);
+    if (instance) {
+      return instance;
+    }
+    const occurrence = this.occurrences.find(occ => row !== occ.id && row.startsWith(`${occ.id}/`));
+    if (occurrence) {
+      return { name: GeneratedRows.leafOf(row), owner: `the generated assembly '${occurrence.name}'` };
+    }
+    return null;
   }
 
   private static sentence(row: OwnedRow, file?: string): string {

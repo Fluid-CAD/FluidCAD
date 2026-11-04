@@ -4,6 +4,18 @@ import type { CompileError } from '../ws-protocol.ts';
 import type { LengthUnit } from '../project-config.ts';
 import type { SceneRenderedData } from './render-types.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
+import { GeneratedRows } from '../generated-rows.ts';
+import { JointSummary } from './joint-summary.ts';
+import type { SceneSummaryJoints, SceneSummaryMate, SceneSummaryRelation } from './joint-summary.ts';
+
+export type {
+  SceneSummaryJoints,
+  SceneSummaryMate,
+  SceneSummaryMateOptions,
+  SceneSummaryMateSide,
+  SceneSummaryRelation,
+  SceneSummaryRelationMate,
+} from './joint-summary.ts';
 
 /**
  * One drawn shape of the scene, labelled the way the Shapes panel lists it:
@@ -145,6 +157,12 @@ export type SceneSummaryInstance = {
   sourceLocation?: { filePath: string; line: number; column: number };
   /** Present on a `replicate()` copy: the seed instance, the replicate statement, the row. */
   replica?: { of: string; statement: string; row: number };
+  /**
+   * Present (true) on a part a generator made (`defineAssembly`):
+   * engine-owned and read-only — its `sourceLocation` is the insert of the
+   * generated assembly, whose values are the only way to change it.
+   */
+  engineOwned?: true;
 };
 
 /** One inserted sub-assembly — the scope an instance's `owner` names. */
@@ -154,6 +172,13 @@ export type SceneSummaryOccurrence = {
   assemblyName: string;
   /** The parent scope's occurrence path; "" when inserted at the root. */
   parentPath: string;
+  /**
+   * An occurrence of a generated assembly (`defineAssembly`): its
+   * definition's id and the values its insert resolved to, by id. Every
+   * record it owns is engine-owned (`engineOwned`); the occurrence itself
+   * is the inserting file's.
+   */
+  generated?: { definition: string; values: Record<string, unknown> };
 };
 
 export type SceneSummary = {
@@ -172,6 +197,12 @@ export type SceneSummary = {
   instances?: SceneSummaryInstance[];
   /** Assembly files that insert a sub-assembly only. */
   occurrences?: SceneSummaryOccurrence[];
+  /** Assembly files only: what every `mates[]` / `relations[]` entry is — authored records, solved only in the viewer. */
+  joints?: SceneSummaryJoints;
+  /** Assembly files only: every mate, sub-assemblies' and generators' included, in statement order (possibly empty). */
+  mates?: SceneSummaryMate[];
+  /** Assembly files with a `relation()` (their own or a generator's) only. */
+  relations?: SceneSummaryRelation[];
 };
 
 /**
@@ -185,23 +216,34 @@ export class AssemblySummary {
   /**
    * The summary keys for an assembly render. `shapeIds` maps an instance id
    * to the rendered solids it shows, or is null on an engine without that
-   * lookup (the entries then carry no `shapeIds`).
+   * lookup (the entries then carry no `shapeIds`). `rendered` are the
+   * render's rows: they name the connectors mate sides hold by id, and with
+   * the assembly records they decide which records are engine-owned
+   * ({@link GeneratedRows}, the write guard's rule).
    */
   static fields(
     assembly: SerializedAssembly,
     shapeIds: Map<string, string[]> | null,
-  ): Pick<SceneSummary, 'instancePoses' | 'instances' | 'occurrences'> {
+    rendered: readonly any[] = [],
+  ): Pick<SceneSummary, 'instancePoses' | 'instances' | 'occurrences' | 'joints' | 'mates' | 'relations'> {
     const occurrences = assembly.occurrences ?? [];
+    const owned = GeneratedRows.of(rendered, assembly);
+    const joints = new JointSummary(assembly, rendered, owned);
+    const relations = joints.relations();
     return {
       instancePoses: { ...AssemblySummary.POSES },
-      instances: assembly.instances.map(instance => AssemblySummary.instanceOf(instance, shapeIds)),
+      instances: assembly.instances.map(instance => AssemblySummary.instanceOf(instance, shapeIds, owned)),
       ...(occurrences.length > 0 ? { occurrences: occurrences.map(AssemblySummary.occurrenceOf) } : {}),
+      joints: { ...JointSummary.JOINTS },
+      mates: joints.mates(),
+      ...(relations.length > 0 ? { relations } : {}),
     };
   }
 
   private static instanceOf(
     instance: SerializedAssembly['instances'][number],
     shapeIds: Map<string, string[]> | null,
+    owned: GeneratedRows,
   ): SceneSummaryInstance {
     return {
       instanceId: instance.instanceId,
@@ -218,6 +260,7 @@ export class AssemblySummary {
       },
       ...(instance.sourceLocation ? { sourceLocation: instance.sourceLocation } : {}),
       ...(instance.replica ? { replica: { ...instance.replica } } : {}),
+      ...(owned.owns({ row: instance.instanceId, location: instance.sourceLocation }) ? { engineOwned: true as const } : {}),
     };
   }
 
@@ -227,6 +270,9 @@ export class AssemblySummary {
       name: occurrence.name,
       assemblyName: occurrence.assemblyName,
       parentPath: occurrence.parentPath,
+      ...(occurrence.generated
+        ? { generated: { definition: occurrence.generated.definition, values: { ...occurrence.generated.values } } }
+        : {}),
     };
   }
 }

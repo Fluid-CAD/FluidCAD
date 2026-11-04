@@ -3076,7 +3076,7 @@ export class FluidCadServer {
       rollbackStop: this.lastRollbackStop,
       ...(this.lastRollbackScopePartId ? { rollbackScopePartId: this.lastRollbackScopePartId } : {}),
       compileError: this.compileError,
-      ...(assembly ? AssemblySummary.fields(assembly, this.sceneManager?.getInstanceShapeIds?.(scene) ?? null) : {}),
+      ...(assembly ? AssemblySummary.fields(assembly, this.sceneManager?.getInstanceShapeIds?.(scene) ?? null, rendered) : {}),
     };
   }
 

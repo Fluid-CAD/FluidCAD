@@ -90,7 +90,10 @@ Mates are solved in the viewer, live. The server's render places parts
 where the source puts them; the mated layout is what the viewport shows and
 what the viewer's Export writes. `get_scene_summary` lists every instance
 under `instances` with that statement pose, the one `interfere`, `measure`
-and `resolve_selection` use; no tool reports the solved pose.
+and `resolve_selection` use; no tool reports the solved pose. Its `mates`
+and `relations` list the joints as written — type, name, both sides by
+instance and connector, flip / rotate / offset / limits, the coupled mates
+— with no solve status ([[concepts/scene-graph]]).
 
 ## Sub-assemblies and connectors
 
@@ -138,7 +141,9 @@ mate("fastened", unit.parts.carcass.connectors.top, box.connectors.base);
   are rows of its occurrence that no statement of the file wrote: they are
   read-only (the Parts panel offers Show in source; a write is refused with
   "… is made by the generated assembly 'wardrobe1' and is read-only: change
-  it through the values of the insert that makes it."). The occurrence
+  it through the values of the insert that makes it."; `get_scene_summary`
+  marks them `engineOwned: true`, mates and relations with the
+  occurrence's path and name as `owner` / `ownerName`). The occurrence
   itself — its pose, grounding, name, deletion, mates to its parts — is the
   file's. A generated part's own material, appearance and name come from
   its definition; its instance is the file's.

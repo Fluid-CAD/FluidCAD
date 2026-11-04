@@ -157,6 +157,9 @@ the joints are driven from the Joints panel like any joint. A write aimed at
 one is refused with "`'Left door' is made by the generated assembly
 'wardrobe1' and is read-only: change it through the values of the insert
 that makes it.`" Change them through the occurrence's values.
+`get_scene_summary` lists those mates and relations under `mates` /
+`relations` with `owner` the occurrence's path (`asm-0`), `ownerName` its
+name and `engineOwned: true` — the same flag its instances carry.
 
 ## In the editor
 

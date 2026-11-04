@@ -73,4 +73,30 @@ the same for every instance of a part), `pose` and `sourceLocation`.
 `instancePoses` says what the poses are: `{ frame: "world", source:
 "statement" }`, where the `insert()` statements put each instance, not
 where the viewer's mate solve draws it. `occurrences` lists inserted
-sub-assemblies. A part file's summary has none of these keys.
+sub-assemblies (a generated assembly's with `generated: { definition,
+values }`).
+
+`mates` lists every mate, sub-assemblies' and generators' included, in
+statement order: `mateId`, `name` (when authored), `type`, and the two
+sides `a` (the driver) and `b`. A side is a part connector `{ kind:
+"connector", instanceId, instance, connector, connectorId }` (`instance`
+the instance's name, `connector` what code writes after `.connectors.`, a
+copy as `bolt.instance(2)`, `connectorId` its row in `objects`), an
+assembly connector `{ kind: "assembly-connector", connector, connectorId
+}`, or a tangent mate's exposure `{ kind: "exposure", instanceId,
+instance, exposure }`. `options` holds only what differs from the default:
+`flip`, `rotate` (degrees), `offset` (document unit), `limits` (`[min,
+max]`: degrees on a revolute, the document unit on a slider), `propagate:
+false`. `relations` (when there are any) lists `relationId`, `name`,
+`type`, `ratio`, `reverse` and the two mates as `mateA` / `mateB` (`{
+mateId, name }`). Every mate and relation carries its `owner` (`""` at the
+root, else the occurrence path) with `ownerName`, `sourceLocation`, and
+`engineOwned: true` when a generator's layout made it (read-only; its
+location is the insert that makes it; an instance a generator made is
+marked the same way).
+
+`joints: { source: "statement", solvedIn: "viewer" }` says what those are:
+the records as authored. The assembly solver runs only in the viewer and
+the server never receives its result, so the summary reports no solve
+status, misclosure or joint value — whether a joint closes and how far it
+moves shows on screen. A part file's summary has none of these keys.

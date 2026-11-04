@@ -40,7 +40,7 @@ there.
 
 ```js
 export class Gear extends Feature.with({ /* … values … */ }, {
-  frames: { axis: { label: 'Gear axis' } },   // origin on the axis, Z up it, X the phase reference
+  frames: { axis: { label: 'Gear axis' } },   // origin on the axis, Z out of the gear, X the phase reference
 }) { … }
 ```
 
@@ -203,13 +203,24 @@ plain vectors (`features/lib/frames.js`), unit tested without the engine,
 and its features set them with `this.setFrames({ axis: frame.axis })`:
 
 - `axis` (gear, internal gear): origin on the axis, on the plane the gear
-  stands on; Z up the axis, the way the teeth run; X the phase reference. It
-  is where the gear stands before its phase turns the teeth and its offset
+  stands on; Z along the axis out of the gear, against the way the teeth
+  run, as a connector on that face points; X the phase reference. It is
+  where the gear stands before its phase turns the teeth and its offset
   moves them, so a gear on a revolute mate keeps its axis while its phase
-  meshes it.
+  meshes it. A plain mate on a connector pointing out of a plate or a
+  shaft's end seats the gear, with no `.flip()`.
 - `pitch` (rack): on the pitch line at the middle of the rack; Z along the
   rack, the travel a slider takes; X toward the tips.
 
 Set a frame where a mate needs it, independent of values that only move
 the geometry along or about it: then changing those values moves the
 geometry on the frame, never the frame.
+
+**Point a frame the way a connector on that face would: Z out of the
+material.** A mate lays its second frame face to face on its first (the
+origins meet, the second Z against the first, the X axes together), which
+seats two parts whose connectors both point out of the faces that touch. A
+frame on the face a part stands on, Z out of the part, is then mated with a
+plain `mate()` on the other part's face connector. A frame that points into
+the part (the way it grows) needs `.flip()` on every mate, and an
+assembly without it builds the part into the other one.

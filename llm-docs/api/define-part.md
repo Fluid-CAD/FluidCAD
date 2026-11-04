@@ -71,7 +71,7 @@ export class Gear extends Feature.with({
   width: { type: 'length', default: 10, min: 0.01, label: 'Face width' },
   // … module, bore, hub, phase, offset, flip …
 }, {
-  frames: { axis: { label: 'Gear axis' } },   // origin on the axis, Z up it, X the phase reference
+  frames: { axis: { label: 'Gear axis' } },   // origin on the axis, Z out of the gear, X the phase reference
 }) {
   static id = 'gear';
 
@@ -111,9 +111,10 @@ export const gearbox = assembly('gearbox', () => {
   const pinion = insert(gearPart, { teeth: 18, module: 1.5, width: 12, bore: 'round', boreDiameter: 8 }).name('Pinion');
   const wheel = insert(gearPart, { teeth: 36, module: 1.5, width: 12, bore: 'round', boreDiameter: 10 }).name('Wheel');
 
-  // The plate's connectors point up out of its top face, the way the gears grow: .flip().
-  const drive = mate('revolute', plate.connectors.pinionShaft, pinion.connectors.axis).flip();
-  const driven = mate('revolute', plate.connectors.wheelShaft, wheel.connectors.axis).flip();
+  // The plate's connectors point up out of its top face and each gear's axis out of the face it
+  // stands on: a plain (face-to-face) mate seats the gears on the plate.
+  const drive = mate('revolute', plate.connectors.pinionShaft, pinion.connectors.axis);
+  const driven = mate('revolute', plate.connectors.wheelShaft, wheel.connectors.axis);
   relation('gear', drive, driven, 0.5).reverse();   // 18 teeth drive 36, the other way
 });
 ```

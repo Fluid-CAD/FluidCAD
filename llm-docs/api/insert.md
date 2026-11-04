@@ -105,7 +105,7 @@ import { gearPlate } from "./parts/gear-plate.part.js";
 export const workshop = assembly("workshop", () => {
   const plate = insert(gearPlate).grounded();
   const pinion = insert(gearPart, { teeth: 18, module: 1.5, width: 12 });   // an Instance
-  mate("revolute", plate.connectors.pinionShaft, pinion.connectors.axis).flip();
+  mate("revolute", plate.connectors.pinionShaft, pinion.connectors.axis);
   const unit = insert(wardrobe, { drawers: 3 }).translate(2000, 0, 0).grounded();   // an Occurrence
   // unit.parts — what the generator's layout returned: unit.parts.carcass.connectors.top
 });

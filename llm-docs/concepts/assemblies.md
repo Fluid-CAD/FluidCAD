@@ -117,7 +117,7 @@ id**:
 
 ```js
 const pinion = insert(gearPart, { teeth: 18, module: 1.5, width: 12 });   // definePart: an Instance
-mate("revolute", plate.connectors.pinionShaft, pinion.connectors.axis).flip();
+mate("revolute", plate.connectors.pinionShaft, pinion.connectors.axis);
 const unit = insert(wardrobe, { drawers: 3 }).grounded().name("wardrobe1");   // defineAssembly: an Occurrence
 mate("fastened", unit.parts.carcass.connectors.top, box.connectors.base);
 ```

@@ -22,6 +22,7 @@ import { PackageResolveError, PackageResolver, type ResolvedPackage } from '../p
 import { PackageRoots } from '../packages/package-roots.ts';
 import { PackageTypeShims, type PackageTypeShimSync } from '../packages/package-editor-types.ts';
 import { PackageEvaluationScope } from './package-evaluation-scope.ts';
+import { PackageModuleTransforms } from './package-module-transforms.ts';
 
 export class LocalSceneHost implements SceneHost {
   /**
@@ -61,6 +62,12 @@ export class LocalSceneHost implements SceneHost {
   private engineAnswersWorkspace = false;
   /** The editor-types refusals already warned about, so a render loop doesn't repeat them. */
   private readonly warnedEditorTypes = new Set<string>();
+  /**
+   * Which installed-package modules keep Vite's transform across renders —
+   * evaluated again every render all the same (see {@link invalidateModule}
+   * and {@link PackageModuleTransforms}).
+   */
+  private readonly packageTransforms: PackageModuleTransforms;
 
   /**
    * `packages` answers `import … from '@scope/name'` through the workspace's
@@ -73,7 +80,12 @@ export class LocalSceneHost implements SceneHost {
   constructor(
     readonly packages: PackageResolver = new PackageResolver(),
     private readonly options: { linkEngine?: boolean } = {},
-  ) {}
+  ) {
+    this.packageTransforms = new PackageModuleTransforms({
+      rootOf: file => this.packages.rootOf(file),
+      overridden: file => this.hasSourceOverride(file),
+    });
+  }
 
   async init(rootPath: string) {
     this.rootPath = normalizePath(rootPath);
@@ -171,6 +183,9 @@ export class LocalSceneHost implements SceneHost {
                 throw new Error(BlockedImports.refusal(blocked));
               }
             }
+            // What an installed package's module was transformed from, so
+            // the next renders can keep the transform (see invalidateModule).
+            that.packageTransforms.noteTransformed(id);
           },
           load(id) {
             if (id.startsWith('virtual:live-render')) {
@@ -251,8 +266,9 @@ export class LocalSceneHost implements SceneHost {
   /**
    * A module this host evaluates as the model's own code: a workspace file
    * outside `node_modules`, a live editor buffer, or a file of an installed
-   * package. These are scanned for blocked imports and re-evaluated on
-   * every render.
+   * package. These are scanned for blocked imports and evaluated again on
+   * every render; an installed package's file keeps its transform while it
+   * can ({@link invalidateModule}).
    */
   private isOwnModule(id: string): boolean {
     if (id.startsWith('virtual:live-render')) {
@@ -311,6 +327,17 @@ export class LocalSceneHost implements SceneHost {
   /** The overlay's code for `file`, or null when the overlay has none for it. */
   private overlaidCode(file: string): string | null {
     return this.overlay?.code.get(normalizePath(file)) ?? null;
+  }
+
+  /**
+   * Whether the load hook serves `file` from something other than its bytes
+   * on disk: the render overlay's code, or a live editor buffer kept for
+   * its raw path.
+   */
+  private hasSourceOverride(file: string): boolean {
+    return this.overlaidCode(file) !== null
+      || this.buffers.has(`virtual:live-render:${file}`)
+      || this.buffers.has(`virtual:live-render:${normalizePath(file)}`);
   }
 
   getBuffer(fileName: string): string | null {
@@ -428,13 +455,6 @@ export class LocalSceneHost implements SceneHost {
   }
 
   /**
-   * Mark every module of the model stale, so the next load evaluates it
-   * again. Package modules included (K9): evaluated once per process, their
-   * top-level `part()` tracking, `unit()` and `param()` would act on the
-   * first render only. The resolver starts over too: the next load reads
-   * the project's pins again.
-   */
-  /**
    * Bring the workspace's editor-types shims (`node_modules/@types/…`, for
    * tsserver) in line with its pins: at start, on every render — the pins
    * are re-read then anyway, and a package another process installed,
@@ -460,12 +480,50 @@ export class LocalSceneHost implements SceneHost {
     }
   }
 
+  /**
+   * Make the next load evaluate every module of the model again (K9) —
+   * installed packages' modules included: evaluated once per process, their
+   * top-level `part()` tracking and name claims, `unit()`, `param()`,
+   * namespace claims and stamps, generated definitions and module-level
+   * shapes would act on the first render only. The resolver starts over too:
+   * the next load reads the project's pins again.
+   *
+   * Two halves:
+   * - Vite's transform is dropped for every workspace module and live
+   *   buffer, and for every installed package's module but those
+   *   {@link PackageModuleTransforms} keeps: a file read from disk whose
+   *   package tree and own file are what it was transformed from. Packages
+   *   are immutable (K8), so their text never needs transforming again
+   *   while that holds.
+   * - The module runner forgets every installed package module it
+   *   evaluated, kept transform or not, so each is fetched and evaluated
+   *   afresh — the same code, run again ({@link reevaluatePackageModules}).
+   *   A dropped transform reaches the runner on its own, as before.
+   */
   invalidateModule() {
     this.packages.refresh();
     this.refreshEditorTypes();
+    this.packageTransforms.startPass();
     for (const [id, mod] of this.server.moduleGraph.idToModuleMap) {
-      if (this.isOwnModule(id)) {
+      if (this.isOwnModule(id) && !this.packageTransforms.keeps(id)) {
         this.server.moduleGraph.invalidateModule(mod);
+      }
+    }
+    this.reevaluatePackageModules();
+  }
+
+  /**
+   * Clear the runner's evaluation of every installed package module it
+   * holds. A module whose transform Vite still keeps would otherwise be
+   * answered from the runner's cache — the first render's exports, its
+   * registrations never made again — since the runner re-evaluates only
+   * what the server reports transformed anew.
+   */
+  private reevaluatePackageModules(): void {
+    const evaluated = this.runner.evaluatedModules;
+    for (const node of evaluated.idToModuleMap.values()) {
+      if (this.packageTransforms.isPackageModule(node.file)) {
+        evaluated.invalidateModule(node);
       }
     }
   }

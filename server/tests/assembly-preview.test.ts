@@ -550,6 +550,95 @@ describe('an assembly preview over a workspace', () => {
   });
 });
 
+/** A model of one generated part: a gear (`spurPart`, a definePart) inserted with its teeth. */
+const GEARS = [
+  `import { assembly, insert } from 'fluidcad/core';`,
+  `import { spurPart } from './parts/spur.part.js';`,
+  ``,
+  `export const shop = assembly('shop', () => {`,
+  `  const gear1 = insert(spurPart, { teeth: 30 }).name('gear1');`,
+  `});`,
+  ``,
+].join('\n');
+const GEAR1_LINE = 5;
+
+/** The fixture spur's disc: tip radius module × (teeth + 2) / 2, module 2, width 10. */
+const spurVolume = (teeth: number) => Math.PI * (teeth + 2) ** 2 * 10;
+
+// A generated part's variants go through the template cache too (F2): the
+// dialog's teeth dragged away and back renders the way back from the cache,
+// at either tier — a feature's build reads no detail tier, so a preview
+// build serves the full render.
+describe('an assembly preview of a generated part (definePart)', () => {
+  let root: string;
+  let harness: PreviewHarness;
+
+  const edit = (token: string, teeth: number, detail: 'preview' | 'full' = 'full') => harness.preview({
+    token, mode: 'edit', filePath: harness.shop, line: GEAR1_LINE, values: { teeth }, detail,
+  });
+
+  beforeEach(async () => {
+    root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'fluidcad-variant-preview-')).replace(/\\/g, '/');
+    fs.cpSync(FIXTURE, root, { recursive: true });
+    fs.writeFileSync(path.join(root, 'shop.assembly.js'), GEARS);
+    harness = await PreviewHarness.open(root);
+    const opened = (await harness.liveRender(GEARS))!;
+    expect(errorsOf(opened.result)).toEqual([]);
+    harness.broadcasts.length = 0;
+  });
+
+  afterEach(async () => {
+    await harness?.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('revisits a gear\'s teeth from the cache: 30 → 40 → 30 builds nothing on the way back, and reports it cached', async () => {
+    const sources: string[] = [];
+    const counts: unknown[] = [];
+    for (const [token, teeth] of [['gear-1', 40], ['gear-1', 30], ['gear-1', 40]] as const) {
+      const answer = await edit(token, teeth);
+      expect(answer.status).toBe(200);
+      expect(answer.body.state).toBe('rendered');
+      const scene = harness.scenesSince(0).at(-1);
+      expect(errorsOf(scene.result)).toEqual([]);
+      expect(harness.volumeOf(scene.result)).toBeCloseTo(spurVolume(teeth), 0);
+      const { generated } = answer.body;
+      expect(generated.variants.map((v: any) => [v.definition, v.part, v.values.teeth])).toEqual([['spur', 'Spur gear', teeth]]);
+      sources.push(generated.variants[0].source);
+      counts.push({ misses: generated.misses, hits: generated.hits });
+      // A variant taken from the cache renders fromCache, as one carried over does.
+      if (generated.variants[0].source === 'cached') {
+        expect((scene.result as Row[]).filter(row => row.type === 'part').every(row => row.fromCache)).toBe(true);
+      }
+    }
+    // 40 is built; 30 — the model's own, left in the cache by the first tick — comes back; so does 40.
+    expect(sources).toEqual(['built', 'cached', 'cached']);
+    expect(counts).toEqual([
+      { misses: 1, hits: { kept: 0, cached: 0 } },
+      { misses: 0, hits: { kept: 0, cached: 1 } },
+      { misses: 0, hits: { kept: 0, cached: 1 } },
+    ]);
+
+    // Ending the preview: the saved code's 30 is back from the cache, nothing built.
+    const ended = await harness.post('assembly-preview/end', { token: 'gear-1' });
+    expect(ended.status).toBe(200);
+    const report = (harness.server as any).sceneManager.getGeneratedReport((harness.server as any).previousScenes.get(harness.shop));
+    expect(report.variants.map((v: any) => [v.values.teeth, v.source])).toEqual([[30, 'cached']]);
+    expect(report.misses).toBe(0);
+  });
+
+  it('serves the full tier a variant a preview tick built: a feature\'s build reads no detail tier', async () => {
+    const tick = await edit('gear-2', 44, 'preview');
+    expect(tick.body.generated.detail).toBe('preview');
+    expect(tick.body.generated.variants.map((v: any) => v.source)).toEqual(['built']);
+    const settled = await edit('gear-2', 44, 'full');
+    expect(settled.body.generated.detail).toBe('full');
+    expect(errorsOf(harness.scenesSince(0).at(-1).result)).toEqual([]);
+    expect(settled.body.generated.variants.map((v: any) => v.source)).toEqual(['kept']);
+    expect(settled.body.generated.misses).toBe(0);
+  });
+});
+
 describe('an assembly preview of a library package\'s definition', () => {
   let scratch: string;
   let engine: InProcessEngine;
@@ -632,5 +721,22 @@ describe('an assembly preview of a library package\'s definition', () => {
     const report = (harness.server as any).sceneManager.getGeneratedReport((harness.server as any).previousScenes.get(harness.shop));
     expect(report.misses).toBe(0);
     expect(report.templates.map((t: any) => t.source)).toEqual(['kept', 'kept']);
+  });
+
+  it('revisits a package gear\'s teeth from the cache: the package\'s code version holds from render to render', async () => {
+    const definition = { file: `${packageDir}/parts/spur.part.js`, exportName: 'spurPart' };
+    const sources: string[] = [];
+    for (const teeth of [30, 40, 30]) {
+      const answer = await harness.preview({ token: 'lib-gear', mode: 'create', filePath: harness.shop, definition, values: { teeth } });
+      expect(answer.status).toBe(200);
+      expect(answer.body.state).toBe('rendered');
+      const scene = harness.scenesSince(0).at(-1);
+      expect(errorsOf(scene.result)).toEqual([]);
+      expect(harness.volumeOf(scene.result)).toBeCloseTo(spurVolume(teeth), 0);
+      const variants = answer.body.generated.variants;
+      expect(variants.map((v: any) => [v.definition, v.values.teeth])).toEqual([['@acme/generated:spur', teeth]]);
+      sources.push(variants[0].source);
+    }
+    expect(sources).toEqual(['built', 'built', 'cached']);
   });
 });

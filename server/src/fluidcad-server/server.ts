@@ -2845,8 +2845,9 @@ export class FluidCadServer {
    * that module rebuilds the statements of the features it defines on its
    * next render (see {@link FeatureRebuilds}), though their values are
    * unchanged, and the next ghost loads the saved code. So does generator
-   * code: a module that defines a generated assembly (`defineAssembly`), or
-   * a workspace module one imports — the definitions it reaches take a new
+   * code: a module that defines a generated assembly (`defineAssembly`) or a
+   * generated part (`definePart`, or its feature class's module), or a
+   * workspace module one imports — the definitions it reaches take a new
    * code version (see {@link generatedDefinitionsChangedBy}), and every
    * session whose last render read the file rebuilds their parts. Answers
    * whether it was feature or generator code. Any other file changes
@@ -2888,16 +2889,19 @@ export class FluidCadServer {
   }
 
   /**
-   * The generated definitions (`defineAssembly`) a change to `absPath`
-   * reaches: those defined in the file itself or in a workspace module that
-   * imports it, directly or through another, as the module graph knows
-   * them — the engine knows which module defined which. The engine gives
-   * each a new code version as it answers, so neither the next render's
-   * compare nor the generated-part cache serves what the old code built,
-   * whichever session renders it next. An installed package's code never
-   * changes in place (another version is another directory and stamp), so
-   * its modules are never walked. Empty for an engine that predates
-   * generated parts.
+   * The generated definitions a change to `absPath` reaches — generated
+   * assemblies (`defineAssembly`) and generated parts (`definePart`, whose
+   * id is its feature's): those defined in the file itself or in a
+   * workspace module that imports it, directly or through another, as the
+   * module graph knows them — the engine knows which module defined which
+   * (a generated part is noted under its `definePart()` module and its
+   * feature class's). The engine gives each a new code version as it
+   * answers, so neither the next render's compare nor the generated-part
+   * cache serves what the old code built — a generator's templates or a
+   * generated part's variants — whichever session renders it next. An
+   * installed package's code never changes in place (another version is
+   * another directory and stamp), so its modules are never walked. Empty
+   * for an engine that predates generated parts.
    */
   private generatedDefinitionsChangedBy(absPath: string): string[] {
     const manager = this.sceneManager;

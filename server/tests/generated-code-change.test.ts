@@ -66,6 +66,51 @@ function shopSource(width: number, trailer = ''): string {
   ].join('\n');
 }
 
+/** The disc's height, from a helper module the feature imports. */
+const heightSource = (height: number) => `export const HEIGHT = ${height};\n`;
+
+/** A feature — a disc `radius` round, HEIGHT tall — in a feature module that reads HEIGHT from a helper. */
+const DISC_FEATURE = [
+  `import { Feature, defineFeature } from 'fluidcad/sdk';`,
+  `import { Primitives } from 'fluidcad/sdk/kernel';`,
+  `import { Plane } from 'fluidcad/math';`,
+  `import { HEIGHT } from './lib/height.js';`,
+  ``,
+  `export class Disc extends Feature.with({ radius: { type: 'length', default: 10, min: 1 } }, { frames: { axis: {} } }) {`,
+  `  static id = 'acme.disc';`,
+  ``,
+  `  buildTool() {`,
+  `    this.setFrames({ axis: Plane.XY() });`,
+  `    return [Primitives.makeCylinder(this.values.radius, HEIGHT)];`,
+  `  }`,
+  `}`,
+  ``,
+  `export const disc = defineFeature(Disc, { label: 'Disc', group: 'create', operations: ['new', 'add'], call: [{ radius: 'radius' }] });`,
+  ``,
+].join('\n');
+
+/** The disc as a generated part (definePart). */
+const DISC_PART = [
+  `import { definePart } from 'fluidcad/sdk';`,
+  `import { Disc } from '../features/disc.feature.js';`,
+  ``,
+  `export const discPart = definePart(Disc, { label: 'Disc' });`,
+  ``,
+].join('\n');
+
+/** The second model: the disc part inserted `radius` round. */
+function gearsSource(radius: number, trailer = ''): string {
+  return [
+    `import { assembly, insert } from 'fluidcad/core';`,
+    `import { discPart } from './parts/disc.part.js';`,
+    ``,
+    `export const gears = assembly('gears', () => {`,
+    `  insert(discPart, { radius: ${radius} }).name('disc1');`,
+    `});`,
+    trailer,
+  ].join('\n');
+}
+
 let root: string;
 let host: LocalSceneHost;
 let server: FluidCadServer;
@@ -118,6 +163,10 @@ beforeEach(async () => {
   write('assemblies/crate.assembly.js', CRATE_ASSEMBLY);
   write('notes.js', `export const unrelated = 1;\n`);
   write('shop.assembly.js', shopSource(20));
+  write('features/lib/height.js', heightSource(5));
+  write('features/disc.feature.js', DISC_FEATURE);
+  write('parts/disc.part.js', DISC_PART);
+  write('gears.assembly.js', gearsSource(10));
   host = new LocalSceneHost();
   server = new FluidCadServer(host);
   await server.init(root);
@@ -180,5 +229,59 @@ describe('a generator\'s helper module saved with new code', () => {
     expect(errorsOf(relabelled.rendered)).toEqual([]);
     expect(boxFromCache(relabelled.rendered)).toBe(false);
     expect(volumeOf(relabelled.rendered)).toBeCloseTo(20 * 10 * 5, 3);
+  });
+});
+
+/** Render the disc model as its editor's live update does. */
+function renderGears(radius = 10, trailer = ''): Promise<SceneRenderedData | null> {
+  return server.updateLiveCode(at('gears.assembly.js'), gearsSource(radius, trailer));
+}
+
+/** Save a workspace file as the watcher sees it, then re-render the disc model when it is behind. */
+async function saveForGears(rel: string, content: string, radius = 10): Promise<{ noted: boolean; rendered: SceneRenderedData | null }> {
+  write(rel, content);
+  const noted = server.noteFileChange(at(rel));
+  return { noted, rendered: server.isRenderBehind(at(rel)) ? await renderGears(radius) : null };
+}
+
+const discVolume = (radius: number, height: number) => Math.PI * radius * radius * height;
+
+// A generated part's variants (definePart, F2) are kept by the same cache:
+// a save of the feature's module — here a helper it imports — gives the
+// definition a new code version, so neither the compare nor the cache serves
+// the old code's disc, whichever variant comes back.
+describe('a generated part\'s feature helper saved with new code', () => {
+  it('rebuilds the variant on the save\'s re-render, though its values are unchanged', async () => {
+    const first = await renderGears(10);
+    expect(errorsOf(first)).toEqual([]);
+    expect(volumeOf(first)).toBeCloseTo(discVolume(10, 5), 1);
+    expect(boxFromCache(await renderGears(10, '// again'))).toBe(true);
+
+    const { noted, rendered } = await saveForGears('features/lib/height.js', heightSource(7));
+    expect(noted).toBe(true);
+    expect(rendered).not.toBeNull();
+    expect(errorsOf(rendered)).toEqual([]);
+    expect(boxFromCache(rendered)).toBe(false);
+    expect(volumeOf(rendered)).toBeCloseTo(discVolume(10, 7), 1);
+    expect(boxFromCache(await renderGears(10, '// after'))).toBe(true);
+  });
+
+  it('revisits a variant from the cache, and never serves the cache\'s old variant after a save', async () => {
+    await renderGears(10);
+    expect(volumeOf(await renderGears(20))).toBeCloseTo(discVolume(20, 5), 1);
+    // Back to 10: the cache's, built.
+    const back = await renderGears(10);
+    expect(boxFromCache(back)).toBe(true);
+    expect(volumeOf(back)).toBeCloseTo(discVolume(10, 5), 1);
+    const report = (server as any).sceneManager.getGeneratedReport((server as any).previousScenes.get(at('gears.assembly.js')));
+    expect(report.variants.map((v: any) => [v.values.radius, v.source])).toEqual([[10, 'cached']]);
+
+    // The cache holds the 20-round disc, 5 tall; the save makes it the old code's.
+    const { rendered } = await saveForGears('features/lib/height.js', heightSource(9));
+    expect(volumeOf(rendered)).toBeCloseTo(discVolume(10, 9), 1);
+    const wide = await renderGears(20);
+    expect(errorsOf(wide)).toEqual([]);
+    expect(boxFromCache(wide)).toBe(false);
+    expect(volumeOf(wide)).toBeCloseTo(discVolume(20, 9), 1);
   });
 });

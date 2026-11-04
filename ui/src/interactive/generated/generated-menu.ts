@@ -4,7 +4,7 @@ import { CustomFeaturesMenu, type CustomFeatureCell } from '../create-feature/sc
 import { GeneratedDefinition } from './generated-definition';
 
 /**
- * The assembly bar's Custom dropdown: every generated part and assembly
+ * The assembly bar's Generate Parts dropdown: every generated part and assembly
  * (`definePart`, `defineAssembly`) the project can insert — its own, its
  * pinned packages', the library's offers (`GET /api/part-catalog/generated`)
  * — a cell apiece, grouped by package with the part bar's headings and pins
@@ -19,7 +19,7 @@ import { GeneratedDefinition } from './generated-definition';
  * cells whose entry didn't change; an older refresh's answer is dropped.
  */
 export class GeneratedDefinitionsMenu {
-  /** The navbar group the assembly bar's Custom button sits in. */
+  /** The navbar group the assembly bar's Generate Parts button sits in. */
   static readonly GROUP = 'assembly-custom';
 
   /** A cell was pressed: open its definition's dialog. */
@@ -40,7 +40,8 @@ export class GeneratedDefinitionsMenu {
     this.menu = new CustomFeaturesMenu(navbar, {
       group: GeneratedDefinitionsMenu.GROUP,
       mode: 'assembly',
-      tip: 'Custom parts and assemblies',
+      label: 'Generate Parts',
+      tip: 'Generate parts and assemblies from installed packages',
       tool: 'assembly-custom',
       role: 'assembly-custom-menu',
       pinnedPrefix: 'assembly-custom-package:',

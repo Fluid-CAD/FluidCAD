@@ -5,7 +5,7 @@ import { CustomFeaturesMenu } from '../src/interactive/create-feature/schema/cus
 import { GeneratedDefinitionsMenu } from '../src/interactive/generated/generated-menu';
 import { Navbar } from '../src/ui/navbar/navbar';
 
-// The assembly bar's Custom dropdown (generators S6): a group of its own in
+// The assembly bar's Generate Parts dropdown (generators S6): a group of its own in
 // assembly mode only — generated definitions never on the part bar, the
 // part bar's custom features never on the assembly bar — listing generated
 // parts and assemblies grouped by package with the part bar's headings and
@@ -62,7 +62,18 @@ function mount(entries: GeneratedCatalogEntry[] = []) {
 
 const hidden = (el: HTMLElement) => el.classList.contains('hidden');
 
-describe('the assembly bar\'s Custom dropdown', () => {
+describe('the assembly bar\'s Generate Parts dropdown', () => {
+  it('reads "Generate Parts" on the assembly bar while the part bar\'s button keeps "Custom"', async () => {
+    const { generated, wrap } = mount([entry('crate', 'crate', 'Crate')]);
+    await generated.refresh();
+    const button = wrap.querySelector('button')!;
+    expect(button.textContent!.trim()).toBe('Generate Parts');
+    expect(button.getAttribute('aria-label')).toBe('Generate parts and assemblies from installed packages');
+    expect(wrap.dataset.tip).toBe('Generate parts and assemblies from installed packages');
+    const partButton = document.querySelector<HTMLElement>('[data-tool="custom-features"] button')!;
+    expect(partButton.textContent!.trim()).toBe('Custom');
+  });
+
   it('shows in assembly mode only, beside the assembly tools, and never on the part bar', async () => {
     const { navbar, generated, host, partMenu } = mount([entry('crate', 'crate', 'Crate')]);
     await generated.refresh();

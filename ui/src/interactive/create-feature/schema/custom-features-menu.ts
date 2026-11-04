@@ -189,6 +189,8 @@ export type CustomFeaturesMenuOptions = {
   group?: string;
   /** The bench the button, the dropdown and the pinned groups show on (default `'part'`). */
   mode?: NavbarMode;
+  /** The button's label on the toolbar (default "Custom"). */
+  label?: string;
   /** The button's tooltip and aria label (default "Custom features"). */
   tip?: string;
   /** The button wrapper's `data-tool` (default `custom-features`). */
@@ -275,6 +277,7 @@ export class CustomFeaturesMenu implements SketchHideable {
     this.allPinnedText = options.allPinnedText
       ?? 'Every custom feature is pinned to the toolbar. Right-click a pinned group to unpin it.';
     const tip = options.tip ?? 'Custom features';
+    const label = options.label ?? 'Custom';
     const group = navbar.getGroup(this.groupKey)
       ?? navbar.addGroup(this.groupKey, { visible: false, mode: this.mode });
 
@@ -285,8 +288,9 @@ export class CustomFeaturesMenu implements SketchHideable {
     this.button.setAttribute('aria-expanded', 'false');
     this.button.innerHTML =
       `<img src="${iconUrl('custom-features')}" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
-      + `<span class="${TOOLBAR_BTN_LABEL} flex items-center gap-0.5">Custom`
+      + `<span class="${TOOLBAR_BTN_LABEL} flex items-center gap-0.5"><span data-role="menu-label"></span>`
       + `<span class="[&>svg]:size-2.5" aria-hidden="true">${ICON_CHEVRON_DOWN}</span></span>`;
+    this.button.querySelector<HTMLSpanElement>('[data-role="menu-label"]')!.textContent = label;
     this.button.addEventListener('click', () => this.toggle());
     this.wrap = document.createElement('span');
     this.wrap.className = 'tooltip tooltip-bottom shrink-0';

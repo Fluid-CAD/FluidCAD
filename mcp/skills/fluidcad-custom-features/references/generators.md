@@ -11,7 +11,7 @@ The values a feature declares are the interface of three hosts (`read_doc concep
 - **A generated assembly** (`defineAssembly(GeneratorClass, meta)` in an `*.assembly.js`, over a class that extends `Generator.with({ … })`): several parts that move against each other, sized from one set of values — a wardrobe's carcass, doors and drawers; a gear train.
 - **Neither**: a fixed set of parts with a few dimensions is an `assembly()` with `param()` values (the **fluidcad-assembly** skill).
 
-Both generated kinds are inserted with values by id (`insert(gearPart, { teeth: 18 })`, `insert(wardrobe, { drawers: 3 })`) and appear in the assembly toolbar's **Custom** dropdown with the feature-style dialog. They take **values only**: no picks.
+Both generated kinds are inserted with values by id (`insert(gearPart, { teeth: 18 })`, `insert(wardrobe, { drawers: 3 })`) and appear in the assembly toolbar's **Generate Parts** dropdown with the feature-style dialog. They take **values only**: no picks.
 
 ## Design first, in CAD terms
 

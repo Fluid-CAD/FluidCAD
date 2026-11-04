@@ -17,7 +17,7 @@ Both generated kinds are inserted with values by id (`insert(gearPart, { teeth: 
 
 Write it down and show it, as for a feature:
 
-- **The parts and what moves.** For a generator: each part type (carcass, door, drawer), which is grounded, each joint (revolute about a hinge axis, slider along a runner), its limits and the name the Joints panel will show ("Left door"). For a definePart: the frames the feature publishes and what a mate does with each (`axis`: origin on the axis, Z up it, X the phase reference).
+- **The parts and what moves.** For a generator: each part type (carcass, door, drawer), which is grounded, each joint (revolute about a hinge axis, slider along a runner), its limits and the name the Joints panel will show ("Left door"). For a definePart: the frames the feature publishes and what a mate does with each (`axis`: origin on the axis, Z out of the gear, X the phase reference).
 - **Frames as the user will mate them.** Origin, Z, X for every connector, in the part's own coordinates. A frame should not move when a value only moves geometry along or about it (a gear's phase turns the teeth, never the `axis` frame).
 - **Which parts are equal.** Equal inputs and connectors make one template built once (equal drawers); a mirror image needs other inputs (left and right doors).
 - **What `'preview'` leaves out**: drilling, small hardware, fillets — what is slow and not needed to judge the size.
@@ -28,6 +28,7 @@ Write it down and show it, as for a feature:
 ### definePart
 
 - The class is a **tool** (`buildTool()`), declared with `Feature.with()`. A modifier, a remove-only feature, and a feature with a **required** pick are refused where the module loads. Make every pick `optional: true`; the part leaves it out, so `buildTool()` must build at the origin when the pick is `undefined` (`let base = Plane.XY(); if (face !== undefined) { … }`).
+- **Point frames out of the material.** A frame on the face a part stands on takes Z out of the part, as a face connector does, so a plain `mate()` on the other part's face connector seats it (mates are face to face: origins meet, Z against Z, X together). A frame pointing the way the part grows needs `.flip()` on every mate, and without it the part builds into the other one.
 - **Frames become connectors.** Declare them on the class, `Feature.with(params, { frames: { axis: { label: 'Gear axis' } } })`, and set every one in every build with `this.setFrames({ axis: plane })` — a `Plane` (origin, X direction, normal) where the feature stands. Never in `defineFeature()`'s metadata (refused).
 - Export it from the top level of a `*.part.js` (a package's `parts/`); its name (`meta.name ?? meta.label`) is unique in the file. The part rules apply as for `part()`.
 - `meta`: `label` (required), `description`, `icon`, `layout`, `width`, `aside`, `name`. Leave `layout`, `width` and `aside` out to borrow the feature dialog's (less its picks). Image paths are relative to the `*.part.js` and may climb into the package (`'../features/icons/gear.png'`).

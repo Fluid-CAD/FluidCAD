@@ -183,8 +183,11 @@ the label "Teeth"), checked and defaulted as the feature's call checks them
 - **Equal values share one template.** Two inserts whose values, defaults
   filled, are equal share one part per scene: `insert(gearPart)` and
   `insert(gearPart, { teeth: 24 })` (24 the default) build once. Across
-  renders an unchanged insert keeps its built part; a changed value rebuilds
-  it (a generator's templates are kept longer: [[api/generator]]).
+  renders an unchanged insert keeps its built part, and the variant a changed
+  value leaves is kept as a generator's templates are ([[api/generator]]):
+  dragging the value back, an undo or a cancelled preview builds nothing.
+  Saving the feature's module, the part's module or a module either imports
+  rebuilds it.
 - **A bad id, a refused value or a configuration name is a build error on the
   insert's row**, and the insert is an empty part; the rest of the assembly
   renders:

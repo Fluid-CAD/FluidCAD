@@ -379,7 +379,22 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'sub-assembly frames, the pose interfere, measure and resolve_selection use by default. It is NOT the mate-solved pose the ' +
         'viewport draws: mates are solved only in the viewer, and no tool reports that pose. Each `pose` is already an interfere ' +
         '`poses` entry ({ instanceId, position, quaternion }). `occurrences` lists inserted sub-assemblies (`occurrenceId`, `name`, ' +
-        '`assemblyName`, `parentPath`). A part file has none of these keys.',
+        '`assemblyName`, `parentPath`; a generated assembly\'s adds `generated: { definition, values }`). ' +
+        '`mates` lists every mate, sub-assemblies\' and generators\' included, in statement order: `mateId`, `name` (when authored), ' +
+        '`type`, and the two sides `a` (the driver) and `b`, each `{ kind: "connector", instanceId, instance, connector, connectorId }` ' +
+        '(a part connector: `instance` is the instance\'s name, `connector` what code writes after `.connectors.` — a copy reads ' +
+        '`bolt.instance(2)` —, `connectorId` its `objects[]` row), `{ kind: "assembly-connector", connector, connectorId }` (a ' +
+        'top-level `connector(\'name\', [x, y, z])`) or, on a tangent mate, `{ kind: "exposure", instanceId, instance, exposure }`; ' +
+        '`options` with only what differs from the default — `flip`, `rotate` (degrees), `offset` (in `unit`), `limits` [min, max] ' +
+        '(degrees on a revolute, `unit` on a slider), `propagate: false` (`.noPropagate()`); `owner` ("" at the root, else the ' +
+        'occurrence path) and `ownerName`; `engineOwned: true` on a joint a generator made (read-only: change it through the values ' +
+        'of its insert, whose line is its `sourceLocation`); `sourceLocation`; `replica` on a replicate() copy. `relations` (only ' +
+        'when there are any) lists `relationId`, `name`, `type` (gear | rack-and-pinion), `ratio` (gear: turns of mateB per turn of ' +
+        'mateA; rack-and-pinion: mateB\'s travel per turn of mateA, in `unit`), `reverse`, `mateA` / `mateB` ({ mateId, name }) and ' +
+        'the same `owner`, `ownerName`, `engineOwned`, `sourceLocation`. `joints` says what those are: { source: "statement", ' +
+        'solvedIn: "viewer" } — the authored records. The solver runs only in the viewer and the server never receives its ' +
+        'result, so no solve status, misclosure or current joint value is reported: check that a joint closes and moves with a ' +
+        'screenshot. An instance a generator made carries `engineOwned: true`. A part file has none of these keys.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await getSceneSummary({ workspace })),

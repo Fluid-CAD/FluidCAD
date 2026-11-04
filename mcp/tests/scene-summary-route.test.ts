@@ -23,6 +23,10 @@ import part from '../../lib/core/part.js';
 import connector from '../../lib/core/connector.js';
 import insert from '../../lib/core/insert.js';
 import mate from '../../lib/core/mate.js';
+import relation from '../../lib/core/relation.js';
+import { defineAssembly } from '../../lib/sdk/index.js';
+import type { GeneratedAssemblyDefinition } from '../../lib/sdk/define-assembly.js';
+import { CABINET_DEFAULTS, defineCabinet } from '../../lib/tests/fixtures/custom-features/cabinet.js';
 import { testRect } from '../../lib/tests/helpers/profiles.js';
 import { face } from '../../lib/filters/index.js';
 import { FluidCadServer } from '../../server/src/fluidcad-server/index.ts';
@@ -60,6 +64,39 @@ function renderRig() {
   const seated = insert(block).translate(10, 10, 30).name('Seated');
   insert(block).rotate('z', 30).translate(50, 20, 8).name('Posed');
   mate('fastened', base.connectors.top, seated.connectors.bottom);
+  render();
+  expect(scene.getRenderedObjects().filter((r) => r.hasError).map((r) => r.errorMessage)).toEqual([]);
+  return scene;
+}
+
+/**
+ * A grounded plate; two wheels on revolutes, one limited to [0, 270]°,
+ * coupled by a reversed 2:1 gear relation; and a cabinet a generator makes
+ * (doors on revolutes coupled by a gear, two drawers on sliders).
+ */
+function renderJointRig() {
+  getSceneManager().startScene();
+  const plate = part('plate', () => {
+    sketch('xy', () => { testRect(80, 60); });
+    extrude(8);
+    connector('axleA', select(face().planar().onPlane('xy', 8)));
+    connector('axleB', select(face().planar().onPlane('xy', 8))).offset(30, 0, 0);
+  });
+  const wheel = part('wheel', () => {
+    sketch('xy', () => { testRect(20, 20); });
+    extrude(4);
+    connector('bore', select(face().planar().onPlane('xy', 0)));
+  });
+  const { Cabinet } = defineCabinet();
+  const cabinet = defineAssembly(Cabinet, { label: 'Cabinet' }) as GeneratedAssemblyDefinition<any>;
+  const scene = getSceneManager().startAssemblyScene();
+  const base = insert(plate).grounded().name('Plate');
+  const small = insert(wheel).translate(0, 0, 8).name('Small');
+  const big = insert(wheel).translate(30, 0, 8).name('Big');
+  const drive = mate('revolute', base.connectors.axleA, small.connectors.bore).limits(0, 270).name('Drive');
+  const driven = mate('revolute', base.connectors.axleB, big.connectors.bore);
+  relation('gear', drive, driven, 0.5).reverse();
+  insert(cabinet).translate(200, 0, 0).grounded().name('Unit');
   render();
   expect(scene.getRenderedObjects().filter((r) => r.hasError).map((r) => r.errorMessage)).toEqual([]);
   return scene;
@@ -177,6 +214,49 @@ describe('get_scene_summary instances through the real routes', () => {
     }
   });
 
+  it('over MCP: the summary lists the mates and relations, a generator\'s engine-owned in its occurrence', async () => {
+    await startEngine('/ws/drive.assembly.js', renderJointRig());
+    const server = buildServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const listed = await client.callTool({ name: 'get_scene_summary', arguments: { workspace: WORKSPACE } });
+      expect(listed.isError).not.toBe(true);
+      const summary = JSON.parse((listed.content as any[])[0].text) as SceneSummary;
+
+      expect(summary.joints).toEqual({ source: 'statement', solvedIn: 'viewer' });
+      expect(summary.mates!.map((m) => [m.mateId, m.type, m.name ?? null, m.ownerName ?? null, m.engineOwned ?? false, m.options ?? null])).toEqual([
+        ['mate-0', 'revolute', 'Drive', null, false, { limits: [0, 270] }],
+        ['mate-1', 'revolute', null, null, false, null],
+        ['asm-0/mate-0', 'revolute', 'Left door', 'Unit', true, { limits: [0, CABINET_DEFAULTS.hingeAngle] }],
+        ['asm-0/mate-1', 'revolute', 'Right door', 'Unit', true, { limits: [-CABINET_DEFAULTS.hingeAngle, 0] }],
+        ['asm-0/mate-2', 'slider', 'Drawer 1', 'Unit', true, { limits: [0, 448] }],
+        ['asm-0/mate-3', 'slider', 'Drawer 2', 'Unit', true, { limits: [0, 448] }],
+      ]);
+      const [drive] = summary.mates!;
+      expect(drive.a).toMatchObject({ kind: 'connector', instanceId: 'inst-0', instance: 'Plate', connector: 'axleA' });
+      expect(drive.b).toMatchObject({ kind: 'connector', instanceId: 'inst-1', instance: 'Small', connector: 'bore' });
+      expect(summary.mates!.every((m) => !('status' in m))).toBe(true);
+      expect(summary.relations!.map((r) => [r.relationId, r.type, r.ratio, r.reverse, r.mateA, r.mateB, r.engineOwned ?? false])).toEqual([
+        ['rel-0', 'gear', 0.5, true, { mateId: 'mate-0', name: 'Drive' }, { mateId: 'mate-1' }, false],
+        ['asm-0/rel-0', 'gear', 1, true, { mateId: 'asm-0/mate-0', name: 'Left door' }, { mateId: 'asm-0/mate-1', name: 'Right door' }, true],
+      ]);
+
+      // The sides' instance ids are the ones the inspection tools take.
+      const doorSide = summary.mates![2].b;
+      expect(doorSide.kind).toBe('connector');
+      const checked = await client.callTool({
+        name: 'validate',
+        arguments: { workspace: WORKSPACE, instanceId: (doorSide as { instanceId: string }).instanceId },
+      });
+      expect(checked.isError).not.toBe(true);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it('a part file\'s summary has no instance keys', async () => {
     part('block', () => {
       sketch('xy', () => { testRect(20, 20); });
@@ -188,5 +268,8 @@ describe('get_scene_summary instances through the real routes', () => {
     expect(Object.keys(summary)).not.toContain('instances');
     expect(Object.keys(summary)).not.toContain('instancePoses');
     expect(Object.keys(summary)).not.toContain('occurrences');
+    expect(Object.keys(summary)).not.toContain('joints');
+    expect(Object.keys(summary)).not.toContain('mates');
+    expect(Object.keys(summary)).not.toContain('relations');
   });
 });

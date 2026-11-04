@@ -388,7 +388,7 @@ gears/
   (`@fluidcad/cabinets:wardrobe-unit`); a model never writes that key, it
   imports the definition by name: `import { wardrobeAssembly } from
   '@fluidcad/cabinets'`.
-- **In a consumer's project** the assembly toolbar's **Custom** dropdown
+- **In a consumer's project** the assembly toolbar's **Generate Parts** dropdown
   lists them under the package's name; inserting one from a library package
   pins it, as using a feature does. The Insert dialog shows them as tiles
   that open the same dialog.
@@ -469,7 +469,7 @@ npx fluidcad remove @acme/mounting-hardware [--project]  # @scope/name@version w
 - One entry per package the project uses: the exact version (never a range)
   and `integrity`, a sha256 tree hash of the installed folder. No lock file.
 - **Written for you** the first time a feature or part from a library
-  package is used (Custom dropdown, Insert), and by `fluidcad install` in a
+  package is used (the Custom or Generate Parts dropdown, Insert), and by `fluidcad install` in a
   project. Using a library
   package copies no files into the project.
 - Re-read before every render, like the rest of `fluidcad.json`: editing it

@@ -1,7 +1,7 @@
 ---
 id: concepts/assemblies
 title: "Parts and assemblies — files, inserting, grounding, mating"
-summary: "A .part.js file exports a part() with param() values, connector() mate frames and expose()d geometry; a .assembly.js file exports an assembly() whose body insert()s parts, .grounded()s one and mate()s the rest. Mates are solved live in the viewport. Units are the project's; parts are scaled in; overrides are in the part's unit. Generated definitions (definePart: a custom feature as a part; defineAssembly: a sub-assembly whose parts and joints a generator makes) are inserted with their values by id, from the assembly toolbar's Custom dropdown with a live preview of the real result; the parts, mates and relations a generator makes are engine-owned, read-only rows of its occurrence."
+summary: "A .part.js file exports a part() with param() values, connector() mate frames and expose()d geometry; a .assembly.js file exports an assembly() whose body insert()s parts, .grounded()s one and mate()s the rest. Mates are solved live in the viewport. Units are the project's; parts are scaled in; overrides are in the part's unit. Generated definitions (definePart: a custom feature as a part; defineAssembly: a sub-assembly whose parts and joints a generator makes) are inserted with their values by id, from the assembly toolbar's Generate Parts dropdown with a live preview of the real result; the parts, mates and relations a generator makes are engine-owned, read-only rows of its occurrence."
 tags: [concept, assembly, part, generated]
 seeAlso: [api/part, api/param, api/connector, api/copy, api/expose, api/assembly, api/insert, api/mate, api/replicate, api/define-part, api/define-assembly, api/generator, concepts/units, concepts/global-parameters, concepts/configurations, concepts/custom-features, concepts/packages]
 ---
@@ -43,7 +43,7 @@ to a part file. A new assembly file is scaffolded as one exported
 | `connector('name', geometry)` | — | `instance.connectors.name` for `mate()` |
 | `copy(…, name)` of that connector | — | `instance.connectors.name.instance(k)`, one per copy |
 | `expose('name', sceneObject)` | — | `def.features.name` (another part), `instance.features.name` (tangent mate) |
-| a generated definition's values | `insert(def, { id: value })` | its dialog (Custom dropdown, Insert, Edit parameters) |
+| a generated definition's values | `insert(def, { id: value })` | its dialog (Generate Parts dropdown, Insert, Edit parameters) |
 
 A dimension that must agree across parts (a wall thickness both halves of a
 housing share, a bolt size) is not a part parameter overridden in every
@@ -145,7 +145,7 @@ mate("fastened", unit.parts.carcass.connectors.top, box.connectors.base);
 - Equal values share builds: two inserts of one definition with equal values
   build each part once.
 
-**In the editor.** The assembly toolbar's **Custom** dropdown lists every
+**In the editor.** The assembly toolbar's **Generate Parts** dropdown lists every
 generated part and assembly of the project and its packages, grouped by
 package; the Insert dialog shows them as tiles too. Either opens the
 definition's dialog — the feature dialog's rows, sections and pictures,

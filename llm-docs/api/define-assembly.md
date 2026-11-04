@@ -160,7 +160,7 @@ that makes it.`" Change them through the occurrence's values.
 
 ## In the editor
 
-The assembly toolbar's **Custom** dropdown lists every generated part and
+The assembly toolbar's **Generate Parts** dropdown lists every generated part and
 assembly, grouped by package; a generated assembly's tile in the Insert
 dialog does the same. Either opens the dialog built from the schema: the
 viewport shows the real result in its own appearance as values change (a

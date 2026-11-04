@@ -14,7 +14,7 @@ definePart(FeatureClass, meta: DefinePartMeta): GeneratedPartDefinition   // flu
 
 type DefinePartMeta = Omit<GeneratedMeta, 'layout'> & { layout?: FeatureLayout<TypedInParams<P>> };
 type GeneratedMeta = {          // definePart's and defineAssembly's metadata
-  label: string;                // the Custom dropdown's and the Insert dialog's name; the part's name unless `name`
+  label: string;                // the Generate Parts dropdown's and the Insert dialog's name; the part's name unless `name`
   description?: string;         // a sentence under the label
   icon?: string;                // relative to this module; may climb into the package: '../features/icons/gear.png'
   layout?: FeatureLayout;       // the dialog's rows over the values (api/feature-layout)
@@ -156,7 +156,7 @@ package's name: `import { gearPart } from '@fluidcad/gears'`
 
 | Field | Rule |
 |---|---|
-| `label` | required: the Custom dropdown's and the Insert dialog's name, and the part's name unless `name` is given |
+| `label` | required: the Generate Parts dropdown's and the Insert dialog's name, and the part's name unless `name` is given |
 | `description` | a sentence under the label; pack warns when it is missing (`undocumented-fields`) |
 | `icon` | an image by a path relative to the defining module; it may climb out of the module's folder, never out of the package: `'../features/icons/gear.png'` |
 | `layout` | the dialog's rows over the part's values ([[api/feature-layout]]), its images relative to this module. Left out: the feature dialog's rows, less every picked value's row and any section or tab left holding no value; with no feature dialog, derived from the values' `group` and `tab` |
@@ -219,7 +219,7 @@ instance's.
 
 ## In the editor
 
-The assembly toolbar's **Custom** dropdown lists the definition under its
+The assembly toolbar's **Generate Parts** dropdown lists the definition under its
 package (or the project), with its `icon` and `label`. Its cell, and its tile
 in the Insert dialog, open the feature's dialog with no picks, drawing the
 part as it will be while values change; **Apply** writes the import and

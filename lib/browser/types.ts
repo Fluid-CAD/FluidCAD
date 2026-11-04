@@ -1,7 +1,22 @@
-import type { ConfigurationsSummary, ParamDefinition } from "../param-registry.js";
+import type { ConfigurationsSummary, ParamDefinition, ParamVal } from "../param-registry.js";
 import type { SourceLocation } from "../common/scene-object.js";
 import type { createManager } from "../scene-manager.js";
+import type { GeneratedKind } from "../sdk/generated-schema.js";
+import type { RenderDetail } from "../rendering/scene.js";
 import type { LengthUnit } from "../units/units.js";
+
+/** What one render pass of `BrowserEngineHost.render()` is told. */
+export interface BrowserRenderOptions {
+  /** The tier the pass builds generated parts at (`SceneOptions.detail`); `'full'` when left out. */
+  detail?: RenderDetail;
+  /**
+   * Values to set before the pass, by the export name of a generated
+   * definition (`definePart` / `defineAssembly`), each set replacing that
+   * export's earlier values and kept for later passes — a load's values,
+   * rendered in the load's own pass. See `BrowserEngineHost.setGeneratedValues`.
+   */
+  generated?: Record<string, Record<string, unknown>>;
+}
 
 /** What kind of model file an entry is — mirrors the server's FluidScriptKind. */
 export type BrowserSceneKind = "part" | "assembly";
@@ -13,9 +28,33 @@ export type BrowserSerializedAssembly = NonNullable<ReturnType<ReturnType<typeof
  * The engine worker's message protocol (FluidCAD-Viewer's `engine-worker.js`),
  * reported in `EngineInfo` so an evergreen shell knows what a pinned engine
  * understands. Additive: 2 added `select-configuration` and `load-model`'s
- * `configuration` (the `configurations()` row to open on).
+ * `configuration` (the `configurations()` row to open on); 3 added generated
+ * definitions with values — `set-generated-values { exportName, values,
+ * detail }`, `load-model`'s `generated` (values by export name) and
+ * `detail`, `reset-params` forgetting the generated values too, and the
+ * outcome's `generated` ({@link GeneratedOutcome}, what each generated
+ * export of the entry was rendered with).
  */
-export const VIEWER_PROTOCOL_VERSION = 2;
+export const VIEWER_PROTOCOL_VERSION = 3;
+
+/**
+ * One generated export of the entry (`definePart` / `defineAssembly`) as a
+ * render built it: `exportName` the module's export, `id` the definition's
+ * (its feature's or generator's catalog key), `kind` what it inserts,
+ * `label` its schema's, and `values` what the render used — the values a
+ * host set for the export, completed by the schema (defaults filled, in
+ * declaration order), or the defaults for an export without values. When
+ * the schema refuses the values (an unknown id, a value out of range) they
+ * are reported as given, uncompleted: the refusal is the export's
+ * `objectErrors` row, as it is for an `insert()`.
+ */
+export interface GeneratedOutcome {
+  exportName: string;
+  id: string;
+  kind: GeneratedKind;
+  label: string;
+  values: Record<string, ParamVal>;
+}
 
 export interface EngineInfo {
   protocolVersion: number;
@@ -61,6 +100,12 @@ export interface BrowserRenderResult {
    * on a compile error.
    */
   configurations?: ConfigurationsSummary;
+  /**
+   * Every generated export of the entry, in export order, with the values
+   * it was rendered with (see {@link GeneratedOutcome}); empty when the entry
+   * has none. Omitted with `params` on a compile error.
+   */
+  generated?: GeneratedOutcome[];
   objectErrors: BrowserObjectBuildError[];
   /**
    * Non-fatal notices per row (`Unknown material: <id>` on a part row),

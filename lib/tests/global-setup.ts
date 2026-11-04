@@ -24,6 +24,7 @@ const KEEPS_SCENES_ACROSS_TESTS = new Set([
   "browser-host.test.ts",
   "browser-host-materials.test.ts",
   "browser-host-unit.test.ts",
+  "browser-host-generated.test.ts",
 ]);
 
 let startedInTest: Scene[] | null = null;

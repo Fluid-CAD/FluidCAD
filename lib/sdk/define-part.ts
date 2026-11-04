@@ -214,21 +214,26 @@ export class GeneratedPartDefinition extends PartDefinition<void> {
 
   /**
    * The entry-file path (the defining file rendered on its own): the
-   * default variant — every value at its default. A feature whose value
-   * has no default gives one empty part saying so, at `definePart()`.
+   * variant of `values` — what a host set for the export, by id
+   * (`BrowserEngineHost.setGeneratedValues`) — else the default variant,
+   * every value at its default. A value the part refuses, or one with no
+   * default, gives one empty part saying so, at `definePart()`, registered
+   * as the definition's variant in `scene` so the leftover pass
+   * (`Scene.materializeLeftoverDefinitions`) builds no defaults beside it —
+   * unlike {@link materializeVariant}'s refusal, which is the insert's row.
    */
-  override materializeInto(scene: Scene): Part {
-    let values: Map<string, ParamVal>;
+  override materializeInto(scene: Scene, values: Readonly<Record<string, unknown>> = {}): Part {
+    let completed: Map<string, ParamVal>;
     try {
-      values = this.variantValues({});
+      completed = this.variantValues(values);
     } catch (error) {
-      return this.refusedVariant(scene, (error as Error).message, this.getSourceLocation(), GeneratedPartDefinition.DEFAULTS_REFUSED);
+      return this.refusedVariant(scene, (error as Error).message, this.getSourceLocation(), GeneratedPartDefinition.ENTRY_REFUSED);
     }
-    return this.buildVariant(scene, values, false);
+    return this.buildVariant(scene, completed, false);
   }
 
-  /** The cache key of a default variant refused for a value with no default: one per scene, however often it is asked for. */
-  private static readonly DEFAULTS_REFUSED = '\u0000generated:defaults-refused';
+  /** The cache key of the entry path's refused variant (a value with no default, a host's value refused): one per scene, however often it is asked for. */
+  private static readonly ENTRY_REFUSED = '\u0000generated:entry-refused';
 
   /**
    * The body: the feature, constructed from the variant's values and built
@@ -279,25 +284,32 @@ export class GeneratedPartDefinition extends PartDefinition<void> {
   }
 
   /**
-   * The values an insert passed, by id, checked and completed — every
+   * The values an insert passes, by id, checked and completed — every
    * typed-in value present, defaults filled — in declaration order: the
-   * variant's identity. Refuses a name the part doesn't take (a picked
-   * value of the feature named as such) and a value its declaration refuses.
+   * variant's identity, what `part.paramValues` carries and what a host
+   * reports it rendered. Throws the insert path's refusal for a name the
+   * part doesn't take (a picked value of the feature named as such) and a
+   * value its declaration refuses; a value with no default is left out.
    */
-  private variantValues(read: Readonly<Record<string, unknown>>): Map<string, ParamVal> {
+  completedValues(read: Readonly<Record<string, unknown>>): Record<string, ParamVal> {
     const subject = this.subject();
     this.values.refuseUnknown(subject, read, name => (this.featureSchema.has(name)
       ? 'is a picked value of the feature — a generated part takes its typed-in values only, and leaves the picked ones out'
       : null));
     const completed = this.values.complete(subject, read);
-    const values = new Map<string, ParamVal>();
+    const values: Record<string, ParamVal> = {};
     for (const name of this.values.names()) {
       const value = completed[name];
       if (value !== undefined && value !== null) {
-        values.set(name, value as ParamVal);
+        values[name] = value as ParamVal;
       }
     }
     return values;
+  }
+
+  /** {@link completedValues} as the variant's key: a map in declaration order. */
+  private variantValues(read: Readonly<Record<string, unknown>>): Map<string, ParamVal> {
+    return new Map(Object.entries(this.completedValues(read)));
   }
 
   /** Add one statement of the body to the scene, located at `definePart()` and in the active unit (the definition's). */

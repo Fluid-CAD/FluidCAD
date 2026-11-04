@@ -8,7 +8,10 @@ import { BreakpointHit } from "../common/breakpoint-hit.js";
 import { ModuleExports } from "../common/module-exports.js";
 import { warnConfigurationRun } from "../features/param-overrides.js";
 import { PartDefinition } from "../features/part-definition.js";
-import { Scene } from "../rendering/scene.js";
+import { GeneratedPartDefinition } from "../sdk/define-part.js";
+import { GeneratedAssemblyDefinition } from "../sdk/define-assembly.js";
+import { Scene, type RenderDetail } from "../rendering/scene.js";
+import type { ParamOverrides, ParamVal } from "../param-registry.js";
 import type { ExportOptions } from "../io/file-export.js";
 import type { MeasureEntityRef } from "../oc/measure/measure-types.js";
 import { installEngineNamespaces } from "./linking.js";
@@ -20,7 +23,9 @@ import {
   type BrowserObjectBuildError,
   type BrowserRenderResult,
   type BrowserSceneKind,
+  type BrowserRenderOptions,
   type EngineInfo,
+  type GeneratedOutcome,
 } from "./types.js";
 
 type SceneManagerInstance = ReturnType<typeof createManager>;
@@ -158,6 +163,12 @@ export class BrowserEngineHost {
   private overrides = new SessionParamOverrides();
   /** The configuration the next pass renders; null is the literals (`Default`). */
   private activeConfiguration: string | null = null;
+  /**
+   * The values the next pass renders each generated export with, by export
+   * name (see {@link setGeneratedValues}); an export not here renders its
+   * defaults.
+   */
+  private generatedValues = new Map<string, Record<string, unknown>>();
   private lastBreakpointHit = false;
   private lastRollbackStop = -1;
   private entryPath = "/model.fluid.js";
@@ -284,17 +295,34 @@ export class BrowserEngineHost {
    * incremental reuse, mesh, and collect per-object build errors. On an eval
    * error the previous scene keeps being served, exactly like the desktop's
    * compile-error path.
+   *
+   * `options.detail` is the tier the pass builds generated parts at
+   * (`SceneOptions.detail`): `'preview'` while a host's user is still
+   * changing a value, `'full'` (the default) otherwise. The tiers cache
+   * apart, so a `'full'` pass after a `'preview'` one of the same values
+   * builds once more; a second `'full'` pass is served from the template
+   * cache. A generated export (`definePart` / `defineAssembly`) with values
+   * set for it — through {@link setGeneratedValues}, or `options.generated`
+   * (by export name, set before this pass and kept: a load's values,
+   * rendered in the load's own pass) — renders their variant, else its
+   * defaults; the outcome's `generated` reports both. A misuse of
+   * `options.generated` (an empty name, values that are no object) throws
+   * before anything renders.
    */
-  async render(): Promise<BrowserRenderResult> {
+  async render(options: BrowserRenderOptions = {}): Promise<BrowserRenderResult> {
     if (!this.manager) {
       throw new Error("BrowserEngineHost.init() must be called before render()");
     }
     if (!this.evaluator) {
       throw new Error("No model loaded — call setModuleEvaluator() first");
     }
+    for (const [exportName, values] of Object.entries(options.generated ?? {})) {
+      this.storeGeneratedValues(exportName, values);
+    }
 
     const sceneKind = detectSceneKind(this.entryPath);
-    let scene: Scene = sceneKind === "assembly" ? this.manager.startAssemblyScene() : this.manager.startScene();
+    const sceneOptions = options.detail === undefined ? {} : { detail: options.detail };
+    let scene: Scene = sceneKind === "assembly" ? this.manager.startAssemblyScene(sceneOptions) : this.manager.startScene(sceneOptions);
     this.manager.setCurrentFile(this.entryPath);
 
     const registry = createParamRegistry();
@@ -305,6 +333,7 @@ export class BrowserEngineHost {
     registry.setActiveConfiguration(this.activeConfiguration);
 
     let breakpointHit = false;
+    let generated: GeneratedOutcome[] = [];
     try {
       const mod = await this.evaluator();
       // Every export resolved first (a factory called for the definition it
@@ -317,19 +346,31 @@ export class BrowserEngineHost {
         exports.push([name, await ModuleExports.resolve(value)]);
       }
       scene.refuseUnexportedParts(exports, this.entryPath);
-      for (const [, result] of exports) {
-        if (result instanceof PartDefinition) {
+      for (const [name, result] of exports) {
+        const values = this.generatedValues.get(name);
+        // A generated part with values set for its export renders that
+        // variant through the entry path — built or refused, it is the
+        // definition's variant in this scene, so the leftover pass below
+        // never builds the defaults beside it; without values, the
+        // defaults, as any part definition.
+        if (result instanceof GeneratedPartDefinition && values !== undefined) {
+          result.materializeInto(scene, values);
+        } else if (result instanceof PartDefinition) {
           result.materializeInto(scene);
         }
         // assembly() definitions are lazy — an exported definition (or a
         // factory returning one) creates no scene records until run. The
         // entry file's own definition runs at root scope, exactly as the
         // desktop's LocalSceneHost does, so `.grounded()` applies natively
-        // and a sub-assembly file renders standalone.
-        if (isAssemblyDefinition(result)) {
+        // and a sub-assembly file renders standalone. A generated assembly
+        // with values set for its export runs its layout with them.
+        if (result instanceof GeneratedAssemblyDefinition && values !== undefined) {
+          result.runScoped(values as ParamOverrides);
+        } else if (isAssemblyDefinition(result)) {
           result.run();
         }
       }
+      generated = this.generatedOutcomes(exports);
       // part() is lazy — every definition the entry file created shows in a
       // part scene (a refused one as its error row); assembly scenes build
       // strictly via insert().
@@ -397,11 +438,38 @@ export class BrowserEngineHost {
       breakpointHit,
       params,
       configurations,
+      generated,
       objectErrors: BrowserEngineHost.collectObjectErrors(result),
       objectWarnings: this.collectObjectWarnings(result),
       compileError: null,
       ...(assembly ? { assembly } : {}),
     };
+  }
+
+  /**
+   * What the pass rendered each generated export with (see
+   * {@link GeneratedOutcome}), in export order: the values set for the
+   * export, else none, completed by the definition's schema. Values the
+   * schema refuses are reported as given — the refusal is already the
+   * export's `objectErrors` row.
+   */
+  private generatedOutcomes(exports: readonly (readonly [string, unknown])[]): GeneratedOutcome[] {
+    const outcomes: GeneratedOutcome[] = [];
+    for (const [exportName, result] of exports) {
+      if (!(result instanceof GeneratedPartDefinition) && !(result instanceof GeneratedAssemblyDefinition)) {
+        continue;
+      }
+      const read = this.generatedValues.get(exportName) ?? {};
+      let values: Record<string, ParamVal>;
+      try {
+        values = result.completedValues(read);
+      } catch {
+        values = { ...read } as Record<string, ParamVal>;
+      }
+      const schema = result.getSchema();
+      outcomes.push({ exportName, id: schema.id, kind: schema.kind, label: schema.label, values });
+    }
+    return outcomes;
   }
 
   /**
@@ -420,6 +488,7 @@ export class BrowserEngineHost {
     this.manager?.clearGeneratedTemplates();
     this.overrides = new SessionParamOverrides();
     this.activeConfiguration = null;
+    this.clearGeneratedValues();
     this.lastBreakpointHit = false;
     this.lastRollbackStop = -1;
     this.evaluator = null;
@@ -441,9 +510,50 @@ export class BrowserEngineHost {
     return this.render();
   }
 
+  /** Value-flow only: forget the session's param overrides and every generated export's values, and re-render the defaults. */
   async resetParams(): Promise<BrowserRenderResult> {
     this.overrides.clear();
+    this.clearGeneratedValues();
     return this.render();
+  }
+
+  /**
+   * Value-flow only: render the generated export `exportName` (a
+   * `definePart` / `defineAssembly` export of the entry) with `values` by id
+   * — the whole set for that export, replacing any set before; a value left
+   * out takes its default — and re-render at `options.detail` (`'full'`
+   * when left out; see {@link render}). The values are checked by the
+   * definition's schema as an `insert()`'s are: a refused one is the
+   * export's `objectErrors` row, and the outcome's `generated` reports what
+   * was rendered. Values set for a name the entry does not export as a
+   * generated definition are kept unused. Source is never touched; the
+   * session's param overrides and configuration stand. The values stay
+   * through {@link setParam}, {@link setConfiguration} and
+   * {@link recompute}; {@link resetParams} and {@link unloadModel} forget
+   * them.
+   */
+  async setGeneratedValues(
+    exportName: string,
+    values: Record<string, unknown>,
+    options: { detail?: RenderDetail } = {},
+  ): Promise<BrowserRenderResult> {
+    return this.render({ ...(options.detail === undefined ? {} : { detail: options.detail }), generated: { [exportName]: values } });
+  }
+
+  /** Forget every generated export's values (see {@link setGeneratedValues}); the next render builds the defaults. No render. */
+  clearGeneratedValues(): void {
+    this.generatedValues.clear();
+  }
+
+  /** Keep `values` for the generated export `exportName`, replacing its earlier ones; a misuse throws. */
+  private storeGeneratedValues(exportName: string, values: Record<string, unknown>): void {
+    if (typeof exportName !== "string" || exportName === "") {
+      throw new Error("generated values are set by the export name of a generated definition");
+    }
+    if (!values || typeof values !== "object" || Array.isArray(values)) {
+      throw new Error(`the generated export '${exportName}' takes its values by id, such as { teeth: 18 }`);
+    }
+    this.generatedValues.set(exportName, { ...values });
   }
 
   /**

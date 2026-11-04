@@ -275,11 +275,23 @@ export class GeneratedAssemblyDefinition<T = unknown> extends Assembly<T> {
   }
 
   /**
+   * The values an insert passes, by id, checked and completed — every
+   * declared value that holds one, defaults filled, in declaration order:
+   * what an occurrence record carries and what a host reports it rendered.
+   * Throws the insert path's refusal for a name the generator doesn't take
+   * and a value its declaration refuses.
+   */
+  completedValues(read: Readonly<Record<string, unknown>>): Record<string, ParamVal> {
+    return this.valuesOf(read).given;
+  }
+
+  /**
    * The values an insert passed, by id, checked and completed: `values`
    * every declared value present, defaults filled — what the generator is
    * constructed from — and `given` those that hold a value, in declaration
    * order — what the record carries. Refuses a name the generator doesn't
-   * take and a value its declaration refuses.
+   * take and a value its declaration refuses. The one place the values are
+   * checked: {@link completedValues} reads them here too.
    */
   private valuesOf(read: Readonly<Record<string, unknown>>): { values: FeatureValues; given: Record<string, ParamVal> } {
     const subject = this.subject();

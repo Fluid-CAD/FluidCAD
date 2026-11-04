@@ -31,7 +31,8 @@ export class Gear extends Feature.with({
     boreFaces: {}, // the wall of the shaft hole
     boreEdges: { label: 'Bore Rims' }, // the rims of the shaft hole, top and bottom
   },
-  // Where the gear stands: origin on its axis, Z up the axis.
+  // Where the gear stands: origin on its axis, Z out of the gear, as a
+  // connector on the face it stands on points, so a plain mate seats it.
   frames: {
     axis: { label: 'Gear axis' },
   },
@@ -50,8 +51,9 @@ export class Gear extends Feature.with({
       plane = faces[0].getPlane();
       origin = plane.projectPoint(faces[0].center());
     }
-    // The axis frame, set like the buckets: a plane at the gear's centre whose normal runs up its axis.
-    this.setFrames({ axis: new Plane(origin, plane.xDirection, plane.normal) });
+    // The axis frame, set like the buckets: a plane at the gear's centre whose normal points out of
+    // the gear, back into the face it stands on (the face's normal reversed; X kept: a half turn).
+    this.setFrames({ axis: new Plane(origin, plane.xDirection, plane.normal.negate()) });
     const body = this.occ(scope => Gear.#body(scope, this.values));
 
     // Placed on the face, centred on it, growing along its normal.

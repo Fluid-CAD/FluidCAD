@@ -57,7 +57,7 @@ A frame is a named coordinate frame the feature sets as it builds. Declare it be
 ```
 
 ```js
-this.setFrames({ axis: new Plane(origin, plane.xDirection, plane.normal) });
+this.setFrames({ axis: new Plane(origin, plane.xDirection, plane.normal.negate()) });
 ```
 
 - A frame is a `Plane`: its origin, its X direction, and its normal, which is the frame's Z.

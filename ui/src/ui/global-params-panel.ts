@@ -340,7 +340,12 @@ export class GlobalParamsPanel {
     }
     list.innerHTML = html;
 
-    const find = (label: string) => file.params.find((p) => p.label === label);
+    // Read off the live snapshot, not this render's `file`: a push that only
+    // changed values updates the controls in place and never re-binds, so a
+    // handler holding the rendered rows would keep comparing a typed value
+    // against the literal the column first drew (GH #92 — the original
+    // value could never be typed back in).
+    const find = (label: string) => this.paramIn(file.file, label);
     bindParamHandlers(list, {
       lookup: (label) => {
         const p = find(label);
@@ -368,6 +373,11 @@ export class GlobalParamsPanel {
     bindParamGroups(list, this.collapsedGroups, (group) => `${file.file}\n${group}`);
 
     section.mount(this.column);
+  }
+
+  /** The row `label` names in `file`, as the last push described it. */
+  private paramIn(file: string, label: string): GlobalParam | undefined {
+    return this.snapshot?.files.find((f) => f.file === file)?.params.find((p) => p.label === label);
   }
 
   private renderRow(p: GlobalParam): string {

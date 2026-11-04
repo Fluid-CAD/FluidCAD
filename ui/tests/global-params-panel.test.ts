@@ -157,6 +157,32 @@ describe('GlobalParamsPanel', () => {
     expect(handlers.setValue).toHaveBeenCalledWith(FILE, 'Wall thickness', 5);
   });
 
+  it('posts the original value back after a push moved the literal away from it (GH #92)', async () => {
+    const { panel, handlers, open, control } = mount();
+    await open();
+    const input = control<HTMLInputElement>('Wall thickness');
+    input.value = '15';
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(handlers.setValue).toHaveBeenNthCalledWith(1, FILE, 'Wall thickness', 15);
+    // The write lands; the catalog's push updates the row in place.
+    panel.update(snapshot([param({ defaultValue: 15, value: 15 }), CLEARANCE, FINISH, HALF]));
+    expect(control<HTMLInputElement>('Wall thickness')).toBe(input);
+    expect(input.value).toBe('15');
+    // Typing the value the column first drew is a change from 15, so it posts.
+    input.value = '3';
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(handlers.setValue).toHaveBeenCalledTimes(2);
+    expect(handlers.setValue).toHaveBeenNthCalledWith(2, FILE, 'Wall thickness', 3);
+    // And a field left on the value the push wrote still sends nothing.
+    input.value = '15';
+    panel.update(snapshot([param({ defaultValue: 3, value: 3 }), CLEARANCE, FINISH, HALF]));
+    input.value = '3';
+    input.dispatchEvent(new Event('blur'));
+    expect(handlers.setValue).toHaveBeenCalledTimes(2);
+  });
+
   it('posts a slider on change only, previewing the readout while dragging', async () => {
     const { container, handlers, open, control } = mount();
     await open();

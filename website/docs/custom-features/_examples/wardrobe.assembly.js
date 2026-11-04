@@ -1,7 +1,7 @@
 // @screenshot skip
 // The wardrobe made insertable: an assembly definition whose body is the
 // generator's layout, run with the insert's values. The assembly bar's
-// Custom dropdown and the Insert dialog list it; its dialog asks for the
+// Generate Parts dropdown and the Insert dialog list it; its dialog asks for the
 // generator's values.
 import { defineAssembly } from 'fluidcad/sdk';
 import { WardrobeUnit } from './wardrobe-unit.js';

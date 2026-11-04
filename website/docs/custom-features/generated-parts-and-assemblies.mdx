@@ -16,7 +16,7 @@ A custom feature builds into a part. Some designs are better inserted into an as
 - A **generated part** (`definePart`) turns a feature into a part. The feature's typed-in values are the part's interface, and the frames the feature sets are its connectors.
 - A **generated assembly** (`defineAssembly`) makes a sub-assembly by code: its parts, their connectors and the joints between them, from one set of values.
 
-An assembly inserts both with `insert(definition, values)`, like a `part()` or an `assembly()`. The assembly toolbar's **Custom** dropdown and the **Insert** dialog list them, and open a dialog built from their values, with the result live in the viewport. [Generated Parts and Assemblies](/docs/assembly/generated) in the Assembly section shows that side. This page writes them.
+An assembly inserts both with `insert(definition, values)`, like a `part()` or an `assembly()`. The assembly toolbar's **Generate Parts** dropdown and the **Insert** dialog list them, and open a dialog built from their values, with the result live in the viewport. [Generated Parts and Assemblies](/docs/assembly/generated) in the Assembly section shows that side. This page writes them.
 
 ## A generated part
 
@@ -79,7 +79,7 @@ The second argument describes the part for the menus and its dialog:
 
 | Field | Meaning |
 |---|---|
-| `label` | Required. The entry in the Custom dropdown and the Insert dialog, the dialog's title, and the part's name. |
+| `label` | Required. The entry in the Generate Parts dropdown and the Insert dialog, the dialog's title, and the part's name. |
 | `name` | The part's name, when it should differ from the label. |
 | `description` | The tooltip in the dropdown. |
 | `icon` | The picture, relative to this file. It may climb out of the folder (`'../features/gear.svg'`), never out of the project or the package. |
@@ -184,7 +184,7 @@ Never keep shapes in the module from one render to the next: FluidCAD frees a re
 | A value its declaration refuses | The insert's row fails: `assembly 'Wardrobe': 'width' must be at least 500, got 100` |
 | `layout()` throws | The insert's row fails with the message, `assembly 'Wardrobe': wardrobe: 4 drawers of 300 leave no room for the doors`, and nothing of the layout is kept. |
 | `build()` throws | That part's rows fail, `WardrobeUnit.build('door'): …`. The other parts build. |
-| A bad declaration: a picked value in `Generator.with()`, no `static id`, no `layout` or `build`, a field `defineAssembly()` doesn't know | The module fails to load. A model that imports it fails to compile with a sentence naming the call (`Generator.with()`, `defineAssembly(WardrobeUnit)`) and the fix, and the Custom dropdown leaves the definition out. |
+| A bad declaration: a picked value in `Generator.with()`, no `static id`, no `layout` or `build`, a field `defineAssembly()` doesn't know | The module fails to load. A model that imports it fails to compile with a sentence naming the call (`Generator.with()`, `defineAssembly(WardrobeUnit)`) and the fix, and the Generate Parts dropdown leaves the definition out. |
 
 ## Where the modules live
 

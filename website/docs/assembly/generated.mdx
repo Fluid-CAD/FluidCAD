@@ -13,13 +13,13 @@ Some parts and assemblies are made from values rather than drawn: a gear with an
 
 This page uses two packages, `@fluidcad/cabinets` for the **Wardrobe** and `@fluidcad/gears` for the **Gear**. To write your own, see [Generated Parts and Assemblies](/docs/custom-features/generated-parts-and-assemblies) in the Custom Features section.
 
-## The Custom dropdown
+## The Generate Parts dropdown
 
-With an assembly open, the last button of the assembly toolbar, **Custom**, lists every generated part and assembly the project can insert: the project's own under **This project**, then each package under its name and version.
+With an assembly open, the last button of the assembly toolbar, **Generate Parts**, lists every generated part and assembly the project can insert: the project's own under **This project**, then each package under its name and version.
 
-![The assembly toolbar's Custom dropdown: Chest of drawers and Wardrobe under @fluidcad/cabinets, Gear, Internal gear and Rack under @fluidcad/gears](/img/docs/ui/assembly-custom-menu.png)
+![The assembly toolbar's Generate Parts dropdown: Chest of drawers and Wardrobe under @fluidcad/cabinets, Gear, Internal gear and Rack under @fluidcad/gears](/img/docs/ui/assembly-custom-menu.png)
 
-- The pin beside a package's name puts its entries on the toolbar, in a group of their own before **Custom**. Right-click the group and choose **Unpin** to put them back. A pin holds for both toolbars: a pinned package's features sit on the part toolbar, and its generated parts and assemblies on the assembly toolbar.
+- The pin beside a package's name puts its entries on the toolbar, in a group of their own before **Generate Parts**. Right-click the group and choose **Unpin** to put them back. A pin holds for both toolbars: a pinned package's features sit on the part toolbar, and its generated parts and assemblies on the assembly toolbar.
 - A package from your library that the project doesn't use yet is listed too. The preview uses it without writing anything; **Apply** records it in the project's `fluidcad.json`, as using one of its features does ([Packages](/docs/packages#using-a-packages-features)).
 - With nothing to list, the dropdown points to the Hub panel, where packages are found and installed.
 
@@ -27,7 +27,7 @@ The **Insert** dialog lists generated parts and assemblies as well, each a tile 
 
 ## Inserting a wardrobe
 
-1. Click **Custom**, then **Wardrobe**. Its dialog opens docked on the right. It is the dialog a [custom feature](/docs/custom-features#from-the-toolbar) has, with the values only: no pick slots, no **Add / New** tabs, no **Preview** toggle. The Wardrobe's opens wide, with a drawing of the wardrobe's size beside its rows.
+1. Click **Generate Parts**, then **Wardrobe**. Its dialog opens docked on the right. It is the dialog a [custom feature](/docs/custom-features#from-the-toolbar) has, with the values only: no pick slots, no **Add / New** tabs, no **Preview** toggle. The Wardrobe's opens wide, with a drawing of the wardrobe's size beside its rows.
 
    ![The Wardrobe dialog: its sections of values, with the size drawing beside them](/img/docs/ui/generated-assembly-dialog.png)
 
@@ -75,7 +75,7 @@ Neither writes anything: the file holds the wardrobe's values, not where its doo
 
 ## Inserting a generated part
 
-A generated part is a single part made from values: the Gear of `@fluidcad/gears`. It is inserted the same way, from **Custom** or its tile in the **Insert** dialog. Its dialog is the gear feature's, with the same tabs and drawing, less the **At** row: the assembly places the part.
+A generated part is a single part made from values: the Gear of `@fluidcad/gears`. It is inserted the same way, from **Generate Parts** or its tile in the **Insert** dialog. Its dialog is the gear feature's, with the same tabs and drawing, less the **At** row: the assembly places the part.
 
 The gear part carries a connector named `axis`, on the gear's axis. Mate it like any part's connector:
 

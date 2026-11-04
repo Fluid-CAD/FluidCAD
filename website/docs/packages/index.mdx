@@ -123,7 +123,7 @@ A package can share [generated parts and assemblies](/docs/custom-features/gener
 - a `defineAssembly` export in a `*.assembly.js` file in `assemblies/`;
 - the features and generator classes they use in `features/`, next to their pictures.
 
-Packing lists each export in the manifest as a part or an assembly, with its values and its dialog, so the assembly toolbar's **Custom** dropdown and the **Insert** dialog offer it without building it. Before it does:
+Packing lists each export in the manifest as a part or an assembly, with its values and its dialog, so the assembly toolbar's **Generate Parts** dropdown and the **Insert** dialog offer it without building it. Before it does:
 
 - It builds each one with its default values. One that fails stops packing.
 - Every image a definition names ships at its path: its icon, the pictures of its dialog and of its values' options. A path may climb out of its module's folder with `../`, never out of the package. An image outside the package, or missing, stops packing.

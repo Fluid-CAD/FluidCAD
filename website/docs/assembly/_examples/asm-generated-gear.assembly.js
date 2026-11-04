@@ -13,8 +13,8 @@ export const drive = assembly('drive', () => {
 
   // Written by the Revolute dialog: the plate's bore, then the gear's axis
   // connector, which the gear feature's axis frame became. A mate lays its
-  // frames face to face; .flip() points the gear's axis the same way as the
-  // bore's, so the gear stands on the plate.
+  // frames face to face; the bore points up out of the plate and the gear's
+  // axis out of the face the gear stands on, so the gear stands on the plate.
   // highlight-next-line
-  mate('revolute', plate1.connectors.bore, gearPart1.connectors.axis).flip();
+  mate('revolute', plate1.connectors.bore, gearPart1.connectors.axis);
 });

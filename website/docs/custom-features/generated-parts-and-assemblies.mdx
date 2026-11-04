@@ -61,7 +61,7 @@ this.setFrames({ axis: new Plane(origin, plane.xDirection, plane.normal) });
 ```
 
 - A frame is a `Plane`: its origin, its X direction, and its normal, which is the frame's Z.
-- The gear's frame sits on its axis, where the gear stands, with Z up the axis. A revolute mate on it turns the gear about its axis.
+- The gear's frame sits on its axis, on the face the gear stands on, with Z out of the gear, the way a connector on that face points. A plain revolute mate on a plate's or a shaft's connector seats the gear and turns it about its axis. Point every frame a part stands on out of its material, so a mate needs no **Flip**.
 - A frame's name is an identifier, as a connector's is. Its declaration takes only a `label`.
 - A part file reads the frame too: `connector('axis', pinion.frame('axis'))` puts a connector on a gear the part builds. On a repeated gear, `r.instance(1).frame('axis')` reads a copy's.
 

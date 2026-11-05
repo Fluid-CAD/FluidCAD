@@ -167,9 +167,9 @@
       "hub": "wrong-folder"
     },
     "bad-params.fluidpkg": {
-      "about": "the spacer part declares 101 parameters, one over the cap",
+      "about": "the spacer part declares 201 parameters, one over the cap",
       "verdict": "ok",
-      "integrity": "sha256-byaZT5ygsvT464CmWn3y/+BdfDRIDaAJYjTWBnksvNw=",
+      "integrity": "sha256-TBiPmtQhviBfi9yGE4jR5MWJyEKEef/aaGtl9J/C/pE=",
       "warnings": [],
       "hub": "bad-params"
     },

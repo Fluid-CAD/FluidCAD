@@ -340,10 +340,10 @@ class PackageConformance {
         }),
       },
       {
-        file: 'bad-params.fluidpkg', about: 'the spacer part declares 101 parameters, one over the cap', fluidcad: 'ok', hub: 'bad-params',
+        file: 'bad-params.fluidpkg', about: 'the spacer part declares 201 parameters, one over the cap', fluidcad: 'ok', hub: 'bad-params',
         build: withManifest((m) => {
           const spacer = m.parts.find((p) => p.exportName === 'spacer');
-          for (let i = spacer.params.length; i < 101; i++) {
+          for (let i = spacer.params.length; i < 201; i++) {
             spacer.params.push({ label: `Extra ${i}`, defaultValue: i, currentValue: i, controlType: 'number' });
           }
         }),

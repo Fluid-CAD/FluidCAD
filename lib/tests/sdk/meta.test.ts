@@ -811,7 +811,7 @@ describe("choice values: select and radio", () => {
       refuses({ type: 'select', options: AB, display: 'grid', columns }, `${at}: 'columns' must be a whole number from 2 to 6, got ${typeof columns === 'string' ? "'3'" : columns}`);
     }
     refuses({ type: 'select', options: AB, search: 'yes' }, `${at}: 'search' must be true or false, got 'yes'`);
-    refuses({ type: 'radio', options: AB, search: true }, `${at}: unknown field 'search' for a radio value — its fields are label, description, group, tab, hint, aside, visibleWhen, optional, default, options, display, columns`);
+    refuses({ type: 'radio', options: AB, search: true }, `${at}: unknown field 'search' for a radio value — its fields are label, description, group, tab, hint, aside, visibleWhen, optional, default, defaults, options, display, columns`);
     refuses({ type: 'length', display: 'grid' }, `${at}: 'display' must be one of slider — leave it out for the plain input — got 'grid'`);
   });
 

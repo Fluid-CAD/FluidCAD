@@ -12,8 +12,9 @@ import { normalizeAxis, normalizePlane } from "../helpers/normalize.js";
 import { Locations, type LocationKind } from "../features/locations.js";
 import { AnchoredLazyVertex } from "../features/anchored-vertex.js";
 import type { FeatureLayoutChecks } from "./layout.js";
+import { ValueConditions } from "./value-conditions.js";
 import type {
-  ChoiceOption, MultiSelectParamSpec, NumberParamSpec, OptionCase, OptionWhen, ParamSpec, ParamSpecSnapshot, PickCondition,
+  ChoiceOption, ConditionalDefault, MultiSelectParamSpec, NumberParamSpec, OptionCase, OptionWhen, ParamSpec, ParamSpecSnapshot, PickCondition,
   PickedSurface, PickerKind, PickerParamSpec, RadioParamSpec, ScalarParamSpec, ScalarParamType, SelectParamSpec, TextParamSpec,
 } from "./meta.js";
 
@@ -47,18 +48,18 @@ export class SchemaValidator {
 
   private static readonly NUMBER_FIELDS = ['default', 'min', 'max', 'step'];
 
-  /** What a number type may declare: its numbers, and how its row looks. */
-  private static readonly NUMBER_SPEC_FIELDS = [...SchemaValidator.NUMBER_FIELDS, 'display', 'suffix'];
+  /** What a number type may declare: its numbers, its conditional defaults, and how its row looks. */
+  private static readonly NUMBER_SPEC_FIELDS = [...SchemaValidator.NUMBER_FIELDS, 'defaults', 'display', 'suffix'];
 
   private static readonly SCALAR_FIELDS: Record<ScalarParamType, string[]> = {
     number: SchemaValidator.NUMBER_SPEC_FIELDS,
     integer: SchemaValidator.NUMBER_SPEC_FIELDS,
     length: SchemaValidator.NUMBER_SPEC_FIELDS,
     angle: SchemaValidator.NUMBER_SPEC_FIELDS,
-    boolean: ['default', 'display'],
-    select: ['default', 'options', 'display', 'columns', 'search', 'multiple', 'min', 'max'],
-    radio: ['default', 'options', 'display', 'columns'],
-    text: ['default', 'multiline', 'placeholder', 'maxLength', 'pattern'],
+    boolean: ['default', 'defaults', 'display'],
+    select: ['default', 'defaults', 'options', 'display', 'columns', 'search', 'multiple', 'min', 'max'],
+    radio: ['default', 'defaults', 'options', 'display', 'columns'],
+    text: ['default', 'defaults', 'multiline', 'placeholder', 'maxLength', 'pattern'],
   };
 
   /** Each number type's displays; leaving `display` out is the plain input. */
@@ -71,6 +72,9 @@ export class SchemaValidator {
 
   /** The most characters a `suffix` may have. */
   private static readonly SUFFIX_LENGTH = 8;
+
+  /** What one entry of a value's `defaults` carries. */
+  private static readonly DEFAULTS_FIELDS = ['when', 'value'];
 
   /** What one option of a select or a radio may carry. */
   private static readonly OPTION_FIELDS = ['label', 'value', 'image', 'description', 'group', 'keywords', 'when'];
@@ -167,6 +171,15 @@ export class SchemaValidator {
           this.optionWhen(`param '${name}': option ${JSON.stringify(option.value)}: 'when'`, name, option.when, out);
         }
       }
+      SchemaValidator.defaultsOf(spec).forEach((entry, index) => {
+        const where = `param '${name}': defaults[${index}]: 'when'`;
+        this.optionWhen(where, name, entry.when, out);
+        for (const other of ValueConditions.namesOf(entry.when)) {
+          if (ValueConditions.hasDefaults(out[other] as { defaults?: [] })) {
+            this.fail(`${where} names '${other}', which declares 'defaults' itself — a conditional default waits only on values whose default is fixed (one level, no chains)`);
+          }
+        }
+      });
     }
     return Object.freeze(this.atRest(out, params));
   }
@@ -214,6 +227,9 @@ export class SchemaValidator {
     }
     if ('type' in spec) {
       this.checkScalar(where, spec);
+      if (spec.defaults !== undefined) {
+        this.checkDefaults(name, where, spec);
+      }
     } else {
       this.checkPicker(where, spec);
     }
@@ -235,8 +251,8 @@ export class SchemaValidator {
     for (const kind of kinds) {
       this.leftOut(spec, SchemaValidator.PICKER_LEFT_OUT[kind] ?? [], `${where}: `);
     }
-    if ('default' in spec) {
-      this.fail(`${where}: a picker takes no default — its value is what the user picks`);
+    if ('default' in spec || 'defaults' in spec) {
+      this.fail(`${where}: a picker takes no ${'default' in spec ? 'default' : 'defaults'} — its value is what the user picks`);
     }
     const single = kinds.find(kind => !SchemaValidator.PICKERS[kind].list);
     if (single) {
@@ -334,6 +350,45 @@ export class SchemaValidator {
       }
     }
     this.checkNumberLook(where, type, spec);
+  }
+
+  /**
+   * A value's `defaults`: a non-empty list of `{ when, value }`, each value
+   * checked as a call's value of the declaration is (its type, its range,
+   * one of its options), and a plain default to fall back on. The `when` of
+   * each is checked once every value is known (see {@link params}), and
+   * what each offers where it holds once the values settle ({@link atRest}).
+   */
+  private checkDefaults(name: string, where: string, spec: Record<string, unknown>): void {
+    const defaults = spec.defaults;
+    if (!Array.isArray(defaults) || defaults.length === 0) {
+      this.fail(`${where}: 'defaults' must be a non-empty list of { when, value }, such as [{ when: { type: 'wall' }, value: 720 }], got ${SchemaValidator.describe(defaults)}`);
+    }
+    defaults.forEach((entry, index) => {
+      const at = `${where}: defaults[${index}]`;
+      if (!FeatureCall.isPlainObject(entry)) {
+        this.fail(`${at} must be { when, value }, such as { when: { type: 'wall' }, value: 720 }, got ${SchemaValidator.describe(entry)}`);
+      }
+      for (const field of Object.keys(entry)) {
+        if (!SchemaValidator.DEFAULTS_FIELDS.includes(field)) {
+          this.fail(`${at}: unknown field '${field}' — an entry of 'defaults' is { when, value }`);
+        }
+      }
+      if (entry.when === undefined) {
+        this.fail(`${at} needs a 'when': the values it waits on, such as { type: 'wall' }`);
+      }
+      if (entry.value === undefined || entry.value === null) {
+        this.fail(`${at} needs a 'value': the default while its 'when' holds`);
+      }
+      try {
+        ValueSchema.checkScalar(at, name, { ...spec, optional: false } as unknown as ParamSpec, entry.value);
+      } catch (error) {
+        this.fail((error as Error).message);
+      }
+    });
+    if (ValueSchema.defaultOf(spec as unknown as ParamSpec) === undefined) {
+      this.fail(`${where}: a value with 'defaults' needs a 'default' — the one it takes when none of them holds`);
+    }
   }
 
   /** How a number's row looks: its `display`, which its type must have, and its `suffix`. */
@@ -557,22 +612,88 @@ export class SchemaValidator {
     for (const name of order) {
       const given = (declared[name] as Record<string, unknown>).default !== undefined;
       out[name] = this.offeredDefault(name, params[name], given, rest);
-      rest[name] = ValueSchema.defaultOf(out[name]);
+      rest[name] = ValueSchema.defaultIn(out[name], rest);
+    }
+    for (const name of order) {
+      this.offeredDefaults(name, out, rest, order);
     }
     return out;
   }
 
-  /** Depth first over the values a value's options name: `order` gets each after those it waits on. */
+  /**
+   * Each of a select's or a radio's conditional defaults must be offered
+   * where it applies: in every case of its `when` (each value a case lists
+   * taken in turn), the other values at their defaults — those with
+   * defaults of their own following the case — or an untouched dialog would
+   * show one thing and the builder get another.
+   */
+  private offeredDefaults(name: string, params: Record<string, ParamSpec>, rest: Record<string, unknown>, order: string[]): void {
+    const spec = params[name];
+    const options = SchemaValidator.optionsOf(spec);
+    if (!options.some(option => option.when !== undefined)) {
+      return;
+    }
+    SchemaValidator.defaultsOf(spec).forEach((entry, index) => {
+      for (const state of SchemaValidator.statesOf(entry.when, params, rest, order)) {
+        const offered = options.filter(option => ValueSchema.holds(option.when, state)).map(option => option.value);
+        const values = Array.isArray(entry.value) ? entry.value : [entry.value];
+        const missing = values.find(value => !offered.includes(value));
+        if (missing !== undefined) {
+          const holding = Object.entries(state).filter(([other]) => ValueConditions.namesOf(entry.when).includes(other))
+            .map(([other, value]) => `${other} is ${JSON.stringify(value)}`).join(' and ');
+          this.fail(`param '${name}': defaults[${index}]: ${JSON.stringify(missing)} is not offered while ${holding} and the other values are at their defaults — an untouched dialog would show one thing and the builder get another`);
+        }
+      }
+    });
+  }
+
+  /**
+   * The values as they stand in each case a `when` names: the values at
+   * rest, those the case names set — one state for each value a case lists
+   * — and every value whose own `defaults` follow them worked out again.
+   */
+  private static statesOf(when: OptionWhen, params: Record<string, ParamSpec>, rest: Record<string, unknown>, order: string[]): Record<string, unknown>[] {
+    const states: Record<string, unknown>[] = [];
+    for (const each of ValueSchema.casesOf(when)) {
+      let combos: Record<string, unknown>[] = [{}];
+      for (const [other, expected] of Object.entries(each)) {
+        const candidates = Array.isArray(expected) ? expected : [expected];
+        combos = combos.flatMap(combo => candidates.map(candidate => ({ ...combo, [other]: candidate })));
+      }
+      for (const combo of combos) {
+        const state: Record<string, unknown> = { ...rest, ...combo };
+        for (const other of order) {
+          if (!(other in combo) && ValueConditions.hasDefaults(params[other] as { defaults?: [] })) {
+            state[other] = ValueSchema.defaultIn(params[other], state);
+          }
+        }
+        states.push(state);
+      }
+    }
+    return states;
+  }
+
+  /**
+   * Depth first over the values a value's options and its `defaults` name:
+   * `order` gets each after those it waits on.
+   */
   private settle(name: string, params: Record<string, ParamSpec>, settled: Map<string, boolean>, chain: string[], order: string[]): void {
     if (settled.get(name) === true) {
       return;
     }
     if (settled.get(name) === false) {
-      const circle = [...chain.slice(chain.indexOf(name)), name].join(' → ');
+      const links = [...chain.slice(chain.indexOf(name)), name];
+      const circle = links.join(' → ');
+      if (links.some(link => ValueConditions.hasDefaults(params[link] as { defaults?: [] }))) {
+        this.fail(`param '${name}': the 'when' of its options and of its 'defaults' comes back round to it (${circle}) — values that wait on each other have no first one to settle`);
+      }
       this.fail(`param '${name}': the 'when' of its options comes back round to it (${circle}) — options that wait on each other have no first one to offer`);
     }
     settled.set(name, false);
-    const named = new Set(SchemaValidator.optionsOf(params[name]).flatMap(option => ValueSchema.casesOf(option.when).flatMap(Object.keys)));
+    const named = new Set([
+      ...SchemaValidator.optionsOf(params[name]).flatMap(option => ValueSchema.casesOf(option.when).flatMap(Object.keys)),
+      ...ValueConditions.namedByDefaults(params[name] as { defaults?: [] }),
+    ]);
     for (const other of named) {
       this.settle(other, params, settled, [...chain, name], order);
     }
@@ -589,8 +710,11 @@ export class SchemaValidator {
     const where = `param '${name}'`;
     const offered = options.filter(option => ValueSchema.holds(option.when, rest)).map(option => option.value);
     const atRest = `while the other values are at their defaults`;
+    // One of its `defaults` holding at rest is what an untouched dialog
+    // shows there, checked with the rest of them: the plain default is not.
+    const shown = ValueConditions.matchingDefault(spec as { defaults?: [] }, rest) === null;
     if (ValueSchema.isChoices(spec)) {
-      for (const value of spec.default ?? []) {
+      for (const value of shown ? spec.default ?? [] : []) {
         if (!offered.includes(value)) {
           this.fail(`${where}: the default's ${JSON.stringify(value)} is not offered ${atRest} — an untouched dialog would show one thing and the builder get another`);
         }
@@ -599,7 +723,7 @@ export class SchemaValidator {
     }
     const choice = spec as SelectParamSpec | RadioParamSpec;
     if (given) {
-      if (!offered.includes(choice.default as string | number)) {
+      if (shown && !offered.includes(choice.default as string | number)) {
         this.fail(`${where}: the default ${JSON.stringify(choice.default)} is not offered ${atRest} — an untouched dialog would show one thing and the builder get another`);
       }
       return spec;
@@ -608,6 +732,9 @@ export class SchemaValidator {
       return spec;
     }
     if (offered.length === 0) {
+      if (!shown) {
+        return spec;
+      }
       this.fail(`${where}: none of its options is offered ${atRest} — leave the 'when' off one, or make the value 'optional'`);
     }
     return Object.freeze({ ...choice, default: offered[0] }) as ParamSpec;
@@ -616,6 +743,11 @@ export class SchemaValidator {
   /** The options of a select or a radio; none for any other value. */
   private static optionsOf(spec: ParamSpec): readonly ChoiceOption[] {
     return 'type' in spec && (spec.type === 'select' || spec.type === 'radio') ? spec.options : [];
+  }
+
+  /** A typed-in value's conditional defaults; none for a picked value or one that declares none. */
+  private static defaultsOf(spec: ParamSpec): readonly ConditionalDefault<unknown>[] {
+    return 'type' in spec ? (spec.defaults ?? []) as readonly ConditionalDefault<unknown>[] : [];
   }
 
   /**
@@ -975,18 +1107,37 @@ export class ValueSchema {
    * here; {@link refuseUnknown} refuses it where that matters.
    */
   complete(subject: string, read: Readonly<Record<string, unknown>>): FeatureValues {
+    const filled = this.filled(read);
     const values: FeatureValues = {};
     for (const [name, spec] of Object.entries(this.params)) {
-      let value = read[name];
-      if (value === undefined || value === null) {
-        value = ValueSchema.defaultOf(spec) ?? value;
-      }
+      const value = filled[name];
       values[name] = 'type' in spec
         ? ValueSchema.scalarValue(subject, name, spec, value)
         : ValueSchema.pickedValue(subject, name, spec, value);
     }
     const given = new Set(Object.keys(read).filter(name => read[name] !== undefined && read[name] !== null && name in this.params));
     Object.defineProperty(values, GIVEN_VALUES, { value: given, enumerable: false });
+    return values;
+  }
+
+  /**
+   * `read` with every value it leaves out (or passes as `null`) filled with
+   * its effective default: the values without `defaults` first — what the
+   * read gave, else their plain default — then each value with `defaults`
+   * from them ({@link defaultIn}). Nothing is checked here; a `when` only
+   * names values without `defaults`, so one pass of each settles them all.
+   */
+  filled(read: Readonly<Record<string, unknown>>): Record<string, unknown> {
+    const values: Record<string, unknown> = {};
+    const absent = (name: string) => read[name] === undefined || read[name] === null;
+    for (const [name, spec] of Object.entries(this.params)) {
+      values[name] = absent(name) && !ValueSchema.hasDefaults(spec) ? ValueSchema.defaultOf(spec) ?? read[name] : read[name];
+    }
+    for (const [name, spec] of Object.entries(this.params)) {
+      if (absent(name) && ValueSchema.hasDefaults(spec)) {
+        values[name] = ValueSchema.defaultIn(spec, values) ?? read[name];
+      }
+    }
     return values;
   }
 
@@ -1076,6 +1227,21 @@ export class ValueSchema {
     return undefined;
   }
 
+  /**
+   * The value a call that leaves `spec`'s value out gives the feature when
+   * its other values are `values`: the value of the first of its `defaults`
+   * whose `when` holds, else its plain default ({@link defaultOf}).
+   */
+  static defaultIn(spec: ParamSpec, values: Readonly<Record<string, unknown>>): FeatureScalar | readonly (string | number)[] | undefined {
+    const fallback = ValueSchema.defaultOf(spec);
+    return 'type' in spec ? ValueConditions.defaultIn(spec as { defaults?: readonly ConditionalDefault<typeof fallback>[] }, values, fallback) : fallback;
+  }
+
+  /** Whether a value declares conditional defaults: its default then depends on the values they name. */
+  static hasDefaults(spec: ParamSpec | undefined): boolean {
+    return !!spec && 'type' in spec && ValueConditions.hasDefaults(spec);
+  }
+
   /** `spec` with its resolved default ({@link defaultOf}) written in, when it resolves to one. */
   static withDefault(spec: ParamSpec): ParamSpec {
     const fallback = ValueSchema.defaultOf(spec);
@@ -1110,18 +1276,12 @@ export class ValueSchema {
    * clause; no clauses always hold.
    */
   static holds(when: OptionWhen | undefined, values: Readonly<Record<string, unknown>>): boolean {
-    if (Array.isArray(when)) {
-      return ValueSchema.casesOf(when).some(each => ValueSchema.holds(each, values));
-    }
-    return Object.entries((when ?? {}) as OptionCase).every(([name, expected]) => {
-      const value = values[name];
-      return value !== undefined && (Array.isArray(expected) ? expected.includes(value) : expected === value);
-    });
+    return ValueConditions.holds(when, values);
   }
 
   /** The cases of an option's `when`: the one object, each of a list, or none. */
   static casesOf(when: OptionWhen | undefined): readonly OptionCase[] {
-    return when === undefined ? [] : Array.isArray(when) ? when as readonly OptionCase[] : [when as OptionCase];
+    return ValueConditions.casesOf(when) as readonly OptionCase[];
   }
 
   /**
@@ -1130,22 +1290,7 @@ export class ValueSchema {
    * face, or not yet told apart).
    */
   static pickHolds(condition: PickCondition, picks: readonly (PickedSurface | null)[]): boolean {
-    if (condition.picked !== undefined && condition.picked !== picks.length > 0) {
-      return false;
-    }
-    if (condition.count !== undefined) {
-      const counts: readonly number[] = typeof condition.count === 'number' ? [condition.count] : condition.count;
-      if (!counts.includes(picks.length)) {
-        return false;
-      }
-    }
-    if (condition.surface !== undefined) {
-      const wanted: readonly PickedSurface[] = typeof condition.surface === 'string' ? [condition.surface] : condition.surface;
-      if (picks.length === 0 || !picks.every(surface => surface !== null && wanted.includes(surface))) {
-        return false;
-      }
-    }
-    return condition.not === undefined || !ValueSchema.pickHolds(condition.not, picks);
+    return ValueConditions.pickHolds(condition, picks);
   }
 
   /** Whether a value is a select with `multiple: true`: the typed-in value that is a list of option values. */

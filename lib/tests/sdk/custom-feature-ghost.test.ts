@@ -131,6 +131,19 @@ class Trace extends Feature.with({ faces: { picker: 'face', multiple: true } }) 
 }
 const trace = defineFeature(Trace, { label: 'Trace', group: 'modify', call: ['...faces'] });
 
+/** `column({ kind, height })`: a post whose height's default follows its kind. */
+class Column extends Feature.with({
+  kind: { type: 'radio', options: [{ label: 'Short', value: 'short' }, { label: 'Tall', value: 'tall' }] },
+  height: { type: 'length', default: 4, min: 1, defaults: [{ when: { kind: 'tall' }, value: 12 }] },
+}) {
+  static id = 'acme.column';
+
+  buildTool(): Shape[] {
+    return [post(1, this.values.height, 0)];
+  }
+}
+const column = defineFeature(Column, { label: 'Column', group: 'create', call: [{ kind: 'kind', height: 'height' }] });
+
 /** A 60 × 40 × 10 plate centred on the origin (line 2), its top face at z = 10. */
 function plate(): SceneObject {
   sketch('xy', () => {
@@ -203,6 +216,13 @@ describe("a custom feature's ghost", () => {
 
     const taller = zRange(ghost(scene, standoff, { values: { height: 4 }, refs: { face: [{ kind: 'entities', entities: [face] }] } }));
     expect(taller.max).toBeCloseTo(14, 4);
+  });
+
+  it("fills a value the dialog leaves out with its default under the values it sends — a conditional default followed", () => {
+    const scene = render();
+    expect(zRange(ghost(scene, column, {})).max).toBeCloseTo(4, 4);
+    expect(zRange(ghost(scene, column, { values: { kind: 'tall' } })).max).toBeCloseTo(12, 4);
+    expect(zRange(ghost(scene, column, { values: { kind: 'tall', height: 7 } })).max).toBeCloseTo(7, 4);
   });
 
   it("reads a picked statement by its call site, a named face selection included", () => {

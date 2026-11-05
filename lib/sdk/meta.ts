@@ -81,6 +81,33 @@ export type OptionWhen = OptionCase | readonly OptionCase[];
  */
 export type VisibleWhen = { readonly [param: string]: FeatureScalar | readonly FeatureScalar[] | PickCondition };
 
+/**
+ * One conditional default of a typed-in value: the value it takes while
+ * `when` holds — the grammar of an option's `when` ({@link OptionWhen}),
+ * naming typed-in values that declare no `defaults` themselves (one level:
+ * no chains, no circles) and no picked ones.
+ *
+ * A value's `defaults` are read in order: the first entry whose `when`
+ * holds is its default, and its plain `default` applies when none does —
+ * for a call that leaves the value out (worked out from the call's other
+ * values, their own defaults filled), and for a dialog row the user has not
+ * touched, which follows it live. Each `value` is checked as `default` is —
+ * its type, range and options — and must be offered where its `when` holds
+ * while the other values sit at their defaults. A value with `defaults`
+ * needs a plain default to fall back on.
+ *
+ * ```js
+ * height: {
+ *   type: 'length', default: 900, min: 300, max: 3000,
+ *   defaults: [
+ *     { when: { type: 'wall' }, value: 720 },
+ *     { when: { type: 'wardrobe' }, value: 2400 },
+ *   ],
+ * },
+ * ```
+ */
+export type ConditionalDefault<T> = { readonly when: OptionWhen; readonly value: T };
+
 /** What every value declares, in the part parameters' own words where they have them. */
 type ParamCommon = Partial<Pick<ParamDefinition, 'label' | 'description' | 'group'>> & {
   /** The dialog tab the row sits on; rows without one sit above the tabs. */
@@ -105,6 +132,7 @@ type ParamCommon = Partial<Pick<ParamDefinition, 'label' | 'description' | 'grou
 
 export type NumberParamSpec = ParamCommon & Partial<Pick<ParamDefinition, 'min' | 'max' | 'step'>> & {
   type: 'number' | 'integer' | 'length' | 'angle';
+  defaults?: readonly ConditionalDefault<number>[];
   /**
    * Left out, the dialog shows the row empty and asks for a value — unless
    * it is a `slider`: a track always shows a position, so it is then `min`.
@@ -125,6 +153,7 @@ export type BooleanParamSpec = ParamCommon & {
   type: 'boolean';
   /** Left out, `false`: the toggle the dialog shows off. */
   default?: boolean;
+  defaults?: readonly ConditionalDefault<boolean>[];
   /** A `checkbox` in place of the toggle. Left out, the toggle. */
   display?: 'checkbox';
 };
@@ -174,6 +203,7 @@ type SingleSelect = {
    * empty choice.
    */
   default?: string | number;
+  defaults?: readonly ConditionalDefault<string | number>[];
 };
 
 /**
@@ -186,6 +216,7 @@ type MultiSelect = {
   multiple: true;
   /** A list of option values within `min` and `max`. Left out, the empty list — which a `min` above 0 refuses, so that needs one. */
   default?: readonly (string | number)[];
+  defaults?: readonly ConditionalDefault<readonly (string | number)[]>[];
   /** The fewest values the list may hold: a whole number, 0 or more. */
   min?: number;
   /** The most values the list may hold: a whole number, 1 or more, at most the number of options. */
@@ -201,6 +232,7 @@ export type RadioParamSpec = ParamCommon & {
   options: readonly ChoiceOption[];
   /** Left out, the first option's value, unless the value is `optional`: it then stays unset. */
   default?: string | number;
+  defaults?: readonly ConditionalDefault<string | number>[];
   /**
    * How the options are laid out: a `list` of stacked radios (the default),
    * `inline` on one line, a row of `buttons`, or image `cards`.
@@ -213,6 +245,7 @@ export type RadioParamSpec = ParamCommon & {
 export type TextParamSpec = ParamCommon & {
   type: 'text';
   default?: string;
+  defaults?: readonly ConditionalDefault<string>[];
   /** Several lines: Enter is a new line, Ctrl/Cmd+Enter applies. */
   multiline?: boolean;
   /** What the empty input shows. */
@@ -933,6 +966,11 @@ export class FeatureMetas {
   /** The value a call that leaves `spec`'s value out gives the feature (see {@link ValueSchema.defaultOf}). */
   static defaultOf(spec: ParamSpec): FeatureScalar | readonly (string | number)[] | undefined {
     return ValueSchema.defaultOf(spec);
+  }
+
+  /** The value a call that leaves `spec`'s value out gives the feature when its other values are `values` — its conditional defaults read (see {@link ValueSchema.defaultIn}). */
+  static defaultIn(spec: ParamSpec, values: Readonly<Record<string, unknown>>): FeatureScalar | readonly (string | number)[] | undefined {
+    return ValueSchema.defaultIn(spec, values);
   }
 
   /** Whether an option's `when` holds for `values` by name (see {@link ValueSchema.holds}). */

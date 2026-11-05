@@ -186,7 +186,7 @@ export { getFeatureMeta, listFeatureAssets, listFeatureExports, snapshotFeatureM
 export type {
   FeatureMeta, ResolvedFeatureMeta, FeatureMetaSnapshot, FeatureExport, FeatureGroup, FeatureKind, FeatureContext,
   ParamSpec, ParamSpecSnapshot, ScalarParamSpec, ScalarParamType, PickerParamSpec, PickerKind, VisibleWhen,
-  OptionWhen, OptionCase, PickCondition, PickedSurface,
+  OptionWhen, OptionCase, PickCondition, PickedSurface, ConditionalDefault,
   UnionPickerSpec,
 } from './sdk/meta.js';
 export type {

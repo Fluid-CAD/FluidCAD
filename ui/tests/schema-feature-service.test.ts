@@ -434,6 +434,34 @@ describe('a custom feature dialog', () => {
     expect(lastCreate()!.values).toEqual({ style: 'flat', depth: 5 });
   });
 
+  it('writes no value for a row hidden by a visibleWhen that is a list of cases, and writes it while any case holds', async () => {
+    const spec = BRACKET.params;
+    const listed = meta('acme.bracket', 'Bracket', {
+      ...spec,
+      style: { type: 'select', label: 'Style', options: [{ label: 'Flat', value: 'flat' }, { label: 'Gusset', value: 'gusset' }, { label: 'Rib', value: 'rib' }], default: 'flat' },
+      gusset: { type: 'length', label: 'Gusset size', default: 4, visibleWhen: [{ style: 'gusset' }, { style: 'rib', hinge: { picked: false } }] },
+    }, { operations: ['add', 'remove', 'new'], defaultOperation: 'add' });
+    const { service, input, type, pick, lastCreate } = mount(listed);
+    service.enter();
+    const gussetRow = () => input('gusset').closest('[data-param]')!;
+    expect(gussetRow().classList.contains('hidden')).toBe(true);
+    pick('style', 'Rib');
+    expect(gussetRow().classList.contains('hidden')).toBe(false);
+    type('gusset', '6');
+    service.handleTimelinePick(row('sk'));
+    service.handleClick('plate-solid', faceOf('plate-solid', 1).sub);
+    type('depth', '5');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.values).toEqual({ style: 'rib', gusset: 6, depth: 5 });
+    pick('style', 'Gusset');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.values).toEqual({ style: 'gusset', gusset: 6, depth: 5 });
+    pick('style', 'Flat');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(gussetRow().classList.contains('hidden')).toBe(true);
+    expect(lastCreate()!.values).toEqual({ style: 'flat', depth: 5 });
+  });
+
   it('scopes the operation to the solids picked in its scope row, and drops the scope for a separate body', async () => {
     const { service, container, opTab, lastCreate, state } = mount();
     service.enter();

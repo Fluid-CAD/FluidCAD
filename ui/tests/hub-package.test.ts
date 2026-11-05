@@ -397,6 +397,22 @@ describe('FeatureParamTable', () => {
     expect(table.querySelector('[data-param="depth"] [data-role="varies-with"]')).toBeNull();
   });
 
+  it('says when a value shows: one case, a list of cases any one of which holds, a picked value by what it holds', () => {
+    const params = {
+      type: { type: 'radio', label: 'Type', options: [{ label: 'Base', value: 'base' }, { label: 'Wardrobe', value: 'wardrobe' }], default: 'base' },
+      doors: { type: 'boolean', label: 'Doors', default: false },
+      front: { picker: 'face', label: 'Front', optional: true },
+      plinth: { type: 'length', label: 'Plinth', default: 100, visibleWhen: { type: ['base', 'wardrobe'] } },
+      handle: { type: 'length', label: 'Handle', default: 120, visibleWhen: [{ type: 'wardrobe', doors: true }, { type: 'base', front: { picked: true } }] },
+      boss: { type: 'length', label: 'Boss', default: 5, visibleWhen: { front: { not: { surface: 'cylinder' } } } },
+    };
+    const rows = Object.fromEntries(FeatureParamTable.rows({ params }, 'mm').map((r) => [r.name, r]));
+    expect(rows.plinth.shownWhen).toBe('Shown when type is base or wardrobe');
+    expect(rows.handle.shownWhen).toBe('Shown when type is wardrobe and doors is true, or when type is base and front is picked');
+    expect(rows.boss.shownWhen).toBe('Shown when front is not a cylinder face');
+    expect(rows.type.shownWhen).toBeNull();
+  });
+
   it('sets the manifest as text', () => {
     const table = FeatureParamTable.create({ params: { x: { type: 'text', label: '<img src=x onerror=alert(1)>', default: '<b>bold</b>' } } }, 'mm');
     expect(table.querySelector('img')).toBeNull();

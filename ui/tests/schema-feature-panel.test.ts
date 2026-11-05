@@ -943,6 +943,31 @@ describe("the layout tree of a schema dialog", () => {
     expect(panel.fields.get('length')!.visible).toBe(true);
   });
 
+  it('shows a row and an item whose visibleWhen is a list of cases while any one of them holds', () => {
+    const { panel, one, all, set } = open({
+      ...PLATE,
+      params: {
+        type: { type: 'select', label: 'Type', options: [{ label: 'Base', value: 'base' }, { label: 'Wardrobe', value: 'wardrobe' }, { label: 'Wall', value: 'wall' }], default: 'base' },
+        doors: { type: 'boolean', label: 'Doors', default: false },
+        handle: { type: 'length', label: 'Handle', default: 120, visibleWhen: [{ type: 'wardrobe', doors: true }, { type: 'base' }] },
+      },
+      aside: undefined,
+      layout: ['type', 'doors', 'handle', { note: 'Hangs on the wall.', visibleWhen: [{ type: 'wall' }, { type: 'wardrobe', doors: false }] }],
+    });
+    const note = () => !one('[data-role="note"]').classList.contains('hidden');
+    expect(panel.fields.get('handle')!.visible).toBe(true);
+    expect(note()).toBe(false);
+    chooseOption(all('[data-role="value-type"]')[0], 'Wardrobe');
+    expect(panel.fields.get('handle')!.visible).toBe(false);
+    expect(note()).toBe(true);
+    set('doors', el => { el.checked = true; });
+    expect(panel.fields.get('handle')!.visible).toBe(true);
+    expect(note()).toBe(false);
+    chooseOption(all('[data-role="value-type"]')[0], 'Wall');
+    expect(panel.fields.get('handle')!.visible).toBe(false);
+    expect(note()).toBe(true);
+  });
+
   it('arms no slot under a folded section, hands the armed state on when one folds, and arms one it uncovers', () => {
     const { panel, tab, toggle } = open();
     expect(panel.armedSlot).toBe('face');

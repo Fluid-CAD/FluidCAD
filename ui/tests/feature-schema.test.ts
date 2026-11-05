@@ -161,6 +161,21 @@ describe('FeatureSchema', () => {
     expect(schema.isVisible('count', {})).toBe(true);
   });
 
+  it('shows a row whose visibleWhen is a list of cases while any one holds, a picked value read by its picks', () => {
+    const schema = new FeatureSchema(meta({
+      type: { type: 'select', label: 'Type', default: 'base', options: [{ label: 'Base', value: 'base' }, { label: 'Wardrobe', value: 'wardrobe' }] },
+      doors: { type: 'boolean', label: 'Doors', default: false },
+      front: { picker: 'face', label: 'Front', optional: true },
+      handle: { type: 'length', label: 'Handle', default: 120, visibleWhen: [{ type: 'wardrobe', doors: true }, { type: 'base', front: { picked: true } }] },
+    }));
+    expect(schema.isVisible('handle', { type: 'wardrobe', doors: true })).toBe(true);
+    expect(schema.isVisible('handle', { type: 'wardrobe', doors: false })).toBe(false);
+    expect(schema.isVisible('handle', { type: 'base', doors: true, front: { picks: [] } })).toBe(false);
+    expect(schema.isVisible('handle', { type: 'base', front: { picks: ['planar'] } })).toBe(true);
+    expect(FeatureSchema.itemShows({ note: 'n', visibleWhen: [{ type: 'wardrobe' }, { doors: true }] }, { type: 'base', doors: true })).toBe(true);
+    expect(FeatureSchema.itemShows({ note: 'n', visibleWhen: [{ type: 'wardrobe' }, { doors: true }] }, { type: 'base', doors: false })).toBe(false);
+  });
+
   it('opens each typed-in row on the default the engine resolved, and one without any on nothing', () => {
     const schema = new FeatureSchema(VENT);
     expect(schema.defaultOf('count')).toBe(5);

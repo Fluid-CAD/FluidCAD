@@ -1,6 +1,6 @@
 import type { HubParamSpec } from '../../api';
 import { HubImage } from './hub-icons';
-import { ValueConditions, type DefaultsSpec } from '../../../../lib/sdk/value-conditions';
+import { ValueConditions, type Condition, type ConditionOnPicks, type DefaultsSpec } from '../../../../lib/sdk/value-conditions';
 
 /** One option of a select or radio, as the manifest declares it (its image already on the engine's file proxy). */
 type ChoiceOption = { label?: unknown; value?: unknown; image?: unknown };
@@ -297,16 +297,59 @@ export class FeatureParamTable {
     return { control: parts.join(', '), value: suffix === '°' ? `${value}°` : suffix ? `${value} ${suffix}` : String(value), dim: false };
   }
 
-  /** `Shown when standard is iso`, `… head is counterbore or countersink`. */
+  /**
+   * `Shown when standard is iso`, `… head is counterbore or countersink`,
+   * `… type is wardrobe and doors is true, or when type is base` — a list of
+   * cases reads as any one of them; a picked value by what it holds.
+   */
   private static shownWhen(visibleWhen: unknown): string | null {
-    if (visibleWhen === null || typeof visibleWhen !== 'object' || Array.isArray(visibleWhen)) {
+    if (visibleWhen === null || typeof visibleWhen !== 'object') {
       return null;
     }
-    const clauses = Object.entries(visibleWhen as Record<string, unknown>).map(([param, value]) => {
-      const values = (Array.isArray(value) ? value : [value]).map((v) => String(v));
-      return `${param} is ${FeatureParamTable.orList(values)}`;
-    });
-    return clauses.length > 0 ? `Shown when ${clauses.join(' and ')}` : null;
+    const cases = ValueConditions.casesOf(visibleWhen as Condition)
+      .map(each => Object.entries(each).map(([param, value]) => FeatureParamTable.clause(param, value)).join(' and '))
+      .filter(text => text !== '');
+    return cases.length > 0 ? `Shown when ${cases.join(', or when ')}` : null;
+  }
+
+  /** One clause of a `visibleWhen`: `head is counterbore or countersink`, `face is picked`. */
+  private static clause(param: string, value: unknown): string {
+    if (ValueConditions.isPickCondition(value)) {
+      return `${param} ${FeatureParamTable.pickWords(value)}`;
+    }
+    const values = (Array.isArray(value) ? value : [value]).map((v) => String(v));
+    return `${param} is ${FeatureParamTable.orList(values)}`;
+  }
+
+  /** What a picked value's condition asks of it: `is picked`, `holds 2 picks`, `is a cylinder face`, `is not …`. */
+  private static pickWords(condition: ConditionOnPicks): string {
+    const words: string[] = [];
+    if (condition.picked !== undefined) {
+      words.push(condition.picked ? 'is picked' : 'is not picked');
+    }
+    if (condition.count !== undefined) {
+      const counts = (typeof condition.count === 'number' ? [condition.count] : [...condition.count]).map(String);
+      words.push(`holds ${FeatureParamTable.orList(counts)} picks`);
+    }
+    if (condition.surface !== undefined) {
+      const surfaces = typeof condition.surface === 'string' ? [condition.surface] : [...condition.surface];
+      words.push(`is ${FeatureParamTable.article(FeatureParamTable.orList(surfaces))} face`);
+    }
+    if (condition.not !== undefined) {
+      words.push(FeatureParamTable.negated(FeatureParamTable.pickWords(condition.not)));
+    }
+    return words.length > 0 ? words.join(' and ') : 'is anything';
+  }
+
+  /** `is a cylinder face` → `is not a cylinder face`, `holds 3 picks` → `does not hold 3 picks`. */
+  private static negated(words: string): string {
+    if (words.startsWith('is not ')) {
+      return `is ${words.slice('is not '.length)}`;
+    }
+    if (words.startsWith('is ')) {
+      return `is not ${words.slice('is '.length)}`;
+    }
+    return `does not ${words.replace(/^holds/, 'hold')}`;
   }
 
   private static andList(words: string[]): string {

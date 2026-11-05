@@ -7276,10 +7276,14 @@ export type FeaturePickCondition = {
 };
 
 /**
- * When a value's row shows: every named typed-in value equals the given one,
- * or one of the listed ones, and every named picked value meets its condition.
+ * One case a value's row shows in: every named typed-in value equals the
+ * given one, or one of the listed ones, and every named picked value meets
+ * its condition.
  */
-export type FeatureVisibleWhen = Record<string, FeatureScalarValue | FeatureScalarValue[] | FeaturePickCondition>;
+export type FeatureVisibleCase = Record<string, FeatureScalarValue | FeatureScalarValue[] | FeaturePickCondition>;
+
+/** When a value's row shows: one case, or a list of cases of which any one holds. */
+export type FeatureVisibleWhen = FeatureVisibleCase | FeatureVisibleCase[];
 
 /** One case an option is offered in: every named typed-in value equals the given one, or one of the listed ones. */
 export type FeatureOptionCase = Record<string, FeatureScalarValue | FeatureScalarValue[]>;

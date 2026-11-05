@@ -74,12 +74,19 @@ export type OptionCase = { readonly [param: string]: FeatureScalar | readonly Fe
 export type OptionWhen = OptionCase | readonly OptionCase[];
 
 /**
- * When a value's row (or a layout item) shows: every named typed-in value
- * must equal the given one, or one of the listed ones, and every named picked
- * value must meet its {@link PickCondition} —
+ * One case a value's row (or a layout item) shows in: every named typed-in
+ * value must equal the given one, or one of the listed ones, and every named
+ * picked value must meet its {@link PickCondition} —
  * `{ style: ['counterbore', 'countersink'], at: { not: { surface: 'cylinder' } } }`.
  */
-export type VisibleWhen = { readonly [param: string]: FeatureScalar | readonly FeatureScalar[] | PickCondition };
+export type VisibleCase = { readonly [param: string]: FeatureScalar | readonly FeatureScalar[] | PickCondition };
+
+/**
+ * When a value's row (or a layout item) shows: one {@link VisibleCase}, or a
+ * list of them of which any one holds —
+ * `[{ type: 'wardrobe', doors: 'hinged' }, { type: 'base', front: { picked: true } }]`.
+ */
+export type VisibleWhen = VisibleCase | readonly VisibleCase[];
 
 /**
  * One conditional default of a typed-in value: the value it takes while
@@ -973,8 +980,8 @@ export class FeatureMetas {
     return ValueSchema.defaultIn(spec, values);
   }
 
-  /** Whether an option's `when` holds for `values` by name (see {@link ValueSchema.holds}). */
-  static holds(when: OptionWhen | undefined, values: Readonly<Record<string, unknown>>): boolean {
+  /** Whether an option's `when` or a `visibleWhen` holds for `values` by name (see {@link ValueSchema.holds}). */
+  static holds(when: OptionWhen | VisibleWhen | undefined, values: Readonly<Record<string, unknown>>): boolean {
     return ValueSchema.holds(when, values);
   }
 

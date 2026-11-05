@@ -195,6 +195,10 @@ describe("an author's layout", () => {
     refuses([...rest(), { note: 'Hi', visibleWhen: { finishes: 'm3' } }], "layout: note 'Hi': 'visibleWhen' names 'finishes', a select with 'multiple: true' — it can only name a value that holds one thing");
     // A section may hide on a value it holds: it names no value of its own.
     expect(() => resolved({ layout: [...rest('through'), { section: 'Depth', items: ['through'], visibleWhen: { through: true } }] })).not.toThrow();
+    // A list of cases, any one holding: each checked as one object is, an empty list refused.
+    expect(() => resolved({ layout: [...rest('count', 'start'), { row: ['count', 'start'], visibleWhen: [{ through: true }, { around: { picked: true } }] }] })).not.toThrow();
+    refuses([...rest(), { note: 'Hi', visibleWhen: [] }], "layout: note 'Hi': 'visibleWhen': the list is empty — list the cases it shows in, such as [{ type: 'wardrobe' }, { type: 'base', doors: true }], or leave 'visibleWhen' off to always show it");
+    refuses([...rest(), { note: 'Hi', visibleWhen: [{ through: true }, { through: 'yes' }] }], `layout: note 'Hi': 'visibleWhen'[1]: "yes" is not a value 'through' can take`);
   });
 });
 

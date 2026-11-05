@@ -15,7 +15,7 @@ import type { FeatureLayoutChecks } from "./layout.js";
 import { ValueConditions } from "./value-conditions.js";
 import type {
   ChoiceOption, ConditionalDefault, MultiSelectParamSpec, NumberParamSpec, OptionCase, OptionWhen, ParamSpec, ParamSpecSnapshot, PickCondition,
-  PickedSurface, PickerKind, PickerParamSpec, RadioParamSpec, ScalarParamSpec, ScalarParamType, SelectParamSpec, TextParamSpec,
+  PickedSurface, PickerKind, PickerParamSpec, RadioParamSpec, ScalarParamSpec, ScalarParamType, SelectParamSpec, TextParamSpec, VisibleWhen,
 } from "./meta.js";
 
 /** The surfaces a {@link PickCondition} may name. */
@@ -164,7 +164,7 @@ export class SchemaValidator {
     }
     for (const [name, spec] of Object.entries(out)) {
       if (spec.visibleWhen !== undefined) {
-        this.clauses(`param '${name}': 'visibleWhen'`, name, spec.visibleWhen, out, true);
+        this.visibleWhen(`param '${name}': 'visibleWhen'`, name, spec.visibleWhen, out);
       }
       for (const option of SchemaValidator.optionsOf(spec)) {
         if (option.when !== undefined) {
@@ -193,7 +193,7 @@ export class SchemaValidator {
     return {
       params,
       fail: message => this.fail(message),
-      clauses: (where, value) => this.clauses(where, '', value, params, true),
+      visibleWhen: (where, value) => this.visibleWhen(where, '', value, params),
       image: image ?? ((value, where) => this.image(value, 'image', where)),
       describe: value => SchemaValidator.describe(value),
     };
@@ -775,7 +775,31 @@ export class SchemaValidator {
   }
 
   /**
-   * The clauses of a `visibleWhen` or of an option's `when`: each names
+   * A `visibleWhen`: one object of clauses, or a non-empty list of them of
+   * which any one holds, each checked as one is — picked values named too.
+   */
+  private visibleWhen(where: string, name: string, value: unknown, params: Record<string, ParamSpec>): void {
+    if (!Array.isArray(value)) {
+      this.clauses(where, name, value, params, true);
+      return;
+    }
+    if (value.length === 0) {
+      this.fail(`${where}: the list is empty — list the cases it shows in, such as [{ type: 'wardrobe' }, { type: 'base', doors: true }], or leave 'visibleWhen' off to always show it`);
+    }
+    value.forEach((each, index) => {
+      const at = `${where}[${index}]`;
+      if (!FeatureCall.isPlainObject(each)) {
+        this.fail(`${at} must be an object of values to match, such as { type: 'base', doors: true }, got ${SchemaValidator.describe(each)}`);
+      }
+      if (Object.keys(each).length === 0) {
+        this.fail(`${at} is empty, which would show it whatever the other values are — name the values it waits on, or leave 'visibleWhen' off to always show it`);
+      }
+      this.clauses(at, name, each, params, true);
+    });
+  }
+
+  /**
+   * The clauses of one case of a `visibleWhen` or of an option's `when`: each names
    * another typed-in value, compared with values of its own type — or, in a
    * `visibleWhen` (`picks`), a picked value with a {@link PickCondition}.
    */
@@ -1271,11 +1295,11 @@ export class ValueSchema {
   }
 
   /**
-   * Whether an option's `when` holds for `values` by name: every clause of
-   * one object, or of any one of a list. A value that is not there holds no
-   * clause; no clauses always hold.
+   * Whether an option's `when` or a `visibleWhen` holds for `values` by
+   * name: every clause of one object, or of any one of a list. A value that
+   * is not there holds no clause; no clauses always hold.
    */
-  static holds(when: OptionWhen | undefined, values: Readonly<Record<string, unknown>>): boolean {
+  static holds(when: OptionWhen | VisibleWhen | undefined, values: Readonly<Record<string, unknown>>): boolean {
     return ValueConditions.holds(when, values);
   }
 

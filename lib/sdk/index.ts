@@ -90,7 +90,7 @@ export type {
 } from "./layout.js";
 export type {
   FeatureMeta, FeatureGroup, FeatureKind, FeatureContext, FeatureGhostMode, ParamSpec, ScalarParamSpec, ScalarParamType,
-  NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, ChoiceOption, TextParamSpec, PickerParamSpec, PickerKind, VisibleWhen,
+  NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, ChoiceOption, TextParamSpec, PickerParamSpec, PickerKind, VisibleWhen, VisibleCase,
   OptionWhen, OptionCase, PickCondition, PickedSurface, ConditionalDefault,
   SketchPickerSpec, FacePickerSpec, EdgePickerSpec, AxisPickerSpec, PlanePickerSpec, SolidPickerSpec, FeaturePickerSpec,
   ConnectorPickerSpec, PointPickerSpec, AnchorPickerSpec, UnionPickerSpec,

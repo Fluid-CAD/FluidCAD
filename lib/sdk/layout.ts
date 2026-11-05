@@ -71,8 +71,8 @@ export type FeatureDialogWidth = 'wide' | 'wider';
 export type FeatureLayoutChecks = {
   params: Record<string, ParamSpec>;
   fail(message: string): never;
-  /** The clauses of a `visibleWhen`, checked like a value's. */
-  clauses(where: string, value: unknown): void;
+  /** A `visibleWhen` — one case or a list of them — checked like a value's. */
+  visibleWhen(where: string, value: unknown): void;
   /** A declared image: `${where}'image'` names it in a refusal. */
   image(value: unknown, where: string): string;
   describe(value: unknown): string;
@@ -271,7 +271,7 @@ export class FeatureLayouts {
     }
     const where = `${at}${name}: `;
     if (entry.visibleWhen !== undefined) {
-      this.checks.clauses(`${where}'visibleWhen'`, entry.visibleWhen);
+      this.checks.visibleWhen(`${where}'visibleWhen'`, entry.visibleWhen);
     }
     this[kind](entry, where, at);
   }

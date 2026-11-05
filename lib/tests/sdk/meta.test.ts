@@ -280,6 +280,40 @@ describe("feature metadata refusals", () => {
     refuses(params({}), /'visibleWhen' must be an object of values to match/);
   });
 
+  it("take a visibleWhen that is a list of cases, any one holding — each checked as one object is", () => {
+    const params = (visibleWhen: unknown) => bossMeta({
+      params: {
+        face: { picker: 'face' },
+        style: { type: 'select', options: [{ label: 'Plain', value: 'plain' }, { label: 'Ribbed', value: 'ribbed' }] },
+        thin: { type: 'boolean' },
+        ribs: { type: 'integer', default: 4, visibleWhen },
+      },
+      call: ['face', { style: 'style', thin: 'thin', ribs: 'ribs' }],
+    });
+    const at = "feature 'acme.boss': param 'ribs': 'visibleWhen'";
+    expect(() => register(params([{ style: 'ribbed', thin: true }, { style: 'plain', face: { surface: 'cylinder' } }]))).not.toThrow();
+    expect(() => register(params([{ face: { picked: true } }]))).not.toThrow();
+    refuses(params([]), `${at}: the list is empty — list the cases it shows in, such as [{ type: 'wardrobe' }, { type: 'base', doors: true }], or leave 'visibleWhen' off to always show it`);
+    refuses(params([{ style: 'plain' }, {}]), `${at}[1] is empty, which would show it whatever the other values are — name the values it waits on, or leave 'visibleWhen' off to always show it`);
+    refuses(params([{ style: 'plain' }, 'ribbed']), `${at}[1] must be an object of values to match, such as { type: 'base', doors: true }, got 'ribbed'`);
+    refuses(params([{ style: 'plain' }, { style: 'fluted' }]), `${at}[1]: "fluted" is not a value 'style' can take`);
+    refuses(params([{ shape: 'x' }]), `${at}[0] names 'shape', which is not one of the feature's values`);
+    refuses(params([{ style: 'plain' }, { ribs: 3 }]), `${at}[1] names the value itself`);
+    refuses(params([{ face: { picked: 'yes' } }]), `${at}[0]: 'face': 'picked' must be true or false, got 'yes'`);
+    // The snapshot carries the list as written.
+    const snapshot = snapshotFeatureMeta(params([{ style: 'ribbed' }, { face: { picked: true } }]));
+    expect((snapshot.params as Record<string, { visibleWhen?: unknown }>).ribs.visibleWhen).toEqual([{ style: 'ribbed' }, { face: { picked: true } }]);
+  });
+
+  it("hold a visibleWhen list when any one case does", () => {
+    const when = [{ type: 'wardrobe', doors: 'hinged' }, { type: 'base', front: { picked: true } }];
+    expect(FeatureMetas.holds(when, { type: 'wardrobe', doors: 'hinged' })).toBe(true);
+    expect(FeatureMetas.holds(when, { type: 'wardrobe', doors: 'none' })).toBe(false);
+    expect(FeatureMetas.holds(when, { type: 'base', front: { picks: [] } })).toBe(false);
+    expect(FeatureMetas.holds(when, { type: 'base', front: { picks: ['planar'] } })).toBe(true);
+    expect(FeatureMetas.holds(when, { type: 'base' })).toBe(false);
+  });
+
   it("tell picked values apart by what they hold", () => {
     expect(FeatureMetas.pickHolds({ picked: true }, [])).toBe(false);
     expect(FeatureMetas.pickHolds({ picked: false }, [])).toBe(true);

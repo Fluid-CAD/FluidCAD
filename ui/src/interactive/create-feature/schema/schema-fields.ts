@@ -39,17 +39,24 @@ export interface SchemaFieldContext {
 
 const LABEL_CLASS = 'text-base-content/70';
 const INPUT_CLASS = 'input input-sm input-bordered w-full text-xs';
-/** A row's label line: the label, and the ƒ toggle at the far end. */
-const LABEL_LINE_CLASS = 'flex items-center justify-between gap-2';
+/**
+ * A row's label line: the label, and the ƒ toggle at the far end where the
+ * row has one. Every line is at least the toggle's height (h-5), with or
+ * without it, so the controls of a layout row's cells start level.
+ */
+const LABEL_LINE_CLASS = 'flex items-center justify-between gap-2 min-h-5';
 
-/** The label line of a row that takes an expression: its label, and the mode's ƒ toggle at the far end. */
-function labelLine(label: string, mode: ExpressionMode): HTMLElement {
+/** A row's label line: its label, and the mode's ƒ toggle at the far end when it takes an expression. */
+function labelLine(label: string, mode?: ExpressionMode): HTMLElement {
   const line = document.createElement('div');
   line.className = LABEL_LINE_CLASS;
   const text = document.createElement('span');
   text.className = LABEL_CLASS;
   text.textContent = label;
-  line.append(text, mode.toggle);
+  line.append(text);
+  if (mode) {
+    line.append(mode.toggle);
+  }
   return line;
 }
 
@@ -257,9 +264,7 @@ class NumberField extends SchemaField {
     super(name, spec);
     this.look = spec as FeatureNumberSpec;
     this.row.className = 'flex flex-col gap-1.5';
-    const label = document.createElement('span');
-    label.className = LABEL_CLASS;
-    label.textContent = spec.label + NumberField.unitHint(this.look);
+    const label = labelLine(spec.label + NumberField.unitHint(this.look));
     const input = document.createElement('input');
     input.dataset.role = `value-${name}`;
     input.type = 'number';

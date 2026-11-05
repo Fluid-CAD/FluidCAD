@@ -127,6 +127,24 @@ describe('a stepper', () => {
   });
 });
 
+describe('the label line', () => {
+  it('is as tall as the ƒ toggle on every row that has one, toggle or not, so a layout row\'s controls start level', () => {
+    const specs: FeatureScalarParam[] = [
+      { type: 'number', label: 'Shelves' },
+      { type: 'length', label: 'Width' },
+      { type: 'angle', label: 'Turn' },
+      { type: 'select', label: 'Section', options: [{ value: 'open', label: 'Open' }] },
+      { type: 'radio', label: 'Side', options: [{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }] },
+      { type: 'text', label: 'Name' },
+    ];
+    for (const spec of specs) {
+      const line = field(spec).row.row.firstElementChild as HTMLElement;
+      expect([spec.type, line.tagName, line.classList.contains('min-h-5')]).toEqual([spec.type, 'DIV', true]);
+      expect(line.querySelector('span')!.textContent).toContain(spec.label);
+    }
+  });
+});
+
 describe('a suffix, a checkbox and a hint', () => {
   it('shows a suffix in place of an angle\'s unit, and keeps the unit without one', () => {
     expect(field({ type: 'angle', label: 'Turn' }).row.row.querySelector('span')!.textContent).toBe('Turn (°)');

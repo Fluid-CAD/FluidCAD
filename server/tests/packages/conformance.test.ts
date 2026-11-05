@@ -165,10 +165,14 @@ describe('package conformance fixtures', () => {
     expect(await filesOf('no-docs.fluidpkg')).toEqual(valid.filter((f) => !f.startsWith('docs/')));
   });
 
-  it('carry the generated package (definePart and defineAssembly, hub-generators HG-S3), and the one whose schema declares an image it lacks', async () => {
+  it('carry the generated package (definePart and defineAssembly, hub-generators HG-S3), the one whose schema declares an image it lacks, and the when-grammar ones (conditional defaults, visibleWhen lists)', async () => {
     const { archives } = readJson<Expected>(path.join(KEPT, 'expected.json'));
     expect(archives['generated.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'ok' });
     expect(archives['bad-generated-image.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'bad-icon' });
+    // The when grammar of the cabinets 2.0.0 SDK: FluidCAD installs each manifest; the hub takes the declarations the SDK takes.
+    expect(archives['generated-conditions.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'ok' });
+    expect(archives['bad-generated-defaults.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'bad-params' });
+    expect(archives['bad-generated-visible-when.fluidpkg']).toMatchObject({ verdict: 'ok', hub: 'bad-params' });
     const root = path.join(scratch, 'generated-root');
     fs.mkdirSync(root, { recursive: true });
     const inspection = await PackageArchive.inspect(fs.readFileSync(path.join(out, 'archives', 'generated.fluidpkg')), { root, engineVersion: '0.0.46' });

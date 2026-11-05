@@ -221,6 +221,27 @@
       "integrity": "sha256-GxpPgjHEGcMLCWyEsS+vLntNVmMlDlGtx/iKlY3FGQM=",
       "warnings": [],
       "hub": "bad-icon"
+    },
+    "generated-conditions.fluidpkg": {
+      "about": "the generated package whose schemas use conditional defaults (the crate's height 25 while closed; the spur's width 12 when helical, 8 for 12 or 16 teeth of spur) and visibleWhen lists (the crate's depth while open or 20 high; the spur's module when helical, or spur with 24 teeth): what a definition declaring them packs to; both sides take it",
+      "verdict": "ok",
+      "integrity": "sha256-HhH9IHoluXgp1mo5NZ3CrIIdBQj1G/LNu3RnDuN57kQ=",
+      "warnings": [],
+      "hub": "ok"
+    },
+    "bad-generated-defaults.fluidpkg": {
+      "about": "the spur's width defaults on its teeth, whose own defaults wait on the style: a chain, which the SDK refuses (a conditional default waits only on values whose default is fixed); FluidCAD installs the manifest, the hub refuses it",
+      "verdict": "ok",
+      "integrity": "sha256-dW0enslFvzMFx5SkRHz49WTURgxTU6z/CvUqN0duVy4=",
+      "warnings": [],
+      "hub": "bad-params"
+    },
+    "bad-generated-visible-when.fluidpkg": {
+      "about": "the spur's module with visibleWhen: [], an empty list of cases, which the SDK refuses by name; FluidCAD installs the manifest, the hub refuses it",
+      "verdict": "ok",
+      "integrity": "sha256-CkWOSpYT9vIMdKOCyrk3yqAmF512ntvpV74jJai0THI=",
+      "warnings": [],
+      "hub": "bad-params"
     }
   }
 }

@@ -17,8 +17,10 @@ import JSZip from 'jszip';
  *   hand-made archives FluidCAD's check passes but the hub refuses (its
  *   layout, `docs/` and identity rules); then a generated package packed
  *   from `server/tests/fixtures/generated-workspace` (a `definePart` and a
- *   `defineAssembly`, their schemas' images resolved package-relative) and
- *   the hand-made archive the hub refuses for a schema image it lacks. Every
+ *   `defineAssembly`, their schemas' images resolved package-relative),
+ *   the hand-made archive the hub refuses for a schema image it lacks, and
+ *   the when-grammar ones (conditional defaults and visibleWhen lists: one
+ *   the SDK takes, one chain and one empty list it refuses). Every
  *   package is `@acme/kit` (HD30: the manifest holds the scoped name; the
  *   generated workspace is renamed as it is copied), with plain feature
  *   ids; the hub's tests upload them at `@acme/kit`;
@@ -413,7 +415,44 @@ class PackageConformance {
           crate.images = crate.images.filter((f) => f !== icon);
         }),
       },
+      // ---- the when grammar of the cabinets 2.0.0 SDK: conditional defaults and visibleWhen lists ----
+      {
+        file: 'generated-conditions.fluidpkg',
+        about: 'the generated package whose schemas use conditional defaults (the crate\'s height 25 while closed; the spur\'s width 12 when helical, 8 for 12 or 16 teeth of spur) and visibleWhen lists (the crate\'s depth while open or 20 high; the spur\'s module when helical, or spur with 24 teeth): what a definition declaring them packs to; both sides take it',
+        fluidcad: 'ok', hub: 'ok',
+        build: withManifest((m) => {
+          const { crate, spur } = PackageConformance.generatedParams(m);
+          crate.height.defaults = [{ when: { finish: 'closed' }, value: 25 }];
+          crate.depth.visibleWhen = [{ finish: 'open' }, { height: 20 }];
+          spur.width.defaults = [{ when: { style: 'helical' }, value: 12 }, { when: [{ style: 'spur', teeth: [12, 16] }], value: 8 }];
+          spur.module.visibleWhen = [{ style: 'helical' }, { style: 'spur', teeth: 24 }];
+        }),
+      },
+      {
+        file: 'bad-generated-defaults.fluidpkg',
+        about: 'the spur\'s width defaults on its teeth, whose own defaults wait on the style: a chain, which the SDK refuses (a conditional default waits only on values whose default is fixed); FluidCAD installs the manifest, the hub refuses it',
+        fluidcad: 'ok', hub: 'bad-params',
+        build: withManifest((m) => {
+          const { spur } = PackageConformance.generatedParams(m);
+          spur.teeth.defaults = [{ when: { style: 'helical' }, value: 30 }];
+          spur.width.defaults = [{ when: { teeth: 30 }, value: 12 }];
+        }),
+      },
+      {
+        file: 'bad-generated-visible-when.fluidpkg',
+        about: 'the spur\'s module with visibleWhen: [], an empty list of cases, which the SDK refuses by name; FluidCAD installs the manifest, the hub refuses it',
+        fluidcad: 'ok', hub: 'bad-params',
+        build: withManifest((m) => {
+          PackageConformance.generatedParams(m).spur.module.visibleWhen = [];
+        }),
+      },
     ];
+  }
+
+  /** The generated package's schema values by export, for the fixtures that edit them. */
+  static generatedParams(manifest) {
+    const params = (exportName) => manifest.parts.find((p) => p.exportName === exportName).schema.params;
+    return { crate: params('crate'), spur: params('spurPart') };
   }
 
   /** `PackageArchive.inspect`'s verdict: `{ verdict: 'ok', integrity, warnings }` or `{ verdict: <code> }`. */

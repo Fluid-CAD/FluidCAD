@@ -12,6 +12,7 @@ import { ModuleSpecifiers } from '../../files/module-specifiers.ts';
 import { CallShapeMismatch, FeatureCall } from '../../../../lib/dist/sdk/call-shape.js';
 import type { CallArgument, CallOperation, CallReader, CallShape, FeatureOperation } from '../../../../lib/dist/sdk/call-shape.js';
 import type { FeatureMetaSnapshot } from '../../../../lib/dist/index.js';
+import { ValueConditions, type ConditionalDefault } from '../../../../lib/dist/sdk/value-conditions.js';
 import { renderSolvedTarget, type SolvedEmissionTarget } from '../../../../lib/dist/selection/sketch-target.js';
 import { connectorInstanceRead, resolveRepeatTargetRef, stringArgValue } from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';
@@ -23,12 +24,28 @@ import { validValueExpr, type ValueExpr } from '../value-expr.ts';
 import type { RepeatEditTargetSource } from './repeat.ts';
 import { TypedInKinds, type TypedInValue } from './typed-in-kinds.ts';
 
+/** A typed-in value as a statement may write it: a number, a string, a boolean, a multi-select's list. */
+export type CustomDefaultValue = number | string | boolean | (string | number)[];
+
 /**
  * One value of a custom feature, as its statement reads: typed in (its
- * type), or picked (its picker kind); a typed-in value's default is what a
- * call that leaves it out ahead of a later argument writes in its place.
+ * type), or picked (its picker kind). A typed-in value's default — its
+ * first conditional default (`defaults`) whose `when` holds for the call's
+ * other values, else its plain `default` — is what a call that leaves it
+ * out ahead of a later argument writes in its place; a value with
+ * `defaults` the dialog sets equal to it is left out of the call.
  */
-export type CustomParamKind = { type?: string; picker?: string | string[]; list: boolean; multiple?: boolean; default?: number | string | boolean | (string | number)[] };
+export type CustomParamKind = {
+  type?: string;
+  picker?: string | string[];
+  list: boolean;
+  multiple?: boolean;
+  default?: CustomDefaultValue;
+  defaults?: ConditionalDefault<CustomDefaultValue>[];
+};
+
+/** A value of the call that is not a literal (an expression, a variable): what it holds is not known when the statement is written. */
+const UNKNOWN = Symbol('unknown');
 
 /**
  * How a custom feature's statements are laid out — from the catalog's
@@ -224,11 +241,90 @@ export class CustomFeatureStatement {
       }
       const fallback = TypedInKinds.defaultOf(declared.default);
       const multiple = declared.type === 'select' && declared.multiple === true ? { multiple: true } : {};
-      params[name] = fallback !== undefined
-        ? { type: declared.type, list: false, ...multiple, default: fallback }
-        : { type: declared.type, list: false, ...multiple };
+      const defaults = CustomFeatureStatement.defaultsOf((declared as { defaults?: unknown }).defaults);
+      params[name] = {
+        type: declared.type, list: false, ...multiple,
+        ...(fallback !== undefined ? { default: fallback } : {}),
+        ...(defaults.length > 0 ? { defaults } : {}),
+      };
     }
     return { call: meta.call, operations: [...(meta.operations ?? [])], params };
+  }
+
+  /** A snapshot's `defaults` as a statement's shape keeps them: each `{ when, value }` whose value a statement can write. */
+  private static defaultsOf(declared: unknown): ConditionalDefault<CustomDefaultValue>[] {
+    if (!Array.isArray(declared)) {
+      return [];
+    }
+    return declared.flatMap(entry => {
+      const value = TypedInKinds.defaultOf(entry?.value);
+      return entry && typeof entry.when === 'object' && entry.when !== null && value !== undefined ? [{ when: entry.when, value }] : [];
+    });
+  }
+
+  /**
+   * The typed-in values the statement will hold, by name, as far as they
+   * are literals: what the dialog sets, else (an edit) what the statement
+   * keeps; {@link UNKNOWN} for an expression or a variable, and undefined
+   * for a value the call leaves out.
+   */
+  private static callLiterals(
+    shape: CustomFeatureShape,
+    options: CustomFeatureOptions,
+    parsed: ParsedCustomFeature | null,
+  ): Record<string, unknown> {
+    const literals: Record<string, unknown> = {};
+    for (const [param, kind] of Object.entries(shape.params)) {
+      if (kind.picker !== undefined) {
+        continue;
+      }
+      const source = options.values[param];
+      const numeric = TypedInKinds.of(kind.type, kind.multiple)?.expression === true;
+      let value: unknown;
+      if (source?.kind === 'value') {
+        value = typeof source.value === 'number' ? source.value : UNKNOWN;
+      } else if (source?.kind === 'literal') {
+        value = source.value;
+      } else if (source?.kind === 'list') {
+        value = [...source.values];
+      } else if (source?.kind === 'keep' && parsed && param in parsed.values) {
+        const kept = parsed.values[param];
+        value = typeof kept === 'number' || (!numeric && (typeof kept === 'string' || typeof kept === 'boolean' || Array.isArray(kept))) ? kept : UNKNOWN;
+      }
+      literals[param] = value;
+    }
+    return literals;
+  }
+
+  /**
+   * A typed-in value's default under the call's other values: its first
+   * conditional default whose `when` holds — the others left out at their
+   * own defaults — else its plain default. Undefined when it has none, or
+   * when a value its `defaults` name is not a literal, so which applies is
+   * not known.
+   */
+  private static defaultIn(shape: CustomFeatureShape, param: string, literals: Record<string, unknown>): CustomDefaultValue | undefined {
+    const kind = shape.params[param];
+    if (!kind || kind.picker !== undefined) {
+      return undefined;
+    }
+    const named = ValueConditions.namedByDefaults(kind);
+    const values: Record<string, unknown> = {};
+    for (const other of named) {
+      const value = literals[other] === undefined ? shape.params[other]?.default : literals[other];
+      if (value === UNKNOWN) {
+        return undefined;
+      }
+      values[other] = value;
+    }
+    return ValueConditions.defaultIn(kind, values, kind.default);
+  }
+
+  /** Whether the value the call holds for `param` is a literal equal to its default under the call's other values. */
+  private static isDefault(shape: CustomFeatureShape, param: string, literals: Record<string, unknown>): boolean {
+    const value = literals[param];
+    const fallback = CustomFeatureStatement.defaultIn(shape, param, literals);
+    return value !== undefined && value !== UNKNOWN && fallback !== undefined && ValueConditions.same(value, fallback);
   }
 
   /** The create spec's own refusal, or null when it can render. */
@@ -325,6 +421,23 @@ export class CustomFeatureStatement {
       }
     }
 
+    // A value with conditional defaults the dialog sets to what the call
+    // would give it anyway — its default under the call's other values — is
+    // left out, so it keeps following them (`height` after `type`); written,
+    // it would stay put when they change. A value whose default is fixed
+    // means the same either way and is written as set. What a left-out
+    // value ahead of a later argument writes in its place is its default
+    // under the call's values too.
+    const literals = CustomFeatureStatement.callLiterals(shape, options, parsed);
+    for (const param of call.params()) {
+      const source = options.values[param];
+      if (source && (source.kind === 'value' || source.kind === 'literal' || source.kind === 'list')
+        && ValueConditions.hasDefaults(shape.params[param]) && CustomFeatureStatement.isDefault(shape, param, literals)) {
+        delete values[param];
+        literals[param] = undefined;
+      }
+    }
+
     let operation: CallOperation<string> | undefined;
     if (shape.operations.length > 0) {
       const scope = CustomFeatureStatement.scopeExprs(spec as ApplyFeatureEditSpec, options.scope, parsed, varFor);
@@ -347,7 +460,7 @@ export class CustomFeatureStatement {
       // A value left out ahead of a later argument writes its default rather
       // than `undefined`: `draft(5, e.sideFaces())`.
       layout = call.layout<string>(values, operation, {
-        placeholder: param => TypedInKinds.defaultText(shape.params[param]?.default),
+        placeholder: param => TypedInKinds.defaultText(CustomFeatureStatement.defaultIn(shape, param, literals)),
       });
     } catch (error) {
       return { error: (error as Error).message };

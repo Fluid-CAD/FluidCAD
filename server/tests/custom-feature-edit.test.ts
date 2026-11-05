@@ -1234,3 +1234,80 @@ describe('an expression in place of a literal, on every typed-in kind', () => {
     return parseFeatureStatement(code, 3, await catalog().calleesFor(code, MODEL));
   }
 });
+
+describe("conditional defaults: a value whose default follows another's", () => {
+  /** A cabinet: its height's default follows its type; positional, so a left-out height ahead of the depth writes its default. */
+  const CABINET_META = {
+    id: 'acme.cabinet', label: 'Cabinet', group: 'create', kind: 'tool', operations: [],
+    params: {
+      type: { type: 'radio', label: 'Type', default: 'base', options: [{ label: 'Base', value: 'base' }, { label: 'Wall', value: 'wall' }, { label: 'Wardrobe', value: 'wardrobe' }] },
+      height: {
+        type: 'length', label: 'Height', default: 900, min: 300, max: 3000,
+        defaults: [{ when: { type: 'wall' }, value: 720 }, { when: { type: 'wardrobe' }, value: 2400 }],
+      },
+      depth: { type: 'length', label: 'Depth', default: 560 },
+      note: { type: 'text', label: 'Note', optional: true },
+    },
+    call: ['type', 'height', 'depth', { note: 'note' }],
+    ghost: true, contexts: ['part'],
+  } as unknown as ScannedFeature['meta'];
+  MODULES['/ws/cabinet.feature.js'] = [{ exportName: 'cabinet', meta: CABINET_META }];
+
+  function create(values: CustomFeatureOptions['values']): ApplyFeatureEditSpec {
+    return {
+      feature: 'custom', filePath: MODEL, producers: [], parts: [], imports: [],
+      custom: { id: 'acme.cabinet', exportName: 'cabinet', modulePath: '/ws/cabinet.feature.js', shape: CustomFeatureStatement.shapeOf(CABINET_META), values },
+    };
+  }
+  function edit(code: string, values: CustomFeatureOptions['values']) {
+    return applyFeatureEdit(code, { feature: 'custom', filePath: MODEL, producers: [], parts: [], imports: [], edit: { line: 3, column: 0, custom: { id: 'acme.cabinet', values } } }, { callees: catalog() });
+  }
+  const keepAll = { type: { kind: 'keep' }, height: { kind: 'keep' }, depth: { kind: 'keep' }, note: { kind: 'keep' } } as const;
+
+  it("carries the defaults into the statement's shape", () => {
+    expect(CustomFeatureStatement.shapeOf(CABINET_META).params.height).toEqual({
+      type: 'length', list: false, default: 900, defaults: [{ when: { type: 'wall' }, value: 720 }, { when: { type: 'wardrobe' }, value: 2400 }],
+    });
+  });
+
+  it("leaves a value set to its default under the call's other values out of the call", async () => {
+    const wall = await applyFeatureEdit(PLATE, create({ type: { kind: 'literal', value: 'wall' }, height: { kind: 'value', value: 720 } }), { callees: catalog() });
+    expect(wall.error).toBeUndefined();
+    expect(wall.newCode).toContain(`\ncabinet('wall')\n`);
+    const base = await applyFeatureEdit(PLATE, create({ height: { kind: 'value', value: 900 }, note: { kind: 'literal', value: 'n' } }), { callees: catalog() });
+    expect(base.newCode).toContain(`\ncabinet({ note: 'n' })\n`);
+  });
+
+  it('writes a value that differs from its default there, and one the call cannot tell (an expression names the type)', async () => {
+    const tall = await applyFeatureEdit(PLATE, create({ type: { kind: 'literal', value: 'wall' }, height: { kind: 'value', value: 900 } }), { callees: catalog() });
+    expect(tall.newCode).toContain(`\ncabinet('wall', 900)\n`);
+    const unknown = await applyFeatureEdit(PLATE, create({ type: { kind: 'value', value: 'kind' }, height: { kind: 'value', value: 720 } }), { callees: catalog() });
+    expect(unknown.newCode).toContain(`\ncabinet(kind, 720)\n`);
+  });
+
+  it("writes a left-out value ahead of a later argument as its default under the call's values", async () => {
+    const result = await applyFeatureEdit(PLATE, create({ type: { kind: 'literal', value: 'wardrobe' }, depth: { kind: 'value', value: 600 } }), { callees: catalog() });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`\ncabinet('wardrobe', 2400, 600)\n`);
+  });
+
+  it("an edit that changes the type writes no height, and one that sets the height to the type's default drops it", async () => {
+    const code = src(`import { cabinet } from './cabinet.feature.js'`, ``, `cabinet('base')`);
+    const retyped = await edit(code, { ...keepAll, type: { kind: 'literal', value: 'wall' } });
+    expect(retyped.error).toBeUndefined();
+    expect(retyped.newCode).toContain(`\ncabinet('wall')\n`);
+
+    const pinned = src(`import { cabinet } from './cabinet.feature.js'`, ``, `cabinet('wall', 800, 300)`);
+    const back = await edit(pinned, { ...keepAll, height: { kind: 'value', value: 720 } });
+    expect(back.error).toBeUndefined();
+    expect(back.newCode).toContain(`\ncabinet('wall', 720, 300)\n`);
+    const dropped = await edit(src(`import { cabinet } from './cabinet.feature.js'`, ``, `cabinet('wall', 800)`), { ...keepAll, height: { kind: 'value', value: 720 } });
+    expect(dropped.newCode).toContain(`\ncabinet('wall')\n`);
+  });
+
+  it('keeps a height the statement already writes, whatever the edit does to the type', async () => {
+    const code = src(`import { cabinet } from './cabinet.feature.js'`, ``, `cabinet('base', 720)`);
+    const result = await edit(code, { ...keepAll, type: { kind: 'literal', value: 'wall' } });
+    expect(result.newCode).toContain(`\ncabinet('wall', 720)\n`);
+  });
+});

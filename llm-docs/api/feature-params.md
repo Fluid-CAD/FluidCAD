@@ -17,7 +17,8 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
 
 // Every value
 { label?: string; description?: string; hint?: string; aside?: FeatureStaticItem[]; group?: string; tab?: string;
-  visibleWhen?: { [typedInValue: string]: scalar | scalar[] }; optional?: boolean }
+  visibleWhen?: VisibleCase | VisibleCase[]; optional?: boolean }
+// VisibleCase: { [value: string]: scalar | scalar[] | PickCondition }
 
 // Typed in — NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, TextParamSpec
 { type: 'number' | 'integer' | 'length' | 'angle'; default?: number; min?: number; max?: number; step?: number;
@@ -59,7 +60,7 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
 | `description` | The row's tooltip. |
 | `group` | A heading over the rows that share it; a grouped row joins its group where the group first appears. The short form of a `section` in a [layout](feature-layout.md): refused when the feature declares a `layout`, which places the rows itself. |
 | `tab` | The dialog tab the row sits on. Rows without a tab sit above the tabs; tabs appear in first-appearance order. The short form of `tabs` in a [layout](feature-layout.md): refused when the feature declares a `layout`. |
-| `visibleWhen` | When the row shows: every named typed-in value must equal the given one, or one of a listed set — `{ through: false }`, `{ size: ['m3', 'm4'] }` — and every named picked value must meet its condition (below). A hidden row writes nothing in a create. |
+| `visibleWhen` | When the row shows: every named typed-in value must equal the given one, or one of a listed set — `{ through: false }`, `{ size: ['m3', 'm4'] }` — and every named picked value must meet its condition (below). Or a list of such objects, the row showing while **any one** holds — `[{ type: 'wardrobe', doors: true }, { type: 'base', front: { picked: true } }]`. A hidden row writes nothing in a create. |
 | `optional` | The call may leave the value out. Without a `default` it then reaches the feature as `undefined` — except a boolean, which is always `false` or `true`. |
 
 ### Rows that follow a pick: a picked value in `visibleWhen`
@@ -239,8 +240,9 @@ width: {
   Each object of a list is checked the same, and refused by its place
   (`'when'[1] names 'shap', …`); an empty list, an empty object in one (it
   would offer the option always — leave `when` off) and an entry that isn't
-  an object are refused. Only an option's `when` takes a list: a
-  `visibleWhen` is one object.
+  an object are refused. A `visibleWhen` takes a list the same way, its
+  objects naming picked values too (`'visibleWhen'[1] names …`; an empty
+  list: "the list is empty — list the cases it shows in, …").
 - **The default must be offered at rest**, that is while every other value is
   at its own default. A declared `default` that is not offered there is
   refused. With no `default`, the value starts at the **first option offered

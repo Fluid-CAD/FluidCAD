@@ -49,8 +49,9 @@ takes. `note`, `image` and `divider` are the static items: they show no value.
   [feature-params](feature-params.md)): an object of typed-in values to
   match, each a value or a list of values, and picked values with a condition
   (`{ at: { not: { surface: 'cylinder' } } }` hides a Hub section while a
-  shaft is picked). It may not name a select with `multiple: true`. A value's
-  own `visibleWhen` still hides its row wherever the layout puts it.
+  shaft is picked), or a list of such objects of which any one holds. It may
+  not name a select with `multiple: true`. A value's own `visibleWhen` still
+  hides its row wherever the layout puts it.
 - **`aside`** is a non-empty list of static items only, with or without a
   `layout`. A value may declare an `aside` of its own (below).
 - **`width`** is `'wide'` or `'wider'`.

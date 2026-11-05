@@ -286,6 +286,7 @@ depth: { type: 'length', default: 2, min: 0.1, visibleWhen: { through: false } }
 ```
 
 - Every value it names must match. A value may also match one of a list: `{ size: ['m3', 'm4'] }`.
+- When one object can't say it, give a list of objects: the row shows while any one of them holds. A cabinet's handle row shows for a wardrobe with doors, or for any base cabinet: `visibleWhen: [{ type: 'wardrobe', doors: true }, { type: 'base' }]`.
 - A hidden row writes nothing. Its value still reaches the feature: `depth` is 2 while the cut goes through, and `buildTool()` decides whether to read it.
 - It may name a picked value, with a condition on what is picked: `picked: true`, a `count` of picks, the `surface` of the picked faces (`'planar'`, `'cylinder'`, `'cone'`, `'sphere'`, `'torus'`), or `not: { … }` for the opposite.
 

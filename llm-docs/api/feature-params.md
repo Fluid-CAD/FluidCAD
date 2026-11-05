@@ -1,9 +1,9 @@
 ---
 id: api/feature-params
 title: "ParamSpec — a custom feature's values: typed-in values and pickers"
-summary: "Each value a custom feature declares in Feature.with({ … }) is typed in (type: 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'radio' | 'text'; a select with multiple: true is a list) or picked (picker: 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor', or a union of kinds). How a row looks is separate from what the value is: display (slider, stepper, checkbox, grid, buttons, cards), suffix, hint, an option's image and description, and when on an option, which narrows what the dialog offers by another value. One table gives what an untouched row shows, what the builder gets for a value left out, and whether an empty row blocks Apply."
+summary: "Each value a custom feature declares in Feature.with({ … }) is typed in (type: 'number' | 'integer' | 'length' | 'angle' | 'boolean' | 'select' | 'radio' | 'text'; a select with multiple: true is a list) or picked (picker: 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor', or a union of kinds). How a row looks is separate from what the value is: display (slider, stepper, checkbox, grid, buttons, cards), suffix, hint, an option's image and description, and when on an option, which narrows what the dialog offers by another value. defaults: [{ when, value }] gives a typed-in value defaults that follow other values (the first whose when holds wins over default). One table gives what an untouched row shows, what the builder gets for a value left out, and whether an empty row blocks Apply."
 tags: [api, sdk, custom-feature, type]
-symbols: [ParamSpec, ScalarParamSpec, NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, TextParamSpec, ChoiceOption, PickerParamSpec, PickerKind, VisibleWhen, PickCondition, PickedSurface, OptionWhen, OptionCase]
+symbols: [ParamSpec, ScalarParamSpec, NumberParamSpec, BooleanParamSpec, SelectParamSpec, RadioParamSpec, TextParamSpec, ChoiceOption, PickerParamSpec, PickerKind, VisibleWhen, PickCondition, PickedSurface, OptionWhen, OptionCase, ConditionalDefault]
 seeAlso: [api/feature, api/define-feature, api/feature-layout, concepts/custom-features, api/connector, api/axis, api/face-filter, api/edge-filter]
 ---
 
@@ -34,6 +34,8 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
 // ChoiceOption — one option of a select or a radio; only `value` reaches the feature
 { label: string; value: string | number; image?: string; description?: string; group?: string; keywords?: string[]; when?: OptionCase | OptionCase[] }
 // OptionCase — { [otherValue: string]: scalar | scalar[] }
+// Every typed-in value may add defaults that follow other values (ConditionalDefault), checked as `default` is:
+//   defaults?: { when: OptionCase | OptionCase[]; value: <the value's type> }[]
 
 // Picked — no default; a list with multiple: true or max: n (n ≥ 2); ordered: true for a list whose order matters
 { picker: 'sketch'; implicitDefault?: boolean; hasGeometry?: boolean; wire?: boolean }
@@ -151,6 +153,7 @@ a value resolves to the one it shows, declared or not:
 | Declared | Untouched, the row shows | Left out, the builder gets | Empty, it blocks Apply |
 |---|---|---|---|
 | any type with a `default` | the default (a plain number row: empty, the default greyed) | the default | no |
+| any type with `defaults` | the first entry whose `when` holds for the other rows, else the `default` — followed live while untouched | the same, from the call's other values | as without |
 | `boolean`, no default (toggle or `checkbox`) | off | `false` (`optional` changes nothing) | never empty |
 | `select` or `radio`, no default | the first option offered | that option's value | never empty, unless no option is offered ("No options") |
 | `select`, no default, `optional: true` | an empty choice, "—" | `undefined` | no |
@@ -254,6 +257,52 @@ width: {
   `fastener(at, { standard: 'iso', size: 'n4' })` builds. Editing such a
   statement shows the value it holds. The value's type is still every option's
   value.
+
+### Defaults that follow another value: `defaults`
+
+Every typed-in value may declare `defaults`, a list of `{ when, value }`: the
+first entry whose `when` holds is the value's default, and its plain
+`default` applies when none does.
+
+```js
+type: { type: 'radio', display: 'buttons', default: 'base', options: [{ label: 'Base', value: 'base' }, { label: 'Wall', value: 'wall' }, { label: 'Wardrobe', value: 'wardrobe' }] },
+height: {
+  type: 'length', default: 900, min: 300, max: 3000,
+  defaults: [
+    { when: { type: 'wall' }, value: 720 },
+    { when: { type: 'wardrobe' }, value: 2400 },
+  ],
+},
+```
+
+- `when` is an option's `when`: one object of clauses, every clause holding,
+  or a list of them, any one holding. It names typed-in values that hold one
+  thing and declare **no `defaults` of their own** (one level: no chains, no
+  circles) — `defaults[0]: 'when' names 'depth', which declares 'defaults'
+  itself …`; a picked value, an unknown name and the value itself are refused
+  as in an option's `when`.
+- Each `value` is checked as a call's value is: `defaults[1]: 'height' must
+  be at most 3000, got 3600`, `… must be one of "oak", got 'pine'`. On a
+  choice whose options carry `when`, each `value` must be offered where its
+  `when` holds, the other values at their defaults: `defaults[0]: "drawer" is
+  not offered while type is "wall" …`. The default at rest is the entry that
+  holds there, if one does, else the plain `default`, and that one must be
+  offered at rest.
+- A value with `defaults` needs a plain default to fall back on (a `boolean`,
+  a `select` and a `radio` always have one): `a value with 'defaults' needs a
+  'default' — the one it takes when none of them holds`. A picker takes none.
+- **Resolution.** A call (or an insert of a generated part or assembly, or a
+  generator) that leaves the value out gets the entry that holds for the
+  call's other values, once their own defaults are filled:
+  `cabinet({ type: 'wall' })` builds 720 high.
+- **The dialog.** A row the user has not touched — a create's, or one the
+  edited statement leaves out — follows its default live as the values it
+  names change; a row the user changed keeps its value. The statement writer
+  leaves a value with `defaults` out of the call when it is set to the default
+  its other values give it, so changing `type` later still moves `height`.
+- The snapshot and a package's manifest carry `defaults` as declared, beside
+  the plain `default`; a parameter table shows the plain default "(varies with
+  Type)".
 
 ## A list of options: `select` with `multiple: true`
 

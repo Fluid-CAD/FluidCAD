@@ -74,6 +74,7 @@ export class VentGrid extends Feature.with({
 | `description` | The row's tooltip. |
 | `hint` | A line of small text under the row, always on show: **Centre to centre**. |
 | `default` | What a row left alone holds, and what a call that leaves the value out gets. Pickers take none: their value is what the user picks. |
+| `defaults` | Defaults that follow other values: `[{ when: { type: 'wall' }, value: 720 }]`. See [Defaults that follow another value](#defaults-that-follow-another-value). |
 | `optional` | The call may leave the value out. Without a `default`, the feature then gets `undefined`. |
 | `visibleWhen` | When the row shows. See [Rows that show only when they matter](#rows-that-show-only-when-they-matter). |
 | `group`, `tab` | A heading or a tab the row sits under: the short way to [lay out a dialog](#laying-out-the-dialog). |
@@ -239,6 +240,7 @@ A row left alone always builds what it shows. A call that leaves a value out get
 | Declared | The row shows | The feature gets |
 |---|---|---|
 | any input with a `default` | the default | the default |
+| any input with `defaults` | the first whose `when` holds, else the `default` — and it follows the other rows until the user changes it | the same, from the call's other values |
 | `boolean`, no default | off | `false` |
 | `select` or `radio`, no default | the first option offered | that option's value |
 | `select` or `radio`, no default, `optional: true` | nothing chosen | `undefined` |
@@ -248,6 +250,31 @@ A row left alone always builds what it shows. A call that leaves a value out get
 | the same, `optional: true` | an empty row | `undefined` |
 
 The dialog writes only the values the user changed, so a statement stays short: `ventGrid(panel.endFaces(), { pitch: 9 })`.
+
+## Defaults that follow another value
+
+`defaults` gives a value defaults that depend on the other values. A cabinet's height follows its type:
+
+```js
+type: {
+  type: 'radio', display: 'buttons', default: 'base',
+  options: [{ label: 'Base', value: 'base' }, { label: 'Wall', value: 'wall' }, { label: 'Wardrobe', value: 'wardrobe' }],
+},
+height: {
+  type: 'length', default: 900, min: 300, max: 3000,
+  defaults: [
+    { when: { type: 'wall' }, value: 720 },
+    { when: { type: 'wardrobe' }, value: 2400 },
+  ],
+},
+```
+
+- The first entry whose `when` holds is the default. The plain `default` applies when none holds, so the value must have one (a `boolean`, a `select` and a `radio` always do).
+- `when` reads as an option's `when`: one value or a list (`{ type: ['wall', 'wardrobe'] }`), every value it names matching, or a list of such objects, any one matching.
+- A `when` names typed-in values only, and only values that declare no `defaults` of their own: one level, no chains. The declaration is refused otherwise, naming the entry: `defaults[0]: 'when' names 'depth', which declares 'defaults' itself`.
+- Each `value` is checked as a call's value is: its type, `min` and `max`, one of the options. On a choice whose options carry a `when`, each value must be offered where its `when` holds.
+- In the dialog, a row the user has not touched follows its default: pick **Wall** and the height shows 720. A row the user changed keeps its value.
+- A call that leaves the value out gets the default its other values give it: `cabinet({ type: 'wall' })` is 720 high. The dialog leaves a value set to that default out of the statement, so changing the type later still moves the height.
 
 ## Rows that show only when they matter
 

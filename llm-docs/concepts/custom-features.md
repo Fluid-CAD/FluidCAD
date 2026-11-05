@@ -45,8 +45,8 @@ Don't write one for:
 
 ## One schema, three hosts
 
-The values a feature declares with `Feature.with({ … })` — types, defaults,
-ranges, options with pictures, `visibleWhen`, the dialog's layout — are the
+The values a feature declares with `Feature.with({ … })` — types, defaults
+(conditional ones too), ranges, options with pictures, `visibleWhen`, the dialog's layout — are the
 interface of three things:
 
 | Host | Written as | Used as | Its dialog |
@@ -313,7 +313,8 @@ shape: {
 - **Each value's row** — a select as a list or a grid of images, a radio as
   buttons or cards, a slider, a stepper, a checkbox, a unit, a hint, a text's
   limits, a select that holds several options, and options offered only for
-  another value's choice (`when`): [[api/feature-params]], which also has the
+  another value's choice (`when`), defaults that follow another value
+  (`defaults: [{ when, value }]`): [[api/feature-params]], which also has the
   one table of what an untouched row shows and what the builder gets.
 - **Where the rows sit** — rows side by side, sections that fold, tabs, notes,
   pictures, a wider dialog and a column beside the rows (`layout`, `width`,

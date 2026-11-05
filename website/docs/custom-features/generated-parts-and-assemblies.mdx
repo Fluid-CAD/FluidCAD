@@ -106,7 +106,7 @@ A generated assembly is two modules: a **generator**, a class that lays out the 
 
 <ExplainedCode code={wardrobeUnit} fileName="wardrobe-unit.js" title="wardrobe-unit.js" open />
 
-`Generator.with({ … })` declares the values as `Feature.with()` does: types, defaults, ranges, options with pictures, `visibleWhen`, groups. A generator takes typed-in values only, and refuses a picked one by name. `static id` is its type, as a feature's is.
+`Generator.with({ … })` declares the values as `Feature.with()` does: types, defaults (and [defaults that follow another value](/docs/custom-features/inputs#defaults-that-follow-another-value)), ranges, options with pictures, `visibleWhen`, groups. A generator takes typed-in values only, and refuses a picked one by name. `static id` is its type, as a feature's is.
 
 The work happens in two phases:
 

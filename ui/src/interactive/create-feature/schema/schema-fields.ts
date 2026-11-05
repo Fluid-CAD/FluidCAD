@@ -176,6 +176,13 @@ export abstract class SchemaField {
     return false;
   }
 
+  /**
+   * The default the builder takes for the value left out moved (a
+   * conditional default following the other rows): a row that shows its
+   * default while empty shows this one. Most rows show none.
+   */
+  showDefault(_value: FieldValue | undefined): void {}
+
   /** Counts the row as changed without announcing it: the panel's pass that moved it announces once. */
   protected moved(): void {
     this.changed = true;
@@ -241,6 +248,8 @@ class NumberField extends SchemaField {
 
   private readonly field: ExpressionField;
   private readonly look: FeatureNumberSpec;
+  /** The input, whose placeholder is the default an emptied row stands for. */
+  private readonly input: HTMLInputElement;
   private track: RangeTrack | null = null;
   private steppers: HTMLButtonElement[] = [];
 
@@ -258,6 +267,7 @@ class NumberField extends SchemaField {
     if (typeof spec.default === 'number') {
       input.placeholder = String(spec.default);
     }
+    this.input = input;
     this.row.append(label);
     const { min, max, display, suffix } = this.look;
     if (display === 'slider' && min !== undefined && max !== undefined) {
@@ -382,6 +392,10 @@ class NumberField extends SchemaField {
   protected show(value: FieldValue | undefined): void {
     this.field.setValue(typeof value === 'number' || typeof value === 'string' ? value : '');
     this.follow();
+  }
+
+  showDefault(value: FieldValue | undefined): void {
+    this.input.placeholder = typeof value === 'number' ? String(value) : '';
   }
 
   setVariables(variables: VariableInfo[]): void {

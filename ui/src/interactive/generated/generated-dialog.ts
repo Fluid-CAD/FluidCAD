@@ -5,11 +5,13 @@ import {
 import type { InstanceParamValue, SerializedAssembly, SerializedAssemblyInstance, SerializedAssemblyOccurrence } from '../../types';
 import type { VariableInfo } from '../../ui/expression-core';
 import type { FieldValue } from '../create-feature/schema/schema-fields';
+import type { DialogValues } from '../create-feature/schema/feature-schema';
 import type { GeneratedDefinition } from './generated-definition';
 import { GeneratedPanel } from './generated-panel';
 import { PreviewRequests, type PreviewEdit } from './preview-requests';
 import { AssemblyPreviewRunner, type PreviewRunnerOptions } from './preview-runner';
 import { PreviewTokens } from './preview-tokens';
+import { ValueConditions } from '../../../../lib/sdk/value-conditions';
 
 /** The insert an Edit parameters dialog edits: a generated occurrence's, or a generated part's instance's. */
 export type GeneratedEditTarget = {
@@ -170,7 +172,15 @@ export class GeneratedDialog {
       return;
     }
     const values: Record<string, FieldValue> = {};
+    const schema = definition.featureSchema();
     for (const id of Object.keys(definition.entry.schema.params)) {
+      // The record holds every value, defaults filled: one with conditional
+      // defaults that sits at the one its other values give it, written as no
+      // expression, opens following it — as if the insert left it out.
+      if (expressions?.[id] === undefined && schema.hasDefaults(id)
+        && ValueConditions.same(target.values[id], schema.defaultOf(id, target.values as DialogValues))) {
+        continue;
+      }
       const seed = definition.seedValue(id, target.values[id], expressions?.[id]);
       if (seed !== undefined) {
         values[id] = seed;
@@ -383,6 +393,13 @@ export class GeneratedDialog {
     const values: Record<string, InsertValue> = {};
     const unset: string[] = [];
     const newVariables: NewVariable[] = [];
+    // A row following its conditional default that moved since the dialog
+    // opened goes back to the default: whether the insert wrote the value
+    // it opened on is not known here, and left written it would stay put.
+    if (target !== null) {
+      unset.push(...panel.movedFollowers());
+    }
+    const scalars = panel.scalars();
     for (const [id, field] of panel.fields) {
       if (!field.visible) {
         continue;
@@ -404,6 +421,14 @@ export class GeneratedDialog {
           return this.blocked(panel, id, reveal, missing);
         }
         if (target !== null) {
+          unset.push(id);
+        }
+        continue;
+      }
+      if (!read.newVariable && schema.hasDefaults(id) && ValueConditions.same(definition.insertValue(id, read.value), schema.defaultOf(id, scalars))) {
+        // Set to the default its other values give it: left to that default,
+        // so it keeps following them — as the feature writer leaves it out.
+        if (target !== null && !unset.includes(id)) {
           unset.push(id);
         }
         continue;

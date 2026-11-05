@@ -382,6 +382,21 @@ describe('FeatureParamTable', () => {
     expect(all).toHaveLength(declared);
   });
 
+  it('shows a value with conditional defaults at its plain default, saying what it varies with', () => {
+    const params = {
+      type: { type: 'radio', label: 'Type', options: [{ label: 'Base', value: 'base' }, { label: 'Wall', value: 'wall' }], default: 'base' },
+      depth: { type: 'length', label: 'Depth', default: 560 },
+      height: { type: 'length', label: 'Height', default: 900, defaults: [{ when: { type: 'wall' }, value: 720 }, { when: [{ type: 'base', depth: 300 }], value: 850 }] },
+    };
+    const rows = Object.fromEntries(FeatureParamTable.rows({ params }, 'mm').map((r) => [r.name, r]));
+    expect(rows.height.value).toBe('900 mm');
+    expect(rows.height.variesWith).toBe('varies with Type and Depth');
+    expect(rows.depth.variesWith).toBeNull();
+    const table = FeatureParamTable.create({ params }, 'mm');
+    expect(table.querySelector('[data-param="height"] [data-role="varies-with"]')!.textContent).toBe('(varies with Type and Depth)');
+    expect(table.querySelector('[data-param="depth"] [data-role="varies-with"]')).toBeNull();
+  });
+
   it('sets the manifest as text', () => {
     const table = FeatureParamTable.create({ params: { x: { type: 'text', label: '<img src=x onerror=alert(1)>', default: '<b>bold</b>' } } }, 'mm');
     expect(table.querySelector('img')).toBeNull();

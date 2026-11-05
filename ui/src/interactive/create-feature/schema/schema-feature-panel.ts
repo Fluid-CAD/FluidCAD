@@ -10,7 +10,8 @@ import type { PanelChange } from '../feature-panel';
 import { ChoiceTabs } from '../panel-controls';
 import { ScopeSlotControl } from '../scope-slot';
 import { FeatureSchema, type DialogValues } from './feature-schema';
-import { SchemaField } from './schema-fields';
+import { SchemaField, type FieldValue } from './schema-fields';
+import { ValueConditions } from '../../../../../lib/sdk/value-conditions';
 import { SchemaPicker } from './schema-pickers';
 
 /** The slot the next viewport pick lands in: a picked value by name, or the `.scope(…)` row. */
@@ -68,6 +69,14 @@ export class SchemaFeaturePanel extends FeaturePanel {
 
   readonly fields = new Map<string, SchemaField>();
   readonly pickers = new Map<string, SchemaPicker>();
+  /**
+   * The rows that follow their conditional default (`defaults`): each a
+   * value the dialog opened without one of its own — a fresh dialog's, or
+   * one the edited statement leaves out — with what it showed when the
+   * dialog opened and what it shows now. A row the user touches stops
+   * following.
+   */
+  private readonly following = new Map<string, { opened: FieldValue | undefined; shown: FieldValue | undefined }>();
   readonly scopeSlot: ScopeSlotControl | null = null;
 
   private readonly opTabs: ChoiceTabs<FeatureOpKind> | null = null;
@@ -284,9 +293,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
   /** A fresh create: defaults in every row, empty picks, the default operation, nothing scoped. */
   show(): void {
     this.shell.setTitle(null);
-    for (const [name, field] of this.fields) {
-      field.seed(this.schema.defaultOf(name));
-    }
+    this.seedRows({});
     for (const picker of this.pickers.values()) {
       picker.reset();
     }
@@ -310,9 +317,7 @@ export class SchemaFeaturePanel extends FeaturePanel {
     seedPicks: (picker: SchemaPicker) => void;
   }): void {
     this.shell.setTitle(`Edit ${this.schema.label.toLowerCase()}`);
-    for (const [name, field] of this.fields) {
-      field.seed(name in state.values ? state.values[name] : this.schema.defaultOf(name));
-    }
+    this.seedRows(state.values);
     for (const picker of this.pickers.values()) {
       state.seedPicks(picker);
     }
@@ -330,6 +335,79 @@ export class SchemaFeaturePanel extends FeaturePanel {
     this.syncVisibility();
     this.armFirstPicker({ preferEmpty: false });
     this.shell.show();
+  }
+
+  /**
+   * Seed every row: `values` where it holds one, else the row's default —
+   * the plain one first, then, once those stand, a conditional default
+   * worked out from what the other rows show. A row seeded from a
+   * conditional default follows it from here on (see {@link follow}).
+   */
+  private seedRows(values: Readonly<Record<string, FieldValue>>): void {
+    this.following.clear();
+    const followers: string[] = [];
+    for (const [name, field] of this.fields) {
+      if (name in values) {
+        field.seed(values[name]);
+      } else if (this.schema.hasDefaults(name)) {
+        followers.push(name);
+      } else {
+        field.seed(this.schema.defaultOf(name));
+      }
+    }
+    // A `when` names values without `defaults`: their rows stand already.
+    const scalars = this.scalars();
+    for (const name of followers) {
+      const value = this.schema.defaultOf(name, scalars);
+      this.fields.get(name)!.seed(value);
+      this.following.set(name, { opened: value, shown: value });
+    }
+  }
+
+  /**
+   * Every row still following its conditional default shows the one the
+   * other rows' values give it now — untouched, so it still writes
+   * nothing; true when one moved. A row the user changed, or one the
+   * engine fixed from the picks, keeps what it holds.
+   */
+  private follow(scalars: Readonly<Record<string, FeatureScalarValue | undefined>>): boolean {
+    let moved = false;
+    // An emptied row stands for its default too: it shows the one that holds now.
+    for (const [name, field] of this.fields) {
+      if (this.schema.hasDefaults(name)) {
+        field.showDefault(this.schema.defaultOf(name, scalars));
+      }
+    }
+    for (const [name, state] of this.following) {
+      const field = this.fields.get(name);
+      if (!field || field.dirty || field.isDerived) {
+        continue;
+      }
+      const value = this.schema.defaultOf(name, scalars);
+      if (ValueConditions.same(value, state.shown)) {
+        continue;
+      }
+      field.seed(value);
+      state.shown = value;
+      moved = true;
+    }
+    return moved;
+  }
+
+  /**
+   * The rows following their conditional default that show another value
+   * than when the dialog opened, untouched: what an edit that cannot tell
+   * whether its statement wrote them (a generated insert's values) resets,
+   * so they keep following there too.
+   */
+  movedFollowers(): string[] {
+    return [...this.following].filter(([name, state]) => !this.fields.get(name)?.dirty && !ValueConditions.same(state.opened, state.shown))
+      .map(([name]) => name);
+  }
+
+  /** Whether a row follows its conditional default: untouched, seeded from it. */
+  isFollowing(name: string): boolean {
+    return this.following.has(name) && !this.fields.get(name)?.dirty;
   }
 
   /**
@@ -453,8 +531,9 @@ export class SchemaFeaturePanel extends FeaturePanel {
    */
   private settleOffered(): Record<string, FeatureScalarValue | undefined> {
     let scalars = this.scalars();
-    for (let pass = 0; pass < this.fields.size; pass++) {
-      let moved = false;
+    // One more pass than rows: the conditional defaults follow first.
+    for (let pass = 0; pass <= this.fields.size; pass++) {
+      let moved = this.follow(scalars);
       for (const field of this.fields.values()) {
         moved = field.setOffered(scalars) || moved;
       }

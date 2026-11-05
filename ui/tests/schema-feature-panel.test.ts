@@ -1438,3 +1438,101 @@ describe("parameters in a schema dialog's selects", () => {
     expect(optionsOf(control('size'))).toEqual(['#4']);
   });
 });
+
+describe("conditional defaults in a schema dialog: a row following its default", () => {
+  const CABINET: BareFeatureMeta = {
+    ...VENT,
+    id: 'acme.cabinet',
+    label: 'Cabinet',
+    params: {
+      type: { type: 'radio', label: 'Type', default: 'base', options: [{ label: 'Base', value: 'base' }, { label: 'Wall', value: 'wall' }, { label: 'Wardrobe', value: 'wardrobe' }] },
+      height: {
+        type: 'length', label: 'Height', default: 900, min: 300, max: 3000,
+        defaults: [{ when: { type: 'wall' }, value: 720 }, { when: { type: 'wardrobe' }, value: 2400 }],
+      },
+      front: {
+        type: 'select', label: 'Front', default: 'drawer',
+        options: [{ label: 'Drawer', value: 'drawer', when: { type: ['base', 'wardrobe'] } }, { label: 'Flap', value: 'flap', when: { type: 'wall' } }, { label: 'Door', value: 'door' }],
+        defaults: [{ when: { type: 'wall' }, value: 'flap' }],
+      },
+      depth: { type: 'length', label: 'Depth', default: 560 },
+    },
+  };
+  const cabinet = () => {
+    const { panel, root } = mount(CABINET);
+    const control = (name: string) => root.querySelector<HTMLElement>(`[data-role="value-${name}"]`)!;
+    const radios = (name: string) => [...control(name).querySelectorAll<HTMLElement>('input[type="radio"], [role="radio"]')];
+    const height = () => root.querySelector<HTMLInputElement>('[data-role="value-height"]')!;
+    const typeIn = (value: string) => {
+      height().value = value;
+      height().dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const dirty = () => [...panel.fields].filter(([, each]) => each.dirty).map(([name]) => name);
+    return { panel, root, control, radios, height, typeIn, dirty };
+  };
+
+  it('opens on the default the other rows give it, and follows it live while untouched — writing nothing', () => {
+    const { panel, radios, height, control, dirty } = cabinet();
+    expect(height().value).toBe('900');
+    expect(control('front').textContent).toContain('Drawer');
+    radios('type')[1].click();
+    expect(height().value).toBe('720');
+    expect(control('front').textContent).toContain('Flap');
+    expect(dirty()).toEqual(['type']);
+    expect(panel.isFollowing('height')).toBe(true);
+    radios('type')[2].click();
+    expect(height().value).toBe('2400');
+    expect(control('front').textContent).toContain('Drawer');
+    radios('type')[0].click();
+    expect(height().value).toBe('900');
+    expect(dirty()).toEqual(['type']);
+    panel.hide();
+  });
+
+  it('keeps a value the user set, whatever the type does after', () => {
+    const { panel, radios, height, typeIn, dirty } = cabinet();
+    typeIn('1000');
+    radios('type')[1].click();
+    expect(height().value).toBe('1000');
+    expect(panel.isFollowing('height')).toBe(false);
+    expect(dirty().sort()).toEqual(['height', 'type']);
+    panel.hide();
+  });
+
+  it('shows an emptied row the default that holds now', () => {
+    const { panel, radios, height, typeIn } = cabinet();
+    typeIn('');
+    radios('type')[1].click();
+    expect(height().value).toBe('');
+    expect(height().placeholder).toBe('720');
+    panel.hide();
+  });
+
+  it('follows in an edit only for a value the statement leaves out', () => {
+    const { panel, radios, height } = cabinet();
+    panel.showEdit({ values: { type: 'wall' }, operation: 'remove', seedPicks: () => {} });
+    expect(height().value).toBe('720');
+    radios('type')[2].click();
+    expect(height().value).toBe('2400');
+    expect(panel.movedFollowers()).toEqual(['height', 'front']);
+
+    panel.showEdit({ values: { type: 'wall', height: 800 }, operation: 'remove', seedPicks: () => {} });
+    expect(height().value).toBe('800');
+    radios('type')[2].click();
+    expect(height().value).toBe('800');
+    expect(panel.isFollowing('height')).toBe(false);
+    // The front, which the statement leaves out, still follows.
+    expect(panel.movedFollowers()).toEqual(['front']);
+    panel.hide();
+  });
+
+  it("reads its default from the one 'when' grammar", () => {
+    const schema = new FeatureSchema(DerivedLayout.snapshot(CABINET));
+    expect(schema.defaultOf('height')).toBe(900);
+    expect(schema.defaultOf('height', { type: 'wall' })).toBe(720);
+    expect(schema.defaultOf('height', { type: 'wardrobe' })).toBe(2400);
+    expect(schema.hasDefaults('height')).toBe(true);
+    expect(schema.hasDefaults('depth')).toBe(false);
+    expect(schema.defaultsVaryWith('height')).toEqual(['Type']);
+  });
+});

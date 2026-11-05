@@ -9,6 +9,7 @@ import type {
   FeatureScalarValue,
   FeatureVisibleWhen,
 } from '../../../api';
+import { ValueConditions, type Condition, type ConditionOnPicks } from '../../../../../lib/sdk/value-conditions';
 
 /** The values a `visibleWhen` reads: typed-in values by name, and each picked value's {@link FeaturePickState}. */
 export type DialogValues = Readonly<Record<string, FeatureScalarValue | FeaturePickState | undefined>>;
@@ -187,42 +188,17 @@ export class FeatureSchema {
    * holds when any one of its cases does.
    */
   static holds(when: FeatureVisibleWhen | FeatureOptionWhen | undefined, scalars: DialogValues): boolean {
-    if (Array.isArray(when)) {
-      return when.some(each => FeatureSchema.holds(each, scalars));
-    }
-    return Object.entries(when ?? {}).every(([other, expected]) => {
-      const current = scalars[other];
-      if (FeatureSchema.isPickCondition(expected)) {
-        const state = typeof current === 'object' ? current : undefined;
-        return FeatureSchema.pickHolds(expected, state?.picks ?? []);
-      }
-      return Array.isArray(expected) ? expected.some(e => e === current) : expected === current;
-    });
+    return ValueConditions.holds(when as Condition | undefined, scalars);
   }
 
   /** Whether a clause's expected value is a picked value's condition (an object), not values to match. */
   static isPickCondition(expected: unknown): expected is FeaturePickCondition {
-    return typeof expected === 'object' && expected !== null && !Array.isArray(expected);
+    return ValueConditions.isPickCondition(expected);
   }
 
   /** Whether a picked value holding `picks` (each pick's surface, null for no face) meets `condition`. */
   static pickHolds(condition: FeaturePickCondition, picks: readonly (FeaturePickedSurface | null)[]): boolean {
-    if (condition.picked !== undefined && condition.picked !== picks.length > 0) {
-      return false;
-    }
-    if (condition.count !== undefined) {
-      const counts = Array.isArray(condition.count) ? condition.count : [condition.count];
-      if (!counts.includes(picks.length)) {
-        return false;
-      }
-    }
-    if (condition.surface !== undefined) {
-      const wanted = Array.isArray(condition.surface) ? condition.surface : [condition.surface];
-      if (picks.length === 0 || !picks.every(surface => surface !== null && wanted.includes(surface))) {
-        return false;
-      }
-    }
-    return condition.not === undefined || !FeatureSchema.pickHolds(condition.not, picks);
+    return ValueConditions.pickHolds(condition as ConditionOnPicks, picks);
   }
 
   /**
@@ -230,12 +206,36 @@ export class FeatureSchema {
    * fills when a create leaves it out: its default as the engine resolved
    * it — declared, or a boolean's `false` and a select's first option when
    * it declares none — or nothing (a number or a text without a default, an
-   * optional select without one). The dialog shows it as it is, so a row
-   * left untouched shows what the builder gets.
+   * optional select without one). Given the values the other rows hold
+   * (`scalars`), a value with conditional `defaults` takes the first whose
+   * `when` holds there. The dialog shows it as it is, so a row left
+   * untouched shows what the builder gets.
    */
-  defaultOf(name: string): FeatureScalarValue | FeatureListValue | undefined {
+  defaultOf(name: string, scalars: DialogValues = {}): FeatureScalarValue | FeatureListValue | undefined {
     const spec = this.param(name);
-    return FeatureSchema.isPicker(spec) ? undefined : spec.default;
+    if (FeatureSchema.isPicker(spec)) {
+      return undefined;
+    }
+    return ValueConditions.defaultIn(spec, scalars, spec.default);
+  }
+
+  /** Whether a typed-in value's default follows other values: it declares conditional `defaults`. */
+  hasDefaults(name: string): boolean {
+    const spec = this.param(name);
+    return !FeatureSchema.isPicker(spec) && ValueConditions.hasDefaults(spec);
+  }
+
+  /**
+   * The labels of the values a value's conditional defaults wait on, in the
+   * order they name them — what a parameter table says its default varies
+   * with. None for a value without `defaults`.
+   */
+  defaultsVaryWith(name: string): string[] {
+    const spec = this.param(name);
+    if (FeatureSchema.isPicker(spec)) {
+      return [];
+    }
+    return ValueConditions.namedByDefaults(spec).filter(other => other in this.meta.params).map(other => this.param(other).label);
   }
 
   /**

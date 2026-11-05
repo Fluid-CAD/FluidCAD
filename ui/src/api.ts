@@ -7288,6 +7288,13 @@ export type FeatureOptionCase = Record<string, FeatureScalarValue | FeatureScala
 export type FeatureOptionWhen = FeatureOptionCase | FeatureOptionCase[];
 
 /**
+ * One conditional default of a typed-in value (mirror of the engine's
+ * `ConditionalDefault`): the value it takes while `when` holds. The first
+ * entry whose `when` holds wins over the plain `default`.
+ */
+export type FeatureConditionalDefault = { when: FeatureOptionWhen; value: FeatureScalarValue | FeatureListValue };
+
+/**
  * What a picked value holds, as a `visibleWhen` reads it: each pick's
  * surface — null for a pick that is not a face, or not told apart yet.
  */
@@ -7343,7 +7350,10 @@ export type FeatureBooleanSpec = { type: 'boolean'; default?: boolean; display?:
 /** A text's declaration: several lines, what the empty input shows, and the limits the whole value keeps to. */
 export type FeatureTextSpec = { type: 'text'; default?: string; multiline?: boolean; placeholder?: string; maxLength?: number; pattern?: string };
 
-export type FeatureScalarParam = FeatureParamCommon & (
+export type FeatureScalarParam = FeatureParamCommon & {
+  /** Defaults that follow other typed-in values: the first whose `when` holds wins over `default`, which applies when none does. */
+  defaults?: FeatureConditionalDefault[];
+} & (
   | FeatureNumberSpec
   | FeatureBooleanSpec
   | {

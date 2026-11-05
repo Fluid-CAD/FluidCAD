@@ -1,5 +1,6 @@
 import type { HubParamSpec } from '../../api';
 import { HubImage } from './hub-icons';
+import { ValueConditions, type DefaultsSpec } from '../../../../lib/sdk/value-conditions';
 
 /** One option of a select or radio, as the manifest declares it (its image already on the engine's file proxy). */
 type ChoiceOption = { label?: unknown; value?: unknown; image?: unknown };
@@ -16,6 +17,12 @@ export type FeatureParamRow = {
   dim: boolean;
   /** When the row shows, if it isn't always there. */
   shownWhen: string | null;
+  /**
+   * What its default follows, when it declares conditional `defaults` — the
+   * labels of the values they name: `varies with Type`. The value is then
+   * its plain default, the one that applies when none of them holds.
+   */
+  variesWith: string | null;
 };
 
 /**
@@ -52,7 +59,7 @@ export class FeatureParamTable {
         order.push(name);
       }
     }
-    return order.map((name) => FeatureParamTable.row(name, params[name] ?? {}, unit));
+    return order.map((name) => FeatureParamTable.row(name, params[name] ?? {}, unit, params));
   }
 
   /** The value names a layout places, in order: strings among its items, rows, sections and tabs. */
@@ -83,7 +90,23 @@ export class FeatureParamTable {
     return names;
   }
 
-  static row(name: string, spec: HubParamSpec, unit: string | null): FeatureParamRow {
+  static row(name: string, spec: HubParamSpec, unit: string | null, params: Record<string, HubParamSpec> = {}): FeatureParamRow {
+    return { ...FeatureParamTable.described(name, spec, unit), variesWith: FeatureParamTable.variesWith(spec, params) };
+  }
+
+  /** `varies with Type`, `… Type and Depth`: the labels of the values a value's conditional defaults name; null without any. */
+  static variesWith(spec: HubParamSpec, params: Record<string, HubParamSpec>): string | null {
+    if (spec.picker !== undefined || !ValueConditions.hasDefaults(spec as DefaultsSpec)) {
+      return null;
+    }
+    const labels = ValueConditions.namedByDefaults(spec as DefaultsSpec).map((other) => {
+      const label = params[other]?.label;
+      return typeof label === 'string' && label !== '' ? label : other;
+    });
+    return labels.length > 0 ? `varies with ${FeatureParamTable.andList(labels)}` : null;
+  }
+
+  private static described(name: string, spec: HubParamSpec, unit: string | null): Omit<FeatureParamRow, 'variesWith'> {
     const label = typeof spec.label === 'string' && spec.label !== '' ? spec.label : name;
     const shownWhen = FeatureParamTable.shownWhen(spec.visibleWhen);
     if (spec.picker !== undefined) {
@@ -181,6 +204,13 @@ export class FeatureParamTable {
     const valueCell = document.createElement('td');
     valueCell.className = `px-2 py-1.5 align-top font-mono ${row.dim ? 'text-base-content/45' : 'text-base-content/85'}`;
     valueCell.textContent = row.value;
+    if (row.variesWith) {
+      const varies = document.createElement('span');
+      varies.dataset.role = 'varies-with';
+      varies.className = 'block font-sans text-base-content/45 mt-0.5';
+      varies.textContent = `(${row.variesWith})`;
+      valueCell.appendChild(varies);
+    }
     tr.append(nameCell, controlCell, valueCell);
     return tr;
   }
@@ -277,6 +307,13 @@ export class FeatureParamTable {
       return `${param} is ${FeatureParamTable.orList(values)}`;
     });
     return clauses.length > 0 ? `Shown when ${clauses.join(' and ')}` : null;
+  }
+
+  private static andList(words: string[]): string {
+    if (words.length <= 1) {
+      return words[0] ?? '';
+    }
+    return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
   }
 
   private static orList(words: string[]): string {

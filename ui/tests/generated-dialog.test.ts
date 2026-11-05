@@ -318,6 +318,64 @@ describe('GeneratedDialog edit', () => {
   });
 });
 
+describe('GeneratedDialog and conditional defaults', () => {
+  /** A cabinet whose height's default follows its finish: closed is a wall cabinet. */
+  const cabinet = () => entry({
+    schema: {
+      ...entry().schema,
+      params: {
+        ...entry().schema.params,
+        height: { type: 'length', label: 'Height', default: 20, min: 5, defaults: [{ when: { finish: 'closed' }, value: 12 }] },
+      } as any,
+    },
+  });
+  const choose = (id: string, label: string) => {
+    const control = input(id);
+    control.click();
+    [...document.querySelectorAll<HTMLElement>('[role="option"]:not([data-parameter])')].find(o => o.textContent!.includes(label))!.click();
+  };
+
+  it('a create follows the default live and writes nothing for it; one set to that default is left out too', async () => {
+    dialog.openCreate(new GeneratedDefinition(cabinet()), FILE);
+    await answerAll();
+    choose('finish', 'Closed');
+    expect(input('height').value).toBe('12');
+    await vi.advanceTimersByTimeAsync(AssemblyPreviewRunner.TYPING_MS);
+    expect(sent.map(s => s.body.values)).toEqual([{ finish: 'closed' }]);
+    await answerAll();
+    type('height', '12');
+    await vi.advanceTimersByTimeAsync(AssemblyPreviewRunner.TYPING_MS);
+    expect(sent.map(s => s.body.values)).toEqual([{ finish: 'closed' }]);
+    await answerAll();
+    type('height', '15');
+    await vi.advanceTimersByTimeAsync(AssemblyPreviewRunner.TYPING_MS);
+    expect(sent.map(s => s.body.values)).toEqual([{ finish: 'closed', height: 15 }]);
+  });
+
+  it('an edit opens a value at its default following it, and resets it once it moved', async () => {
+    const target = { ...editTarget(), values: { width: 60, depth: 30, height: 20, finish: 'open' } };
+    await dialog.openEdit(new GeneratedDefinition(cabinet()), target);
+    expect(input('height').value).toBe('20');
+    choose('finish', 'Closed');
+    expect(input('height').value).toBe('12');
+    await vi.advanceTimersByTimeAsync(AssemblyPreviewRunner.TYPING_MS);
+    expect(sent.map(s => s.body)).toEqual([{
+      token: dialog.token, filePath: FILE, detail: 'preview', values: { finish: 'closed' }, mode: 'edit', line: 4, unset: ['height'], row: 'asm-0',
+    }]);
+  });
+
+  it('an edit keeps a value away from its default as the insert has it', async () => {
+    const target = { ...editTarget(), values: { width: 60, depth: 30, height: 25, finish: 'open' } };
+    await dialog.openEdit(new GeneratedDefinition(cabinet()), target);
+    choose('finish', 'Closed');
+    expect(input('height').value).toBe('25');
+    await vi.advanceTimersByTimeAsync(AssemblyPreviewRunner.TYPING_MS);
+    expect(sent.map(s => s.body)).toEqual([{
+      token: dialog.token, filePath: FILE, detail: 'preview', values: { finish: 'closed' }, mode: 'edit', line: 4, row: 'asm-0',
+    }]);
+  });
+});
+
 describe('GeneratedDialog and the preview ending without it', () => {
   it('replaced: the next scene of its file rebuilds the preview, saying why; a preview scene changes nothing', async () => {
     dialog.openCreate(new GeneratedDefinition(entry()), FILE);

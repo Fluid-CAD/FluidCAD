@@ -852,10 +852,52 @@ export class HubPackageView {
         slot.replaceChildren(HubPackageView.note(`Couldn’t read the README: ${read.error}`, true));
         return;
       }
-      const rendered = HubMarkdown.render(read.text, (link) => this.deps.openExternal(link));
-      const footnote = HubPackageView.note('Rendered as text and a Markdown subset; links open in your browser, images are not loaded.', true);
+      const rendered = HubMarkdown.render(read.text, (link) => this.deps.openExternal(link), (src) => HubPackageView.readmeImage(url, src));
+      const footnote = HubPackageView.note('Rendered as text and a Markdown subset; links open in your browser, and only the package’s own images are shown.', true);
       slot.replaceChildren(rendered, footnote);
     });
+  }
+
+  /**
+   * A README image's path inside the package, on the engine's file proxy
+   * beside the README (`api/hub/files/@s/n/v/…`), or null for anything that
+   * isn't a relative path inside the package — a URL of any scheme, an
+   * absolute path, a query, one climbing out of the package — so only the
+   * package's own files load, through the engine like every other hub image.
+   */
+  static readmeImage(readmeUrl: string, src: string): string | null {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(src) || /^[/\\]/.test(src) || /[?#]/.test(src)) {
+      return null;
+    }
+    const at = /^(api\/hub\/files\/@[^/]+\/[^/]+\/[^/]+\/)(.+)$/.exec(readmeUrl);
+    if (!at) {
+      return null;
+    }
+    // The README's own folder, its segments already encoded as the URL has them.
+    const parts = at[2].split('/').slice(0, -1);
+    for (const raw of src.split('/')) {
+      let part: string;
+      try {
+        part = decodeURIComponent(raw);
+      } catch {
+        return null;
+      }
+      if (part === '' || part === '.') {
+        continue;
+      }
+      if (part === '..') {
+        if (parts.length === 0) {
+          return null;
+        }
+        parts.pop();
+        continue;
+      }
+      if (part.includes('\\')) {
+        return null;
+      }
+      parts.push(encodeURIComponent(part));
+    }
+    return parts.length > 0 ? at[1] + parts.join('/') : null;
   }
 
   // ---------------------------------------------------------------------------

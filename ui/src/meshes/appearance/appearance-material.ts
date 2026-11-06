@@ -16,11 +16,11 @@ import { faceDepthOffset } from '../shape-meshes/face-depth-offset';
  * override — and neither does the default look, which stays Phong.
  *
  * A wood preset adds procedural grain in the shader, nothing downloaded:
- * stripes along the body's longest axis on the faces that run with it,
+ * lines along the body's longest axis on the faces that run with it,
  * rings on the end faces, blended by the face normal (the tessellation has
  * no UVs, and projection is what keeps the grain continuous across every
  * face and seamless at every edge). The grain is computed from the
- * part-space position in millimetres, so a stripe is the same width in an inch
+ * part-space position in millimetres, so a line is the same width in an inch
  * document and follows an assembly instance through its pose.
  */
 
@@ -79,8 +79,12 @@ const AMBIENT_SCALE = 0.15;
  */
 const DIELECTRIC_ENV_INTENSITY = 0.7;
 
-/** Millimetres per grain unit — see {@link installShader}. */
-const GRAIN_UNIT_MM = 64;
+/**
+ * The mean distance between two grain lines, in millimetres: wide enough
+ * that the grain still reads on a cabinet or a wardrobe seen whole, where a
+ * finer one falls below the pixels and fades to the plain colour.
+ */
+const RING_SPACING_MM = 18;
 
 const GRAIN_AXIS_VECTORS: Record<GrainAxis, Vector3> = {
   x: new Vector3(1, 0, 0),
@@ -94,10 +98,9 @@ const GRAIN_AXIS_VECTORS: Record<GrainAxis, Vector3> = {
  */
 function installShader(material: MeshStandardMaterial, appearance: Appearance, options: AppearanceMaterialOptions): void {
   const wood = appearance.wood;
-  // Part-space units → grain units. The grain functions put a stripe every
-  // ~0.09 grain units; at 64 mm per unit that is a stripe every ~6 mm, the
-  // scale that reads on parts tens of millimetres across.
-  const grainScale = 1 / (GRAIN_UNIT_MM * options.unitsPerMm);
+  // Part-space units → rings: the grain functions work in units of one
+  // ring spacing.
+  const grainScale = 1 / (RING_SPACING_MM * options.unitsPerMm);
 
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -139,9 +142,14 @@ vGrainPos = transformed;
 vGrainNormal = objectNormal;
 `;
 
-// The grain functions: value noise driving sinusoidal stripes with a slow
-// sway and a fine ripple for the faces along the grain, wobbling rings for
-// the end grain. Coordinates in grain units (GRAIN_UNIT_MM).
+// The grain functions. Each projection is a ring field t with its gradient:
+// a grain line wherever t crosses a whole number. Along the grain t counts
+// rings across the face, swayed by value noise; on the end grain it is the
+// wobbled distance from the pith. A line is drawn by its distance from the
+// pixel (the gap in t over the gradient), never by thresholding t itself:
+// where the sway flattens the field a thresholded band swells into a dark
+// blotch, a measured line keeps its width. Coordinates are in rings
+// (RING_SPACING_MM).
 const GRAIN_FRAGMENT_DECL = /* glsl */ `
 uniform float uGrainScale;
 uniform vec3 uGrainAxis;
@@ -155,7 +163,8 @@ float grainHash(vec2 p) {
   return fract(p.x * p.y);
 }
 
-float grainNoise(vec2 p) {
+// Value noise and its gradient: (n, dn/dx, dn/dy).
+vec3 grainNoise(vec2 p) {
   vec2 cell = floor(p);
   vec2 local = fract(p);
   float a = grainHash(cell);
@@ -163,54 +172,96 @@ float grainNoise(vec2 p) {
   float c = grainHash(cell + vec2(0.0, 1.0));
   float d = grainHash(cell + vec2(1.0, 1.0));
   vec2 blend = local * local * (3.0 - 2.0 * local);
-  return mix(a, b, blend.x) + (c - a) * blend.y * (1.0 - blend.x) + (d - b) * blend.x * blend.y;
+  vec2 slope = 6.0 * local * (1.0 - local);
+  float k = a - b - c + d;
+  return vec3(
+    a + (b - a) * blend.x + (c - a) * blend.y + k * blend.x * blend.y,
+    slope.x * (b - a + k * blend.y),
+    slope.y * (c - a + k * blend.x)
+  );
 }
 
-// coord.x runs along the grain, coord.y across it.
-float faceGrain(vec2 coord) {
-  float across = coord.y * 2.8;
-  float sway = grainNoise(coord * vec2(1.1, 3.8)) * 0.7;
-  float ripple = grainNoise(coord * vec2(3.4, 9.0)) * 0.2;
-  float rawBands = 0.5 + 0.5 * sin((across + sway + ripple) * 24.0);
-  float bands = 1.0 - smoothstep(0.0, 0.1, rawBands);
-  float pores = grainNoise(coord * vec2(6.0, 18.0));
-  return clamp(bands * 0.92 + pores * 0.08, 0.0, 1.0);
+// amp * noise(p * freq + shift) with its gradient in p.
+vec3 grainOctave(vec2 p, vec2 freq, float shift, float amp) {
+  vec3 n = grainNoise(p * freq + shift);
+  return amp * vec3(n.x, n.yz * freq);
 }
 
-float endGrain(vec2 coord) {
-  vec2 scaled = coord * 3.2;
-  float wobble = grainNoise(scaled * 1.5) - 0.5;
-  vec2 offset = vec2(wobble, grainNoise(scaled * 1.9 + 4.2) - 0.5) * 0.35;
-  float radius = length(scaled + offset);
-  float rings = 0.5 + 0.5 * sin(radius * 18.0 + wobble * 4.0);
-  return mix(rings, grainNoise(scaled * 4.0), 0.12);
+// A face along the grain: coord.x runs with the grain, coord.y across it.
+// The sway wanders slowly along the grain and drifts across it, so
+// neighbouring lines run together and part again.
+vec3 faceRings(vec2 coord) {
+  return vec3(coord.y, 0.0, 1.0)
+    + grainOctave(coord, vec2(0.06, 0.25), 0.0, 2.67)
+    + grainOctave(coord, vec2(0.2, 0.5), 7.3, 0.2);
+}
+
+// An end face: rings around the projection's origin, the centre wobbled.
+vec3 endRings(vec2 coord) {
+  vec3 wobbleX = grainOctave(coord, vec2(0.12), 0.0, 1.2);
+  vec3 wobbleY = grainOctave(coord, vec2(0.12), 4.2, 1.2);
+  vec3 ripple = grainOctave(coord, vec2(0.35), 9.1, 0.3);
+  vec2 q = coord + vec2(wobbleX.x, wobbleY.x) - 0.6;
+  float radius = max(length(q), 1e-4);
+  vec2 u = q / radius;
+  return vec3(radius, u + u.x * wobbleX.yz + u.y * wobbleY.yz) + ripple;
+}
+
+// How dark the grain is at a pixel, 0 … 1: a thin line on each ring of the
+// field, of a width and strength of its own and tapering along its run
+// (along), with a soft latewood shade in the band leading up to it. The
+// line is box-filtered by the pixel's footprint (in rings), and once the
+// rings come closer than the pixels can show the grain settles to its mean
+// tone rather than shimmering.
+float ringLines(vec3 field, float along, float footprint) {
+  float slope = max(length(field.yz), 1e-4);
+  float index = floor(field.x);
+  float f = field.x - index;
+  float nearest = f < 0.5 ? index : index + 1.0;
+  float dist = min(f, 1.0 - f) / slope;
+  float before = (1.0 - f) / slope;
+  float strength = 0.45 + 0.55 * grainHash(vec2(nearest, 17.0));
+  float taper = 0.6 + 0.8 * grainNoise(vec2(along * 0.12, nearest * 1.7 + 5.0)).x;
+  float halfWidth = (0.035 + 0.03 * grainHash(vec2(nearest, 41.0))) * taper;
+  float soft = max(footprint, 0.03);
+  float line = max(0.0, min(halfWidth, dist + soft * 0.5) - max(-halfWidth, dist - soft * 0.5)) / soft;
+  float latewood = (1.0 - smoothstep(0.0, 0.6 + footprint, before))
+    * (0.45 + 0.55 * grainHash(vec2(index + 1.0, 17.0))) * 0.14;
+  return mix(max(line * strength, latewood), 0.1, smoothstep(0.25, 0.6, footprint));
 }
 
 // The grain seen from each axis, blended by the face normal: the projection
-// facing along the grain axis shows end grain, the other two the stripes.
-float woodGrain(vec3 p, vec3 n) {
+// facing along the grain axis shows end grain, the other two the lines.
+float woodGrain(vec3 p, vec3 n, float footprint) {
+  // Turn the part's axes so that the grain runs along x.
+  if (uGrainAxis.y > 0.5) {
+    p = p.yzx;
+    n = n.yzx;
+  } else if (uGrainAxis.z > 0.5) {
+    p = p.zxy;
+    n = n.zxy;
+  }
   vec3 w = pow(abs(n), vec3(6.0));
   w /= w.x + w.y + w.z + 0.0001;
-  float gx, gy, gz;
-  if (uGrainAxis.x > 0.5) {
-    gx = endGrain(p.yz);
-    gy = faceGrain(vec2(p.x, p.z));
-    gz = faceGrain(vec2(p.x, p.y));
-  } else if (uGrainAxis.y > 0.5) {
-    gx = faceGrain(vec2(p.y, p.z));
-    gy = endGrain(p.xz);
-    gz = faceGrain(vec2(p.y, p.x));
-  } else {
-    gx = faceGrain(vec2(p.z, p.y));
-    gy = faceGrain(vec2(p.z, p.x));
-    gz = endGrain(p.xy);
+  float grain = 0.0;
+  if (w.x > 0.001) {
+    grain += w.x * ringLines(endRings(p.yz), p.y + p.z, footprint);
   }
-  return gx * w.x + gy * w.y + gz * w.z;
+  if (w.y > 0.001) {
+    grain += w.y * ringLines(faceRings(p.xz), p.x, footprint);
+  }
+  if (w.z > 0.001) {
+    grain += w.z * ringLines(faceRings(p.xy), p.x, footprint);
+  }
+  return grain;
 }
 `;
 
+// The footprint is taken here, in uniform control flow, where the screen
+// derivatives are defined.
 const GRAIN_MAP_FRAGMENT = /* glsl */ `
-float grain = woodGrain(vGrainPos * uGrainScale, normalize(vGrainNormal));
-float stripeMask = smoothstep(0.18, 0.78, grain);
-diffuseColor.rgb *= 1.0 - stripeMask * uStripeVisibility * 0.28;
+vec3 grainPos = vGrainPos * uGrainScale;
+float grainFootprint = max(length(dFdx(grainPos)), length(dFdy(grainPos)));
+float grain = woodGrain(grainPos, normalize(vGrainNormal), grainFootprint);
+diffuseColor.rgb *= 1.0 - grain * uStripeVisibility * 0.28;
 `;

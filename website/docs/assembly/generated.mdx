@@ -11,13 +11,13 @@ import asmGeneratedGear from '!!raw-loader!./_examples/asm-generated-gear.assemb
 
 Some parts and assemblies are made from values rather than drawn: a gear with any number of teeth, a wardrobe of any size with its doors and drawers. A package (or your project) defines them, and you insert them from the assembly toolbar. A dialog takes the values while the viewport shows the result, and **Edit parameters…** changes them later. A generated assembly brings its joints with it: the wardrobe's doors swing on their hinges and its drawers slide on their runners.
 
-This page uses two packages, `@fluidcad/cabinets` for the **Wardrobe** and `@fluidcad/gears` for the **Gear**. To write your own, see [Generated Parts and Assemblies](/docs/custom-features/generated-parts-and-assemblies) in the Custom Features section.
+This page uses two packages, `@fluidcad/cabinets` for the **Cabinet**, set up as a wardrobe, and `@fluidcad/gears` for the **Gear**. To write your own, see [Generated Parts and Assemblies](/docs/custom-features/generated-parts-and-assemblies) in the Custom Features section.
 
 ## The Generate Parts dropdown
 
 With an assembly open, the last button of the assembly toolbar, **Generate Parts**, lists every generated part and assembly the project can insert: the project's own under **This project**, then each package under its name and version.
 
-![The assembly toolbar's Generate Parts dropdown: Chest of drawers and Wardrobe under @fluidcad/cabinets, Gear, Internal gear and Rack under @fluidcad/gears](/img/docs/ui/assembly-custom-menu.png)
+![The assembly toolbar's Generate Parts dropdown: Cabinet under @fluidcad/cabinets](/img/docs/ui/assembly-custom-menu.png)
 
 - The pin beside a package's name puts its entries on the toolbar, in a group of their own before **Generate Parts**. Right-click the group and choose **Unpin** to put them back. A pin holds for both toolbars: a pinned package's features sit on the part toolbar, and its generated parts and assemblies on the assembly toolbar.
 - A package from your library that the project doesn't use yet is listed too. The preview uses it without writing anything; **Apply** records it in the project's `fluidcad.json`, as using one of its features does ([Packages](/docs/packages#using-a-packages-features)).
@@ -27,13 +27,13 @@ The **Insert** dialog lists generated parts and assemblies as well, each a tile 
 
 ## Inserting a wardrobe
 
-1. Click **Generate Parts**, then **Wardrobe**. Its dialog opens docked on the right. It is the dialog a [custom feature](/docs/custom-features#from-the-toolbar) has, with the values only: no pick slots, no **Add / New** tabs, no **Preview** toggle. The Wardrobe's opens wide, with a drawing of the wardrobe's size beside its rows.
+1. Click **Generate Parts**, then **Cabinet**, and choose **Wardrobe** under **Type**. The dialog opens docked on the right. It is the dialog a [custom feature](/docs/custom-features#from-the-toolbar) has, with the values only: no pick slots, no **Add / New** tabs, no **Preview** toggle. The Cabinet's opens wide, with a drawing of the cabinet's size beside its rows.
 
-   ![The Wardrobe dialog: its sections of values, with the size drawing beside them](/img/docs/ui/generated-assembly-dialog.png)
+   ![The Cabinet dialog set to Wardrobe: its sections of values, with the size drawing beside them](/img/docs/ui/generated-assembly-dialog.png)
 
 2. The viewport shows the wardrobe as soon as the dialog opens, at the package's defaults, and follows every value you change. This is the result itself, not a ghost: the real parts, in their own colours and finishes, on their joints. While a build takes longer than a moment, **Updating…** shows at the end of the dialog's title row. While you drag a slider, the wardrobe may leave out its small parts, such as drill holes and hinge cups. They come back a moment after you let go.
 
-   ![The window with the Wardrobe dialog open and the wardrobe it previews in the viewport](/img/docs/ui/generated-assembly-preview.png)
+   ![The window with the Cabinet dialog open and the wardrobe it previews in the viewport](/img/docs/ui/generated-assembly-preview.png)
 
 3. Click **Apply**. The import and one `insert()` statement are written, with only the values you changed. The Parts panel shows the wardrobe as an occurrence: a header named after it, with its carcass, doors and drawers under it.
 
@@ -54,7 +54,7 @@ While the preview shows:
 
    ![The wardrobe's header menu in the Parts panel, with Edit parameters…](/img/docs/ui/generated-assembly-edit-parameters.png)
 
-2. The same dialog opens, titled **Edit wardrobeAssembly1**, on the values the `insert()` gives. The model stays as it is until you change a value. Then the preview follows, as when inserting.
+2. The same dialog opens, titled **Edit cabinetAssembly1**, on the values the `insert()` gives. The model stays as it is until you change a value. Then the preview follows, as when inserting.
 3. **Apply** writes the values you changed into the `insert()` statement and leaves the others as the source says them, an expression included. A row you empty goes back to its default and leaves the statement. **Cancel** puts the model back. **Apply** with nothing changed only closes the dialog.
 
 The header's menu is any sub-assembly's (**Toggle grounded**, **Rename**, **Delete**, …), with **Edit parameters…** opening the wardrobe's dialog. The rows under it belong to the wardrobe: their menus offer **Show in source** only. Their names, finishes and materials come from the package, so change them through the wardrobe's values.
@@ -71,7 +71,7 @@ The wardrobe's doors turn on revolute joints and its drawers slide on slider joi
 
 ![The wardrobe with its left door swung open and its top drawer pulled out](/img/docs/ui/generated-assembly-open.png)
 
-Neither writes anything: the file holds the wardrobe's values, not where its doors stand. The Wardrobe's dialog also has a **Starting pose** section, folded. Its **Doors open** and **Drawers out** are values like the others, written into the `insert()`, and set where the joints start each time the model builds.
+Neither writes anything: the file holds the wardrobe's values, not where its doors stand. The Cabinet's dialog also has a **Starting pose** section, folded. Its **Doors open** and **Drawers out** are values like the others, written into the `insert()`, and set where the joints start each time the model builds.
 
 ## Inserting a generated part
 
